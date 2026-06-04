@@ -186,11 +186,13 @@ interface CrmEntityContext {
   entityFields: Record<string, any>;
   notes: Array<{ content: string; createdAt: string }>;
   emails: Array<{
+    id: number;
     subject: string;
     fromEmail: string;
     snippet: string;
     direction: string;
     sentAt: string;
+    labelIds?: string;
   }>;
   attachments: Array<{ name: string; category: string; createdAt: string }>;
   activities: Array<{ type: string; description: string; createdAt: string }>;
@@ -274,19 +276,23 @@ async function collectCrmEntityContext(
   }));
 
   // --- Emails (newest first, full snippet, direction-labelled) ---
+  // Fetch 50 rows so the smart selector has enough material to pick from.
   const emailRows = await safeRows(`
-    SELECT em.subject, em.from_email, em.snippet, em.direction, em.sent_at, em.to_recipients
+    SELECT em.id, em.subject, em.from_email, em.snippet, em.direction, em.sent_at,
+           em.label_ids, em.to_recipients
     FROM email_associations ea
     JOIN email_messages em ON ea.email_message_id = em.id
     WHERE ea.object_type = '${entityType}' AND ea.object_id = ${id}
-    ORDER BY em.sent_at DESC NULLS LAST LIMIT 30
+    ORDER BY em.sent_at DESC NULLS LAST LIMIT 50
   `);
   const emails = emailRows.map((r: any) => ({
+    id: Number(r.id),
     subject: String(r.subject || ""),
     fromEmail: String(r.from_email || ""),
     snippet: String(r.snippet || "").substring(0, 350),
     direction: String(r.direction || ""),
     sentAt: String(r.sent_at || ""),
+    labelIds: r.label_ids ? String(r.label_ids) : undefined,
   }));
 
   // --- Attachments ---
@@ -746,6 +752,75 @@ function extractAndClassifyDates(text: string, now: Date): { dateStr: string; cl
   return results;
 }
 
+// ── Smart email context selector ─────────────────────────────────────────────
+
+/** Keywords that signal commercially or technically important emails. */
+const SMART_EMAIL_KEYWORDS = [
+  "pricing", "proposal", "quote", "contract", "certification", "pilot",
+  "compliance", "budget", "procurement", "technical review", "discovery",
+  "marina", "pedestal", "shore power",
+];
+
+type EmailRow = CrmEntityContext["emails"][number];
+
+interface SmartEmailRow extends EmailRow {
+  /** Human-readable label injected into the AI prompt for this email. */
+  selectionLabel: string;
+  /** Lower = appears earlier in the sorted prompt output. */
+  _sortOrder: number;
+}
+
+/**
+ * Selects up to `cap` emails using priority rules:
+ *   1. Most recent 10 (prompt order: newest → oldest)
+ *   2. Important / starred (Gmail label_ids contains STARRED or IMPORTANT)
+ *   3. Keyword matches in subject or snippet
+ *   4. First 3 historical emails (oldest available — early relationship context)
+ *
+ * De-duplicates by id. Final prompt order: recent → starred → keyword → early.
+ */
+export function selectSmartEmailContext(emails: EmailRow[], cap = 20): SmartEmailRow[] {
+  if (emails.length === 0) return [];
+
+  const selected = new Map<number, SmartEmailRow>();
+
+  const tag = (e: EmailRow, label: string, order: number) => {
+    if (!selected.has(e.id)) {
+      selected.set(e.id, { ...e, selectionLabel: label, _sortOrder: order });
+    }
+  };
+
+  // Group 1 — most recent 10 (array comes sorted newest-first from DB)
+  emails.slice(0, 10).forEach((e, i) => tag(e, "MOST RECENT", i));
+
+  // Group 2 — important / starred via Gmail label_ids
+  emails.forEach(e => {
+    const upper = (e.labelIds || "").toUpperCase();
+    if (upper.includes("STARRED") || upper.includes("IMPORTANT")) {
+      tag(e, "IMPORTANT / STARRED", 20);
+    }
+  });
+
+  // Group 3 — keyword matches in subject or snippet
+  emails.forEach(e => {
+    const hay = `${e.subject} ${e.snippet}`.toLowerCase();
+    for (const kw of SMART_EMAIL_KEYWORDS) {
+      if (hay.includes(kw)) {
+        tag(e, `KEYWORD MATCH: ${kw}`, 30);
+        break; // first matching keyword wins
+      }
+    }
+  });
+
+  // Group 4 — first 3 historical emails (oldest; tail of the newest-first array)
+  const earlyStart = Math.max(0, emails.length - 3);
+  emails.slice(earlyStart).forEach((e, i) => tag(e, "EARLY RELATIONSHIP CONTEXT", 40 + i));
+
+  return Array.from(selected.values())
+    .sort((a, b) => a._sortOrder - b._sortOrder)
+    .slice(0, cap);
+}
+
 export async function generateSuggestedNextEmail(
   entityType: CrmEntityType,
   entityId: number,
@@ -884,14 +959,15 @@ export async function generateSuggestedNextEmail(
     `- The DETERMINISTIC DATE CONTEXT section below is authoritative. Trust it over any date in the AI summary.`,
   ].filter(Boolean).join("\n");
 
-  // Build a rich email context section: newest emails first, labeled inbound/outbound
+  // Smart email context: up to 20 emails covering recent, important, keyword-matched, and early history
+  const smartEmails = selectSmartEmailContext(ctx.emails);
   const emailContextLines: string[] = [];
-  if (ctx.emails.length > 0) {
-    emailContextLines.push(`=== EMAIL HISTORY (newest first — use the MOST RECENT emails to determine what to write next) ===`);
-    ctx.emails.slice(0, 15).forEach((e, i) => {
+  if (smartEmails.length > 0) {
+    emailContextLines.push(`=== EMAIL HISTORY (smart-selected: ${smartEmails.length} emails — prioritised by recency, importance, and deal-relevant keywords) ===`);
+    emailContextLines.push(`Use the MOST RECENT emails to understand current momentum. EARLY RELATIONSHIP CONTEXT shows how this relationship began.`);
+    smartEmails.forEach((e, i) => {
       const dirLabel = e.direction === "outbound" ? "OUTBOUND (we sent)" : e.direction === "inbound" ? "INBOUND (they sent)" : e.direction || "UNKNOWN";
-      const recency = i === 0 ? " ← MOST RECENT" : i === 1 ? " ← 2nd most recent" : "";
-      emailContextLines.push(`[${i + 1}] ${dirLabel}${recency} | ${e.sentAt} | Subject: "${e.subject}" | From: ${e.fromEmail}`);
+      emailContextLines.push(`[${i + 1}] [${e.selectionLabel}] ${dirLabel} | ${e.sentAt} | Subject: "${e.subject}" | From: ${e.fromEmail}`);
       emailContextLines.push(`    Preview: ${e.snippet}`);
     });
   }

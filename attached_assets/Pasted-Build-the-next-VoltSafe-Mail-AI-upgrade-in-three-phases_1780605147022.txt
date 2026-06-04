@@ -1,0 +1,233 @@
+Build the next VoltSafe Mail AI upgrade in three phases.
+
+Goal:
+Make AI email generation smarter for long enterprise sales cycles, add Train From Sent Mail / Voice DNA, and add a behavior-driven AI Follow-Up Engine.
+
+Do not break existing AI email generation, CTA tracking, signatures, or Voice Profiles.
+
+PHASE 1 — Smarter CRM email context selection
+
+Current issue:
+The SQL pulls 30 emails but the AI context builder only passes the top 15. For long enterprise deals, important early context may be lost.
+
+Required change:
+Replace simple top-15 slicing with smart email context selection.
+
+Context selection rules:
+1. Always include the most recent 10 emails.
+2. Always include the first 3 emails in the relationship/thread/history.
+3. Include any emails marked important/starred, if that metadata exists.
+4. Include any emails containing these keywords in subject or body:
+   - pricing
+   - proposal
+   - quote
+   - contract
+   - certification
+   - pilot
+   - compliance
+   - budget
+   - procurement
+   - technical review
+   - discovery
+   - marina
+   - pedestal
+   - shore power
+5. De-duplicate emails by id.
+6. Sort selected emails in a useful prompt order:
+   - most recent 10 first, newest to oldest
+   - then important/starred/keyword hits
+   - then first 3 relationship emails
+7. Cap final selected emails at a safe number, ideally 18–22, unless token budget handling already exists.
+8. Add clear labels inside the AI prompt:
+   - MOST RECENT
+   - EARLY RELATIONSHIP CONTEXT
+   - IMPORTANT / STARRED
+   - KEYWORD MATCH: pricing/proposal/etc.
+
+Required tests:
+- Most recent 10 are always included.
+- First 3 historical emails are included even when older than top 15.
+- Keyword emails are included even when older than top 15.
+- Important/starred emails are included if fields exist.
+- Duplicates are removed.
+- Prompt labels are present.
+- Existing AI email quality tests still pass.
+
+PHASE 2 — Train From Sent Mail / Voice DNA
+
+Goal:
+Allow each user to train their own communication style from sent emails, then use that Voice DNA in AI email generation.
+
+UX:
+Add a “Train My Voice” flow under AI Voice Profiles.
+
+User flow:
+1. User opens Voice Profiles.
+2. User clicks “Train My Voice”.
+3. User selects approximate training size:
+   - 100 recent sent emails
+   - 500 recent sent emails
+   - 1000 recent sent emails
+   - 2000 recent sent emails, only if safe/available
+4. System analyzes sent emails and creates/updates a personal Voice DNA profile.
+5. User sees a summary:
+   - sentence length
+   - formality
+   - greeting style
+   - CTA style
+   - persuasion style
+   - common phrases
+   - writing cadence
+   - things to avoid
+6. User can use this profile in generated emails.
+7. Keep existing CEO Wattson influence slider.
+8. Show blend concept clearly:
+   - “Your Voice DNA”
+   - “CEO Wattson influence: X%”
+
+Backend requirements:
+- Create a safe service for collecting sent emails for the authenticated user only.
+- Do not include inbound emails in Voice DNA training.
+- Strip signatures, quoted replies, tracking links, and long disclaimers where possible.
+- Chunk analysis to avoid huge prompts.
+- Generate structured Voice DNA JSON.
+- Store the result in the existing AI Voice Profiles system if possible.
+- If needed, add fields/tables for:
+   - training source
+   - trained_at
+   - training_email_count
+   - voice_dna_json
+- Make training event-driven only. No background recurring cost unless explicitly triggered.
+- Add guardrails so users cannot train from another user’s sent mail.
+
+Suggested Voice DNA JSON shape:
+{
+  "sentence_length": "short | medium | long",
+  "formality": "casual | balanced | formal",
+  "greeting_style": "...",
+  "closing_style": "...",
+  "cta_style": "...",
+  "persuasion_style": "...",
+  "common_phrases": [],
+  "avoid_phrases": [],
+  "cadence_notes": "...",
+  "example_style_rules": []
+}
+
+Required API routes:
+- POST /api/ai-voice-profiles/train-from-sent-mail
+- GET /api/ai-voice-profiles/training-status, if training can take more than one request
+- GET/PUT routes as needed to view/update generated Voice DNA
+
+Required tests:
+- Training only uses authenticated user’s sent mail.
+- Inbound emails are excluded.
+- Signatures/quoted replies are stripped.
+- Voice DNA JSON is valid.
+- Profile is saved and selectable.
+- Existing CEO Wattson profile still works.
+- Existing AI email generation still works.
+- No training runs unless user explicitly clicks Train My Voice.
+
+PHASE 3 — Behavior-driven AI Follow-Up Engine
+
+Goal:
+Create AI follow-up suggestions based on real engagement behavior, not generic CRM guesses.
+
+Example:
+If a prospect opened an email 4 times, clicked the marina ROI video twice, clicked the pedestal spec sheet, and did not reply, the system should recommend a short technical qualification follow-up.
+
+Required behavior signals:
+Use available tracking data:
+- email opens
+- CTA clicks
+- video clicks, if available
+- signature CTA clicks
+- reply/no reply
+- last outbound email date
+- last inbound email date
+- lead/account/contact CRM status
+- opportunity/deal stage, if available
+
+UX:
+Add a “Generate Follow-Up” button where appropriate:
+- Lead
+- Contact
+- Account
+- Email thread/detail view, if available
+
+Add a small insight card:
+- “Why this follow-up?”
+- Example:
+  “Opened 4 times, clicked ROI video twice, clicked pedestal specification sheet, no reply after 3 days.”
+
+When clicked:
+- Generate a follow-up email using:
+   - selected CRM context
+   - smart email context from Phase 1
+   - engagement signals
+   - selected Voice Profile / Voice DNA
+   - CEO Wattson influence setting
+- The generated email should land in the existing composer flow.
+- Preserve all formatting/signature rules already built.
+
+Follow-up recommendation categories:
+- Hot: multiple opens/clicks, no reply
+- Warm: opened but no clicks
+- Re-engage: no activity after recent outbound
+- Technical: clicked spec sheet, compliance, installation, certification, or product docs
+- Commercial: clicked pricing, proposal, ROI, or quote materials
+- Dormant: no reply/activity for 14+ days
+
+Backend requirements:
+- Build an engagement summary service per lead/account/contact/thread.
+- Exclude internal VoltSafe clicks from analytics.
+- Avoid duplicate suggestions for the same event window.
+- Do not auto-send anything.
+- Event-driven only at first:
+   - generate insight when user opens record or clicks follow-up
+   - no nightly background jobs unless explicitly added later.
+- Keep API cost low.
+
+Required API routes:
+- GET /api/ai-follow-up/insights?entityType=lead|account|contact&entityId=...
+- POST /api/ai-follow-up/generate
+- Optional: POST /api/ai-follow-up/dismiss
+
+Required tests:
+- Internal clicks excluded.
+- Open/click/no-reply signals produce correct category.
+- Technical clicks produce technical follow-up recommendation.
+- Commercial clicks produce commercial follow-up recommendation.
+- Generate Follow-Up uses existing compose handoff.
+- Generated follow-up obeys spacing, no fake signature, no filler opener, one clear ask.
+- Existing CTA, signature, and AI email tests still pass.
+
+Implementation rules:
+- Work incrementally.
+- Do not rewrite unrelated systems.
+- Keep all existing tests passing.
+- Add focused tests for each phase.
+- After implementation, run all affected suites:
+   - ai-email-quality
+   - suggested-email-compose-handoff
+   - ai-suggested-email-temporal
+   - ai-voice-profiles
+   - cta-asset-system
+   - new follow-up engine tests
+- Return:
+   - files changed
+   - migrations added
+   - routes added
+   - tests added
+   - test results
+   - any risks or TODOs
+
+Important:
+Prioritize Phase 1 first because it improves current email quality immediately with low cost and low risk.
+
+Then build Phase 2.
+
+Then build Phase 3.
+
+If Phase 2 or Phase 3 is too large for one session, complete Phase 1 fully, scaffold Phase 2/3 safely, and report exactly what remains.
