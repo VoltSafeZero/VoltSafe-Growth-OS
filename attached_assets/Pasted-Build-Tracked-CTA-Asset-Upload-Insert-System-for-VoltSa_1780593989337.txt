@@ -1,0 +1,346 @@
+Build Tracked CTA Asset Upload + Insert System for VoltSafe Mail
+
+Goal:
+Make tracked CTA images easy to upload, manage, insert into email signatures, and insert into any composed/replied/forwarded email body without attaching them.
+
+Use case:
+A user wants to insert a clickable “Watch a Demo” thumbnail image into:
+- Their default email signature
+- A one-off composed email
+- A reply
+- A forwarded email
+
+When clicked, the image should route through VoltSafe tracking, then redirect to the destination URL.
+
+Example destination:
+https://www.voltsafemarine.com/sdemo
+
+Important URL structure:
+
+There are three different URL types.
+
+1. CMS/settings page URL:
+https://image-linker-burgesstrevor76.replit.app/settings/signatures
+
+This is NOT an image URL. This is the private settings/admin page and must never be used as the CTA image src.
+
+2. Public CTA image URL:
+Example:
+https://image-linker-burgesstrevor76.replit.app/assets/cta/WatchDemo_Thumbnail1_600.png
+
+This IS the image URL. It must load the raw image directly in an incognito/private browser with no login, no React app, no redirect, no HTML page.
+
+3. Destination URL:
+https://www.voltsafemarine.com/sdemo
+
+This is where the user goes after clicking the image.
+
+Correct CTA setup:
+
+Destination URL:
+https://www.voltsafemarine.com/sdemo
+
+Image URL:
+https://image-linker-burgesstrevor76.replit.app/assets/cta/WatchDemo_Thumbnail1_600.png
+
+Width:
+200
+
+Use the 600px image as the image source, but display it at 200px width for sharp rendering in email clients.
+
+==================================================
+PART 1 — CTA ASSET LIBRARY
+==================================================
+
+Add a CTA Asset Library inside VoltSafe CMS / Mail settings.
+
+Users should be able to upload CTA images such as:
+- WatchDemo_Thumbnail_200.png
+- WatchDemo_Thumbnail_600.png
+- WatchDemo_Thumbnail1_600.png
+
+Supported formats:
+- PNG
+- JPG
+- JPEG
+- WEBP
+- GIF if already supported
+
+Store uploaded images as public HTTPS-accessible assets under a stable route such as:
+
+/assets/cta/{safe-file-name}
+
+Example public image URL:
+https://image-linker-burgesstrevor76.replit.app/assets/cta/WatchDemo_Thumbnail1_600.png
+
+Requirements:
+- The route must serve the raw file directly.
+- The route must be public.
+- The route must not require authentication.
+- The route must not return the React app shell.
+- The route must not redirect to login.
+- Opening the URL in incognito must show only the image.
+
+Important:
+Email clients cannot display images from local blob URLs, private authenticated URLs, or app route URLs.
+The image URL must be publicly accessible over HTTPS.
+
+==================================================
+PART 2 — ADD IMAGE UPLOAD TO “ADD TRACKED CTA”
+==================================================
+
+In the Add Tracked CTA modal, when Type = Image:
+
+Replace the plain “Image URL” only field with:
+
+1. Upload Image button
+2. Select Existing CTA Asset button
+3. Optional manual Image URL field
+
+Flow:
+- User clicks Upload Image
+- Uploads PNG/JPG/JPEG/WEBP
+- System stores it under /assets/cta/
+- System generates the full public URL automatically
+- System fills Image URL automatically
+- User can preview the image before saving
+
+Fields:
+- Name
+- Destination URL
+- Type
+- Image URL
+- Alt Text
+- Width
+- Tracking enabled
+
+Add preset:
+“Watch a Demo”
+
+Preset should auto-fill:
+Name: Watch a Demo
+Destination URL: https://www.voltsafemarine.com/sdemo
+Alt Text: Watch a Demo
+Width: 200
+Type: Image
+
+Preset should also prefer an existing uploaded asset if available:
+
+https://image-linker-burgesstrevor76.replit.app/assets/cta/WatchDemo_Thumbnail1_600.png
+
+If that asset does not exist, prompt the user to upload/select an image.
+
+==================================================
+PART 3 — SIGNATURE CTA RENDERING
+==================================================
+
+When a tracked image CTA is added to a signature:
+
+Render it as clickable email-safe HTML:
+
+<a href="{trackedClickUrl}" target="_blank">
+  <img
+    src="{publicImageUrl}"
+    alt="{altText}"
+    width="{width}"
+    style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;height:auto;"
+  />
+</a>
+
+Example rendered values:
+
+href:
+{VoltSafe tracked click URL that redirects to https://www.voltsafemarine.com/sdemo}
+
+src:
+https://image-linker-burgesstrevor76.replit.app/assets/cta/WatchDemo_Thumbnail1_600.png
+
+width:
+200
+
+Do not embed as base64.
+Do not attach as email attachment.
+Do not use private app URLs requiring login.
+Do not use /settings/signatures or any React page URL as the image src.
+
+==================================================
+PART 4 — COMPOSER INSERT CTA BUTTON
+==================================================
+
+Add a new composer toolbar button:
+
+Insert Tracked CTA
+
+Available in:
+- New email
+- Reply
+- Reply all
+- Forward
+- Scheduled email composer if applicable
+
+Clicking opens a picker showing saved CTA assets.
+
+User can choose:
+- Watch a Demo
+- Other saved CTA images
+- CTA buttons
+- CTA text links
+
+When selected, insert the CTA into the email body:
+- Just below the current body text
+- Above the email signature
+- Above “Regards,” / “Cheers,” / signature block if detected
+
+Do not insert as an attachment.
+
+==================================================
+PART 5 — SMART INSERT POSITION
+==================================================
+
+When inserting into an email body:
+
+Preferred placement:
+1. After the main typed message
+2. Before signature
+3. Before lines such as:
+   - Regards,
+   - Cheers,
+   - Thanks,
+   - Best,
+   - Sincerely,
+   - Trevor
+4. If no signature/sign-off is detected, insert at cursor position or end of body
+
+Example:
+
+Hi Marina,
+
+Great speaking today. Here is the demo video:
+
+[WATCH A DEMO IMAGE CTA]
+
+Regards,
+Trevor
+
+==================================================
+PART 6 — TRACKING
+==================================================
+
+Every inserted CTA must use the existing tracked CTA click pipeline.
+
+Do not create a new tracking system.
+
+Click path:
+Recipient clicks CTA image
+→ VoltSafe tracking endpoint logs click
+→ Redirects to destination URL
+→ Destination video page opens and autoplay is handled by the website
+
+Track:
+- message id
+- thread id
+- recipient tracking token if available
+- CTA id
+- CTA name
+- destination URL
+- sender user id
+- account/contact attribution if available
+- is_internal filter
+- timestamp
+
+==================================================
+PART 7 — VIDEO AUTOPLAY NOTE
+==================================================
+
+The CTA image itself does not play video inside email.
+
+Email clients block embedded video/autoplay.
+
+Correct behavior:
+- CTA image appears in email
+- Recipient clicks image
+- Browser opens VoltSafe video landing page:
+  https://www.voltsafemarine.com/sdemo
+- Landing page handles autoplay if browser allows it
+
+==================================================
+PART 8 — CTA ASSET MANAGEMENT
+==================================================
+
+Add management UI for CTA assets.
+
+Each asset card should show:
+- thumbnail preview
+- asset name
+- public image URL
+- copy URL button
+- created by
+- created date
+- edit
+- delete/archive
+
+Public image URL should look like:
+
+https://image-linker-burgesstrevor76.replit.app/assets/cta/{filename}.png
+
+Prevent deletion if the asset is actively used by a saved signature CTA unless user confirms.
+
+==================================================
+PART 9 — STORAGE + SECURITY
+==================================================
+
+File upload rules:
+- Sanitize filenames
+- Preserve extension
+- Reject executable/script files
+- Reject SVG unless the app already safely sanitizes SVG
+- Limit file size
+- Prevent path traversal
+- Store files only in the approved CTA asset directory
+- Serve only from /assets/cta/
+
+Allowed MIME types:
+- image/png
+- image/jpeg
+- image/webp
+- image/gif if supported
+
+==================================================
+PART 10 — TESTS
+==================================================
+
+Add tests proving:
+
+- Image upload stores file under /assets/cta/
+- Image upload returns public HTTPS URL
+- Public image URL serves raw image without auth
+- /settings/signatures is never used as image src
+- Add Tracked CTA modal can select uploaded image
+- Watch a Demo preset fills fields correctly
+- Watch a Demo preset uses destination https://www.voltsafemarine.com/sdemo
+- Watch a Demo preset uses image width 200
+- Signature renders clickable tracked image CTA
+- Composer can insert tracked CTA into new email
+- Composer can insert tracked CTA into reply
+- Composer can insert tracked CTA into forward
+- CTA inserts above signature/sign-off
+- CTA is not added as an attachment
+- Click URL uses existing tracking endpoint
+- Internal clicks are excluded from customer engagement
+- Existing signature CTAs still work
+
+==================================================
+SUCCESS CRITERIA
+==================================================
+
+A user can upload a Watch Demo thumbnail once, save it as a tracked CTA, automatically include it in their signature, or insert it into any individual email/reply/forward as a clickable tracked image.
+
+The image is hosted publicly at a URL like:
+
+https://image-linker-burgesstrevor76.replit.app/assets/cta/WatchDemo_Thumbnail1_600.png
+
+The CTA redirects through VoltSafe tracking and lands on:
+
+https://www.voltsafemarine.com/sdemo
+
+The recipient sees a clean thumbnail in the email, clicks it, and lands on the VoltSafe demo page while VoltSafe Mail records the engagement.
