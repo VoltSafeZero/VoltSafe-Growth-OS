@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, CalendarDays, Loader2, Mail, RefreshCw, Send, X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertTriangle, CalendarDays, Loader2, Mail, Mic, RefreshCw, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setPendingCompose } from "@/lib/compose-handoff";
 
 const LS_CALENDLY_KEY = "voltsafe:calendlyUrl";
+const LS_VOICE_PROFILE_KEY = "voltsafe:voiceProfileId";
 
 type EntityType = "lead" | "account" | "contact";
 
@@ -21,6 +24,13 @@ interface SuggestedEmail {
   detectedContext?: string;
 }
 
+interface VoiceProfile {
+  id: number;
+  name: string;
+  profileType: "global" | "user";
+  isDefault: boolean;
+}
+
 interface Props {
   entityType: EntityType;
   entityId: number;
@@ -28,11 +38,18 @@ interface Props {
   onClose: () => void;
 }
 
-async function fetchSuggestedEmail(entityType: EntityType, entityId: number): Promise<SuggestedEmail> {
+async function fetchSuggestedEmail(
+  entityType: EntityType,
+  entityId: number,
+  voiceProfileId?: number | null
+): Promise<SuggestedEmail> {
+  const body: Record<string, unknown> = {};
+  if (voiceProfileId) body.voice_profile_id = voiceProfileId;
   const res = await fetch(`/api/crm/ai-summary/${entityType}/${entityId}/suggest-next-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
   return res.json();
@@ -40,20 +57,16 @@ async function fetchSuggestedEmail(entityType: EntityType, entityId: number): Pr
 
 /** Insert a scheduling link before the closing sign-off of the email body. */
 function insertSchedulingLink(body: string, url: string): string {
-  // Common sign-off patterns at the start of a line (case-insensitive)
   const signoffPattern = /^(best regards?|kind regards?|warm regards?|sincerely|thanks?(?:\s+again)?|cheers|regards?),?\s*$/im;
   const match = body.match(signoffPattern);
   const block = `\n📅 Schedule a call: ${url}\n\n`;
 
   if (match && match.index !== undefined) {
-    // Find the actual line start — walk back to the preceding newline
     const before = body.slice(0, match.index);
     const after = body.slice(match.index);
-    // Insert one blank line + CTA before the sign-off line
     return before.trimEnd() + "\n" + block + after;
   }
 
-  // No sign-off found — append after the main body
   return body.trimEnd() + "\n" + block;
 }
 
@@ -67,6 +80,41 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   const [suggestion, setSuggestion] = useState<SuggestedEmail | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
+  // ── Voice profile selection ───────────────────────────────────────────────
+  const [selectedVoiceId, setSelectedVoiceId] = useState<number | null>(() => {
+    try {
+      const stored = localStorage.getItem(LS_VOICE_PROFILE_KEY);
+      return stored ? parseInt(stored) : null;
+    } catch { return null; }
+  });
+
+  const { data: voiceProfiles = [] } = useQuery<VoiceProfile[]>({
+    queryKey: ["/api/ai/voice-profiles"],
+  });
+
+  const { data: aiSettings } = useQuery<{ defaultVoiceProfileId: number | null }>({
+    queryKey: ["/api/ai/settings"],
+  });
+
+  // Resolve the effective voice profile id: explicit selection > user default > global default
+  const effectiveVoiceId = selectedVoiceId
+    ?? aiSettings?.defaultVoiceProfileId
+    ?? voiceProfiles.find(p => p.isDefault && p.profileType === "global")?.id
+    ?? null;
+
+  function handleVoiceChange(val: string) {
+    const id = val === "default" ? null : parseInt(val);
+    setSelectedVoiceId(id);
+    try {
+      if (id) localStorage.setItem(LS_VOICE_PROFILE_KEY, String(id));
+      else localStorage.removeItem(LS_VOICE_PROFILE_KEY);
+    } catch { /* storage blocked */ }
+  }
+
+  const selectedVoiceName = effectiveVoiceId
+    ? voiceProfiles.find(p => p.id === effectiveVoiceId)?.name
+    : null;
+
   // ── Scheduling link state ─────────────────────────────────────────────────
   const [includeLink, setIncludeLink] = useState(false);
   const [calendlyUrl, setCalendlyUrl] = useState(() => {
@@ -74,14 +122,12 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   });
   const urlInputRef = useRef<HTMLInputElement>(null);
 
-  // Persist calendlyUrl to localStorage whenever it changes
   useEffect(() => {
     try {
       if (calendlyUrl.trim()) localStorage.setItem(LS_CALENDLY_KEY, calendlyUrl.trim());
     } catch { /* storage blocked */ }
   }, [calendlyUrl]);
 
-  // Focus the URL input when the checkbox is first checked and URL is empty
   useEffect(() => {
     if (includeLink && !calendlyUrl.trim()) {
       setTimeout(() => urlInputRef.current?.focus(), 50);
@@ -91,7 +137,10 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   // ── Fetch suggestion on mount ─────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
-    fetchSuggestedEmail(entityType, entityId)
+    setLoading(true);
+    setError(null);
+    setSuggestion(null);
+    fetchSuggestedEmail(entityType, entityId, effectiveVoiceId)
       .then(data => {
         if (!mounted) return;
         setSuggestion(data);
@@ -103,15 +152,16 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
         setLoading(false);
       });
     return () => { mounted = false; };
+  // Re-fetch whenever the effective voice profile changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [effectiveVoiceId]);
 
   async function handleRegenerate() {
     setLoading(true);
     setError(null);
     setSuggestion(null);
     try {
-      const data = await fetchSuggestedEmail(entityType, entityId);
+      const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId);
       setSuggestion(data);
     } catch (err: any) {
       setError(err.message || "Failed to regenerate");
@@ -136,7 +186,6 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
       body: finalBody,
     };
 
-    // ── Primary path: create a real Gmail draft ───────────────────────────
     try {
       const res = await fetch("/api/gmail/drafts", {
         method: "POST",
@@ -155,7 +204,6 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
       }
     } catch { /* fall through to handoff */ }
 
-    // ── Fallback: module-level handoff ────────────────────────────────────
     setPendingCompose(payload);
     try { sessionStorage.setItem(PENDING_COMPOSE_KEY, JSON.stringify(payload)); } catch { /* iframe may block */ }
 
@@ -177,12 +225,49 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
           </DialogTitle>
         </DialogHeader>
 
+        {/* Voice profile selector */}
+        {voiceProfiles.length > 0 && (
+          <div className="flex items-center gap-2 py-1.5 border-b border-border/40 -mt-1">
+            <Mic className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground shrink-0">Voice:</span>
+            <Select
+              value={selectedVoiceId ? String(selectedVoiceId) : "default"}
+              onValueChange={handleVoiceChange}
+            >
+              <SelectTrigger
+                className="h-7 text-xs border-none bg-transparent shadow-none focus:ring-0 focus:ring-offset-0 px-1 w-auto min-w-[140px]"
+                data-testid="select-voice-profile"
+              >
+                <SelectValue placeholder="Select voice…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default" data-testid="voice-option-default">
+                  Default VoltSafe
+                </SelectItem>
+                {voiceProfiles.map(p => (
+                  <SelectItem key={p.id} value={String(p.id)} data-testid={`voice-option-${p.id}`}>
+                    {p.name}
+                    {p.profileType === "global" && (
+                      <span className="ml-1.5 text-[10px] text-muted-foreground">(built-in)</span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedVoiceName && !loading && (
+              <span className="text-[10px] text-primary/70 truncate">
+                Using {selectedVoiceName} voice
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="space-y-4 mt-1">
           {loading && (
             <div className="space-y-3 py-2">
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                Generating email suggestion…
+                Generating email suggestion{selectedVoiceName ? ` in ${selectedVoiceName} voice` : ""}…
               </div>
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-4 w-full" />

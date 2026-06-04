@@ -664,13 +664,30 @@ function extractAndClassifyDates(text: string, now: Date): { dateStr: string; cl
 
 export async function generateSuggestedNextEmail(
   entityType: CrmEntityType,
-  entityId: number
+  entityId: number,
+  voiceProfileId?: number,
+  callerUserId?: number,
+  callerIsAdmin?: boolean
 ): Promise<SuggestedEmail> {
   const id = Number(entityId);
 
   const openai = buildOpenAIClient();
   if (!openai) {
     return { to: "", cc: "", subject: "Follow-up", body: "", reason: "AI is not configured.", warning: "No OpenAI API key configured." };
+  }
+
+  // Load voice profile if requested
+  let voiceProfileBlock = "";
+  let voiceProfileName = "";
+  if (voiceProfileId && callerUserId) {
+    try {
+      const { getVoiceProfileForPrompt, buildVoiceProfilePromptBlock } = await import("./ai-voice-profiles");
+      const profile = await getVoiceProfileForPrompt(voiceProfileId, callerUserId, callerIsAdmin ?? false);
+      if (profile) {
+        voiceProfileBlock = buildVoiceProfilePromptBlock(profile);
+        voiceProfileName = profile.name;
+      }
+    } catch { /* voice profile load failure is non-fatal */ }
   }
 
   // Use saved summary if available — do not auto-generate if missing
@@ -724,8 +741,14 @@ export async function generateSuggestedNextEmail(
   }
 
   const systemPrompt = [
-    `You are an expert sales and relationship manager at VoltSafe, a marina electrification company.`,
-    `Generate a professional, warm, and concise email suggestion. Return only valid JSON.`,
+    voiceProfileBlock ? voiceProfileBlock : null,
+    voiceProfileBlock ? `` : null,
+    voiceProfileBlock
+      ? `You are writing emails on behalf of VoltSafe. Follow the voice profile above precisely. Return only valid JSON.`
+      : `You are an expert sales and relationship manager at VoltSafe, a marina electrification company.`,
+    voiceProfileBlock
+      ? `Generate a professional email suggestion in the ${voiceProfileName} voice. Return only valid JSON.`
+      : `Generate a professional, warm, and concise email suggestion. Return only valid JSON.`,
     ``,
     `CRITICAL TEMPORAL RULES — NEVER VIOLATE:`,
     `- Today's date is ${todayISO}. You must treat this as the authoritative present.`,

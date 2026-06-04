@@ -93,6 +93,7 @@ const TerritoryRoutingPage = lazy(() => import("@/pages/territory-routing"));
 const MailboxSettingsPage = lazy(() => import("@/pages/mailbox-settings"));
 const MailboxHealthPage = lazy(() => import("@/pages/mailbox-health"));
 const SignatureSettingsPage = lazy(() => import("@/pages/signature-settings"));
+const AiVoiceProfilesPage = lazy(() => import("@/pages/ai-voice-profiles"));
 const HelpCenterPage = lazy(() => import("@/pages/help-center"));
 const MeetingNotesIndexPage = lazy(() => import("@/pages/meeting-notes-index"));
 const MeetingNotesDetailPage = lazy(() => import("@/pages/meeting-notes-detail"));
@@ -351,6 +352,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/settings/mailbox">{() => wrap(<MailboxSettingsPage />)}</Route>
       <Route path="/settings/mailbox-health">{() => wrap(<MailboxHealthPage />)}</Route>
       <Route path="/settings/signatures">{() => wrap(<SignatureSettingsPage />)}</Route>
+      <Route path="/settings/voice-profiles">{() => wrap(<AiVoiceProfilesPage />)}</Route>
       <Route path="/search">{() => wrap(
         <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-background">
           <div className="max-w-2xl w-full mx-auto px-4 py-8">

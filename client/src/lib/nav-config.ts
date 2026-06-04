@@ -204,6 +204,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "admin-integrations", label: "Integrations",                                   route: "/admin/integrations",      icon: Zap,         adminOnly: true },
       { id: "admin-mailboxes",    label: { desktop: "My Mailboxes", mobile: "Mailboxes" }, route: "/settings/mailbox",        icon: Mail,        adminOnly: true },
       { id: "admin-signatures",   label: "Email Signatures",                               route: "/settings/signatures",     icon: PenSquare,   adminOnly: false },
+      { id: "admin-voice-profiles", label: "AI Voice Profiles",                              route: "/settings/voice-profiles", icon: Mic,         adminOnly: false },
       { id: "admin-search",       label: "Global Search",                                  route: "/search",                  icon: Search,      adminOnly: true },
       { id: "admin-settings",     label: "Settings",                                       route: "/settings",                icon: Settings,    adminOnly: true, exactMatch: true },
     ],

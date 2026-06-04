@@ -27991,8 +27991,11 @@ export function registerConfluenceRoutes(app: Express) {
       return res.status(400).json({ message: "Invalid entity type or ID" });
     }
     try {
+      const voiceProfileId = req.body?.voice_profile_id ? parseInt(req.body.voice_profile_id) : undefined;
+      const userId = (req.session as any).userId as number;
+      const isAdmin = (req.session as any).globalRole === "admin" || (req.session as any).globalRole === "master_admin";
       const { generateSuggestedNextEmail } = await import("./services/crm-ai-summary");
-      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId);
+      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin);
       res.json(suggestion);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
@@ -28332,6 +28335,244 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Failed to delete asset" });
     }
+  });
+
+  // ── AI Voice Profiles ────────────────────────────────────────────────────────
+
+  // GET /api/ai/voice-profiles — list all profiles accessible to this user
+  app.get("/api/ai/voice-profiles", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { listVoiceProfiles } = await import("./services/ai-voice-profiles");
+      const profiles = await listVoiceProfiles(userId);
+      res.json(profiles);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/ai/voice-profiles/:id — single profile with files
+  app.get("/api/ai/voice-profiles/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const isAdmin = ["admin", "master_admin"].includes((req.session as any).globalRole);
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const { getVoiceProfile } = await import("./services/ai-voice-profiles");
+      const profile = await getVoiceProfile(id, userId, isAdmin);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+      res.json(profile);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // POST /api/ai/voice-profiles — create a new profile
+  app.post("/api/ai/voice-profiles", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const isAdmin = ["admin", "master_admin"].includes((req.session as any).globalRole);
+      const { name, description, profileType, systemInstructions, styleRules,
+              forbiddenPhrases, preferredPhrases, exampleMessagesJson,
+              knowledgeSummary, sourceLabel, isDefault } = req.body;
+
+      if (!name?.trim()) return res.status(400).json({ message: "name is required" });
+
+      // Only admins can create global profiles
+      const resolvedType = (profileType === "global" && isAdmin) ? "global" : "user";
+      const resolvedOwner = resolvedType === "global" ? null : userId;
+
+      const { createVoiceProfile } = await import("./services/ai-voice-profiles");
+      const profile = await createVoiceProfile({
+        ownerUserId: resolvedOwner,
+        name: name.trim(),
+        description, profileType: resolvedType,
+        systemInstructions, styleRules, forbiddenPhrases, preferredPhrases,
+        exampleMessagesJson: exampleMessagesJson || "[]",
+        knowledgeSummary, sourceLabel,
+        isDefault: Boolean(isDefault),
+      });
+      res.status(201).json(profile);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // PUT /api/ai/voice-profiles/:id — update a profile
+  app.put("/api/ai/voice-profiles/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const isAdmin = ["admin", "master_admin"].includes((req.session as any).globalRole);
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+      const { getVoiceProfile, updateVoiceProfile } = await import("./services/ai-voice-profiles");
+      const existing = await getVoiceProfile(id, userId, isAdmin);
+      if (!existing) return res.status(404).json({ message: "Profile not found" });
+
+      // Ownership check: user profiles can only be edited by owner or admin
+      if (existing.profileType === "user" && existing.ownerUserId !== userId && !isAdmin) {
+        return res.status(403).json({ message: "Not authorized to edit this profile" });
+      }
+      // Global profiles can only be edited by admins
+      if (existing.profileType === "global" && !isAdmin) {
+        return res.status(403).json({ message: "Only admins can edit global profiles" });
+      }
+
+      const { name, description, systemInstructions, styleRules, forbiddenPhrases,
+              preferredPhrases, exampleMessagesJson, knowledgeSummary, sourceLabel,
+              isDefault, isActive } = req.body;
+
+      const updated = await updateVoiceProfile(id, {
+        name, description, systemInstructions, styleRules, forbiddenPhrases,
+        preferredPhrases, exampleMessagesJson, knowledgeSummary, sourceLabel,
+        isDefault: isDefault !== undefined ? Boolean(isDefault) : undefined,
+        isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+      });
+      res.json(updated);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // DELETE /api/ai/voice-profiles/:id — soft-delete
+  app.delete("/api/ai/voice-profiles/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const isAdmin = ["admin", "master_admin"].includes((req.session as any).globalRole);
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+      const { getVoiceProfile, deleteVoiceProfile } = await import("./services/ai-voice-profiles");
+      const existing = await getVoiceProfile(id, userId, isAdmin);
+      if (!existing) return res.status(404).json({ message: "Profile not found" });
+
+      if (existing.profileType === "user" && existing.ownerUserId !== userId && !isAdmin) {
+        return res.status(403).json({ message: "Not authorized to delete this profile" });
+      }
+      if (existing.profileType === "global" && !isAdmin) {
+        return res.status(403).json({ message: "Only admins can delete global profiles" });
+      }
+
+      await deleteVoiceProfile(id);
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // POST /api/ai/voice-profiles/:id/files — add a knowledge file (plain text)
+  app.post("/api/ai/voice-profiles/:id/files", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const isAdmin = ["admin", "master_admin"].includes((req.session as any).globalRole);
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+      const { getVoiceProfile, addVoiceProfileFile } = await import("./services/ai-voice-profiles");
+      const existing = await getVoiceProfile(id, userId, isAdmin);
+      if (!existing) return res.status(404).json({ message: "Profile not found" });
+
+      if (existing.profileType === "user" && existing.ownerUserId !== userId && !isAdmin) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      if (existing.profileType === "global" && !isAdmin) {
+        return res.status(403).json({ message: "Only admins can modify global profiles" });
+      }
+
+      const { originalFilename, fileType, extractedText, textSummary } = req.body;
+      if (!originalFilename?.trim()) return res.status(400).json({ message: "originalFilename is required" });
+      if (!extractedText?.trim()) return res.status(400).json({ message: "extractedText is required" });
+
+      const file = await addVoiceProfileFile(id, originalFilename.trim(), fileType || "text", extractedText, textSummary);
+      res.status(201).json(file);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // DELETE /api/ai/voice-profiles/:id/files/:fileId
+  app.delete("/api/ai/voice-profiles/:id/files/:fileId", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const isAdmin = ["admin", "master_admin"].includes((req.session as any).globalRole);
+      const id = parseInt(req.params.id);
+      const fileId = parseInt(req.params.fileId);
+      if (isNaN(id) || isNaN(fileId)) return res.status(400).json({ message: "Invalid id" });
+
+      const { getVoiceProfile, deleteVoiceProfileFile } = await import("./services/ai-voice-profiles");
+      const existing = await getVoiceProfile(id, userId, isAdmin);
+      if (!existing) return res.status(404).json({ message: "Profile not found" });
+
+      if (existing.profileType === "user" && existing.ownerUserId !== userId && !isAdmin) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      if (existing.profileType === "global" && !isAdmin) {
+        return res.status(403).json({ message: "Only admins can modify global profiles" });
+      }
+
+      const deleted = await deleteVoiceProfileFile(fileId, id);
+      if (!deleted) return res.status(404).json({ message: "File not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // PUT /api/ai/settings/default-voice-profile — set user's default voice profile
+  app.put("/api/ai/settings/default-voice-profile", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { voiceProfileId } = req.body;
+      const resolvedId = voiceProfileId === null || voiceProfileId === undefined ? null : parseInt(voiceProfileId);
+      const { setDefaultVoiceProfile, getUserAiSettings } = await import("./services/ai-voice-profiles");
+      await setDefaultVoiceProfile(userId, resolvedId);
+      const settings = await getUserAiSettings(userId);
+      res.json(settings);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/ai/settings — get user's AI settings (default voice profile id)
+  app.get("/api/ai/settings", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { getUserAiSettings } = await import("./services/ai-voice-profiles");
+      const settings = await getUserAiSettings(userId);
+      res.json(settings);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // POST /api/ai/voice-profiles/import-from-gpt — import a GPT as a voice profile
+  // Must be registered BEFORE /:id routes to avoid collision
+  app.post("/api/ai/voice-profiles/import-from-gpt", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const isAdmin = ["admin", "master_admin"].includes((req.session as any).globalRole);
+      const {
+        name, description, sourceLabel, systemInstructions, styleRules,
+        forbiddenPhrases, preferredPhrases, exampleMessages, knowledgeText,
+        profileType,
+      } = req.body;
+
+      if (!name?.trim()) return res.status(400).json({ message: "name is required" });
+
+      const resolvedType = (profileType === "global" && isAdmin) ? "global" : "user";
+      const resolvedOwner = resolvedType === "global" ? null : userId;
+
+      let exampleMessagesJson = "[]";
+      if (Array.isArray(exampleMessages) && exampleMessages.length) {
+        exampleMessagesJson = JSON.stringify(exampleMessages.filter((e: any) => typeof e === "string" && e.trim()).slice(0, 10));
+      }
+
+      const { createVoiceProfile, addVoiceProfileFile } = await import("./services/ai-voice-profiles");
+      const profile = await createVoiceProfile({
+        ownerUserId: resolvedOwner,
+        name: name.trim(),
+        description,
+        profileType: resolvedType,
+        systemInstructions,
+        styleRules,
+        forbiddenPhrases,
+        preferredPhrases,
+        exampleMessagesJson,
+        knowledgeSummary: undefined,
+        sourceLabel: sourceLabel || "Imported from GPT",
+        isDefault: false,
+      });
+
+      // Save pasted knowledge text as a file
+      if (knowledgeText?.trim()) {
+        await addVoiceProfileFile(profile.id, "knowledge.txt", "text", knowledgeText.trim());
+      }
+
+      res.status(201).json(profile);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
   // ── Engagement scheduler + default rules ────────────────────────────────────
