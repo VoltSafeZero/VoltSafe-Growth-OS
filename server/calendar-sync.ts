@@ -155,7 +155,7 @@ export async function exchangeCalendarCode(
   return { email, displayName };
 }
 
-async function getCalendarClient(
+export async function getCalendarClient(
   connection: typeof calendarConnections.$inferSelect
 ) {
   const client = getCalendarOAuth2Client();

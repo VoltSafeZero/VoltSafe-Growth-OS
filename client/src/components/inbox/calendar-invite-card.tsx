@@ -2,11 +2,12 @@
 //
 // Rendered ABOVE the email body whenever the message has a text/calendar
 // attachment. Shows a compact date badge, event title, date/time range,
-// optional Join meeting button, and an attendee strip with response indicators.
+// optional Join meeting button, RSVP buttons (Accept/Decline/Maybe), and
+// an attendee strip with response indicators.
 //
 // Data is fetched lazily from /api/gmail/attachments/:id/calendar-invite.
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Calendar,
   Clock,
@@ -95,6 +96,38 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
     retry: false,
   });
   const [attendeesExpanded, setAttendeesExpanded] = useState(false);
+  const [rsvpStatus, setRsvpStatus] = useState<"accepted" | "declined" | "tentative" | null>(null);
+  const [rsvpError, setRsvpError] = useState<string | null>(null);
+  const [pendingResponse, setPendingResponse] = useState<"accepted" | "declined" | "tentative" | null>(null);
+
+  const rsvpMutation = useMutation({
+    mutationFn: async (response: "accepted" | "declined" | "tentative") => {
+      const res = await fetch("/api/calendar/invitations/respond", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ uid: data?.uid, response }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || `Server error ${res.status}`);
+      return body as { success: boolean; responseStatus: string };
+    },
+    onSuccess: (_result, variables) => {
+      setRsvpStatus(variables);
+      setRsvpError(null);
+      setPendingResponse(null);
+    },
+    onError: (err: any) => {
+      setRsvpError(err.message || "Could not update calendar. Try again.");
+      setPendingResponse(null);
+    },
+  });
+
+  function handleRsvp(response: "accepted" | "declined" | "tentative") {
+    setPendingResponse(response);
+    setRsvpError(null);
+    rsvpMutation.mutate(response);
+  }
 
   const testKey = messageKey != null ? `${messageKey}` : `${attachmentId}`;
 
@@ -128,6 +161,7 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
   const end = data.end ? new Date(data.end) : null;
   const sameDay = start && end && start.toDateString() === end.toDateString();
   const isCancelled = (data.status || "").toUpperCase() === "CANCELLED" || data.method === "CANCEL";
+  const isRequest = data.method === "REQUEST";
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const fmtTime = (d: Date) =>
@@ -262,6 +296,101 @@ export function CalendarInviteCard({ attachmentId, messageKey }: CalendarInviteC
           ) : null}
         </div>
       </div>
+
+      {/* ── RSVP strip — only for METHOD:REQUEST (incoming invitation) ── */}
+      {isRequest && !isCancelled && (
+        <div
+          className="border-t border-border/25 px-4 py-2.5 sm:px-5 flex items-center gap-2 flex-wrap bg-background/15"
+          data-testid={`section-rsvp-${testKey}`}
+        >
+          {rsvpStatus ? (
+            /* ── Confirmed state ── */
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                  rsvpStatus === "accepted"
+                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                    : rsvpStatus === "declined"
+                    ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
+                    : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                }`}
+                data-testid={`badge-rsvp-status-${testKey}`}
+              >
+                {rsvpStatus === "accepted" ? (
+                  <Check className="h-3 w-3" aria-hidden="true" />
+                ) : rsvpStatus === "declined" ? (
+                  <X className="h-3 w-3" aria-hidden="true" />
+                ) : (
+                  <HelpCircle className="h-3 w-3" aria-hidden="true" />
+                )}
+                {rsvpStatus === "accepted"
+                  ? "Accepted"
+                  : rsvpStatus === "declined"
+                  ? "Declined"
+                  : "Tentative"}
+              </span>
+              <span className="text-[10.5px] text-muted-foreground/55">Calendar updated</span>
+              <button
+                type="button"
+                onClick={() => { setRsvpStatus(null); setRsvpError(null); }}
+                className="text-[10.5px] text-primary/60 hover:text-primary underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 rounded"
+                data-testid={`button-rsvp-change-${testKey}`}
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            /* ── Button row ── */
+            <>
+              <span className="text-[10.5px] font-medium text-muted-foreground/55 mr-0.5 flex-shrink-0">
+                RSVP:
+              </span>
+              {(["accepted", "declined", "tentative"] as const).map((resp) => {
+                const label =
+                  resp === "accepted" ? "Accept" : resp === "declined" ? "Decline" : "Maybe";
+                const Icon =
+                  resp === "accepted" ? Check : resp === "declined" ? X : HelpCircle;
+                const isPending = rsvpMutation.isPending && pendingResponse === resp;
+                const cls =
+                  resp === "accepted"
+                    ? "border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+                    : resp === "declined"
+                    ? "border-rose-500/30 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
+                    : "border-amber-500/30 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400";
+                return (
+                  <button
+                    key={resp}
+                    type="button"
+                    disabled={rsvpMutation.isPending}
+                    onClick={() => handleRsvp(resp)}
+                    data-testid={`button-rsvp-${resp}-${testKey}`}
+                    aria-label={`${label} this calendar invitation`}
+                    className={`inline-flex items-center gap-1 h-6 px-2.5 rounded border text-[11px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${cls}`}
+                  >
+                    {isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Icon className="h-3 w-3" aria-hidden="true" />
+                    )}
+                    {label}
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {/* Inline error */}
+          {rsvpError && (
+            <span
+              className="w-full text-[10.5px] text-destructive/80 flex items-center gap-1 mt-0.5"
+              data-testid={`text-rsvp-error-${testKey}`}
+            >
+              <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+              {rsvpError}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── Attendees strip ── */}
       {data.attendees.length > 0 && (() => {

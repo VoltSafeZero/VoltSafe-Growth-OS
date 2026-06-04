@@ -121,6 +121,7 @@ import {
   testCalDavConnection,
   getCalendarIntegrations,
   disconnectCalendarIntegration,
+  getCalendarClient,
 } from "./calendar-sync";
 import {
   lookupZoomConnection, disconnectZoom, toPublicZoomConnection, isZoomConfigured,
@@ -8053,6 +8054,100 @@ export async function registerRoutes(
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // RSVP to a calendar invitation in-app — prevents the email body's
+  // Yes/No/Maybe links from opening Google Calendar in a new tab.
+  // Body: { uid?, attachmentId?, response: "accepted"|"declined"|"tentative" }
+  app.post("/api/calendar/invitations/respond", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { uid: rawUid, attachmentId: rawAttachmentId, response } = req.body as {
+        uid?: string;
+        attachmentId?: number;
+        response?: string;
+      };
+
+      const VALID_RESPONSES = ["accepted", "declined", "tentative"];
+      if (!response || !VALID_RESPONSES.includes(response)) {
+        return res.status(400).json({ message: "response must be 'accepted', 'declined', or 'tentative'" });
+      }
+
+      // Resolve iCalUID — provided directly by CalendarInviteCard buttons, or
+      // derived from the ICS attachment when the click came from the email body.
+      let uid = rawUid?.trim() || null;
+      if (!uid && rawAttachmentId) {
+        const { parseCalendarInviteForAttachment } = await import("./services/calendar-invite-parser");
+        const details = await parseCalendarInviteForAttachment(Number(rawAttachmentId));
+        uid = details?.uid?.trim() || null;
+        if (!uid) {
+          return res.status(422).json({ message: "Could not determine the event UID from the attachment." });
+        }
+      }
+      if (!uid) {
+        return res.status(400).json({ message: "Either 'uid' or 'attachmentId' is required" });
+      }
+
+      // Find the user's active Google Calendar connection.
+      const [conn] = await db
+        .select()
+        .from(calendarConnections)
+        .where(
+          and(
+            eq(calendarConnections.userId, userId),
+            eq(calendarConnections.provider, "google"),
+          ),
+        )
+        .limit(1);
+
+      if (!conn?.refreshToken) {
+        return res.status(422).json({ message: "No connected Google Calendar account. Go to Calendar \u2192 Settings to connect one." });
+      }
+
+      const calendar = await getCalendarClient(conn);
+
+      // Locate the event by iCalUID in the user's primary calendar.
+      const listResp = await calendar.events.list({
+        calendarId: "primary",
+        iCalUID: uid,
+        maxResults: 1,
+        singleEvents: true,
+      });
+      const event = listResp.data.items?.[0];
+      if (!event?.id) {
+        return res.status(404).json({ message: "Event not found in your Google Calendar. You may not have been invited yet." });
+      }
+
+      // Patch only the authenticated user's attendee entry; leave all others intact.
+      const userEmail = (conn.accountEmail || "").toLowerCase();
+      const currentAttendees: any[] = event.attendees || [];
+      const patchedAttendees = currentAttendees.map((a: any) => {
+        if (a.self === true || (userEmail && (a.email || "").toLowerCase() === userEmail)) {
+          return { ...a, responseStatus: response };
+        }
+        return a;
+      });
+
+      // If no existing attendee entry found for the user, add one.
+      const userFound = currentAttendees.some(
+        (a: any) => a.self === true || (userEmail && (a.email || "").toLowerCase() === userEmail),
+      );
+      if (!userFound && userEmail) {
+        patchedAttendees.push({ email: userEmail, responseStatus: response, self: true });
+      }
+
+      await calendar.events.patch({
+        calendarId: "primary",
+        eventId: event.id,
+        sendUpdates: "none",
+        requestBody: { attendees: patchedAttendees },
+      });
+
+      return res.json({ success: true, responseStatus: response });
+    } catch (err: any) {
+      console.error("[calendar/invitations/respond]", err?.message || err);
+      return res.status(500).json({ message: err?.message || "Failed to update calendar response" });
     }
   });
 

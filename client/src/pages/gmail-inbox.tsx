@@ -2097,10 +2097,42 @@ function ComposeDialog({
 type ReadingMode = "beautiful" | "raw" | "plain";
 type ZoomMode = "fit" | "actual";
 
+// Pure helpers for Google Calendar RSVP link detection.
+// Defined at module level — created once per module load, not per render.
+function isCalendarRsvpLink(href: string): boolean {
+  if (!href) return false;
+  const lower = href.toLowerCase();
+  if (!lower.includes("calendar.google.com") && !lower.includes("google.com/calendar")) return false;
+  return (
+    lower.includes("action=respond") ||
+    lower.includes("action=accept") ||
+    lower.includes("action=decline") ||
+    lower.includes("action=tentative") ||
+    lower.includes("action=maybe") ||
+    (lower.includes("eid=") && lower.includes("rst="))
+  );
+}
+
+function extractRsvpResponse(
+  href: string,
+  text: string,
+): "accepted" | "declined" | "tentative" | null {
+  const lower = href.toLowerCase();
+  const textLower = text.toLowerCase().trim();
+  if (lower.includes("action=accept") || lower.includes("rst=1")) return "accepted";
+  if (lower.includes("action=decline") || lower.includes("rst=2")) return "declined";
+  if (lower.includes("action=tentative") || lower.includes("action=maybe") || lower.includes("rst=3")) return "tentative";
+  if (/\b(yes|accept|going)\b/.test(textLower)) return "accepted";
+  if (/\b(no|decline|not\s+going)\b/.test(textLower)) return "declined";
+  if (/\b(maybe|tentative|possibly)\b/.test(textLower)) return "tentative";
+  return null;
+}
+
 function MessageBody({
   body,
   isHtml,
   headerLeft,
+  calendarAttachmentId,
 }: {
   body: string;
   isHtml: boolean;
@@ -2112,6 +2144,13 @@ function MessageBody({
    * existing right-aligned tab cluster stays anchored to the right edge.
    */
   headerLeft?: React.ReactNode;
+  /**
+   * DB id of the text/calendar attachment for this message, if any.
+   * Enables the iframe click handler to intercept Google Calendar RSVP
+   * links (Yes / No / Maybe) and respond in-app instead of opening a
+   * new browser tab.
+   */
+  calendarAttachmentId?: number;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -2119,6 +2158,10 @@ function MessageBody({
   const [zoom, setZoom] = useState<ZoomMode>("fit");
   const [iframeReady, setIframeReady] = useState(false);
   const [scaleApplied, setScaleApplied] = useState(1);
+  const [rsvpBannerStatus, setRsvpBannerStatus] = useState<
+    "pending" | "accepted" | "declined" | "tentative" | null
+  >(null);
+  const [rsvpBannerError, setRsvpBannerError] = useState<string | null>(null);
 
   // Re-fit content to the available pane width. Uses CSS transform: scale()
   // on the body so wide newsletters/tables don't overflow horizontally and
@@ -2200,6 +2243,49 @@ function MessageBody({
 
   // When zoom mode flips, recompute.
   useEffect(() => { fitContent(); }, [zoom, fitContent]);
+
+  // Intercept Google Calendar RSVP link clicks inside the sandboxed iframe.
+  // sandbox="allow-same-origin" lets the parent attach listeners directly on
+  // contentDocument. Capture phase (useCapture=true) fires before any inline
+  // onclick the email HTML might carry, preventing the default navigation.
+  useEffect(() => {
+    if (!iframeReady || calendarAttachmentId == null) return;
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc) return;
+    const handleClick = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest("a") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute("href") || anchor.href || "";
+      if (!isCalendarRsvpLink(href)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const response = extractRsvpResponse(href, anchor.textContent || "");
+      if (!response) return;
+      setRsvpBannerStatus("pending");
+      setRsvpBannerError(null);
+      fetch("/api/calendar/invitations/respond", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ attachmentId: calendarAttachmentId, response }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.success) {
+            setRsvpBannerStatus(d.responseStatus as "accepted" | "declined" | "tentative");
+          } else {
+            setRsvpBannerStatus(null);
+            setRsvpBannerError(d.message || "Could not update calendar response");
+          }
+        })
+        .catch((err) => {
+          setRsvpBannerStatus(null);
+          setRsvpBannerError(err.message || "Network error \u2014 try again");
+        });
+    };
+    doc.addEventListener("click", handleClick, true);
+    return () => { doc.removeEventListener("click", handleClick, true); };
+  }, [iframeReady, calendarAttachmentId]);
 
   // Build the HTML payload the iframe will render. For HTML emails we just
   // sanitize. For plain-text emails (Gmail returns text-only for some senders,
@@ -2382,6 +2468,27 @@ function MessageBody({
                   <ModeBtn k="raw" label="Source" Icon={Code2} />
                   <ModeBtn k="plain" label="Plain" Icon={Type} />
                 </div>
+              </div>
+            )}
+            {/* RSVP intercept banner — shown after the user clicks a Google Calendar
+                Yes/No/Maybe link inside the email body. Prevents opening a new tab
+                and confirms the response was updated in-app. */}
+            {calendarAttachmentId != null && (rsvpBannerStatus || rsvpBannerError) && (
+              <div
+                className={`mb-1.5 rounded-lg border px-3 py-2 text-[11.5px] flex items-center gap-1.5 ${
+                  rsvpBannerStatus === "pending"
+                    ? "border-primary/20 bg-primary/5 text-primary/80"
+                    : rsvpBannerStatus && rsvpBannerStatus !== "pending"
+                    ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+                    : "border-destructive/20 bg-destructive/5 text-destructive"
+                }`}
+                data-testid="rsvp-intercept-banner"
+              >
+                {rsvpBannerStatus === "pending" && "Updating calendar response\u2026"}
+                {rsvpBannerStatus === "accepted" && "\u2713 Calendar: Accepted"}
+                {rsvpBannerStatus === "declined" && "\u2715 Calendar: Declined"}
+                {rsvpBannerStatus === "tentative" && "? Calendar: Tentative"}
+                {(!rsvpBannerStatus || rsvpBannerStatus === "pending") && rsvpBannerError && rsvpBannerError}
               </div>
             )}
             <div
@@ -9425,11 +9532,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         </div>
                       </div>
                     </div>
-                    {/* Spark-style rich calendar invite block — rendered ABOVE
-                        the body whenever the message carries a text/calendar
-                        attachment with a known DB id. The card lazily fetches
-                        the parsed event (date/time/Join URL/attendees) from
-                        /api/gmail/attachments/:id/calendar-invite. */}
+                    {/* Spark-style rich calendar invite block + message body.
+                        The ics attachment id is resolved once here and forwarded
+                        to both CalendarInviteCard (RSVP buttons) and MessageBody
+                        (iframe RSVP link interceptor) so both surfaces respond
+                        in-app without opening Google Calendar in a new tab. */}
                     {(() => {
                       // Pick the first text/calendar attachment with a Gmail
                       // attachmentId we can actually fetch. Skipping rows without
@@ -9441,35 +9548,40 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             (a.filename || "").toLowerCase().endsWith(".ics")
                           )
                       );
-                      return ics?.id != null ? (
-                        <CalendarInviteCard attachmentId={ics.id} messageKey={msg.id} />
-                      ) : null;
-                    })()}
-                    {/* Message body — for the LATEST message in the thread we
-                        inject a rich-text formatting toolbar (Bold / Italic /
-                        Lists / Link / Clear) into MessageBody's headerLeft
-                        slot. Tapping any button auto-opens the reply composer
-                        and dispatches the format event onto the global bus
-                        which the composer textarea subscribes to. */}
-                    <div className={`bg-background/30 ${focusMode ? "px-6 py-7 md:px-8 md:py-9" : `${densityClasses.msgBodyPx} ${densityClasses.msgBodyPy}`}`}>
-                      <MessageBody
-                        body={msg.body}
-                        isHtml={msg.isHtml}
-                        headerLeft={isLatest && canSend ? (
-                          <EmailFormatToolbar
-                            onBeforeFormat={() => {
-                              // Open the reply composer (idempotent — does
-                              // nothing if already open) so the textarea is
-                              // mounted and ready to receive the format
-                              // event fired right after.
-                              if (!replyTo || replyTo.threadId !== msg.threadId) {
-                                handleReply(msg);
+                      return (
+                        <>
+                          {ics?.id != null && (
+                            <CalendarInviteCard attachmentId={ics.id} messageKey={msg.id} />
+                          )}
+                          {/* Message body — for the LATEST message in the thread we
+                              inject a rich-text formatting toolbar (Bold / Italic /
+                              Lists / Link / Clear) into MessageBody's headerLeft
+                              slot. Tapping any button auto-opens the reply composer
+                              and dispatches the format event onto the global bus
+                              which the composer textarea subscribes to. */}
+                          <div className={`bg-background/30 ${focusMode ? "px-6 py-7 md:px-8 md:py-9" : `${densityClasses.msgBodyPx} ${densityClasses.msgBodyPy}`}`}>
+                            <MessageBody
+                              body={msg.body}
+                              isHtml={msg.isHtml}
+                              calendarAttachmentId={ics?.id}
+                              headerLeft={isLatest && canSend ? (
+                                <EmailFormatToolbar
+                                  onBeforeFormat={() => {
+                                    // Open the reply composer (idempotent — does
+                                    // nothing if already open) so the textarea is
+                                    // mounted and ready to receive the format
+                                    // event fired right after.
+                                    if (!replyTo || replyTo.threadId !== msg.threadId) {
+                                      handleReply(msg);
                               }
                             }}
                           />
                         ) : undefined}
-                      />
-                    </div>
+                            />
+                          </div>
+                        </>
+                      );
+                    })()}
                     {/* Attachment strip (Phase 2E) — bigger & grid-laid in Focus Mode */}
                     {Array.isArray((msg as any).attachments) && (msg as any).attachments.filter((a: any) => !a.isInline).length > 0 && (
                       <div className={`bg-background/30 border-t border-border/20 ${focusMode ? "px-6 md:px-8 pb-6 pt-4" : "px-5 pb-4 pt-1"}`}>
