@@ -101,10 +101,12 @@ assert(
 console.log("\n=== M1-M12: suggested-next-email-modal.tsx ===\n");
 
 // M1: useEffect, not useState, for the fetch
+// Note: modal legitimately uses useState(() => { for persisted UI state (e.g. calendlyUrl localStorage).
+// This assertion checks only that the *data fetch* uses useEffect, not a useState lazy initializer.
 assert(
   "M1: useEffect used for data fetch (not useState lazy initializer)",
   modal.includes("useEffect(() => {") &&
-  !modal.includes("useState(() => {"),
+  !modal.match(/useState\(\(\)\s*=>\s*\{[\s\S]{0,200}fetch\(|useState\(\(\)\s*=>\s*\{[\s\S]{0,200}api\//),
   "Fetch on mount must use useEffect — useState lazy initializer runs synchronously during render"
 );
 

@@ -224,6 +224,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
 
   async function handleContinue() {
     if (!suggestion) return;
+    console.log("[suggested-email-modal] handleContinue triggered", { to: suggestion.to, subject: suggestion.subject });
     setIsSaving(true);
 
     const rawBody =
