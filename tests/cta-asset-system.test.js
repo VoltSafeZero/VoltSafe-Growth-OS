@@ -281,6 +281,181 @@ console.log("\n── 9. uploads/cta-assets directory exists ──────�
   check("uploads/cta-assets directory created", fs.existsSync(path.resolve(root, "uploads/cta-assets")));
 }
 
+console.log("\n── 10. Body CTA tracking_enabled parity ────────────────────────────────");
+{
+  const trackerSrc = read("server/services/signature-cta-tracker.ts");
+
+  check(
+    "body CTA lookup enforces tracking_enabled = TRUE (parity with sig section)",
+    trackerSrc.includes("AND tracking_enabled = TRUE") &&
+    // Use a 1500-char window — the body CTA SQL query is ~900 chars past the step 2 comment
+    (() => {
+      const step2Idx = trackerSrc.indexOf("// ── 2.");
+      const step2Block = step2Idx >= 0 ? trackerSrc.slice(step2Idx, step2Idx + 1500) : "";
+      return step2Block.includes("tracking_enabled = TRUE");
+    })(),
+  );
+
+  check(
+    "body CTA comment no longer says 'may not be in ctaRows if tracking_enabled=false'",
+    !trackerSrc.includes("may not be in ctaRows if tracking_enabled=false"),
+    "Old comment implied bypassing tracking_enabled was intentional — should be removed with the fix",
+  );
+
+  // Simulate: a CTA with tracking_enabled=false should NOT get wrapped
+  // The new query (AND tracking_enabled = TRUE) returns no row → continue skips the anchor
+  check(
+    "body CTA step 2 skips anchor when CTA lookup returns no row (covers disabled CTAs)",
+    trackerSrc.includes("if (!cta) continue;"),
+  );
+}
+
+console.log("\n── 11. DELETE asset — file unlink behavior ─────────────────────────────");
+{
+  const routesSrc = read("server/routes.ts");
+
+  check(
+    "DELETE /api/cta-assets/:id unlinks file from disk when not in use",
+    routesSrc.includes("promises.unlink(filePath)") || routesSrc.includes("fs.unlink(") ||
+    routesSrc.includes("unlink(filePath)"),
+  );
+
+  check(
+    "DELETE still marks is_archived = TRUE after unlink",
+    (() => {
+      // Use 1500-char window — is_archived update is ~1239 chars past the DELETE comment
+      const delIdx = routesSrc.indexOf("// DELETE /api/cta-assets/:id");
+      const delBlock = delIdx >= 0 ? routesSrc.slice(delIdx, delIdx + 1500) : "";
+      return delBlock.includes("unlink") && delBlock.includes("is_archived = TRUE");
+    })(),
+    "Must both unlink file and mark archived — archived ensures no new references are created",
+  );
+
+  check(
+    "DELETE unlink wrapped in try/catch (already-gone file is not a fatal error)",
+    (() => {
+      // Use 1500-char window — try/catch around unlink is beyond 1000 chars from comment
+      const delIdx = routesSrc.indexOf("// DELETE /api/cta-assets/:id");
+      const delBlock = delIdx >= 0 ? routesSrc.slice(delIdx, delIdx + 1500) : "";
+      return (delBlock.includes("try {") && delBlock.includes("/* already gone */")) ||
+             (delBlock.includes("catch") && delBlock.includes("unlink"));
+    })(),
+  );
+
+  check(
+    "DELETE route returns 409 when asset is in use (unchanged — still required)",
+    routesSrc.includes("status(409)") && routesSrc.includes("Remove it from those CTAs first"),
+  );
+}
+
+console.log("\n── 12. CTA asset card — full required fields in UI ─────────────────────");
+{
+  const sigSrc = read("client/src/pages/signature-settings.tsx");
+
+  check(
+    "Asset card shows created_by_name field",
+    sigSrc.includes("created_by_name") && sigSrc.includes("text-asset-creator-"),
+  );
+
+  check(
+    "Asset card shows created_at date",
+    sigSrc.includes("created_at") && sigSrc.includes("text-asset-date-"),
+  );
+
+  check(
+    "Asset card has copy-public-URL button",
+    sigSrc.includes("button-copy-url-asset-") && sigSrc.includes("clipboard.writeText"),
+  );
+
+  check(
+    "Copy button calls navigator.clipboard.writeText with asset.public_url",
+    sigSrc.includes("navigator.clipboard.writeText(asset.public_url)"),
+  );
+
+  check(
+    "Asset card URL path shown as data-testid text-asset-url-*",
+    sigSrc.includes("text-asset-url-"),
+  );
+
+  check(
+    "CtaAsset type includes created_by_name and created_at fields",
+    sigSrc.includes("created_by_name") && sigSrc.includes("created_at: string"),
+  );
+}
+
+console.log("\n── 13. Existing signature CTA flow unaffected by body-CTA changes ──────");
+{
+  const trackerSrc = read("server/services/signature-cta-tracker.ts");
+
+  check(
+    "Signature section step 1 uses ctaRows fetched with tracking_enabled = TRUE",
+    // The ctaRows SELECT query (with tracking_enabled = TRUE) lives in the preamble
+    // BEFORE the '// ── 1.' comment — check a 500-char window leading into step 1
+    (() => {
+      const step1Idx = trackerSrc.indexOf("// ── 1.");
+      const preamble = step1Idx >= 0 ? trackerSrc.slice(Math.max(0, step1Idx - 500), step1Idx) : "";
+      return preamble.includes("tracking_enabled = TRUE");
+    })(),
+  );
+
+  check(
+    "Sig section still uses ctaRows (fetched once before both loops)",
+    trackerSrc.includes("const ctaRows =") && trackerSrc.includes("ctaRows.length > 0"),
+  );
+
+  check(
+    "Sig section wraps destination URL matches (not data-vs-cta-id anchors)",
+    (() => {
+      const step1Idx = trackerSrc.indexOf("// ── 1.");
+      const step2Idx = trackerSrc.indexOf("// ── 2.");
+      const step1Block = step1Idx >= 0 ? trackerSrc.slice(step1Idx, step2Idx) : "";
+      return step1Block.includes("destination_url") && !step1Block.includes("data-vs-cta-id");
+    })(),
+  );
+
+  check(
+    "Both sections insert into signature_cta_clicks (independent token per section)",
+    (() => {
+      const count = (trackerSrc.match(/INSERT INTO signature_cta_clicks/g) || []).length;
+      return count >= 2;
+    })(),
+  );
+
+  check(
+    "wrapSignatureCtaLinks returns combined html: before + sig + after",
+    trackerSrc.includes("wrappedBefore + wrappedSig + after"),
+  );
+}
+
+console.log("\n── 14. Internal-click exclusion in engagement tracking ─────────────────");
+{
+  const routesSrc = read("server/routes.ts");
+
+  // The internal-open filtering system sets is_internal=true for self-clicks.
+  // Verify the tracking endpoint still sets is_internal based on the sender check.
+  check(
+    "tracking click route sets is_internal flag based on recipient/sender check",
+    routesSrc.includes("is_internal") &&
+    (routesSrc.includes("internal_click") || routesSrc.includes("is_internal = ") ||
+     routesSrc.includes("isInternal") || routesSrc.includes("is_internal:")),
+  );
+
+  // Signature CTA clicks: verify recordSignatureCtaClick exists and is exported
+  const trackerSrc = read("server/services/signature-cta-tracker.ts");
+  check(
+    "recordSignatureCtaClick exported for tracking pixel use",
+    trackerSrc.includes("export async function recordSignatureCtaClick"),
+  );
+
+  // The internal-open filter must apply to CTA click counts too — engagement counts
+  // must exclude internal (same-user) opens/clicks.
+  const internalFilterSrc = read("server/services/signature-cta-tracker.ts");
+  check(
+    "signature_cta_clicks table schema has recipient_email for internal detection",
+    internalFilterSrc.includes("recipient_email"),
+  );
+}
+
 console.log(`\n────────────────────────────────────────────────────────────────────────`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

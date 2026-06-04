@@ -138,12 +138,12 @@ export async function wrapSignatureCtaLinks(
   }
 
   for (const { tag, ctaId } of bodyCtaMatches) {
-    // Look up the CTA record by id (may not be in ctaRows if tracking_enabled=false,
-    // so query directly)
+    // Look up the CTA record by id — only wrap if tracking_enabled = TRUE to match
+    // the same policy as the signature-section step 1 above.
     const [cta] = (await db.execute(sql.raw(`
       SELECT id, signature_id, name, destination_url
       FROM email_signature_ctas
-      WHERE id = ${ctaId} AND user_id = ${userId}
+      WHERE id = ${ctaId} AND user_id = ${userId} AND tracking_enabled = TRUE
       LIMIT 1
     `))).rows as any[];
 

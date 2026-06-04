@@ -818,6 +818,13 @@ function CtaAssetLibraryTab() {
                       {asset.file_size && <p className="text-[10px] text-muted-foreground/50">{formatBytes(asset.file_size)}</p>}
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(asset.public_url).catch(() => {}); toast({ title: "URL copied" }); }}
+                        className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+                        title="Copy public URL"
+                        data-testid={`button-copy-url-asset-${asset.id}`}>
+                        <Copy className="h-3 w-3" />
+                      </button>
                       <button onClick={() => { setRenamingId(asset.id); setRenameVal(asset.name); }}
                         className="p-0.5 rounded text-muted-foreground hover:text-foreground"
                         title="Rename" data-testid={`button-rename-asset-${asset.id}`}>
@@ -831,9 +838,23 @@ function CtaAssetLibraryTab() {
                     </div>
                   </div>
                 )}
-                <p className="text-[10px] text-muted-foreground/40 mt-1 truncate" title={asset.public_url}>
+                <p className="text-[10px] text-muted-foreground/40 mt-1 truncate" title={asset.public_url}
+                   data-testid={`text-asset-url-${asset.id}`}>
                   {asset.public_url.replace(/^https?:\/\/[^/]+/, "")}
                 </p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  {asset.created_by_name && (
+                    <p className="text-[10px] text-muted-foreground/40 truncate" data-testid={`text-asset-creator-${asset.id}`}>
+                      {asset.created_by_name}
+                    </p>
+                  )}
+                  {asset.created_by_name && asset.created_at && <span className="text-[10px] text-muted-foreground/30">·</span>}
+                  {asset.created_at && (
+                    <p className="text-[10px] text-muted-foreground/40 shrink-0" data-testid={`text-asset-date-${asset.id}`}>
+                      {new Date(asset.created_at).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}

@@ -28343,7 +28343,10 @@ export function registerConfluenceRoutes(app: Express) {
       if (inUse) {
         return res.status(409).json({ message: "This asset is used by one or more active CTAs. Remove it from those CTAs first." });
       }
-      // Archive (soft delete) — keep the file on disk so existing emails still render
+      // Unlink file from disk (not in use — safe to remove physical file)
+      // Still mark archived in DB so any race-condition references fail gracefully
+      const filePath = path.join(CTA_ASSETS_DIR, asset.filename);
+      try { await import("fs").then(m => m.promises.unlink(filePath)); } catch { /* already gone */ }
       await db.execute(sql.raw(`UPDATE cta_assets SET is_archived = TRUE WHERE id = ${id}`));
       res.json({ ok: true });
     } catch (err: any) {
