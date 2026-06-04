@@ -549,6 +549,8 @@ function ComposeDialog({
     tracking_enabled: boolean;
   };
 
+  const [showCtaPicker, setShowCtaPicker] = useState(false);
+
   const ctaPickerQuery = useQuery<CtaPickerItem[]>({
     queryKey: ["/api/signature-ctas", "picker"],
     queryFn: () =>
@@ -691,7 +693,6 @@ function ComposeDialog({
   const [assetSearch, setAssetSearch] = useState<string>("");
   const [restrictedWarning, setRestrictedWarning] = useState<{ asset: { id: number; name: string; visibility: string }; onConfirm: () => void } | null>(null);
   const [showQuotePicker, setShowQuotePicker] = useState(false);
-  const [showCtaPicker, setShowCtaPicker] = useState(false);
 
   // Drag-and-drop attachment state
   const [isDragOver, setIsDragOver] = useState(false);
