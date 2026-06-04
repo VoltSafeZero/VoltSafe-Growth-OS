@@ -742,6 +742,69 @@ export async function registerRoutes(
     });
   }
 
+  // ── Revenue Intelligence routes ───────────────────────────────────────────
+  {
+    const {
+      getAccountIntelligence,
+      getBuyingCommittee,
+      getEngagementHeatmap,
+      getFollowUpOpportunities,
+      getCommandCenterData,
+      getThreadMostEngaged,
+    } = await import("./services/revenue-intelligence");
+
+    app.get("/api/revenue-intelligence/command-center", requireAuth, async (req, res) => {
+      try {
+        const data = await getCommandCenterData();
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/revenue-intelligence/heatmap", requireAuth, async (req, res) => {
+      try {
+        const limit = Math.min(Number(req.query.limit) || 50, 200);
+        const data  = await getEngagementHeatmap(limit);
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/revenue-intelligence/follow-up-opportunities", requireAuth, async (req, res) => {
+      try {
+        const limit = Math.min(Number(req.query.limit) || 20, 100);
+        const data  = await getFollowUpOpportunities(limit);
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/revenue-intelligence/account/:accountId", requireAuth, async (req, res) => {
+      try {
+        const id   = Number(req.params.accountId);
+        if (!id || isNaN(id)) return res.status(400).json({ message: "Invalid account ID" });
+        const data = await getAccountIntelligence(id);
+        if (!data) return res.status(404).json({ message: "Account not found" });
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/revenue-intelligence/account/:accountId/committee", requireAuth, async (req, res) => {
+      try {
+        const id   = Number(req.params.accountId);
+        if (!id || isNaN(id)) return res.status(400).json({ message: "Invalid account ID" });
+        const data = await getBuyingCommittee(id);
+        res.json(data);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/revenue-intelligence/thread/:threadId/most-engaged", requireAuth, async (req, res) => {
+      try {
+        const threadId = decodeURIComponent(req.params.threadId);
+        if (!threadId) return res.status(400).json({ message: "threadId required" });
+        const data = await getThreadMostEngaged(threadId);
+        res.json(data ?? null);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+  }
+
   // Engagement rules CRUD
   app.get("/api/email-engagement-rules", requireAuth, async (req, res) => {
     try {

@@ -23,7 +23,7 @@ import {
   MousePointerClick, Mail, Eye, Zap, TrendingUp, Clock,
   ArrowRight, AlertTriangle, ThumbsUp, Flame, ChevronDown,
   ChevronUp, Link2, Reply, Video, BarChart2, ArrowUpDown,
-  ArrowUp, ArrowDown, Filter,
+  ArrowUp, ArrowDown, Filter, Trophy, Users,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -519,10 +519,33 @@ function filterCounts(activities: ActivityRow[]): Record<FilterType, number> {
   };
 }
 
+interface RIMostEngaged {
+  email: string;
+  name: string | null;
+  contactId: number | null;
+  avatarUrl: string | null;
+  title: string | null;
+  score: number;
+  opens: number;
+  clicks: number;
+  ctaClicks: number;
+  lastActivityAt: string | null;
+}
+
 export function ThreadEngagementWidget({ threadId }: { threadId: string | null }) {
   const [expanded, setExpanded] = useState(false);
   const [filter, setFilter]     = useState<FilterType>("all");
   const [sort, setSort]         = useState<SortType>("newest");
+
+  const { data: mostEngaged } = useQuery<RIMostEngaged | null>({
+    queryKey: ["/api/revenue-intelligence/thread", threadId, "most-engaged"],
+    queryFn: () =>
+      fetch(`/api/revenue-intelligence/thread/${encodeURIComponent(threadId!)}/most-engaged`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : null).catch(() => null),
+    enabled: !!threadId && expanded,
+    staleTime: 120_000,
+    retry: false,
+  });
 
   const { data, isLoading } = useQuery<ThreadEngagementFull>({
     queryKey: ["/api/engagement/thread", threadId],
@@ -716,6 +739,89 @@ export function ThreadEngagementWidget({ threadId }: { threadId: string | null }
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* 🏆 Most Engaged Contact */}
+          {mostEngaged && mostEngaged.score > 0 && (
+            <div className="pt-2 border-t border-border/15" data-testid="most-engaged-section">
+              <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-medium mb-1.5 flex items-center gap-1">
+                <Trophy className="h-2.5 w-2.5 text-amber-400" />
+                Most Engaged
+              </p>
+              <div className="flex items-center gap-2 bg-amber-500/5 border border-amber-500/15 rounded-lg px-2.5 py-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-semibold text-foreground truncate">
+                    {mostEngaged.name ?? mostEngaged.email}
+                  </p>
+                  {mostEngaged.title && (
+                    <p className="text-[10px] text-muted-foreground/50 truncate">{mostEngaged.title}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0 text-[10px] text-muted-foreground/70">
+                  {mostEngaged.opens > 0 && (
+                    <span className="flex items-center gap-0.5">
+                      <Eye className="h-2.5 w-2.5 text-sky-400" />
+                      {mostEngaged.opens}
+                    </span>
+                  )}
+                  {mostEngaged.clicks > 0 && (
+                    <span className="flex items-center gap-0.5">
+                      <Link2 className="h-2.5 w-2.5 text-blue-400" />
+                      {mostEngaged.clicks}
+                    </span>
+                  )}
+                  {mostEngaged.ctaClicks > 0 && (
+                    <span className="flex items-center gap-0.5">
+                      <MousePointerClick className="h-2.5 w-2.5 text-violet-400" />
+                      {mostEngaged.ctaClicks}
+                    </span>
+                  )}
+                  <span className="bg-amber-500/15 text-amber-500 text-[9px] font-bold px-1.5 py-0.5 rounded ml-1">
+                    {mostEngaged.score} pts
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Buying Committee (from recipientBreakdown with roles) */}
+          {data.recipientBreakdown && data.recipientBreakdown.filter(r => !r.isInternal).length > 1 && (
+            <div className="pt-2 border-t border-border/15" data-testid="buying-committee-section">
+              <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-medium mb-1.5 flex items-center gap-1">
+                <Users className="h-2.5 w-2.5 text-primary" />
+                Buying Committee
+                <span className="ml-auto bg-primary/10 text-primary text-[9px] font-semibold px-1.5 py-0.5 rounded-full">
+                  {data.recipientBreakdown.filter(r => !r.isInternal).length}
+                </span>
+              </p>
+              <div className="space-y-1">
+                {data.recipientBreakdown.filter(r => !r.isInternal).map(r => {
+                  const totalScore = r.openCount * 1 + r.clickCount * 3 + r.ctaClickCount * 5;
+                  const isChampion = mostEngaged && r.recipientEmail.toLowerCase() === mostEngaged.email.toLowerCase();
+                  return (
+                    <div
+                      key={r.recipientEmail}
+                      className="flex items-center gap-2 text-[11px] px-1.5 py-0.5 rounded"
+                      data-testid={`committee-member-${r.recipientEmail}`}
+                    >
+                      <span className="flex-shrink-0 text-base leading-none">
+                        {isChampion ? "🏆" : totalScore >= 5 ? "🟡" : "⚪"}
+                      </span>
+                      <span className="flex-1 min-w-0 truncate text-foreground/80">
+                        {r.recipientName || r.recipientEmail}
+                      </span>
+                      <span className={`text-[9px] font-medium flex-shrink-0 px-1 py-0.5 rounded ${
+                        isChampion ? "bg-amber-500/15 text-amber-500" :
+                        totalScore >= 8 ? "bg-primary/10 text-primary" :
+                        "bg-muted/30 text-muted-foreground/50"
+                      }`}>
+                        {isChampion ? "Champion" : totalScore >= 8 ? "Stakeholder" : "Observer"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

@@ -63,6 +63,7 @@ const AccountProfilePage = lazy(() => import("@/pages/account-profile"));
 const OpportunityProfilePage = lazy(() => import("@/pages/opportunity-profile"));
 const BookingOutreachPage = lazy(() => import("@/pages/booking-outreach"));
 const BookingAnalyticsPage = lazy(() => import("@/pages/booking-analytics"));
+const RevenueIntelligencePage = lazy(() => import("@/pages/revenue-intelligence"));
 const ActivityFeedPage = lazy(() => import("@/pages/activity-feed"));
 const NotesPage = lazy(() => import("@/pages/notes-page"));
 const TasksHubPage = lazy(() => import("@/pages/tasks-hub"));
@@ -282,6 +283,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/quotes">{() => guard("quoting", isAdvisor ? <AccessDenied /> : <QuotesPage canEdit={isAdmin(role) || perms.quoting === "edit"} />)}</Route>
       <Route path="/booking-outreach">{() => guard("crm", isAdvisor ? <AccessDenied /> : <BookingOutreachPage />)}</Route>
       <Route path="/booking-analytics">{() => guard("crm", isAdvisor ? <AccessDenied /> : <BookingAnalyticsPage />)}</Route>
+      <Route path="/revenue-intelligence">{() => guard("crm", isAdvisor ? <AccessDenied /> : <RevenueIntelligencePage />)}</Route>
 
       <Route path="/activity">{() => wrap(<ActivityFeedPage />)}</Route>
       <Route path="/notes">{() => wrap(<NotesPage />)}</Route>

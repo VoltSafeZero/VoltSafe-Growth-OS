@@ -10,9 +10,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Mail, Phone, Building2, Users, Zap, CheckSquare,
-  CalendarDays, TrendingUp, MessageSquare, AlertTriangle, RefreshCw,
+  CalendarDays, TrendingUp, TrendingDown, MessageSquare, AlertTriangle, RefreshCw,
   MapPin, Globe, Clock, ExternalLink, Send, Plus, User, Anchor, Pin,
-  DollarSign, Package, BarChart2, Pencil,
+  DollarSign, Package, BarChart2, Pencil, Trophy, Activity,
 } from "lucide-react";
 import { AccountDetailDialog } from "./accounts";
 import { formatDistanceToNow, format, isPast } from "date-fns";
@@ -111,6 +111,134 @@ function NoteComposer({ accountId, onAdded }: { accountId: number; onAdded: () =
         </Button>
       </div>
     </div>
+  );
+}
+
+// ── Account Intelligence Panel ─────────────────────────────────────────────
+
+interface RIAccountIntelligence {
+  accountId: number;
+  accountName: string;
+  engagementScore: number;
+  committee: {
+    champion: { name: string | null; email: string; title: string | null; championScore: number } | null;
+    decisionMaker: { name: string | null; email: string } | null;
+    committeeSize: number;
+    confidenceScore: number;
+  };
+  mostEngaged: { name: string | null; email: string; opens: number; clicks: number; championScore: number } | null;
+  momentum: { status: "accelerating" | "stable" | "cooling" | "dormant"; trendPct: number; last30d: number };
+  insights: Array<{ type: string; severity: "info" | "warning" | "success"; text: string }>;
+  lastEngagementAt: string | null;
+}
+
+function AccountIntelligencePanel({ accountId }: { accountId: number }) {
+  const { data, isLoading } = useQuery<RIAccountIntelligence | null>({
+    queryKey: ["/api/revenue-intelligence/account", accountId],
+    queryFn: () =>
+      fetch(`/api/revenue-intelligence/account/${accountId}`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : null).catch(() => null),
+    staleTime: 120_000,
+    retry: false,
+    enabled: !!accountId,
+  });
+
+  if (isLoading) {
+    return (
+      <Card className="border-border/50" data-testid="account-intelligence-panel">
+        <CardContent className="px-4 py-3 space-y-2">
+          <Skeleton className="h-4 w-32 rounded" />
+          <Skeleton className="h-10 w-full rounded-lg" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data || (!data.committee.champion && !data.mostEngaged && data.engagementScore === 0)) {
+    return null;
+  }
+
+  const { engagementScore, committee, momentum, insights, mostEngaged } = data;
+
+  const scoreColor = engagementScore >= 70 ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                   : engagementScore >= 40 ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                   : engagementScore >= 20 ? "text-orange-400 bg-orange-500/10 border-orange-500/20"
+                   : "text-muted-foreground bg-muted/20 border-border/30";
+
+  const trendColor = momentum.status === "accelerating" ? "text-emerald-400"
+                   : momentum.status === "cooling" || momentum.status === "dormant" ? "text-orange-400"
+                   : "text-amber-400";
+
+  const TrendIco = momentum.status === "accelerating" ? TrendingUp
+                 : momentum.status === "cooling" || momentum.status === "dormant" ? TrendingDown
+                 : Activity;
+
+  const successInsights  = insights.filter(i => i.severity === "success");
+  const warningInsights  = insights.filter(i => i.severity === "warning");
+  const topInsight = warningInsights[0] ?? successInsights[0];
+
+  return (
+    <Card className="border-border/50" data-testid="account-intelligence-panel">
+      <CardHeader className="pb-2 pt-4 px-4">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 text-primary" />
+          <CardTitle className="text-sm font-semibold">Revenue Intelligence</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 pt-0 space-y-3">
+        {/* Score + Trend */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm font-bold ${scoreColor}`}>
+            <BarChart2 className="h-3.5 w-3.5" />
+            Score {engagementScore}
+          </div>
+          <span className={`flex items-center gap-1 text-[11px] font-medium ${trendColor}`}>
+            <TrendIco className="h-3 w-3" />
+            {momentum.status === "accelerating" ? `↑ ${momentum.trendPct > 0 ? momentum.trendPct + "% vs prior 30d" : "Rising"}` :
+             momentum.status === "cooling"       ? `↓ ${Math.abs(momentum.trendPct)}% vs prior 30d` :
+             momentum.status === "dormant"       ? "Dormant — no recent activity" :
+             "Stable"}
+          </span>
+          {committee.committeeSize > 0 && (
+            <span className="flex items-center gap-1 text-[11px] text-muted-foreground/60">
+              <Users className="h-3 w-3" />
+              {committee.committeeSize} in committee
+            </span>
+          )}
+        </div>
+
+        {/* Champion */}
+        {committee.champion && (
+          <div className="flex items-center gap-2 bg-amber-500/5 border border-amber-500/15 rounded-lg px-3 py-2" data-testid="champion-card">
+            <Trophy className="h-4 w-4 text-amber-400 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold truncate">{committee.champion.name ?? committee.champion.email}</p>
+              {committee.champion.title && (
+                <p className="text-[10px] text-muted-foreground/50 truncate">{committee.champion.title}</p>
+              )}
+            </div>
+            <span className="text-[10px] text-amber-500 font-bold flex-shrink-0 bg-amber-500/15 px-1.5 py-0.5 rounded">
+              Champion · {committee.champion.championScore} pts
+            </span>
+          </div>
+        )}
+
+        {/* Top Insight */}
+        {topInsight && (
+          <div className={`flex items-start gap-2 text-[11px] px-3 py-2 rounded-lg border ${
+            topInsight.severity === "warning" ? "bg-amber-500/5 border-amber-500/15 text-amber-300/80" :
+            topInsight.severity === "success" ? "bg-emerald-500/5 border-emerald-500/15 text-emerald-300/80" :
+            "bg-muted/20 border-border/30 text-muted-foreground/70"
+          }`} data-testid="intelligence-insight">
+            <AlertTriangle className={`h-3 w-3 flex-shrink-0 mt-0.5 ${
+              topInsight.severity === "warning" ? "text-amber-400" :
+              topInsight.severity === "success" ? "text-emerald-400" : "text-muted-foreground"
+            }`} />
+            <span className="leading-relaxed">{topInsight.text}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -667,6 +795,9 @@ export default function AccountProfilePage() {
           </Card>
         </div>
       )}
+
+      {/* Account Intelligence */}
+      <AccountIntelligencePanel accountId={id} />
 
       {/* Engagement Intelligence */}
       <Card className="border-border/50" data-testid="account-engagement-section">

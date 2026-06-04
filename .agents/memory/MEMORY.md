@@ -11,3 +11,4 @@
 - [Reply-Forward Thread History Fix](reply-forward-history.md) — quoted history was shown in UI but never sent; sendMutation and scheduleMutation both need the quote block; forward now builds full thread from threadQuery.data.messages.
 - [Signature CTA Tracking](signature-cta-tracking.md) — tracked redirect links injected into signature at send time; 3 DB tables; send pipeline order: normalizeOutboundHtml → wrapSignatureCtaLinks → injectTracking → sendEmail → updateSignatureCtaMessageIds.
 - [Internal Open Filtering](internal-open-filtering.md) — is_internal flag on engagement events; email_recipients table; all engagement counts use `AND is_internal IS NOT TRUE`; internal opens stored but excluded everywhere.
+- [Revenue Intelligence System](revenue-intelligence.md) — champion scoring, buying committee, heatmap, follow-up opps, momentum; server/services/revenue-intelligence.ts; 6 API routes; account-profile + thread widget enhanced.

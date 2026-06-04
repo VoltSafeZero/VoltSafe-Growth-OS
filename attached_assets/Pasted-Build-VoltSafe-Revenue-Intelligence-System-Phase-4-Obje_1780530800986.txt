@@ -1,0 +1,448 @@
+Build VoltSafe Revenue Intelligence System (Phase 4)
+
+Objective:
+
+Transform VoltSafe Mail from an email client with engagement tracking into a revenue intelligence platform that automatically identifies:
+
+- Who is engaging
+- Who matters most
+- Who is likely the champion
+- Who is part of the buying committee
+- Which accounts need attention
+- Which opportunities should be followed up
+- Which relationships are accelerating or cooling
+
+Use the existing recipient-level engagement tracking as the foundation.
+
+==================================================
+IMPORTANT
+==================================================
+
+Use existing systems as the source of truth:
+
+- InboxSignalBadge
+- ThreadEngagementWidget
+- Needs Reply — High Engagement widget
+- Recipient-level tracking
+- email_recipients
+- email_engagement_events
+- email_tracking_pixels
+
+Do NOT create a separate engagement engine.
+
+Everything must use the same engagement scoring source.
+
+==================================================
+PHASE 1
+BUYING COMMITTEE DETECTION
+==================================================
+
+Goal:
+
+Automatically identify everyone participating in an opportunity.
+
+For each account:
+
+Detect:
+
+- Champion
+- Decision Maker
+- Stakeholder
+- Observer
+- Internal Team
+
+Inputs:
+
+- TO / CC / BCC
+- Opens
+- Clicks
+- CTA activity
+- Demo activity
+- Replies
+- Meeting activity
+- CRM roles if available
+
+Output:
+
+Buying Committee
+
+Example:
+
+TMV Ventures
+
+Champion:
+Marina
+
+Stakeholder:
+Soraya
+
+Decision Maker:
+Unknown
+
+Internal:
+Scott
+
+Committee Size:
+3
+
+Confidence:
+87%
+
+==================================================
+PHASE 2
+MOST ENGAGED CONTACT
+==================================================
+
+Every thread and account should identify:
+
+Most Engaged Contact
+
+Example:
+
+Marina
+Score: 31
+Opens: 8
+Clicks: 3
+Demo Viewed
+Last Active: 2h ago
+
+Display:
+
+🏆 Most Engaged Contact
+
+inside:
+
+- Thread Engagement Widget
+- Account pages
+- CRM account panels
+- Future dashboards
+
+==================================================
+PHASE 3
+CHAMPION DETECTION
+==================================================
+
+Build Champion Score.
+
+Signals:
+
+Open = 1
+Click = 3
+CTA = 5
+Demo = 8
+Reply = 10
+Meeting = 20
+
+Additional multipliers:
+
+TO recipient > CC recipient
+
+Recent engagement weighted higher.
+
+Outputs:
+
+Champion Score
+
+Classifications:
+
+Champion
+Emerging Champion
+Engaged Contact
+Observer
+
+==================================================
+PHASE 4
+ACCOUNT ENGAGEMENT SCORE
+==================================================
+
+Create:
+
+Account Engagement Score
+
+Aggregate:
+
+- All thread activity
+- All contacts
+- All recipients
+
+Display:
+
+0-100 scale
+
+Example:
+
+TMV Ventures
+
+Account Score: 82
+
+Trend:
+↑ Rising
+
+Champion:
+Marina
+
+Committee:
+3 people
+
+Last Engagement:
+2h ago
+
+==================================================
+PHASE 5
+ACCOUNT ENGAGEMENT HEATMAP
+==================================================
+
+New account-level visualization.
+
+Show:
+
+Account
+Champion
+Score
+Trend
+Committee Size
+Last Activity
+
+Color coding:
+
+Green = Active
+
+Yellow = Monitoring
+
+Red = Cooling
+
+Grey = No engagement
+
+Sortable:
+
+Highest Score
+Fastest Growth
+Most Active
+Most At Risk
+
+==================================================
+PHASE 6
+FOLLOW-UP OPPORTUNITIES WIDGET
+==================================================
+
+Create new dashboard widget:
+
+Follow-Up Opportunities
+
+Purpose:
+
+Find accounts that were hot but have recently gone quiet.
+
+Logic:
+
+High engagement previously
+
+AND
+
+No recent engagement
+
+Examples:
+
+Opened 21x
+Clicked Demo
+No activity for 9 days
+
+Opened 37x
+Replied twice
+No activity for 14 days
+
+Display:
+
+Account
+Champion
+Last Activity
+Days Silent
+Score
+
+Actions:
+
+Open Account
+Open Thread
+Reply
+Schedule Follow-Up
+
+==================================================
+PHASE 7
+RELATIONSHIP MOMENTUM
+==================================================
+
+Create momentum scoring.
+
+Track:
+
+7 day trend
+30 day trend
+90 day trend
+
+Classify:
+
+Accelerating
+Stable
+Cooling
+Dormant
+
+Example:
+
+TMV Ventures
+
+Score:
+82
+
+30 Day:
++24%
+
+Status:
+Accelerating
+
+==================================================
+PHASE 8
+REVENUE COMMAND CENTER
+==================================================
+
+Create a dedicated page:
+
+Revenue Intelligence
+
+Sections:
+
+🔥 Hot Accounts
+
+👤 Champions
+
+📈 Accelerating Relationships
+
+📬 Needs Reply
+
+⏳ Follow-Up Opportunities
+
+⚠ At Risk Accounts
+
+Each section clickable.
+
+==================================================
+PHASE 9
+THREAD INTELLIGENCE
+==================================================
+
+Enhance ThreadEngagementWidget.
+
+Add:
+
+Buying Committee
+
+Most Engaged Contact
+
+Champion Score
+
+Relationship Status
+
+Example:
+
+Buying Committee
+
+🏆 Marina
+Champion
+
+🟡 Soraya
+Stakeholder
+
+⚪ Scott
+Internal
+
+Relationship Status
+
+Accelerating
+
+==================================================
+PHASE 10
+ACCOUNT INTELLIGENCE PANEL
+==================================================
+
+Add to Account page:
+
+Account Intelligence
+
+Includes:
+
+Engagement Score
+
+Champion
+
+Committee Size
+
+Trend
+
+Most Engaged Contact
+
+Relationship Status
+
+Recent Activity Timeline
+
+Open Opportunities
+
+==================================================
+PHASE 11
+AI INSIGHTS
+==================================================
+
+Generate insights such as:
+
+"Marina has opened 8 emails and clicked the demo twice in the last 5 days. Engagement is accelerating."
+
+"TMV Ventures engagement increased 43% over the last 30 days."
+
+"Account appears to have a champion but no identified decision maker."
+
+"Opportunity may be cooling. No engagement for 12 days."
+
+==================================================
+PHASE 12
+TESTS
+==================================================
+
+Add tests for:
+
+✓ Buying committee detection
+
+✓ Champion detection
+
+✓ Most engaged contact
+
+✓ Account engagement score
+
+✓ Heatmap calculations
+
+✓ Follow-up opportunities
+
+✓ Momentum calculations
+
+✓ Revenue command center
+
+✓ AI insights generation
+
+✓ Historical compatibility
+
+All tests must pass.
+
+==================================================
+SUCCESS CRITERIA
+==================================================
+
+VoltSafe Mail should be able to answer:
+
+- Who is engaging?
+- Who matters most?
+- Who is the champion?
+- Who is part of the buying committee?
+- Which accounts are accelerating?
+- Which accounts are cooling?
+- Who needs a reply?
+- Who should we call next?
+- Which opportunities are most likely to close?
+
+The system should feel closer to a lightweight HubSpot/Salesforce Revenue Intelligence platform than a traditional email client.

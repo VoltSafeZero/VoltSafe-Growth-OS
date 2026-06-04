@@ -149,6 +149,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "copilot",            label: { desktop: "Executive Copilot",  mobile: "Copilot" },         route: "/executive-copilot",            icon: Brain },
       { id: "briefs",             label: { desktop: "Meeting Briefs",     mobile: "Briefs"  },         route: "/intelligence/briefs",          icon: Sparkles },
       { id: "signals",            label: { desktop: "Signals & Alerts",   mobile: "Signals" },         route: "/intelligence/signals",         icon: Bell, mobileIcon: SlidersHorizontal },
+      { id: "revenue-intelligence", label: { desktop: "Revenue Intelligence", mobile: "Rev Intel" },    route: "/revenue-intelligence",         icon: Zap, permKey: "crm", advisorHidden: true },
       { id: "territory",          label: { desktop: "Territory & Geo",    mobile: "Territory" },       route: "/geography",                    icon: Globe,      permKey: "crm", advisorHidden: true },
     ],
   },
