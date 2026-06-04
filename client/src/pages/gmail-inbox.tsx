@@ -187,8 +187,13 @@ function formatMessageHeaderDate(dateStr: string, internalDate?: string) {
 }
 
 function parseSenderName(from: string) {
+  if (!from?.trim()) return "";
   const match = from.match(/^"?([^"<]+)"?\s*<[^>]+>$/);
-  return match ? match[1].trim() : from.replace(/<[^>]+>/, "").trim() || from;
+  if (match) return match[1].trim();
+  const stripped = from.replace(/<[^>]+>/, "").trim();
+  // When the from string is just angle-bracket-wrapped (no display name), fall back
+  // to the extracted email address so we never render a blank sender label.
+  return stripped || parseSenderEmail(from) || from;
 }
 
 function parseSenderEmail(from: string) {
@@ -8848,7 +8853,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               const blocked = blockedDomains.has(domain);
               const senderName = tab === "sent"
                 ? (msg.to ? `→ ${parseSenderName(msg.to)}` : "Unknown")
-                : parseSenderName(msg.from);
+                : (msg.fromName?.trim() || msg.fromEmail?.trim() || parseSenderName(msg.from) || "Unknown");
               const threadSig = threadSignals[msg.threadId] ?? null;
               const hasSignalRow = threadSig && (
                 threadSig.isReplied || threadSig.isHot ||
