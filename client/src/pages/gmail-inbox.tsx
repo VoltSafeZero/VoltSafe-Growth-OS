@@ -8802,7 +8802,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             messageId={msg.id}
                           />
                         )}
-                        {tab === "inbox" && (
+                        {(tab === "inbox" || isSmartView) && (
                           <CategoryBadge
                             labelIds={msg.labelIds}
                             messageId={msg.id}
