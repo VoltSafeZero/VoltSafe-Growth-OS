@@ -110,6 +110,10 @@ type MessageSummary = {
   internalDate: string;
   labelIds: string[];
   from: string;
+  // Separate sender fields populated by the local-mailbox layer.
+  // These are preferred over reparsing the combined `from` string.
+  fromName?: string;
+  fromEmail?: string;
   to: string;
   subject: string;
   date: string;

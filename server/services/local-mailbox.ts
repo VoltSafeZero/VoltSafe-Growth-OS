@@ -150,6 +150,11 @@ export type LocalMessageSummary = {
   internalDate: string;  // ms epoch as string (Gmail-shape)
   labelIds: string[];
   from: string;
+  // Separate sender fields so the frontend can render the name without reparsing
+  // the combined RFC 5322 "from" string. Populated from email_messages.from_name
+  // and email_messages.from_email.
+  fromName: string;
+  fromEmail: string;
   to: string;
   subject: string;
   date: string;          // RFC date string
@@ -238,13 +243,25 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
       FORUMS: "CATEGORY_FORUMS",
     };
     const label = CATEGORY_LABEL_MAP[rawLabel] ?? rawLabel;
-    where.push(`(label_ids ILIKE '%"${safe(label)}"%' OR label_ids ILIKE '%${safe(label)}%')`);
-    // Inbox view should never show outbound sent emails (Gmail behaviour).
-    // Emails with ["SENT","INBOX"] labels are the user's own outgoing replies
-    // that Gmail happens to also tag with INBOX.  Exclude them so only truly
-    // received messages appear in the inbox query.
     if (label === "INBOX") {
+      // The Inbox view shows INBOX-labeled messages AND all category-tagged messages
+      // (CATEGORY_UPDATES, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, CATEGORY_FORUMS).
+      // Gmail routes many real emails through category labels without also stamping
+      // them INBOX, so restricting to the INBOX label alone silently hides them.
+      // We exclude SENT, DRAFT, SPAM, TRASH to match Gmail's inbox behaviour.
+      where.push(`(
+        label_ids ILIKE '%"INBOX"%' OR label_ids ILIKE '%INBOX%'
+        OR label_ids ILIKE '%CATEGORY_UPDATES%'
+        OR label_ids ILIKE '%CATEGORY_PROMOTIONS%'
+        OR label_ids ILIKE '%CATEGORY_SOCIAL%'
+        OR label_ids ILIKE '%CATEGORY_FORUMS%'
+      )`);
       where.push(`label_ids NOT ILIKE '%"SENT"%'`);
+      where.push(`label_ids NOT ILIKE '%"DRAFT"%'`);
+      where.push(`label_ids NOT ILIKE '%"SPAM"%'`);
+      where.push(`label_ids NOT ILIKE '%"TRASH"%'`);
+    } else {
+      where.push(`(label_ids ILIKE '%"${safe(label)}"%' OR label_ids ILIKE '%${safe(label)}%')`);
     }
   }
 
@@ -440,6 +457,8 @@ export async function listLocalMessages(p: {
       internalDate: sentAt ? String(sentAt.getTime()) : "0",
       labelIds: parseLabelIds(r.label_ids),
       from: fmtFrom(r.from_name, r.from_email),
+      fromName: r.from_name || "",
+      fromEmail: r.from_email || "",
       to: parseToList(r.to_emails),
       subject: r.subject || "",
       date: sentAt ? sentAt.toUTCString() : "",
