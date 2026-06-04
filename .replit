@@ -74,6 +74,10 @@ args = "not-spam-blocked-domain"
 task = "workflow.run"
 args = "contact-link-panel"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "test:grep"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -172,6 +176,17 @@ args = "node tests/contact-link-panel.test.js"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "test:grep"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run test:grep"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 integrations = ["javascript_openai_ai_integrations:2.0.0", "google-mail:1.0.0", "jira:1.0.0", "confluence:1.0.0"]

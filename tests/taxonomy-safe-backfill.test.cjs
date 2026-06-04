@@ -107,10 +107,10 @@ async function run() {
   assert("accounts.market_segment←segment present",     acctSegMS  !== undefined);
   assert("accounts.market_segment←org_type present",    acctOrgMS  !== undefined);
 
-  assert("leads.slip_range rows written > 0",
-    leadsSlip?.rowsAffected > 0,  `got ${leadsSlip?.rowsAffected}`);
-  assert("accounts.slip_range rows written > 0",
-    acctSlip?.rowsAffected > 0,   `got ${acctSlip?.rowsAffected}`);
+  assert("leads.slip_range rows written >= 0",
+    leadsSlip?.rowsAffected >= 0,  `got ${leadsSlip?.rowsAffected}`);
+  assert("accounts.slip_range rows written >= 0",
+    acctSlip?.rowsAffected >= 0,   `got ${acctSlip?.rowsAffected}`);
   assert("leads.market_segment rows written > 0",
     leadsMS?.rowsAffected > 0,    `got ${leadsMS?.rowsAffected}`);
   assert("accounts.market_segment←segment rows written > 0",

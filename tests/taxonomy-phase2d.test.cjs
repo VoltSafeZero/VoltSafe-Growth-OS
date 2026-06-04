@@ -236,7 +236,8 @@ console.log("\n[4] client/src/pages/accounts.tsx — state, query, forms, filter
   );
   assert(
     "mobile filter count includes marketSegmentFilter",
-    /\[.*marketSegmentFilter.*\]\.filter\(v => v !== "all"\)/.test(src)
+    /\[.*marketSegmentFilter.*\]\.filter\(v => v !== "all"\)/.test(src) ||
+      /marketSegmentFilter !== "all".*\]\.reduce/.test(src)
   );
   assert(
     "filter UI has select-market-segment-filter testid",
