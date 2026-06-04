@@ -123,10 +123,15 @@ assert(
   "CategoryBadge function component is defined"
 );
 
-// There are two <CategoryBadge usages in the file:
-//   1. A read-only badge (no onFilter prop) used in a different view
-//   2. The guarded inbox-row badge with onFilter prop
-// We locate the guarded usage by finding the <CategoryBadge that has onFilter= nearby.
+// There are multiple <CategoryBadge usages in the file:
+//   1. Category-tab rows: clickable badge that navigates *back* to flat inbox
+//      (no tab === "inbox" guard — it lives inside the isCategoryTab block)
+//   2. The guarded inbox-row badge with onFilter + tabMap (tab === "inbox" guard)
+//   3. Any read-only badges (no onFilter prop)
+//
+// We locate the inbox-guarded usage by scanning all <CategoryBadge usages with
+// onFilter= and selecting the one whose 200-char look-behind contains
+// 'tab === "inbox"' — making the test order-independent.
 let guardedBadgeIdx = -1;
 let searchFrom = 0;
 while (true) {
@@ -134,13 +139,16 @@ while (true) {
   if (idx === -1) break;
   const tagSnippet = inboxPageSrc.slice(idx, idx + 400);
   if (tagSnippet.includes("onFilter=")) {
-    guardedBadgeIdx = idx;
-    break;
+    const window200 = inboxPageSrc.slice(Math.max(0, idx - 200), idx + 10);
+    if (window200.includes('tab === "inbox"')) {
+      guardedBadgeIdx = idx;
+      break;
+    }
   }
   searchFrom = idx + 1;
 }
 
-assert(guardedBadgeIdx !== -1, "<CategoryBadge with onFilter= exists in source");
+assert(guardedBadgeIdx !== -1, "<CategoryBadge with onFilter= and tab === \"inbox\" guard exists in source");
 
 // The guard must wrap the CategoryBadge usage and explicitly include tab === "inbox"
 const guardWindow = inboxPageSrc.slice(Math.max(0, guardedBadgeIdx - 200), guardedBadgeIdx + 10);
@@ -196,6 +204,46 @@ assert(
 // Verify the tabMap drives a setTab call
 const tabMapSection = inboxPageSrc.slice(tabMapIdx, tabMapIdx + 500);
 assert(tabMapSection.includes("setTab("), "onFilter handler calls setTab() using the tabMap destination");
+
+// ── (d) Category-tab badge — navigates back to flat inbox with thread pre-selected ─
+
+console.log("\n(d) Category-tab CategoryBadge — navigates to inbox and pre-selects thread");
+
+// Find the CategoryBadge inside the isCategoryTab block. This badge has
+// filterLabel="View in Inbox" and its onFilter handler calls setTab("inbox")
+// and setSelectedThreadId() — it lives BEFORE the inbox tab block in the file.
+let categoryTabBadgeIdx = -1;
+let searchFrom2 = 0;
+while (true) {
+  const idx = inboxPageSrc.indexOf("<CategoryBadge", searchFrom2);
+  if (idx === -1) break;
+  const tagSnippet = inboxPageSrc.slice(idx, idx + 600);
+  if (tagSnippet.includes('filterLabel="View in Inbox"') || tagSnippet.includes("filterLabel=")) {
+    categoryTabBadgeIdx = idx;
+    break;
+  }
+  searchFrom2 = idx + 1;
+}
+
+assert(categoryTabBadgeIdx !== -1, "Category-tab CategoryBadge with filterLabel prop exists in source");
+
+const categoryTabTag = inboxPageSrc.slice(categoryTabBadgeIdx, categoryTabBadgeIdx + 600);
+assert(
+  categoryTabTag.includes('filterLabel="View in Inbox"') || categoryTabTag.includes("filterLabel="),
+  'Category-tab badge has filterLabel prop (communicates "View in Inbox" to tooltip)'
+);
+assert(
+  categoryTabTag.includes("setTab(") || categoryTabTag.includes('setTab("inbox")'),
+  "Category-tab badge onFilter calls setTab() to return to flat inbox"
+);
+assert(
+  categoryTabTag.includes("setSelectedThreadId("),
+  "Category-tab badge onFilter pre-selects the thread by calling setSelectedThreadId()"
+);
+assert(
+  categoryTabTag.includes("setSelectedMessageId("),
+  "Category-tab badge onFilter clears selected message by calling setSelectedMessageId()"
+);
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 

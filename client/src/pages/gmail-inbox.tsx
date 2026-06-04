@@ -400,18 +400,21 @@ function CategoryBadge({
   labelIds,
   messageId,
   onFilter,
+  filterLabel,
 }: {
   labelIds: string[];
   messageId: number;
   onFilter?: (category: string) => void;
+  filterLabel?: string;
 }) {
   const key = getCategoryLabel(labelIds);
   if (!key) return null;
   const cfg = CATEGORY_BADGE_CONFIG[key];
+  const tooltipSuffix = onFilter ? ` — ${filterLabel ?? "click to filter"}` : "";
   return (
     <span
       data-testid={`badge-category-${key.toLowerCase()}-${messageId}`}
-      title={`Category: ${cfg.label}${onFilter ? " — click to filter" : ""}`}
+      title={`Category: ${cfg.label}${tooltipSuffix}`}
       className={`flex-shrink-0 h-4 px-1.5 rounded border text-[9px] font-bold leading-4 tabular-nums ${cfg.className}${onFilter ? " cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
       onClick={onFilter ? (e) => { e.stopPropagation(); onFilter(key); } : undefined}
     >
@@ -8565,8 +8568,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <div className="flex items-center justify-between gap-2 mb-[3px]">
                           <span className={`text-[13px] leading-none truncate ${isUnread ? "font-semibold text-foreground" : "font-medium text-foreground/80"}`}>{senderName}</span>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {/* Read-only category badge — no onFilter since user is already on this tab */}
-                            <CategoryBadge labelIds={msg.labelIds || []} messageId={msg.id} />
+                            {/* Clicking the badge navigates back to the flat inbox tab and pre-selects this thread */}
+                            <CategoryBadge
+                              labelIds={msg.labelIds || []}
+                              messageId={msg.id}
+                              filterLabel="View in Inbox"
+                              onFilter={(_catKey) => {
+                                setSelectedThreadId(msg.threadId);
+                                setSelectedMessageId(null);
+                                setTab("inbox");
+                              }}
+                            />
                             <span className="text-[11px] text-muted-foreground/45 whitespace-nowrap tabular-nums">{dateStr}</span>
                           </div>
                         </div>
