@@ -1,24 +1,23 @@
 /**
  * Revenue Intelligence — Revenue Command Center
- *
- * Surfaces buying committees, champions, accelerating accounts,
- * at-risk accounts, and follow-up opportunities in one page.
  */
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   Flame, TrendingUp, TrendingDown, AlertTriangle, Clock,
   ArrowRight, Eye, MousePointerClick, Users, Trophy, Zap,
   Building2, BarChart3, RefreshCw, ChevronRight, Activity,
-  Mail,
+  Mail, ExternalLink, Reply, CalendarPlus, Star,
 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, addBusinessDays, format } from "date-fns";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -52,12 +51,38 @@ interface FollowUpOpportunity {
   lastSubject: string | null;
 }
 
+interface ChampionLeader {
+  accountId: number;
+  accountName: string;
+  email: string;
+  name: string | null;
+  title: string | null;
+  championScore: number;
+  opens: number;
+  clicks: number;
+  lastActivityAt: string | null;
+}
+
+interface NeedsReplyItem {
+  threadId: string;
+  subject: string;
+  senderName: string;
+  senderEmail: string;
+  opensCount: number;
+  clickCount: number;
+  engagementScore: number;
+  waitingDays: number;
+  needsReply: boolean;
+  routeTarget: string;
+}
+
 interface CommandCenterData {
   hotAccounts:           AccountEngagement[];
   accelerating:          AccountEngagement[];
   followUpOpportunities: FollowUpOpportunity[];
   atRisk:                AccountEngagement[];
   heatmap:               AccountEngagement[];
+  champions:             ChampionLeader[];
   summary: {
     hotCount: number;
     totalActiveAccounts: number;
@@ -160,36 +185,173 @@ function AccountRow({ acct, onNavigate }: { acct: AccountEngagement; onNavigate:
   );
 }
 
-// ── Follow-Up Row ─────────────────────────────────────────────────────────────
+// ── Champion Row ──────────────────────────────────────────────────────────────
 
-function FollowUpRow({ opp, onNavigate }: { opp: FollowUpOpportunity; onNavigate: (id: number) => void }) {
-  const urgent = opp.daysSilent >= 14;
+function ChampionRow({ c, onNavigate }: { c: ChampionLeader; onNavigate: (id: number) => void }) {
   return (
     <div
       className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/30 cursor-pointer transition-colors group"
-      onClick={() => onNavigate(opp.accountId)}
+      onClick={() => onNavigate(c.accountId)}
+      data-testid={`ri-champion-row-${c.accountId}`}
+    >
+      <div className="flex-shrink-0 p-1.5 rounded-md bg-amber-500/10">
+        <Trophy className="h-3 w-3 text-amber-400" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[12px] font-semibold text-foreground truncate">{c.name ?? c.email}</p>
+        <p className="text-[10px] text-muted-foreground/50 truncate">
+          {c.accountName}{c.title ? ` · ${c.title}` : ""}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/60">
+          <Eye className="h-2.5 w-2.5 text-sky-400" />{c.opens}
+        </span>
+        <span className="text-[10px] font-bold bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded">
+          {c.championScore} pts
+        </span>
+        <span className="text-[10px] text-muted-foreground/40">{timeAgo(c.lastActivityAt)}</span>
+        <ChevronRight className="h-3 w-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
+      </div>
+    </div>
+  );
+}
+
+// ── Needs Reply Row ───────────────────────────────────────────────────────────
+
+function NeedsReplyRow({ item, onOpenThread }: { item: NeedsReplyItem; onOpenThread: (target: string) => void }) {
+  const urgent = item.waitingDays >= 3;
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/30 cursor-pointer transition-colors group"
+      onClick={() => onOpenThread(item.routeTarget)}
+      data-testid={`ri-needs-reply-row-${item.threadId}`}
+    >
+      <div className={`flex-shrink-0 p-1.5 rounded-md ${urgent ? "bg-red-500/10" : "bg-blue-500/10"}`}>
+        <Mail className={`h-3 w-3 ${urgent ? "text-red-400" : "text-blue-400"}`} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[12px] font-semibold text-foreground truncate">{item.subject}</p>
+        <p className="text-[10px] text-muted-foreground/50 truncate">
+          {item.senderName || item.senderEmail}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/60">
+          <Eye className="h-2.5 w-2.5 text-sky-400" />{item.opensCount}
+        </span>
+        <ScoreBadge score={item.engagementScore} />
+        {item.waitingDays > 0 && (
+          <span className={`text-[11px] font-semibold ${urgent ? "text-red-400" : "text-amber-400"}`}>
+            {item.waitingDays}d
+          </span>
+        )}
+        <ChevronRight className="h-3 w-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
+      </div>
+    </div>
+  );
+}
+
+// ── Follow-Up Row ─────────────────────────────────────────────────────────────
+
+function FollowUpRow({ opp, onNavigate, onOpenThread }: {
+  opp: FollowUpOpportunity;
+  onNavigate: (id: number) => void;
+  onOpenThread: (target: string) => void;
+}) {
+  const { toast } = useToast();
+  const urgent = opp.daysSilent >= 14;
+
+  const scheduleTask = useMutation({
+    mutationFn: () => {
+      const dueDate = addBusinessDays(new Date(), 3);
+      return apiRequest("POST", "/api/tasks", {
+        title: `Follow up with ${opp.accountName}`,
+        status: "pending",
+        priority: urgent ? "high" : "medium",
+        linkedObjectType: "account",
+        linkedObjectId: opp.accountId,
+        dueDate: format(dueDate, "yyyy-MM-dd"),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Follow-up scheduled", description: `Due in 3 business days for ${opp.accountName}` });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    },
+    onError: () => toast({ title: "Error", description: "Could not create task", variant: "destructive" }),
+  });
+
+  const threadUrl = opp.lastThreadId ? `/gmail?thread=${encodeURIComponent(opp.lastThreadId)}` : null;
+
+  return (
+    <div
+      className="rounded-lg border border-border/30 hover:border-border/50 transition-colors"
       data-testid={`ri-followup-row-${opp.accountId}`}
     >
-      <div className={`flex-shrink-0 p-1.5 rounded-md ${urgent ? "bg-red-500/10" : "bg-amber-500/10"}`}>
-        <Clock className={`h-3 w-3 ${urgent ? "text-red-400" : "text-amber-400"}`} />
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <p className="text-[12px] font-semibold text-foreground truncate">{opp.accountName}</p>
-        {opp.lastSubject && (
-          <p className="text-[10px] text-muted-foreground/50 truncate">{opp.lastSubject}</p>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 flex-shrink-0 text-right">
-        <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
-          <Eye className="h-2.5 w-2.5 text-sky-400" />{opp.totalOpens}
-          {opp.totalClicks > 0 && <><MousePointerClick className="h-2.5 w-2.5 text-blue-400 ml-0.5" />{opp.totalClicks}</>}
+      <div
+        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
+        onClick={() => onNavigate(opp.accountId)}
+      >
+        <div className={`flex-shrink-0 p-1.5 rounded-md ${urgent ? "bg-red-500/10" : "bg-amber-500/10"}`}>
+          <Clock className={`h-3 w-3 ${urgent ? "text-red-400" : "text-amber-400"}`} />
         </div>
-        <span className={`text-[11px] font-semibold ${urgent ? "text-red-400" : "text-amber-400"}`}>
-          {opp.daysSilent}d silent
-        </span>
-        <ChevronRight className="h-3 w-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-semibold text-foreground truncate">{opp.accountName}</p>
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground/50">
+            {opp.champion && (
+              <span className="flex items-center gap-0.5">
+                <Trophy className="h-2.5 w-2.5 text-amber-400" />
+                {opp.champion.name ?? opp.champion.email}
+              </span>
+            )}
+            {opp.lastSubject && <span className="truncate max-w-[120px]">{opp.lastSubject}</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0 text-right">
+          <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
+            <Eye className="h-2.5 w-2.5 text-sky-400" />{opp.totalOpens}
+            {opp.totalClicks > 0 && <><MousePointerClick className="h-2.5 w-2.5 text-blue-400 ml-0.5" />{opp.totalClicks}</>}
+          </div>
+          <span className={`text-[11px] font-semibold ${urgent ? "text-red-400" : "text-amber-400"}`}>
+            {opp.daysSilent}d silent
+          </span>
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-1.5 px-3 pb-2" data-testid={`followup-actions-${opp.accountId}`}>
+        {threadUrl && (
+          <Button
+            variant="ghost" size="sm"
+            className="h-6 text-[10px] text-muted-foreground/60 hover:text-foreground px-2 gap-1"
+            onClick={(e) => { e.stopPropagation(); onOpenThread(threadUrl); }}
+            data-testid={`followup-open-thread-${opp.accountId}`}
+          >
+            <ExternalLink className="h-2.5 w-2.5" />
+            Open Thread
+          </Button>
+        )}
+        {threadUrl && (
+          <Button
+            variant="ghost" size="sm"
+            className="h-6 text-[10px] text-muted-foreground/60 hover:text-foreground px-2 gap-1"
+            onClick={(e) => { e.stopPropagation(); onOpenThread(threadUrl); }}
+            data-testid={`followup-reply-${opp.accountId}`}
+          >
+            <Reply className="h-2.5 w-2.5" />
+            Reply
+          </Button>
+        )}
+        <Button
+          variant="ghost" size="sm"
+          className="h-6 text-[10px] text-muted-foreground/60 hover:text-foreground px-2 gap-1"
+          onClick={(e) => { e.stopPropagation(); scheduleTask.mutate(); }}
+          disabled={scheduleTask.isPending}
+          data-testid={`followup-schedule-${opp.accountId}`}
+        >
+          <CalendarPlus className="h-2.5 w-2.5" />
+          Schedule Follow-Up
+        </Button>
       </div>
     </div>
   );
@@ -234,15 +396,24 @@ function SectionCard({
 
 // ── Heatmap Table ─────────────────────────────────────────────────────────────
 
-type SortKey = "score" | "trend" | "opens" | "last_active";
+type SortKey = "score" | "trend" | "opens" | "last_active" | "fastest_growth" | "most_at_risk";
 
 function HeatmapTable({ data, onNavigate }: { data: AccountEngagement[]; onNavigate: (id: number) => void }) {
   const [sortKey, setSortKey] = useState<SortKey>("score");
 
+  const RISK_ORDER: Record<MomentumStatus, number> = { cooling: 0, dormant: 1, stable: 2, accelerating: 3 };
+
   const sorted = [...data].sort((a, b) => {
     switch (sortKey) {
-      case "score":   return b.engagementScore - a.engagementScore;
-      case "opens":   return b.totalOpens - a.totalOpens;
+      case "score":        return b.engagementScore - a.engagementScore;
+      case "opens":        return b.totalOpens - a.totalOpens;
+      case "fastest_growth": return b.trendPct - a.trendPct;
+      case "most_at_risk": {
+        const rA = RISK_ORDER[a.trend] ?? 4;
+        const rB = RISK_ORDER[b.trend] ?? 4;
+        if (rA !== rB) return rA - rB;
+        return a.trendPct - b.trendPct;
+      }
       case "last_active": {
         const aT = a.lastEngagementAt ? new Date(a.lastEngagementAt).getTime() : 0;
         const bT = b.lastEngagementAt ? new Date(b.lastEngagementAt).getTime() : 0;
@@ -273,49 +444,53 @@ function HeatmapTable({ data, onNavigate }: { data: AccountEngagement[]; onNavig
             <BarChart3 className="h-4 w-4 text-primary" />
             <CardTitle className="text-sm font-semibold">Engagement Heatmap</CardTitle>
           </div>
-          <div className="flex items-center gap-1 bg-muted/20 rounded-lg p-0.5">
-            <SortBtn k="score"       label="Score" />
-            <SortBtn k="opens"       label="Opens" />
-            <SortBtn k="trend"       label="Trend" />
-            <SortBtn k="last_active" label="Recent" />
+          <div className="flex items-center gap-1 bg-muted/20 rounded-lg p-0.5 flex-wrap">
+            <SortBtn k="score"        label="Score" />
+            <SortBtn k="opens"        label="Opens" />
+            <SortBtn k="fastest_growth" label="Fastest Growth" />
+            <SortBtn k="most_at_risk" label="Most At Risk" />
+            <SortBtn k="last_active"  label="Recent" />
           </div>
         </div>
       </CardHeader>
       <CardContent className="px-2 pb-3 pt-0">
         {sorted.length === 0 ? (
           <p className="text-[11px] text-muted-foreground/40 text-center py-6">
-            No account engagement data yet. Send tracked emails to start seeing insights.
+            No account engagement data yet.
           </p>
         ) : (
           <div className="space-y-0.5">
             {/* Header */}
-            <div className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-3 px-3 py-1.5 text-[10px] text-muted-foreground/50 uppercase tracking-wide font-medium">
+            <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-2 px-3 py-1.5 text-[10px] text-muted-foreground/50 uppercase tracking-wide font-medium">
               <span>Account</span>
+              <span className="text-right w-24">Champion</span>
+              <span className="text-right w-14">Committee</span>
               <span className="text-right w-14">Score</span>
-              <span className="text-right w-12">Opens</span>
               <span className="text-right w-16">Trend</span>
               <span className="text-right w-24">Last Active</span>
             </div>
             {sorted.map(acct => (
               <div
                 key={acct.accountId}
-                className={`grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors hover:bg-muted/30 border ${trendBg(acct.trend)}`}
+                className={`grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors hover:bg-muted/30 border ${trendBg(acct.trend)}`}
                 onClick={() => onNavigate(acct.accountId)}
                 data-testid={`heatmap-row-${acct.accountId}`}
               >
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold truncate">{acct.accountName}</p>
-                  {acct.champion && (
-                    <p className="text-[9.5px] text-muted-foreground/50 truncate">
-                      🏆 {acct.champion.name ?? acct.champion.email}
-                    </p>
-                  )}
+                </div>
+                <div className="text-right w-24 text-[10px] text-muted-foreground/60 truncate" data-testid={`heatmap-champion-${acct.accountId}`}>
+                  {acct.champion ? (acct.champion.name ?? acct.champion.email) : "—"}
+                </div>
+                <div className="text-right w-14 text-[10px] text-muted-foreground/60" data-testid={`heatmap-committee-${acct.accountId}`}>
+                  {acct.committeeSize > 0 ? (
+                    <span className="flex items-center justify-end gap-0.5">
+                      <Users className="h-2.5 w-2.5" />{acct.committeeSize}
+                    </span>
+                  ) : "—"}
                 </div>
                 <div className="text-right w-14">
                   <ScoreBadge score={acct.engagementScore} />
-                </div>
-                <div className="text-right w-12 text-[11px] text-muted-foreground/70">
-                  {acct.totalOpens}
                 </div>
                 <div className={`text-right w-16 text-[10px] font-medium flex items-center justify-end gap-0.5 ${trendColor(acct.trend)}`}>
                   <TrendIcon trend={acct.trend} />
@@ -367,7 +542,17 @@ export default function RevenueIntelligencePage() {
     retry: false,
   });
 
+  const { data: needsReplyItems, isLoading: needsReplyLoading } = useQuery<NeedsReplyItem[]>({
+    queryKey: ["/api/dashboard/needs-reply-high-engagement"],
+    queryFn: () =>
+      fetch("/api/dashboard/needs-reply-high-engagement", { credentials: "include" })
+        .then(r => r.ok ? r.json() : []),
+    staleTime: 60_000,
+    retry: false,
+  });
+
   const goToAccount = (id: number) => navigate(`/accounts/${id}`);
+  const goToThread  = (target: string) => navigate(target);
 
   const summary = data?.summary;
 
@@ -436,22 +621,22 @@ export default function RevenueIntelligencePage() {
             )}
           </SectionCard>
 
-          {/* ⏳ Follow-Up Opportunities */}
+          {/* 👤 Champions */}
           <SectionCard
-            title="Follow-Up Opportunities"
-            icon={Clock}
+            title="Champions"
+            icon={Trophy}
             iconClass="text-amber-400"
-            badge={data?.followUpOpportunities?.length}
-            emptyText="No follow-up opportunities. All active accounts are staying warm."
+            badge={data?.champions?.length}
+            emptyText="No champions identified yet."
           >
             {isLoading ? (
               <div className="space-y-2 px-2">{[0,1,2].map(i => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
-            ) : (data?.followUpOpportunities ?? []).length === 0 ? (
-              <p className="text-[11px] text-muted-foreground/40 text-center py-5">All warm — no follow-ups needed.</p>
+            ) : (data?.champions ?? []).length === 0 ? (
+              <p className="text-[11px] text-muted-foreground/40 text-center py-5">No champions identified yet.</p>
             ) : (
-              <div className="space-y-0.5">
-                {(data?.followUpOpportunities ?? []).map(o => (
-                  <FollowUpRow key={`${o.accountId}-${o.lastThreadId}`} opp={o} onNavigate={goToAccount} />
+              <div className="space-y-0.5" data-testid="ri-champions-section">
+                {(data?.champions ?? []).map(c => (
+                  <ChampionRow key={`${c.accountId}-${c.email}`} c={c} onNavigate={goToAccount} />
                 ))}
               </div>
             )}
@@ -472,6 +657,53 @@ export default function RevenueIntelligencePage() {
               <div className="space-y-0.5">
                 {(data?.accelerating ?? []).map(a => (
                   <AccountRow key={a.accountId} acct={a} onNavigate={goToAccount} />
+                ))}
+              </div>
+            )}
+          </SectionCard>
+
+          {/* 📬 Needs Reply */}
+          <SectionCard
+            title="Needs Reply"
+            icon={Mail}
+            iconClass="text-blue-400"
+            badge={needsReplyItems?.length}
+            emptyText="No high-engagement threads awaiting reply."
+          >
+            {needsReplyLoading ? (
+              <div className="space-y-2 px-2">{[0,1,2].map(i => <Skeleton key={i} className="h-12 rounded-lg" />)}</div>
+            ) : (needsReplyItems ?? []).length === 0 ? (
+              <p className="text-[11px] text-muted-foreground/40 text-center py-5">All caught up — no threads need a reply.</p>
+            ) : (
+              <div className="space-y-0.5" data-testid="ri-needs-reply-section">
+                {(needsReplyItems ?? []).slice(0, 8).map(item => (
+                  <NeedsReplyRow key={item.threadId} item={item} onOpenThread={goToThread} />
+                ))}
+              </div>
+            )}
+          </SectionCard>
+
+          {/* ⏳ Follow-Up Opportunities */}
+          <SectionCard
+            title="Follow-Up Opportunities"
+            icon={Clock}
+            iconClass="text-amber-400"
+            badge={data?.followUpOpportunities?.length}
+            emptyText="No follow-up opportunities. All active accounts are staying warm."
+          >
+            {isLoading ? (
+              <div className="space-y-2 px-2">{[0,1,2].map(i => <Skeleton key={i} className="h-14 rounded-lg" />)}</div>
+            ) : (data?.followUpOpportunities ?? []).length === 0 ? (
+              <p className="text-[11px] text-muted-foreground/40 text-center py-5">All warm — no follow-ups needed.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {(data?.followUpOpportunities ?? []).map(o => (
+                  <FollowUpRow
+                    key={`${o.accountId}-${o.lastThreadId}`}
+                    opp={o}
+                    onNavigate={goToAccount}
+                    onOpenThread={goToThread}
+                  />
                 ))}
               </div>
             )}

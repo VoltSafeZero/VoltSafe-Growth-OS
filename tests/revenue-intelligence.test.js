@@ -125,6 +125,45 @@ if (page) {
   console.log("  (revenue-intelligence.tsx not found — page not yet generated)");
 }
 
+// ── 11. New service functions (finalization sprint) ───────────────────────────
+console.log("\n-- New service functions --");
+ok("getChampionsLeaderboard exported",      has(svc, "export async function getChampionsLeaderboard"));
+ok("getAccountActivityTimeline exported",   has(svc, "export async function getAccountActivityTimeline"));
+ok("getAccountOpenOpportunities exported",  has(svc, "export async function getAccountOpenOpportunities"));
+ok("getThreadAccountMomentum exported",     has(svc, "export async function getThreadAccountMomentum"));
+ok("champions included in command-center return", has(svc, "champions,") || has(svc, "champions:"));
+
+// ── 12. New API routes (finalization sprint) ──────────────────────────────────
+console.log("\n-- New API routes --");
+ok("thread account-momentum route registered",
+  has(routes, "thread/:threadId/account-momentum"));
+ok("account activity-timeline route registered",
+  has(routes, "account/:accountId/activity-timeline"));
+ok("account opportunities route registered",
+  has(routes, "account/:accountId/opportunities"));
+ok("champions leaderboard route registered",
+  has(routes, "/api/revenue-intelligence/champions"));
+
+// ── 13. UI finalization checks ────────────────────────────────────────────────
+console.log("\n-- UI finalization --");
+if (page) {
+  ok("Champions section rendered on RI page",    has(page, "ri-champions-section") || has(page, "ChampionRow"));
+  ok("Needs Reply section rendered on RI page",  has(page, "ri-needs-reply-section") || has(page, "NeedsReplyRow"));
+  ok("Heatmap has fastest_growth sort option",   has(page, "fastest_growth"));
+} else {
+  console.log("  (revenue-intelligence.tsx not accessible — skipping)");
+}
+ok("Relationship Status section in EngagementWidget",
+  has(widget, "relationship-status-section") || has(widget, "RelationshipStatus"));
+if (acctPro) {
+  ok("Account Intelligence Panel has activity timeline",
+    has(acctPro, "account-activity-timeline") || has(acctPro, "ActivityEvent"));
+  ok("Account Intelligence Panel has open opportunities",
+    has(acctPro, "account-open-opportunities") || has(acctPro, "AccountOpportunity"));
+} else {
+  console.log("  (account-profile.tsx not accessible — skipping)");
+}
+
 // ── Result ────────────────────────────────────────────────────────────────────
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);
 process.exit(failed > 0 ? 1 : 0);

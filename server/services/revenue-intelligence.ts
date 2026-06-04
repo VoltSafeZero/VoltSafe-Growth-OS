@@ -131,12 +131,44 @@ export interface AccountIntelligence {
   lastEngagementAt: string | null;
 }
 
+export interface ChampionLeader {
+  accountId:      number;
+  accountName:    string;
+  email:          string;
+  name:           string | null;
+  title:          string | null;
+  championScore:  number;
+  opens:          number;
+  clicks:         number;
+  lastActivityAt: string | null;
+}
+
+export interface ActivityEvent {
+  type:         "open" | "click" | "demo" | "reply" | "meeting";
+  at:           string;
+  contactName:  string | null;
+  contactEmail: string | null;
+  subject:      string | null;
+  url:          string | null;
+}
+
+export interface AccountOpportunity {
+  id:               number;
+  title:            string;
+  stage:            string;
+  amount:           number;
+  currency:         string;
+  estCloseDate:     string | null;
+  forecastCategory: string;
+}
+
 export interface CommandCenterData {
   hotAccounts:          AccountEngagement[];
   accelerating:         AccountEngagement[];
   followUpOpportunities: FollowUpOpportunity[];
   atRisk:               AccountEngagement[];
   heatmap:              AccountEngagement[];
+  champions:            ChampionLeader[];
   summary: {
     hotCount: number;
     totalActiveAccounts: number;
@@ -570,27 +602,70 @@ export async function getEngagementHeatmap(limit = 50): Promise<AccountEngagemen
   const lim = Math.min(Number(limit) || 50, 200);
   try {
     const rows = (await db.execute(sql.raw(`
+      WITH
+      top_champion AS (
+        SELECT DISTINCT ON (et2.primary_account_id)
+          et2.primary_account_id                                  AS account_id,
+          COALESCE(c2.name, er2.recipient_email)                  AS champion_name,
+          LOWER(er2.recipient_email)                              AS champion_email
+        FROM email_threads et2
+        JOIN email_recipients er2
+          ON er2.gmail_thread_id = et2.gmail_thread_id
+          AND er2.is_internal IS NOT TRUE
+        LEFT JOIN email_engagement_events ee2
+          ON ee2.tracking_id = er2.tracking_token
+          AND ee2.is_bot=FALSE AND ee2.is_internal IS NOT TRUE
+        LEFT JOIN contacts c2 ON LOWER(c2.email) = LOWER(er2.recipient_email)
+        WHERE et2.primary_account_id IS NOT NULL
+        GROUP BY et2.primary_account_id, LOWER(er2.recipient_email),
+                 COALESCE(c2.name, er2.recipient_email)
+        ORDER BY et2.primary_account_id, COUNT(DISTINCT ee2.id) DESC
+      ),
+      committee_counts AS (
+        SELECT
+          et3.primary_account_id                                  AS account_id,
+          COUNT(DISTINCT LOWER(er3.recipient_email))              AS size
+        FROM email_threads et3
+        JOIN email_recipients er3
+          ON er3.gmail_thread_id = et3.gmail_thread_id
+          AND er3.is_internal IS NOT TRUE
+        JOIN email_engagement_events ee3
+          ON ee3.tracking_id = er3.tracking_token
+          AND ee3.is_bot=FALSE AND ee3.is_internal IS NOT TRUE
+        WHERE et3.primary_account_id IS NOT NULL
+        GROUP BY et3.primary_account_id
+      ),
+      main_data AS (
+        SELECT
+          et.primary_account_id                                   AS account_id,
+          a.name                                                  AS account_name,
+          COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE THEN ee.id END) AS total_opens,
+          COUNT(DISTINCT CASE WHEN ee.event_type='click' AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE THEN ee.id END) AS total_clicks,
+          COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
+              AND ee.occurred_at > NOW() - INTERVAL '7 days'  THEN ee.id END) AS opens_7d,
+          COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
+              AND ee.occurred_at > NOW() - INTERVAL '30 days' THEN ee.id END) AS opens_30d,
+          COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
+              AND ee.occurred_at BETWEEN NOW() - INTERVAL '60 days' AND NOW() - INTERVAL '30 days' THEN ee.id END) AS opens_prev30d,
+          MAX(ee.occurred_at) FILTER (WHERE ee.is_bot=FALSE AND ee.is_internal IS NOT TRUE) AS last_engagement_at
+        FROM email_threads et
+        JOIN accounts a ON a.id = et.primary_account_id
+        JOIN email_messages em ON em.gmail_thread_id = et.gmail_thread_id AND em.direction = 'outbound'
+        JOIN email_tracking_pixels p ON p.gmail_message_id = em.gmail_message_id
+        LEFT JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
+        WHERE et.primary_account_id IS NOT NULL
+        GROUP BY et.primary_account_id, a.name
+        HAVING COUNT(DISTINCT CASE WHEN ee.event_type='open' AND ee.is_bot=FALSE AND ee.is_internal IS NOT TRUE THEN ee.id END) > 0
+      )
       SELECT
-        et.primary_account_id                                                                           AS account_id,
-        a.name                                                                                          AS account_name,
-        COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE THEN ee.id END) AS total_opens,
-        COUNT(DISTINCT CASE WHEN ee.event_type='click' AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE THEN ee.id END) AS total_clicks,
-        COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
-            AND ee.occurred_at > NOW() - INTERVAL '7 days'  THEN ee.id END)                             AS opens_7d,
-        COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
-            AND ee.occurred_at > NOW() - INTERVAL '30 days' THEN ee.id END)                             AS opens_30d,
-        COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
-            AND ee.occurred_at BETWEEN NOW() - INTERVAL '60 days' AND NOW() - INTERVAL '30 days' THEN ee.id END) AS opens_prev30d,
-        MAX(ee.occurred_at) FILTER (WHERE ee.is_bot=FALSE AND ee.is_internal IS NOT TRUE)               AS last_engagement_at
-      FROM email_threads et
-      JOIN accounts a ON a.id = et.primary_account_id
-      JOIN email_messages em ON em.gmail_thread_id = et.gmail_thread_id AND em.direction = 'outbound'
-      JOIN email_tracking_pixels p ON p.gmail_message_id = em.gmail_message_id
-      LEFT JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
-      WHERE et.primary_account_id IS NOT NULL
-      GROUP BY et.primary_account_id, a.name
-      HAVING COUNT(DISTINCT CASE WHEN ee.event_type='open' AND ee.is_bot=FALSE AND ee.is_internal IS NOT TRUE THEN ee.id END) > 0
-      ORDER BY total_opens DESC
+        md.*,
+        tc.champion_name,
+        tc.champion_email,
+        COALESCE(cc.size, 0) AS committee_size
+      FROM main_data md
+      LEFT JOIN top_champion tc ON tc.account_id = md.account_id
+      LEFT JOIN committee_counts cc ON cc.account_id = md.account_id
+      ORDER BY md.total_opens DESC
       LIMIT ${lim}
     `))).rows as any[];
 
@@ -608,17 +683,24 @@ export async function getEngagementHeatmap(limit = 50): Promise<AccountEngagemen
         : "stable";
       const engagementScore = Math.min(100, Math.round(Math.sqrt(totalOpens) * 12 + Number(r.total_clicks ?? 0) * 3));
       return {
-        accountId:         Number(r.account_id),
-        accountName:       String(r.account_name),
+        accountId:        Number(r.account_id),
+        accountName:      String(r.account_name),
         engagementScore,
         trend,
         trendPct,
-        champion:          null, // populated lazily for top accounts
-        committeeSize:     0,
-        lastEngagementAt:  r.last_engagement_at ? String(r.last_engagement_at) : null,
+        champion: r.champion_name ? {
+          email: String(r.champion_email ?? ""), name: String(r.champion_name),
+          contactId: null, title: null, avatarUrl: null,
+          role: "champion" as BuyingRole, recipientType: "to" as const,
+          isPrimary: false, championScore: 0, opens: 0, clicks: 0,
+          demoClicks: 0, ctaClicks: 0, replies: 0, recency7d: 0, recency30d: 0,
+          lastActivityAt: null,
+        } : null,
+        committeeSize:    Number(r.committee_size ?? 0),
+        lastEngagementAt: r.last_engagement_at ? String(r.last_engagement_at) : null,
         totalOpens,
-        totalClicks:       Number(r.total_clicks ?? 0),
-        opens7d:           Number(r.opens_7d   ?? 0),
+        totalClicks:      Number(r.total_clicks ?? 0),
+        opens7d:          Number(r.opens_7d  ?? 0),
         opens30d,
       };
     });
@@ -657,7 +739,22 @@ export async function getFollowUpOpportunities(limit = 20): Promise<FollowUpOppo
           AND ee2.is_bot=FALSE AND ee2.is_internal IS NOT TRUE
           GROUP BY LOWER(p2.recipient_email)
           ORDER BY COUNT(*) DESC LIMIT 1
-        )                                                                                               AS champion_email
+        )                                                                                               AS champion_email,
+        (
+          SELECT COALESCE(c3.name, iq.ce)
+          FROM (
+            SELECT LOWER(p2b.recipient_email) AS ce FROM email_tracking_pixels p2b
+            JOIN email_engagement_events ee2b ON ee2b.tracking_id = p2b.tracking_id
+            WHERE p2b.gmail_message_id IN (
+              SELECT em3b.gmail_message_id FROM email_messages em3b
+              WHERE em3b.gmail_thread_id = et.gmail_thread_id AND em3b.direction = 'outbound'
+            )
+            AND ee2b.is_bot=FALSE AND ee2b.is_internal IS NOT TRUE
+            GROUP BY LOWER(p2b.recipient_email)
+            ORDER BY COUNT(*) DESC LIMIT 1
+          ) iq
+          LEFT JOIN contacts c3 ON LOWER(c3.email) = iq.ce
+        )                                                                                               AS champion_name
       FROM email_threads et
       JOIN accounts a ON a.id = et.primary_account_id
       JOIN email_messages em ON em.gmail_thread_id = et.gmail_thread_id AND em.direction = 'outbound'
@@ -689,8 +786,10 @@ export async function getFollowUpOpportunities(limit = 20): Promise<FollowUpOppo
         accountId:     acctId,
         accountName:   String(r.account_name),
         champion:      r.champion_email
-          ? { email: String(r.champion_email), name: null, contactId: null, title: null, avatarUrl: null,
-              role: "champion" as BuyingRole, recipientType: "to", isPrimary: false, championScore: 0,
+          ? { email: String(r.champion_email),
+              name: r.champion_name ? String(r.champion_name) : null,
+              contactId: null, title: null, avatarUrl: null,
+              role: "champion" as BuyingRole, recipientType: "to" as const, isPrimary: false, championScore: 0,
               opens: totalOpens, clicks: 0, demoClicks: 0, ctaClicks: 0, replies: 0, recency7d: 0, recency30d: 0,
               lastActivityAt: r.last_activity_at ? String(r.last_activity_at) : null }
           : null,
@@ -772,9 +871,10 @@ export async function getThreadMostEngaged(threadId: string): Promise<ThreadMost
 // ─── Revenue Command Center ───────────────────────────────────────────────────
 
 export async function getCommandCenterData(): Promise<CommandCenterData> {
-  const [heatmap, followUpOpportunities] = await Promise.all([
+  const [heatmap, followUpOpportunities, champions] = await Promise.all([
     getEngagementHeatmap(100),
     getFollowUpOpportunities(20),
+    getChampionsLeaderboard(20),
   ]);
 
   const hotAccounts     = heatmap.filter(a => a.engagementScore >= 50).slice(0, 10);
@@ -792,10 +892,205 @@ export async function getCommandCenterData(): Promise<CommandCenterData> {
     followUpOpportunities,
     atRisk,
     heatmap: heatmap.slice(0, 50),
+    champions,
     summary: {
       hotCount:            hotAccounts.length,
       totalActiveAccounts: heatmap.length,
       avgScore,
     },
   };
+}
+
+// ─── Champions Leaderboard ────────────────────────────────────────────────────
+
+export async function getChampionsLeaderboard(limit = 20): Promise<ChampionLeader[]> {
+  const lim = Math.min(Number(limit) || 20, 100);
+  try {
+    const rows = (await db.execute(sql.raw(`
+      WITH per_contact AS (
+        SELECT
+          et.primary_account_id                                                          AS account_id,
+          a.name                                                                         AS account_name,
+          LOWER(er.recipient_email)                                                      AS email,
+          COALESCE(c.name, er.recipient_email)                                           AS name,
+          c.title,
+          COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE THEN ee.id END) AS opens,
+          COUNT(DISTINCT CASE WHEN ee.event_type='click' AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE THEN ee.id END) AS clicks,
+          COUNT(DISTINCT CASE WHEN ee.is_bot=FALSE AND ee.is_internal IS NOT TRUE AND ee.occurred_at > NOW()-INTERVAL'7 days'  THEN ee.id END) AS recency7d,
+          COUNT(DISTINCT CASE WHEN ee.is_bot=FALSE AND ee.is_internal IS NOT TRUE AND ee.occurred_at > NOW()-INTERVAL'30 days' THEN ee.id END) AS recency30d,
+          MAX(ee.occurred_at) FILTER (WHERE ee.is_bot=FALSE AND ee.is_internal IS NOT TRUE) AS last_at
+        FROM email_threads et
+        JOIN accounts a ON a.id = et.primary_account_id
+        JOIN email_recipients er ON er.gmail_thread_id = et.gmail_thread_id AND er.is_internal IS NOT TRUE
+        LEFT JOIN email_engagement_events ee ON ee.tracking_id = er.tracking_token
+        LEFT JOIN contacts c ON LOWER(c.email) = LOWER(er.recipient_email)
+        WHERE et.primary_account_id IS NOT NULL
+        GROUP BY et.primary_account_id, a.name, LOWER(er.recipient_email), c.name, c.title
+        HAVING COUNT(DISTINCT CASE WHEN ee.is_bot=FALSE AND ee.is_internal IS NOT TRUE THEN ee.id END) > 0
+      ),
+      ranked AS (
+        SELECT *,
+          ROUND((opens * 1.0 + clicks * 3.0) *
+            (CASE WHEN recency7d > 0 THEN 1.5 WHEN recency30d > 0 THEN 1.2 ELSE 1.0 END)) AS champion_score,
+          ROW_NUMBER() OVER (
+            PARTITION BY account_id
+            ORDER BY (opens * 1.0 + clicks * 3.0) *
+              (CASE WHEN recency7d > 0 THEN 1.5 WHEN recency30d > 0 THEN 1.2 ELSE 1.0 END) DESC
+          ) AS rn
+        FROM per_contact
+      )
+      SELECT account_id, account_name, email, name, title, opens, clicks, champion_score, last_at
+      FROM ranked
+      WHERE rn = 1 AND champion_score >= 3
+      ORDER BY champion_score DESC
+      LIMIT ${lim}
+    `))).rows as any[];
+
+    return rows.map((r: any) => ({
+      accountId:     Number(r.account_id),
+      accountName:   String(r.account_name),
+      email:         String(r.email),
+      name:          r.name  ? String(r.name)  : null,
+      title:         r.title ? String(r.title) : null,
+      championScore: Number(r.champion_score ?? 0),
+      opens:         Number(r.opens  ?? 0),
+      clicks:        Number(r.clicks ?? 0),
+      lastActivityAt: r.last_at ? String(r.last_at) : null,
+    }));
+  } catch (err) {
+    console.error("[ri] getChampionsLeaderboard error:", err);
+    return [];
+  }
+}
+
+// ─── Account Activity Timeline ────────────────────────────────────────────────
+
+export async function getAccountActivityTimeline(accountId: number): Promise<ActivityEvent[]> {
+  const id = SAFE_INT(accountId);
+  if (!id) return [];
+  try {
+    const rows = (await db.execute(sql.raw(`
+      SELECT * FROM (
+        SELECT
+          CASE WHEN (LOWER(COALESCE(ee.url,'')) LIKE '%demo%' OR LOWER(COALESCE(ee.url,'')) LIKE '%video%' OR LOWER(COALESCE(ee.url,'')) LIKE '%watch%')
+               THEN 'demo' ELSE 'open' END                             AS type,
+          ee.occurred_at                                               AS at,
+          COALESCE(c.name, er.recipient_email)                         AS contact_name,
+          LOWER(er.recipient_email)                                    AS contact_email,
+          NULL::text                                                   AS subject,
+          NULL::text                                                   AS url
+        FROM email_threads et
+        JOIN email_recipients er ON er.gmail_thread_id = et.gmail_thread_id AND er.is_internal IS NOT TRUE
+        JOIN email_engagement_events ee ON ee.tracking_id = er.tracking_token
+          AND ee.event_type='open' AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
+        LEFT JOIN contacts c ON LOWER(c.email) = LOWER(er.recipient_email)
+        WHERE et.primary_account_id = ${id}
+
+        UNION ALL
+
+        SELECT
+          CASE WHEN (LOWER(COALESCE(ee.url,'')) LIKE '%demo%' OR LOWER(COALESCE(ee.url,'')) LIKE '%video%' OR LOWER(COALESCE(ee.url,'')) LIKE '%watch%')
+               THEN 'demo' ELSE 'click' END                            AS type,
+          ee.occurred_at                                               AS at,
+          COALESCE(c.name, er.recipient_email)                         AS contact_name,
+          LOWER(er.recipient_email)                                    AS contact_email,
+          NULL::text                                                   AS subject,
+          ee.url
+        FROM email_threads et
+        JOIN email_recipients er ON er.gmail_thread_id = et.gmail_thread_id AND er.is_internal IS NOT TRUE
+        JOIN email_engagement_events ee ON ee.tracking_id = er.tracking_token
+          AND ee.event_type='click' AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE
+        LEFT JOIN contacts c ON LOWER(c.email) = LOWER(er.recipient_email)
+        WHERE et.primary_account_id = ${id}
+
+        UNION ALL
+
+        SELECT
+          'reply'                                                      AS type,
+          em.sent_at                                                   AS at,
+          COALESCE(c.name, em.from_email)                              AS contact_name,
+          LOWER(em.from_email)                                         AS contact_email,
+          em.subject,
+          NULL::text                                                   AS url
+        FROM email_threads et
+        JOIN email_messages em ON em.gmail_thread_id = et.gmail_thread_id AND em.direction='inbound'
+        LEFT JOIN contacts c ON LOWER(c.email) = LOWER(em.from_email)
+        WHERE et.primary_account_id = ${id}
+
+        UNION ALL
+
+        SELECT
+          'meeting'                                                    AS type,
+          ce.start_time                                                AS at,
+          NULL::text                                                   AS contact_name,
+          NULL::text                                                   AS contact_email,
+          ce.title                                                     AS subject,
+          NULL::text                                                   AS url
+        FROM calendar_events ce
+        WHERE ce.linked_object_type='account' AND ce.linked_object_id=${id}
+          AND ce.status != 'cancelled' AND ce.start_time IS NOT NULL
+      ) events
+      ORDER BY at DESC NULLS LAST
+      LIMIT 20
+    `))).rows as any[];
+
+    return rows.map((r: any) => ({
+      type:         String(r.type) as ActivityEvent["type"],
+      at:           String(r.at),
+      contactName:  r.contact_name  ? String(r.contact_name)  : null,
+      contactEmail: r.contact_email ? String(r.contact_email) : null,
+      subject:      r.subject       ? String(r.subject)       : null,
+      url:          r.url           ? String(r.url)           : null,
+    }));
+  } catch (err) {
+    console.warn("[ri] getAccountActivityTimeline error:", err);
+    return [];
+  }
+}
+
+// ─── Account Open Opportunities ───────────────────────────────────────────────
+
+export async function getAccountOpenOpportunities(accountId: number): Promise<AccountOpportunity[]> {
+  const id = SAFE_INT(accountId);
+  if (!id) return [];
+  try {
+    const rows = (await db.execute(sql.raw(`
+      SELECT id, title, stage, COALESCE(amount, 0) AS amount, currency,
+             est_close_date, forecast_category
+      FROM opportunities
+      WHERE account_id = ${id}
+        AND stage NOT IN ('closed_won', 'closed_lost')
+      ORDER BY COALESCE(amount, 0) DESC, created_at DESC
+      LIMIT 10
+    `))).rows as any[];
+
+    return rows.map((r: any) => ({
+      id:               Number(r.id),
+      title:            String(r.title),
+      stage:            String(r.stage),
+      amount:           Number(r.amount ?? 0),
+      currency:         String(r.currency ?? "USD"),
+      estCloseDate:     r.est_close_date ? String(r.est_close_date) : null,
+      forecastCategory: String(r.forecast_category ?? "pipeline"),
+    }));
+  } catch (err) {
+    console.warn("[ri] getAccountOpenOpportunities error:", err);
+    return [];
+  }
+}
+
+// ─── Thread Account Momentum ──────────────────────────────────────────────────
+
+export async function getThreadAccountMomentum(threadId: string): Promise<AccountMomentum | null> {
+  const tEsc = esc(threadId);
+  try {
+    const [row] = (await db.execute(sql.raw(
+      `SELECT primary_account_id FROM email_threads WHERE gmail_thread_id='${tEsc}' AND primary_account_id IS NOT NULL LIMIT 1`
+    ))).rows as any[];
+    if (!row?.primary_account_id) return null;
+    return await getAccountMomentum(Number(row.primary_account_id));
+  } catch (err) {
+    console.warn("[ri] getThreadAccountMomentum error:", err);
+    return null;
+  }
 }

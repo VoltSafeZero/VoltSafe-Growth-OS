@@ -751,6 +751,10 @@ export async function registerRoutes(
       getFollowUpOpportunities,
       getCommandCenterData,
       getThreadMostEngaged,
+      getChampionsLeaderboard,
+      getAccountActivityTimeline,
+      getAccountOpenOpportunities,
+      getThreadAccountMomentum,
     } = await import("./services/revenue-intelligence");
 
     app.get("/api/revenue-intelligence/command-center", requireAuth, async (req, res) => {
@@ -801,6 +805,38 @@ export async function registerRoutes(
         if (!threadId) return res.status(400).json({ message: "threadId required" });
         const data = await getThreadMostEngaged(threadId);
         res.json(data ?? null);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/revenue-intelligence/thread/:threadId/account-momentum", requireAuth, async (req, res) => {
+      try {
+        const threadId = decodeURIComponent(req.params.threadId);
+        if (!threadId) return res.status(400).json({ message: "threadId required" });
+        const data = await getThreadAccountMomentum(threadId);
+        res.json(data ?? null);
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/revenue-intelligence/account/:accountId/activity-timeline", requireAuth, async (req, res) => {
+      try {
+        const id = Number(req.params.accountId);
+        if (!id || isNaN(id)) return res.status(400).json({ message: "Invalid account ID" });
+        res.json(await getAccountActivityTimeline(id));
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/revenue-intelligence/account/:accountId/opportunities", requireAuth, async (req, res) => {
+      try {
+        const id = Number(req.params.accountId);
+        if (!id || isNaN(id)) return res.status(400).json({ message: "Invalid account ID" });
+        res.json(await getAccountOpenOpportunities(id));
+      } catch (err: any) { res.status(500).json({ message: err.message }); }
+    });
+
+    app.get("/api/revenue-intelligence/champions", requireAuth, async (req, res) => {
+      try {
+        const limit = Math.min(Number(req.query.limit) || 20, 100);
+        res.json(await getChampionsLeaderboard(limit));
       } catch (err: any) { res.status(500).json({ message: err.message }); }
     });
   }

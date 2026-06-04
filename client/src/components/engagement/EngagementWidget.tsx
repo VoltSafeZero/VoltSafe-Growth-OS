@@ -532,6 +532,76 @@ interface RIMostEngaged {
   lastActivityAt: string | null;
 }
 
+// ── Relationship Status (thread → account momentum) ───────────────────────
+
+interface AccountMomentum {
+  accountId: number;
+  accountName: string;
+  engagementScore: number;
+  trend: string;
+  trendPct: number;
+  opens30d: number;
+  opens7d: number;
+  lastEngagementAt: string | null;
+}
+
+function RelationshipStatus({ threadId }: { threadId: string | null }) {
+  const { data, isLoading } = useQuery<AccountMomentum | null>({
+    queryKey: ["/api/revenue-intelligence/thread", threadId, "account-momentum"],
+    queryFn: () =>
+      fetch(`/api/revenue-intelligence/thread/${encodeURIComponent(threadId!)}/account-momentum`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : null).catch(() => null),
+    enabled: !!threadId,
+    staleTime: 120_000,
+    retry: false,
+  });
+
+  if (isLoading || !data) return null;
+
+  const trendColor =
+    data.trend === "accelerating" ? "text-emerald-400" :
+    data.trend === "cooling" || data.trend === "dormant" ? "text-orange-400" :
+    "text-amber-400";
+
+  const trendLabel =
+    data.trend === "accelerating" ? `↑ ${data.trendPct > 0 ? data.trendPct + "%" : "Rising"}` :
+    data.trend === "cooling"      ? `↓ ${Math.abs(data.trendPct)}% vs prior 30d` :
+    data.trend === "dormant"      ? "Dormant" : "→ Stable";
+
+  const scoreBg =
+    data.engagementScore >= 70 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+    data.engagementScore >= 40 ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+    data.engagementScore >= 20 ? "bg-orange-500/10 text-orange-400 border-orange-500/20" :
+    "bg-muted/20 text-muted-foreground/50 border-border/30";
+
+  return (
+    <div className="pt-2 border-t border-border/15" data-testid="relationship-status-section">
+      <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-medium mb-1.5 flex items-center gap-1">
+        <TrendingUp className="h-2.5 w-2.5 text-primary" />
+        Relationship Status
+      </p>
+      <div className="flex items-center gap-2 flex-wrap">
+        <a
+          href={`/accounts/${data.accountId}`}
+          className="text-[11px] font-semibold text-foreground/80 hover:text-foreground truncate"
+          onClick={e => { e.preventDefault(); window.location.href = `/accounts/${data.accountId}`; }}
+        >
+          {data.accountName}
+        </a>
+        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${scoreBg}`}>
+          Score {data.engagementScore}
+        </span>
+        <span className={`text-[10px] font-medium ${trendColor}`}>{trendLabel}</span>
+        {data.opens30d > 0 && (
+          <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/50">
+            <Eye className="h-2.5 w-2.5 text-sky-400" />{data.opens30d} last 30d
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ThreadEngagementWidget({ threadId }: { threadId: string | null }) {
   const [expanded, setExpanded] = useState(false);
   const [filter, setFilter]     = useState<FilterType>("all");
@@ -824,6 +894,9 @@ export function ThreadEngagementWidget({ threadId }: { threadId: string | null }
               </div>
             </div>
           )}
+
+          {/* Relationship Status */}
+          <RelationshipStatus threadId={threadId} />
 
           {/* Follow-up button for top CTA recipient */}
           {topCtaRow && (

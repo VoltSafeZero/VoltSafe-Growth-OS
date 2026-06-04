@@ -1,0 +1,242 @@
+Revenue Intelligence Finalization Sprint
+
+Objective:
+
+Complete the remaining 13 roadmap deliverables and bring Revenue Intelligence to 100%.
+
+Do not redesign existing functionality.
+
+Do not create new scoring systems.
+
+Use existing Revenue Intelligence services and data structures.
+
+==================================================
+PHASE 5
+HEATMAP COMPLETION
+==================================================
+
+Complete all missing heatmap functionality.
+
+1. Populate Champion column
+
+Current:
+champion = null
+
+Required:
+Display account champion name.
+
+Use existing BuyingCommittee.champion data.
+
+2. Add Committee Size column
+
+Display:
+
+Committee: 4
+
+Use existing buying committee calculations.
+
+3. Add Fastest Growth sort
+
+Sort by:
+
+trendPct DESC
+
+4. Add Most At Risk sort
+
+Sort by:
+
+Cooling first
+Dormant second
+Lowest trendPct first
+
+==================================================
+PHASE 6
+FOLLOW-UP OPPORTUNITIES COMPLETION
+==================================================
+
+Current logic exists.
+
+Complete missing workflow actions.
+
+1. Resolve Champion name
+
+Display:
+
+Champion:
+Marina
+
+2. Add Open Thread action
+
+Use existing thread navigation.
+
+Open exact thread.
+
+3. Add Reply action
+
+Launch reply composer directly.
+
+4. Add Schedule Follow-Up action
+
+Create follow-up task.
+
+Default:
+3 business days.
+
+==================================================
+PHASE 8
+REVENUE COMMAND CENTER COMPLETION
+==================================================
+
+Add missing sections.
+
+1. Champions section
+
+Display:
+
+Champion
+Account
+Champion Score
+Last Activity
+
+Sort:
+
+Champion Score DESC
+
+2. Needs Reply section
+
+Use existing:
+
+Needs Reply — High Engagement
+
+Do not rebuild.
+
+Reuse existing endpoint.
+
+Display:
+
+Thread
+Account
+Champion
+Engagement Score
+Waiting Days
+
+==================================================
+PHASE 9
+THREAD INTELLIGENCE COMPLETION
+==================================================
+
+Add Relationship Status.
+
+Display:
+
+Accelerating
+Stable
+Cooling
+Dormant
+
+Use existing momentum engine.
+
+No duplicate calculations.
+
+Place beside:
+
+Champion Score
+Buying Committee
+
+==================================================
+PHASE 10
+ACCOUNT PANEL COMPLETION
+==================================================
+
+1. Recent Activity Timeline
+
+Display:
+
+Email Opened
+Demo Viewed
+CTA Clicked
+Reply Received
+Meeting Booked
+
+Chronological order.
+
+Use existing engagement events.
+
+2. Open Opportunities
+
+Display:
+
+Open Opportunity Count
+
+Opportunity Value
+
+Opportunity Stage
+
+Reuse CRM opportunity data.
+
+==================================================
+FINAL QA
+==================================================
+
+Verify:
+
+Heatmap
+Follow-Up Opportunities
+Command Center
+Thread Intelligence
+Account Intelligence
+
+All use:
+
+- same champion source
+- same momentum source
+- same account score source
+
+No duplicate logic.
+
+==================================================
+TESTS
+==================================================
+
+Add tests covering:
+
+Champion column
+
+Committee size column
+
+Fastest growth sort
+
+Most at risk sort
+
+Open thread action
+
+Reply action
+
+Schedule follow-up action
+
+Champions section
+
+Needs Reply section
+
+Relationship status
+
+Recent activity timeline
+
+Open opportunities
+
+All tests must pass.
+
+==================================================
+DELIVERABLE
+==================================================
+
+Provide final audit:
+
+- files modified
+- routes added
+- components added
+- tests added
+- final roadmap completion %
+
+Target:
+100% roadmap completion.

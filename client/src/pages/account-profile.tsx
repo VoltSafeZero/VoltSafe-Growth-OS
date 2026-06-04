@@ -132,12 +132,88 @@ interface RIAccountIntelligence {
   lastEngagementAt: string | null;
 }
 
+interface ActivityEvent {
+  type: "open" | "click" | "reply" | "meeting" | "demo";
+  at: string;
+  contactName: string | null;
+  contactEmail: string | null;
+  subject: string | null;
+  url: string | null;
+}
+
+interface AccountOpportunity {
+  id: number;
+  title: string;
+  stage: string;
+  amount: number;
+  currency: string;
+  estCloseDate: string | null;
+  forecastCategory: string;
+}
+
+const OPP_STAGE_LABEL: Record<string, string> = {
+  inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
+  proposal: "Proposal", negotiation: "Negotiation",
+};
+const OPP_STAGE_COLOR: Record<string, string> = {
+  inbound_new: "bg-slate-500/15 text-slate-400",
+  qualified: "bg-blue-500/15 text-blue-400",
+  discovery: "bg-violet-500/15 text-violet-400",
+  proposal: "bg-amber-500/15 text-amber-400",
+  negotiation: "bg-orange-500/15 text-orange-400",
+};
+
+function activityIcon(type: ActivityEvent["type"]) {
+  switch (type) {
+    case "open":    return <Eye className="h-3 w-3 text-sky-400" />;
+    case "click":   return <MousePointerClick className="h-3 w-3 text-blue-400" />;
+    case "demo":    return <Activity className="h-3 w-3 text-violet-400" />;
+    case "reply":   return <Mail className="h-3 w-3 text-emerald-400" />;
+    case "meeting": return <CalendarDays className="h-3 w-3 text-amber-400" />;
+  }
+}
+
+function ActivityLabel(type: ActivityEvent["type"]) {
+  switch (type) {
+    case "open": return "Opened";
+    case "click": return "Clicked";
+    case "demo": return "Viewed Demo";
+    case "reply": return "Replied";
+    case "meeting": return "Meeting";
+  }
+}
+
+function timeAgoShort(ts: string | null) {
+  if (!ts) return "";
+  try { return formatDistanceToNow(new Date(ts), { addSuffix: true }); } catch { return ""; }
+}
+
 function AccountIntelligencePanel({ accountId }: { accountId: number }) {
   const { data, isLoading } = useQuery<RIAccountIntelligence | null>({
     queryKey: ["/api/revenue-intelligence/account", accountId],
     queryFn: () =>
       fetch(`/api/revenue-intelligence/account/${accountId}`, { credentials: "include" })
         .then(r => r.ok ? r.json() : null).catch(() => null),
+    staleTime: 120_000,
+    retry: false,
+    enabled: !!accountId,
+  });
+
+  const { data: timeline } = useQuery<ActivityEvent[]>({
+    queryKey: ["/api/revenue-intelligence/account", accountId, "activity-timeline"],
+    queryFn: () =>
+      fetch(`/api/revenue-intelligence/account/${accountId}/activity-timeline`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : []).catch(() => []),
+    staleTime: 120_000,
+    retry: false,
+    enabled: !!accountId,
+  });
+
+  const { data: openOpps } = useQuery<AccountOpportunity[]>({
+    queryKey: ["/api/revenue-intelligence/account", accountId, "opportunities"],
+    queryFn: () =>
+      fetch(`/api/revenue-intelligence/account/${accountId}/opportunities`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : []).catch(() => []),
     staleTime: 120_000,
     retry: false,
     enabled: !!accountId,
@@ -235,6 +311,59 @@ function AccountIntelligencePanel({ accountId }: { accountId: number }) {
               topInsight.severity === "success" ? "text-emerald-400" : "text-muted-foreground"
             }`} />
             <span className="leading-relaxed">{topInsight.text}</span>
+          </div>
+        )}
+
+        {/* Recent Activity Timeline */}
+        {(timeline ?? []).length > 0 && (
+          <div className="border-t border-border/20 pt-3" data-testid="account-activity-timeline">
+            <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-medium mb-2 flex items-center gap-1">
+              <Activity className="h-2.5 w-2.5" />
+              Recent Activity
+            </p>
+            <div className="space-y-1.5">
+              {(timeline ?? []).slice(0, 5).map((ev, idx) => (
+                <div key={idx} className="flex items-center gap-2 text-[11px]">
+                  <span className="flex-shrink-0">{activityIcon(ev.type)}</span>
+                  <span className="flex-1 min-w-0 text-foreground/70 truncate">
+                    <span className="font-medium">{ActivityLabel(ev.type)}</span>
+                    {ev.contactName ? ` · ${ev.contactName}` : ev.contactEmail ? ` · ${ev.contactEmail}` : ""}
+                    {ev.subject ? ` — ${ev.subject}` : ""}
+                  </span>
+                  <span className="flex-shrink-0 text-[10px] text-muted-foreground/40 whitespace-nowrap">
+                    {timeAgoShort(ev.at)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Open Opportunities */}
+        {(openOpps ?? []).length > 0 && (
+          <div className="border-t border-border/20 pt-3" data-testid="account-open-opportunities">
+            <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-medium mb-2 flex items-center gap-1">
+              <DollarSign className="h-2.5 w-2.5" />
+              Open Opportunities
+              <span className="ml-auto bg-primary/10 text-primary text-[9px] font-semibold px-1.5 py-0.5 rounded-full">
+                {(openOpps ?? []).length}
+              </span>
+            </p>
+            <div className="space-y-1.5">
+              {(openOpps ?? []).map(opp => (
+                <div key={opp.id} className="flex items-center gap-2 text-[11px]">
+                  <span className={`flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded ${OPP_STAGE_COLOR[opp.stage] ?? "bg-muted/20 text-muted-foreground"}`}>
+                    {OPP_STAGE_LABEL[opp.stage] ?? opp.stage}
+                  </span>
+                  <span className="flex-1 min-w-0 truncate text-foreground/70">{opp.title}</span>
+                  {opp.amount > 0 && (
+                    <span className="flex-shrink-0 font-semibold text-foreground/60">
+                      ${opp.amount.toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </CardContent>
