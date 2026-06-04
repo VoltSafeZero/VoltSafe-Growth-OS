@@ -1,0 +1,71 @@
+Fix VoltSafe Mail calendar invitation RSVP behavior.
+
+Current bug:
+When a user opens a calendar invite email in VoltSafe Mail and clicks Yes / No / Maybe inside the invite body, VoltSafe Mail opens a new Google Calendar page.
+
+Desired behavior:
+Users should be able to RSVP directly inside VoltSafe Mail. Clicking Yes / No / Maybe should update the user’s Google Calendar response silently/in-app, with no new browser tab, no redirect, and no Google Calendar page opening.
+
+Required behavior:
+1. Detect Google Calendar invitation emails / ICS calendar invites rendered inside VoltSafe Mail.
+2. Intercept clicks on RSVP controls inside the email body:
+   - Yes
+   - No
+   - Maybe
+   - Accept
+   - Decline
+   - Tentative
+3. Prevent default link navigation for those RSVP clicks.
+4. Call a backend endpoint that updates the calendar invitation response through the connected Google Calendar integration.
+5. Show an in-app loading state while updating.
+6. On success, update the invitation UI in-place:
+   - Accepted
+   - Declined
+   - Maybe / Tentative
+7. Do not open Google Calendar.
+8. Do not navigate away from VoltSafe Mail.
+9. Do not break normal links in other emails.
+10. Preserve existing email rendering, tracking, thread view, and compose behavior.
+
+Implementation requirements:
+- Add or reuse a backend endpoint such as:
+  POST /api/calendar/invitations/respond
+- Payload should include:
+  - messageId or threadId
+  - calendar event id if available
+  - response: accepted | declined | tentative
+- If the event id is not already stored, parse it from the calendar invite / ICS metadata / email body where possible.
+- Use the existing authenticated user’s connected Google Calendar account.
+- Return a clear JSON result:
+  { success: true, responseStatus: "accepted" }
+- If Google Calendar response fails, show a clean inline error instead of redirecting.
+
+Frontend requirements:
+- In the mail message renderer, intercept RSVP button/link clicks from calendar invite HTML.
+- Use event delegation safely on the email body container.
+- Only intercept known calendar RSVP links/buttons.
+- Prevent default and stop propagation.
+- Call the RSVP API.
+- Replace the clicked RSVP area with the updated status.
+- Add tests proving RSVP clicks do not trigger window.open, location.href, or default navigation.
+
+Test coverage required:
+1. Clicking Yes/Accept does not open a new page and calls the RSVP API.
+2. Clicking No/Decline does not open a new page and calls the RSVP API.
+3. Clicking Maybe/Tentative does not open a new page and calls the RSVP API.
+4. Normal links inside regular emails still open normally.
+5. RSVP failure shows inline error.
+6. Calendar response updates the UI state in-place.
+7. Existing mail thread rendering still works.
+8. Existing AI follow-up / compose / signature tests still pass.
+
+Before coding:
+- Search the codebase for calendar invite rendering, email body iframe/sanitized HTML renderer, RSVP links, Google Calendar integration, and any existing calendar response endpoint.
+- Report the exact files you will change.
+
+After coding:
+- Run the relevant frontend tests.
+- Run backend tests.
+- Run the full existing AI/mail regression suites.
+- Confirm no TypeScript errors.
+- Confirm in the browser that clicking Yes/No/Maybe inside VoltSafe Mail no longer opens Google Calendar.
