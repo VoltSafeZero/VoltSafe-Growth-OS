@@ -1,0 +1,181 @@
+Fix AI-generated email formatting and context quality in Lead / Account / Contact email generation.
+
+Current bug:
+When I generate a suggested next email from a Lead, Account, or Contact, the email body becomes one dense paragraph when it opens in VoltSafe Mail. It also includes placeholder signature text like:
+
+Best regards, [Your Name] [Your Title] VoltSafe [Your Contact Information]
+
+This is wrong because users already have their real email signatures embedded in VoltSafe Mail.
+
+Required fixes:
+
+1. Preserve email formatting from AI suggestion to mail composer
+
+The generated email must open in the composer with proper readable formatting:
+- greeting on its own line
+- blank line after greeting
+- short paragraphs
+- blank line between paragraphs
+- CTA / next step in its own paragraph
+- closing on its own line
+
+Do not collapse the email into one paragraph.
+
+Check the full path:
+- AI suggested email response body
+- Suggested Next Email modal preview
+- Continue in Mail action
+- Mail composer body insertion
+- draft save/send path
+
+Make sure newline formatting is preserved everywhere.
+
+If the composer expects HTML, convert plain text newlines to safe HTML:
+- double newline => paragraph break
+- single newline => line break
+
+If the composer expects plain text, preserve \n\n.
+
+Do not strip or normalize whitespace in a way that destroys paragraph breaks.
+
+2. Remove fake signature placeholders
+
+The AI-generated body must NOT include:
+
+Best regards, [Your Name] [Your Title] VoltSafe [Your Contact Information]
+
+Reason:
+VoltSafe Mail already appends the user's selected saved signature.
+
+The AI email should end with a clean closing only, such as:
+
+Best regards,
+
+or:
+
+Regards,
+
+or:
+
+Thanks,
+
+Then the real user signature block handles name, title, company, phone, email, logo, etc.
+
+Add a hard post-processing guard that removes these placeholder patterns if the model still generates them:
+- [Your Name]
+- [Your Title]
+- [Your Contact Information]
+- VoltSafe [Your Contact Information]
+- any closing block that contains obvious placeholder bracket text
+
+3. Update the AI system prompt
+
+The prompt must explicitly say:
+
+Do not include a full signature block.
+Do not include the sender name, title, company address, phone number, email, website, or logo.
+End only with a simple closing line because VoltSafe Mail will append the user's saved signature automatically.
+
+Also explicitly forbid:
+- "I hope this message finds you well"
+- "I hope this email finds you well"
+- generic filler openings
+- long rambling paragraphs
+- fake warmth
+- placeholder signature text
+
+4. Use all available CRM context, weighted toward recent context
+
+When generating an email inside a Lead, Account, or Contact, the AI must use the entire available record context, including every available field from:
+- Lead
+- Account
+- Contact
+- associated company/account
+- deal/opportunity fields if present
+- notes
+- tasks
+- timeline/activity history
+- prior AI summaries
+- emails
+- meetings
+- calls
+- tags/status/stage/source/owner/custom fields
+
+But the AI should put strongest weight on the most recent context, especially:
+- most recent email thread
+- most recent inbound email
+- most recent outbound email
+- most recent meeting/call/note
+- most recent status or stage change
+
+Implement recency ordering in the context builder:
+- newest emails first
+- newest notes/tasks/activities first
+- include timestamps
+- clearly label inbound vs outbound emails
+- clearly label which items are most recent
+
+The model should understand:
+"Use the full historical context for background, but base the next action mainly on the newest relevant updates."
+
+5. Improve generated email quality
+
+Generated emails should:
+- be concise
+- sound human and executive
+- be specific to the recipient and recent context
+- avoid generic CRM fluff
+- make one clear next-step ask
+- avoid overexplaining
+- avoid claiming attachments, transcripts, summaries, proposals, or next steps unless they actually exist in context
+- never invent facts
+- never invent commitments
+- never say "as discussed" unless there is actual discussion context
+
+6. Add response validation / cleanup
+
+Before returning the AI email response:
+- normalize line endings
+- ensure paragraphs are separated by blank lines
+- remove placeholder signature blocks
+- remove fake contact info
+- trim excess whitespace
+- ensure body does not become one single huge paragraph
+- ensure body ends with a simple closing line only
+
+Example acceptable ending:
+
+Would Tuesday or Wednesday work for a quick check-in?
+
+Best regards,
+
+Then the saved signature appears below in VoltSafe Mail.
+
+7. Add tests
+
+Add or update tests to verify:
+- generated email body preserves paragraph breaks
+- Continue in Mail preserves paragraph breaks
+- composer does not collapse generated body into one paragraph
+- placeholder signature text is removed
+- AI prompt forbids full signature blocks
+- AI prompt includes instruction that VoltSafe Mail appends saved signatures
+- CRM context builder includes all major record fields
+- CRM context builder sorts emails/activities newest-first
+- most recent emails are labelled and prioritized
+- generated response cleanup removes [Your Name], [Your Title], and [Your Contact Information]
+- existing AI voice profile tests still pass
+
+8. Run validation
+
+Run the relevant test suite and build/type checks.
+
+Fix all failures.
+
+9. Commit
+
+Commit with:
+
+git add .
+git commit -m "fix: preserve AI email formatting and signature handling"
+git push

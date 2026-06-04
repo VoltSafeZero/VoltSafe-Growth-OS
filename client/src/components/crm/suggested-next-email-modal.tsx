@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, RefreshCw, Send, Sliders, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setPendingCompose } from "@/lib/compose-handoff";
+import { plainTextToHtml } from "@/lib/email-format";
 
 const LS_CALENDLY_KEY = "voltsafe:calendlyUrl";
 const LS_VOICE_PROFILE_KEY = "voltsafe:voiceProfileId";
@@ -225,10 +226,14 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     if (!suggestion) return;
     setIsSaving(true);
 
-    const finalBody =
+    const rawBody =
       includeLink && calendlyUrl.trim()
         ? insertSchedulingLink(suggestion.body, calendlyUrl.trim())
         : suggestion.body;
+
+    // Convert plain-text paragraph breaks to HTML so the contentEditable
+    // compose editor renders them correctly (plain \n\n becomes one space in innerHTML).
+    const finalBody = plainTextToHtml(rawBody);
 
     const payload = {
       to: suggestion.to,

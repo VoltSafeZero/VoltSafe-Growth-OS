@@ -218,42 +218,73 @@ async function collectCrmEntityContext(
 ): Promise<CrmEntityContext> {
   const id = Number(entityId);
 
-  // --- Entity fields ---
+  // --- Entity fields (all available fields, entity-specific) ---
   let entityFields: Record<string, any> = {};
   if (entityType === "lead") {
-    const rows = await safeRows(`SELECT company, contact_name, contact_email, status, deal_amount, est_close_date, source, notes FROM leads WHERE id = ${id}`);
+    const rows = await safeRows(`
+      SELECT l.*,
+             u.name as owner_name
+      FROM leads l
+      LEFT JOIN users u ON u.id = l.owner_user_id
+      WHERE l.id = ${id}
+    `);
     entityFields = rows[0] || {};
+    // Remove internal DB-only / noise fields to keep context clean
+    const skipFields = ["id", "owner_user_id", "marina_id", "lead_lat", "lead_lng",
+      "converted_account_id", "converted_contact_id", "created_at", "updated_at"];
+    for (const k of skipFields) delete entityFields[k];
   } else if (entityType === "account") {
-    const rows = await safeRows(`SELECT name, org_type, website, address, slip_count, power_demand_intensity, strategic_importance, priority_level FROM accounts WHERE id = ${id}`);
+    const rows = await safeRows(`
+      SELECT a.*,
+             u.name as assigned_to_name
+      FROM accounts a
+      LEFT JOIN users u ON u.id = a.assigned_to_user_id
+      WHERE a.id = ${id}
+    `);
     entityFields = rows[0] || {};
+    const skipFields = ["id", "assigned_to_user_id", "latitude", "longitude",
+      "created_at", "updated_at", "partner_metadata"];
+    for (const k of skipFields) delete entityFields[k];
   } else {
-    const rows = await safeRows(`SELECT first_name, last_name, name, title, email, phone, persona, relationship_strength, linkedin_url FROM contacts WHERE id = ${id}`);
+    const rows = await safeRows(`
+      SELECT c.*,
+             a.name as account_name,
+             a.website as account_website,
+             a.org_type as account_org_type,
+             a.lead_status as account_lead_status,
+             a.priority as account_priority
+      FROM contacts c
+      LEFT JOIN accounts a ON a.id = c.account_id
+      WHERE c.id = ${id}
+    `);
     entityFields = rows[0] || {};
+    const skipFields = ["id", "account_id", "created_at", "updated_at", "avatar_url"];
+    for (const k of skipFields) delete entityFields[k];
   }
 
-  // --- Notes ---
+  // --- Notes (newest first) ---
   const noteRows = await safeRows(`
     SELECT content, created_at FROM notes
     WHERE linked_object_type = '${entityType}' AND linked_object_id = ${id}
     ORDER BY created_at DESC LIMIT 25
   `);
   const notes = noteRows.map((r: any) => ({
-    content: String(r.content || "").substring(0, 400),
+    content: String(r.content || "").substring(0, 500),
     createdAt: String(r.created_at || ""),
   }));
 
-  // --- Emails ---
+  // --- Emails (newest first, full snippet, direction-labelled) ---
   const emailRows = await safeRows(`
-    SELECT em.subject, em.from_email, em.snippet, em.direction, em.sent_at
+    SELECT em.subject, em.from_email, em.snippet, em.direction, em.sent_at, em.to_recipients
     FROM email_associations ea
     JOIN email_messages em ON ea.email_message_id = em.id
     WHERE ea.object_type = '${entityType}' AND ea.object_id = ${id}
-    ORDER BY em.sent_at DESC NULLS LAST LIMIT 25
+    ORDER BY em.sent_at DESC NULLS LAST LIMIT 30
   `);
   const emails = emailRows.map((r: any) => ({
     subject: String(r.subject || ""),
     fromEmail: String(r.from_email || ""),
-    snippet: String(r.snippet || "").substring(0, 200),
+    snippet: String(r.snippet || "").substring(0, 350),
     direction: String(r.direction || ""),
     sentAt: String(r.sent_at || ""),
   }));
@@ -270,15 +301,15 @@ async function collectCrmEntityContext(
     createdAt: String(r.created_at || ""),
   }));
 
-  // --- Activities ---
+  // --- Activities (newest first) ---
   const actRows = await safeRows(`
     SELECT type, description, created_at FROM activities
     WHERE linked_object_type = '${entityType}' AND linked_object_id = ${id}
-    ORDER BY created_at DESC LIMIT 15
+    ORDER BY created_at DESC LIMIT 20
   `);
   const activities = actRows.map((r: any) => ({
     type: String(r.type || ""),
-    description: String(r.description || "").substring(0, 200),
+    description: String(r.description || "").substring(0, 300),
     createdAt: String(r.created_at || ""),
   }));
 
@@ -321,6 +352,51 @@ async function collectCrmEntityContext(
   }
 
   return { entityType, entityId: id, entityFields, notes, emails, attachments, activities, contacts };
+}
+
+// ── Post-processing: clean up AI-generated email body ─────────────────────────
+
+/**
+ * Strips placeholder signature blocks and normalises paragraph formatting
+ * in an AI-generated email body before it is returned to the client.
+ *
+ * Placeholder patterns that MUST be removed:
+ *   [Your Name], [Your Title], [Your Contact Information]
+ *   Best regards, [Your Name] ... VoltSafe [Your Contact Information]
+ * Any closing line that still contains bracket placeholders is removed entirely.
+ */
+export function cleanAiEmailBody(raw: string): string {
+  if (!raw) return raw;
+
+  let text = raw;
+
+  // 1. Remove full fake-signature blocks (multi-line, greedy at end of body)
+  //    Matches from a closing word through any remaining lines that contain bracket placeholders
+  text = text.replace(
+    /\n?(Best regards?|Kind regards?|Warm regards?|Sincerely|Thanks?|Cheers|Regards?)[,:]?\s*\n[\s\S]*?\[Your (?:Name|Title|Contact Information)\][\s\S]*/gi,
+    ""
+  );
+
+  // 2. Remove any remaining inline bracket placeholder fragments
+  text = text.replace(/\[Your Name\]/gi, "");
+  text = text.replace(/\[Your Title\]/gi, "");
+  text = text.replace(/\[Your Contact Information\]/gi, "");
+  text = text.replace(/VoltSafe\s*\[.*?\]/gi, "VoltSafe");
+
+  // 3. Remove lines that are now empty closing artifacts ("[Your Name]" was the only content)
+  text = text
+    .split("\n")
+    .filter(line => line.trim() !== "VoltSafe" || false)  // keep VoltSafe if standalone — harmless
+    .join("\n");
+
+  // 4. Normalise line endings and strip excessive blank lines (max 2 consecutive newlines)
+  text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  text = text.replace(/\n{3,}/g, "\n\n");
+
+  // 5. Trim trailing/leading whitespace
+  text = text.trim();
+
+  return text;
 }
 
 // ── Source hash ───────────────────────────────────────────────────────────────
@@ -770,7 +846,31 @@ export async function generateSuggestedNextEmail(
       : `You are an expert sales and relationship manager at VoltSafe, a marina electrification company.`,
     voiceProfileBlock
       ? `Generate a professional email suggestion in the ${voiceProfileName} voice. Return only valid JSON.`
-      : `Generate a professional, warm, and concise email suggestion. Return only valid JSON.`,
+      : `Generate a professional, concise, human-sounding email suggestion. Return only valid JSON.`,
+    ``,
+    `=== SIGNATURE RULES — MANDATORY ===`,
+    `- DO NOT include a signature block in the email body.`,
+    `- DO NOT include the sender's name, title, company address, phone number, email, website, or logo.`,
+    `- DO NOT use placeholder text like [Your Name], [Your Title], [Your Contact Information], or any bracket placeholders.`,
+    `- End the email with only a simple closing word/phrase, e.g.: "Best regards," or "Thanks," or "Best,"`,
+    `- VoltSafe Mail will automatically append the user's real email signature below the closing. Do NOT include it yourself.`,
+    ``,
+    `=== FORMATTING RULES — MANDATORY ===`,
+    `- Use blank lines (\\n\\n) to separate paragraphs. NEVER write the entire body as one paragraph.`,
+    `- Greeting on its own line, then a blank line before the first paragraph.`,
+    `- Each paragraph should be 1-3 sentences maximum. Short, direct, executive prose.`,
+    `- Closing word/phrase on its own line at the end.`,
+    `- Example structure:`,
+    `  Dear [recipient first name],\\n\\n[First paragraph — context/reason for writing]\\n\\n[Second paragraph — specific ask or next step]\\n\\nBest regards,`,
+    ``,
+    `=== CONTENT RULES — MANDATORY ===`,
+    `- NEVER open with "I hope this email finds you well", "I hope this message finds you well", or any similar generic filler.`,
+    `- NEVER say "as discussed" or "as we discussed" unless there is explicit meeting/call evidence in the context.`,
+    `- NEVER claim to be attaching or providing a transcript, summary, proposal, or document unless it exists in the context.`,
+    `- NEVER invent commitments, pricing, timelines, or facts not present in the context.`,
+    `- Be specific to the recipient and the actual context — no generic CRM fluff.`,
+    `- Make ONE clear next-step ask. Do not list multiple asks.`,
+    `- Concise and direct. No overexplaining.`,
     ``,
     `CRITICAL TEMPORAL RULES — NEVER VIOLATE:`,
     `- Today's date is ${todayISO}. You must treat this as the authoritative present.`,
@@ -782,10 +882,22 @@ export async function generateSuggestedNextEmail(
     `- If a meeting/event is in the future: pre-meeting confirmation language is appropriate.`,
     `- When uncertain about timing: use neutral, evergreen language with no time-specific claims.`,
     `- The DETERMINISTIC DATE CONTEXT section below is authoritative. Trust it over any date in the AI summary.`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
+
+  // Build a rich email context section: newest emails first, labeled inbound/outbound
+  const emailContextLines: string[] = [];
+  if (ctx.emails.length > 0) {
+    emailContextLines.push(`=== EMAIL HISTORY (newest first — use the MOST RECENT emails to determine what to write next) ===`);
+    ctx.emails.slice(0, 15).forEach((e, i) => {
+      const dirLabel = e.direction === "outbound" ? "OUTBOUND (we sent)" : e.direction === "inbound" ? "INBOUND (they sent)" : e.direction || "UNKNOWN";
+      const recency = i === 0 ? " ← MOST RECENT" : i === 1 ? " ← 2nd most recent" : "";
+      emailContextLines.push(`[${i + 1}] ${dirLabel}${recency} | ${e.sentAt} | Subject: "${e.subject}" | From: ${e.fromEmail}`);
+      emailContextLines.push(`    Preview: ${e.snippet}`);
+    });
+  }
 
   const userPrompt = [
-    `Generate a suggested next email for this ${entityType}:`,
+    `Generate a suggested next email for this ${entityType}. Use ALL available context below, with strongest weight on the most recent emails and activities.`,
     ``,
     `=== DETERMINISTIC DATE CONTEXT (pre-computed, authoritative — do not contradict) ===`,
     `Today: ${todayISO}`,
@@ -797,25 +909,42 @@ export async function generateSuggestedNextEmail(
     `=== AI SUMMARY ===`,
     JSON.stringify(summary?.summaryJson || {}, null, 2),
     ``,
-    `=== KEY CONTEXT ===`,
-    `Entity: ${JSON.stringify(ctx.entityFields)}`,
-    `Contacts: ${JSON.stringify(ctx.contacts.slice(0, 5))}`,
-    `Recent notes: ${ctx.notes.slice(0, 3).map((n) => n.content).join(" | ")}`,
-    `Recent activity: ${ctx.activities.slice(0, 3).map((a) => `${a.type}: ${a.description} (${a.createdAt})`).join(" | ")}`,
+    `=== ${entityType.toUpperCase()} RECORD — ALL FIELDS ===`,
+    JSON.stringify(ctx.entityFields, null, 2),
+    ``,
+    `=== CONTACTS / KEY PEOPLE ===`,
+    JSON.stringify(ctx.contacts.slice(0, 8), null, 2),
+    ``,
+    emailContextLines.length > 0 ? emailContextLines.join("\n") : "=== EMAIL HISTORY ===\nNo associated emails found.",
+    ``,
+    ctx.notes.length > 0 ? [
+      `=== NOTES (newest first) ===`,
+      ...ctx.notes.slice(0, 10).map((n, i) => `[${i + 1}] ${n.createdAt}: ${n.content}`),
+    ].join("\n") : "",
+    ``,
+    ctx.activities.length > 0 ? [
+      `=== ACTIVITY HISTORY (newest first) ===`,
+      ...ctx.activities.slice(0, 10).map((a, i) => `[${i + 1}] ${a.createdAt} | ${a.type}: ${a.description}`),
+    ].join("\n") : "",
+    ``,
+    ctx.attachments.length > 0 ? [
+      `=== DOCUMENTS / ATTACHMENTS ===`,
+      ...ctx.attachments.map(a => `${a.category}: ${a.name} (${a.createdAt})`),
+    ].join("\n") : "",
     ``,
     `=== INSTRUCTIONS ===`,
-    `Return JSON matching:`,
+    `Return JSON matching exactly:`,
     JSON.stringify({
       to: "best recipient email address (prefer decision-makers; empty string if unknown)",
       cc: "cc recipient email if appropriate (empty string if none)",
-      subject: "concise, professional subject line",
-      body: "email body — professional, warm, 3-5 paragraphs max, VoltSafe-specific context",
-      reason: "1-2 sentences explaining why this email is recommended now",
+      subject: "concise, professional subject line — specific to the actual context",
+      body: "email body — properly formatted with \\n\\n between paragraphs, ends with a simple closing only (NO signature block, NO placeholder brackets)",
+      reason: "1-2 sentences explaining why this email is recommended now based on the context",
       warning: "optional: warning if recipient is uncertain or context is incomplete",
     }, null, 2),
+    `REMEMBER: body must use \\n\\n between every paragraph. Do NOT return the body as a single dense paragraph.`,
+    `REMEMBER: DO NOT add [Your Name], [Your Title], [Your Contact Information], or any signature block.`,
     `NEVER hallucinate pricing, commitments, delivery dates, specs, or promises not in the data.`,
-    `NEVER auto-send. This is a suggestion only.`,
-    `Tone: professional, concise, warm, operational.`,
   ].filter(Boolean).join("\n");
 
   try {
@@ -844,7 +973,7 @@ export async function generateSuggestedNextEmail(
       to: parsed.to || "",
       cc: parsed.cc || "",
       subject: parsed.subject || "Follow-up",
-      body: parsed.body || "",
+      body: cleanAiEmailBody(parsed.body || ""),
       reason: parsed.reason || "",
       warning: parsed.warning || undefined,
       detectedContext,
