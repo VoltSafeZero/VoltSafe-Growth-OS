@@ -368,6 +368,7 @@ function CtaDialog({
   const [trackingEnabled, setTrackingEnabled] = useState(existing?.tracking_enabled ?? true);
   const [uploading, setUploading] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [selectedAssetId, setSelectedAssetId] = useState<number | null>(existing?.asset_id ?? null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const libraryQuery = useQuery<CtaAsset[]>({
@@ -385,6 +386,7 @@ function CtaDialog({
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message || "Upload failed"); }
       const asset: CtaAsset = await res.json();
       setImageUrl(asset.public_url);
+      setSelectedAssetId(asset.id);
       queryClient.invalidateQueries({ queryKey: ["/api/cta-assets"] });
       toast({ title: "Image uploaded", description: "URL filled in automatically." });
     } catch (e: any) {
@@ -394,13 +396,34 @@ function CtaDialog({
     }
   };
 
-  const applyPreset = () => {
+  const applyPreset = async () => {
     setName("Watch a Demo");
     setType("image");
     setDestinationUrl("https://www.voltsafemarine.com/sdemo");
     setAltText("Watch a Demo");
     setWidthPx("200");
     setTrackingEnabled(true);
+    // Try to auto-select an existing WatchDemo asset from the library
+    try {
+      const assets: CtaAsset[] = await fetch("/api/cta-assets", { credentials: "include" }).then(r => r.json());
+      queryClient.setQueryData(["/api/cta-assets"], assets);
+      const demo = assets.find(a => a.name.toLowerCase().includes("watchdemo") || a.filename.toLowerCase().includes("watchdemo"));
+      if (demo) {
+        setImageUrl(demo.public_url);
+        setSelectedAssetId(demo.id);
+        toast({ title: "Preset applied", description: `Using "${demo.name}" from your CTA library.` });
+      } else {
+        setImageUrl("");
+        setSelectedAssetId(null);
+        toast({
+          title: "Preset applied",
+          description: "Upload a 'WatchDemo' image in CTA Assets to complete this preset.",
+        });
+      }
+    } catch {
+      setImageUrl("");
+      setSelectedAssetId(null);
+    }
   };
 
   const mutation = useMutation({
@@ -412,6 +435,7 @@ function CtaDialog({
         altText: altText.trim() || null,
         widthPx: Number(widthPx) || 200,
         trackingEnabled,
+        assetId: selectedAssetId ?? undefined,
       };
       if (existing) {
         const res = await apiRequest("PUT", `/api/signature-ctas/${existing.id}`, body);
@@ -480,7 +504,7 @@ function CtaDialog({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  accept="image/png,image/jpeg,image/webp"
                   className="hidden"
                   onChange={e => { if (e.target.files?.[0]) handleFileUpload(e.target.files[0]); e.target.value = ""; }}
                 />
@@ -514,7 +538,7 @@ function CtaDialog({
                           <button
                             key={asset.id}
                             type="button"
-                            onClick={() => { setImageUrl(asset.public_url); setShowLibrary(false); }}
+                            onClick={() => { setImageUrl(asset.public_url); setSelectedAssetId(asset.id); setShowLibrary(false); }}
                             className={`rounded border overflow-hidden transition-colors ${imageUrl === asset.public_url ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-primary/50"}`}
                             title={asset.name}
                             data-testid={`button-select-asset-${asset.id}`}
@@ -531,7 +555,7 @@ function CtaDialog({
                     <img src={imageUrl} alt="Preview" className="w-full max-h-16 object-contain" />
                   </div>
                 )}
-                <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)}
+                <Input value={imageUrl} onChange={e => { setImageUrl(e.target.value); setSelectedAssetId(null); }}
                   placeholder="https://... (or upload above)"
                   className="h-8 text-xs" data-testid="input-cta-image-url" />
               </div>
@@ -734,7 +758,7 @@ function CtaAssetLibraryTab() {
           Uploaded images get stable public URLs you can use in tracked CTAs and compose emails.
         </p>
         <div>
-          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden"
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
             onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ""; }} />
           <Button size="sm" className="gap-1.5 bg-primary text-primary-foreground"
             onClick={() => fileInputRef.current?.click()} disabled={uploading}

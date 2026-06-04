@@ -576,13 +576,34 @@ function ComposeDialog({
     }
 
     const currentHtml = bodyRef.current.innerHTML;
-    // Find a sign-off paragraph to insert before it
-    const SIGNOFF_RE = /<p[^>]*>[^<]{0,60}(?:regards|cheers|sincerely|thanks|best)[^<]{0,60}<\/p>/i;
-    const signoffMatch = SIGNOFF_RE.exec(currentHtml);
 
-    if (signoffMatch) {
-      const idx = signoffMatch.index;
-      bodyRef.current.innerHTML = currentHtml.slice(0, idx) + ctaHtml + "<br>" + currentHtml.slice(idx);
+    // Determine the earliest insertion point before the sign-off / signature section.
+    // Priority (whichever comes first in the document):
+    //   1. <!--vs-sig-start--> comment marker
+    //   2. A sign-off paragraph: full phrases OR a lone first-name line (≤20 chars, no punctuation)
+    const SIG_MARKER_RE = /<!--vs-sig-start-->/i;
+    // Multi-word sign-offs ("Kind regards", "Best wishes", …)
+    const SIGNOFF_PHRASE_RE = /<p[^>]*>\s*(?:[^<]{1,40})(?:regards|cheers|sincerely|thanks|best|warm|kind|yours)[^<]{0,40}\s*<\/p>/i;
+    // Lone first-name sign-off: a <p> or <div> containing only 1–4 words of ≤20 total chars
+    const SIGNOFF_NAME_RE = /<(?:p|div)[^>]*>\s*([A-Z][a-zA-Z'-]{0,19}(?:\s[A-Z][a-zA-Z'-]{0,19}){0,2})\s*<\/(?:p|div)>/;
+
+    const candidates: number[] = [];
+
+    const mMarker = SIG_MARKER_RE.exec(currentHtml);
+    if (mMarker) candidates.push(mMarker.index);
+
+    const mPhrase = SIGNOFF_PHRASE_RE.exec(currentHtml);
+    if (mPhrase) candidates.push(mPhrase.index);
+
+    const mName = SIGNOFF_NAME_RE.exec(currentHtml);
+    // Only treat a first-name block as a sign-off if it is in the last 30% of the HTML
+    if (mName && mName.index > currentHtml.length * 0.7) candidates.push(mName.index);
+
+    const insertAt = candidates.length > 0 ? Math.min(...candidates) : -1;
+
+    if (insertAt >= 0) {
+      bodyRef.current.innerHTML =
+        currentHtml.slice(0, insertAt) + ctaHtml + "<br>" + currentHtml.slice(insertAt);
     } else {
       bodyRef.current.innerHTML = currentHtml + "<br>" + ctaHtml;
     }

@@ -284,7 +284,7 @@ const ctaUpload = multer({
   }),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mimetype)) {
+    if (["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
       cb(null, true);
     } else {
       cb(new Error("CTA assets must be PNG, JPG, or WEBP"));
@@ -28033,7 +28033,7 @@ export function registerConfluenceRoutes(app: Express) {
   app.post("/api/signature-ctas", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
-      const { signatureId, name, type, destinationUrl, imageUrl, altText, widthPx, trackingEnabled } = req.body;
+      const { signatureId, name, type, destinationUrl, imageUrl, altText, widthPx, trackingEnabled, assetId } = req.body;
       if (!name?.trim() || !destinationUrl?.trim()) {
         return res.status(400).json({ message: "name and destinationUrl are required" });
       }
@@ -28043,7 +28043,7 @@ export function registerConfluenceRoutes(app: Express) {
       const s = (v: string) => String(v).replace(/'/g, "''");
       const [row] = (await db.execute(sql.raw(`
         INSERT INTO email_signature_ctas
-          (user_id, signature_id, name, type, destination_url, image_url, alt_text, width_px, tracking_enabled)
+          (user_id, signature_id, name, type, destination_url, image_url, alt_text, width_px, tracking_enabled, asset_id)
         VALUES (
           ${userId},
           ${signatureId ? Number(signatureId) : "NULL"},
@@ -28053,7 +28053,8 @@ export function registerConfluenceRoutes(app: Express) {
           ${imageUrl ? `'${s(imageUrl)}'` : "NULL"},
           ${altText ? `'${s(altText)}'` : "NULL"},
           ${widthPx ? Number(widthPx) : 200},
-          ${trackingEnabled !== false}
+          ${trackingEnabled !== false},
+          ${assetId ? Number(assetId) : "NULL"}
         )
         RETURNING *
       `))).rows;
@@ -28068,7 +28069,7 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const userId = (req.session as any).userId as number;
       const id = Number(req.params.id);
-      const { name, type, destinationUrl, imageUrl, altText, widthPx, trackingEnabled } = req.body;
+      const { name, type, destinationUrl, imageUrl, altText, widthPx, trackingEnabled, assetId } = req.body;
       if (destinationUrl && !isSafeCtaUrl(destinationUrl)) {
         return res.status(422).json({ message: "destinationUrl must be a valid http or https URL" });
       }
@@ -28082,6 +28083,7 @@ export function registerConfluenceRoutes(app: Express) {
           alt_text         = ${altText ? `'${s(altText)}'` : "NULL"},
           width_px         = ${widthPx ? Number(widthPx) : 200},
           tracking_enabled = ${trackingEnabled !== false},
+          asset_id         = ${assetId ? Number(assetId) : "NULL"},
           updated_at       = NOW()
         WHERE id = ${id} AND user_id = ${userId}
         RETURNING *
@@ -28139,9 +28141,14 @@ export function registerConfluenceRoutes(app: Express) {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const userId = (req.session as any).userId as number;
       const filename = req.file.filename;
-      const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
-      const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
-      const baseUrl = `${protocol}://${host}`;
+      // Derive stable public origin — prefer explicit env var, then Replit slug, then request headers
+      const envOrigin = process.env.PUBLIC_URL
+        || (process.env.REPL_SLUG && process.env.REPL_OWNER
+            ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
+            : null)
+        || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null);
+      const requestOrigin = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
+      const baseUrl = envOrigin || requestOrigin;
       const publicUrl = `${baseUrl}/assets/cta/${filename}`;
       const name = (req.body.name || req.file.originalname.replace(/\.[^.]+$/, "")).slice(0, 100);
       const s = (v: string) => v.replace(/'/g, "''");
