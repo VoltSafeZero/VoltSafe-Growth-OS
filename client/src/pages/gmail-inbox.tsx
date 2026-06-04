@@ -44,7 +44,7 @@ import {
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
   Maximize2, Minimize2, Pin, PinOff, LayoutList, List as ListIcon,
   Command as CommandIcon, AlignJustify, Hash, AtSign, Folders, Zap as ZapIcon,
-  ShieldAlert, Upload,
+  ShieldAlert, Upload, ImagePlus,
 } from "lucide-react";
 import {
   groupSmartInbox,
@@ -538,6 +538,59 @@ function ComposeDialog({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }),
   });
 
+  type CtaPickerItem = {
+    id: number;
+    name: string;
+    type: string;
+    destination_url: string;
+    image_url: string | null;
+    alt_text: string | null;
+    width_px: number | null;
+    tracking_enabled: boolean;
+  };
+
+  const ctaPickerQuery = useQuery<CtaPickerItem[]>({
+    queryKey: ["/api/signature-ctas", "picker"],
+    queryFn: () =>
+      fetch("/api/signature-ctas?forPicker=true", { credentials: "include" }).then(r => r.json()),
+    enabled: showCtaPicker,
+  });
+
+  function insertCtaIntoBody(cta: CtaPickerItem) {
+    const altText = (cta.alt_text || cta.name).replace(/"/g, "&quot;");
+    const destUrl = cta.destination_url.replace(/"/g, "&quot;");
+    const width = cta.width_px || 200;
+
+    let ctaHtml: string;
+    if (cta.type === "image" && cta.image_url) {
+      const imgUrl = cta.image_url.replace(/"/g, "&quot;");
+      ctaHtml = `<a href="${destUrl}" data-vs-cta-id="${cta.id}" style="display:inline-block;"><img src="${imgUrl}" alt="${altText}" width="${width}" style="display:block;border:0;max-width:100%;"></a>`;
+    } else {
+      ctaHtml = `<a href="${destUrl}" data-vs-cta-id="${cta.id}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${altText}</a>`;
+    }
+
+    if (!bodyRef.current) {
+      setBody(prev => (prev || "") + "<br>" + ctaHtml);
+      setShowCtaPicker(false);
+      return;
+    }
+
+    const currentHtml = bodyRef.current.innerHTML;
+    // Find a sign-off paragraph to insert before it
+    const SIGNOFF_RE = /<p[^>]*>[^<]{0,60}(?:regards|cheers|sincerely|thanks|best)[^<]{0,60}<\/p>/i;
+    const signoffMatch = SIGNOFF_RE.exec(currentHtml);
+
+    if (signoffMatch) {
+      const idx = signoffMatch.index;
+      bodyRef.current.innerHTML = currentHtml.slice(0, idx) + ctaHtml + "<br>" + currentHtml.slice(idx);
+    } else {
+      bodyRef.current.innerHTML = currentHtml + "<br>" + ctaHtml;
+    }
+
+    setBody(bodyRef.current.innerHTML);
+    setShowCtaPicker(false);
+  }
+
   function insertCalendarLinkIntoBody(url: string) {
     const safe = url.replace(/"/g, "&quot;").replace(/&(?!amp;)/g, "&amp;");
     const html = `<p style="margin:12px 0 4px 0;">&#x1F4C5;&nbsp;<a href="${safe}" target="_blank" rel="noopener noreferrer" style="color:#00C1DE;">Schedule a meeting with me</a></p>`;
@@ -617,6 +670,7 @@ function ComposeDialog({
   const [assetSearch, setAssetSearch] = useState<string>("");
   const [restrictedWarning, setRestrictedWarning] = useState<{ asset: { id: number; name: string; visibility: string }; onConfirm: () => void } | null>(null);
   const [showQuotePicker, setShowQuotePicker] = useState(false);
+  const [showCtaPicker, setShowCtaPicker] = useState(false);
 
   // Drag-and-drop attachment state
   const [isDragOver, setIsDragOver] = useState(false);
@@ -1604,6 +1658,56 @@ function ComposeDialog({
                             Cancel
                           </Button>
                         </div>
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              )}
+              {/* Insert Tracked CTA */}
+              {canSend && (
+                <Popover open={showCtaPicker} onOpenChange={setShowCtaPicker}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-8 w-8 ${showCtaPicker ? "text-primary" : "text-muted-foreground hover:text-primary"}`}
+                      title="Insert tracked CTA"
+                      data-testid="button-insert-cta"
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 p-3" align="start" side="top">
+                    <p className="text-sm font-medium mb-2">Insert Tracked CTA</p>
+                    {ctaPickerQuery.isLoading ? (
+                      <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin" /></div>
+                    ) : (ctaPickerQuery.data ?? []).filter(c => c.tracking_enabled).length === 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">No tracked CTAs set up yet.</p>
+                        <p className="text-xs text-muted-foreground/60">Go to Settings → Email Signatures to create one.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                        {(ctaPickerQuery.data ?? []).filter(c => c.tracking_enabled).map(cta => (
+                          <button
+                            key={cta.id}
+                            onClick={() => insertCtaIntoBody(cta)}
+                            className="w-full flex items-center gap-2.5 text-left p-2 rounded-md hover:bg-muted/50 transition-colors"
+                            data-testid={`button-insert-cta-${cta.id}`}
+                          >
+                            {cta.type === "image" && cta.image_url ? (
+                              <img src={cta.image_url} alt={cta.name} className="h-8 w-12 object-cover rounded border border-border/40 shrink-0" />
+                            ) : (
+                              <div className="h-8 w-12 rounded border border-border/40 shrink-0 bg-primary/10 flex items-center justify-center">
+                                <ImagePlus className="h-3.5 w-3.5 text-primary" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium truncate">{cta.name}</p>
+                              <p className="text-[10px] text-muted-foreground/60 truncate">{cta.destination_url}</p>
+                            </div>
+                          </button>
+                        ))}
                       </div>
                     )}
                   </PopoverContent>

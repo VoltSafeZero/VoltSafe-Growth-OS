@@ -6,6 +6,7 @@
  *   2. Looks up tracked CTAs for the sending user.
  *   3. Replaces matching destination URLs with /track/signature-click/<token> redirects.
  *   4. Inserts signature_cta_clicks rows (pre-send, no gmail_message_id yet).
+ *   5. Also processes body CTAs marked with data-vs-cta-id attribute (outside sig section).
  *
  * injectTracking() already skips URLs containing "/track/" so these won't be
  * double-wrapped by the general email tracking layer.
@@ -45,6 +46,7 @@ function splitSigSection(html: string): [string, string, string] | null {
 
 /**
  * Wrap signature CTA links in the email HTML with tracked redirect URLs.
+ * Also processes body CTAs marked with data-vs-cta-id attribute.
  * Non-fatal — returns original HTML on any error.
  *
  * @param html           Full email HTML (body + sig section with markers)
@@ -72,30 +74,91 @@ export async function wrapSignatureCtaLinks(
     ORDER BY id ASC
   `))).rows as any[];
 
-  if (ctaRows.length === 0) {
-    return { html: before + sigHtml + after, tokens: [] };
-  }
-
-  let wrappedSig = sigHtml;
   const tokens: string[] = [];
 
-  for (const cta of ctaRows) {
+  // ── 1. Signature section: wrap destination URL matches ──────────────────
+  let wrappedSig = sigHtml;
+
+  if (ctaRows.length > 0) {
+    for (const cta of ctaRows) {
+      const destUrl: string = cta.destination_url;
+      if (!isSafeCtaUrl(destUrl)) continue;
+
+      // Escape special regex chars in the destination URL
+      const escapedDest = destUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const linkRe = new RegExp(
+        `(<a\\b[^>]*\\bhref=["'])${escapedDest}(["'][^>]*>)`,
+        "gi",
+      );
+
+      if (!linkRe.test(wrappedSig)) continue;
+      linkRe.lastIndex = 0;
+
+      const token = crypto.randomUUID();
+      const trackUrl = `${baseUrl}/track/signature-click/${token}`;
+      wrappedSig = wrappedSig.replace(linkRe, `$1${trackUrl}$2`);
+
+      try {
+        await db.execute(sql.raw(`
+          INSERT INTO signature_cta_clicks
+            (token, signature_cta_id, signature_id, sent_by_user_id,
+             recipient_email, cta_name, destination_url, created_at)
+          VALUES (
+            '${esc(token)}',
+            ${cta.id},
+            ${cta.signature_id != null ? cta.signature_id : "NULL"},
+            ${userId},
+            '${esc(recipientEmail)}',
+            '${esc(String(cta.name))}',
+            '${esc(destUrl)}',
+            NOW()
+          )
+        `));
+        tokens.push(token);
+      } catch (err) {
+        console.error("[cta-tracker] sig token insert failed (non-fatal):", err);
+      }
+    }
+  }
+
+  // ── 2. Body section: wrap anchors marked with data-vs-cta-id ────────────
+  // These are CTAs manually inserted into the email body by the composer.
+  let wrappedBefore = before;
+
+  const bodyCTARe = /<a\b[^>]*\bdata-vs-cta-id="(\d+)"[^>]*>/gi;
+  let bMatch: RegExpExecArray | null;
+  const bodyCtaMatches: Array<{ tag: string; ctaId: number }> = [];
+
+  // Collect all matches first (avoid re-entrancy issues)
+  bodyCTARe.lastIndex = 0;
+  while ((bMatch = bodyCTARe.exec(before)) !== null) {
+    bodyCtaMatches.push({ tag: bMatch[0], ctaId: Number(bMatch[1]) });
+  }
+
+  for (const { tag, ctaId } of bodyCtaMatches) {
+    // Look up the CTA record by id (may not be in ctaRows if tracking_enabled=false,
+    // so query directly)
+    const [cta] = (await db.execute(sql.raw(`
+      SELECT id, signature_id, name, destination_url
+      FROM email_signature_ctas
+      WHERE id = ${ctaId} AND user_id = ${userId}
+      LIMIT 1
+    `))).rows as any[];
+
+    if (!cta) continue;
     const destUrl: string = cta.destination_url;
     if (!isSafeCtaUrl(destUrl)) continue;
 
-    // Escape special regex chars in the destination URL
-    const escapedDest = destUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const linkRe = new RegExp(
-      `(<a\\b[^>]*\\bhref=["'])${escapedDest}(["'][^>]*>)`,
-      "gi",
-    );
-
-    if (!linkRe.test(wrappedSig)) continue;
-    linkRe.lastIndex = 0;
-
     const token = crypto.randomUUID();
     const trackUrl = `${baseUrl}/track/signature-click/${token}`;
-    wrappedSig = wrappedSig.replace(linkRe, `$1${trackUrl}$2`);
+
+    // Replace the href value inside this specific anchor tag
+    const newTag = tag.replace(/\bhref="[^"]*"/, `href="${trackUrl}"`);
+    // Replace only the first occurrence of this exact tag string
+    const tagIdx = wrappedBefore.indexOf(tag);
+    if (tagIdx !== -1) {
+      wrappedBefore = wrappedBefore.slice(0, tagIdx) + newTag + wrappedBefore.slice(tagIdx + tag.length);
+    }
 
     try {
       await db.execute(sql.raw(`
@@ -115,11 +178,11 @@ export async function wrapSignatureCtaLinks(
       `));
       tokens.push(token);
     } catch (err) {
-      console.error("[cta-tracker] token insert failed (non-fatal):", err);
+      console.error("[cta-tracker] body CTA token insert failed (non-fatal):", err);
     }
   }
 
-  return { html: before + wrappedSig + after, tokens };
+  return { html: wrappedBefore + wrappedSig + after, tokens };
 }
 
 /**

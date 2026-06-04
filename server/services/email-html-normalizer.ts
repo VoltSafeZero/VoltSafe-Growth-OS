@@ -83,8 +83,8 @@ export function normalizeOutboundHtml(html: string): string {
   out = out.replace(/\s+class="gmail_[a-z_]+"/gi, "");
   // Gmail wraps reply content in <div dir="ltr"> — strip the dir attribute
   out = out.replace(/\s+dir="(?:ltr|rtl)"/gi, "");
-  // Gmail-injected data-* attributes
-  out = out.replace(/\s+data-[a-z][a-z0-9-]*="[^"]*"/gi, "");
+  // Gmail-injected data-* attributes (preserve data-vs-cta-id used for body CTA tracking)
+  out = out.replace(/\s+data-(?!vs-cta-id=)[a-z][a-z0-9-]*="[^"]*"/gi, "");
 
   // ── 4. Apple Mail / other client junk ─────────────────────────────────────
   out = out.replace(/\s+apple-[a-z-]+="[^"]*"/gi, "");

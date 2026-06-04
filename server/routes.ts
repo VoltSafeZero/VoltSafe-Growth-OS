@@ -270,6 +270,28 @@ const assetUpload = multer({
   },
 });
 
+// CTA asset uploader — images only (PNG/JPG/WEBP), 10 MB limit, stable disk filenames
+const CTA_ASSETS_DIR = path.resolve("uploads/cta-assets");
+if (!fs.existsSync(CTA_ASSETS_DIR)) fs.mkdirSync(CTA_ASSETS_DIR, { recursive: true });
+
+const ctaUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, CTA_ASSETS_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || ".png";
+      cb(null, crypto.randomUUID() + ext);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("CTA assets must be PNG, JPG, or WEBP"));
+    }
+  },
+});
+
 // Module-level permission helpers — accessible from all route registration functions.
 // (The same helpers are also defined inside registerRoutes for historical reasons;
 //  these module-level versions let registerConfluenceRoutes use them too.)
@@ -583,6 +605,25 @@ export async function registerRoutes(
       console.error("[cta-tracker] click record failed (non-fatal):", err);
     }
     res.redirect(302, destUrl);
+  });
+
+  // ── Public CTA asset file server (no auth — images served to email recipients) ──
+  // Must be registered before auth middleware routes; UUID filename prevents enumeration.
+  app.get("/assets/cta/:filename", (req, res) => {
+    const filename = path.basename(req.params.filename || "");
+    if (!filename || !/^[0-9a-f-]+\.(png|jpg|jpeg|webp|gif)$/i.test(filename)) {
+      return res.status(404).end();
+    }
+    const filePath = path.join(CTA_ASSETS_DIR, filename);
+    if (!fs.existsSync(filePath)) return res.status(404).end();
+    const ext = filename.split(".").pop()?.toLowerCase() ?? "png";
+    const mimeMap: Record<string, string> = {
+      png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+      webp: "image/webp", gif: "image/gif",
+    };
+    res.setHeader("Content-Type", mimeMap[ext] ?? "image/png");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.sendFile(filePath);
   });
 
   // ── Email Address Autocomplete ────────────────────────────────────────────
@@ -27972,10 +28013,12 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const userId = (req.session as any).userId as number;
       const sigId = req.query.signatureId ? Number(req.query.signatureId) : null;
-      const filter = sigId && !isNaN(sigId) ? `AND signature_id = ${sigId}` : "";
+      // ?forPicker=true — return all CTAs for this user (used by the compose-dialog CTA picker)
+      const forPicker = req.query.forPicker === "true";
+      const filter = (!forPicker && sigId && !isNaN(sigId)) ? `AND signature_id = ${sigId}` : "";
       const rows = (await db.execute(sql.raw(`
         SELECT id, user_id, signature_id, name, type, destination_url,
-               image_url, alt_text, width_px, tracking_enabled, created_at, updated_at
+               image_url, alt_text, width_px, tracking_enabled, asset_id, created_at, updated_at
         FROM email_signature_ctas
         WHERE user_id = ${userId} ${filter}
         ORDER BY id ASC
@@ -28081,6 +28124,96 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) {
       console.error("[signature-ctas] stats error:", err);
       res.status(500).json({ message: "Failed to load stats" });
+    }
+  });
+
+  // ── CTA Asset Library — upload, list, rename, delete ────────────────────
+  // POST /api/cta-assets/upload — upload a new image, returns { id, publicUrl, name }
+  app.post("/api/cta-assets/upload", requireAuth, (req, res, next) => {
+    ctaUpload.single("file")(req, res, (err) => {
+      if (err) return res.status(400).json({ message: err.message });
+      next();
+    });
+  }, async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const userId = (req.session as any).userId as number;
+      const filename = req.file.filename;
+      const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
+      const baseUrl = `${protocol}://${host}`;
+      const publicUrl = `${baseUrl}/assets/cta/${filename}`;
+      const name = (req.body.name || req.file.originalname.replace(/\.[^.]+$/, "")).slice(0, 100);
+      const s = (v: string) => v.replace(/'/g, "''");
+      const [row] = (await db.execute(sql.raw(`
+        INSERT INTO cta_assets (name, filename, public_url, mime_type, file_size, created_by, created_at)
+        VALUES ('${s(name)}', '${s(filename)}', '${s(publicUrl)}', '${s(req.file.mimetype)}',
+                ${req.file.size}, ${userId}, NOW())
+        RETURNING *
+      `))).rows;
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Upload failed" });
+    }
+  });
+
+  // GET /api/cta-assets — list non-archived assets (all users can see library)
+  app.get("/api/cta-assets", requireAuth, async (req, res) => {
+    try {
+      const rows = (await db.execute(sql.raw(`
+        SELECT a.*, u.name AS created_by_name
+        FROM cta_assets a
+        LEFT JOIN users u ON u.id = a.created_by
+        WHERE a.is_archived = FALSE
+        ORDER BY a.created_at DESC
+      `))).rows;
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to load CTA assets" });
+    }
+  });
+
+  // PUT /api/cta-assets/:id — rename
+  app.put("/api/cta-assets/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const id = Number(req.params.id);
+      const { name } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "name is required" });
+      const s = (v: string) => v.replace(/'/g, "''");
+      const [row] = (await db.execute(sql.raw(`
+        UPDATE cta_assets SET name = '${s(name.trim().slice(0, 100))}'
+        WHERE id = ${id} AND created_by = ${userId}
+        RETURNING *
+      `))).rows;
+      if (!row) return res.status(404).json({ message: "Asset not found" });
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to rename asset" });
+    }
+  });
+
+  // DELETE /api/cta-assets/:id — archive (check if in use by active CTAs first)
+  app.delete("/api/cta-assets/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const id = Number(req.params.id);
+      const [asset] = (await db.execute(sql.raw(`
+        SELECT id, filename FROM cta_assets WHERE id = ${id} AND created_by = ${userId}
+      `))).rows as any[];
+      if (!asset) return res.status(404).json({ message: "Asset not found" });
+      // Check if in use by any active signature CTA
+      const [inUse] = (await db.execute(sql.raw(`
+        SELECT id FROM email_signature_ctas WHERE asset_id = ${id} LIMIT 1
+      `))).rows;
+      if (inUse) {
+        return res.status(409).json({ message: "This asset is used by one or more active CTAs. Remove it from those CTAs first." });
+      }
+      // Archive (soft delete) — keep the file on disk so existing emails still render
+      await db.execute(sql.raw(`UPDATE cta_assets SET is_archived = TRUE WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to delete asset" });
     }
   });
 

@@ -372,8 +372,8 @@ function sanitizeEditorHtml(html: string): string {
   out = out.replace(/\s+class="[^"]*"/gi, "");
   out = out.replace(/\s+class='[^']*'/gi, "");
 
-  // 3. Strip data-* attributes
-  out = out.replace(/\s+data-[a-z][a-z0-9-]*="[^"]*"/gi, "");
+  // 3. Strip data-* attributes (preserve data-vs-cta-id used for body CTA tracking)
+  out = out.replace(/\s+data-(?!vs-cta-id=)[a-z][a-z0-9-]*="[^"]*"/gi, "");
 
   // 4. Unwrap bare <span> tags — execCommand may inject these when formatting
   out = out.replace(/<span>([\s\S]*?)<\/span>/gi, "$1");

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ChevronLeft, Plus, Pencil, Trash2, Star, Copy, Loader2, PenSquare, AlertTriangle,
   Eye, Code2, Wand2, MousePointerClick, ToggleLeft, ToggleRight,
+  Upload, Images, Image,
 } from "lucide-react";
 
 type EmailSignature = {
@@ -42,6 +43,18 @@ type SignatureCta = {
   alt_text: string | null;
   width_px: number | null;
   tracking_enabled: boolean;
+  asset_id?: number | null;
+};
+
+type CtaAsset = {
+  id: number;
+  name: string;
+  filename: string;
+  public_url: string;
+  mime_type: string;
+  file_size: number | null;
+  created_by_name: string | null;
+  created_at: string;
 };
 
 type SigFields = {
@@ -353,11 +366,38 @@ function CtaDialog({
   const [altText, setAltText] = useState(existing?.alt_text ?? "Watch a Demo");
   const [widthPx, setWidthPx] = useState(String(existing?.width_px ?? 200));
   const [trackingEnabled, setTrackingEnabled] = useState(existing?.tracking_enabled ?? true);
+  const [uploading, setUploading] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const libraryQuery = useQuery<CtaAsset[]>({
+    queryKey: ["/api/cta-assets"],
+    enabled: showLibrary,
+  });
+
+  const handleFileUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("name", file.name.replace(/\.[^.]+$/, ""));
+      const res = await fetch("/api/cta-assets/upload", { method: "POST", body: form, credentials: "include" });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message || "Upload failed"); }
+      const asset: CtaAsset = await res.json();
+      setImageUrl(asset.public_url);
+      queryClient.invalidateQueries({ queryKey: ["/api/cta-assets"] });
+      toast({ title: "Image uploaded", description: "URL filled in automatically." });
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const applyPreset = () => {
     setName("Watch a Demo");
     setType("image");
-    setDestinationUrl("https://voltsafemarine.com/demo");
+    setDestinationUrl("https://www.voltsafemarine.com/sdemo");
     setAltText("Watch a Demo");
     setWidthPx("200");
     setTrackingEnabled(true);
@@ -420,7 +460,7 @@ function CtaDialog({
           <div>
             <Label className="text-xs text-muted-foreground mb-1 block">Destination URL</Label>
             <Input value={destinationUrl} onChange={e => setDestinationUrl(e.target.value)}
-              placeholder="https://voltsafemarine.com/demo"
+              placeholder="https://voltsafemarine.com/sdemo"
               className="h-8 text-xs" data-testid="input-cta-dest-url" />
           </div>
           <div>
@@ -436,9 +476,64 @@ function CtaDialog({
           {type === "image" && (
             <>
               <div>
-                <Label className="text-xs text-muted-foreground mb-1 block">Image URL</Label>
+                <Label className="text-xs text-muted-foreground mb-1 block">Image</Label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={e => { if (e.target.files?.[0]) handleFileUpload(e.target.files[0]); e.target.value = ""; }}
+                />
+                <div className="flex gap-1 mb-2">
+                  <Button type="button" size="sm" variant="outline"
+                    className="flex-1 text-xs h-7 gap-1"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    data-testid="button-upload-cta-image"
+                  >
+                    {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                    Upload
+                  </Button>
+                  <Button type="button" size="sm" variant="outline"
+                    className={`flex-1 text-xs h-7 gap-1 ${showLibrary ? "border-primary text-primary" : ""}`}
+                    onClick={() => setShowLibrary(v => !v)}
+                    data-testid="button-select-from-library"
+                  >
+                    <Images className="h-3 w-3" /> Library
+                  </Button>
+                </div>
+                {showLibrary && (
+                  <div className="border border-border/40 rounded-md p-2 max-h-40 overflow-y-auto mb-2 bg-muted/20">
+                    {libraryQuery.isLoading ? (
+                      <div className="flex justify-center p-2"><Loader2 className="h-4 w-4 animate-spin" /></div>
+                    ) : (libraryQuery.data ?? []).length === 0 ? (
+                      <p className="text-xs text-muted-foreground/50 text-center py-2">No uploaded images yet. Upload one above.</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(libraryQuery.data ?? []).map(asset => (
+                          <button
+                            key={asset.id}
+                            type="button"
+                            onClick={() => { setImageUrl(asset.public_url); setShowLibrary(false); }}
+                            className={`rounded border overflow-hidden transition-colors ${imageUrl === asset.public_url ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-primary/50"}`}
+                            title={asset.name}
+                            data-testid={`button-select-asset-${asset.id}`}
+                          >
+                            <img src={asset.public_url} alt={asset.name} className="w-full h-12 object-cover bg-muted/30" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {imageUrl && (
+                  <div className="mb-2 rounded-md border border-border/30 overflow-hidden bg-muted/10">
+                    <img src={imageUrl} alt="Preview" className="w-full max-h-16 object-contain" />
+                  </div>
+                )}
                 <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)}
-                  placeholder="https://..." className="h-8 text-xs" data-testid="input-cta-image-url" />
+                  placeholder="https://... (or upload above)"
+                  className="h-8 text-xs" data-testid="input-cta-image-url" />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground mb-1 block">Alt Text</Label>
@@ -574,9 +669,181 @@ function CtaSection({ signatureId }: { signatureId: number }) {
   );
 }
 
+// ── CtaAssetLibraryTab — upload + manage CTA image assets ───────────────────
+function CtaAssetLibraryTab() {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameVal, setRenameVal] = useState("");
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  const { data: assets = [], isLoading } = useQuery<CtaAsset[]>({
+    queryKey: ["/api/cta-assets"],
+  });
+
+  const renameMutation = useMutation({
+    mutationFn: (item: { id: number; name: string }) =>
+      apiRequest("PUT", `/api/cta-assets/${item.id}`, { name: item.name }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cta-assets"] });
+      setRenamingId(null);
+    },
+    onError: (e: any) => toast({ title: "Rename failed", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/cta-assets/${id}`).then(async r => {
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Delete failed"); }
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cta-assets"] });
+      setDeleteId(null);
+    },
+    onError: (e: any) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+  });
+
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("name", file.name.replace(/\.[^.]+$/, ""));
+      const res = await fetch("/api/cta-assets/upload", { method: "POST", body: form, credentials: "include" });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message || "Upload failed"); }
+      queryClient.invalidateQueries({ queryKey: ["/api/cta-assets"] });
+      toast({ title: "Image uploaded to CTA library" });
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const formatBytes = (n: number | null) => {
+    if (!n) return "";
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Uploaded images get stable public URLs you can use in tracked CTAs and compose emails.
+        </p>
+        <div>
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden"
+            onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ""; }} />
+          <Button size="sm" className="gap-1.5 bg-primary text-primary-foreground"
+            onClick={() => fileInputRef.current?.click()} disabled={uploading}
+            data-testid="button-upload-cta-asset">
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            Upload Image
+          </Button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {[1, 2, 3].map(i => <div key={i} className="h-28 rounded-xl bg-muted/20 animate-pulse" />)}
+        </div>
+      ) : assets.length === 0 ? (
+        <Card className="border-border/40">
+          <CardContent className="flex flex-col items-center justify-center py-14 gap-3">
+            <div className="w-11 h-11 rounded-xl bg-muted/30 flex items-center justify-center">
+              <Image className="h-5 w-5 text-muted-foreground/50" />
+            </div>
+            <div className="text-center">
+              <p className="font-medium text-muted-foreground">No images yet</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">Upload PNG, JPG, or WEBP images for use in CTAs.</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {assets.map(asset => (
+            <Card key={asset.id} className="border-border/40 overflow-hidden" data-testid={`card-asset-${asset.id}`}>
+              <div className="bg-muted/20 flex items-center justify-center h-24 overflow-hidden">
+                <img src={asset.public_url} alt={asset.name} className="max-h-full max-w-full object-contain" />
+              </div>
+              <CardContent className="p-2.5">
+                {renamingId === asset.id ? (
+                  <div className="flex gap-1">
+                    <Input
+                      value={renameVal}
+                      onChange={e => setRenameVal(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") renameMutation.mutate({ id: asset.id, name: renameVal });
+                        if (e.key === "Escape") setRenamingId(null);
+                      }}
+                      className="h-6 text-xs flex-1"
+                      autoFocus
+                      data-testid={`input-rename-asset-${asset.id}`}
+                    />
+                    <button onClick={() => renameMutation.mutate({ id: asset.id, name: renameVal })}
+                      className="text-primary text-[10px] hover:underline" data-testid={`button-confirm-rename-${asset.id}`}>
+                      OK
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-1">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium truncate" title={asset.name}>{asset.name}</p>
+                      {asset.file_size && <p className="text-[10px] text-muted-foreground/50">{formatBytes(asset.file_size)}</p>}
+                    </div>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <button onClick={() => { setRenamingId(asset.id); setRenameVal(asset.name); }}
+                        className="p-0.5 rounded text-muted-foreground hover:text-foreground"
+                        title="Rename" data-testid={`button-rename-asset-${asset.id}`}>
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      <button onClick={() => setDeleteId(asset.id)}
+                        className="p-0.5 rounded text-muted-foreground hover:text-destructive"
+                        title="Delete" data-testid={`button-delete-asset-${asset.id}`}>
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground/40 mt-1 truncate" title={asset.public_url}>
+                  {asset.public_url.replace(/^https?:\/\/[^/]+/, "")}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <AlertDialog open={deleteId !== null} onOpenChange={v => !v && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete CTA Image?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The file will be archived. Emails already sent with this image will still display it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-asset-delete-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteId !== null && deleteMutation.mutate(deleteId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-asset-delete-confirm"
+            >
+              {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 export default function SignatureSettingsPage() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const [pageTab, setPageTab] = useState<"signatures" | "assets">("signatures");
   const [editSig, setEditSig] = useState<EmailSignature | null | undefined>(undefined);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -642,20 +909,44 @@ export default function SignatureSettingsPage() {
           </button>
           <div>
             <h1 className="text-lg font-semibold">Email Signatures</h1>
-            <p className="text-xs text-muted-foreground">Create and manage your email signatures.</p>
+            <p className="text-xs text-muted-foreground">Create and manage your email signatures and CTA images.</p>
           </div>
         </div>
-        <Button
-          size="sm"
-          onClick={() => setEditSig(null)}
-          className="bg-primary text-primary-foreground gap-1.5"
-          data-testid="button-new-signature"
-        >
-          <Plus className="h-4 w-4" /> New Signature
-        </Button>
+        {pageTab === "signatures" && (
+          <Button
+            size="sm"
+            onClick={() => setEditSig(null)}
+            className="bg-primary text-primary-foreground gap-1.5"
+            data-testid="button-new-signature"
+          >
+            <Plus className="h-4 w-4" /> New Signature
+          </Button>
+        )}
       </div>
 
+      {/* Page-level tab switcher */}
+      <div className="flex gap-1 border-b border-border/40 pb-0">
+        <button
+          onClick={() => setPageTab("signatures")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${pageTab === "signatures" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          data-testid="tab-signatures"
+        >
+          Signatures
+        </button>
+        <button
+          onClick={() => setPageTab("assets")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${pageTab === "assets" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          data-testid="tab-cta-assets"
+        >
+          <Images className="h-3.5 w-3.5" /> CTA Assets
+        </button>
+      </div>
+
+      {/* CTA Asset Library tab */}
+      {pageTab === "assets" && <CtaAssetLibraryTab />}
+
       {/* Signature List */}
+      {pageTab === "signatures" && (<>
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2].map(i => <div key={i} className="h-28 rounded-xl bg-muted/20 animate-pulse" />)}
@@ -782,6 +1073,7 @@ export default function SignatureSettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </>)}
     </div>
   );
 }
