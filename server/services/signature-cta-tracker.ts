@@ -62,9 +62,9 @@ export async function wrapSignatureCtaLinks(
   baseUrl: string,
 ): Promise<{ html: string; tokens: string[] }> {
   const split = splitSigSection(html);
-  if (!split) return { html, tokens: [] };
-
-  const [before, sigHtml, after] = split;
+  // When there are no signature markers we still process body CTAs, so fall
+  // back to treating the full html as "before" with an empty sig section.
+  const [before, sigHtml, after] = split ?? [html, "", ""];
 
   // Fetch all tracking-enabled CTAs for this user
   const ctaRows = (await db.execute(sql.raw(`
@@ -77,9 +77,10 @@ export async function wrapSignatureCtaLinks(
   const tokens: string[] = [];
 
   // ── 1. Signature section: wrap destination URL matches ──────────────────
+  // (Only applies when signature markers were found)
   let wrappedSig = sigHtml;
 
-  if (ctaRows.length > 0) {
+  if (split && ctaRows.length > 0) {
     for (const cta of ctaRows) {
       const destUrl: string = cta.destination_url;
       if (!isSafeCtaUrl(destUrl)) continue;
@@ -123,6 +124,7 @@ export async function wrapSignatureCtaLinks(
 
   // ── 2. Body section: wrap anchors marked with data-vs-cta-id ────────────
   // These are CTAs manually inserted into the email body by the composer.
+  // This runs whether or not signature markers are present.
   let wrappedBefore = before;
 
   const bodyCTARe = /<a\b[^>]*\bdata-vs-cta-id="(\d+)"[^>]*>/gi;

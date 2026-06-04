@@ -380,15 +380,20 @@ function sanitizeEditorHtml(html: string): string {
 
   // 5. Rebuild <a> tags with proper attributes and VoltSafe link colour.
   //    SECURITY: only allow safe protocols — strip javascript:, data:, vbscript:, etc.
+  //    NOTE: data-vs-cta-id is preserved because it is needed for body-CTA click-tracking.
   out = out.replace(
-    /<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi,
-    (_, href, label) => {
+    /<a\b([^>]*)\bhref="([^"]*)"([^>]*)>([\s\S]*?)<\/a>/gi,
+    (_full, pre, href, post, label) => {
       const safe = href.replace(/"/g, "&quot;").trim();
       // Block non-safe protocols (XSS guard)
       if (safe && !/^(https?:|mailto:|tel:|\/[^/]|#)/i.test(safe)) {
         return label; // strip anchor, keep visible text
       }
-      return `<a href="${safe}" target="_blank" rel="noopener noreferrer" style="color:${VOLTSAFE_LINK_COLOR};">${label}</a>`;
+      // Preserve data-vs-cta-id if present (body CTA tracking marker)
+      const allAttrs = pre + " " + post;
+      const ctaIdMatch = /data-vs-cta-id="(\d+)"/.exec(allAttrs);
+      const ctaAttr = ctaIdMatch ? ` data-vs-cta-id="${ctaIdMatch[1]}"` : "";
+      return `<a href="${safe}"${ctaAttr} target="_blank" rel="noopener noreferrer" style="color:${VOLTSAFE_LINK_COLOR};">${label}</a>`;
     },
   );
 
