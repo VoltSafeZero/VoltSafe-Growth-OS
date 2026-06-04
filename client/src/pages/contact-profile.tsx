@@ -737,7 +737,7 @@ export default function ContactProfilePage() {
 
           {/* Engagement Intelligence */}
           <SectionCard title="Engagement" icon={MousePointerClick}>
-            <ContactEngagementWidget contactId={contactId} />
+            <ContactEngagementWidget contactId={id} />
           </SectionCard>
 
           {/* Quick links */}

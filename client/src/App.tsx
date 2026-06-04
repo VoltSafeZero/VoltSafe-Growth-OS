@@ -231,7 +231,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
           <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
         </Suspense>
         <AppShell user={user} onLogout={onLogout}>
-          <ChunkErrorBoundary>
+          <ChunkErrorBoundary key={appLocation}>
             <Suspense fallback={<PageLoader />}>{children}</Suspense>
           </ChunkErrorBoundary>
         </AppShell>

@@ -1,0 +1,187 @@
+Implement a production-ready “Train From GPT” feature for VoltSafe CMS AI email generation.
+
+Goal:
+Allow users to recreate a ChatGPT Custom GPT-style communication voice inside VoltSafe CMS, starting with “CEO Wattson”, so the CMS can generate Lead/Account/Contact emails using OpenAI API without depending on a personal ChatGPT Custom GPT link.
+
+Core concept:
+Do not call a ChatGPT GPT URL directly.
+Instead, let users import/copy GPT instructions, knowledge docs, and example emails into VoltSafe CMS as an internal AI Voice Profile.
+
+Feature name:
+Train From GPT / AI Voice Profiles
+
+Required backend:
+
+1. Add database tables:
+
+ai_voice_profiles:
+- id
+- owner_user_id nullable
+- name
+- description
+- profile_type: global | user
+- system_instructions
+- style_rules
+- forbidden_phrases
+- preferred_phrases
+- example_messages_json
+- knowledge_summary
+- source_label
+- is_default
+- is_active
+- created_at
+- updated_at
+
+ai_voice_profile_files:
+- id
+- voice_profile_id
+- original_filename
+- file_type
+- extracted_text
+- text_summary
+- created_at
+
+user_ai_settings:
+- user_id
+- default_voice_profile_id
+- created_at
+- updated_at
+
+2. Add API endpoints:
+- GET /api/ai/voice-profiles
+- GET /api/ai/voice-profiles/:id
+- POST /api/ai/voice-profiles
+- PUT /api/ai/voice-profiles/:id
+- DELETE /api/ai/voice-profiles/:id
+- POST /api/ai/voice-profiles/:id/files
+- PUT /api/ai/settings/default-voice-profile
+- POST /api/ai/voice-profiles/import-from-gpt
+
+3. Add “Import From GPT” flow:
+The user can paste:
+- GPT name
+- GPT instructions
+- conversation starters
+- knowledge document text or uploaded files
+- example emails/messages
+- notes about tone
+
+The system saves this as a reusable AI Voice Profile.
+
+4. Seed built-in global profile:
+Name:
+CEO Wattson
+
+Description:
+Trevor Burgess founder/CEO voice for VoltSafe communications.
+
+Starter system instructions:
+Write like Trevor Burgess, CEO and Co-Founder of VoltSafe. Use a direct, plainspoken, commercially grounded founder tone. Be clear, warm, confident, and specific. Write like a real human, not a marketing department. Avoid corporate fluff. Focus on momentum, next steps, business value, trust, and practical outcomes. Keep emails concise unless detail is required. Ask clean next-step questions. Do not over-explain. Do not sound robotic.
+
+Style rules:
+- Clear subject line
+- Short opening
+- Direct reason for the email
+- Tie message to the recipient/account context
+- Make the value obvious
+- Use plain English
+- End with a simple next step
+- Avoid hype
+- Avoid long paragraphs
+- Avoid generic AI phrases
+
+Forbidden phrases:
+- I hope this email finds you well
+- Just checking in
+- Circle back
+- Touch base
+- Synergy
+- Revolutionary
+- Game-changing
+- Leverage our solution
+- Cutting-edge
+
+Preferred phrases:
+- Quick note
+- The reason I’m reaching out
+- The practical value is
+- It may be worth a short conversation
+- A simple next step would be
+- Here’s what matters
+- The opportunity is straightforward
+
+5. Update existing AI email generation:
+Wherever CMS currently generates emails for Lead/Account/Contact:
+- Accept voice_profile_id
+- Load selected profile
+- Include voice profile instructions before CRM context
+- Include relevant extracted knowledge/profile files
+- Include recent emails, notes, updates, account/contact/lead context
+- Generate the email in that selected voice
+- If profile is missing or unauthorized, fall back to Default VoltSafe
+
+6. Frontend UI:
+
+Add to AI email generation panel:
+- Dropdown: “Voice”
+- Options:
+  - Default VoltSafe
+  - CEO Wattson
+  - any user-created profiles
+- Button/link: “Train from GPT”
+- Small helper text:
+  “Import instructions, examples, and knowledge from a Custom GPT to recreate that voice inside VoltSafe CMS.”
+
+Add AI Voice Profiles settings page:
+- List profiles
+- Create new profile
+- Edit profile
+- Import from GPT
+- Upload knowledge files
+- Paste example emails
+- Set default profile
+- Preview/test voice with sample prompt
+
+7. Import from GPT UI:
+Create a wizard:
+Step 1: Profile details
+- Name
+- Description
+- Source label
+
+Step 2: Paste GPT instructions
+- Large textarea
+
+Step 3: Add knowledge
+- Upload files
+- Paste document text
+
+Step 4: Add examples
+- Paste 3-10 example emails/messages
+
+Step 5: Review and save
+
+8. Security/permissions:
+- Users can only edit/delete their own profiles
+- Global profiles are readable by all
+- Only admins can edit global profiles
+- Private profiles are scoped to owner_user_id
+- Uploaded files must be sanitized and text-extracted safely
+- Do not expose one user’s voice profile to another user
+
+9. Tests:
+- Voice profile CRUD
+- Global profile visibility
+- Private profile isolation
+- Default profile persistence
+- Import From GPT saves all fields
+- Email generation uses selected profile
+- Invalid profile falls back safely
+- Unauthorized edit/delete blocked
+- Contact/Lead/Account email generation still works without selecting a profile
+
+10. Add smoke test:
+Create a CEO Wattson profile, generate an email for a sample contact/account, and verify output avoids forbidden phrases and follows the selected voice rules.
+
+Deliver as a clean migration + backend routes + frontend UI + tests.
+Do not break existing email generation.
