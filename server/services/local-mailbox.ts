@@ -227,8 +227,17 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
   const inMatch = rest.match(/\bin:(\w+)/i);
   if (inMatch) {
     hasLabelFilter = true;
-    const label = inMatch[1].toUpperCase();
+    const rawLabel = inMatch[1].toUpperCase();
     rest = rest.replace(inMatch[0], "").trim();
+    // Map user-facing category aliases to the real Gmail CATEGORY_ label names
+    // stored in label_ids (e.g. "in:updates" → search for CATEGORY_UPDATES).
+    const CATEGORY_LABEL_MAP: Record<string, string> = {
+      UPDATES: "CATEGORY_UPDATES",
+      PROMOTIONS: "CATEGORY_PROMOTIONS",
+      SOCIAL: "CATEGORY_SOCIAL",
+      FORUMS: "CATEGORY_FORUMS",
+    };
+    const label = CATEGORY_LABEL_MAP[rawLabel] ?? rawLabel;
     where.push(`(label_ids ILIKE '%"${safe(label)}"%' OR label_ids ILIKE '%${safe(label)}%')`);
     // Inbox view should never show outbound sent emails (Gmail behaviour).
     // Emails with ["SENT","INBOX"] labels are the user's own outgoing replies

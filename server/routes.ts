@@ -10392,9 +10392,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         // sees parsed.labelIds !== existing.labelIds and overwrites local
         // label_ids WITH the stale Gmail SPAM labels — silently undoing the fix.
         //
-        // Spam/trash are fully mirrored locally via incremental sync, so
-        // overflow adds no value for these folders and is actively harmful.
-        const isSpamOrTrashQuery = /\bin:(spam|trash|junk)\b/i.test(q);
+        // Spam/trash/category folders are fully mirrored locally via incremental sync, so
+        // overflow adds no value and is actively harmful (Gmail doesn't understand in:updates etc).
+        const isSpamOrTrashQuery = /\bin:(spam|trash|junk|updates|promotions|social|forums)\b/i.test(q);
 
         const shouldOverflow =
           canOverflow &&
@@ -11350,6 +11350,66 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     } catch (err: any) {
       console.error("[inbox-not-spam] unexpected error:", err?.message);
       res.status(500).json({ message: err?.message || "not-spam failed" });
+    }
+  });
+
+  // POST /api/inbox/threads/:threadId/move-to-primary
+  // Adds INBOX label and strips CATEGORY_* labels from every message in the thread.
+  // Calls the Gmail API for every distinct account that owns messages in this thread,
+  // then mirrors the change into the local DB regardless of provider outcome.
+  app.post("/api/inbox/threads/:threadId/move-to-primary", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const threadId = String(req.params.threadId);
+    try {
+      const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+      const accessibleAccountIds = await getAccessibleAccountIds(userId, _ia, _mtp);
+      if (accessibleAccountIds.length === 0) {
+        return res.status(403).json({ message: "No accessible mailboxes" });
+      }
+
+      // Find all messages in this thread that belong to accessible accounts.
+      const threadMsgs = await db.execute(sql.raw(`
+        SELECT DISTINCT source_account_id, gmail_message_id
+        FROM email_messages
+        WHERE gmail_thread_id = '${threadId.replace(/'/g, "''")}'
+          AND source_account_id IN (${accessibleAccountIds.join(",")})
+      `));
+      const msgs = ((threadMsgs as any).rows ?? threadMsgs) as { source_account_id: number; gmail_message_id: string }[];
+      if (msgs.length === 0) {
+        return res.status(404).json({ message: "Thread not found in any accessible mailbox" });
+      }
+
+      // Deduplicate by account so we issue one threads.modify call per account.
+      const accountIds = [...new Set(msgs.map(m => m.source_account_id))];
+      const addLabelIds = ["INBOX"];
+      const removeLabelIds = ["CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"];
+
+      let gmailOk = true;
+      for (const accId of accountIds) {
+        try {
+          const gmail = await getGmailClient(userId, accId);
+          await gmail.users.threads.modify({
+            userId: "me",
+            id: threadId,
+            requestBody: { addLabelIds, removeLabelIds },
+          });
+        } catch (gmailErr: any) {
+          console.warn(`[move-to-primary] Gmail API failed acct=${accId} thread=${threadId}:`, gmailErr?.message ?? gmailErr);
+          gmailOk = false;
+        }
+      }
+
+      // Always mirror locally — even if Gmail API failed the UI should reflect the move.
+      try {
+        await mirrorLabelChangeForThreads([threadId], null, { add: addLabelIds, remove: removeLabelIds });
+      } catch (mirrorErr: any) {
+        console.warn(`[move-to-primary] mirror failed thread=${threadId}:`, mirrorErr?.message ?? mirrorErr);
+      }
+
+      res.json({ ok: true, gmailOk, threadId, accountsAttempted: accountIds.length });
+    } catch (err: any) {
+      console.error("[move-to-primary] unexpected error:", err?.message);
+      res.status(500).json({ message: err?.message || "move-to-primary failed" });
     }
   });
 
@@ -14251,6 +14311,56 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         };
       });
       res.json(annotated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Category-folder counts ─────────────────────────────────────────────────
+  // GET /api/gmail/category-counts?asAccountId=<id|all>
+  // Returns total + unread counts for each of the four Gmail category labels
+  // (CATEGORY_UPDATES, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, CATEGORY_FORUMS).
+  // Used by the sidebar category folder badges.
+  app.get("/api/gmail/category-counts", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+      const rawAcc = req.query.asAccountId as string | undefined;
+      const asAccountId = rawAcc === "all" ? "all" : rawAcc ? Number(rawAcc) : undefined;
+      const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
+      const empty = { updates: { total: 0, unread: 0 }, promotions: { total: 0, unread: 0 }, social: { total: 0, unread: 0 }, forums: { total: 0, unread: 0 } };
+      if (!resolved) return res.json(empty);
+
+      const accountIds: number[] = (resolved as any).accountIds ?? [Number((resolved as any).accountId)];
+      const validIds = accountIds.filter(Boolean);
+      if (validIds.length === 0) return res.json(empty);
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%')::int         AS updates_total,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%'
+                             AND label_ids ILIKE '%UNREAD%')::int                   AS updates_unread,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%')::int      AS promotions_total,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%'
+                             AND label_ids ILIKE '%UNREAD%')::int                   AS promotions_unread,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%')::int          AS social_total,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%'
+                             AND label_ids ILIKE '%UNREAD%')::int                   AS social_unread,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%')::int          AS forums_total,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'
+                             AND label_ids ILIKE '%UNREAD%')::int                   AS forums_unread
+        FROM email_messages
+        WHERE source_account_id IN (${validIds.join(",")})
+          AND label_ids NOT ILIKE '%"TRASH"%'
+          AND label_ids NOT ILIKE '%"SPAM"%'
+      `));
+      const r = (((rows as any).rows ?? rows)[0] ?? {}) as Record<string, number>;
+      res.json({
+        updates:    { total: r.updates_total    ?? 0, unread: r.updates_unread    ?? 0 },
+        promotions: { total: r.promotions_total ?? 0, unread: r.promotions_unread ?? 0 },
+        social:     { total: r.social_total     ?? 0, unread: r.social_unread     ?? 0 },
+        forums:     { total: r.forums_total     ?? 0, unread: r.forums_unread     ?? 0 },
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

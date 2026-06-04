@@ -4463,7 +4463,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
   const [shownSenderEmailIds, setShownSenderEmailIds] = useState<Set<string>>(new Set());
   const toggleSenderEmail = (msgId: string) => setShownSenderEmailIds(prev => { const n = new Set(prev); n.has(msgId) ? n.delete(msgId) : n.add(msgId); return n; });
-  const [tab, setTab] = useState<"inbox" | "sent" | "spam" | "other" | "drafts" | "scheduled" | "folder" | "review" | "pinned">("inbox");
+  const [tab, setTab] = useState<"inbox" | "sent" | "spam" | "other" | "drafts" | "scheduled" | "folder" | "review" | "pinned" | "updates" | "promotions" | "social" | "forums">("inbox");
+  const CATEGORY_TABS = ["updates", "promotions", "social", "forums"] as const;
+  const isCategoryTab = CATEGORY_TABS.includes(tab as typeof CATEGORY_TABS[number]);
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
@@ -5598,6 +5600,44 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     refetchIntervalInBackground: false,
   });
 
+  // Category folder query — fetches messages for whichever category tab is active.
+  // Uses the same /api/gmail/messages endpoint with in:<category> q-filter;
+  // the backend local-mailbox layer maps in:updates → CATEGORY_UPDATES, etc.
+  const categoryQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
+    queryKey: ["/api/gmail/messages", "category", tab, searchQuery, activeAccountId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("limit", "50");
+      params.set("q", searchQuery ? `in:${tab} ${searchQuery}` : `in:${tab}`);
+      appendAccountId(params);
+      const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    enabled: isCategoryTab,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+
+  // Category sidebar badge counts — total + unread per category, polled every 60s.
+  const categoryCountsQuery = useQuery<{
+    updates:    { total: number; unread: number };
+    promotions: { total: number; unread: number };
+    social:     { total: number; unread: number };
+    forums:     { total: number; unread: number };
+  }>({
+    queryKey: ["/api/gmail/category-counts", activeAccountId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      appendAccountId(params);
+      const res = await fetch(`/api/gmail/category-counts?${params}`, { credentials: "include" });
+      if (!res.ok) return { updates: { total: 0, unread: 0 }, promotions: { total: 0, unread: 0 }, social: { total: 0, unread: 0 }, forums: { total: 0, unread: 0 } };
+      return res.json();
+    },
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+
   const inboxBaseToken = inboxQuery.data?.nextPageToken ?? null;
   const sentBaseToken = sentQuery.data?.nextPageToken ?? null;
 
@@ -6363,6 +6403,36 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onError: (err: any) => toast({ title: "Couldn't move to inbox", description: err.message, variant: "destructive" }),
   });
 
+  // Move-to-primary: lift a thread from a category folder into the Primary Inbox.
+  // Calls POST /api/inbox/threads/:threadId/move-to-primary which adds INBOX and
+  // strips all CATEGORY_* labels via Gmail API + local mirror.
+  const moveToPrimaryMutation = useMutation({
+    mutationFn: async (threadId: string) => {
+      const res = await apiRequest("POST", `/api/inbox/threads/${encodeURIComponent(threadId)}/move-to-primary`, {});
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message);
+      return { threadId, ...body } as { threadId: string; ok: boolean; gmailOk: boolean };
+    },
+    onSuccess: (result) => {
+      const { threadId } = result;
+      // Optimistically remove from the current category query cache.
+      const removeThread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+        old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
+      for (const cat of CATEGORY_TABS) {
+        queryClient.setQueryData(["/api/gmail/messages", "category", cat, searchQuery, activeAccountId], removeThread);
+      }
+      // Refresh inbox so the moved thread appears there, and refresh counts.
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "inbox"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/category-counts"] });
+      if (selectedThreadId === threadId) {
+        setSelectedThreadId(null);
+        setSelectedMessageId(null);
+      }
+      toast({ title: "Moved to Primary Inbox", description: "Thread will appear in your inbox." });
+    },
+    onError: (err: any) => toast({ title: "Couldn't move to inbox", description: err.message, variant: "destructive" }),
+  });
+
   // ── Single-thread / single-message variants used by the new Spark-style
   // actions toolbar at the top of the reader pane. They reuse the existing
   // bulk endpoints (no new backend routes) so cache-update semantics stay
@@ -6570,7 +6640,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const isSmartView =
     viewMode === "smart" &&
     !searchQuery &&
-    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && tab !== "spam" && tab !== "pinned";
+    tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && tab !== "spam" && tab !== "pinned" && !isCategoryTab;
   const viewItems = useMemo<SmartItem<typeof activeMessages[number]>[] | null>(() => {
     if (!isSmartView) return null;
     if (!crmFilteredMessages || crmFilteredMessages.length === 0) return [];
@@ -6665,8 +6735,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return crmFilteredMessages ?? [];
   }, [tab, isUnreadCardsView, unreadCardsMessages, collapsedViewItems, crmFilteredMessages]);
 
-  const isLoading = tab === "other" || tab === "pinned" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : tab === "spam" ? spamQuery.isLoading : sentQuery.isLoading;
-  const error = tab === "other" || tab === "pinned" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : tab === "spam" ? spamQuery.error : sentQuery.error;
+  const isLoading = isCategoryTab ? categoryQuery.isLoading : tab === "other" || tab === "pinned" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : tab === "spam" ? spamQuery.isLoading : sentQuery.isLoading;
+  const error = isCategoryTab ? categoryQuery.error : tab === "other" || tab === "pinned" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : tab === "spam" ? spamQuery.error : sentQuery.error;
   // "Other" tab is a derived slice of the same inboxQuery — it must paginate too,
   // otherwise users land on Other and see only blocked-domain rows from the first 50.
   const hasMore =
@@ -6798,7 +6868,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (!res.ok) return {};
       return res.json();
     },
-    enabled: visibleThreadIds.length > 0 && (tab === "inbox" || tab === "sent"),
+    enabled: visibleThreadIds.length > 0 && (tab === "inbox" || tab === "sent" || isCategoryTab),
     staleTime: 30000,
     // Keep previous signal data visible while a new key (larger thread-ID list) loads.
     // Without this, when loadMore() adds emails and visibleThreadIds grows, all CRM signal
@@ -7456,6 +7526,31 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         {(reviewStatsQuery.data?.needsReview ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "review" ? "bg-amber-500/30 text-amber-300" : "bg-amber-500/20 text-amber-400"}`}>{reviewStatsQuery.data!.needsReview}</span>}
                       </button>
                     )}
+                    {/* ── Categories (Gmail hidden tabs visibility layer) ──────── */}
+                    <div className={`${densityClasses.sidebarSectionPt} pb-0.5 px-1`}>
+                      <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Categories</span>
+                    </div>
+                    {([
+                      { key: "updates",    label: "Newsletters & Updates", Icon: Newspaper },
+                      { key: "promotions", label: "Promotions",            Icon: Tag       },
+                      { key: "social",     label: "Social",                Icon: Users     },
+                      { key: "forums",     label: "Forums & Communities",  Icon: Hash      },
+                    ] as const).map(({ key, label, Icon }) => {
+                      const counts = categoryCountsQuery.data?.[key];
+                      const isActive = tab === key;
+                      const badge = counts ? (counts.unread > 0 ? counts.unread : counts.total > 0 ? counts.total : 0) : 0;
+                      return (
+                        <button key={key}
+                          onClick={() => { setTab(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                          data-testid={`nav-tab-${key}`}
+                          className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                          <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span className="flex-1 text-left truncate">{label}</span>
+                          {badge > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{badge > 99 ? "99+" : badge}</span>}
+                        </button>
+                      );
+                    })}
+
                     {/* Folders under personal */}
                     <div className={`${densityClasses.sidebarSectionPt} pb-0.5 flex items-center justify-between pr-1`}>
                       <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Folders</span>
@@ -8282,7 +8377,63 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               )
             )}
 
-            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && isLoading && (
+            {/* ── Category tab rendering (Updates / Promotions / Social / Forums) ── */}
+            {isCategoryTab && (
+              categoryQuery.isLoading ? (
+                <div className="p-3 space-y-2">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="space-y-1 p-2"><Skeleton className="h-3.5 w-2/3" /><Skeleton className="h-3 w-full" /></div>)}</div>
+              ) : (categoryQuery.data?.messages || []).length === 0 ? (
+                <div className="p-8 text-center">
+                  <Newspaper className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm font-medium text-foreground mb-1">No emails in this category</p>
+                  <p className="text-xs text-muted-foreground">Gmail routes matching messages here automatically.</p>
+                </div>
+              ) : (
+                (categoryQuery.data?.messages || []).map((msg) => {
+                  const isSelected = msg.threadId === selectedThreadId;
+                  const isUnread = (msg.labelIds || []).includes("UNREAD");
+                  const senderName = msg.fromName || msg.fromEmail?.split("@")[0] || "Unknown";
+                  const dateStr = msg.sentAt ? formatDate(new Date(msg.sentAt).toISOString(), undefined) : "";
+                  return (
+                    <div
+                      key={msg.id}
+                      data-testid={`category-email-row-${msg.id}`}
+                      className={`relative group flex items-stretch transition-colors border-b border-border/20 ${
+                        isSelected
+                          ? "bg-primary/8 border-l-[3px] border-l-primary"
+                          : "border-l-[3px] border-l-transparent hover:bg-muted/25"
+                      }`}
+                    >
+                      <button
+                        onClick={() => { setSelectedThreadId(msg.threadId); setSelectedMessageId(null); }}
+                        data-testid={`button-open-category-thread-${msg.id}`}
+                        className="flex-1 text-left px-3 py-2.5 pr-16 min-w-0"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-[3px]">
+                          <span className={`text-[13px] leading-none truncate ${isUnread ? "font-semibold text-foreground" : "font-medium text-foreground/80"}`}>{senderName}</span>
+                          <span className="text-[11px] text-muted-foreground/45 whitespace-nowrap flex-shrink-0 tabular-nums">{dateStr}</span>
+                        </div>
+                        <div className="text-[12px] leading-snug truncate">
+                          <span className={isUnread ? "text-foreground/80 font-medium" : "text-muted-foreground/65"}>{msg.subject || "(no subject)"}</span>
+                          {msg.snippet && <span className="text-muted-foreground/38"> — {msg.snippet}</span>}
+                        </div>
+                      </button>
+                      {/* Move to Primary Inbox */}
+                      <button
+                        className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/50 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-md text-[10px] font-medium"
+                        title="Move to Primary Inbox"
+                        data-testid={`button-move-to-primary-${msg.id}`}
+                        onClick={(e) => { e.stopPropagation(); moveToPrimaryMutation.mutate(msg.threadId); }}
+                        disabled={moveToPrimaryMutation.isPending}
+                      >
+                        <Inbox className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })
+              )
+            )}
+
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && !isCategoryTab && isLoading && (
               <div className="p-3 space-y-2">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="space-y-1 p-2">
