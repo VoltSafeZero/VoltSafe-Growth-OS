@@ -377,6 +377,44 @@ function AccountSourceBadge({ accounts, sourceAccountId, messageId }: {
   );
 }
 
+const CATEGORY_BADGE_CONFIG: Record<string, { label: string; className: string }> = {
+  CATEGORY_UPDATES:    { label: "Updates",    className: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
+  CATEGORY_PROMOTIONS: { label: "Promotions", className: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+  CATEGORY_SOCIAL:     { label: "Social",     className: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
+  CATEGORY_FORUMS:     { label: "Forums",     className: "bg-orange-500/15 text-orange-300 border-orange-500/30" },
+};
+
+function getCategoryLabel(labelIds: string[]): string | null {
+  for (const key of Object.keys(CATEGORY_BADGE_CONFIG)) {
+    if (labelIds.includes(key)) return key;
+  }
+  return null;
+}
+
+function CategoryBadge({
+  labelIds,
+  messageId,
+  onFilter,
+}: {
+  labelIds: string[];
+  messageId: number;
+  onFilter?: (category: string) => void;
+}) {
+  const key = getCategoryLabel(labelIds);
+  if (!key) return null;
+  const cfg = CATEGORY_BADGE_CONFIG[key];
+  return (
+    <span
+      data-testid={`badge-category-${key.toLowerCase()}-${messageId}`}
+      title={`Category: ${cfg.label}${onFilter ? " — click to filter" : ""}`}
+      className={`flex-shrink-0 h-4 px-1.5 rounded border text-[9px] font-bold leading-4 tabular-nums ${cfg.className}${onFilter ? " cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
+      onClick={onFilter ? (e) => { e.stopPropagation(); onFilter(key); } : undefined}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
 function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
 }
@@ -8762,6 +8800,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             accounts={accountsQuery.data}
                             sourceAccountId={msg.sourceAccountId}
                             messageId={msg.id}
+                          />
+                        )}
+                        {tab === "inbox" && (
+                          <CategoryBadge
+                            labelIds={msg.labelIds}
+                            messageId={msg.id}
+                            onFilter={(catKey) => {
+                              const tabMap: Record<string, string> = {
+                                CATEGORY_UPDATES: "updates",
+                                CATEGORY_PROMOTIONS: "promotions",
+                                CATEGORY_SOCIAL: "social",
+                                CATEGORY_FORUMS: "forums",
+                              };
+                              const dest = tabMap[catKey];
+                              if (dest) setTab(dest as Parameters<typeof setTab>[0]);
+                            }}
                           />
                         )}
                         <span className={`${densityClasses.senderText} leading-none truncate ${
