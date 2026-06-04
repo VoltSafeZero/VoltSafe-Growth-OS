@@ -78,7 +78,7 @@ function daysBetween(dateStr: string | null, now = new Date()): number | null {
 /** URL patterns that suggest technical content. */
 const TECHNICAL_PATTERNS = [
   "spec", "pedestal", "shore-power", "shore_power", "cert", "install",
-  "compliance", "technical", "datasheet", "data-sheet", "manual", "guide",
+  "compliance", "technical", "datasheet", "data-sheet", "manual",
   "commissioning", "wiring", "electrical",
 ];
 

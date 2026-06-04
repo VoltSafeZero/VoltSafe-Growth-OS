@@ -10,6 +10,7 @@ import {
   Loader2, Eye, MousePointerClick, Clock, Flame, Zap, BarChart2,
 } from "lucide-react";
 import { Link as WouterLink } from "wouter";
+import { FollowUpInsightCard } from "@/components/follow-up-insight-card";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -371,6 +372,8 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
 
   return (
     <div className="space-y-3">
+      <FollowUpInsightCard entityType={objectType} entityId={objectId} />
+
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {emails.length === 0 ? "No emails linked yet" : `${emails.length} email${emails.length !== 1 ? "s" : ""} linked`}

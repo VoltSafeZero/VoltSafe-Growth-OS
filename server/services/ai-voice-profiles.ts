@@ -13,6 +13,7 @@
  *     cannot read or modify them.
  */
 
+import OpenAI from "openai";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
@@ -579,4 +580,166 @@ export function buildVoiceProfilePromptBlock(profile: VoiceProfile, influenceLev
   lines.push(buildInfluencePromptBlock(influenceLevel));
 
   return lines.join("\n");
+}
+
+// ── Voice DNA Training (Phase 2) ──────────────────────────────────────────────
+
+export interface VoiceDnaProfile {
+  tone: string;
+  formality: string;
+  sentenceLength: string;
+  openingPatterns: string[];
+  closingPatterns: string[];
+  signaturePhrases: string[];
+  avoidPhrases: string[];
+  bulletUsage: string;
+  technicalLevel: string;
+  emailCount: number;
+  analysisDate: string;
+}
+
+export interface TrainVoiceResult {
+  success: boolean;
+  profileId: number;
+  emailsAnalysed: number;
+  voiceDna: VoiceDnaProfile;
+}
+
+function stripEmailNoise(text: string): string {
+  if (!text) return "";
+  let cleaned = text.replace(/^>.*$/gm, "").trim();
+  cleaned = cleaned.replace(/On .{5,80} wrote:/gi, "").trim();
+  cleaned = cleaned.replace(/--\s*\n[\s\S]{0,500}$/, "").trim();
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+  return cleaned;
+}
+
+async function analyzeVoiceDnaWithOpenAI(
+  emailSamples: string[],
+  openai: OpenAI,
+  emailCount: number
+): Promise<VoiceDnaProfile> {
+  const joined = emailSamples.slice(0, 30).map((s, i) => `--- Email ${i + 1} ---\n${s}`).join("\n\n");
+  const systemPrompt = `You are a writing style analyst. Analyse the provided email samples and return a structured JSON describing the author's voice DNA.
+Return only valid JSON matching this schema:
+{
+  "tone": "e.g. professional and warm / direct and assertive / casual and friendly",
+  "formality": "formal / semi-formal / informal",
+  "sentenceLength": "short and punchy / medium / long and detailed",
+  "openingPatterns": ["array of 2-4 typical opening phrases they use"],
+  "closingPatterns": ["array of 2-4 typical closing phrases they use"],
+  "signaturePhrases": ["array of 3-6 characteristic phrases or expressions they use"],
+  "avoidPhrases": ["array of 2-4 clichés or patterns they clearly avoid or that clash with their style"],
+  "bulletUsage": "never / rarely / sometimes / often",
+  "technicalLevel": "high (technical jargon) / medium (some technical terms) / low (plain language)",
+  "emailCount": ${emailCount},
+  "analysisDate": "${new Date().toISOString()}"
+}
+Return only the JSON object, no explanation.`;
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Analyse my writing style from these ${emailSamples.length} email samples:\n\n${joined}` },
+    ],
+    temperature: 0.2,
+    max_tokens: 800,
+    response_format: { type: "json_object" },
+  });
+
+  const raw = resp.choices[0]?.message?.content || "{}";
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      tone: parsed.tone || "professional",
+      formality: parsed.formality || "semi-formal",
+      sentenceLength: parsed.sentenceLength || "medium",
+      openingPatterns: Array.isArray(parsed.openingPatterns) ? parsed.openingPatterns : [],
+      closingPatterns: Array.isArray(parsed.closingPatterns) ? parsed.closingPatterns : [],
+      signaturePhrases: Array.isArray(parsed.signaturePhrases) ? parsed.signaturePhrases : [],
+      avoidPhrases: Array.isArray(parsed.avoidPhrases) ? parsed.avoidPhrases : [],
+      bulletUsage: parsed.bulletUsage || "sometimes",
+      technicalLevel: parsed.technicalLevel || "medium",
+      emailCount,
+      analysisDate: new Date().toISOString(),
+    };
+  } catch {
+    return {
+      tone: "professional", formality: "semi-formal", sentenceLength: "medium",
+      openingPatterns: [], closingPatterns: [], signaturePhrases: [], avoidPhrases: [],
+      bulletUsage: "sometimes", technicalLevel: "medium", emailCount,
+      analysisDate: new Date().toISOString(),
+    };
+  }
+}
+
+/**
+ * Trains a voice profile from the user's sent email history.
+ * Queries outbound emails from connected mailboxes, analyses them
+ * with OpenAI, and stores the Voice DNA JSON in the target profile.
+ */
+export async function trainVoiceFromSentMail(
+  userId: number,
+  emailCount: number = 50,
+  profileId?: number
+): Promise<TrainVoiceResult> {
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("AI API key not configured");
+  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  const openai = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
+
+  const accountRows = await db.execute(sql.raw(`
+    SELECT email_address FROM mailbox_accounts WHERE user_id = ${userId} AND auth_status = 'active' LIMIT 5
+  `));
+  const accounts = (accountRows as any).rows as { email_address: string }[];
+  if (!accounts.length) throw new Error("No active mailbox found. Connect your Gmail account first.");
+
+  const emailSet = accounts.map(a => `'${a.email_address.replace(/'/g, "''")}'`).join(", ");
+
+  const emailRows = await db.execute(sql.raw(`
+    SELECT em.subject, em.snippet
+    FROM email_messages em
+    WHERE em.direction = 'outbound'
+      AND em.from_email IN (${emailSet})
+      AND em.snippet IS NOT NULL
+      AND length(em.snippet) > 20
+    ORDER BY em.sent_at DESC
+    LIMIT ${Math.min(emailCount, 100)}
+  `));
+  const emails = (emailRows as any).rows as { subject: string; snippet: string }[];
+  if (emails.length < 3) throw new Error("Not enough sent emails found. Send more emails and try again.");
+
+  const samples = emails
+    .map(e => `Subject: ${e.subject || "(no subject)"}\n${stripEmailNoise(e.snippet || "")}`.trim())
+    .filter(s => s.length > 20);
+
+  const voiceDna = await analyzeVoiceDnaWithOpenAI(samples, openai, samples.length);
+
+  let targetProfileId: number;
+  if (profileId) {
+    targetProfileId = profileId;
+  } else {
+    const profRow = await db.execute(sql.raw(`
+      SELECT id FROM ai_voice_profiles
+      WHERE (owner_user_id = ${userId} OR is_public = TRUE)
+      ORDER BY is_default DESC NULLS LAST, id ASC
+      LIMIT 1
+    `));
+    const profRows = (profRow as any).rows as { id: number }[];
+    if (!profRows.length) throw new Error("No voice profile found. Create a profile first.");
+    targetProfileId = profRows[0].id;
+  }
+
+  const dnaJson = JSON.stringify(voiceDna).replace(/'/g, "''");
+  await db.execute(sql.raw(`
+    UPDATE ai_voice_profiles
+    SET voice_dna_json = '${dnaJson}',
+        training_source = 'sent_mail',
+        training_email_count = ${samples.length},
+        trained_at = NOW()
+    WHERE id = ${targetProfileId}
+  `));
+
+  return { success: true, profileId: targetProfileId, emailsAnalysed: samples.length, voiceDna };
 }

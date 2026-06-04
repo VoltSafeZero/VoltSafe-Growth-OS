@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Brain, Plus, Pencil, Trash2, Globe, User, Star, Upload,
   ChevronRight, ChevronLeft, X, Loader2, Check, FileText, Download,
-  Sparkles, AlertTriangle, BookOpen, Sliders,
+  Sparkles, AlertTriangle, BookOpen, Sliders, Dna, Mail, Clock, Mic2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +43,173 @@ interface VoiceProfileFile {
   extractedText: string | null;
   textSummary: string | null;
   createdAt: string;
+}
+
+// ── Voice DNA types ───────────────────────────────────────────────────────────
+
+interface VoiceDnaProfile {
+  tone: string;
+  formality: string;
+  avgSentenceLength: string;
+  signaturePhrases: string[];
+  openingPatterns: string[];
+  closingPatterns: string[];
+  avoidedPhrases: string[];
+  styleNotes: string;
+}
+
+interface TrainVoiceResult {
+  success: boolean;
+  emailsAnalyzed: number;
+  voiceDna: VoiceDnaProfile;
+  profileName: string;
+  message: string;
+}
+
+// ── Train My Voice Dialog ────────────────────────────────────────────────────
+
+function TrainVoiceDialog({
+  profiles,
+  onClose,
+}: {
+  profiles: VoiceProfile[];
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [emailCount, setEmailCount] = useState(50);
+  const [profileId, setProfileId] = useState<string>("");
+  const [result, setResult] = useState<TrainVoiceResult | null>(null);
+
+  const userProfiles = profiles.filter(p => p.profileType === "user");
+
+  const trainMutation = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, unknown> = { emailCount };
+      if (profileId) body.profileId = Number(profileId);
+      const res = await apiRequest("POST", "/api/ai/voice-profiles/train-from-sent-mail", body);
+      return res.json() as Promise<TrainVoiceResult>;
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      qc.invalidateQueries({ queryKey: ["/api/ai/voice-profiles"] });
+      toast({ title: "Voice DNA trained!", description: `Analysed ${data.emailsAnalyzed} sent emails.` });
+    },
+    onError: (err: any) => toast({ title: "Training failed", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Dna className="h-4 w-4 text-primary" />
+            Train My Voice from Sent Mail
+          </DialogTitle>
+        </DialogHeader>
+
+        {!result ? (
+          <div className="space-y-5">
+            <p className="text-sm text-muted-foreground">
+              Cortex will analyse your outbound emails and extract your natural writing patterns — tone,
+              sentence length, phrase habits — and save them as a <span className="font-medium text-foreground">Voice DNA</span> on
+              your profile.
+            </p>
+
+            <div className="space-y-2">
+              <Label className="text-sm">How many sent emails to analyse</Label>
+              <div className="flex items-center gap-4">
+                <input
+                  type="range"
+                  min={10} max={100} step={5}
+                  value={emailCount}
+                  onChange={e => setEmailCount(Number(e.target.value))}
+                  className="flex-1 accent-primary"
+                  data-testid="slider-email-count"
+                />
+                <span className="text-sm font-mono w-8 text-right text-foreground">{emailCount}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">More emails = richer pattern — up to 100 most recent outbound.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm">Save DNA to profile <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Select value={profileId} onValueChange={setProfileId}>
+                <SelectTrigger data-testid="select-train-profile">
+                  <SelectValue placeholder="Auto-create or pick a profile…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Auto-create profile</SelectItem>
+                  {userProfiles.map(p => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+              <Button
+                size="sm"
+                onClick={() => trainMutation.mutate()}
+                disabled={trainMutation.isPending}
+                data-testid="button-start-training"
+              >
+                {trainMutation.isPending
+                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Analysing…</>
+                  : <><Dna className="h-3.5 w-3.5 mr-1.5" />Start training</>
+                }
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-primary">
+              <Check className="h-4 w-4" />
+              Voice DNA saved to &ldquo;{result.profileName}&rdquo;
+            </div>
+            <p className="text-xs text-muted-foreground">{result.emailsAnalyzed} emails analysed</p>
+
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                <div>
+                  <span className="text-muted-foreground">Tone</span>
+                  <p className="font-medium capitalize">{result.voiceDna.tone}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Formality</span>
+                  <p className="font-medium capitalize">{result.voiceDna.formality}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Avg sentence</span>
+                  <p className="font-medium capitalize">{result.voiceDna.avgSentenceLength}</p>
+                </div>
+              </div>
+
+              {result.voiceDna.signaturePhrases?.length > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Signature phrases</p>
+                  <div className="flex flex-wrap gap-1">
+                    {result.voiceDna.signaturePhrases.slice(0, 6).map((ph, i) => (
+                      <Badge key={i} variant="outline" className="text-[10px] px-1.5 py-0">&ldquo;{ph}&rdquo;</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {result.voiceDna.styleNotes && (
+                <p className="text-xs text-muted-foreground italic">{result.voiceDna.styleNotes}</p>
+              )}
+            </div>
+
+            <div className="flex justify-end">
+              <Button size="sm" onClick={onClose} data-testid="button-close-training-result">Done</Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ── Profile Card ──────────────────────────────────────────────────────────────
@@ -705,6 +872,7 @@ export default function AiVoiceProfilesPage() {
 
   const [editingProfile, setEditingProfile] = useState<VoiceProfile | null | "new">(null);
   const [showImport, setShowImport] = useState(false);
+  const [showTrainVoice, setShowTrainVoice] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const setDefaultMutation = useMutation({
@@ -756,7 +924,14 @@ export default function AiVoiceProfilesPage() {
               Recreate any ChatGPT Custom GPT voice inside VoltSafe. The AI uses your selected voice when generating emails.
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+            <Button
+              variant="outline" size="sm"
+              onClick={() => setShowTrainVoice(true)}
+              data-testid="button-train-my-voice"
+            >
+              <Dna className="h-3.5 w-3.5 mr-1.5" />Train My Voice
+            </Button>
             <Button
               variant="outline" size="sm"
               onClick={() => setShowImport(true)}
@@ -900,6 +1075,14 @@ export default function AiVoiceProfilesPage() {
         <ImportFromGptWizard
           onClose={() => setShowImport(false)}
           onSaved={() => setShowImport(false)}
+        />
+      )}
+
+      {/* Train My Voice dialog */}
+      {showTrainVoice && (
+        <TrainVoiceDialog
+          profiles={profiles}
+          onClose={() => setShowTrainVoice(false)}
         />
       )}
 

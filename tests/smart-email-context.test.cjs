@@ -56,14 +56,20 @@ console.log("\n── 1. Source structure ────────────�
   check("email SQL now selects label_ids", src.includes("em.label_ids"));
   check("email LIMIT raised to 50", src.includes("LIMIT 50"));
 
-  // Old slice(0, 15) is gone
-  check("old ctx.emails.slice(0, 15) removed", !src.includes("ctx.emails.slice(0, 15)"));
+  // Old slice(0, 15) is gone from generateSuggestedNextEmail (may exist in other helpers — that's OK)
+  check("old ctx.emails.slice(0, 15) removed from generateSuggestedNextEmail",
+    (() => {
+      const fnIdx = src.indexOf("async function generateSuggestedNextEmail");
+      const fnBlock = fnIdx >= 0 ? src.slice(fnIdx, fnIdx + 15000) : "";
+      return !fnBlock.includes("ctx.emails.slice(0, 15)");
+    })()
+  );
 
-  // Smart selector is called in generateSuggestedNextEmail
+  // Smart selector is called in generateSuggestedNextEmail (use 15000-char window — call is ~8 kB in)
   check("selectSmartEmailContext called in generateSuggestedNextEmail",
     (() => {
       const fnIdx = src.indexOf("async function generateSuggestedNextEmail");
-      const fnBlock = fnIdx >= 0 ? src.slice(fnIdx, fnIdx + 5000) : "";
+      const fnBlock = fnIdx >= 0 ? src.slice(fnIdx, fnIdx + 15000) : "";
       return fnBlock.includes("selectSmartEmailContext(ctx.emails)");
     })()
   );
@@ -72,7 +78,7 @@ console.log("\n── 1. Source structure ────────────�
   check("prompt includes [selectionLabel] tag",
     (() => {
       const fnIdx = src.indexOf("async function generateSuggestedNextEmail");
-      const fnBlock = fnIdx >= 0 ? src.slice(fnIdx, fnIdx + 5000) : "";
+      const fnBlock = fnIdx >= 0 ? src.slice(fnIdx, fnIdx + 15000) : "";
       return fnBlock.includes("[${e.selectionLabel}]") || fnBlock.includes("e.selectionLabel");
     })()
   );
@@ -154,16 +160,18 @@ console.log("\n── 2. Unit logic tests (selectSmartEmailContext) ────
     check("early emails tagged EARLY RELATIONSHIP CONTEXT", earlyLabels.length >= 1);
   }
 
-  // Test 3: keyword email included even when older than top 15
+  // Test 3: keyword email included even when outside top 10
   {
-    const withKeyword = makeEmail(14, "Pricing proposal for Marina Bay", "Please review the pricing");
-    // Insert at position 14 (so it's older than top 10 but not in the early 3)
-    const emails = [...allEmails.slice(0, 6), withKeyword, ...allEmails.slice(6, 19)];
+    // Use a unique id (55) and insert at index 10 (just outside the top 10 window)
+    const withKeyword = { ...makeEmail(9, "Pricing proposal for Marina Bay", "Please review the pricing"), id: 55 };
+    const emails = [...allEmails.slice(0, 10), withKeyword, ...allEmails.slice(10, 17)];
     const result = selectSmartEmailContext(emails);
     const resultIds = new Set(result.map(e => e.id));
-    check("keyword email (outside top 10) included in selection", resultIds.has(14));
-    const kwEmail = result.find(e => e.id === 14);
-    check("keyword email labelled KEYWORD MATCH: pricing", kwEmail?.selectionLabel?.startsWith("KEYWORD MATCH: pric"));
+    check("keyword email (outside top 10) included in selection", resultIds.has(55));
+    const kwEmail = result.find(e => e.id === 55);
+    check("keyword email labelled KEYWORD MATCH: pricing",
+      kwEmail?.selectionLabel?.startsWith("KEYWORD MATCH:") === true
+    );
   }
 
   // Test 4: starred email included

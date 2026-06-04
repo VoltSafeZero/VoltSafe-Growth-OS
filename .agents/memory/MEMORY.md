@@ -12,4 +12,7 @@
 - [Signature CTA Tracking](signature-cta-tracking.md) — tracked redirect links injected into signature at send time; 3 DB tables; send pipeline order: normalizeOutboundHtml → wrapSignatureCtaLinks → injectTracking → sendEmail → updateSignatureCtaMessageIds.
 - [Internal Open Filtering](internal-open-filtering.md) — is_internal flag on engagement events; email_recipients table; all engagement counts use `AND is_internal IS NOT TRUE`; internal opens stored but excluded everywhere.
 - [Revenue Intelligence System](revenue-intelligence.md) — champion scoring, buying committee, heatmap, follow-up opps, momentum; server/services/revenue-intelligence.ts; 6 API routes; account-profile + thread widget enhanced.
+- [AI Follow-Up Engine](ai-follow-up-engine.md) — Phase 3 follow-up engine; 7 categories; "guide" removed from TECHNICAL_PATTERNS; FollowUpInsightCard auto-inserted in EmailsTab; dismiss store is in-memory (resets on restart).
+- [Voice DNA Training](voice-dna-training.md) — Phase 2 trainVoiceFromSentMail(); migration 0014; Train My Voice dialog in ai-voice-profiles.tsx with email count slider and result cards.
+- [Smart Email Context](smart-email-context.md) — Phase 1 selectSmartEmailContext(); top-10 recent + 3 early + starred/IMPORTANT + keyword matches; dedup; cap 20; SQL LIMIT 50 with label_ids.
 - [AI Voice Profiles](ai-voice-profiles.md) — Train From GPT system; migration 0012; service in server/services/ai-voice-profiles.ts; generateSuggestedNextEmail now accepts voiceProfileId; voice selector in SuggestedNextEmailModal.

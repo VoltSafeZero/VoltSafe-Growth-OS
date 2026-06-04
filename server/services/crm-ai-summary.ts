@@ -821,13 +821,25 @@ export function selectSmartEmailContext(emails: EmailRow[], cap = 20): SmartEmai
     .slice(0, cap);
 }
 
+/** Engagement signals passed from the Follow-Up Engine into the AI prompt. */
+export interface EngagementContext {
+  category: string;
+  insightText: string;
+  whyText: string[];
+  uniqueOpens: number;
+  uniqueClicks: number;
+  daysSinceLastOutbound: number | null;
+  ctaClicks: Array<{ ctaName: string; destinationUrl: string; clickCount: number }>;
+}
+
 export async function generateSuggestedNextEmail(
   entityType: CrmEntityType,
   entityId: number,
   voiceProfileId?: number,
   callerUserId?: number,
   callerIsAdmin?: boolean,
-  ceoWattsonInfluenceLevel: number = 75
+  ceoWattsonInfluenceLevel: number = 75,
+  engagementSummary?: EngagementContext
 ): Promise<SuggestedEmail> {
   const id = Number(entityId);
 
@@ -1007,6 +1019,26 @@ export async function generateSuggestedNextEmail(
       `=== DOCUMENTS / ATTACHMENTS ===`,
       ...ctx.attachments.map(a => `${a.category}: ${a.name} (${a.createdAt})`),
     ].join("\n") : "",
+    ``,
+    engagementSummary ? [
+      `=== ENGAGEMENT SIGNALS (behaviour-driven follow-up context) ===`,
+      `Category: ${engagementSummary.insightText}`,
+      `Reason: ${engagementSummary.whyText.join(" | ")}`,
+      engagementSummary.uniqueOpens > 0 ? `Email opens (excluding internal): ${engagementSummary.uniqueOpens}` : "",
+      engagementSummary.uniqueClicks > 0 ? `Link clicks (excluding internal): ${engagementSummary.uniqueClicks}` : "",
+      engagementSummary.daysSinceLastOutbound !== null ? `Days since last outbound email: ${engagementSummary.daysSinceLastOutbound}` : "",
+      engagementSummary.ctaClicks.length > 0
+        ? `Asset / CTA clicks: ${engagementSummary.ctaClicks.map(c => `${c.ctaName || c.destinationUrl} (×${c.clickCount})`).join(", ")}`
+        : "",
+      ``,
+      `FOLLOW-UP GUIDANCE based on category '${engagementSummary.category}':`,
+      engagementSummary.category === "technical"   ? `- They viewed technical/spec content. Reference it. Offer to answer install or compliance questions.` : "",
+      engagementSummary.category === "commercial"  ? `- They viewed pricing/proposal content. Acknowledge their interest. Offer a clear next step (call, custom quote, ROI summary).` : "",
+      engagementSummary.category === "hot"         ? `- High open count with no reply — they're interested but hesitant. Use a direct, low-friction single-question CTA.` : "",
+      engagementSummary.category === "warm"        ? `- Opened but no clicks or reply. Add a specific value hook or resource to re-engage.` : "",
+      engagementSummary.category === "dormant"     ? `- Significant gap since last contact. Re-open naturally ("circling back", "wanted to share an update"). New value hook required.` : "",
+      engagementSummary.category === "re-engage"   ? `- Recent outbound with no response. Follow up politely — check if they have questions or concerns.` : "",
+    ].filter(Boolean).join("\n") : "",
     ``,
     `=== INSTRUCTIONS ===`,
     `Return JSON matching exactly:`,

@@ -1,0 +1,197 @@
+Fix VoltSafe Mail category email display and inbox behavior.
+
+Current bug shown in screenshots:
+1. Category emails are now visible, which is good.
+2. But the sender/title column shows “Unknown” for almost every message.
+3. This makes the list useless.
+4. Category emails are also separated under category folders instead of behaving like normal inbox emails.
+5. I want category emails to land in / appear in my Inbox like other inbox emails.
+
+Goal:
+Make categorized Gmail messages behave like real inbox messages in VoltSafe Mail and show useful sender/title information.
+
+Important:
+Do not remove category filtering entirely.
+Categories can still exist in the sidebar.
+But emails with Gmail category labels like CATEGORY_UPDATES, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, CATEGORY_FORUMS, etc. must also appear in the main Inbox if they are current inbox-style mail and not archived/spam/trash/sent/draft.
+
+PART 1 — Fix “Unknown” sender/title display
+
+Investigate the mail list rendering and backend message mapping.
+
+Likely causes to check:
+- sender_name/from_name/from_email field not mapped for category emails
+- Gmail From header not parsed for messages without INBOX label
+- category sync path stores headers differently than inbox sync path
+- frontend list item is reading the wrong field
+- fallback logic defaults to Unknown too aggressively
+
+Required behavior:
+For each email row, show:
+1. Sender display name if available.
+2. Else sender email address.
+3. Else parsed From header.
+4. Else subject.
+5. Only show “Unknown” if truly no usable sender/header/subject exists.
+
+Examples:
+- “Yachting Ventures”
+- “Circle”
+- “AkzoNobel”
+- “RingCentral”
+- “no-reply@notification.circle.so”
+should appear instead of Unknown.
+
+Also ensure the subject preview still appears below/beside it.
+
+Required backend fix:
+Normalize message sender fields in one shared place so Inbox, categories, search, thread view, and CRM Review all get the same sender data.
+
+Add/confirm fields returned to frontend:
+- from_name
+- from_email
+- sender_name
+- sender_email
+- from_header, if useful
+- subject
+- snippet/preview
+
+Required frontend fix:
+Update the mail list item display logic to use robust fallback order:
+sender display name → sender email → from header → subject → “Unknown”.
+
+Add tests:
+- Category email with From header displays parsed sender name.
+- Category email with only sender email displays sender email.
+- Category email never displays Unknown when subject/from data exists.
+- Existing inbox emails still render correctly.
+- Search results still render correctly.
+
+PART 2 — Make Gmail category emails appear in Inbox
+
+Current issue:
+Messages with labels like CATEGORY_UPDATES, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, CATEGORY_FORUMS are being treated as separate from Inbox even when they should be visible in the inbox.
+
+Required behavior:
+VoltSafe Inbox should include:
+- messages with INBOX label
+- plus Gmail category messages that are not sent/draft/spam/trash/archived
+- plus unread/category messages that Gmail users would reasonably expect to see in their inbox
+
+Exclude from Inbox:
+- SENT
+- DRAFT
+- SPAM
+- TRASH
+- explicitly archived messages
+- deleted messages
+- scheduled/pinned special views unless explicitly selected
+
+Important Gmail nuance:
+Some category messages may not have the INBOX label in the local database even though users expect them in the inbox. Do not rely only on labels.includes("INBOX") to determine inbox visibility.
+
+Implement a shared helper, for example:
+isInboxVisibleMessage(labels, message)
+
+Suggested logic:
+Inbox-visible if:
+- has INBOX label
+OR
+- has any Gmail category label:
+  - CATEGORY_PERSONAL
+  - CATEGORY_SOCIAL
+  - CATEGORY_PROMOTIONS
+  - CATEGORY_UPDATES
+  - CATEGORY_FORUMS
+AND NOT:
+  - SENT
+  - DRAFT
+  - SPAM
+  - TRASH
+  - archived flag true, if exists
+  - deleted flag true, if exists
+
+Then replace all hardcoded INBOX-only filters used for:
+- Inbox message fetch
+- Smart Inbox grouping
+- mailbox counts
+- unread counts
+- default “All Inboxes” view
+- search result visibility, if search is scoped to inbox
+
+Do not duplicate this logic in multiple places.
+
+PART 3 — Sidebar and category count behavior
+
+Required behavior:
+- Main Inbox count should include inbox-visible category messages.
+- Category folders can still show category-specific counts.
+- “All Inboxes” should include everything inbox-visible across connected mailboxes.
+- Clicking a category should still filter to that category.
+- Clicking Inbox should show both normal inbox and inbox-visible category messages.
+
+Add tests:
+- CATEGORY_UPDATES message appears in Inbox.
+- CATEGORY_PROMOTIONS message appears in Inbox.
+- CATEGORY_SOCIAL message appears in Inbox.
+- CATEGORY_FORUMS message appears in Inbox.
+- SENT category-like messages do not appear in Inbox.
+- TRASH/SPAM category messages do not appear in Inbox.
+- Inbox count includes inbox-visible categories.
+- Category count still works.
+- All Inboxes includes category messages.
+
+PART 4 — Sync/import repair
+
+Investigate whether category messages already stored in the database are missing parsed sender fields.
+
+If yes:
+- Add a safe backfill/repair script.
+- Re-parse stored raw headers where available.
+- Fill missing from_name/from_email/sender fields.
+- Do not overwrite good existing sender data.
+- Log how many messages were repaired.
+
+Suggested script:
+scripts/repair-mail-senders-and-inbox-visibility.js
+
+The script should:
+1. Find messages where sender/from fields are null/empty/Unknown but subject or raw headers exist.
+2. Parse From header safely.
+3. Update missing sender fields.
+4. Optionally recompute inbox visibility if a stored boolean exists.
+5. Print before/after counts.
+
+PART 5 — Validation
+
+After fixes, run tests and provide a report.
+
+Required validation:
+1. Open Inbox.
+2. Confirm category emails appear in Inbox.
+3. Confirm sender/title no longer says Unknown when usable sender data exists.
+4. Open Newsletters/Updates category.
+5. Confirm category filtering still works.
+6. Search mailbox.
+7. Confirm sender/title display works in search results.
+8. Confirm normal Inbox emails were not broken.
+
+Run relevant tests:
+- mail/inbox tests
+- mail/category tests
+- mail/search tests
+- sender parsing tests
+- any existing VoltSafe Mail tests
+
+Return:
+- root cause
+- files changed
+- helper functions added
+- migration/backfill script added, if any
+- tests added/updated
+- test results
+- whether existing production data needs repair
+
+Do not mark complete until both are fixed:
+1. category messages appear in Inbox
+2. message list shows real sender/title instead of Unknown

@@ -28608,6 +28608,63 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ── Voice DNA Training (Phase 2) ──────────────────────────────────────────────
+  app.post("/api/ai/voice-profiles/train-from-sent-mail", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const emailCount = Math.min(Number(req.body.emailCount ?? 50), 100);
+      const profileId = req.body.profileId ? Number(req.body.profileId) : undefined;
+      const { trainVoiceFromSentMail } = await import("./services/ai-voice-profiles");
+      const result = await trainVoiceFromSentMail(userId, emailCount, profileId);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ── AI Follow-Up Engine (Phase 3) ─────────────────────────────────────────────
+  app.get("/api/ai-follow-up/insights", requireAuth, async (req, res) => {
+    try {
+      const entityType = String(req.query.entityType || "");
+      const entityId   = Number(req.query.entityId);
+      if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+      const { buildEngagementSummary, isInsightDismissed } = await import("./services/ai-follow-up");
+      if (isInsightDismissed(entityType, entityId)) {
+        return res.json({ dismissed: true, insight: null });
+      }
+      const summary = await buildEngagementSummary(entityType, entityId);
+      res.json({ dismissed: false, insight: summary });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/ai-follow-up/generate", requireAuth, async (req, res) => {
+    try {
+      const { entityType, entityId, voiceProfileId, ceoWattsonInfluenceLevel } = req.body;
+      if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+      const { buildEngagementSummary, generateFollowUpEmail } = await import("./services/ai-follow-up");
+      const summary = await buildEngagementSummary(String(entityType), Number(entityId));
+      const result  = await generateFollowUpEmail({
+        entityType: String(entityType),
+        entityId:   Number(entityId),
+        summary,
+        callerUserId:              (req as any).user?.id,
+        callerIsAdmin:             (req as any).user?.isAdmin,
+        voiceProfileId:            voiceProfileId ? Number(voiceProfileId) : undefined,
+        ceoWattsonInfluenceLevel:  ceoWattsonInfluenceLevel !== undefined ? Number(ceoWattsonInfluenceLevel) : 75,
+      });
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  app.post("/api/ai-follow-up/dismiss", requireAuth, async (req, res) => {
+    try {
+      const { entityType, entityId } = req.body;
+      if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+      const { dismissInsight } = await import("./services/ai-follow-up");
+      dismissInsight(String(entityType), Number(entityId));
+      res.json({ dismissed: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
