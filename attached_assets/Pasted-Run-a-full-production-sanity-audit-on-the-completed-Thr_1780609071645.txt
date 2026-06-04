@@ -1,0 +1,111 @@
+Run a full production sanity audit on the completed Three-Phase AI Upgrade.
+
+Verify Phase 1, Phase 2, and Phase 3 in the live app, not just tests.
+
+PHASE 1 — Smart Email Context
+
+Test on at least:
+- one Lead
+- one Contact
+- one Account
+- one long email history/thread with more than 20 emails
+
+Verify:
+1. AI email generation still works.
+2. Prompt context includes:
+   - 10 most recent emails
+   - 3 earliest relationship emails
+   - important/starred emails, if present
+   - keyword emails, if present
+3. Prompt labels are present:
+   - MOST RECENT
+   - EARLY RELATIONSHIP CONTEXT
+   - IMPORTANT / STARRED
+   - KEYWORD MATCH
+4. No duplicate emails are passed into the prompt.
+5. Prompt stays within safe token limits.
+6. Generated email remains properly formatted.
+7. No fake signature placeholders appear.
+8. Real signature still appears only once.
+
+PHASE 2 — Train My Voice / Voice DNA
+
+Verify:
+1. “Train My Voice” button appears on AI Voice Profiles page.
+2. User can select training size.
+3. Training only uses authenticated user’s sent mail.
+4. Inbound emails are excluded.
+5. Signatures and quoted replies are stripped.
+6. Voice DNA is saved to the selected/new profile.
+7. Extracted traits display after training:
+   - sentence length
+   - formality
+   - greeting style
+   - CTA style
+   - persuasion style
+   - common phrases
+   - writing cadence
+   - avoid phrases
+8. Trained profile appears in the email generation voice dropdown.
+9. Generated emails actually reflect the trained Voice DNA.
+10. CEO Wattson influence slider still works.
+
+PHASE 3 — AI Follow-Up Engine
+
+Verify on Lead, Contact, and Account email tabs:
+1. Follow-Up Insight Card appears only when meaningful engagement exists.
+2. Neutral/empty engagement does not clutter the UI.
+3. Categories classify correctly:
+   - Hot
+   - Warm
+   - Re-engage
+   - Technical
+   - Commercial
+   - Dormant
+4. “Why this follow-up?” explanation is accurate.
+5. Internal VoltSafe clicks are excluded.
+6. Opens/clicks/CTA clicks/days since email are accurate.
+7. “Generate follow-up” creates a useful draft.
+8. Draft uses:
+   - smart email context
+   - engagement signals
+   - selected Voice Profile / Voice DNA
+   - CEO Wattson influence
+9. Draft lands in the existing compose flow, not clipboard-only, if possible. If currently clipboard-only, flag this as a UX gap and recommend wiring it into the composer.
+10. Draft obeys:
+   - paragraph spacing
+   - no fake signature
+   - no filler opener
+   - one clear next-step ask
+
+Regression checks:
+1. Existing AI suggested email still works.
+2. Existing compose handoff still works.
+3. Existing signatures still work.
+4. CTA tracking still works.
+5. CTA asset uploads/deletes still work.
+6. Mail inbox/category fixes still work.
+7. No console errors.
+8. No server errors.
+9. No TypeScript errors.
+
+Run all relevant test suites:
+- ai-email-quality
+- suggested-email-compose-handoff
+- ai-suggested-email-temporal
+- ai-voice-profiles
+- ai-smart-email-context
+- ai-voice-dna-training
+- ai-follow-up-engine
+- cta-asset-system
+- mail inbox/category/sender tests, if present
+
+Return:
+- PASS/FAIL by phase
+- exact routes tested
+- exact files inspected
+- screenshots or clear UI observations
+- test results
+- bugs found
+- recommended fixes
+- whether safe to merge/publish

@@ -263,8 +263,8 @@ check(
 );
 
 check(
-  "Context builder: emails limit increased to 30",
-  src.includes("LIMIT 30") && src.includes("email_messages"),
+  "Context builder: emails limit increased to 50",
+  src.includes("LIMIT 50") && src.includes("email_messages"),
 );
 
 check(
