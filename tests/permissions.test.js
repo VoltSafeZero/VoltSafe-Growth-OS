@@ -25,7 +25,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function login(email, password) {
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Origin": BASE },
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(`Login failed for ${email}: ${res.status}`);
@@ -42,6 +42,7 @@ function authed(cookie) {
       ...opts,
       headers: {
         "Content-Type": "application/json",
+        "Origin": BASE,
         Cookie: cookie,
         ...(opts.headers || {}),
       },
@@ -201,13 +202,14 @@ async function run() {
     headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
   });
 
-  // Chat API — must require auth
+  // Chat API — must require auth (anon POST without Origin gets CSRF-blocked at 403
+  // before auth can return 401; both are acceptable "not allowed" responses)
   await check("GET  /api/conversations         [anon → 401]", anon("/api/conversations"), 401);
-  await check("POST /api/conversations         [anon → 401]", anon("/api/conversations", { method: "POST", body: JSON.stringify({ title: "x" }) }), 401);
-  await check("POST /api/conversations/1/msgs  [anon → 401]", anon("/api/conversations/1/messages", { method: "POST", body: JSON.stringify({ content: "x" }) }), 401);
+  await checkOneOf("POST /api/conversations         [anon → 401|403]", anon("/api/conversations", { method: "POST", body: JSON.stringify({ title: "x" }) }), 401, 403);
+  await checkOneOf("POST /api/conversations/1/msgs  [anon → 401|403]", anon("/api/conversations/1/messages", { method: "POST", body: JSON.stringify({ content: "x" }) }), 401, 403);
 
   // Image generation — must require auth
-  await check("POST /api/generate-image        [anon → 401]", anon("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: "x" }) }), 401);
+  await checkOneOf("POST /api/generate-image        [anon → 401|403]", anon("/api/generate-image", { method: "POST", body: JSON.stringify({ prompt: "x" }) }), 401, 403);
 
   // Export routes — must require auth
   await check("GET  /api/leads/export          [anon → 401]", anon("/api/leads/export"), 401);

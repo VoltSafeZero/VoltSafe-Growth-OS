@@ -27,7 +27,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function login() {
   const res = await fetch(`${BASE}/api/auth/login`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json", "Origin": BASE },
     body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PWD }),
   });
   if (!res.ok) throw new Error(`login ${res.status}`);
