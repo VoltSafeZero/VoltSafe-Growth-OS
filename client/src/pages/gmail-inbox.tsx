@@ -8564,7 +8564,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       >
                         <div className="flex items-center justify-between gap-2 mb-[3px]">
                           <span className={`text-[13px] leading-none truncate ${isUnread ? "font-semibold text-foreground" : "font-medium text-foreground/80"}`}>{senderName}</span>
-                          <span className="text-[11px] text-muted-foreground/45 whitespace-nowrap flex-shrink-0 tabular-nums">{dateStr}</span>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {/* Read-only category badge — no onFilter since user is already on this tab */}
+                            <CategoryBadge labelIds={msg.labelIds || []} messageId={msg.id} />
+                            <span className="text-[11px] text-muted-foreground/45 whitespace-nowrap tabular-nums">{dateStr}</span>
+                          </div>
                         </div>
                         <div className="text-[12px] leading-snug truncate">
                           <span className={isUnread ? "text-foreground/80 font-medium" : "text-muted-foreground/65"}>{msg.subject || "(no subject)"}</span>
