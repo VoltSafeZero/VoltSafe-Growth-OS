@@ -9221,7 +9221,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               >
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-primary transition-colors flex-shrink-0" />
                 <span className="text-[12.5px] font-semibold text-foreground/75 truncate min-w-0 flex-1">{focusedMsg.subject || "(no subject)"}</span>
-                <span className="text-[11px] text-muted-foreground/45 flex-shrink-0 hidden sm:block">{parseSenderName(focusedMsg.from)}</span>
+                <span className="text-[11px] text-muted-foreground/45 flex-shrink-0 hidden sm:block">{parseSenderName(focusedMsg.from) || parseSenderEmail(focusedMsg.from)}</span>
                 <span className="text-[10.5px] text-muted-foreground/35 tabular-nums flex-shrink-0 hidden md:block">{formatMessageHeaderDate(focusedMsg.date, focusedMsg.internalDate)}</span>
               </div>
             )}
@@ -9485,7 +9485,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 </div>
               )}
               {displayMessages.map((msg, idx) => {
-                const initials = parseSenderName(msg.from).split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+                const resolvedSenderName = parseSenderName(msg.from) || parseSenderEmail(msg.from) || "Unknown";
+                const initials = resolvedSenderName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
                 const isLatest = idx === 0;
                 return (
                   <div
@@ -9502,7 +9503,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <div
                           className={`${densityClasses.msgAvatar} rounded-full bg-gradient-to-br ${avatarColor(parseSenderEmail(msg.from))} text-white flex items-center justify-center ${densityClasses.msgAvatarText} font-bold flex-shrink-0 shadow-md ring-1 ring-black/5 select-none`}
                           data-testid={`avatar-sender-${msg.id}`}
-                          title={parseSenderName(msg.from)}
+                          title={resolvedSenderName}
                         >
                           {initials || "?"}
                         </div>
@@ -9514,7 +9515,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                               className={`font-semibold ${densityClasses.msgSenderText} text-foreground leading-tight tracking-[-0.005em] truncate text-left hover:text-primary transition-colors cursor-pointer`}
                               data-testid={`text-sender-${msg.id}`}
                             >
-                              {parseSenderName(msg.from)}
+                              {resolvedSenderName}
                               {shownSenderEmailIds.has(msg.id) && parseSenderEmail(msg.from) && (
                                 <span className="ml-1.5 font-normal text-[11px] text-muted-foreground tracking-normal">
                                   &lt;{parseSenderEmail(msg.from)}&gt;
