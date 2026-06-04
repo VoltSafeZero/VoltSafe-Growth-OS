@@ -16,6 +16,24 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
+// ── Influence level constants ─────────────────────────────────────────────────
+
+export const INFLUENCE_LEVELS = [
+  { value: 0,   label: "Natural Voice",    short: "Natural",    description: "Use mostly your own voice. Still avoid obviously bad habits like spammy phrasing or fake warmth." },
+  { value: 25,  label: "Light Polish",     short: "Light",      description: "Preserve more of your personality while improving clarity and structure. Less aggressive rewrite." },
+  { value: 50,  label: "Executive Polish", short: "Executive",  description: "Balance your personality with significant clarity, brevity, and structure improvements." },
+  { value: 75,  label: "CEO Wattson",      short: "Wattson",    description: "CEO Wattson foundation dominates. Preserves your strategic intent while upgrading tone, confidence, and CTA quality." },
+  { value: 100, label: "Full CEO Wattson", short: "Full Wattson", description: "Fully apply the CEO Wattson executive style. Maximum rewrite toward clarity, brevity, confidence, and strong CTAs." },
+] as const;
+
+export type InfluenceLevel = 0 | 25 | 50 | 75 | 100;
+
+export const VALID_INFLUENCE_VALUES: number[] = [0, 25, 50, 75, 100];
+
+export function getInfluenceLabel(level: number): string {
+  return INFLUENCE_LEVELS.find(l => l.value === level)?.label ?? "CEO Wattson";
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface VoiceProfile {
@@ -46,6 +64,11 @@ export interface VoiceProfileFile {
   extractedText: string | null;
   textSummary: string | null;
   createdAt: string;
+}
+
+export interface UserAiSettings {
+  defaultVoiceProfileId: number | null;
+  ceoWattsonInfluenceLevel: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -349,14 +372,16 @@ export async function deleteVoiceProfileFile(fileId: number, voiceProfileId: num
 
 // ── User AI Settings ──────────────────────────────────────────────────────────
 
-export async function getUserAiSettings(userId: number): Promise<{ defaultVoiceProfileId: number | null }> {
+export async function getUserAiSettings(userId: number): Promise<UserAiSettings> {
   const rows = (
     await db.execute(sql.raw(`
-      SELECT default_voice_profile_id FROM user_ai_settings WHERE user_id = ${userId}
+      SELECT default_voice_profile_id, ceo_wattson_influence_level
+      FROM user_ai_settings WHERE user_id = ${userId}
     `))
   ).rows as any[];
   return {
     defaultVoiceProfileId: rows[0]?.default_voice_profile_id ?? null,
+    ceoWattsonInfluenceLevel: rows[0]?.ceo_wattson_influence_level ?? 75,
   };
 }
 
@@ -370,13 +395,113 @@ export async function setDefaultVoiceProfile(userId: number, voiceProfileId: num
   `));
 }
 
+export async function setCeoWattsonInfluenceLevel(userId: number, level: number): Promise<UserAiSettings> {
+  if (!VALID_INFLUENCE_VALUES.includes(level)) {
+    throw new Error(`Invalid influence level: ${level}. Must be one of ${VALID_INFLUENCE_VALUES.join(", ")}`);
+  }
+  await db.execute(sql.raw(`
+    INSERT INTO user_ai_settings (user_id, ceo_wattson_influence_level)
+    VALUES (${userId}, ${level})
+    ON CONFLICT (user_id) DO UPDATE
+      SET ceo_wattson_influence_level = ${level}, updated_at = NOW()
+  `));
+  return getUserAiSettings(userId);
+}
+
 // ── Prompt injection ──────────────────────────────────────────────────────────
+
+/**
+ * Build the CEO Wattson influence block — extra prompt instructions that
+ * modify how aggressively the AI rewrites toward the executive style.
+ *
+ * influenceLevel: 0 | 25 | 50 | 75 | 100 (default 75)
+ */
+export function buildInfluencePromptBlock(influenceLevel: number = 75): string {
+  const lines: string[] = [];
+  lines.push(`=== CEO WATTSON INFLUENCE: ${getInfluenceLabel(influenceLevel)} (${influenceLevel}%) ===`);
+
+  if (influenceLevel >= 75) {
+    lines.push(`CRITICAL: Do NOT copy the user's raw historical writing habits. The goal is to produce the BEST EVOLVED EXECUTIVE VERSION of their voice.`);
+    lines.push(`- Preserve the user's intent, industry knowledge, values, and strategic instincts`);
+    lines.push(`- Upgrade: clarity, brevity, confidence, sentence structure, and CTA quality`);
+    lines.push(`- Remove: rambling, weak openings, apology language, vague asks, filler words, and needy tone`);
+    lines.push(`- Do not start with "I hope", "Just checking in", "I wanted to", or similar weak openers`);
+    lines.push(`- End with a single, clear, confident ask — not multiple questions`);
+    lines.push(`- Rewrite aggressively toward the CEO Wattson voice above`);
+  } else if (influenceLevel === 50) {
+    lines.push(`BALANCE: Preserve the user's personality while applying meaningful executive polish.`);
+    lines.push(`- Keep recognizable personal elements but improve clarity and structure`);
+    lines.push(`- Remove obviously weak openers and vague asks`);
+    lines.push(`- Strengthen the CTA — make the next step clear`);
+    lines.push(`- Moderate rewrite: do not strip personality entirely`);
+  } else if (influenceLevel === 25) {
+    lines.push(`LIGHT TOUCH: Keep mostly natural voice with light polish only.`);
+    lines.push(`- Fix grammatical issues and improve sentence flow`);
+    lines.push(`- Keep the user's personality and natural phrases intact`);
+    lines.push(`- Only remove truly egregious weak patterns (e.g. "I hope this email finds you well")`);
+    lines.push(`- Minimal structural changes`);
+  } else {
+    // 0 — natural
+    lines.push(`NATURAL: Use the user's natural voice with minimal intervention.`);
+    lines.push(`- Do not rewrite or polish aggressively`);
+    lines.push(`- Still avoid obviously spammy phrasing or fake corporate warmth`);
+    lines.push(`- Write as the user would naturally write, with basic clarity improvements only`);
+  }
+
+  lines.push(`=== END INFLUENCE BLOCK ===`);
+  return lines.join("\n");
+}
+
+/**
+ * Derive bullet-point explanations for why the AI applied specific transformations,
+ * based on the influence level and profile name. Deterministic — no extra AI call.
+ */
+export function deriveWhyGenerated(
+  influenceLevel: number = 75,
+  voiceProfileName?: string,
+  hasVoiceProfile?: boolean
+): string[] {
+  const reasons: string[] = [];
+
+  if (hasVoiceProfile && voiceProfileName) {
+    reasons.push(`Applied ${voiceProfileName} voice profile`);
+  }
+
+  if (influenceLevel >= 75) {
+    reasons.push("Upgraded intro — replaced weak opener with direct purpose statement");
+    reasons.push("Strengthened CTA — single clear ask instead of vague follow-up");
+    reasons.push("Applied CEO Wattson executive structure");
+    reasons.push("Removed passive language and filler phrases");
+    if (influenceLevel === 100) {
+      reasons.push("Full executive rewrite — maximum clarity and confidence");
+    }
+  } else if (influenceLevel === 50) {
+    reasons.push("Applied executive polish while preserving personal tone");
+    reasons.push("Improved sentence structure and clarity");
+    reasons.push("Strengthened CTA");
+  } else if (influenceLevel === 25) {
+    reasons.push("Light polish — grammar and flow improvements");
+    reasons.push("Preserved user's natural voice and personality");
+    reasons.push("Removed obvious weak openers");
+  } else {
+    reasons.push("Natural voice — minimal AI intervention");
+    reasons.push("Basic clarity improvements only");
+  }
+
+  reasons.push("Used CRM context and recent email thread");
+  reasons.push("Preserved user's strategic intent and industry knowledge");
+
+  return reasons;
+}
 
 /**
  * Build the system prompt block for a voice profile.
  * Returns an empty string if the profile has no meaningful instructions.
+ *
+ * @param profile The voice profile to inject
+ * @param influenceLevel How strongly to apply the CEO Wattson evolution (0-100, default 75)
  */
-export function buildVoiceProfilePromptBlock(profile: VoiceProfile): string {
+export function buildVoiceProfilePromptBlock(profile: VoiceProfile, influenceLevel: number = 75): string {
   const lines: string[] = [];
 
   lines.push(`=== VOICE PROFILE: ${profile.name} ===`);
@@ -448,5 +573,10 @@ export function buildVoiceProfilePromptBlock(profile: VoiceProfile): string {
   }
 
   lines.push(`=== END VOICE PROFILE ===`);
+  lines.push("");
+
+  // Append influence block inline
+  lines.push(buildInfluencePromptBlock(influenceLevel));
+
   return lines.join("\n");
 }

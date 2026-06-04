@@ -27994,8 +27994,22 @@ export function registerConfluenceRoutes(app: Express) {
       const voiceProfileId = req.body?.voice_profile_id ? parseInt(req.body.voice_profile_id) : undefined;
       const userId = (req.session as any).userId as number;
       const isAdmin = (req.session as any).globalRole === "admin" || (req.session as any).globalRole === "master_admin";
+      // Influence level: request body overrides (modal session), falls back to user DB setting
+      let ceoWattsonInfluenceLevel = 75;
+      try {
+        const bodyLevel = req.body?.ceo_wattson_influence_level !== undefined
+          ? parseInt(req.body.ceo_wattson_influence_level)
+          : NaN;
+        if (!isNaN(bodyLevel) && [0, 25, 50, 75, 100].includes(bodyLevel)) {
+          ceoWattsonInfluenceLevel = bodyLevel;
+        } else {
+          const { getUserAiSettings } = await import("./services/ai-voice-profiles");
+          const aiSettings = await getUserAiSettings(userId);
+          ceoWattsonInfluenceLevel = aiSettings.ceoWattsonInfluenceLevel ?? 75;
+        }
+      } catch { /* non-fatal — use default */ }
       const { generateSuggestedNextEmail } = await import("./services/crm-ai-summary");
-      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin);
+      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin, ceoWattsonInfluenceLevel);
       res.json(suggestion);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
@@ -28524,6 +28538,22 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = (req.session as any).userId as number;
       const { getUserAiSettings } = await import("./services/ai-voice-profiles");
       const settings = await getUserAiSettings(userId);
+      res.json(settings);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // PATCH /api/ai/settings/wattson-influence — update CEO Wattson influence level
+  // Users can only update their own setting; valid values: 0, 25, 50, 75, 100
+  app.patch("/api/ai/settings/wattson-influence", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { influenceLevel } = req.body;
+      const level = parseInt(influenceLevel);
+      if (isNaN(level) || ![0, 25, 50, 75, 100].includes(level)) {
+        return res.status(400).json({ message: "influenceLevel must be one of: 0, 25, 50, 75, 100" });
+      }
+      const { setCeoWattsonInfluenceLevel } = await import("./services/ai-voice-profiles");
+      const settings = await setCeoWattsonInfluenceLevel(userId, level);
       res.json(settings);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });

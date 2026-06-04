@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Brain, Plus, Pencil, Trash2, Globe, User, Star, Upload,
   ChevronRight, ChevronLeft, X, Loader2, Check, FileText, Download,
-  Sparkles, AlertTriangle, BookOpen,
+  Sparkles, AlertTriangle, BookOpen, Sliders,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -699,7 +699,7 @@ export default function AiVoiceProfilesPage() {
     queryKey: ["/api/ai/voice-profiles"],
   });
 
-  const { data: aiSettings } = useQuery<{ defaultVoiceProfileId: number | null }>({
+  const { data: aiSettings } = useQuery<{ defaultVoiceProfileId: number | null; ceoWattsonInfluenceLevel: number }>({
     queryKey: ["/api/ai/settings"],
   });
 
@@ -715,6 +715,16 @@ export default function AiVoiceProfilesPage() {
       toast({ title: "Default voice profile updated" });
     },
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const setInfluenceMutation = useMutation({
+    mutationFn: (level: number) =>
+      apiRequest("PATCH", "/api/ai/settings/wattson-influence", { influenceLevel: level }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/ai/settings"] });
+      toast({ title: "CEO Wattson influence updated" });
+    },
+    onError: (err: any) => toast({ title: "Failed to update influence", description: err.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -771,6 +781,51 @@ export default function AiVoiceProfilesPage() {
             Copy your Custom GPT's instructions, example emails, and knowledge docs into a Voice Profile.
             Then select it in the "Suggested Next Email" panel — the AI generates emails in that exact voice.
           </p>
+        </div>
+
+        {/* CEO Wattson Influence control */}
+        <div className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Sliders className="h-4 w-4 text-primary shrink-0" />
+            <h2 className="text-sm font-semibold">CEO Wattson Influence</h2>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Controls how strongly VoltSafe AI upgrades your writing toward the CEO Wattson executive style
+            instead of copying your raw historical email tone.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+            {[
+              { value: 0,   label: "Natural Voice",    desc: "Your natural voice, minimal changes" },
+              { value: 25,  label: "Light Polish",     desc: "Light editing, preserves personality" },
+              { value: 50,  label: "Executive Polish", desc: "Balanced — clarity + personality" },
+              { value: 75,  label: "CEO Wattson",      desc: "Executive style dominates" },
+              { value: 100, label: "Full CEO Wattson", desc: "Maximum executive rewrite" },
+            ].map(opt => {
+              const active = (aiSettings?.ceoWattsonInfluenceLevel ?? 75) === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  data-testid={`button-influence-${opt.value}`}
+                  onClick={() => setInfluenceMutation.mutate(opt.value)}
+                  disabled={setInfluenceMutation.isPending}
+                  className={cn(
+                    "rounded-md border px-2 py-2.5 text-left transition-colors",
+                    active
+                      ? "border-primary/60 bg-primary/10 text-foreground"
+                      : "border-border/50 bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/40"
+                  )}
+                >
+                  <p className={cn("text-xs font-medium", active && "text-primary")}>{opt.label}</p>
+                  <p className="text-[10px] mt-0.5 leading-snug">{opt.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+          {setInfluenceMutation.isPending && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" />Saving…
+            </p>
+          )}
         </div>
 
         {isLoading && (

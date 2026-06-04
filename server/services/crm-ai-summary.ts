@@ -628,6 +628,14 @@ export interface SuggestedEmail {
   warning?: string;
   /** Human-readable explanation of the deterministic context used (shown in UI). */
   detectedContext?: string;
+  /** The voice profile id that was applied (if any). */
+  voiceProfileId?: number;
+  /** The voice profile name that was applied (if any). */
+  voiceProfileName?: string;
+  /** The CEO Wattson influence level that was applied (0-100). */
+  ceoWattsonInfluenceLevel?: number;
+  /** Bullet-point reasons explaining what transformations were applied. */
+  whyGenerated?: string[];
 }
 
 // ── Deterministic date classifier (runs before LLM, no hallucination risk) ───
@@ -667,7 +675,8 @@ export async function generateSuggestedNextEmail(
   entityId: number,
   voiceProfileId?: number,
   callerUserId?: number,
-  callerIsAdmin?: boolean
+  callerIsAdmin?: boolean,
+  ceoWattsonInfluenceLevel: number = 75
 ): Promise<SuggestedEmail> {
   const id = Number(entityId);
 
@@ -679,15 +688,26 @@ export async function generateSuggestedNextEmail(
   // Load voice profile if requested
   let voiceProfileBlock = "";
   let voiceProfileName = "";
+  let resolvedVoiceProfileId: number | undefined;
   if (voiceProfileId && callerUserId) {
     try {
       const { getVoiceProfileForPrompt, buildVoiceProfilePromptBlock } = await import("./ai-voice-profiles");
       const profile = await getVoiceProfileForPrompt(voiceProfileId, callerUserId, callerIsAdmin ?? false);
       if (profile) {
-        voiceProfileBlock = buildVoiceProfilePromptBlock(profile);
+        voiceProfileBlock = buildVoiceProfilePromptBlock(profile, ceoWattsonInfluenceLevel);
         voiceProfileName = profile.name;
+        resolvedVoiceProfileId = profile.id;
       }
     } catch { /* voice profile load failure is non-fatal */ }
+  }
+
+  // If no explicit voice profile, still inject the influence block on its own
+  let standaloneInfluenceBlock = "";
+  if (!voiceProfileBlock) {
+    try {
+      const { buildInfluencePromptBlock } = await import("./ai-voice-profiles");
+      standaloneInfluenceBlock = buildInfluencePromptBlock(ceoWattsonInfluenceLevel);
+    } catch { /* non-fatal */ }
   }
 
   // Use saved summary if available — do not auto-generate if missing
@@ -743,6 +763,8 @@ export async function generateSuggestedNextEmail(
   const systemPrompt = [
     voiceProfileBlock ? voiceProfileBlock : null,
     voiceProfileBlock ? `` : null,
+    !voiceProfileBlock && standaloneInfluenceBlock ? standaloneInfluenceBlock : null,
+    !voiceProfileBlock && standaloneInfluenceBlock ? `` : null,
     voiceProfileBlock
       ? `You are writing emails on behalf of VoltSafe. Follow the voice profile above precisely. Return only valid JSON.`
       : `You are an expert sales and relationship manager at VoltSafe, a marina electrification company.`,
@@ -810,6 +832,14 @@ export async function generateSuggestedNextEmail(
 
     const raw = completion.choices[0]?.message?.content || "{}";
     const parsed: SuggestedEmail = JSON.parse(raw);
+
+    // Derive why-generated explanations deterministically
+    let whyGenerated: string[] = [];
+    try {
+      const { deriveWhyGenerated } = await import("./ai-voice-profiles");
+      whyGenerated = deriveWhyGenerated(ceoWattsonInfluenceLevel, voiceProfileName || undefined, !!resolvedVoiceProfileId);
+    } catch { /* non-fatal */ }
+
     return {
       to: parsed.to || "",
       cc: parsed.cc || "",
@@ -818,6 +848,10 @@ export async function generateSuggestedNextEmail(
       reason: parsed.reason || "",
       warning: parsed.warning || undefined,
       detectedContext,
+      voiceProfileId: resolvedVoiceProfileId,
+      voiceProfileName: voiceProfileName || undefined,
+      ceoWattsonInfluenceLevel,
+      whyGenerated,
     };
   } catch (err: any) {
     console.error(`[crm-ai-summary] suggest-next-email error for ${entityType}:${id}:`, err?.message);
@@ -826,6 +860,7 @@ export async function generateSuggestedNextEmail(
       reason: "Could not generate email suggestion.",
       warning: err?.message || "Generation failed.",
       detectedContext,
+      ceoWattsonInfluenceLevel,
     };
   }
 }

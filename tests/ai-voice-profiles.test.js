@@ -628,6 +628,299 @@ async function runDbStateTest() {
   }
 }
 
+// ── 5. Phase 2: CEO Wattson Influence — source-grep ───────────────────────────
+
+async function runPhase2SourceGrepTests() {
+  console.log("\n── Phase 2: Influence level — source-grep pins ────────────────");
+
+  // Migration 0013
+  grep("0013 migration adds ceo_wattson_influence_level column",
+    "migrations/0013_wattson_influence.sql",
+    "ceo_wattson_influence_level");
+  grep("0013 migration has CHECK constraint for valid values",
+    "migrations/0013_wattson_influence.sql",
+    "CHECK");
+  grep("0013 migration default is 75",
+    "migrations/0013_wattson_influence.sql",
+    "DEFAULT 75");
+
+  // Service exports
+  grep("service exports INFLUENCE_LEVELS",
+    "server/services/ai-voice-profiles.ts",
+    "INFLUENCE_LEVELS");
+  grep("service exports VALID_INFLUENCE_VALUES",
+    "server/services/ai-voice-profiles.ts",
+    "VALID_INFLUENCE_VALUES");
+  grep("service exports getInfluenceLabel",
+    "server/services/ai-voice-profiles.ts",
+    "export function getInfluenceLabel");
+  grep("service exports buildInfluencePromptBlock",
+    "server/services/ai-voice-profiles.ts",
+    "export function buildInfluencePromptBlock");
+  grep("service exports deriveWhyGenerated",
+    "server/services/ai-voice-profiles.ts",
+    "export function deriveWhyGenerated");
+  grep("service exports setCeoWattsonInfluenceLevel",
+    "server/services/ai-voice-profiles.ts",
+    "export async function setCeoWattsonInfluenceLevel");
+  grep("influence level 0 = Natural Voice",
+    "server/services/ai-voice-profiles.ts",
+    "Natural Voice");
+  grep("influence level 100 = Full CEO Wattson",
+    "server/services/ai-voice-profiles.ts",
+    "Full CEO Wattson");
+  grep("getUserAiSettings returns ceoWattsonInfluenceLevel",
+    "server/services/ai-voice-profiles.ts",
+    "ceoWattsonInfluenceLevel");
+
+  // Routes
+  grep("PATCH /api/ai/settings/wattson-influence route registered",
+    "server/routes.ts",
+    "/api/ai/settings/wattson-influence");
+  grep("wattson-influence validates against allowed values",
+    "server/routes.ts",
+    "[0, 25, 50, 75, 100].includes(level)");
+  grep("suggest-next-email route reads influenceLevel from body",
+    "server/routes.ts",
+    "ceo_wattson_influence_level");
+
+  // crm-ai-summary Phase 2
+  grep("SuggestedEmail interface has whyGenerated field",
+    "server/services/crm-ai-summary.ts",
+    "whyGenerated");
+  grep("SuggestedEmail interface has ceoWattsonInfluenceLevel field",
+    "server/services/crm-ai-summary.ts",
+    "ceoWattsonInfluenceLevel");
+  grep("generateSuggestedNextEmail accepts ceoWattsonInfluenceLevel param",
+    "server/services/crm-ai-summary.ts",
+    "ceoWattsonInfluenceLevel: number = 75");
+  grep("generateSuggestedNextEmail calls deriveWhyGenerated",
+    "server/services/crm-ai-summary.ts",
+    "deriveWhyGenerated");
+  grep("response includes voiceProfileId",
+    "server/services/crm-ai-summary.ts",
+    "voiceProfileId: resolvedVoiceProfileId");
+  grep("response includes voiceProfileName",
+    "server/services/crm-ai-summary.ts",
+    "voiceProfileName: voiceProfileName");
+
+  // Frontend — settings page
+  grep("ai-voice-profiles page has CEO Wattson Influence heading",
+    "client/src/pages/ai-voice-profiles.tsx",
+    "CEO Wattson Influence");
+  grep("ai-voice-profiles page has Sliders icon import",
+    "client/src/pages/ai-voice-profiles.tsx",
+    "Sliders");
+  grep("ai-voice-profiles page has influence button test-ids",
+    "client/src/pages/ai-voice-profiles.tsx",
+    "button-influence-${opt.value}");
+  grep("ai-voice-profiles page has setInfluenceMutation",
+    "client/src/pages/ai-voice-profiles.tsx",
+    "setInfluenceMutation");
+  grep("ai-voice-profiles page PATCH wattson-influence endpoint called",
+    "client/src/pages/ai-voice-profiles.tsx",
+    "wattson-influence");
+  grep("ai-voice-profiles page reads ceoWattsonInfluenceLevel from aiSettings",
+    "client/src/pages/ai-voice-profiles.tsx",
+    "ceoWattsonInfluenceLevel");
+
+  // Frontend — modal
+  grep("modal has select-wattson-influence test-id",
+    "client/src/components/crm/suggested-next-email-modal.tsx",
+    "select-wattson-influence");
+  grep("modal sends ceo_wattson_influence_level in body",
+    "client/src/components/crm/suggested-next-email-modal.tsx",
+    "ceo_wattson_influence_level");
+  grep("modal has INFLUENCE_OPTIONS constant",
+    "client/src/components/crm/suggested-next-email-modal.tsx",
+    "INFLUENCE_OPTIONS");
+  grep("modal has whyGenerated toggle button test-id",
+    "client/src/components/crm/suggested-next-email-modal.tsx",
+    "button-toggle-why-generated");
+  grep("modal has why-generated section test-id",
+    "client/src/components/crm/suggested-next-email-modal.tsx",
+    "section-why-generated");
+  grep("modal reads influence from localStorage",
+    "client/src/components/crm/suggested-next-email-modal.tsx",
+    "LS_INFLUENCE_KEY");
+  grep("modal has all 5 influence options",
+    "client/src/components/crm/suggested-next-email-modal.tsx",
+    "influence-option-${opt.value}");
+}
+
+// ── 6. Phase 2: CEO Wattson Influence — API behavioural ──────────────────────
+
+async function runPhase2ApiTests() {
+  console.log("\n── Phase 2: Influence level — API behavioural tests ───────────");
+
+  let adminCookie;
+  try {
+    adminCookie = await login("trevor@voltsafe.com", "password");
+  } catch { adminCookie = null; }
+
+  const anon = (url, opts = {}) =>
+    fetch(`${BASE}${url}`, {
+      ...opts,
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    });
+
+  // ── Auth guard ────────────────────────────────────────────────────────────
+  // CSRF fires before auth for unauthenticated requests without Origin — 403 is also valid
+  {
+    const authGuardRes = await anon("/api/ai/settings/wattson-influence", {
+      method: "PATCH",
+      body: JSON.stringify({ influenceLevel: 75 }),
+    });
+    if (authGuardRes.status === 401 || authGuardRes.status === 403) {
+      ok(`PATCH /api/ai/settings/wattson-influence requires auth → ${authGuardRes.status}`);
+    } else {
+      fail("PATCH /api/ai/settings/wattson-influence requires auth",
+        `Expected 401 or 403, got ${authGuardRes.status}`);
+    }
+  }
+
+  if (!adminCookie) {
+    console.log("  [skip] Admin cookie unavailable — skipping influence API tests");
+    return;
+  }
+
+  const a = authed(adminCookie);
+
+  // ── GET /api/ai/settings returns ceoWattsonInfluenceLevel ─────────────────
+  const settingsRes = await a("/api/ai/settings");
+  if (settingsRes.status === 200) {
+    const settings = await settingsRes.json();
+    ok("GET /api/ai/settings → 200 (Phase 2 check)");
+    if ("ceoWattsonInfluenceLevel" in settings) {
+      ok("AI settings response includes ceoWattsonInfluenceLevel field");
+    } else {
+      fail("ceoWattsonInfluenceLevel field missing from /api/ai/settings response",
+        JSON.stringify(settings));
+    }
+    const level = settings.ceoWattsonInfluenceLevel;
+    if ([0, 25, 50, 75, 100].includes(level)) {
+      ok(`ceoWattsonInfluenceLevel is a valid value (${level})`);
+    } else {
+      fail("ceoWattsonInfluenceLevel is not a valid value", String(level));
+    }
+  } else {
+    fail("GET /api/ai/settings Phase 2 check failed", await settingsRes.text());
+  }
+
+  // ── PATCH wattson-influence with each valid value ─────────────────────────
+  for (const level of [0, 25, 50, 100]) {
+    const patchRes = await a("/api/ai/settings/wattson-influence", {
+      method: "PATCH",
+      body: JSON.stringify({ influenceLevel: level }),
+    });
+    if (patchRes.status === 200) {
+      const body = await patchRes.json();
+      if (body.ceoWattsonInfluenceLevel === level) {
+        ok(`PATCH wattson-influence level=${level} → 200, value persisted`);
+      } else {
+        fail(`PATCH wattson-influence level=${level}: response value mismatch`,
+          JSON.stringify(body));
+      }
+    } else {
+      fail(`PATCH wattson-influence level=${level} → expected 200, got ${patchRes.status}`,
+        await patchRes.text());
+    }
+  }
+
+  // ── Reset back to default 75 ──────────────────────────────────────────────
+  const resetRes = await a("/api/ai/settings/wattson-influence", {
+    method: "PATCH",
+    body: JSON.stringify({ influenceLevel: 75 }),
+  });
+  if (resetRes.status === 200) {
+    ok("Reset influence to default 75 → 200");
+  } else {
+    fail("Reset to 75 failed", await resetRes.text());
+  }
+
+  // ── Invalid value → 400 ───────────────────────────────────────────────────
+  const invalidValues = [30, -1, 101, "high", null];
+  for (const bad of invalidValues) {
+    const badRes = await a("/api/ai/settings/wattson-influence", {
+      method: "PATCH",
+      body: JSON.stringify({ influenceLevel: bad }),
+    });
+    if (badRes.status === 400) {
+      ok(`PATCH with invalid influenceLevel=${JSON.stringify(bad)} → 400`);
+    } else {
+      fail(`PATCH with invalid influenceLevel=${JSON.stringify(bad)} should return 400`,
+        `Got ${badRes.status}`);
+    }
+  }
+
+  // ── Verify GET /api/ai/settings reflects persisted value ─────────────────
+  await a("/api/ai/settings/wattson-influence", {
+    method: "PATCH",
+    body: JSON.stringify({ influenceLevel: 25 }),
+  });
+  const verifyRes = await a("/api/ai/settings");
+  if (verifyRes.status === 200) {
+    const s = await verifyRes.json();
+    if (s.ceoWattsonInfluenceLevel === 25) {
+      ok("GET /api/ai/settings reflects PATCH-persisted value (25)");
+    } else {
+      fail("GET /api/ai/settings did not reflect PATCH value", JSON.stringify(s));
+    }
+  }
+  // Reset back to 75
+  await a("/api/ai/settings/wattson-influence", {
+    method: "PATCH",
+    body: JSON.stringify({ influenceLevel: 75 }),
+  });
+}
+
+// ── 7. Phase 2: DB schema check ───────────────────────────────────────────────
+
+async function runPhase2DbTests() {
+  console.log("\n── Phase 2: DB schema check ───────────────────────────────────");
+
+  const { execSync } = await import("node:child_process");
+
+  try {
+    const colResult = execSync(
+      `psql $DATABASE_URL -t -c "SELECT column_name, data_type, column_default FROM information_schema.columns WHERE table_name='user_ai_settings' AND column_name='ceo_wattson_influence_level'" 2>/dev/null`,
+      { encoding: "utf8" }
+    );
+    if (colResult.includes("ceo_wattson_influence_level")) {
+      ok("DB: ceo_wattson_influence_level column exists in user_ai_settings");
+    } else {
+      fail("DB: ceo_wattson_influence_level column missing from user_ai_settings");
+    }
+    if (colResult.includes("integer")) {
+      ok("DB: ceo_wattson_influence_level is INTEGER type");
+    } else {
+      fail("DB: ceo_wattson_influence_level type check failed", colResult.trim());
+    }
+    if (colResult.includes("75")) {
+      ok("DB: ceo_wattson_influence_level has default value 75");
+    } else {
+      fail("DB: ceo_wattson_influence_level default 75 not found", colResult.trim());
+    }
+  } catch (err) {
+    fail("DB Phase 2 schema check failed", err.message);
+  }
+
+  // Check CHECK constraint exists
+  try {
+    const constraintResult = execSync(
+      `psql $DATABASE_URL -t -c "SELECT constraint_name FROM information_schema.table_constraints WHERE table_name='user_ai_settings' AND constraint_type='CHECK'" 2>/dev/null`,
+      { encoding: "utf8" }
+    );
+    if (constraintResult.trim().length > 0) {
+      ok("DB: CHECK constraint exists on user_ai_settings");
+    } else {
+      fail("DB: CHECK constraint missing from user_ai_settings");
+    }
+  } catch (err) {
+    fail("DB constraint check failed", err.message);
+  }
+}
+
 // ── Run all ───────────────────────────────────────────────────────────────────
 
 async function run() {
@@ -637,6 +930,9 @@ async function run() {
   await runApiTests();
   await runPromptInjectionTest();
   await runDbStateTest();
+  await runPhase2SourceGrepTests();
+  await runPhase2ApiTests();
+  await runPhase2DbTests();
 
   console.log(`\n${"─".repeat(55)}`);
   console.log(`Results: ${passed} passed, ${failed} failed out of ${passed + failed} total`);

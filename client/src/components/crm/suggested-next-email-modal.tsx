@@ -5,14 +5,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, CalendarDays, Loader2, Mail, Mic, RefreshCw, Send, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, RefreshCw, Send, Sliders, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setPendingCompose } from "@/lib/compose-handoff";
 
 const LS_CALENDLY_KEY = "voltsafe:calendlyUrl";
 const LS_VOICE_PROFILE_KEY = "voltsafe:voiceProfileId";
+const LS_INFLUENCE_KEY = "voltsafe:wattsonInfluence";
 
 type EntityType = "lead" | "account" | "contact";
+
+const INFLUENCE_OPTIONS = [
+  { value: 0,   label: "Natural Voice" },
+  { value: 25,  label: "Light Polish" },
+  { value: 50,  label: "Executive Polish" },
+  { value: 75,  label: "CEO Wattson" },
+  { value: 100, label: "Full CEO Wattson" },
+] as const;
 
 interface SuggestedEmail {
   to: string;
@@ -22,6 +31,10 @@ interface SuggestedEmail {
   reason: string;
   warning?: string;
   detectedContext?: string;
+  voiceProfileId?: number;
+  voiceProfileName?: string;
+  ceoWattsonInfluenceLevel?: number;
+  whyGenerated?: string[];
 }
 
 interface VoiceProfile {
@@ -29,6 +42,11 @@ interface VoiceProfile {
   name: string;
   profileType: "global" | "user";
   isDefault: boolean;
+}
+
+interface AiSettings {
+  defaultVoiceProfileId: number | null;
+  ceoWattsonInfluenceLevel: number;
 }
 
 interface Props {
@@ -41,10 +59,12 @@ interface Props {
 async function fetchSuggestedEmail(
   entityType: EntityType,
   entityId: number,
-  voiceProfileId?: number | null
+  voiceProfileId?: number | null,
+  ceoWattsonInfluenceLevel?: number
 ): Promise<SuggestedEmail> {
   const body: Record<string, unknown> = {};
   if (voiceProfileId) body.voice_profile_id = voiceProfileId;
+  if (ceoWattsonInfluenceLevel !== undefined) body.ceo_wattson_influence_level = ceoWattsonInfluenceLevel;
   const res = await fetch(`/api/crm/ai-summary/${entityType}/${entityId}/suggest-next-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -79,6 +99,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   const [error, setError] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<SuggestedEmail | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [whyExpanded, setWhyExpanded] = useState(false);
 
   // ── Voice profile selection ───────────────────────────────────────────────
   const [selectedVoiceId, setSelectedVoiceId] = useState<number | null>(() => {
@@ -92,9 +113,35 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     queryKey: ["/api/ai/voice-profiles"],
   });
 
-  const { data: aiSettings } = useQuery<{ defaultVoiceProfileId: number | null }>({
+  const { data: aiSettings } = useQuery<AiSettings>({
     queryKey: ["/api/ai/settings"],
   });
+
+  // ── CEO Wattson influence level ───────────────────────────────────────────
+  const [selectedInfluence, setSelectedInfluence] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(LS_INFLUENCE_KEY);
+      return stored ? parseInt(stored) : 75;
+    } catch { return 75; }
+  });
+
+  // Sync influence from user settings when loaded (localStorage takes precedence as session override)
+  useEffect(() => {
+    if (aiSettings?.ceoWattsonInfluenceLevel !== undefined) {
+      const stored = (() => {
+        try { return localStorage.getItem(LS_INFLUENCE_KEY); } catch { return null; }
+      })();
+      if (!stored) {
+        setSelectedInfluence(aiSettings.ceoWattsonInfluenceLevel);
+      }
+    }
+  }, [aiSettings?.ceoWattsonInfluenceLevel]);
+
+  function handleInfluenceChange(val: string) {
+    const level = parseInt(val);
+    setSelectedInfluence(level);
+    try { localStorage.setItem(LS_INFLUENCE_KEY, String(level)); } catch { /* storage blocked */ }
+  }
 
   // Resolve the effective voice profile id: explicit selection > user default > global default
   const effectiveVoiceId = selectedVoiceId
@@ -114,6 +161,8 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   const selectedVoiceName = effectiveVoiceId
     ? voiceProfiles.find(p => p.id === effectiveVoiceId)?.name
     : null;
+
+  const influenceLabel = INFLUENCE_OPTIONS.find(o => o.value === selectedInfluence)?.label ?? "CEO Wattson";
 
   // ── Scheduling link state ─────────────────────────────────────────────────
   const [includeLink, setIncludeLink] = useState(false);
@@ -140,7 +189,8 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     setLoading(true);
     setError(null);
     setSuggestion(null);
-    fetchSuggestedEmail(entityType, entityId, effectiveVoiceId)
+    setWhyExpanded(false);
+    fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence)
       .then(data => {
         if (!mounted) return;
         setSuggestion(data);
@@ -152,16 +202,17 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
         setLoading(false);
       });
     return () => { mounted = false; };
-  // Re-fetch whenever the effective voice profile changes
+  // Re-fetch whenever the effective voice profile or influence level changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveVoiceId]);
+  }, [effectiveVoiceId, selectedInfluence]);
 
   async function handleRegenerate() {
     setLoading(true);
     setError(null);
     setSuggestion(null);
+    setWhyExpanded(false);
     try {
-      const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId);
+      const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence);
       setSuggestion(data);
     } catch (err: any) {
       setError(err.message || "Failed to regenerate");
@@ -225,42 +276,74 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
           </DialogTitle>
         </DialogHeader>
 
-        {/* Voice profile selector */}
-        {voiceProfiles.length > 0 && (
-          <div className="flex items-center gap-2 py-1.5 border-b border-border/40 -mt-1">
-            <Mic className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="text-xs text-muted-foreground shrink-0">Voice:</span>
+        {/* Voice profile + influence selector row */}
+        <div className="space-y-1.5 py-1.5 border-b border-border/40 -mt-1">
+          {/* Voice profile selector */}
+          {voiceProfiles.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Mic className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs text-muted-foreground shrink-0">Voice:</span>
+              <Select
+                value={selectedVoiceId ? String(selectedVoiceId) : "default"}
+                onValueChange={handleVoiceChange}
+              >
+                <SelectTrigger
+                  className="h-7 text-xs border-none bg-transparent shadow-none focus:ring-0 focus:ring-offset-0 px-1 w-auto min-w-[140px]"
+                  data-testid="select-voice-profile"
+                >
+                  <SelectValue placeholder="Select voice…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default" data-testid="voice-option-default">
+                    Default VoltSafe
+                  </SelectItem>
+                  {voiceProfiles.map(p => (
+                    <SelectItem key={p.id} value={String(p.id)} data-testid={`voice-option-${p.id}`}>
+                      {p.name}
+                      {p.profileType === "global" && (
+                        <span className="ml-1.5 text-[10px] text-muted-foreground">(built-in)</span>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedVoiceName && !loading && (
+                <span className="text-[10px] text-primary/70 truncate">
+                  Using {selectedVoiceName} voice
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* CEO Wattson influence selector */}
+          <div className="flex items-center gap-2">
+            <Sliders className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground shrink-0">Influence:</span>
             <Select
-              value={selectedVoiceId ? String(selectedVoiceId) : "default"}
-              onValueChange={handleVoiceChange}
+              value={String(selectedInfluence)}
+              onValueChange={handleInfluenceChange}
             >
               <SelectTrigger
-                className="h-7 text-xs border-none bg-transparent shadow-none focus:ring-0 focus:ring-offset-0 px-1 w-auto min-w-[140px]"
-                data-testid="select-voice-profile"
+                className="h-7 text-xs border-none bg-transparent shadow-none focus:ring-0 focus:ring-offset-0 px-1 w-auto min-w-[160px]"
+                data-testid="select-wattson-influence"
               >
-                <SelectValue placeholder="Select voice…" />
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="default" data-testid="voice-option-default">
-                  Default VoltSafe
-                </SelectItem>
-                {voiceProfiles.map(p => (
-                  <SelectItem key={p.id} value={String(p.id)} data-testid={`voice-option-${p.id}`}>
-                    {p.name}
-                    {p.profileType === "global" && (
-                      <span className="ml-1.5 text-[10px] text-muted-foreground">(built-in)</span>
-                    )}
+                {INFLUENCE_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={String(opt.value)} data-testid={`influence-option-${opt.value}`}>
+                    {opt.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {selectedVoiceName && !loading && (
-              <span className="text-[10px] text-primary/70 truncate">
-                Using {selectedVoiceName} voice
+            {!loading && (
+              <span className="text-[10px] text-muted-foreground/70 truncate">
+                {influenceLabel}
               </span>
             )}
           </div>
-        )}
+        </div>
 
         <div className="space-y-4 mt-1">
           {loading && (
@@ -324,6 +407,38 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
                     : suggestion.body}
                 </div>
               </div>
+
+              {/* Why this draft was generated — expandable */}
+              {suggestion.whyGenerated && suggestion.whyGenerated.length > 0 && (
+                <div className="rounded-md border border-border/40 bg-muted/10 overflow-hidden">
+                  <button
+                    onClick={() => setWhyExpanded(prev => !prev)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-muted/20 transition-colors"
+                    data-testid="button-toggle-why-generated"
+                  >
+                    <span className="text-[11px] uppercase font-semibold tracking-wider text-muted-foreground">
+                      Why this draft
+                    </span>
+                    {whyExpanded
+                      ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+                      : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    }
+                  </button>
+                  {whyExpanded && (
+                    <div className="px-3 pb-3 space-y-1" data-testid="section-why-generated">
+                      {suggestion.whyGenerated.map((reason, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary/50 shrink-0 mt-1.5" />
+                          {reason}
+                        </div>
+                      ))}
+                      <div className="pt-1 text-[10px] text-muted-foreground/60">
+                        Influence level: {influenceLabel} ({selectedInfluence}%)
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <p className="text-[10px] text-muted-foreground/60 pt-1">
                 This is a suggestion only. You can edit before sending. VoltSafe never sends emails automatically.

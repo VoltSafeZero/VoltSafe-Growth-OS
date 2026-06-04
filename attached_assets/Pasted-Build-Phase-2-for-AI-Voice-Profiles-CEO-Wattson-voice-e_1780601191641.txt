@@ -1,0 +1,167 @@
+Build Phase 2 for AI Voice Profiles: CEO Wattson voice evolution controls.
+
+Context:
+We already built Train From GPT / AI Voice Profiles with:
+- ai_voice_profiles
+- ai_voice_profile_files
+- user_ai_settings
+- CEO Wattson seeded as global default
+- /settings/voice-profiles UI
+- Suggested Next Email modal voice selector
+- buildVoiceProfilePromptBlock()
+- tests/ai-voice-profiles.test.js passing
+
+Important product direction:
+Do NOT make AI voice training simply copy the user's historical email style.
+
+The goal is:
+CEO Wattson = the best evolved executive version of the user.
+Not a clone of how the user manually writes today.
+
+Build this architecture:
+
+1. Add CEO Wattson influence controls
+
+Add a per-user setting:
+
+ceo_wattson_influence_level
+
+Allowed values:
+- 0 = Natural voice
+- 25 = Light polish
+- 50 = Executive polish
+- 75 = CEO Wattson
+- 100 = Full CEO Wattson
+
+Default should be 75.
+
+Store this in user_ai_settings or a clean related table if better.
+
+2. Update the AI prompt construction
+
+The email generation prompt should combine:
+
+CEO Wattson Foundation
++
+User Voice Modifiers
++
+CRM Context
++
+Recent Email Thread
+
+The CEO Wattson Foundation should dominate when influence is high.
+
+At 75 or 100:
+- Do not copy user's raw writing habits
+- Preserve user intent, industry knowledge, values, and strategic instincts
+- Upgrade clarity, brevity, confidence, structure, and CTA quality
+- Remove rambling, weak openings, apology language, vague asks, filler, and needy tone
+
+At 25 or 50:
+- Preserve more user personality
+- Still improve clarity and structure
+- Less aggressive rewrite
+
+At 0:
+- Use mostly natural user voice
+- Still avoid obviously bad email habits like spammy phrasing or fake warmth
+
+3. Add UI control
+
+On /settings/voice-profiles add a simple control:
+
+CEO Wattson Influence
+
+Options:
+- Natural Voice
+- Light Polish
+- Executive Polish
+- CEO Wattson
+- Full CEO Wattson
+
+Explain in plain English:
+"Controls how strongly VoltSafe AI upgrades your writing toward the CEO Wattson executive style instead of copying your raw historical email tone."
+
+Also add this control inside the Suggested Next Email modal near the voice profile dropdown.
+
+Persist the selected value in the database and localStorage if that is already the existing pattern.
+
+4. Add "Why this email was generated" explanation
+
+After AI generates a suggested email, show a small expandable section:
+
+Why this draft:
+- Shortened intro
+- Removed passive language
+- Strengthened CTA
+- Applied CEO Wattson executive structure
+- Used recent CRM/email context
+- Preserved user's strategic intent
+
+This should be generated or derived based on the selected influence level and the transformations applied.
+
+Keep it concise. No huge wall of text.
+
+5. Add backend support
+
+Add/modify API routes as needed:
+- GET current AI user settings
+- PATCH CEO Wattson influence level
+- Ensure auth-gated
+- Ensure users can only update their own settings
+- Admins can still manage global voice profiles, but influence level is per-user
+
+6. Update email generation response shape
+
+The AI suggested email endpoint should return something like:
+
+{
+  subject,
+  body,
+  voiceProfileId,
+  voiceProfileName,
+  ceoWattsonInfluenceLevel,
+  whyGenerated: [
+    "Shortened intro",
+    "Strengthened CTA",
+    "Applied CEO Wattson executive structure"
+  ]
+}
+
+Do not break existing consumers.
+
+7. Add tests
+
+Extend tests/ai-voice-profiles.test.js or add a new test file.
+
+Test:
+- default influence is 75
+- user can update own influence level
+- invalid values rejected
+- other users cannot update another user's setting
+- email generation includes influence level in prompt block
+- high influence prompt explicitly says not to copy raw user writing habits
+- response includes whyGenerated
+- UI contains the control labels
+- modal contains the control labels
+- existing 57 tests still pass
+
+8. Run full validation
+
+Run:
+- existing AI voice tests
+- any relevant API tests
+- npm/build/type checks if available
+
+Fix all failures.
+
+9. Commit
+
+Commit with:
+
+git add .
+git commit -m "feat: add CEO Wattson voice influence controls"
+git push
+
+Goal:
+Users should be able to train from their real communication history while having the output evolve toward CEO Wattson — the best executive version of their voice — instead of freezing today's raw writing habits.
