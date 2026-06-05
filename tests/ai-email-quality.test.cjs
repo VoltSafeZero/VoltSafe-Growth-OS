@@ -93,12 +93,12 @@ check(
 
 check(
   "System prompt: forbids full signature block",
-  src.includes("DO NOT include a signature block"),
+  src.includes("Do not generate an email signature"),
 );
 
 check(
   "System prompt: forbids sender name/title/company in body",
-  src.includes("DO NOT include the sender"),
+  src.includes("Do not generate: sender name"),
 );
 
 check(
@@ -108,12 +108,12 @@ check(
 
 check(
   "System prompt: tells AI that VoltSafe Mail appends the real signature",
-  src.includes("VoltSafe Mail will automatically append"),
+  src.includes("email system will append the correct signature automatically"),
 );
 
 check(
   "System prompt: instructs AI to end with simple closing only",
-  src.includes("End the email with only a simple closing"),
+  src.includes("DO NOT add any closing phrase") && src.includes("End the draft at the final sentence"),
 );
 
 check(
