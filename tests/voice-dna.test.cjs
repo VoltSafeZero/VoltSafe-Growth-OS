@@ -55,7 +55,7 @@ console.log("\n── 2. Service — ai-voice-profiles.ts ───────�
   check("stripEmailNoise helper defined", src.includes("function stripEmailNoise("));
   check("analyzeVoiceDnaWithOpenAI helper defined", src.includes("function analyzeVoiceDnaWithOpenAI("));
   check("OpenAI imported", src.includes("import OpenAI from"));
-  check("queries mailbox_accounts for user", src.includes("mailbox_accounts WHERE user_id"));
+  check("queries email_accounts for user", src.includes("email_accounts WHERE user_id"));
   check("queries outbound emails by direction", src.includes("direction = 'outbound'"));
   check("limits email count to 100 max", src.includes("Math.min(emailCount, 100)"));
   check("stores voice_dna_json in profile", src.includes("voice_dna_json"));
