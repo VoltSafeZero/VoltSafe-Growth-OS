@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml, sanitizeSignatureHtmlClientSide } from "@/lib/email-format";
+import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml, sanitizeSignatureHtmlClientSide, emergencyStripDangerousHtml, signatureToTextFallback } from "@/lib/email-format";
 import { CtaEngagementBanner, ThreadEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { buildLinkPreviewCardHtml, buildLinkPreviewLoadingHtml } from "@/lib/link-preview-card";
 import { createPortal } from "react-dom";
@@ -1006,73 +1006,147 @@ function ComposeDialog({
     mutationFn: async () => {
       onTrustEvent?.({ type: "sending", at: Date.now() });
 
-      // CLIENT-SIDE sanitization — runs BEFORE JSON.stringify so the proxy never
-      // sees oversized data-URI blobs that cause it to return a 403 HTML page.
+      // ── Step 1: Sanitize signature HTML client-side (strips data: img src etc.) ──
       const safeSigHtml = sanitizeSignatureHtmlClientSide(activeSignatureHtml);
 
-      const appendHtml = safeSigHtml
-        + (isForward && defaultQuotedHtml
-          ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
-          : (!isForward && threadId && defaultQuotedHtml
-            ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
-            : ""));
-      const htmlBody = buildEmailHtml(body, appendHtml);
+      // ── Step 2: Build quoted reply/forward block ──────────────────────────────
+      const quotedBlock = isForward && defaultQuotedHtml
+        ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
+        : (!isForward && threadId && defaultQuotedHtml
+          ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
+          : "");
 
-      // Size guard: if body is still enormous (>500 KB) after stripping data URIs,
-      // it's probably a large quoted-reply block — warn to console but still attempt.
-      const MAX_BODY_BYTES = 500 * 1024;
-      if (htmlBody.length > MAX_BODY_BYTES) {
-        console.warn(`[send] body is ${htmlBody.length} bytes after sanitization (>${MAX_BODY_BYTES}). Large quoted reply may cause a proxy rejection.`);
+      // ── Step 3: Assemble the full HTML body ───────────────────────────────────
+      let htmlBody = buildEmailHtml(body, safeSigHtml + quotedBlock);
+
+      // ── Step 4: Emergency kill switch on the ENTIRE body field ───────────────
+      // Catches data URIs in style="background-image:url(data:...)" and any other
+      // non-<img> embeddings that the signature-only sanitizer cannot see.
+      const { result: strippedBody, stripped: wasEmergencyStripped } =
+        emergencyStripDangerousHtml(htmlBody);
+      if (wasEmergencyStripped) {
+        console.warn("[send] EMERGENCY STRIP applied — dangerous content removed from body");
+        htmlBody = strippedBody;
       }
 
-      // Diagnostics
-      const _sendImgCount = (htmlBody.match(/<img\b/gi) || []).length;
-      const _sendHasSig   = htmlBody.includes("<!--vs-sig-start-->");
-      console.log(`[send] bodyLen=${htmlBody.length} imgs=${_sendImgCount} hasSig=${_sendHasSig} rawSigLen=${activeSignatureHtml?.length ?? 0} safeSigLen=${safeSigHtml?.length ?? 0}`);
+      // ── Step 5: Build final payload ───────────────────────────────────────────
+      const finalPayload = {
+        to, subject, body: htmlBody, threadId,
+        ...(cc  ? { cc }  : {}),
+        ...(bcc ? { bcc } : {}),
+        attachmentIds: attachedAssets.map((a) => a.id),
+        ...(asAccountId   ? { asAccountId }           : {}),
+        ...(pendingIcal   ? { icalContent: pendingIcal } : {}),
+        ...(isForward     ? { isForward: true }        : {}),
+        idempotencyKey: idempotencyKeyRef.current,
+      };
+
+      // ── Step 6: Hard-proof logging immediately before fetch ───────────────────
+      // Check the SERIALIZED string for every possible dangerous pattern.
+      const finalStr = JSON.stringify(finalPayload);
+      console.log("[FINAL SEND PAYLOAD]", {
+        endpoint: "/api/gmail/send",
+        bodyFieldLength:   htmlBody.length,
+        totalMessageBytes: finalStr.length,
+        hasSignatureMarker: finalStr.includes("vs-sig-start"),
+        hasDataUri:  finalStr.includes("data:image"),
+        hasBlobUri:  finalStr.includes("blob:"),
+        hasCidUri:   finalStr.includes("cid:"),
+        hasBase64:   finalStr.includes("base64"),
+        hasScriptTag: finalStr.includes("<script"),
+        imgCount: (finalStr.match(/<img/gi) || []).length,
+        payloadKeys: Object.keys(finalPayload),
+        wasEmergencyStripped,
+      });
+
+      // ── Step 7: Helper — one fetch attempt ────────────────────────────────────
+      const doFetch = (str: string) =>
+        fetch("/api/gmail/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: str,
+        });
 
       // Use raw fetch (not apiRequest) so we can read the full response body on error.
-      // The server returns draftId when a send fails and the draft fallback succeeds (C2).
-      const res = await fetch("/api/gmail/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          to, subject, body: htmlBody, threadId,
-          ...(cc ? { cc } : {}),
-          ...(bcc ? { bcc } : {}),
-          attachmentIds: attachedAssets.map((a) => a.id),
-          ...(asAccountId ? { asAccountId } : {}),
-          ...(pendingIcal ? { icalContent: pendingIcal } : {}),
-          ...(isForward ? { isForward: true } : {}),
-          idempotencyKey: idempotencyKeyRef.current,
-        }),
-      });
-      // Guard against non-JSON responses (e.g. HTML error pages from middleware crashes).
-      // Calling .json() on an HTML body throws "Unexpected token '<'" which swallows the real error.
-      const ct = res.headers.get("content-type") ?? "";
+      // The server returns draftId when send fails and the draft fallback succeeds (C2).
+      let res  = await doFetch(finalStr);
+      let ct   = res.headers.get("content-type") ?? "";
+
+      // ── Step 8: Proxy-block retry with text-only signature ────────────────────
+      // If the first attempt returns an HTML page (proxy 403 / body-too-large),
+      // retry once with the signature converted to plain text so the email still
+      // delivers even when the original signature has large embedded images.
+      if (!ct.includes("application/json") && safeSigHtml) {
+        const rawText = await res.text();
+        const isHtmlPage = /^\s*<!doctype|^\s*<html/i.test(rawText);
+        console.error(
+          `[send] Attempt 1 failed: status=${res.status} ct="${ct}" isHtmlPage=${isHtmlPage}`,
+          `preview="${rawText.slice(0, 300)}"`,
+        );
+
+        if (isHtmlPage) {
+          const textSig     = signatureToTextFallback(activeSignatureHtml);
+          const retryBody   = buildEmailHtml(body, textSig + quotedBlock);
+          const retryPayload = { ...finalPayload, body: retryBody, idempotencyKey: crypto.randomUUID() };
+          const retryStr    = JSON.stringify(retryPayload);
+
+          console.log("[send] Retrying with text-only signature", {
+            retryBodyLen: retryBody.length,
+            retryTotalBytes: retryStr.length,
+          });
+
+          res = await doFetch(retryStr);
+          ct  = res.headers.get("content-type") ?? "";
+
+          if (ct.includes("application/json")) {
+            const retryData = await res.json();
+            if (res.ok) return { ...retryData, _usedSimplifiedSignature: true };
+            const err = new Error(retryData.message || "Send failed") as any;
+            err.draftId    = retryData.draftId    ?? null;
+            err.draftSaved = retryData.draftSaved ?? false;
+            throw err;
+          }
+
+          // Both attempts failed — give the user a clear message.
+          throw new Error(
+            `Send failed (${res.status}): Could not reach the server after two attempts. ` +
+            `Please check your connection and try again.`,
+          );
+        }
+      }
+
+      // ── Step 9: Parse successful / JSON error response ────────────────────────
       let data: any;
       if (ct.includes("application/json")) {
         data = await res.json();
       } else {
         const text = await res.text();
-        // Never surface raw HTML (e.g. proxy 403 pages) to the user.
         const isHtmlPage = /^\s*<!doctype|^\s*<html/i.test(text);
         const displayMsg = isHtmlPage
           ? "The server encountered an unexpected error. Please try again in a moment."
           : text.slice(0, 200);
+        console.error(`[send] Non-JSON response: status=${res.status} ct="${ct}" preview="${text.slice(0, 200)}"`);
         throw new Error(`Send failed (${res.status}): ${displayMsg}`);
       }
       if (!res.ok) {
         const err = new Error(data.message || "Send failed") as any;
-        err.draftId = data.draftId ?? null;
+        err.draftId    = data.draftId    ?? null;
         err.draftSaved = data.draftSaved ?? false;
         throw err;
       }
       return data;
     },
-    onSuccess: async () => {
+    onSuccess: async (data: any) => {
       onTrustEvent?.({ type: "sent", at: Date.now() });
-      toast({ title: "Email sent" });
+      if (data?._usedSimplifiedSignature) {
+        toast({
+          title: "Email sent",
+          description: "Sent with a simplified signature — the original contained embedded images that were automatically removed to allow delivery.",
+        });
+      } else {
+        toast({ title: "Email sent" });
+      }
       if (activeDraftId) {
         await fetch(`/api/gmail/drafts/${activeDraftId}`, { method: "DELETE", credentials: "include" }).catch(() => {});
         queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });

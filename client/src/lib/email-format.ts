@@ -127,6 +127,89 @@ export function buildEmailHtml(html: string, appendHtml = ""): string {
 }
 
 /**
+ * Emergency client-side strip for the ENTIRE outbound body HTML.
+ *
+ * Applied to the assembled body AFTER all signature/quoting is combined,
+ * immediately before JSON.stringify and fetch(). Catches patterns that the
+ * signature-only sanitizer can miss:
+ *   - data URIs embedded in style attributes (background-image:url(data:...))
+ *   - base64 blobs that are not inside <img> src attributes
+ *   - blob:, cid:, file: URIs in any attribute
+ *   - <script>, <iframe>, <svg> injected outside the signature section
+ *
+ * Returns { result, stripped } so callers can log when something was removed.
+ */
+export function emergencyStripDangerousHtml(html: string): { result: string; stripped: boolean } {
+  if (!html) return { result: html, stripped: false };
+  let out = html;
+
+  // 1. data: in src attributes (img, video, source, etc.)
+  out = out.replace(/\bsrc="data:[^"]*"/gi, 'src=""');
+  out = out.replace(/\bsrc='data:[^']*'/gi, "src=''");
+
+  // 2. data: in CSS url() — covers background-image and similar
+  out = out.replace(/url\(["']?data:[^)"']*["']?\)/gi, "url()");
+
+  // 3. Any remaining raw base64 blob longer than 50 chars (unambiguously binary image data)
+  out = out.replace(/data:[a-z/+.-]+;base64,[A-Za-z0-9+/=]{50,}/gi, "");
+
+  // 4. blob:, cid:, file: in src attributes
+  out = out.replace(/\bsrc="(?:blob|cid|file):[^"]*"/gi, 'src=""');
+  out = out.replace(/\bsrc='(?:blob|cid|file):[^']*'/gi, "src=''");
+
+  // 5. Dangerous block elements (belt-and-suspenders; sanitizer already strips these)
+  out = out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  out = out.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "");
+  out = out.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, "");
+
+  return { result: out, stripped: out !== html };
+}
+
+/**
+ * Convert signature HTML to a safe plain-text fallback.
+ *
+ * Used when the first send attempt is blocked by the proxy (HTML 403 response)
+ * because the signature was too large or contained forbidden content. The retry
+ * uses this stripped version so the email still delivers with the sender's name
+ * and contact info visible.
+ *
+ * Returns a simple <div> block with the text extracted from the signature,
+ * or "" if the signature yields no readable text.
+ */
+export function signatureToTextFallback(html: string): string {
+  if (!html || !html.trim()) return "";
+  const text = html
+    // Preserve line breaks at block-element boundaries
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<\/tr>/gi, "\n")
+    .replace(/<\/td>/gi, " ")
+    // Keep link text only (discard href — it's in the name/title)
+    .replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, (_, inner) =>
+      inner.replace(/<[^>]+>/g, "").trim()
+    )
+    // Strip everything else
+    .replace(/<[^>]+>/g, "")
+    // Decode basic entities
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    // Normalize whitespace
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!text) return "";
+
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const inner = lines.map((l) => `<div>${l}</div>`).join("");
+  return `<div style="color:#555;font-size:13px;font-family:Arial,sans-serif;margin-top:16px;padding-top:12px;border-top:1px solid #e0e0e0;">${inner}</div>`;
+}
+
+/**
  * Client-side signature HTML sanitizer.
  *
  * Applied to signature HTML BEFORE it is assembled into the outbound body and

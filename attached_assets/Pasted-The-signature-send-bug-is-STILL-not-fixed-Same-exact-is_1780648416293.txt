@@ -1,0 +1,126 @@
+The signature send bug is STILL not fixed. Same exact issue after frontend sanitizer changes.
+
+Stop assuming. Prove the path.
+
+Critical requirement:
+Do not mark complete until a live signature email actually sends.
+
+Current facts:
+- No signature sends successfully.
+- Any selected signature fails.
+- Same behavior after republish.
+- Therefore either:
+  1. sanitizer is not being applied to the actual sent payload,
+  2. send path uses a different body/signature field,
+  3. signature is appended after sanitization,
+  4. request still includes unsafe/large signature data,
+  5. failure is not body size.
+
+Tasks:
+
+1. Add hard proof logging in frontend immediately before fetch()
+
+In the exact function that calls POST /api/gmail/send, log:
+
+console.log("[FINAL SEND PAYLOAD]", {
+  endpoint,
+  bodyLength: finalPayload.body?.length,
+  htmlLength: finalPayload.html?.length,
+  messageLength: JSON.stringify(finalPayload).length,
+  hasSignatureMarker: JSON.stringify(finalPayload).includes("vs-sig-start"),
+  hasDataUri: JSON.stringify(finalPayload).includes("data:image"),
+  hasBlobUri: JSON.stringify(finalPayload).includes("blob:"),
+  hasCidUri: JSON.stringify(finalPayload).includes("cid:"),
+  hasBase64: JSON.stringify(finalPayload).includes("base64"),
+  imgCount: (JSON.stringify(finalPayload).match(/<img/gi) || []).length,
+  keys: Object.keys(finalPayload)
+});
+
+This must run at the final fetch call, not earlier.
+
+2. Add an emergency client-side kill switch before fetch()
+
+Before POST /api/gmail/send, sanitize the ENTIRE final payload string, not just activeSignatureHtml.
+
+If JSON.stringify(finalPayload) contains:
+- data:image
+- base64
+- blob:
+- cid:
+- file:
+- <script
+- <iframe
+- <svg
+
+then remove/strip them from whichever payload field contains them.
+
+Do not rely on signature markers.
+
+The send payload must be safe before fetch.
+
+3. Add a temporary “Send text-only signature” fallback
+
+If a signature is selected and send fails once, automatically retry once with:
+
+- same to/cc/bcc/subject/body
+- signature converted to plain text only
+- no images
+- no tables
+- no inline styles
+- no CTA images
+
+If retry succeeds, show:
+“Sent with simplified signature because the original signature contained unsupported HTML.”
+
+This is not ideal long term, but it proves the issue and unblocks sending.
+
+4. Check actual request in browser DevTools
+
+After implementation, send with signature and report:
+
+- Request URL
+- Request payload size
+- Whether payload contains data:image
+- Whether payload contains base64
+- Whether payload contains vs-sig-start
+- Response status
+- Response content-type
+- Whether backend log [gmail-send] arrived appears
+
+5. If backend is reached, log and isolate Gmail provider error
+
+At very top of backend route:
+console.log("[gmail-send] arrived", payload diagnostics)
+
+Before Gmail API call:
+console.log("[gmail-send] before provider", sanitized body length, img count)
+
+After provider error:
+log provider status/code/message safely.
+
+6. Add a direct reproduction button/test path
+
+Create a temporary dev-only route or script that sends:
+- body only
+- body + plain text signature
+- body + current selected signature HTML
+- body + sanitized signature HTML
+
+Compare which one fails.
+
+7. Fix audit script command
+
+Make sure this works:
+
+npx tsx scripts/audit-production-signatures.ts --user=trevor@voltsafe.com --fix-preview
+
+No missing packages. No PROD_DATABASE_URL required unless unavailable.
+
+8. Do not touch unrelated AI features.
+
+Success criteria:
+- Live app sends with non-star signature.
+- Live app sends with starred signature.
+- Console proves final payload has no data:image/base64/blob/cid before fetch.
+- Backend logs prove whether request arrives.
+- User never sees raw <!doctype html>.

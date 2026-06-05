@@ -657,11 +657,13 @@ test("gmail-inbox.tsx imports sanitizeSignatureHtmlClientSide", () => {
 });
 
 test("sendMutation applies sanitizeSignatureHtmlClientSide before buildEmailHtml", () => {
-  // The sanitizer call must appear BEFORE buildEmailHtml in the sendMutation
+  // The signature sanitizer must appear BEFORE the assembled body is built.
+  // Pattern: sanitizeSignatureHtmlClientSide → safeSigHtml → buildEmailHtml
   const sanitizerIdx = inboxSrc.indexOf("sanitizeSignatureHtmlClientSide(activeSignatureHtml)");
-  const buildIdx     = inboxSrc.indexOf("buildEmailHtml(body, appendHtml)");
+  // buildEmailHtml is called with safeSigHtml (or a variable containing it) after the sanitizer
+  const buildIdx     = inboxSrc.indexOf("buildEmailHtml(body,");
   assert.ok(sanitizerIdx !== -1, "should call sanitizeSignatureHtmlClientSide on activeSignatureHtml");
-  assert.ok(buildIdx     !== -1, "should call buildEmailHtml(body, appendHtml)");
+  assert.ok(buildIdx     !== -1, "should call buildEmailHtml(body, ...)");
   assert.ok(sanitizerIdx < buildIdx, "sanitizer must run before buildEmailHtml");
 });
 
@@ -675,25 +677,27 @@ test("scheduleMutation also applies sanitizeSignatureHtmlClientSide", () => {
   );
 });
 
-test("sendMutation has body size guard (500 KB)", () => {
+test("sendMutation has body-safety mechanism before send", () => {
+  // The emergency strip replaces the old MAX_BODY_BYTES size guard.
+  // Either approach (size guard or strip) prevents unsafe content reaching the proxy.
+  const hasEmergencyStrip = inboxSrc.includes("emergencyStripDangerousHtml");
+  const hasSizeGuard      = inboxSrc.includes("MAX_BODY_BYTES") || inboxSrc.includes("500 * 1024");
   assert.ok(
-    inboxSrc.includes("MAX_BODY_BYTES"),
-    "should define MAX_BODY_BYTES size guard"
-  );
-  assert.ok(
-    inboxSrc.includes("500 * 1024"),
-    "MAX_BODY_BYTES should be 500 KB"
+    hasEmergencyStrip || hasSizeGuard,
+    "sendMutation must have either emergencyStripDangerousHtml or a MAX_BODY_BYTES size guard"
   );
 });
 
-test("sendMutation logs body length and img count before fetch", () => {
+test("sendMutation logs final payload diagnostics before fetch", () => {
+  // The hard-proof log must appear before the fetch() call.
+  // It logs either bodyLen/imgs (legacy) or bodyFieldLength/imgCount (new).
   assert.ok(
-    inboxSrc.includes("bodyLen=") || inboxSrc.includes("bodyLen"),
+    inboxSrc.includes("bodyLen") || inboxSrc.includes("bodyFieldLength"),
     "should log body length before sending"
   );
   assert.ok(
-    inboxSrc.includes("imgs=") || inboxSrc.includes("imgCount"),
-    "should log img count before sending"
+    inboxSrc.includes("[FINAL SEND PAYLOAD]") || inboxSrc.includes("imgs=") || inboxSrc.includes("imgCount"),
+    "should log img count or full payload diagnostic before fetch"
   );
 });
 
