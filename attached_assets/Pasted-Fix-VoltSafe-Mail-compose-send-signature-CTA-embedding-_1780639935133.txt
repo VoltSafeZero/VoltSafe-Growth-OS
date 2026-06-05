@@ -1,0 +1,385 @@
+Fix VoltSafe Mail compose/send, signature CTA embedding, and standalone tracked CTA insertion.
+
+Context:
+The current compose flow has multiple bugs:
+
+1. Sending fails with:
+“Failed to send — Unexpected token '<', '<!doctype' ... is not valid JSON”
+
+This happens with or without an email signature and with or without a tracked CTA.
+
+2. The default/starred email signature is supposed to include the tracked CTA thumbnail video directly inside the signature.
+
+3. The tracked CTA should also be insertable independently into the composed email body, placed near the bottom of the email text before the user’s final salutation/signature area when it is not embedded in the selected signature.
+
+Goal:
+Make compose/send reliable and make signature/CTA behavior production-ready.
+
+──────────────────────────────
+PART 1 — FIX SEND JSON ERROR
+──────────────────────────────
+
+Investigate the compose send request and backend send route.
+
+Find why the client receives HTML instead of JSON.
+
+Likely causes to check:
+- Wrong endpoint path
+- Route not registered
+- Auth/session redirect returning index.html
+- Server exception returning HTML error page
+- Frontend parsing response.json() without checking content-type
+- Backend route missing JSON error handler
+- Body payload too large or malformed HTML body
+- CTA/signature HTML causing server-side sanitization or provider error
+
+Requirements:
+
+1. Ensure the frontend send function calls the correct API route.
+
+2. Ensure the backend send route always returns JSON for success and failure.
+
+3. Add safe frontend response parsing:
+- Read response content-type
+- If JSON, parse JSON
+- If not JSON, read text and show a useful error
+- Do not throw “Unexpected token '<'” to the user
+
+4. Add backend try/catch around send logic.
+
+5. On backend error, return:
+
+{
+  "success": false,
+  "error": "Human-readable error",
+  "details": "Optional safe diagnostic"
+}
+
+with a proper non-2xx status.
+
+6. Confirm sending works:
+- plain email, no signature
+- email with signature
+- email with signature + embedded tracked CTA
+- email with standalone tracked CTA inserted into body
+
+7. Do not break drafts, scheduled send, reply, forward, or CRM email generation.
+
+──────────────────────────────
+PART 2 — SIGNATURE CTA EMBEDDING
+──────────────────────────────
+
+Current issue:
+The signature marked with the star/default should have the tracked CTA thumbnail video embedded directly into the email signature, but it currently appears separate or does not render correctly.
+
+Expected behavior:
+When a signature has one or more tracked CTAs attached, the compose editor should render those CTAs inside the signature block itself.
+
+For the default/starred Trevor Burgess signature with the Watch Demo CTA, the rendered signature should include:
+- Normal signature content
+- Balanced spacing
+- Watch Demo thumbnail/link embedded below the main contact block
+- No broken image icon
+- No awkward duplicate CTA area
+- No extra standalone CTA unless user manually inserts one
+
+Implementation requirements:
+
+1. Inspect the signature model/data shape.
+Determine how tracked CTAs are associated with signatures.
+
+2. Update the signature rendering utility/component so attached CTAs render as part of the signature HTML.
+
+3. CTA layout should be email-safe:
+Use table-based or simple inline-block HTML suitable for email clients.
+
+Recommended CTA signature layout:
+- Add CTA below signature contact details and above or below logo depending on existing design.
+- Use a compact thumbnail card:
+  - Thumbnail image max width around 160–220px
+  - Small play icon overlay if available
+  - Link wraps both image and text
+  - Text label: Watch Demo
+  - URL displayed only if already part of design; otherwise avoid clutter.
+- Keep spacing balanced:
+  - margin-top: 10–14px
+  - margin-bottom: 10–14px
+- Avoid huge CTA blocks that overpower the signature.
+
+4. Ensure image URL is absolute and publicly accessible.
+If the CTA thumbnail image URL is missing or invalid:
+- Render a clean text fallback link instead of broken image icon.
+
+5. If a signature has attached CTA assets, they should automatically appear whenever that signature is selected in compose.
+
+6. If user switches signatures, update the rendered signature and its attached CTAs accordingly.
+
+7. If the user selects a signature without CTAs, do not show CTA content.
+
+8. Avoid duplicate CTAs:
+If CTA is already embedded in the selected signature, do not also insert it as a standalone CTA unless the user explicitly clicks Insert Tracked CTA.
+
+──────────────────────────────
+PART 3 — STANDALONE TRACKED CTA INSERTION
+──────────────────────────────
+
+Current issue:
+The tracked CTA popover appears, but inserting the tracked CTA either creates a broken image/link or contributes to send failure.
+
+Expected behavior:
+The user can click Insert Tracked CTA and insert a tracked CTA into the email body when they do not want it embedded in the signature.
+
+Placement rule:
+When inserting a standalone tracked CTA, place it at the bottom of the composed email body before the final salutation/signature block.
+
+Examples:
+
+If body is:
+
+Hi Tom,
+
+Quick note here.
+
+Regards,
+
+Trevor Signature Block
+
+Insert CTA here:
+
+Hi Tom,
+
+Quick note here.
+
+[Tracked CTA Thumbnail/Card]
+
+Regards,
+
+Trevor Signature Block
+
+If no signature exists, append CTA at the end of the body with clean spacing.
+
+Requirements:
+
+1. Update CTA insertion logic to find the signature boundary when possible.
+
+2. Signature boundary detection should support common signoffs:
+- Regards,
+- Best regards,
+- Thanks,
+- Thank you,
+- Sincerely,
+- Cheers,
+- Best,
+
+3. Insert CTA before the signoff/signature block when detected.
+
+4. If no signoff/signature block is detected, append CTA at the end.
+
+5. CTA HTML must be email-safe and send-safe:
+- No scripts
+- No iframes
+- No unsupported custom tags
+- No local blob URLs
+- No relative image URLs
+- No broken image references
+- No unsafe attributes
+
+6. CTA link tracking should still work.
+Click URL should use the app’s existing tracked CTA redirect/click endpoint if one exists.
+
+7. If tracking endpoint does not exist, create/reuse one clean endpoint that redirects to the final CTA URL and logs the click where existing schema supports it.
+
+8. Standalone CTA should visually render as a thumbnail card:
+- Clickable image if image exists
+- Text fallback if no image exists
+- Clean spacing above and below
+- Not larger than the body width
+- Mobile-safe
+
+9. The Insert Tracked CTA popover should show a reliable preview.
+If thumbnail is unavailable, show text-only fallback, not a broken image icon.
+
+──────────────────────────────
+PART 4 — HTML SANITIZATION AND EMAIL-SAFE OUTPUT
+──────────────────────────────
+
+Create or update a shared utility for CTA HTML generation.
+
+Suggested utility functions:
+
+- buildTrackedCtaHtml(cta, options)
+- buildSignatureHtml(signature, attachedCtas)
+- insertTrackedCtaBeforeSignature(bodyHtml, ctaHtml)
+
+Rules:
+
+1. Use the same CTA HTML builder for:
+- signature embedded CTA
+- standalone inserted CTA
+- CTA preview where appropriate
+
+2. Sanitize outgoing email HTML before send, but do not strip valid signature or CTA HTML.
+
+3. Preserve:
+- links
+- images with absolute src
+- basic tables
+- inline styles
+- line breaks
+- paragraphs
+
+4. Strip:
+- scripts
+- iframes
+- event handlers
+- dangerous URLs
+- malformed tags
+
+5. Ensure send payload body is valid HTML or valid plain text according to existing send route expectations.
+
+6. If compose editor stores body/signature separately, make sure final send body combines:
+- email body
+- standalone CTA if inserted
+- selected signature including embedded CTAs
+
+in the correct order.
+
+──────────────────────────────
+PART 5 — FIX BROKEN CTA IMAGE / THUMBNAIL
+──────────────────────────────
+
+The screenshots show a broken image icon for “Watch Demo.”
+
+Investigate:
+- CTA asset URL
+- image upload/storage path
+- frontend preview src
+- send-time HTML src
+- whether image is relative, local-only, or blocked
+
+Fix requirements:
+
+1. CTA thumbnails must use absolute URLs in sent email HTML.
+
+2. If assets are stored locally, expose them through a public static route or convert to a stable hosted URL pattern already used by the app.
+
+3. Frontend preview and outbound email must use the same reliable thumbnail URL builder.
+
+4. If URL is missing or unreachable, display:
+Watch Demo
+https://www.voltsafemarine.com/demo
+
+as a styled text link fallback.
+
+5. Never send broken image tags.
+
+──────────────────────────────
+PART 6 — UX EXPECTATIONS
+──────────────────────────────
+
+Compose screen behavior:
+
+1. Signature dropdown:
+- Selecting “Trevor Burgess ★” should render the default signature with the embedded Watch Demo CTA if that signature has the CTA attached.
+- Selecting “Trevor Burgess” without CTA should render only that signature.
+
+2. Insert Tracked CTA button:
+- Opens popover with available CTAs.
+- Clicking Watch Demo inserts it into email body before signature/signoff if possible.
+- If that CTA is already embedded in the active signature, allow manual insertion only if the user explicitly clicks it.
+
+3. Avoid duplication:
+- Do not auto-insert standalone CTA if it is already part of the selected signature.
+
+4. Error handling:
+- If send fails, show a useful error message.
+- Do not show raw JSON parsing errors.
+- Do not show “Unexpected token '<'” to users.
+
+──────────────────────────────
+PART 7 — TESTS
+──────────────────────────────
+
+Add or update tests covering:
+
+Send route:
+- Send plain email returns JSON.
+- Send email with signature returns JSON.
+- Send email with embedded signature CTA returns JSON.
+- Send email with standalone CTA returns JSON.
+- Backend errors return JSON, not HTML.
+
+Frontend send:
+- Handles non-JSON error responses gracefully.
+- Does not show raw “Unexpected token '<'” error.
+- Sends correct body payload.
+
+Signature CTA:
+- Signature with attached CTA renders CTA inside signature HTML.
+- Signature without attached CTA does not render CTA.
+- Switching signatures updates CTA content.
+- No duplicate CTA auto-inserted.
+
+CTA insertion:
+- Inserts CTA before final signoff/signature when signoff detected.
+- Appends CTA to end when no signoff detected.
+- CTA HTML uses absolute image URLs.
+- Missing image uses text fallback.
+- No broken image tag is rendered.
+
+Sanitization:
+- Allows safe links/images/tables/inline styles.
+- Strips scripts/iframes/event handlers.
+- Preserves signature and CTA layout.
+
+──────────────────────────────
+PART 8 — MANUAL SMOKE TEST
+──────────────────────────────
+
+Run these manual tests:
+
+1. Plain send:
+Compose:
+To: test recipient
+Subject: test
+Body: test
+No signature
+No CTA
+Click Send
+Expected: sends successfully.
+
+2. Signature send:
+Compose same email with Trevor Burgess signature.
+Expected: sends successfully.
+
+3. Signature + embedded CTA:
+Select default/starred Trevor Burgess signature with Watch Demo CTA attached.
+Expected:
+- Signature renders with Watch Demo CTA embedded.
+- No broken thumbnail.
+- Send succeeds.
+
+4. Standalone CTA:
+Use non-CTA signature.
+Click Insert Tracked CTA.
+Select Watch Demo.
+Expected:
+- CTA inserts above signature/signoff.
+- No broken thumbnail.
+- Send succeeds.
+
+5. Duplicate check:
+Use CTA-enabled signature.
+Confirm CTA appears once.
+Click Insert Tracked CTA manually.
+Expected:
+- CTA appears twice only because user explicitly inserted it.
+- Send still succeeds.
+
+6. Error handling:
+Temporarily force backend send failure.
+Expected:
+- User sees clean error message.
+- No “Unexpected token '<'” message appears.
+
+Implement this surgically. First trace the send route and compose payload, then fix the JSON error, then fix signature CTA rendering, then fix standalone CTA insertion.
