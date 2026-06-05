@@ -2045,7 +2045,14 @@ function ComposeDialog({
               {assetTab !== "quotes" && <a href="/documents" target="_blank" className="text-primary hover:underline text-xs mt-1 block">Go to Asset Library →</a>}
             </div>
           )}
-          {(assetsQuery.data || []).map((asset) => {
+          {/* CTA thumbnail hint — images should go through the CTA picker, not as attachments */}
+          {(assetsQuery.data || []).some(a => (a.mimeType || "").startsWith("image/")) && (
+            <div className="mx-1 mb-1.5 px-3 py-2 rounded-md bg-primary/5 border border-primary/20 text-xs text-muted-foreground flex items-start gap-2">
+              <span className="text-primary mt-0.5">ℹ</span>
+              <span>Image files are hidden here — use the <span className="text-primary font-medium">Insert Tracked CTA</span> button to embed Watch Demo thumbnails and other images directly in your email.</span>
+            </div>
+          )}
+          {(assetsQuery.data || []).filter(a => !(a.mimeType || "").startsWith("image/")).map((asset) => {
             const isAttached = attachedAssets.some((a) => a.id === asset.id);
             const vis = asset.visibility ?? "customer_safe";
             const isRestricted = ["internal_only", "investor_only", "admin_only"].includes(vis);
@@ -6922,7 +6929,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       "unread-people": 5,
       "unread-newsletters": 5,
       "unread-notifications": 5,
-      seen: 10,
+      seen: 30,
     };
 
     // Pre-count totals so show-all can display the full N.

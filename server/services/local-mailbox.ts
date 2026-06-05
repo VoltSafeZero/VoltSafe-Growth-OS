@@ -256,7 +256,10 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
         OR label_ids ILIKE '%CATEGORY_SOCIAL%'
         OR label_ids ILIKE '%CATEGORY_FORUMS%'
       )`);
-      where.push(`label_ids NOT ILIKE '%"SENT"%'`);
+      // Do NOT exclude SENT here: self-addressed emails arrive with BOTH SENT and
+      // INBOX labels. Excluding by SENT would silently hide those from the inbox.
+      // Pure outbound messages are already excluded because they lack INBOX/CATEGORY
+      // labels and therefore don't match the condition above.
       where.push(`label_ids NOT ILIKE '%"DRAFT"%'`);
       where.push(`label_ids NOT ILIKE '%"SPAM"%'`);
       where.push(`label_ids NOT ILIKE '%"TRASH"%'`);

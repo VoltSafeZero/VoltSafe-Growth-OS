@@ -13116,17 +13116,25 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           if (_schedRow) {
             const _sn = normalizeSignatureHtml(_schedRow.html_content || "");
             const _sc: any[] = Array.isArray(_schedRow.ctas) ? _schedRow.ctas : [];
+            const _schedBaseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
+            const _fixScImg = (url: string) => {
+              const m = String(url).match(/\/assets\/cta\/([^/?#\s]+)$/);
+              return m ? `${_schedBaseUrl}/assets/cta/${m[1]}` : url;
+            };
             const _sh = _sc.map((cta: any) => {
               const _a = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
               const _d = String(cta.destination_url || "").replace(/"/g, "&quot;");
               const _w = Number(cta.width_px) || 200;
               if (cta.type === "image" && cta.image_url) {
-                const _i = String(cta.image_url).replace(/"/g, "&quot;");
+                const _i = _fixScImg(String(cta.image_url)).replace(/"/g, "&quot;");
                 return `<a href="${_d}" style="display:inline-block;"><img src="${_i}" alt="${_a}" width="${_w}" style="display:block;border:0;max-width:100%;"></a>`;
               }
               return `<a href="${_d}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_a}</a>`;
-            }).join("<br>");
-            schedBody = schedBody + `<!--vs-sig-start-->${_sn}${_sh ? `<div style="margin-top:12px;">${_sh}</div>` : ""}<!--vs-sig-end-->`;
+            }).join("");
+            const _schedSigSection = _sh
+              ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_sn}</td><td style="vertical-align:top;padding-left:24px;">${_sh}</td></tr></table>`
+              : _sn;
+            schedBody = schedBody + `<!--vs-sig-start-->${_schedSigSection}<!--vs-sig-end-->`;
           }
         } catch (_se: any) {
           console.error("[gmail-schedule] signature load error:", _se?.message || _se);
@@ -14278,17 +14286,26 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           } else {
             const _normalizedSig = normalizeSignatureHtml(_sigRow.html_content || "");
             const _sigCtas: any[] = Array.isArray(_sigRow.ctas) ? _sigRow.ctas : [];
+            // Rewrite image_url to current baseUrl so CTA thumbnails resolve correctly
+            // regardless of which host the asset was originally uploaded under.
+            const _fixCtaImg = (url: string) => {
+              const m = String(url).match(/\/assets\/cta\/([^/?#\s]+)$/);
+              return m ? `${baseUrl}/assets/cta/${m[1]}` : url;
+            };
             const _ctaHtmlBlock = _sigCtas.map((cta: any) => {
               const _alt  = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
               const _dest = String(cta.destination_url || "").replace(/"/g, "&quot;");
               const _w    = Number(cta.width_px) || 200;
               if (cta.type === "image" && cta.image_url) {
-                const _img = String(cta.image_url).replace(/"/g, "&quot;");
+                const _img = _fixCtaImg(String(cta.image_url)).replace(/"/g, "&quot;");
                 return `<a href="${_dest}" style="display:inline-block;"><img src="${_img}" alt="${_alt}" width="${_w}" style="display:block;border:0;max-width:100%;"></a>`;
               }
               return `<a href="${_dest}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_alt}</a>`;
-            }).join("<br>");
-            const _sigSection = _normalizedSig + (_ctaHtmlBlock ? `<div style="margin-top:12px;">${_ctaHtmlBlock}</div>` : "");
+            }).join("");
+            // Place CTAs to the RIGHT of signature text in a side-by-side table layout.
+            const _sigSection = _ctaHtmlBlock
+              ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_normalizedSig}</td><td style="vertical-align:top;padding-left:24px;">${_ctaHtmlBlock}</td></tr></table>`
+              : _normalizedSig;
             bodyWithSig = cleanBody + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`;
             console.log(`[gmail-send] sig appended server-side id=${selectedSignatureId} sigBytes=${_normalizedSig.length} ctas=${_sigCtas.length}`);
           }

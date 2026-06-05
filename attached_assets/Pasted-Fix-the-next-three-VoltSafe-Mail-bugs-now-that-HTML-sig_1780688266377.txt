@@ -1,0 +1,126 @@
+Fix the next three VoltSafe Mail bugs now that HTML signature sending works.
+
+Do not regress the working send/signature architecture.
+
+BUG 1 — Sent test emails appear in Spark but not VoltSafe Mail
+
+Confirmed:
+- Test emails sent TO trevor@voltsafe.com, burgesstrevor76@gmail.com, and sales@voltsafe.com appear in Spark.
+- They do NOT appear anywhere in VoltSafe Mail:
+  - Smart Inbox
+  - People
+  - team inbox sales@voltsafe.com
+  - Sent
+  - Pinned
+  - Spam
+  - Drafts
+  - Scheduled
+  - Categories
+  - Folders
+
+Goal:
+VoltSafe Mail must show newly received emails after sync, especially in Smart Inbox → People.
+
+Tasks:
+1. Trace inbound sync for trevor@voltsafe.com and sales@voltsafe.com.
+2. Confirm whether Gmail API fetch sees the new messages.
+3. Confirm whether messages are inserted into local DB.
+4. Confirm whether labels include INBOX.
+5. Confirm whether Smart Inbox filters hide messages because of category/group logic.
+6. Fix sync/query/filtering so new inbound emails show up.
+7. If an email has INBOX, it must appear in the Inbox/Smart Inbox.
+8. Team inbox sales@voltsafe.com must show emails sent to sales@voltsafe.com.
+9. Add a manual “force sync inbox now” diagnostic if needed.
+10. Add tests for:
+   - inbound email with INBOX label appears in Smart Inbox People
+   - sales team inbox email appears in sales inbox
+   - sent-to-self emails are not hidden incorrectly
+   - emails are not filtered out only because they have categories/promotions/etc.
+
+BUG 2 — Watch Demo CTA shows as text link instead of clickable PNG
+
+Confirmed:
+- Embedded signature CTA displays as hyperlinked “Watch a Demo” text.
+- Body-inserted CTA also displays as hyperlinked text.
+- Expected: clickable PNG thumbnail image.
+
+Goal:
+Watch Demo CTA should render as a clickable PNG image, not text, when image asset exists.
+
+Tasks:
+1. Inspect CTA asset records for Watch Demo.
+2. Fix image URL resolution.
+3. Ensure image src is absolute HTTPS and publicly accessible.
+4. The image must not resolve to 404.
+5. If image exists, render:
+   <a href="[tracked CTA URL]"><img src="[public PNG URL]" ...></a>
+6. Only use text fallback if the image asset is missing or unreachable.
+7. Add tests:
+   - CTA with valid PNG renders img tag
+   - img src is public absolute URL
+   - CTA link wraps the image
+   - fallback text appears only when image unavailable
+
+BUG 3 — CTA placement/layout is wrong
+
+Requirements:
+A. Signature embedded Watch Demo CTA:
+- Should sit horizontally to the RIGHT of the signature text block.
+- It should look balanced and seamless with the existing signature.
+- Do not place it below as plain text.
+- Use email-safe table layout.
+- Keep signature text on left, CTA thumbnail on right.
+- Preserve VoltSafe logo and existing styling.
+
+Suggested layout:
+<table role="presentation">
+  <tr>
+    <td style="vertical-align:top;">signature text/logo</td>
+    <td style="vertical-align:top; padding-left:16px;">
+      clickable WatchDemo thumbnail
+    </td>
+  </tr>
+</table>
+
+B. Standalone Watch Demo CTA in email body:
+- Should use WatchDemo_Thumbnail_600.png.
+- Should be inserted visually at the bottom of the email body.
+- It should appear ABOVE the signature.
+- It should not be added as a file attachment.
+- It should be inline HTML:
+  <a href="[tracked URL]"><img src="[public WatchDemo_Thumbnail_600.png]" ...></a>
+
+C. Asset Library:
+- Watch Demo thumbnails should not appear as normal selectable attachment assets.
+- They should be CTA assets, not document attachments.
+- Remove/hide CTA thumbnail PNGs from the regular attachment asset picker.
+- They should remain available in CTA management / Insert Tracked CTA only.
+
+Implementation notes:
+1. Separate “document attachment assets” from “CTA image assets”.
+2. Do not attach WatchDemo_Thumbnail_600.png as an email attachment.
+3. Inline it by public image URL.
+4. Ensure Gmail/Spark/VoltSafe Mail render it as an image.
+5. If recipient blocks images, alt text should say “Watch Demo”.
+
+Tests:
+- Embedded signature CTA renders image to the right of signature text.
+- Standalone CTA inserts image above signature.
+- WatchDemo_Thumbnail_600.png is not included in attachments.
+- WatchDemo_Thumbnail_600.png does not appear in normal Asset Library attachment picker.
+- CTA image still appears in CTA picker.
+- Sent email MIME contains inline img HTML, not attachment part, for CTA thumbnail.
+- Received email shows clickable image when images load.
+
+Manual smoke tests:
+1. Force sync trevor@voltsafe.com inbox.
+2. Confirm test emails appear in Smart Inbox → People.
+3. Force sync sales@voltsafe.com team inbox.
+4. Confirm sales test email appears.
+5. Send email with embedded Watch Demo signature.
+6. Confirm received email shows signature text left and clickable PNG CTA right.
+7. Send email with standalone Watch Demo CTA and non-CTA signature.
+8. Confirm CTA PNG appears above signature, not as attachment.
+9. Confirm Asset Library no longer shows WatchDemo thumbnails as normal attachments.
+
+Do not mark complete until all three bugs are verified in production.
