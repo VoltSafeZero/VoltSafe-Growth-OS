@@ -1041,93 +1041,82 @@ function ComposeDialog({
         idempotencyKey: idempotencyKeyRef.current,
       };
 
-      // ── Step 6: Hard-proof logging immediately before fetch ───────────────────
-      // Check the SERIALIZED string for every possible dangerous pattern.
+      // ── Step 6: Serialize + full diagnostic log immediately before fetch ─────────
       const finalStr = JSON.stringify(finalPayload);
-      console.log("[FINAL SEND PAYLOAD]", {
-        endpoint: "/api/gmail/send",
-        bodyFieldLength:   htmlBody.length,
-        totalMessageBytes: finalStr.length,
-        hasSignatureMarker: finalStr.includes("vs-sig-start"),
-        hasDataUri:  finalStr.includes("data:image"),
-        hasBlobUri:  finalStr.includes("blob:"),
-        hasCidUri:   finalStr.includes("cid:"),
-        hasBase64:   finalStr.includes("base64"),
-        hasScriptTag: finalStr.includes("<script"),
-        imgCount: (finalStr.match(/<img/gi) || []).length,
-        payloadKeys: Object.keys(finalPayload),
+      // Mask recipient emails from logs
+      const maskedTo  = (typeof finalPayload.to === "string" ? finalPayload.to : String(finalPayload.to ?? "")).replace(/[^@\s,]+@[^@\s,]+/g, (m) => m[0] + "***@" + m.split("@")[1]);
+      const bodyFirst500 = htmlBody.slice(0, 500);
+      const bodyLast500  = htmlBody.slice(-500);
+      console.log("[FINAL FETCH ABOUT TO SEND]", {
+        url:    "/api/gmail/send",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Sizes
+        jsonSizeBytes:   finalStr.length,
+        bodyLength:      htmlBody.length,
+        // Signature / structure
+        hasSignatureMarker: htmlBody.includes("<!--vs-sig-start-->"),
+        containsTable:   htmlBody.includes("<table"),
+        containsStyleAttr: htmlBody.includes("style="),
+        // Danger indicators — all should be false after sanitization
+        containsDataImage: htmlBody.includes("data:image"),
+        containsBase64:  htmlBody.includes("base64"),
+        containsBlob:    htmlBody.includes("blob:"),
+        containsCid:     htmlBody.includes("cid:"),
+        containsScript:  htmlBody.includes("<script"),
+        containsSvg:     htmlBody.includes("<svg"),
+        // Content counts
+        imgCount:  (htmlBody.match(/<img\b/gi)  || []).length,
+        hrefCount: (htmlBody.match(/\bhref=/gi) || []).length,
+        // Body excerpts (for content verification)
+        first500BodyChars: bodyFirst500,
+        last500BodyChars:  bodyLast500,
+        // Metadata
+        maskedTo,
         wasEmergencyStripped,
+        payloadKeys: Object.keys(finalPayload),
       });
 
-      // ── Step 7: Helper — one fetch attempt ────────────────────────────────────
-      const doFetch = (str: string) =>
-        fetch("/api/gmail/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: str,
-        });
+      // ── Step 7: Fetch ─────────────────────────────────────────────────────────
+      const res = await fetch("/api/gmail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: finalStr,
+      });
+      const ct = res.headers.get("content-type") ?? "";
 
-      // Use raw fetch (not apiRequest) so we can read the full response body on error.
-      // The server returns draftId when send fails and the draft fallback succeeds (C2).
-      let res  = await doFetch(finalStr);
-      let ct   = res.headers.get("content-type") ?? "";
+      // ── Step 8: Full post-response log (raw, not hidden) ──────────────────────
+      // Read the response body once — we need it for both logging and parsing.
+      const rawResponseText = await res.text();
+      const isHtmlResponse  = /^\s*<!doctype|^\s*<html/i.test(rawResponseText);
+      // Detect origin: Replit proxy responses mention "replit" in headers or body
+      const serverHeader    = res.headers.get("server") ?? "";
+      const origin = isHtmlResponse
+        ? (serverHeader.toLowerCase().includes("replit") || rawResponseText.toLowerCase().includes("replit")
+            ? "Replit/proxy" : "unknown-middleware")
+        : (ct.includes("application/json") ? "Express" : "unknown");
+      console.log("[SEND RESPONSE]", {
+        status:              res.status,
+        contentType:         ct,
+        serverHeader,
+        detectedOrigin:      origin,
+        isHtmlResponse,
+        first1000ResponseChars: rawResponseText.slice(0, 1000),
+      });
 
-      // ── Step 8: Proxy-block retry with text-only signature ────────────────────
-      // If the first attempt returns an HTML page (proxy 403 / body-too-large),
-      // retry once with the signature converted to plain text so the email still
-      // delivers even when the original signature has large embedded images.
-      if (!ct.includes("application/json") && safeSigHtml) {
-        const rawText = await res.text();
-        const isHtmlPage = /^\s*<!doctype|^\s*<html/i.test(rawText);
-        console.error(
-          `[send] Attempt 1 failed: status=${res.status} ct="${ct}" isHtmlPage=${isHtmlPage}`,
-          `preview="${rawText.slice(0, 300)}"`,
-        );
-
-        if (isHtmlPage) {
-          const textSig     = signatureToTextFallback(activeSignatureHtml);
-          const retryBody   = buildEmailHtml(body, textSig + quotedBlock);
-          const retryPayload = { ...finalPayload, body: retryBody, idempotencyKey: crypto.randomUUID() };
-          const retryStr    = JSON.stringify(retryPayload);
-
-          console.log("[send] Retrying with text-only signature", {
-            retryBodyLen: retryBody.length,
-            retryTotalBytes: retryStr.length,
-          });
-
-          res = await doFetch(retryStr);
-          ct  = res.headers.get("content-type") ?? "";
-
-          if (ct.includes("application/json")) {
-            const retryData = await res.json();
-            if (res.ok) return { ...retryData, _usedSimplifiedSignature: true };
-            const err = new Error(retryData.message || "Send failed") as any;
-            err.draftId    = retryData.draftId    ?? null;
-            err.draftSaved = retryData.draftSaved ?? false;
-            throw err;
-          }
-
-          // Both attempts failed — give the user a clear message.
-          throw new Error(
-            `Send failed (${res.status}): Could not reach the server after two attempts. ` +
-            `Please check your connection and try again.`,
-          );
-        }
-      }
-
-      // ── Step 9: Parse successful / JSON error response ────────────────────────
-      let data: any;
-      if (ct.includes("application/json")) {
-        data = await res.json();
-      } else {
-        const text = await res.text();
-        const isHtmlPage = /^\s*<!doctype|^\s*<html/i.test(text);
-        const displayMsg = isHtmlPage
-          ? "The server encountered an unexpected error. Please try again in a moment."
-          : text.slice(0, 200);
-        console.error(`[send] Non-JSON response: status=${res.status} ct="${ct}" preview="${text.slice(0, 200)}"`);
+      // ── Step 9: Parse response ────────────────────────────────────────────────
+      if (!ct.includes("application/json")) {
+        const displayMsg = isHtmlResponse
+          ? `Server returned an HTML page (${res.status}). Origin: ${origin}. See console [SEND RESPONSE] for details.`
+          : rawResponseText.slice(0, 300);
         throw new Error(`Send failed (${res.status}): ${displayMsg}`);
+      }
+      let data: any;
+      try {
+        data = JSON.parse(rawResponseText);
+      } catch {
+        throw new Error(`Send failed: server returned invalid JSON (${res.status})`);
       }
       if (!res.ok) {
         const err = new Error(data.message || "Send failed") as any;

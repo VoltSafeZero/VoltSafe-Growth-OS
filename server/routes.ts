@@ -13982,6 +13982,101 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ─── Dev-only: signature send diagnostic endpoint ─────────────────────────────
+  // POST /api/dev/send-signature-diagnostic
+  // Builds the email body 100% server-side from known safe HTML — bypasses the
+  // frontend compose path entirely.  Only available in development or admin mode.
+  app.post("/api/dev/send-signature-diagnostic", requireAuth, requireAdmin, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const { to, variant, signatureId } = req.body as {
+      to: string;
+      variant: "body_only" | "minimal_div" | "minimal_table" | "actual_signature";
+      signatureId?: number;
+    };
+    if (!to || !variant) {
+      return res.status(400).json({ message: "to and variant are required" });
+    }
+    // Build HTML body variants
+    const bodyOnly      = "<p>Diagnostic test — body only (no signature)</p>";
+    const minimalDiv    = `<p>Diagnostic test — minimal div signature</p>
+<!--vs-sig-start-->
+<div>Trevor Burgess<br>CEO &amp; Co-Founder<br>VoltSafe Inc.</div>
+<!--vs-sig-end-->`;
+    const minimalTable  = `<p>Diagnostic test — minimal table signature</p>
+<!--vs-sig-start-->
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr><td>Trevor Burgess<br>CEO &amp; Co-Founder<br>VoltSafe Inc.</td></tr>
+</table>
+<!--vs-sig-end-->`;
+    let htmlBody = bodyOnly;
+    let actualSigHtml = "";
+    if (variant === "body_only") htmlBody = bodyOnly;
+    else if (variant === "minimal_div") htmlBody = minimalDiv;
+    else if (variant === "minimal_table") htmlBody = minimalTable;
+    else if (variant === "actual_signature") {
+      // Fetch signature from DB, sanitize, insert
+      if (!signatureId) return res.status(400).json({ message: "signatureId required for actual_signature variant" });
+      try {
+        const rows = await db.execute(sql.raw(`SELECT html_content FROM email_signatures WHERE id = ${Number(signatureId)} LIMIT 1`));
+        const row = (rows as any).rows?.[0] ?? (rows as any)[0];
+        if (!row?.html_content) return res.status(404).json({ message: "Signature not found" });
+        const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+        const host     = req.headers["x-forwarded-host"]  || req.headers.host  || "localhost:5000";
+        const baseUrl  = `${protocol}://${host}`;
+        actualSigHtml = applySignatureSendSanitizer(String(row.html_content), baseUrl);
+        htmlBody = `<p>Diagnostic test — actual production signature (id=${signatureId})</p>
+<!--vs-sig-start-->${actualSigHtml}<!--vs-sig-end-->`;
+      } catch (e: any) {
+        return res.status(500).json({ message: "Signature fetch failed: " + e.message });
+      }
+    }
+    // Log pre-send diagnostics
+    const jsonStr = JSON.stringify({ to, subject: `[SIG DIAGNOSTIC] ${variant}`, body: htmlBody });
+    console.log("[DEV-DIAG] About to sendEmail", {
+      variant,
+      to,
+      bodyLength: htmlBody.length,
+      jsonBytes: jsonStr.length,
+      hasSignatureMarker: htmlBody.includes("<!--vs-sig-start-->"),
+      containsTable: htmlBody.includes("<table"),
+      containsStyleAttr: htmlBody.includes("style="),
+      containsDataImage: htmlBody.includes("data:image"),
+      containsBase64: htmlBody.includes("base64"),
+      imgCount: (htmlBody.match(/<img\b/gi) || []).length,
+      hrefCount: (htmlBody.match(/\bhref=/gi) || []).length,
+      first500: htmlBody.slice(0, 500),
+    });
+    // Resolve sender account
+    try {
+      const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+      const resolved = await resolveAccount(userId, undefined, _ia, _mtp);
+      if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+      const result = await sendEmail(resolved.userId, to, `[SIG DIAGNOSTIC] ${variant}`, htmlBody, undefined, [], resolved.accountId);
+      console.log("[DEV-DIAG] sendEmail success", { variant, messageId: result?.id });
+      return res.json({
+        ok: true, variant, messageId: result?.id,
+        diagnostics: {
+          bodyLength: htmlBody.length,
+          jsonBytes: jsonStr.length,
+          hasSignatureMarker: htmlBody.includes("<!--vs-sig-start-->"),
+          containsTable: htmlBody.includes("<table"),
+          containsStyleAttr: htmlBody.includes("style="),
+          containsDataImage: htmlBody.includes("data:image"),
+          containsBase64: htmlBody.includes("base64"),
+          imgCount: (htmlBody.match(/<img\b/gi) || []).length,
+        },
+      });
+    } catch (err: any) {
+      console.error("[DEV-DIAG] sendEmail FAILED", { variant, error: err?.message, code: err?.code });
+      return res.status(500).json({
+        ok: false, variant,
+        error: err?.message ?? "Unknown error",
+        gmailCode: err?.code,
+        gmailErrors: err?.errors,
+      });
+    }
+  });
+
   // C1: Per-session send idempotency cache — prevents duplicate sends on network retry / double-click.
   // Keys are client-generated UUIDs (one per compose session). TTL: 5 minutes.
   const sendIdempotencyCache = new Map<string, { result: any; expiresAt: number }>();
@@ -13994,6 +14089,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   }, 10 * 60 * 1000);
 
   app.post("/api/gmail/send", requireAuth, async (req, res) => {
+    // ── ABSOLUTE FIRST LINE — if this never appears for sig sends, proxy blocked it ──
+    console.log("[POST /api/gmail/send ENTERED]", {
+      method: req.method,
+      url:    req.url,
+      contentLength: req.headers["content-length"],
+      contentType:   req.headers["content-type"],
+    });
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
     // Resolve account BEFORE the main try/catch so that any error here also returns JSON
@@ -14100,11 +14202,29 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           }
         }
 
+        // ── MIME diagnostic — logged immediately before Gmail API call ─────────────
+        console.log("[gmail-send] calling sendEmail", {
+          userId: resolved.userId,
+          accountId: resolved.accountId,
+          bodyLen: trackedBody.length,
+          hasVsSigMarker: trackedBody.includes("<!--vs-sig-start-->"),
+          containsTable: trackedBody.includes("<table"),
+          containsStyleAttr: trackedBody.includes("style="),
+          containsDataImg: trackedBody.includes("data:image"),
+          containsBase64: trackedBody.includes("base64"),
+          imgCount: (trackedBody.match(/<img\b/gi) || []).length,
+          hrefCount: (trackedBody.match(/\bhref=/gi) || []).length,
+          hasTo: !!to,
+          hasSubject: !!subject,
+          hasThreadId: !!threadId,
+          attachmentCount: mimeAttachments.length,
+        });
         const result = await sendEmail(
           resolved.userId, to, subject || "", trackedBody,
           threadId, mimeAttachments, resolved.accountId,
           cc || undefined, bcc || undefined, icalContent || undefined
         );
+        console.log("[gmail-send] sendEmail returned", { messageId: result?.id, threadId: result?.threadId });
 
         if (result?.id && _ctaTokens.length > 0) {
           updateSignatureCtaMessageIds(_ctaTokens, String(result.id)).catch(e =>

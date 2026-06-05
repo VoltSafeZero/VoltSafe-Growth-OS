@@ -1,0 +1,248 @@
+HTML signatures must remain supported. Do NOT convert signatures to plain text as the solution.
+
+The bug is still unchanged:
+
+* No signature sends successfully.
+* Any HTML signature fails.
+* Plain emails send.
+* CTA is not the core issue yet.
+* Previous sanitizer/retry attempts did not fix it.
+
+Goal:
+Find the exact failure point and fix HTML signature sending properly.
+
+Critical rule:
+Do not mark complete until a live email with each HTML signature sends successfully.
+
+──────────────────────────────
+PART 1 — FORCE A MINIMAL HTML SIGNATURE TEST
+──────────────────────────────
+
+Add a temporary diagnostic path in the compose UI or dev-only script that sends the same email four ways:
+
+A. Body only:
+
+<p>test</p>
+
+B. Body + minimal HTML signature:
+
+<p>test</p>
+<br>
+<div>Trevor Burgess<br>CEO & Co-Founder<br>VoltSafe Inc.</div>
+
+C. Body + minimal table HTML signature:
+
+<p>test</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr><td>Trevor Burgess<br>CEO & Co-Founder<br>VoltSafe Inc.</td></tr>
+</table>
+
+D. Body + actual selected production signature HTML after sanitization.
+
+This proves whether the failure is:
+
+* any HTML signature,
+* table HTML,
+* actual production signature content,
+* or compose path logic.
+
+Log for each:
+
+* request reached backend or not
+* response status
+* response content-type
+* final body length
+* final JSON payload size
+* img count
+* href count
+* contains data:
+* contains base64
+* contains style=
+* contains table
+* contains signature marker
+
+──────────────────────────────
+PART 2 — BYPASS THE CURRENT COMPOSE PATH
+──────────────────────────────
+
+The current compose path may be the bug.
+
+Create a dev-only backend endpoint:
+
+POST /api/dev/send-signature-diagnostic
+
+Only enabled in development/admin mode.
+
+It should use the same authenticated Gmail send service, but construct the message server-side from known safe HTML.
+
+Payload:
+{
+“to”: “…”,
+“variant”: “body_only” | “minimal_div” | “minimal_table” | “actual_signature”
+}
+
+For actual_signature, fetch the selected signature from DB by id, sanitize server-side, and send.
+
+This removes the frontend editor/compose assembly from the equation.
+
+If backend diagnostic sends minimal_div/minimal_table successfully, the issue is frontend compose payload/path.
+
+If backend diagnostic fails too, the issue is Gmail send/MIME/provider/sanitization.
+
+──────────────────────────────
+PART 3 — INSPECT MIME GENERATION
+──────────────────────────────
+
+Check the Gmail send implementation.
+
+Verify:
+
+* HTML body is encoded correctly
+* MIME boundaries are valid
+* Content-Type is text/html; charset=UTF-8
+* base64url encoding is correct
+* no malformed headers
+* no CRLF injection from signature HTML
+* no invalid recipient/subject mutation when signature exists
+* body is not accidentally passed as object/array
+* body is not double-escaped or malformed after signature insertion
+
+Log safe diagnostics:
+
+* raw MIME byte length
+* MIME contains text/html
+* MIME contains selected signature marker
+* Gmail API error status/code/message if any
+
+──────────────────────────────
+PART 4 — PROVE WHETHER EXPRESS IS REACHED
+──────────────────────────────
+
+Add an unmistakable top-of-route log at the first line of POST /api/gmail/send:
+
+console.log(”[POST /api/gmail/send ENTERED]”, {
+method: req.method,
+url: req.url,
+contentLength: req.headers[“content-length”],
+contentType: req.headers[“content-type”]
+});
+
+If this log does not appear for signature sends, the request is blocked before Express.
+
+If this log appears, stop blaming proxy/body size and inspect the backend/Gmail provider path.
+
+──────────────────────────────
+PART 5 — CAPTURE ACTUAL NETWORK REQUEST DETAILS
+──────────────────────────────
+
+In frontend immediately before fetch, log:
+
+[FINAL FETCH ABOUT TO SEND]
+
+{
+url,
+method,
+headers,
+jsonSizeBytes,
+bodyLength,
+hasSignatureMarker,
+containsDataImage,
+containsBase64,
+containsBlob,
+containsCid,
+containsScript,
+containsSvg,
+containsTable,
+containsStyleAttr,
+imgCount,
+hrefCount,
+first500BodyChars,
+last500BodyChars
+}
+
+Mask emails/tokens if present.
+
+Then after response:
+{
+status,
+contentType,
+first300ResponseChars
+}
+
+This must be at the exact fetch call that sends the email.
+
+──────────────────────────────
+PART 6 — DO NOT HIDE RAW ERROR DURING DEBUG MODE
+──────────────────────────────
+
+For this debug pass only:
+
+* keep the user toast clean
+* but log the raw response first 1000 chars to console
+* log whether response is from Replit/proxy, Express, or Gmail provider if detectable
+
+──────────────────────────────
+PART 7 — FIX THE ACTUAL CAUSE
+
+Based on diagnostics:
+
+If minimal_div and minimal_table send:
+
+* production signature HTML contains forbidden/broken content.
+* sanitize/rebuild the actual signature HTML while preserving HTML look.
+* Strip only unsafe parts.
+* Keep HTML layout.
+
+If minimal_div fails:
+
+* issue is not signature content.
+* inspect compose route, request headers, CSRF, payload field names, MIME builder, Gmail send service.
+
+If backend diagnostic sends but compose UI fails:
+
+* frontend compose assembly or fetch path is the bug.
+* compare diagnostic payload vs compose payload exactly.
+
+If /api/gmail/send is never entered:
+
+* reduce request before fetch or find Replit/proxy rule being triggered.
+* payload logs must show what is triggering it.
+
+──────────────────────────────
+PART 8 — PRESERVE HTML SIGNATURE DESIGN
+──────────────────────────────
+
+Final fix must keep HTML signatures.
+
+Allowed:
+
+* remove unsafe embedded base64 images
+* replace unsafe images with hosted HTTPS assets
+* rewrite image URLs
+* simplify invalid HTML while preserving visual layout
+* convert large embedded images into hosted static assets
+* preserve tables, colors, spacing, links, and formatted text
+
+Not allowed:
+
+* converting signature to plain text
+* removing signatures
+* disabling signatures
+* saying “fixed” without live send success
+
+──────────────────────────────
+PART 9 — PRODUCTION SMOKE TEST REQUIRED
+──────────────────────────────
+
+After fix and deploy, run:
+
+1. Compose body only — sends.
+2. Compose with minimal HTML signature — sends.
+3. Compose with minimal table signature — sends.
+4. Compose with non-star production HTML signature — sends.
+5. Compose with starred production HTML signature — sends.
+6. Compose with starred signature + CTA — sends or degrades CTA to safe text fallback while keeping HTML signature.
+
+Report exact result table.
+
+Do not work on unrelated AI features. Do not mark complete until HTML signatures actually send.

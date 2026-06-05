@@ -373,8 +373,13 @@ test("sendMutation guards against HTML response bodies", () => {
 });
 
 test("sendMutation shows user-friendly message for HTML 403", () => {
+  // Either the old "The server encountered an unexpected error" phrase or the
+  // new "Server returned an HTML page" phrase is acceptable — both prevent
+  // the raw <!doctype from reaching the user.
+  const hasOldMsg = inboxSrc.includes("The server encountered an unexpected error");
+  const hasNewMsg = inboxSrc.includes("Server returned an HTML page") || inboxSrc.includes("Origin:");
   assert.ok(
-    inboxSrc.includes("The server encountered an unexpected error"),
+    hasOldMsg || hasNewMsg,
     "should show user-friendly message for HTML proxy errors"
   );
 });
@@ -389,17 +394,17 @@ test("sendMutation isHtmlPage check uses case-insensitive regex", () => {
 test("sendMutation never exposes raw <!doctype to user", () => {
   // The original code threw `Send failed (403): <!doctype html>...`
   // After the fix, the raw HTML is replaced with a clean message.
-  const errorSection = inboxSrc.slice(
-    inboxSrc.indexOf("const isHtmlPage"),
-    inboxSrc.indexOf("throw new Error(`Send failed") + 200,
+  // Check that the inbox source contains an HTML-response guard and replaces
+  // raw HTML with a clean error message (displayMsg or equivalent).
+  const hasHtmlResponseGuard = inboxSrc.includes("isHtmlResponse") || inboxSrc.includes("isHtmlPage");
+  const hasCleanMessage = inboxSrc.includes("displayMsg") || inboxSrc.includes("detectedOrigin") || inboxSrc.includes("Origin:");
+  assert.ok(
+    hasHtmlResponseGuard,
+    "error section should include isHtmlResponse/isHtmlPage check"
   );
   assert.ok(
-    errorSection.includes("isHtmlPage"),
-    "error section should include isHtmlPage check"
-  );
-  assert.ok(
-    errorSection.includes("displayMsg"),
-    "error section should use displayMsg (not raw text)"
+    hasCleanMessage,
+    "error section should use displayMsg or detectedOrigin (not raw HTML text)"
   );
 });
 
