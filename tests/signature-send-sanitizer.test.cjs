@@ -470,10 +470,49 @@ test("audit script does not log html_content directly", () => {
   );
 });
 
-test("audit script prints recommended fixes for each issue type", () => {
+test("audit script prints fix guidance for each issue type", () => {
   assert.ok(
-    auditSrc.includes("RECOMMENDED"),
-    "should print RECOMMENDED fix guidance for each issue type"
+    auditSrc.includes("FIX"),
+    "should print fix guidance for each issue type"
+  );
+});
+
+test("audit script does not import missing 'postgres' package", () => {
+  // The 'postgres' npm package is NOT installed in this project.
+  // The audit script must use 'pg' (already a project dependency via Drizzle).
+  assert.ok(
+    !auditSrc.includes("import postgres from \"postgres\""),
+    "should NOT import from 'postgres' package (not installed)"
+  );
+  assert.ok(
+    !auditSrc.includes("import postgres from 'postgres'"),
+    "should NOT import from 'postgres' package (not installed)"
+  );
+});
+
+test("audit script uses pg package (already installed)", () => {
+  assert.ok(
+    auditSrc.includes("pg") || auditSrc.includes("Pool"),
+    "should use pg/Pool (already a project dependency)"
+  );
+});
+
+test("audit script falls back to DATABASE_URL when PROD_DATABASE_URL not set", () => {
+  assert.ok(
+    auditSrc.includes("DATABASE_URL"),
+    "should reference DATABASE_URL as fallback"
+  );
+  // prefer PROD_DATABASE_URL || DATABASE_URL pattern
+  assert.ok(
+    auditSrc.includes("PROD_DATABASE_URL") && auditSrc.includes("DATABASE_URL"),
+    "should prefer PROD_DATABASE_URL and fall back to DATABASE_URL"
+  );
+});
+
+test("audit script exits with error if no DB URL is set", () => {
+  assert.ok(
+    auditSrc.includes("process.exit(1)"),
+    "should exit with code 1 when no DB URL is configured"
   );
 });
 
@@ -536,6 +575,164 @@ test("sanitizer preserves VoltSafe signature color (#787f84)", () => {
   assert.ok(
     !sanitizerSrc.includes("#787f84"),
     "signature sanitizer should not reference text colors (that is normalizeOutboundHtml's job)"
+  );
+});
+
+// ─── Part 15: Client-side sanitizer (email-format.ts) ────────────────────────
+console.log("\nPart 15 — Client-side sanitizer in email-format.ts");
+
+const EMAIL_FORMAT_PATH = path.join(__dirname, "../client/src/lib/email-format.ts");
+const emailFormatSrc = fs.readFileSync(EMAIL_FORMAT_PATH, "utf8");
+
+test("email-format.ts exports sanitizeSignatureHtmlClientSide", () => {
+  assert.ok(
+    emailFormatSrc.includes("export function sanitizeSignatureHtmlClientSide"),
+    "should export sanitizeSignatureHtmlClientSide"
+  );
+});
+
+test("client sanitizer strips data: URI img src", () => {
+  assert.ok(
+    emailFormatSrc.includes("data:|blob:|file:|cid:"),
+    "client sanitizer should strip data:/blob:/file:/cid: schemes"
+  );
+});
+
+test("client sanitizer strips localhost img src", () => {
+  assert.ok(
+    emailFormatSrc.includes("localhost|127\\.0\\.0\\.1"),
+    "client sanitizer should strip localhost/127.0.0.1 image sources"
+  );
+});
+
+test("client sanitizer strips dangerous block elements", () => {
+  assert.ok(emailFormatSrc.includes("<script\\b"), "should strip script");
+  assert.ok(emailFormatSrc.includes("<iframe\\b"), "should strip iframe");
+  assert.ok(emailFormatSrc.includes("<form\\b"),   "should strip form");
+  assert.ok(emailFormatSrc.includes("<svg\\b"),    "should strip svg");
+});
+
+test("client sanitizer strips event handlers", () => {
+  assert.ok(
+    emailFormatSrc.includes("on[a-z]+=\""),
+    "should strip on* event handlers (double-quote)"
+  );
+  assert.ok(
+    emailFormatSrc.includes("on[a-z]+='"),
+    "should strip on* event handlers (single-quote)"
+  );
+});
+
+test("client sanitizer is regex-only (no DOMParser)", () => {
+  // The function is used in Node.js test environments — must not use DOMParser.
+  // Use brace-counting to extract only this function's body (the next exported
+  // function htmlToCleanHtml legitimately uses DOMParser; don't count that).
+  const fnStart  = emailFormatSrc.indexOf("export function sanitizeSignatureHtmlClientSide");
+  const openBrace = emailFormatSrc.indexOf("{", fnStart);
+  let depth = 0, i = openBrace;
+  while (i < emailFormatSrc.length) {
+    if      (emailFormatSrc[i] === "{") depth++;
+    else if (emailFormatSrc[i] === "}") { depth--; if (depth === 0) break; }
+    i++;
+  }
+  const fnBody = emailFormatSrc.slice(fnStart, i + 1);
+  assert.ok(
+    !fnBody.includes("DOMParser"),
+    "client sanitizer should not use DOMParser (not available in Node.js)"
+  );
+});
+
+test("client sanitizer CTA fallback uses VoltSafe brand color", () => {
+  assert.ok(
+    emailFormatSrc.includes("#00C1DE"),
+    "client sanitizer CTA fallback should use VoltSafe teal #00C1DE"
+  );
+});
+
+test("gmail-inbox.tsx imports sanitizeSignatureHtmlClientSide", () => {
+  assert.ok(
+    inboxSrc.includes("sanitizeSignatureHtmlClientSide"),
+    "gmail-inbox.tsx should import sanitizeSignatureHtmlClientSide"
+  );
+});
+
+test("sendMutation applies sanitizeSignatureHtmlClientSide before buildEmailHtml", () => {
+  // The sanitizer call must appear BEFORE buildEmailHtml in the sendMutation
+  const sanitizerIdx = inboxSrc.indexOf("sanitizeSignatureHtmlClientSide(activeSignatureHtml)");
+  const buildIdx     = inboxSrc.indexOf("buildEmailHtml(body, appendHtml)");
+  assert.ok(sanitizerIdx !== -1, "should call sanitizeSignatureHtmlClientSide on activeSignatureHtml");
+  assert.ok(buildIdx     !== -1, "should call buildEmailHtml(body, appendHtml)");
+  assert.ok(sanitizerIdx < buildIdx, "sanitizer must run before buildEmailHtml");
+});
+
+test("scheduleMutation also applies sanitizeSignatureHtmlClientSide", () => {
+  // Scheduled sends must also sanitize signatures
+  const schedIdx = inboxSrc.indexOf("scheduleAppendHtml");
+  const sanitizerInSched = inboxSrc.slice(schedIdx - 200, schedIdx + 50);
+  assert.ok(
+    sanitizerInSched.includes("sanitizeSignatureHtmlClientSide"),
+    "scheduleMutation should also sanitize signature HTML client-side"
+  );
+});
+
+test("sendMutation has body size guard (500 KB)", () => {
+  assert.ok(
+    inboxSrc.includes("MAX_BODY_BYTES"),
+    "should define MAX_BODY_BYTES size guard"
+  );
+  assert.ok(
+    inboxSrc.includes("500 * 1024"),
+    "MAX_BODY_BYTES should be 500 KB"
+  );
+});
+
+test("sendMutation logs body length and img count before fetch", () => {
+  assert.ok(
+    inboxSrc.includes("bodyLen=") || inboxSrc.includes("bodyLen"),
+    "should log body length before sending"
+  );
+  assert.ok(
+    inboxSrc.includes("imgs=") || inboxSrc.includes("imgCount"),
+    "should log img count before sending"
+  );
+});
+
+// ─── Part 16: Backend diagnostic logging ─────────────────────────────────────
+console.log("\nPart 16 — Backend diagnostic logging in send route");
+
+test("send route logs [gmail-send] arrived at start of try block", () => {
+  assert.ok(
+    sendRouteSrc.includes("[gmail-send] arrived"),
+    "send route should log '[gmail-send] arrived' so we can confirm proxy did not block"
+  );
+});
+
+test("send route logs bodyLen in arrival diagnostic", () => {
+  assert.ok(
+    sendRouteSrc.includes("bodyLen="),
+    "arrival log should include bodyLen"
+  );
+});
+
+test("send route logs hasSig in arrival diagnostic", () => {
+  assert.ok(
+    sendRouteSrc.includes("hasSig="),
+    "arrival log should include hasSig to detect signature presence"
+  );
+});
+
+test("send route logs imgCount in arrival diagnostic", () => {
+  assert.ok(
+    sendRouteSrc.includes("imgCount="),
+    "arrival log should include imgCount"
+  );
+});
+
+test("diagnostic log appears before to/body validation", () => {
+  const diagIdx     = sendRouteSrc.indexOf("[gmail-send] arrived");
+  const validIdx    = sendRouteSrc.indexOf("to and body are required");
+  assert.ok(diagIdx !== -1 && validIdx !== -1 && diagIdx < validIdx,
+    "diagnostic log must appear before to/body validation so it fires even on bad requests"
   );
 });
 

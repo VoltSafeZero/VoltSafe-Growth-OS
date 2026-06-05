@@ -14011,6 +14011,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       const { to, subject, body, threadId, attachmentIds, cc, bcc, enableTracking, icalContent, isForward } = req.body;
+      // Diagnostic: confirm the request reached Express (if this log appears, proxy did not block it)
+      const _diagBody = String(body || "");
+      console.log(`[gmail-send] arrived userId=${userId} bodyLen=${_diagBody.length} hasSig=${_diagBody.includes("<!--vs-sig-start-->")} imgCount=${(_diagBody.match(/<img\b/gi) || []).length}`);
       if (!to || !body) {
         return res.status(400).json({ message: "to and body are required" });
       }

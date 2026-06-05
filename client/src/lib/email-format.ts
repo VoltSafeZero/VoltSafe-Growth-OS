@@ -127,6 +127,67 @@ export function buildEmailHtml(html: string, appendHtml = ""): string {
 }
 
 /**
+ * Client-side signature HTML sanitizer.
+ *
+ * Applied to signature HTML BEFORE it is assembled into the outbound body and
+ * serialized for POST /api/gmail/send. This is the critical line of defence
+ * because the Replit production proxy rejects oversized request bodies (e.g.
+ * those containing base64 data-URI logo images, which can be 100 KB–1 MB each)
+ * with a generic 403 HTML page before the Express backend ever sees the request.
+ *
+ * Regex-only — works in both browser and Node.js (no DOMParser).
+ *
+ * Rules applied (in order):
+ *  1. Strip dangerous block elements: script, iframe, form, style, svg, object, embed.
+ *  2. Strip event-handler attributes (on*="...").
+ *  3. Strip img tags whose src is:
+ *       • data:, blob:, file:, cid:  (primary 403 cause — eliminates large base64 blobs)
+ *       • localhost, 127.0.0.1
+ *     All other img tags (absolute HTTPS, relative /assets/cta/ etc.) are kept.
+ *  4. Convert empty <a> tags left after img removal to plain-text button fallback.
+ */
+export function sanitizeSignatureHtmlClientSide(html: string): string {
+  if (!html || !html.trim()) return html;
+  let out = html;
+
+  // 1. Dangerous block elements
+  out = out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  out = out.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "");
+  out = out.replace(/<form\b[^>]*>[\s\S]*?<\/form>/gi, "");
+  out = out.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+  out = out.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, "");
+  out = out.replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, "");
+  out = out.replace(/<embed\b[^>]*\/?>/gi, "");
+
+  // 2. Event handlers
+  out = out.replace(/\s+on[a-z]+="[^"]*"/gi, "");
+  out = out.replace(/\s+on[a-z]+='[^']*'/gi, "");
+
+  // 3. Unsafe img src values
+  out = out.replace(/<img\b([^>]*)>/gi, (_match, attrs: string) => {
+    const m = attrs.match(/\bsrc=(?:"([^"]*)"|'([^']*)'|(\S+))/i);
+    if (!m) return "";
+    const src = (m[1] ?? m[2] ?? m[3] ?? "").trim();
+    if (!src) return "";
+    // Strip large / unsafe schemes — the #1 cause of proxy 403s
+    if (/^(data:|blob:|file:|cid:)/i.test(src)) return "";
+    // Strip local-only refs that would be broken in recipients' email clients anyway
+    if (/localhost|127\.0\.0\.1|::1/i.test(src)) return "";
+    return _match;
+  });
+
+  // 4. CTA fallback: empty <a> (img was stripped) → plain-text button
+  out = out.replace(/<a\b([^>]*)>\s*<\/a>/gi, (_match, attrs: string) => {
+    const hm = attrs.match(/\bhref=(?:"([^"]*)"|'([^']*)'|(\S+))/i);
+    const href = (hm?.[1] ?? hm?.[2] ?? hm?.[3] ?? "").trim();
+    if (!href || !/^https?:\/\//i.test(href)) return "";
+    return `<a href="${href.replace(/"/g, "&quot;")}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">View</a>`;
+  });
+
+  return out;
+}
+
+/**
  * Normalize pasted HTML for insertion into the rich-text editor.
  * Strips external fonts / colours / sizes while preserving semantic structure
  * (bold, italic, underline, links, lists, paragraphs).

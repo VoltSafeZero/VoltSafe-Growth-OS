@@ -1,0 +1,257 @@
+The production signature send bug is still not fixed.
+
+Current status:
+- Emails with no signature send successfully.
+- Emails with either signature still fail.
+- Same exact issue after republish.
+- The audit script also fails because it imports a missing package:
+
+Error:
+Cannot find package 'postgres' imported from scripts/audit-production-signatures.ts
+
+This means the previous implementation is incomplete.
+
+Fix this surgically and do not work on unrelated features.
+
+──────────────────────────────
+PART 1 — FIX THE AUDIT SCRIPT FIRST
+──────────────────────────────
+
+Open scripts/audit-production-signatures.ts.
+
+Remove dependency on the missing "postgres" npm package.
+
+Use the database client already used by this app.
+
+Search the codebase for the existing DB connection pattern, likely one of:
+- drizzle
+- pg Pool
+- db.ts
+- server/db.ts
+- shared db client
+- existing scripts using DATABASE_URL
+
+Refactor audit-production-signatures.ts so it runs with current project dependencies.
+
+It must work with:
+
+npx tsx scripts/audit-production-signatures.ts --user=trevor@voltsafe.com --fix-preview
+
+Do not require PROD_DATABASE_URL unless the app actually uses that convention.
+
+If DATABASE_URL is the standard env var, use DATABASE_URL.
+
+If both exist, prefer:
+PROD_DATABASE_URL || DATABASE_URL
+
+Add clear error if no DB URL is set.
+
+──────────────────────────────
+PART 2 — STOP GUESSING, CAPTURE THE ACTUAL FAILED REQUEST
+──────────────────────────────
+
+The prior base64 theory may be wrong because the bug still happens.
+
+Add temporary but safe diagnostics around the compose send flow.
+
+Frontend:
+Before sending, log to console:
+- body length
+- signature selected name/id
+- whether body contains <!--vs-sig-start-->
+- number of img tags
+- all img src prefixes only, max first 120 chars
+- number of href tags
+- request endpoint
+- response status
+- response content-type
+- first 300 chars of response text if non-JSON
+
+Backend:
+At the very start of the send route, before normalization, log:
+- request reached backend
+- body length
+- has signature marker
+- img src count
+- href count
+- account id/user id if safe
+- content-type
+- payload keys
+
+If these backend logs do NOT appear when sending with signature, then the request is being blocked before Express.
+
+If backend logs DO appear, the bug is inside our backend/provider send pipeline.
+
+This distinction is critical.
+
+──────────────────────────────
+PART 3 — FIND THE REAL 403 SOURCE
+──────────────────────────────
+
+The user sees:
+
+Send failed (403): <!doctype html><html><head><title>403 Forbidden</title>...
+
+Determine exactly where this HTML 403 comes from.
+
+Check:
+- Browser network tab response URL
+- Request URL
+- Whether the failed request is POST /api/gmail/send or another endpoint
+- Whether CSRF header is included
+- Whether credentials/cookies are included
+- Whether request payload changes when signature is selected
+- Whether body size changes enough to hit middleware/proxy limit
+- Whether signature HTML includes forbidden strings or URLs
+
+Add code so the frontend error message includes safe diagnostics:
+- endpoint
+- status
+- content-type
+- “HTML response received before JSON”
+but not raw HTML.
+
+──────────────────────────────
+PART 4 — FIX SIGNATURE SEND PATH, NOT JUST SANITIZER
+──────────────────────────────
+
+Inspect how the compose modal combines:
+- editor body
+- selected signature HTML
+- CTA block
+- final outbound body
+
+Potential root causes:
+- selected signature is being submitted as a separate field the backend rejects
+- signature HTML contains unsupported tags/attributes not handled by sanitizer
+- frontend sends body + signature duplicated or malformed
+- request contains an unexpected object instead of string
+- backend route expects body but receives html/bodyHtml mismatch
+- CSRF token missing on signature sends due to different submit path
+- selected account mismatch when signature selected
+- frontend send function changes endpoint when signature exists
+- signature wrapper markers cause sanitizer bug
+- sanitizer only sanitizes marker block but production signature has no marker
+- normalizeOutboundHtml runs before signature markers exist
+- request body exceeds express/json limit before sanitizer can run
+
+Fix the actual cause.
+
+──────────────────────────────
+PART 5 — IF REQUEST IS TOO LARGE, FIX BEFORE SEND
+──────────────────────────────
+
+If diagnostics prove the browser request is too large or blocked before backend:
+
+Sanitize/compress signature HTML on the FRONTEND before sending.
+
+Do not wait until backend sanitizer, because backend never receives blocked payloads.
+
+Frontend send must:
+- remove data: image src values from signature HTML before POST
+- strip blob:, file:, cid:
+- remove scripts/iframes/forms/svg/style blocks/event handlers
+- rewrite or remove unsafe image URLs
+- preserve text signature
+- preserve safe links
+- preserve CTA fallback text links
+
+Add utility:
+sanitizeSignatureHtmlClientSide(signatureHtml)
+
+Apply it before body is included in POST /api/gmail/send.
+
+Also add a hard guard:
+If final outbound body length > safe threshold, strip images from signature and use text-only signature fallback before sending.
+
+Suggested safe threshold:
+500 KB max final body HTML.
+
+If still too large:
+show user:
+"This signature contains embedded images that are too large to send. The email was converted to a text-safe signature. Please try again."
+
+But ideally auto-convert and send.
+
+──────────────────────────────
+PART 6 — ENSURE SIGNATURE MARKERS ARE PRESENT
+──────────────────────────────
+
+Make sure the final composed HTML wraps the signature block like:
+
+<!--vs-sig-start-->
+...signature html...
+<!--vs-sig-end-->
+
+This allows both frontend and backend sanitizers to isolate signature safely.
+
+If signatures are inserted without markers, add markers.
+
+If markers already exist, do not duplicate them.
+
+──────────────────────────────
+PART 7 — FIX CTA IMAGE BROKENNESS SEPARATELY
+──────────────────────────────
+
+The CTA image still shows broken.
+
+After signature send works:
+- inspect CTA image URL in compose
+- confirm it opens in incognito
+- if not, rewrite to a public asset URL
+- if unavailable, show text button fallback instead of broken image
+
+But do not let CTA work distract from the main blocker:
+plain signature emails must send first.
+
+──────────────────────────────
+PART 8 — TESTS
+──────────────────────────────
+
+Add/update tests for:
+
+Audit script:
+- Does not import missing postgres package.
+- Uses existing DB client or pg dependency already installed.
+- Fails clearly if no DB URL exists.
+
+Frontend:
+- Signature HTML with data URI image gets stripped before send.
+- Final send body includes signature markers.
+- Large signature body is converted to safe fallback before POST.
+- Frontend logs/handles HTML 403 without showing raw doctype.
+
+Backend:
+- Send route logs request reached backend.
+- Backend sanitizer handles marked and unmarked signature HTML.
+- Send route always returns JSON if reached.
+
+Integration:
+- Body with no signature sends.
+- Body with text-only signature sends.
+- Body with image-heavy signature is reduced before send.
+- Body with CTA fallback sends.
+
+──────────────────────────────
+PART 9 — MANUAL PROOF REQUIRED
+──────────────────────────────
+
+After implementation, run:
+
+1. npx tsx scripts/audit-production-signatures.ts --user=trevor@voltsafe.com --fix-preview
+
+2. In the live app:
+- Send no signature
+- Send non-star signature
+- Send starred signature
+- Send starred signature with CTA
+- Send manually inserted CTA
+
+3. Report:
+- whether backend send route logs appear for signature sends
+- final body length for each case
+- img src count for each case
+- exact response status/content-type
+- whether the email actually sends
+
+Do not mark complete until emails with signatures actually send in the live app.

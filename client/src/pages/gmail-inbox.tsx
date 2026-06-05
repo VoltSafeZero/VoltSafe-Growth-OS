@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml } from "@/lib/email-format";
+import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml, sanitizeSignatureHtmlClientSide } from "@/lib/email-format";
 import { CtaEngagementBanner, ThreadEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { buildLinkPreviewCardHtml, buildLinkPreviewLoadingHtml } from "@/lib/link-preview-card";
 import { createPortal } from "react-dom";
@@ -1005,13 +1005,31 @@ function ComposeDialog({
   const sendMutation = useMutation({
     mutationFn: async () => {
       onTrustEvent?.({ type: "sending", at: Date.now() });
-      const appendHtml = activeSignatureHtml
+
+      // CLIENT-SIDE sanitization — runs BEFORE JSON.stringify so the proxy never
+      // sees oversized data-URI blobs that cause it to return a 403 HTML page.
+      const safeSigHtml = sanitizeSignatureHtmlClientSide(activeSignatureHtml);
+
+      const appendHtml = safeSigHtml
         + (isForward && defaultQuotedHtml
           ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
           : (!isForward && threadId && defaultQuotedHtml
             ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
             : ""));
       const htmlBody = buildEmailHtml(body, appendHtml);
+
+      // Size guard: if body is still enormous (>500 KB) after stripping data URIs,
+      // it's probably a large quoted-reply block — warn to console but still attempt.
+      const MAX_BODY_BYTES = 500 * 1024;
+      if (htmlBody.length > MAX_BODY_BYTES) {
+        console.warn(`[send] body is ${htmlBody.length} bytes after sanitization (>${MAX_BODY_BYTES}). Large quoted reply may cause a proxy rejection.`);
+      }
+
+      // Diagnostics
+      const _sendImgCount = (htmlBody.match(/<img\b/gi) || []).length;
+      const _sendHasSig   = htmlBody.includes("<!--vs-sig-start-->");
+      console.log(`[send] bodyLen=${htmlBody.length} imgs=${_sendImgCount} hasSig=${_sendHasSig} rawSigLen=${activeSignatureHtml?.length ?? 0} safeSigLen=${safeSigHtml?.length ?? 0}`);
+
       // Use raw fetch (not apiRequest) so we can read the full response body on error.
       // The server returns draftId when a send fails and the draft fallback succeeds (C2).
       const res = await fetch("/api/gmail/send", {
@@ -1127,7 +1145,9 @@ function ComposeDialog({
 
   const scheduleMutation = useMutation({
     mutationFn: async () => {
-      const scheduleAppendHtml = activeSignatureHtml
+      // CLIENT-SIDE sanitization — same as sendMutation, prevents proxy 403 on large signatures.
+      const safeSchedSigHtml = sanitizeSignatureHtmlClientSide(activeSignatureHtml);
+      const scheduleAppendHtml = safeSchedSigHtml
         + (isForward && defaultQuotedHtml
           ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
           : (!isForward && threadId && defaultQuotedHtml
