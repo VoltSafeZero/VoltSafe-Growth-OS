@@ -168,15 +168,16 @@ assert(
   "unread_count/inbox_count section includes CATEGORY_FORUMS"
 );
 
-// Must exclude junk labels in the stats queries
+// Badge counter must exclude junk labels but NOT SENT (INBOX+SENT messages must show)
 const inboxCountIdx = routesSrc.indexOf("inbox_count,");
 assert(inboxCountIdx !== -1, "routes.ts has inbox_count subquery");
-// Use a wider backward window (300 chars) because NOT LIKE '%"SENT"%' appears
-// ~180 chars before the closing "AS inbox_count," token.
-const inboxCountSection = routesSrc.slice(inboxCountIdx - 300, inboxCountIdx + 600);
+const inboxCountSection = routesSrc.slice(inboxCountIdx - 500, inboxCountIdx + 600);
+// Fix: SENT exclusion was removed — self-CC/self-forwarded emails carry INBOX+SENT
+// and must still appear in the badge count.
 assert(
-  inboxCountSection.includes('"SENT"') || inboxCountSection.includes("SENT"),
-  "inbox_count subquery excludes SENT"
+  !inboxCountSection.includes("NOT LIKE '%\"SENT\"%'") &&
+  !inboxCountSection.includes("NOT LIKE '%SENT%'"),
+  "inbox_count subquery does NOT exclude SENT (INBOX+SENT messages must count)"
 );
 assert(
   inboxCountSection.includes('"TRASH"') || inboxCountSection.includes("TRASH"),
