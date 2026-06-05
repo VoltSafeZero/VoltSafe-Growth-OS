@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, RefreshCw, Send, Sliders, X, Zap } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, RefreshCw, Send, Sliders, Sparkles, X, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setPendingCompose } from "@/lib/compose-handoff";
 import { plainTextToHtml } from "@/lib/email-format";
@@ -113,7 +113,7 @@ const CATEGORY_ORDER = [
 
 export function SuggestedNextEmailModal({ entityType, entityId, entityName, onClose }: Props) {
   const [, setLocation] = useLocation();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<SuggestedEmail | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -215,30 +215,11 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     }
   }, [includeLink]);
 
-  // ── Fetch suggestion on mount ─────────────────────────────────────────────
-  useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-    setError(null);
-    setSuggestion(null);
-    setWhyExpanded(false);
-    fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence)
-      .then(data => {
-        if (!mounted) return;
-        setSuggestion(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        if (!mounted) return;
-        setError(err.message || "Failed");
-        setLoading(false);
-      });
-    return () => { mounted = false; };
-  // Re-fetch whenever the effective voice profile or influence level changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveVoiceId, selectedInfluence]);
-
-  async function handleRegenerate() {
+  // ── Generate / Regenerate ─────────────────────────────────────────────────
+  // No auto-fetch on mount — the user selects voice, influence, and intent
+  // modifiers first, then explicitly clicks Generate Email so all settings
+  // are captured in the very first request.
+  async function handleGenerate() {
     setLoading(true);
     setError(null);
     setSuggestion(null);
@@ -247,7 +228,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
       const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers);
       setSuggestion(data);
     } catch (err: any) {
-      setError(err.message || "Failed to regenerate");
+      setError(err.message || "Failed to generate");
     } finally {
       setLoading(false);
     }
@@ -461,7 +442,10 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
 
                 {selectedModifiers.length > 0 && (
                   <p className="text-[10px] text-muted-foreground/60 pt-0.5">
-                    Click <strong>Regenerate</strong> to apply selected modifiers.
+                    {suggestion
+                      ? <>Click <strong>Regenerate Email</strong> to apply updated modifiers.</>
+                      : <>Click <strong>Generate Email</strong> below to apply these modifiers.</>
+                    }
                   </p>
                 )}
               </div>
@@ -470,6 +454,31 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
         </div>
 
         <div className="space-y-4 mt-1">
+          {/* Empty state — shown before first generation */}
+          {!loading && !suggestion && !error && (
+            <div className="py-8 flex flex-col items-center gap-3 text-center">
+              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Sparkles className="h-5 w-5 text-primary/70" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground/80">Ready to generate</p>
+                <p className="text-xs text-muted-foreground max-w-xs">
+                  Set your voice, influence, and intent modifiers above, then click Generate Email.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleGenerate}
+                className="bg-primary hover:bg-primary/90 mt-1"
+                data-testid="button-generate-email-empty-state"
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                Generate Email{selectedModifiers.length > 0 ? ` (${selectedModifiers.length})` : ""}
+              </Button>
+            </div>
+          )}
+
           {loading && (
             <div className="space-y-3 py-2">
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
@@ -646,30 +655,39 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
               <X className="h-3.5 w-3.5 mr-1.5" />Cancel
             </Button>
             <div className="flex gap-2">
+              {/* Generate / Regenerate — always visible; label adapts to whether a draft exists */}
               <Button
                 type="button"
-                variant="outline"
+                variant={suggestion ? "outline" : "default"}
                 size="sm"
-                onClick={handleRegenerate}
+                onClick={handleGenerate}
                 disabled={loading || isSaving}
-                data-testid="button-regenerate-suggested-email"
+                className={cn(!suggestion && "bg-primary hover:bg-primary/90")}
+                data-testid={suggestion ? "button-regenerate-suggested-email" : "button-generate-suggested-email"}
               >
-                <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", loading && "animate-spin")} />
-                Regenerate{selectedModifiers.length > 0 ? ` (${selectedModifiers.length})` : ""}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleContinue}
-                disabled={loading || !suggestion || !suggestion.body || isSaving || urlMissing}
-                className="bg-primary hover:bg-primary/90"
-                data-testid="button-continue-suggested-email"
-              >
-                {isSaving
-                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Opening…</>
-                  : <><Send className="h-3.5 w-3.5 mr-1.5" />Continue in Mail</>
+                {loading
+                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Generating…</>
+                  : suggestion
+                    ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Regenerate Email{selectedModifiers.length > 0 ? ` (${selectedModifiers.length})` : ""}</>
+                    : <><Sparkles className="h-3.5 w-3.5 mr-1.5" />Generate Email{selectedModifiers.length > 0 ? ` (${selectedModifiers.length})` : ""}</>
                 }
               </Button>
+              {/* Continue in Mail — only once a draft exists */}
+              {suggestion && (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleContinue}
+                  disabled={loading || !suggestion.body || isSaving || urlMissing}
+                  className="bg-primary hover:bg-primary/90"
+                  data-testid="button-continue-suggested-email"
+                >
+                  {isSaving
+                    ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Opening…</>
+                    : <><Send className="h-3.5 w-3.5 mr-1.5" />Continue in Mail</>
+                  }
+                </Button>
+              )}
             </div>
           </div>
         </div>

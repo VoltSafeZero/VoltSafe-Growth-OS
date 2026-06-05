@@ -283,18 +283,45 @@ test("fetchSuggestedEmail includes selectedIntentModifiers in request body", () 
   );
 });
 
-test("handleRegenerate passes selectedModifiers to fetchSuggestedEmail", () => {
+test("handleGenerate passes selectedModifiers to fetchSuggestedEmail", () => {
   assert(
-    modal.includes("handleRegenerate") && modal.includes("selectedModifiers"),
-    "handleRegenerate must reference selectedModifiers"
+    modal.includes("handleGenerate") && modal.includes("selectedModifiers"),
+    "handleGenerate must reference selectedModifiers"
   );
 });
 
-test("initial mount fetch does not pass modifiers (no auto-generate on change)", () => {
-  const fetchCallInEffect = modal.match(/fetchSuggestedEmail\(entityType,\s*entityId,\s*effectiveVoiceId,\s*selectedInfluence\)/);
+test("no auto-fetch on mount — loading starts false, no useEffect fetch", () => {
   assert(
-    fetchCallInEffect && fetchCallInEffect.length > 0,
-    "Initial mount fetch must not include modifiers — only Regenerate applies them"
+    modal.includes("useState(false)"),
+    "loading must initialise to false (no auto-generate on mount)"
+  );
+  const autoFetch = modal.match(/fetchSuggestedEmail\(entityType,\s*entityId,\s*effectiveVoiceId,\s*selectedInfluence\)\s*\.then/);
+  assert(
+    !autoFetch,
+    "There must be no auto-fetch useEffect that fires without modifiers on mount"
+  );
+});
+
+test("initial generation (handleGenerate) includes selectedModifiers", () => {
+  assert(
+    modal.includes("fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers)"),
+    "handleGenerate must call fetchSuggestedEmail with selectedModifiers"
+  );
+});
+
+test("regenerate path reuses same handleGenerate function", () => {
+  const regenerateBtn = modal.includes('data-testid={suggestion ? "button-regenerate-suggested-email" : "button-generate-suggested-email"}');
+  const singleHandler = (modal.match(/onClick={handleGenerate}/g) || []).length >= 1;
+  assert(
+    regenerateBtn && singleHandler,
+    "Both generate and regenerate paths must use handleGenerate (single handler, adaptive testid)"
+  );
+});
+
+test("empty state CTA exists with correct testid", () => {
+  assert(
+    modal.includes('data-testid="button-generate-email-empty-state"'),
+    "Empty state must include a Generate Email button with the correct testid"
   );
 });
 

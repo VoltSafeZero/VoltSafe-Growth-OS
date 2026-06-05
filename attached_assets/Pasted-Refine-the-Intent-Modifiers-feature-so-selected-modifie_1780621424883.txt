@@ -1,0 +1,79 @@
+Refine the Intent Modifiers feature so selected modifiers apply to both initial AI Generate and Regenerate flows.
+
+Current issue:
+The Intent Modifiers UI is implemented, but modifiers only apply on Regenerate, not the initial auto-generate/on-open generation. That creates confusing UX because users may select modifiers before generating and expect them to affect the first generated email.
+
+Goal:
+Ensure selectedIntentModifiers are included in every AI email generation request whenever the user has selected them, including:
+- Initial Generate
+- Regenerate
+- Any other modal-triggered generation path
+
+Requirements:
+
+1. Audit generation flow
+Find every place in suggested-next-email-modal.tsx or related components where the AI suggested email request is sent.
+
+2. Include selectedIntentModifiers in all generation requests
+Wherever the request payload is built, include:
+
+selectedIntentModifiers: selectedIntentModifiers
+
+or the current state variable name used for selected modifier ids.
+
+3. Avoid stale state bugs
+Make sure the selected modifier ids used in the request are the latest selected values at the time the user clicks Generate/Regenerate.
+
+4. UX clarity
+If the modal currently auto-generates immediately on open before the user has a chance to select modifiers, adjust the flow so this does not defeat the feature.
+
+Preferred behavior:
+- Open modal.
+- Show context/influence controls and Intent Modifiers.
+- User can select modifiers.
+- User clicks Generate Email.
+- First generated email uses selected modifiers.
+
+If preserving auto-generate is necessary, then clearly separate:
+- Initial auto-draft generated without modifiers
+- Regenerate with selected modifiers
+
+But preferred is manual first generation so modifiers are meaningful.
+
+5. Button copy
+Use:
+Generate Email
+
+After an email already exists:
+Regenerate Email
+
+If modifiers are selected, showing count is fine:
+Generate Email (3)
+Regenerate Email (3)
+
+6. Tests
+Add/update tests covering:
+- Initial generation request includes selectedIntentModifiers.
+- Regenerate request includes selectedIntentModifiers.
+- No modifiers selected sends [] or omits the field safely.
+- Selecting modifiers before first generation affects the first backend request.
+- Existing behavior remains unchanged when no modifiers are selected.
+
+7. Manual smoke test
+Open Lead, Account, and Contact email generation modal.
+Select:
+- Build Trust
+- Emphasize ROI
+- Reduce Friction
+- Ask For Meeting
+
+Click Generate Email.
+
+Confirm the first generated email:
+- Includes those intent effects.
+- Still preserves saved voice.
+- Has proper spacing.
+- Ends with the placeholder VoltSafe signature block.
+- Avoids hype and superlatives.
+
+Please implement this surgically without changing the backend unless necessary. The backend already supports selectedIntentModifiers.
