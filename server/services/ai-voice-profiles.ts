@@ -601,7 +601,8 @@ export interface VoiceDnaProfile {
 export interface TrainVoiceResult {
   success: boolean;
   profileId: number;
-  emailsAnalysed: number;
+  profileName: string;
+  emailsAnalyzed: number;
   voiceDna: VoiceDnaProfile;
 }
 
@@ -722,7 +723,7 @@ export async function trainVoiceFromSentMail(
   } else {
     const profRow = await db.execute(sql.raw(`
       SELECT id FROM ai_voice_profiles
-      WHERE (owner_user_id = ${userId} OR is_public = TRUE)
+      WHERE (owner_user_id = ${userId} OR profile_type = 'global')
       ORDER BY is_default DESC NULLS LAST, id ASC
       LIMIT 1
     `));
@@ -732,14 +733,16 @@ export async function trainVoiceFromSentMail(
   }
 
   const dnaJson = JSON.stringify(voiceDna).replace(/'/g, "''");
-  await db.execute(sql.raw(`
+  const updated = await db.execute(sql.raw(`
     UPDATE ai_voice_profiles
     SET voice_dna_json = '${dnaJson}',
         training_source = 'sent_mail',
         training_email_count = ${samples.length},
         trained_at = NOW()
     WHERE id = ${targetProfileId}
+    RETURNING name
   `));
+  const profileName = ((updated as any).rows?.[0]?.name as string) ?? "your profile";
 
-  return { success: true, profileId: targetProfileId, emailsAnalysed: samples.length, voiceDna };
+  return { success: true, profileId: targetProfileId, profileName, emailsAnalyzed: samples.length, voiceDna };
 }
