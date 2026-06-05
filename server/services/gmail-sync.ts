@@ -1,3 +1,4 @@
+import path from "path";
 import { db } from "../db";
 import { emailMessages, emailAccounts, scheduledEmails, users } from "../../shared/schema";
 import { eq, and, lte, desc, inArray } from "drizzle-orm";
@@ -243,7 +244,7 @@ async function runScheduledEmailSender() {
   );
   if (!due.length) return;
 
-  const { sendEmail } = await import("../gmail");
+  const { sendEmail, extractCtaInlineImages } = await import("../gmail");
 
   for (const email of due) {
     // Resolve which user account to send from.
@@ -306,13 +307,32 @@ async function runScheduledEmailSender() {
         log(`[gmail-scheduled] #${email.id} tracking inject non-fatal: ${trackErr.message}`);
       }
 
-      // IMPORTANT: sendEmail(userId, to, subject, body, threadId?, attachments?, accountId?)
+      // Inline CTA images as CID parts for client compatibility (Spark / Apple Mail / Outlook).
+      let _schedCidBody = trackedBody;
+      let _schedCidImages: import("../gmail").CidImage[] = [];
+      try {
+        const _p = path.resolve("uploads/cta-assets");
+        const _r = await extractCtaInlineImages(trackedBody, _p);
+        _schedCidBody = _r.html;
+        _schedCidImages = _r.inlineImages;
+        if (_schedCidImages.length > 0) log(`[gmail-scheduled] #${email.id} CID inline images: ${_schedCidImages.map(i => i.cid).join(", ")}`);
+      } catch (_ce: any) {
+        log(`[gmail-scheduled] #${email.id} CID image extraction non-fatal: ${_ce?.message}`);
+      }
+
+      // IMPORTANT: sendEmail(userId, to, subject, body, threadId?, attachments?, accountId?, cc?, bcc?, ical?, inlineImages?)
       const result = await sendEmail(
         sendUserId,
         email.to,
         email.subject || "",
-        trackedBody,
+        _schedCidBody,
         email.threadId ?? undefined,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        _schedCidImages,
       );
 
       if (result?.id && _schedCtaTokens.length > 0) {

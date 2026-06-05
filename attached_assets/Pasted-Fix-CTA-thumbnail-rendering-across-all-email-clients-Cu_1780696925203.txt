@@ -1,0 +1,60 @@
+Fix CTA thumbnail rendering across all email clients.
+
+Current evidence:
+- VoltSafe Mail shows the Watch Demo image correctly.
+- Spark Mail shows broken image icons and linked "Watch Demo" text.
+- Therefore the CTA image URL works inside VoltSafe Mail but is not reliably accessible/rendered by external mail clients.
+- Goal is that Gmail, Spark, Apple Mail, Outlook, and VoltSafe Mail all show the clickable PNG thumbnail.
+
+Required fix:
+Do not rely only on remote hosted image URLs for CTA thumbnails.
+
+Implement inline CID image support in outbound MIME.
+
+For CTA image thumbnails:
+1. Fetch/read the PNG server-side before send.
+2. Add it as an inline MIME part:
+   - Content-Type: image/png
+   - Content-Disposition: inline
+   - Content-ID: <watch-demo-cta-[id]>
+   - Content-Transfer-Encoding: base64
+3. In email HTML, render:
+   <a href="[tracked CTA URL]">
+     <img src="cid:watch-demo-cta-[id]" alt="Watch Demo" width="600" ...>
+   </a>
+
+For embedded signature CTA:
+- use 200px PNG
+- place to the right of the signature text block
+- use cid image source
+
+For standalone body CTA:
+- use 600px PNG
+- place above signature
+- use cid image source
+
+Fallback:
+- If CID image assembly fails, then use absolute public HTTPS URL.
+- Only if both fail, use text/button fallback.
+
+Also fix:
+- Ensure CTA thumbnails are not shown as normal document attachments.
+- Inline CID images should not appear as downloadable attachments if possible.
+- MIME must use multipart/related when inline images exist.
+- Preserve existing attachments separately.
+
+Tests:
+- MIME contains multipart/related when CTA image exists.
+- HTML contains img src="cid:..."
+- MIME contains Content-ID matching the cid.
+- Tracked link wraps the cid image.
+- Spark/Gmail-compatible structure.
+- Regular PDFs still attach normally.
+- CTA thumbnails do not appear as normal attachments.
+
+Production validation:
+- Send to trevor@voltsafe.com.
+- Open in Spark.
+- Open in Gmail/web if available.
+- Open in VoltSafe Mail.
+- All should show clickable Watch Demo PNG, not broken image/text.

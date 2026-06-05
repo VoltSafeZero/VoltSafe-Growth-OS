@@ -60,7 +60,7 @@ import { registerChatRoutes } from "./replit_integrations/chat";
 import { registerAudioRoutes } from "./replit_integrations/audio";
 import { registerImageRoutes } from "./replit_integrations/image";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
-import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
+import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft, extractCtaInlineImages } from "./gmail";
 import { normalizeOutboundHtml } from "./services/email-html-normalizer";
 import { applySignatureSendSanitizer } from "./services/signature-html-sanitizer";
 import { wrapSignatureCtaLinks, updateSignatureCtaMessageIds, recordSignatureCtaClick, isSafeCtaUrl } from "./services/signature-cta-tracker";
@@ -14368,27 +14368,43 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           }
         }
 
+        // ── Inline CTA images as CID parts (Spark / Apple Mail / Outlook compatibility) ──
+        let _cidBody = trackedBody;
+        let _ctaInlineImages: import("./gmail").CidImage[] = [];
+        try {
+          const _cidResult = await extractCtaInlineImages(trackedBody, CTA_ASSETS_DIR);
+          _cidBody = _cidResult.html;
+          _ctaInlineImages = _cidResult.inlineImages;
+          if (_ctaInlineImages.length > 0) {
+            console.log(`[gmail-send] CID inline images: ${_ctaInlineImages.map(i => i.cid).join(", ")}`);
+          }
+        } catch (_cidErr: any) {
+          console.warn("[gmail-send] CID image extraction non-fatal:", _cidErr?.message);
+        }
+
         // ── MIME diagnostic — logged immediately before Gmail API call ─────────────
         console.log("[gmail-send] calling sendEmail", {
           userId: resolved.userId,
           accountId: resolved.accountId,
-          bodyLen: trackedBody.length,
-          hasVsSigMarker: trackedBody.includes("<!--vs-sig-start-->"),
-          containsTable: trackedBody.includes("<table"),
-          containsStyleAttr: trackedBody.includes("style="),
-          containsDataImg: trackedBody.includes("data:image"),
-          containsBase64: trackedBody.includes("base64"),
-          imgCount: (trackedBody.match(/<img\b/gi) || []).length,
-          hrefCount: (trackedBody.match(/\bhref=/gi) || []).length,
+          bodyLen: _cidBody.length,
+          hasVsSigMarker: _cidBody.includes("<!--vs-sig-start-->"),
+          containsTable: _cidBody.includes("<table"),
+          containsStyleAttr: _cidBody.includes("style="),
+          containsDataImg: _cidBody.includes("data:image"),
+          containsBase64: _cidBody.includes("base64"),
+          imgCount: (_cidBody.match(/<img\b/gi) || []).length,
+          hrefCount: (_cidBody.match(/\bhref=/gi) || []).length,
           hasTo: !!to,
           hasSubject: !!subject,
           hasThreadId: !!threadId,
           attachmentCount: mimeAttachments.length,
+          cidImageCount: _ctaInlineImages.length,
         });
         const result = await sendEmail(
-          resolved.userId, to, subject || "", trackedBody,
+          resolved.userId, to, subject || "", _cidBody,
           threadId, mimeAttachments, resolved.accountId,
-          cc || undefined, bcc || undefined, icalContent || undefined
+          cc || undefined, bcc || undefined, icalContent || undefined,
+          _ctaInlineImages
         );
         console.log("[gmail-send] sendEmail returned", { messageId: result?.id, threadId: result?.threadId });
 

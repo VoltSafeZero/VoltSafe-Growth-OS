@@ -1,6 +1,8 @@
 // Gmail integration via Google OAuth2 (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET)
 // All functions accept an optional accountId — when provided (shared mailbox access),
 // the token for that specific account is used regardless of which user is calling.
+import fs from "fs";
+import path from "path";
 import { getGmailClient } from "./gmail-oauth";
 
 function decodeBase64(data: string) {
@@ -148,7 +150,56 @@ function mimeBase64(content: string): string {
   return b64.match(/.{1,76}/g)?.join("\r\n") ?? b64;
 }
 
-type MimeAttachment = { name: string; mimeType: string; data: Buffer };
+export type MimeAttachment = { name: string; mimeType: string; data: Buffer };
+export type CidImage = { cid: string; mimeType: string; data: Buffer };
+
+// Map file extension to MIME type for CTA images.
+function mimeTypeFromExt(ext: string): string {
+  const m: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+  return m[ext.toLowerCase()] ?? "image/png";
+}
+
+/**
+ * Scans HTML for CTA asset URLs (`/assets/cta/<filename>`), reads the
+ * corresponding files from `ctaAssetsDir`, rewrites `src="..."` to
+ * `src="cid:..."`, and returns the modified HTML plus inline-image descriptors.
+ * Any file that cannot be read is silently skipped (URL left as absolute HTTPS).
+ */
+export async function extractCtaInlineImages(
+  html: string,
+  ctaAssetsDir: string,
+): Promise<{ html: string; inlineImages: CidImage[] }> {
+  const seen = new Map<string, CidImage>(); // filename → CidImage
+
+  const fnRe = /\/assets\/cta\/([^"'?#\s]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = fnRe.exec(html)) !== null) {
+    const filename = m[1];
+    if (seen.has(filename)) continue;
+    const filePath = path.join(ctaAssetsDir, filename);
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const data = fs.readFileSync(filePath);
+      const ext = filename.split(".").pop() ?? "png";
+      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      seen.set(filename, { cid: `cta-${safeName}@vs`, mimeType: mimeTypeFromExt(ext), data });
+    } catch {
+      // File unreadable — leave URL as-is (absolute HTTPS fallback).
+    }
+  }
+
+  if (seen.size === 0) return { html, inlineImages: [] };
+
+  // Replace src="https://host/assets/cta/filename" with src="cid:..."
+  let rewritten = html;
+  for (const [filename, cidImg] of seen.entries()) {
+    const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pat = new RegExp(`(\\bsrc=")([^"]*\\/assets\\/cta\\/${escaped})(")`,"gi");
+    rewritten = rewritten.replace(pat, `$1cid:${cidImg.cid}$3`);
+  }
+
+  return { html: rewritten, inlineImages: Array.from(seen.values()) };
+}
 
 function buildMimeRaw(
   from: string,
@@ -159,8 +210,10 @@ function buildMimeRaw(
   cc?: string,
   bcc?: string,
   icalContent?: string,
+  inlineImages: CidImage[] = [],
 ): string {
   const R = "\r\n";
+  const ts = Date.now();
   const plainText = body
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, "")
@@ -171,7 +224,7 @@ function buildMimeRaw(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  const innerBoundary = `vs_alt_${Date.now()}`;
+  const innerBoundary = `vs_alt_${ts}`;
   const altPart = [
     `--${innerBoundary}`,
     "Content-Type: text/plain; charset=UTF-8",
@@ -192,13 +245,48 @@ function buildMimeRaw(
   if (cc) extraHeaders.push(`Cc: ${cc}`);
   if (bcc) extraHeaders.push(`Bcc: ${bcc}`);
 
+  const needsInline  = inlineImages.length > 0;
   // iCal invite present → must use multipart/mixed so email clients show RSVP buttons.
-  // We embed it as an inline text/calendar part (triggers Gmail/Outlook RSVP UI) AND
-  // as an application/ics attachment (for Apple Mail and other clients).
-  const needsMixed = attachments.length > 0 || !!icalContent;
+  const needsMixed   = attachments.length > 0 || !!icalContent;
+
+  // Build the inline-image MIME parts (Content-Disposition: inline, no filename).
+  const buildInlineParts = (boundary: string) =>
+    inlineImages.map((img) => {
+      const b64 = img.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
+      return [
+        `--${boundary}`,
+        `Content-Type: ${img.mimeType}`,
+        "Content-Transfer-Encoding: base64",
+        "Content-Disposition: inline",
+        `Content-ID: <${img.cid}>`,
+        "",
+        b64,
+        "",
+      ].join(R);
+    });
+
+  // Build the multipart/related block that wraps alt + inline images.
+  const buildRelatedBlock = (outerBoundary: string | null) => {
+    const relBoundary = `vs_rel_${ts + 2}`;
+    const relLines = [
+      outerBoundary ? `--${outerBoundary}` : null,
+      `Content-Type: multipart/related; boundary="${relBoundary}"`,
+      "",
+      `--${relBoundary}`,
+      `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
+      "",
+      altPart,
+      "",
+      ...buildInlineParts(relBoundary),
+      `--${relBoundary}--`,
+    ].filter((l): l is string => l !== null);
+    return relLines.join(R);
+  };
 
   let lines: string[];
-  if (!needsMixed) {
+
+  if (!needsInline && !needsMixed) {
+    // Simple case: no inline images, no attachments → multipart/alternative.
     lines = [
       `From: ${from}`,
       `To: ${to}`,
@@ -209,8 +297,19 @@ function buildMimeRaw(
       "",
       altPart,
     ];
-  } else {
-    const outerBoundary = `vs_mix_${Date.now() + 1}`;
+  } else if (needsInline && !needsMixed) {
+    // Inline images only → multipart/related at top level.
+    lines = [
+      `From: ${from}`,
+      `To: ${to}`,
+      ...extraHeaders,
+      `Subject: ${rfc2047EncodeHeader(subject || "")}`,
+      "MIME-Version: 1.0",
+      buildRelatedBlock(null),
+    ];
+  } else if (needsInline && needsMixed) {
+    // Inline images + regular attachments/ical → multipart/mixed wrapping multipart/related.
+    const outerBoundary = `vs_mix_${ts + 1}`;
     const attachParts = attachments.map((att) => {
       const b64 = att.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
       return [
@@ -223,39 +322,47 @@ function buildMimeRaw(
         "",
       ].join(R);
     });
-
     const icalParts: string[] = [];
     if (icalContent) {
-      const icalB64 = Buffer.from(icalContent, "utf-8")
-        .toString("base64")
-        .match(/.{1,76}/g)
-        ?.join(R) ?? "";
-      // Inline text/calendar triggers RSVP in Gmail and Outlook.
-      icalParts.push(
-        [
-          `--${outerBoundary}`,
-          `Content-Type: text/calendar; method=REQUEST; charset=UTF-8`,
-          "Content-Transfer-Encoding: base64",
-          "Content-Disposition: inline",
-          "",
-          icalB64,
-          "",
-        ].join(R),
-      );
-      // .ics attachment for Apple Mail / older clients.
-      icalParts.push(
-        [
-          `--${outerBoundary}`,
-          `Content-Type: application/ics; name="invite.ics"`,
-          "Content-Transfer-Encoding: base64",
-          `Content-Disposition: attachment; filename="invite.ics"`,
-          "",
-          icalB64,
-          "",
-        ].join(R),
-      );
+      const icalB64 = Buffer.from(icalContent, "utf-8").toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
+      icalParts.push([`--${outerBoundary}`, `Content-Type: text/calendar; method=REQUEST; charset=UTF-8`, "Content-Transfer-Encoding: base64", "Content-Disposition: inline", "", icalB64, ""].join(R));
+      icalParts.push([`--${outerBoundary}`, `Content-Type: application/ics; name="invite.ics"`, "Content-Transfer-Encoding: base64", `Content-Disposition: attachment; filename="invite.ics"`, "", icalB64, ""].join(R));
     }
-
+    lines = [
+      `From: ${from}`,
+      `To: ${to}`,
+      ...extraHeaders,
+      `Subject: ${rfc2047EncodeHeader(subject || "")}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/mixed; boundary="${outerBoundary}"`,
+      "",
+      buildRelatedBlock(outerBoundary),
+      "",
+      ...icalParts,
+      ...attachParts,
+      `--${outerBoundary}--`,
+    ];
+  } else {
+    // Regular attachments/ical but no inline images → original multipart/mixed structure.
+    const outerBoundary = `vs_mix_${ts + 1}`;
+    const attachParts = attachments.map((att) => {
+      const b64 = att.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
+      return [
+        `--${outerBoundary}`,
+        `Content-Type: ${att.mimeType}; name="${att.name}"`,
+        "Content-Transfer-Encoding: base64",
+        `Content-Disposition: attachment; filename="${att.name}"`,
+        "",
+        b64,
+        "",
+      ].join(R);
+    });
+    const icalParts: string[] = [];
+    if (icalContent) {
+      const icalB64 = Buffer.from(icalContent, "utf-8").toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
+      icalParts.push([`--${outerBoundary}`, `Content-Type: text/calendar; method=REQUEST; charset=UTF-8`, "Content-Transfer-Encoding: base64", "Content-Disposition: inline", "", icalB64, ""].join(R));
+      icalParts.push([`--${outerBoundary}`, `Content-Type: application/ics; name="invite.ics"`, "Content-Transfer-Encoding: base64", `Content-Disposition: attachment; filename="invite.ics"`, "", icalB64, ""].join(R));
+    }
     lines = [
       `From: ${from}`,
       `To: ${to}`,
@@ -293,11 +400,12 @@ export async function sendEmail(
   cc?: string,
   bcc?: string,
   icalContent?: string,
+  inlineImages: CidImage[] = [],
 ) {
   const gmail = await getGmailClient(userId, accountId);
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
-  const raw = buildMimeRaw(from, to, subject, body, attachments, cc, bcc, icalContent);
+  const raw = buildMimeRaw(from, to, subject, body, attachments, cc, bcc, icalContent, inlineImages);
   const params: any = { userId: "me", requestBody: { raw } };
   if (threadId) params.requestBody.threadId = threadId;
   const res = await gmail.users.messages.send(params);
