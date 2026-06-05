@@ -691,7 +691,7 @@ export async function trainVoiceFromSentMail(
   const openai = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
 
   const accountRows = await db.execute(sql.raw(`
-    SELECT email_address FROM mailbox_accounts WHERE user_id = ${userId} AND auth_status = 'active' LIMIT 5
+    SELECT email_address FROM email_accounts WHERE user_id = ${userId} AND auth_status = 'active' LIMIT 5
   `));
   const accounts = (accountRows as any).rows as { email_address: string }[];
   if (!accounts.length) throw new Error("No active mailbox found. Connect your Gmail account first.");
