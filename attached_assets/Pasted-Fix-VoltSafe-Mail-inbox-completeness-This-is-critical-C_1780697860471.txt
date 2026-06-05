@@ -1,0 +1,222 @@
+Fix VoltSafe Mail inbox completeness. This is critical.
+
+Current problem:
+VoltSafe Mail is missing many emails from trevor@voltsafe.com that do appear in Spark/Gmail. This must never happen.
+
+Product rule:
+Every email sent to any connected @voltsafe.com mailbox must be synced, stored, searchable, and accessible in VoltSafe Mail.
+
+Do not hide emails permanently because of:
+- category
+- label
+- read/unread state
+- sent-to-self
+- promotions/newsletters/social/forums
+- thread grouping
+- “seen” limits
+- CRM review logic
+- smart inbox rules
+- team inbox ownership
+- pagination
+- stale sync cursor
+
+Core requirement:
+If Gmail says a message exists for the connected mailbox, VoltSafe Mail must have it in the local database and make it accessible somewhere.
+
+Fix scope:
+
+1. Audit Gmail sync pipeline
+
+For each connected mailbox:
+- trevor@voltsafe.com
+- sales@voltsafe.com
+- support@voltsafe.com
+- all future @voltsafe.com users
+
+Trace:
+Gmail API → sync job → local DB insert/update → label mapping → message list query → Smart Inbox grouping → search results.
+
+Add diagnostic logs:
+- Gmail account
+- fetched message count
+- inserted count
+- updated count
+- skipped count
+- skip reason
+- Gmail labels
+- local labels
+- thread id
+- message id
+- internalDate
+- from/to/cc/bcc
+- mailbox owner/account id
+
+Do not log body content.
+
+2. Remove unsafe exclusions
+
+No list query should permanently exclude messages only because they have:
+
+- SENT
+- CATEGORY_PROMOTIONS
+- CATEGORY_SOCIAL
+- CATEGORY_FORUMS
+- CATEGORY_UPDATES
+- read state
+- archived state
+- multiple labels
+- self-sent/self-received labels
+
+Important:
+A message can have both SENT and INBOX. If it has INBOX, it must appear in Inbox.
+
+3. Inbox rule
+
+For a mailbox inbox:
+
+Show every message where Gmail labels include INBOX for that mailbox.
+
+Do not exclude because it also has SENT.
+
+Do not exclude because it is read.
+
+Do not exclude because it is categorized.
+
+4. Sent rule
+
+For Sent:
+
+Show every message where Gmail labels include SENT for that mailbox.
+
+If a message has both SENT and INBOX, it may appear in both Inbox and Sent. That is acceptable and expected.
+
+5. Categories rule
+
+Categories are views, not hiding rules.
+
+If a message has CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, CATEGORY_FORUMS, CATEGORY_UPDATES, etc., it should still be accessible in:
+- Inbox if it has INBOX
+- Category view if category label exists
+- Search always
+
+6. Smart Inbox rule
+
+Smart Inbox should organize, not disappear.
+
+Every synced INBOX message must appear in one of:
+- Priority
+- People
+- Newsletters/Updates
+- Promotions
+- Social
+- Forums/Community
+- Seen
+- Other/All
+
+Add an explicit “All Inbox” fallback section if needed.
+
+No hard cap should hide messages without a “Show all” path.
+
+7. Search rule
+
+Search must search all locally synced messages for that mailbox unless user explicitly filters.
+
+Search should not only search visible Smart Inbox groups.
+
+8. Team inbox rule
+
+Emails sent to sales@voltsafe.com must appear in the sales team inbox.
+
+Emails sent to support@voltsafe.com must appear in the support team inbox.
+
+Team inbox routing must be based on the Gmail account/mailbox that received the message, not only recipient text.
+
+9. Sync cursor safety
+
+Audit Gmail historyId / cursor logic.
+
+If cursor is stale, invalid, or misses messages:
+- perform safe backfill
+- do not silently skip
+- log cursor reset
+- recover automatically
+
+Add “Force full inbox resync” admin/tool action:
+- per mailbox
+- last 7 days
+- last 30 days
+- all available metadata if feasible
+
+10. Backfill missing emails
+
+Create script/admin route:
+
+scripts/backfill-mailbox.ts
+
+Support:
+- --account trevor@voltsafe.com
+- --account sales@voltsafe.com
+- --days 30
+- --days 365
+- --dry-run
+- --apply
+
+It should:
+- fetch Gmail messages for the mailbox
+- compare against local DB
+- insert/update missing messages
+- preserve labels
+- preserve thread ids
+- report missing count and fixed count
+
+11. Gmail truth diagnostic
+
+Create a diagnostic endpoint/script:
+
+Compare Gmail vs local DB for a mailbox.
+
+Output:
+- Gmail message ids found
+- local DB message ids found
+- missing in local DB
+- present but hidden by query
+- present but wrong labels
+- present but wrong mailbox/account
+- present but excluded by Smart Inbox grouping
+
+This must identify whether missing emails are:
+A. never synced
+B. synced but filtered out
+C. synced to wrong account/team inbox
+D. synced but hidden by grouping/caps
+E. missing because cursor skipped them
+
+12. Tests
+
+Add tests for:
+- INBOX+SENT message appears in Inbox.
+- INBOX+SENT message also appears in Sent.
+- read INBOX message appears.
+- category INBOX message appears in Inbox and category.
+- archived non-INBOX message does not appear in Inbox but appears in All/Search.
+- sales@voltsafe.com received message appears in sales team inbox.
+- search finds messages not currently visible in Smart Inbox section.
+- Smart Inbox fallback catches unclassified inbox messages.
+- stale cursor triggers backfill/recovery.
+- no code path uses SENT exclusion to hide INBOX messages.
+
+13. Production validation
+
+After deploy:
+- Run compare Gmail vs local DB for trevor@voltsafe.com.
+- Run backfill for trevor@voltsafe.com last 30 days.
+- Run compare again.
+- Confirm test emails visible in Inbox/People/Seen/All Inbox.
+- Run same for sales@voltsafe.com.
+- Confirm every email visible somewhere and searchable.
+
+Do not mark complete until:
+- trevor@voltsafe.com missing emails are restored.
+- sales@voltsafe.com missing emails are restored.
+- a newly sent test email appears in VoltSafe Mail within the expected sync window.
+- Smart Inbox never permanently hides an INBOX message.
