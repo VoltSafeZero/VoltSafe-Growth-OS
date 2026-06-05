@@ -304,7 +304,7 @@ test("no auto-fetch on mount — loading starts false, no useEffect fetch", () =
 
 test("initial generation (handleGenerate) includes selectedModifiers", () => {
   assert(
-    modal.includes("fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers)"),
+    modal.includes("fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers, userInputs)"),
     "handleGenerate must call fetchSuggestedEmail with selectedModifiers"
   );
 });
