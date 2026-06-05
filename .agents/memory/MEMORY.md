@@ -20,3 +20,4 @@
 - [Suggested Email User Inputs](suggested-email-user-inputs.md) — freetext steering field wired UI→route→service→prompt; cleanAiEmailBody strips trailing signoff lines; 9-param generateSuggestedNextEmail.
 - [Compose Send Pipeline Fixes](compose-send-pipeline.md) — safe JSON parse in sendMutation; CTA image URL host rewriting in GET /api/signatures + GET /api/signature-ctas; send route pre-try wrap.
 - [Inbox SENT Label Exclusion](inbox-label-sent-exclusion.md) — never exclude SENT in the INBOX label filter; self-sent emails carry both SENT+INBOX labels and would be silently hidden.
+- [CTA Asset URL Rewriting](cta-asset-url-rewriting.md) — GET /api/cta-assets must rewrite public_url to current host; stale workspace.*.repl.co URLs otherwise break image serving.

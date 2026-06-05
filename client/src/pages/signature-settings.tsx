@@ -20,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ChevronLeft, Plus, Pencil, Trash2, Star, Copy, Loader2, PenSquare, AlertTriangle,
   Eye, Code2, Wand2, MousePointerClick, ToggleLeft, ToggleRight,
-  Upload, Images, Image,
+  Upload, Images, Image, ImageOff,
 } from "lucide-react";
 
 type EmailSignature = {
@@ -78,6 +78,35 @@ const DEFAULT_FIELDS: SigFields = {
   website: "", address: "", linkedin: "", twitter: "", instagram: "", youtube: "",
   brandColor: "#00C1DE",
 };
+
+// ── CtaAssetImg — renders a CTA image with a clear fallback when the file is missing ──
+function CtaAssetImg({
+  src, alt, className, style,
+}: { src: string; alt: string; className?: string; style?: React.CSSProperties }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center gap-1 text-muted-foreground/50 bg-muted/30 rounded w-full h-full p-2"
+        style={style}
+        data-testid="cta-img-missing"
+        title={`Image not found — re-upload to fix.\n${src}`}
+      >
+        <ImageOff className="h-4 w-4" />
+        <span className="text-[9px] text-center leading-tight">Missing — re-upload</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      style={style}
+      onError={() => setBroken(true)}
+    />
+  );
+}
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -543,7 +572,7 @@ function CtaDialog({
                             title={asset.name}
                             data-testid={`button-select-asset-${asset.id}`}
                           >
-                            <img src={asset.public_url} alt={asset.name} className="w-full h-12 object-cover bg-muted/30" />
+                            <CtaAssetImg src={asset.public_url} alt={asset.name} className="w-full h-12 object-cover bg-muted/30" />
                           </button>
                         ))}
                       </div>
@@ -551,8 +580,8 @@ function CtaDialog({
                   </div>
                 )}
                 {imageUrl && (
-                  <div className="mb-2 rounded-md border border-border/30 overflow-hidden bg-muted/10">
-                    <img src={imageUrl} alt="Preview" className="w-full max-h-16 object-contain" />
+                  <div className="mb-2 rounded-md border border-border/30 overflow-hidden bg-muted/10" style={{ minHeight: "4rem" }}>
+                    <CtaAssetImg src={imageUrl} alt="Preview" className="w-full max-h-16 object-contain" />
                   </div>
                 )}
                 <Input value={imageUrl} onChange={e => { setImageUrl(e.target.value); setSelectedAssetId(null); }}
@@ -790,7 +819,7 @@ function CtaAssetLibraryTab() {
           {assets.map(asset => (
             <Card key={asset.id} className="border-border/40 overflow-hidden" data-testid={`card-asset-${asset.id}`}>
               <div className="bg-muted/20 flex items-center justify-center h-24 overflow-hidden">
-                <img src={asset.public_url} alt={asset.name} className="max-h-full max-w-full object-contain" />
+                <CtaAssetImg src={asset.public_url} alt={asset.name} className="max-h-full max-w-full object-contain" />
               </div>
               <CardContent className="p-2.5">
                 {renamingId === asset.id ? (

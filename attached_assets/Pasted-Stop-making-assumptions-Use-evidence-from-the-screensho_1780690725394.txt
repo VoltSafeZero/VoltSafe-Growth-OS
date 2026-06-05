@@ -1,0 +1,316 @@
+Stop making assumptions. Use evidence from the screenshots and fix the root cause.
+
+Current state:
+
+EMAIL SENDING WORKS.
+
+The remaining problem is the Watch Demo CTA image system.
+
+Evidence:
+
+1. In received emails:
+   - "Watch a Demo" appears as hyperlinked text.
+   - Broken image icon is visible.
+   - PNG never renders.
+   - Happens both:
+     - embedded in email signature
+     - inserted as standalone CTA in email body
+
+2. In Email Signatures → CTA Assets:
+   - WatchDemo_Thumbnail_200
+   - WatchDemo_Thumbnail_600
+   both show broken image icons.
+   - Therefore the issue is NOT email rendering.
+   - The application itself cannot load CTA asset images.
+
+3. In Add Tracked CTA:
+   - Thumbnail previews are broken.
+   - Saved CTA references image assets that cannot be displayed.
+
+4. Asset Library still incorrectly shows:
+   - WatchDemo_Thumbnail_200.png
+   - WatchDemo_Thumbnail_600.png
+   as normal email attachments.
+
+This confirms the root cause is CTA asset storage / URL generation / public asset serving.
+
+====================================================
+PRIMARY GOAL
+====================================================
+
+Fix CTA asset rendering at the source.
+
+Do NOT focus on email layout until the CTA asset itself loads correctly.
+
+The image must display correctly:
+
+A) in CTA Assets page
+B) in CTA editor preview
+C) in email signature
+D) in standalone body CTA
+E) in received emails
+
+====================================================
+TASK 1 — AUDIT CTA ASSET STORAGE
+====================================================
+
+Inspect:
+
+- CTA asset records
+- asset table records
+- stored file paths
+- image_url values
+- generated public URLs
+- upload locations
+- MIME types
+
+For:
+
+- WatchDemo_Thumbnail_200
+- WatchDemo_Thumbnail_600
+
+Output:
+
+- database record
+- file path
+- public URL
+- whether file physically exists
+- whether URL returns 200
+- whether URL returns image/png
+
+====================================================
+TASK 2 — FIX PUBLIC CTA IMAGE SERVING
+====================================================
+
+The CTA Assets page itself shows broken images.
+
+That means:
+
+- public image route is broken
+OR
+- URL generation is wrong
+OR
+- files are stored somewhere not being served
+
+Find the real cause.
+
+Requirements:
+
+The final URL must:
+
+- return 200 OK
+- return image/png
+- return actual image bytes
+- work in incognito
+- require no login
+- not redirect to login
+- not redirect to app shell
+- not return HTML
+
+Example:
+
+https://image-linker-burgesstrevor76.replit.app/assets/cta/WatchDemo_Thumbnail_600.png
+
+(or equivalent final route)
+
+Must display the PNG directly in browser.
+
+====================================================
+TASK 3 — CREATE ONE CANONICAL IMAGE URL BUILDER
+====================================================
+
+Create one helper:
+
+getPublicAssetUrl(asset, req)
+
+Rules:
+
+- always absolute HTTPS
+- always current production hostname
+- never localhost
+- never workspace.*.repl.co
+- never stale hostnames
+- never relative URLs in emails
+
+Must be used everywhere:
+
+- CTA assets page
+- CTA editor preview
+- CTA picker
+- send route
+- schedule route
+- signature CTA renderer
+- standalone CTA renderer
+
+====================================================
+TASK 4 — FIX CTA ASSET PREVIEW
+====================================================
+
+CTA Assets page:
+
+Currently broken image icons.
+
+Replace with actual thumbnails.
+
+If image fails:
+
+Display:
+
+- image URL
+- file path
+- reason
+
+Do not silently fail.
+
+====================================================
+TASK 5 — FIX CTA EDITOR
+====================================================
+
+Add/Edit Tracked CTA:
+
+- library thumbnails must display
+- selected preview must display
+- save must validate image URL
+
+If image asset is invalid:
+
+Prevent save.
+
+====================================================
+TASK 6 — FIX EMAIL RENDERING
+====================================================
+
+Once asset serving works:
+
+Embedded Signature CTA:
+
+Render:
+
+<a href="[tracked link]">
+  <img src="[public PNG URL]">
+</a>
+
+Do NOT render plain text.
+
+Do NOT render broken image icon.
+
+Do NOT duplicate CTA.
+
+====================================================
+TASK 7 — SIGNATURE LAYOUT
+====================================================
+
+For signature CTA:
+
+Use email-safe table layout.
+
+LEFT:
+- Trevor signature block
+
+RIGHT:
+- Watch Demo PNG
+
+Spacing:
+- professional
+- horizontally aligned
+- vertically centered
+
+No stacked layout.
+
+====================================================
+TASK 8 — STANDALONE BODY CTA
+====================================================
+
+Body CTA should:
+
+- use WatchDemo_Thumbnail_600.png
+- appear above signature
+- be clickable
+- not become attachment
+- not render as text
+
+Required HTML:
+
+<a href="[tracked link]">
+  <img src="[public PNG URL]">
+</a>
+
+====================================================
+TASK 9 — FIX ASSET LIBRARY CLASSIFICATION
+====================================================
+
+Watch Demo thumbnails are CTA assets.
+
+They must NOT appear in:
+
+Compose Email
+→ Attachment Asset Library
+
+Hide:
+
+- WatchDemo_Thumbnail_200.png
+- WatchDemo_Thumbnail_600.png
+- all CTA image assets
+
+from attachment picker.
+
+Keep available only in:
+
+- CTA Assets
+- CTA Editor
+- Insert Tracked CTA
+
+====================================================
+TASK 10 — FIX EXISTING BAD RECORDS
+====================================================
+
+Create:
+
+scripts/fix-cta-image-urls.ts
+
+Support:
+
+--dry-run
+--apply
+
+Must:
+
+- find stale image URLs
+- find workspace.repl.co URLs
+- find localhost URLs
+- rewrite to canonical production URLs
+- validate file existence
+
+====================================================
+TASK 11 — TESTS
+====================================================
+
+Add tests for:
+
+✓ CTA asset returns image/png
+✓ public URL returns 200
+✓ preview renders image
+✓ send route emits img tag
+✓ schedule route emits img tag
+✓ signature CTA renders image
+✓ body CTA renders image
+✓ stale URLs rewritten
+✓ CTA assets hidden from attachment picker
+
+====================================================
+TASK 12 — PRODUCTION VALIDATION
+====================================================
+
+Do not mark complete until ALL are verified:
+
+1. CTA Assets page shows actual thumbnails.
+2. CTA Editor preview shows actual thumbnail.
+3. Opening image URL directly shows PNG.
+4. Signature CTA displays clickable PNG.
+5. Body CTA displays clickable PNG.
+6. No broken image icon.
+7. No text fallback.
+8. CTA images absent from attachment picker.
+9. Received email shows real image, not text.
+
+Focus on fixing CTA asset serving first. The broken CTA Assets page proves the failure occurs before email rendering.

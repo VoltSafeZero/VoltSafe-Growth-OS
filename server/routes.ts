@@ -28725,14 +28725,10 @@ export function registerConfluenceRoutes(app: Express) {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const userId = (req.session as any).userId as number;
       const filename = req.file.filename;
-      // Derive stable public origin — prefer explicit env var, then Replit slug, then request headers
-      const envOrigin = process.env.PUBLIC_URL
-        || (process.env.REPL_SLUG && process.env.REPL_OWNER
-            ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
-            : null)
-        || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null);
-      const requestOrigin = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
-      const baseUrl = envOrigin || requestOrigin;
+      // Always derive URL from request forwarded headers — Replit's edge proxy sets
+      // X-Forwarded-Host to the canonical public hostname, so this is always correct
+      // for both dev (preview domain) and production (.replit.app / custom domain).
+      const baseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
       const publicUrl = `${baseUrl}/assets/cta/${filename}`;
       const name = (req.body.name || req.file.originalname.replace(/\.[^.]+$/, "")).slice(0, 100);
       const s = (v: string) => v.replace(/'/g, "''");
@@ -28758,7 +28754,15 @@ export function registerConfluenceRoutes(app: Express) {
         WHERE a.is_archived = FALSE
         ORDER BY a.created_at DESC
       `))).rows;
-      res.json(rows);
+      // Rewrite public_url to the current request's host — prevents broken images when
+      // the stored URL references an old dev/workspace/staging host (e.g. workspace.*.repl.co).
+      const baseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
+      const rewritten = rows.map((r: any) => {
+        if (!r.public_url) return r;
+        const m = String(r.public_url).match(/\/assets\/cta\/([^/?#\s]+)$/);
+        return m ? { ...r, public_url: `${baseUrl}/assets/cta/${m[1]}` } : r;
+      });
+      res.json(rewritten);
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Failed to load CTA assets" });
     }
