@@ -8055,6 +8055,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   {connectedAccount.authStatus !== "active" ? (
                     <a href="/api/auth/gmail/connect" className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap" data-testid="button-reconnect-account-footer">Reconnect</a>
                   ) : (
+                    <>
                     <button title="Quick resync (last 5 min)" data-testid="button-resync-account-footer" onClick={async () => { try { await fetch(`/api/gmail/accounts/${connectedAccount.id}/resync?limit=100`, { method: "POST", credentials: "include" }); syncMutation.mutate(undefined); } catch {} }} className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors">
                       <RefreshCw className="h-3 w-3" />
                     </button>
@@ -8082,6 +8083,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         ))}
                       </div>
                     </div>
+                    </>
                   )}
                 </div>
               </div>
