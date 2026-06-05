@@ -14681,7 +14681,6 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                  OR m.label_ids LIKE '%CATEGORY_SOCIAL%'
                  OR m.label_ids LIKE '%CATEGORY_FORUMS%'
                )
-               AND m.label_ids NOT LIKE '%"SENT"%'
                AND m.label_ids NOT LIKE '%"DRAFT"%'
                AND m.label_ids NOT LIKE '%"SPAM"%'
                AND m.label_ids NOT LIKE '%"TRASH"%'
@@ -14697,7 +14696,6 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                  OR m.label_ids LIKE '%CATEGORY_SOCIAL%'
                  OR m.label_ids LIKE '%CATEGORY_FORUMS%'
                )
-               AND m.label_ids NOT LIKE '%"SENT"%'
                AND m.label_ids NOT LIKE '%"DRAFT"%'
                AND m.label_ids NOT LIKE '%"SPAM"%'
                AND m.label_ids NOT LIKE '%"TRASH"%') AS inbox_count,
@@ -14892,6 +14890,42 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const limit = Number(req.query.limit) || 100;
       const result = await syncEmailAccount(accountId, limit);
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Deep backfill: recover emails missed during container sleep gaps ─────
+  // Runs a paginated Gmail sync for a configurable window (default 30 days,
+  // max 365 days). This is the primary recovery tool when emails visible in
+  // Spark/Gmail are missing from VoltSafe Mail because the Replit container
+  // was sleeping and the incremental historyId expired.
+  //
+  // Owner OR admin may trigger. Runs asynchronously — returns immediately with
+  // { ok: true, status: "running", days, since } while the sync proceeds in
+  // the background. Safe to call multiple times (onConflictDoNothing).
+  app.post("/api/gmail/accounts/:id/deep-backfill", requireAuth, async (req, res) => {
+    try {
+      const accountId = Number(req.params.id);
+      const ctx = await requireOwnerOrAdmin(req, res, accountId);
+      if (!ctx) return;
+      const days = Math.min(365, Math.max(7, Number(req.body?.days) || 30));
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+      log(`[deep-backfill] account=${accountId} starting ${days}-day backfill (since=${since})…`);
+      // Run fully in background — do not block the HTTP response.
+      syncEmailAccount(accountId, {
+        maxPages: 100,
+        pageSize: 100,
+        since,
+        refreshLabels: true,
+      }).then((r: any) => {
+        log(`[deep-backfill] account=${accountId} done — pages=${r.pages} processed=${r.processed} new=${r.newMessages} labelsRefreshed=${r.labelsRefreshed}${r.hitPageLimit ? " (hit page cap)" : ""}`);
+      }).catch((e: any) => {
+        log(`[deep-backfill] account=${accountId} error: ${e?.message}`);
+      });
+
+      res.json({ ok: true, accountId, days, since, status: "running", note: "Backfill is running in the background. New emails will appear as they are synced." });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

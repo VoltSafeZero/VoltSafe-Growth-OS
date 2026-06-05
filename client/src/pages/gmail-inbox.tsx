@@ -5245,6 +5245,26 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     },
   });
 
+  const deepBackfillMutation = useMutation({
+    mutationFn: async (days: 30 | 90 | 365) => {
+      if (!connectedAccount?.id) throw new Error("No connected account");
+      const res = await apiRequest("POST", `/api/gmail/accounts/${connectedAccount.id}/deep-backfill`, { days });
+      return res.json();
+    },
+    onSuccess: (_data, days) => {
+      toast({
+        title: `Catching up last ${days} days`,
+        description: "Running in the background — new emails will appear as they sync in.",
+      });
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
+      }, 8000);
+    },
+    onError: (err: any) => {
+      toast({ title: "Backfill failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const toggleStarMutation = useMutation({
     mutationFn: async (msgId: string) => {
       const body = activeAccountId ? { asAccountId: activeAccountId } : {};
@@ -8035,9 +8055,33 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   {connectedAccount.authStatus !== "active" ? (
                     <a href="/api/auth/gmail/connect" className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap" data-testid="button-reconnect-account-footer">Reconnect</a>
                   ) : (
-                    <button title="Resync this account" data-testid="button-resync-account-footer" onClick={async () => { try { await fetch(`/api/gmail/accounts/${connectedAccount.id}/resync?limit=100`, { method: "POST", credentials: "include" }); syncMutation.mutate(undefined); } catch {} }} className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors">
+                    <button title="Quick resync (last 5 min)" data-testid="button-resync-account-footer" onClick={async () => { try { await fetch(`/api/gmail/accounts/${connectedAccount.id}/resync?limit=100`, { method: "POST", credentials: "include" }); syncMutation.mutate(undefined); } catch {} }} className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors">
                       <RefreshCw className="h-3 w-3" />
                     </button>
+                    <div className="relative group/catchup">
+                      <button
+                        title="Catch up missing emails"
+                        data-testid="button-deep-backfill-footer"
+                        disabled={deepBackfillMutation.isPending}
+                        className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-cyan-400 hover:bg-cyan-400/10 transition-colors disabled:opacity-40"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      </button>
+                      <div className="absolute bottom-full right-0 mb-1 hidden group-hover/catchup:flex flex-col gap-0.5 bg-popover border border-border rounded-lg shadow-lg p-1 z-50 w-36">
+                        <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Catch up emails</div>
+                        {([30, 90, 365] as const).map(d => (
+                          <button
+                            key={d}
+                            onClick={() => deepBackfillMutation.mutate(d)}
+                            disabled={deepBackfillMutation.isPending}
+                            className="text-left px-2 py-1 text-[11px] rounded hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-40"
+                            data-testid={`button-deep-backfill-${d}d`}
+                          >
+                            Last {d === 365 ? "1 year" : `${d} days`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>

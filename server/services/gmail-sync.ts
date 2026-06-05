@@ -390,15 +390,18 @@ export function startHourlySyncScheduler() {
     }
   }, 30_000);
 
-  // Catch-up paginated sync 90s after boot: fetches the last 3 days via the
+  // Catch-up paginated sync 90s after boot: fetches the last 30 days via the
   // Gmail messages.list API (idempotent — onConflictDoNothing). Recovers any
-  // messages that the incremental historyId path skipped during an outage.
+  // messages that the incremental historyId path skipped during an outage or
+  // container sleep (Replit dev containers can sleep for days, causing the
+  // historyId to expire and leaving a gap of missed emails).
+  // 30 days × 100 messages/page × 50 pages = up to 5,000 messages per account.
   setTimeout(async () => {
     try {
-      const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      log(`[gmail-sync] Startup catch-up paginated sync since=${since}…`);
-      const r = await runGmailSync({ maxPages: 10, pageSize: 100, since, refreshLabels: false });
-      log(`[gmail-sync] Catch-up done — pages=${r.pages} processed=${r.processed} new=${r.newMessages}${r.hitPageLimit ? " (hit cap)" : ""}`);
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      log(`[gmail-sync] Startup catch-up paginated sync since=${since} (last 30 days)…`);
+      const r = await runGmailSync({ maxPages: 50, pageSize: 100, since, refreshLabels: false });
+      log(`[gmail-sync] Catch-up done — pages=${r.pages} processed=${r.processed} new=${r.newMessages}${r.hitPageLimit ? " (hit page cap — some older messages may still be missing; use deep-backfill)" : ""}`);
     } catch (err: any) {
       log(`[gmail-sync] Catch-up sync error: ${err.message}`);
     }
