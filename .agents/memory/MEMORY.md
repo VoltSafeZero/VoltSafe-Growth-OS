@@ -16,3 +16,4 @@
 - [Voice DNA Training](voice-dna-training.md) — Phase 2 trainVoiceFromSentMail(); migration 0014; Train My Voice dialog in ai-voice-profiles.tsx with email count slider and result cards.
 - [Smart Email Context](smart-email-context.md) — Phase 1 selectSmartEmailContext(); top-10 recent + 3 early + starred/IMPORTANT + keyword matches; dedup; cap 20; SQL LIMIT 50 with label_ids.
 - [AI Voice Profiles](ai-voice-profiles.md) — Train From GPT system; migration 0012; service in server/services/ai-voice-profiles.ts; generateSuggestedNextEmail now accepts voiceProfileId; voice selector in SuggestedNextEmailModal.
+- [Intent Modifiers](intent-modifiers.md) — modifier layer on AI email gen; shared/intent-modifiers.ts → service → route → modal; modifiers apply on Regenerate only, not initial mount fetch.

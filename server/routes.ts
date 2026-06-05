@@ -28123,8 +28123,12 @@ export function registerConfluenceRoutes(app: Express) {
           ceoWattsonInfluenceLevel = aiSettings.ceoWattsonInfluenceLevel ?? 75;
         }
       } catch { /* non-fatal — use default */ }
+      const rawModifiers = req.body?.selectedIntentModifiers;
+      const intentModifierIds: string[] = Array.isArray(rawModifiers)
+        ? rawModifiers.filter((id: unknown) => typeof id === "string").slice(0, 5)
+        : [];
       const { generateSuggestedNextEmail } = await import("./services/crm-ai-summary");
-      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin, ceoWattsonInfluenceLevel);
+      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin, ceoWattsonInfluenceLevel, undefined, intentModifierIds);
       res.json(suggestion);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });

@@ -5,10 +5,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, RefreshCw, Send, Sliders, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, RefreshCw, Send, Sliders, X, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setPendingCompose } from "@/lib/compose-handoff";
 import { plainTextToHtml } from "@/lib/email-format";
+import {
+  INTENT_MODIFIERS,
+  groupModifiersByCategory,
+  MAX_INTENT_MODIFIERS,
+} from "@shared/intent-modifiers";
 
 const LS_CALENDLY_KEY = "voltsafe:calendlyUrl";
 const LS_VOICE_PROFILE_KEY = "voltsafe:voiceProfileId";
@@ -61,11 +66,13 @@ async function fetchSuggestedEmail(
   entityType: EntityType,
   entityId: number,
   voiceProfileId?: number | null,
-  ceoWattsonInfluenceLevel?: number
+  ceoWattsonInfluenceLevel?: number,
+  intentModifierIds?: string[]
 ): Promise<SuggestedEmail> {
   const body: Record<string, unknown> = {};
   if (voiceProfileId) body.voice_profile_id = voiceProfileId;
   if (ceoWattsonInfluenceLevel !== undefined) body.ceo_wattson_influence_level = ceoWattsonInfluenceLevel;
+  if (intentModifierIds && intentModifierIds.length > 0) body.selectedIntentModifiers = intentModifierIds;
   const res = await fetch(`/api/crm/ai-summary/${entityType}/${entityId}/suggest-next-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -93,6 +100,16 @@ function insertSchedulingLink(body: string, url: string): string {
 
 /** Shared sessionStorage key — kept as a secondary fallback for hard page reloads. */
 export const PENDING_COMPOSE_KEY = "voltsafe:pendingCompose";
+
+const MODIFIER_CATEGORIES = groupModifiersByCategory(INTENT_MODIFIERS);
+const CATEGORY_ORDER = [
+  "Strategic Intent",
+  "Relationship Intent",
+  "Leadership Intent",
+  "Persuasion Intent",
+  "Communication Style",
+  "Follow-Up Intent",
+];
 
 export function SuggestedNextEmailModal({ entityType, entityId, entityName, onClose }: Props) {
   const [, setLocation] = useLocation();
@@ -165,6 +182,20 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
 
   const influenceLabel = INFLUENCE_OPTIONS.find(o => o.value === selectedInfluence)?.label ?? "CEO Wattson";
 
+  // ── Intent Modifiers ──────────────────────────────────────────────────────
+  const [selectedModifiers, setSelectedModifiers] = useState<string[]>([]);
+  const [modifiersExpanded, setModifiersExpanded] = useState(false);
+
+  const atModifierLimit = selectedModifiers.length >= MAX_INTENT_MODIFIERS;
+
+  function toggleModifier(id: string) {
+    setSelectedModifiers(prev => {
+      if (prev.includes(id)) return prev.filter(m => m !== id);
+      if (prev.length >= MAX_INTENT_MODIFIERS) return prev;
+      return [...prev, id];
+    });
+  }
+
   // ── Scheduling link state ─────────────────────────────────────────────────
   const [includeLink, setIncludeLink] = useState(false);
   const [calendlyUrl, setCalendlyUrl] = useState(() => {
@@ -213,7 +244,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     setSuggestion(null);
     setWhyExpanded(false);
     try {
-      const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence);
+      const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers);
       setSuggestion(data);
     } catch (err: any) {
       setError(err.message || "Failed to regenerate");
@@ -282,7 +313,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
           </DialogTitle>
         </DialogHeader>
 
-        {/* Voice profile + influence selector row */}
+        {/* Voice profile + influence + modifiers config area */}
         <div className="space-y-1.5 py-1.5 border-b border-border/40 -mt-1">
           {/* Voice profile selector */}
           {voiceProfiles.length > 0 && (
@@ -349,6 +380,93 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
               </span>
             )}
           </div>
+
+          {/* Intent Modifiers — collapsible */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setModifiersExpanded(prev => !prev)}
+              className="flex items-center gap-2 w-full group py-0.5"
+              data-testid="button-toggle-intent-modifiers"
+            >
+              <Zap className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+              <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                Intent Modifiers
+              </span>
+              {selectedModifiers.length > 0 && (
+                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-primary/20 text-primary text-[10px] font-semibold" data-testid="badge-modifier-count">
+                  {selectedModifiers.length}
+                </span>
+              )}
+              <span className="ml-auto text-[10px] text-muted-foreground/60">
+                {modifiersExpanded ? "hide" : "optional"}
+              </span>
+              {modifiersExpanded
+                ? <ChevronUp className="h-3 w-3 text-muted-foreground shrink-0" />
+                : <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+              }
+            </button>
+
+            {modifiersExpanded && (
+              <div className="mt-2 space-y-2" data-testid="panel-intent-modifiers">
+                <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                  Select up to {MAX_INTENT_MODIFIERS} ways to steer this email while preserving your saved voice.
+                </p>
+
+                {atModifierLimit && (
+                  <p className="text-[10px] text-amber-400/90" data-testid="text-modifier-limit-warning">
+                    Choose up to {MAX_INTENT_MODIFIERS} intent modifiers.
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  {CATEGORY_ORDER.filter(cat => MODIFIER_CATEGORIES[cat]).map(cat => (
+                    <div key={cat}>
+                      <p className="text-[9px] uppercase font-semibold tracking-wider text-muted-foreground/50 mb-1">
+                        {cat}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {MODIFIER_CATEGORIES[cat].map(mod => {
+                          const isChecked = selectedModifiers.includes(mod.id);
+                          const isDisabled = !isChecked && atModifierLimit;
+                          return (
+                            <label
+                              key={mod.id}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs cursor-pointer select-none transition-colors",
+                                isChecked
+                                  ? "border-primary/50 bg-primary/10 text-primary"
+                                  : isDisabled
+                                    ? "border-border/30 text-muted-foreground/40 cursor-not-allowed"
+                                    : "border-border/40 text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                              )}
+                              data-testid={`label-modifier-${mod.id}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                disabled={isDisabled}
+                                onChange={() => toggleModifier(mod.id)}
+                                className="h-3 w-3 rounded border-border accent-primary cursor-pointer disabled:cursor-not-allowed"
+                                data-testid={`checkbox-modifier-${mod.id}`}
+                              />
+                              {mod.label}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {selectedModifiers.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground/60 pt-0.5">
+                    Click <strong>Regenerate</strong> to apply selected modifiers.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-4 mt-1">
@@ -388,6 +506,26 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
                 <p className="text-[11px] uppercase font-semibold tracking-wider text-primary/70 mb-1">Why this email</p>
                 <p className="text-xs text-foreground/80">{suggestion.reason}</p>
               </div>
+
+              {/* Active modifiers chip row */}
+              {selectedModifiers.length > 0 && (
+                <div className="flex flex-wrap gap-1" data-testid="section-active-modifiers">
+                  {selectedModifiers.map(id => {
+                    const mod = INTENT_MODIFIERS.find(m => m.id === id);
+                    if (!mod) return null;
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary border border-primary/20"
+                        data-testid={`chip-modifier-${id}`}
+                      >
+                        <Zap className="h-2.5 w-2.5" />
+                        {mod.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Temporal context */}
               {suggestion.detectedContext && (
@@ -517,7 +655,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
                 data-testid="button-regenerate-suggested-email"
               >
                 <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", loading && "animate-spin")} />
-                Regenerate
+                Regenerate{selectedModifiers.length > 0 ? ` (${selectedModifiers.length})` : ""}
               </Button>
               <Button
                 type="button"

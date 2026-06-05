@@ -16,6 +16,7 @@ import OpenAI from "openai";
 import { createHash } from "crypto";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { resolveIntentModifiers, buildIntentModifierPromptBlock } from "../../shared/intent-modifiers";
 
 // ── OpenAI client ────────────────────────────────────────────────────────────
 
@@ -839,7 +840,8 @@ export async function generateSuggestedNextEmail(
   callerUserId?: number,
   callerIsAdmin?: boolean,
   ceoWattsonInfluenceLevel: number = 75,
-  engagementSummary?: EngagementContext
+  engagementSummary?: EngagementContext,
+  intentModifierIds?: string[]
 ): Promise<SuggestedEmail> {
   const id = Number(entityId);
 
@@ -923,11 +925,16 @@ export async function generateSuggestedNextEmail(
     detectedContext = "No specific event dates detected — using neutral outreach language.";
   }
 
+  const resolvedModifiers = resolveIntentModifiers(intentModifierIds ?? []);
+  const modifierBlock = buildIntentModifierPromptBlock(resolvedModifiers);
+
   const systemPrompt = [
     voiceProfileBlock ? voiceProfileBlock : null,
     voiceProfileBlock ? `` : null,
     !voiceProfileBlock && standaloneInfluenceBlock ? standaloneInfluenceBlock : null,
     !voiceProfileBlock && standaloneInfluenceBlock ? `` : null,
+    modifierBlock || null,
+    modifierBlock ? `` : null,
     voiceProfileBlock
       ? `You are writing emails on behalf of VoltSafe. Follow the voice profile above precisely. Return only valid JSON.`
       : `You are an expert sales and relationship manager at VoltSafe, a marina electrification company.`,
