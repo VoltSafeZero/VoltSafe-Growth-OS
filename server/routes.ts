@@ -28127,8 +28127,12 @@ export function registerConfluenceRoutes(app: Express) {
       const intentModifierIds: string[] = Array.isArray(rawModifiers)
         ? rawModifiers.filter((id: unknown) => typeof id === "string").slice(0, 5)
         : [];
+      const rawUserInputs = req.body?.userInputs;
+      const userInputs: string = typeof rawUserInputs === "string"
+        ? rawUserInputs.trim().slice(0, 2000)
+        : "";
       const { generateSuggestedNextEmail } = await import("./services/crm-ai-summary");
-      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin, ceoWattsonInfluenceLevel, undefined, intentModifierIds);
+      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin, ceoWattsonInfluenceLevel, undefined, intentModifierIds, userInputs);
       res.json(suggestion);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });

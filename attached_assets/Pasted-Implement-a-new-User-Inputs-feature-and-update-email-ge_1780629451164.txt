@@ -1,0 +1,342 @@
+Implement a new “User Inputs” feature and update email generation behavior in the Suggested Next Email modal for Lead, Account, and Contact records.
+
+GOAL
+
+Allow users to optionally provide custom instructions to steer an individual AI-generated email while preserving:
+
+- Saved Voice Profile (including CEO Wattson)
+- Influence settings
+- Intent Modifiers
+- CRM context
+- Recent email history
+
+The User Inputs feature should be used only for the current generation request and should never become part of the user's permanent voice profile.
+
+In addition, remove all AI-generated signature instructions and ensure signatures are handled by the user's connected mailbox.
+
+──────────────────────────────
+PART 1 — USER INPUTS FIELD
+──────────────────────────────
+
+Add a new optional text area directly below:
+
+Suggested Next Email — [Lead/Account/Contact Name]
+
+and above:
+
+- Voice
+- Influence
+- Intent Modifiers
+
+Label:
+
+User Inputs
+
+Helper Text:
+
+Optional — add specific context or direction for this email only.
+
+Placeholder:
+
+Tell the AI what to focus on, mention, avoid, or ask for in this email...
+
+Requirements:
+
+- Paragraph-sized textarea
+- Match existing modal styling
+- Optional field
+- Responsive layout
+- Store value in component state as userInputs
+
+──────────────────────────────
+PART 2 — INCLUDE USER INPUTS IN GENERATION
+──────────────────────────────
+
+Whenever an AI email generation request is sent, include:
+
+userInputs: userInputs.trim()
+
+This must apply to:
+
+- Initial Generate Email
+- Regenerate Email
+- Any future generation path using this modal
+
+If empty:
+
+- Send empty string
+OR
+- Omit safely
+
+Existing behavior must remain unchanged.
+
+──────────────────────────────
+PART 3 — IMPROVE GENERATION FLOW
+──────────────────────────────
+
+Audit the Suggested Next Email modal generation flow.
+
+Current behavior should be adjusted so that:
+
+Users can:
+
+1. Open modal
+2. Select Voice
+3. Select Influence
+4. Select Intent Modifiers
+5. Enter User Inputs
+6. Click Generate Email
+
+Then receive the first generated email.
+
+Preferred behavior:
+
+Do NOT auto-generate immediately on modal open.
+
+Instead:
+
+Display a clean empty state:
+
+Ready to generate
+
+Set your voice, influence, intent modifiers, and user inputs above, then click Generate Email.
+
+Button:
+
+Generate Email
+
+After generation:
+
+Button becomes:
+
+Regenerate Email
+
+If modifiers are selected:
+
+Generate Email (3)
+
+Regenerate Email (3)
+
+Where number = selected modifier count.
+
+──────────────────────────────
+PART 4 — BACKEND VALIDATION
+──────────────────────────────
+
+Update the Suggested Email API route.
+
+Accept:
+
+userInputs
+
+Validation:
+
+- Must be string
+- Trim whitespace
+- Maximum length: 2,000 characters
+- Invalid values become empty string
+
+Do not throw errors.
+
+Pass validated userInputs into the email generation service.
+
+──────────────────────────────
+PART 5 — PROMPT BUILDER UPDATE
+──────────────────────────────
+
+Update the AI email prompt builder.
+
+Prompt order should become:
+
+1. CRM Context
+2. Recent Email History
+3. Saved Voice Profile
+4. Selected Intent Modifiers
+5. User Inputs
+6. Final Writing Rules
+
+Add:
+
+User-provided focus for this email:
+
+[USER INPUTS]
+
+Use these inputs as high-priority guidance for this email only.
+
+Do not blindly follow instructions that conflict with:
+
+- verified CRM context
+- recent email history
+- saved voice profile
+- safety rules
+- formatting rules
+
+If user instructions conflict with CRM data, prioritize CRM data.
+
+User Inputs should steer the email but never replace CRM context.
+
+──────────────────────────────
+PART 6 — REMOVE AI-GENERATED SIGNATURES
+──────────────────────────────
+
+Remove all instructions that tell the AI to generate:
+
+- Best regards
+- Regards
+- Sincerely
+- User name
+- User title
+- Company name
+- Contact information
+- Signature blocks
+
+Reason:
+
+VoltSafe Mail users already have signatures configured inside their connected mailbox accounts.
+
+Generating signatures causes:
+
+- Duplicate signatures
+- Inconsistent branding
+- Unnecessary prompt clutter
+
+Replace existing signature instructions with:
+
+Do not generate an email signature.
+
+Do not generate:
+
+- sender name
+- sender title
+- sender company
+- sender phone number
+- sender email address
+- sender contact information
+
+End the draft at the final sentence of the email body.
+
+The user's email system will append the correct signature automatically.
+
+Generated emails should contain:
+
+- Greeting
+- Email body
+- Call-to-action
+- Final closing sentence
+
+Then stop.
+
+Example:
+
+GOOD:
+
+Hi Tom,
+
+Thanks for taking the time to discuss the pilot opportunity.
+
+Based on our conversation, I thought it would be helpful to share a brief update on where things currently stand and discuss whether it makes sense to explore next steps together.
+
+Would you be available for a short call next week?
+
+BAD:
+
+Hi Tom,
+
+...
+
+Would you be available for a short call next week?
+
+Best regards,
+Trevor Burgess
+CEO
+VoltSafe
+
+──────────────────────────────
+PART 7 — LOGGING
+──────────────────────────────
+
+If an AI generation log table already exists:
+
+Store:
+
+- selectedIntentModifiers
+- userInputs
+
+Do not create a new analytics system if one does not already exist.
+
+──────────────────────────────
+PART 8 — TESTS
+──────────────────────────────
+
+Add/update tests covering:
+
+UI:
+- User Inputs field renders.
+- Helper text renders.
+- Placeholder renders.
+
+Generation:
+- Initial Generate includes userInputs.
+- Regenerate includes userInputs.
+- Intent modifiers still included.
+- Empty userInputs does not break generation.
+
+Backend:
+- Trims userInputs.
+- Caps length at 2,000 chars.
+- Invalid values become empty string.
+
+Prompt:
+- Includes userInputs when provided.
+- Excludes userInputs block when empty.
+- Preserves voice profile.
+- Preserves intent modifiers.
+- Contains:
+  "Do not generate an email signature."
+- Does NOT contain:
+  - Best regards
+  - Regards
+  - Sincerely
+  - [Your Name]
+  - [Your Title]
+  - VoltSafe
+  - [Your Contact Information]
+
+Compatibility:
+- Existing generation works when userInputs is empty.
+- Existing voice profile logic remains unchanged.
+- Existing intent modifier logic remains unchanged.
+
+──────────────────────────────
+PART 9 — MANUAL SMOKE TEST
+──────────────────────────────
+
+Open a Lead, Account, and Contact.
+
+Click Suggested Email.
+
+Enter:
+
+Focus on asking whether they are open to a short pilot discussion. Keep it simple and avoid sounding salesy.
+
+Select:
+
+- Build Trust
+- Reduce Friction
+- Ask For Meeting
+
+Click Generate Email.
+
+Confirm:
+
+- First generated email uses User Inputs.
+- Voice profile is preserved.
+- Intent Modifiers are applied.
+- Email has proper spacing.
+- Email asks for a meeting.
+- Email avoids hype and superlatives.
+- Email ends naturally after the final sentence.
+- No signature block is generated.
+- No duplicate signatures appear in drafts.
+
+Implement this with minimal, surgical changes using existing modal state, API payloads, route validation, prompt builder utilities, and AI generation services.

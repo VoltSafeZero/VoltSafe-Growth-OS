@@ -67,12 +67,14 @@ async function fetchSuggestedEmail(
   entityId: number,
   voiceProfileId?: number | null,
   ceoWattsonInfluenceLevel?: number,
-  intentModifierIds?: string[]
+  intentModifierIds?: string[],
+  userInputs?: string
 ): Promise<SuggestedEmail> {
   const body: Record<string, unknown> = {};
   if (voiceProfileId) body.voice_profile_id = voiceProfileId;
   if (ceoWattsonInfluenceLevel !== undefined) body.ceo_wattson_influence_level = ceoWattsonInfluenceLevel;
   if (intentModifierIds && intentModifierIds.length > 0) body.selectedIntentModifiers = intentModifierIds;
+  if (userInputs?.trim()) body.userInputs = userInputs.trim();
   const res = await fetch(`/api/crm/ai-summary/${entityType}/${entityId}/suggest-next-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -186,6 +188,9 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   const [selectedModifiers, setSelectedModifiers] = useState<string[]>([]);
   const [modifiersExpanded, setModifiersExpanded] = useState(false);
 
+  // ── User Inputs — per-generation freetext steering ───────────────────────
+  const [userInputs, setUserInputs] = useState("");
+
   const atModifierLimit = selectedModifiers.length >= MAX_INTENT_MODIFIERS;
 
   function toggleModifier(id: string) {
@@ -216,16 +221,15 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   }, [includeLink]);
 
   // ── Generate / Regenerate ─────────────────────────────────────────────────
-  // No auto-fetch on mount — the user selects voice, influence, and intent
-  // modifiers first, then explicitly clicks Generate Email so all settings
-  // are captured in the very first request.
+  // No auto-fetch on mount — the user selects voice, influence, intent
+  // modifiers, and user inputs first, then explicitly clicks Generate Email.
   async function handleGenerate() {
     setLoading(true);
     setError(null);
     setSuggestion(null);
     setWhyExpanded(false);
     try {
-      const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers);
+      const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers, userInputs);
       setSuggestion(data);
     } catch (err: any) {
       setError(err.message || "Failed to generate");
@@ -294,8 +298,28 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
           </DialogTitle>
         </DialogHeader>
 
+        {/* User Inputs — optional freetext steering for this generation only */}
+        <div className="py-3 border-b border-border/40 -mt-1">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm font-medium text-foreground/90">User Inputs</span>
+            <span className="text-[10px] text-muted-foreground/60">optional</span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-2">
+            Optional — add specific context or direction for this email only.
+          </p>
+          <textarea
+            value={userInputs}
+            onChange={(e) => setUserInputs(e.target.value)}
+            placeholder="Tell the AI what to focus on, mention, avoid, or ask for in this email..."
+            rows={3}
+            maxLength={2000}
+            className="w-full rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-sm text-foreground/90 placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 transition-colors"
+            data-testid="textarea-user-inputs"
+          />
+        </div>
+
         {/* Voice profile + influence + modifiers config area */}
-        <div className="space-y-1.5 py-1.5 border-b border-border/40 -mt-1">
+        <div className="space-y-1.5 py-1.5 border-b border-border/40">
           {/* Voice profile selector */}
           {voiceProfiles.length > 0 && (
             <div className="flex items-center gap-2">
@@ -463,7 +487,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground/80">Ready to generate</p>
                 <p className="text-xs text-muted-foreground max-w-xs">
-                  Set your voice, influence, and intent modifiers above, then click Generate Email.
+                  Set your voice, influence, intent modifiers, and user inputs above, then click Generate Email.
                 </p>
               </div>
               <Button

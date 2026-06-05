@@ -17,3 +17,4 @@
 - [Smart Email Context](smart-email-context.md) — Phase 1 selectSmartEmailContext(); top-10 recent + 3 early + starred/IMPORTANT + keyword matches; dedup; cap 20; SQL LIMIT 50 with label_ids.
 - [AI Voice Profiles](ai-voice-profiles.md) — Train From GPT system; migration 0012; service in server/services/ai-voice-profiles.ts; generateSuggestedNextEmail now accepts voiceProfileId; voice selector in SuggestedNextEmailModal.
 - [Intent Modifiers](intent-modifiers.md) — modifier layer on AI email gen; shared/intent-modifiers.ts → service → route → modal; modifiers apply on Regenerate only, not initial mount fetch.
+- [Suggested Email User Inputs](suggested-email-user-inputs.md) — freetext steering field wired UI→route→service→prompt; cleanAiEmailBody strips trailing signoff lines; 9-param generateSuggestedNextEmail.
