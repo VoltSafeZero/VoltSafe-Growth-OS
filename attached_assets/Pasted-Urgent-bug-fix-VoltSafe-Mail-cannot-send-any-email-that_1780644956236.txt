@@ -1,0 +1,185 @@
+Urgent bug fix: VoltSafe Mail cannot send any email that includes a signature.
+
+Confirmed behavior:
+- Email with no signature sends successfully.
+- Email with either signature fails.
+- Failure occurs even without embedded CTA and without manually inserted tracked CTA.
+- Therefore the root bug is in signature HTML handling, not only CTA handling.
+
+Current toast error:
+Send failed (403): <!doctype html><html><head><title>403 Forbidden</title>...
+
+Goal:
+Find exactly what in the signature HTML causes the provider/backend to return 403, sanitize/fix it, and make signature emails send successfully.
+
+IMPORTANT:
+Do not guess. First log and compare the outbound payload for:
+1. Successful send without signature
+2. Failed send with signature
+
+Then isolate the signature HTML difference causing 403.
+
+Likely causes to investigate:
+- Remote image URL blocked or invalid
+- Logo image URL returning 403
+- Signature image src using app-protected route instead of public route
+- Relative image URL
+- data URI image
+- malformed HTML
+- tracking/CTA asset route requiring auth
+- inline style or unsupported HTML being rejected
+- outbound sanitizer preserving unsafe image/link attributes
+- Gmail/provider rejecting inaccessible image source
+- backend proxy route returning HTML 403 instead of image
+- signature HTML containing localhost/Replit/private URLs
+
+Tasks:
+
+1. Add temporary diagnostic logging around send
+
+Log safely server-side only:
+- whether signature is included
+- HTML body length
+- list of img src values
+- list of href values
+- whether any src/href is relative
+- whether any src/href points to localhost, 127.0.0.1, replit dev URL, or authenticated/private route
+- provider/API error status and safe provider error message
+
+Do not log email body content, access tokens, auth headers, or private message text.
+
+2. Inspect stored signature HTML
+
+Find both Trevor Burgess signatures in the database/API response.
+
+Check for:
+- img src URLs
+- href URLs
+- relative paths
+- app-internal URLs
+- broken old Replit host URLs
+- logo image path
+- CTA image path
+- unsafe tags
+- malformed HTML
+
+3. Fix signature image hosting
+
+All images used in signatures must be publicly accessible without authentication.
+
+For each signature image:
+- use absolute HTTPS URL
+- do not use protected API routes
+- do not use local filesystem paths
+- do not use localhost
+- do not use blob URLs
+- do not use data URIs unless provider explicitly supports them
+
+If the existing VoltSafe logo image is stored locally, expose it through a public static route like:
+GET /public/email-assets/:filename
+or reuse an existing public assets route.
+
+That route must:
+- not require login
+- return correct Content-Type
+- return image bytes, not HTML
+- set cache headers
+- never redirect to app index.html
+
+4. Rewrite signature HTML before send
+
+Create/update a utility:
+
+normalizeSignatureHtmlForSend(signatureHtml, req)
+
+It should:
+- rewrite relative image src to absolute public HTTPS URLs
+- rewrite old-host asset URLs to current public host when safe
+- remove or replace invalid/broken img tags
+- preserve valid logo images
+- preserve valid links
+- strip scripts, iframes, event handlers
+- strip unsafe URL schemes
+- keep email-safe inline styles and table/simple layout
+
+5. Add image fallback behavior
+
+If an image cannot be made public/safe:
+- do not include a broken img tag
+- replace with a clean text fallback where appropriate
+
+For logo:
+- if image invalid, omit logo rather than breaking send
+
+For CTA:
+- if image invalid, show text link fallback:
+Watch Demo
+https://www.voltsafemarine.com/demo
+
+6. Fix send route error handling
+
+The client is still receiving HTML 403.
+
+Backend send route must always return JSON, including 403 cases.
+
+If provider or middleware returns an HTML error, wrap it as:
+
+{
+  "success": false,
+  "error": "Send failed",
+  "details": "Provider rejected the email body or signature asset."
+}
+
+Do not leak raw HTML into the toast.
+
+Frontend should display:
+Send failed: Provider rejected the email body or signature asset.
+
+Never display:
+<!doctype html>
+
+7. Verify root cause with tests
+
+Add tests that cover:
+- sending body without signature succeeds
+- sending body with simple text signature succeeds
+- sending body with logo image signature succeeds
+- sending body with invalid/private image URL does not send broken img
+- invalid signature image is stripped or rewritten
+- backend error responses are JSON, not HTML
+- frontend never displays raw <!doctype html> in toast
+
+8. Manual smoke tests
+
+Run these exact tests after fix:
+
+A. No signature
+Body: test
+Expected: sends.
+
+B. Signature without CTA
+Select Trevor Burgess non-star signature.
+Expected: sends.
+
+C. Starred signature with logo only / CTA disabled if needed
+Expected: sends.
+
+D. Starred signature with embedded Watch Demo CTA
+Expected:
+- sends
+- no broken image
+- CTA visible or clean text fallback visible
+- link works
+
+E. Standalone CTA manually inserted with non-star signature
+Expected:
+- sends
+- CTA appears before signature/signoff if possible
+- link works
+
+9. Keep scope focused
+
+Do not rebuild the whole compose system.
+Do not change email account auth unless the logs prove it is required.
+Do not remove signatures entirely.
+Fix the signature HTML/assets so signatures can send reliably.
