@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml, sanitizeSignatureHtmlClientSide, emergencyStripDangerousHtml, signatureToTextFallback } from "@/lib/email-format";
+import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml, sanitizeSignatureHtmlClientSide, normalizeSignatureHtmlClientSide, emergencyStripDangerousHtml, signatureToTextFallback } from "@/lib/email-format";
 import { CtaEngagementBanner, ThreadEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { buildLinkPreviewCardHtml, buildLinkPreviewLoadingHtml } from "@/lib/link-preview-card";
 import { createPortal } from "react-dom";
@@ -519,6 +519,10 @@ function ComposeDialog({
   const activeSig = effectiveSigId === null ? null : signaturesData.find(s => s.id === effectiveSigId);
   const activeSignatureHtml = (() => {
     if (!activeSig) return "";
+    // Normalize at assembly time: strip any full-document wrapper tags
+    // (<!DOCTYPE>, <html>, <head>, <body>) that may be stored in the DB.
+    // This prevents the Replit WAF from rejecting POST /api/gmail/send with 403.
+    const normalizedSigHtml = normalizeSignatureHtmlClientSide(activeSig.htmlContent || "");
     const ctaBlock = (activeSig.ctas || []).map(cta => {
       const alt  = (cta.alt_text || cta.name).replace(/"/g, "&quot;");
       const dest = cta.destination_url.replace(/"/g, "&quot;");
@@ -529,7 +533,7 @@ function ComposeDialog({
       }
       return `<a href="${dest}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${alt}</a>`;
     }).join("<br>");
-    return activeSig.htmlContent + (ctaBlock ? `<div style="margin-top:12px;">${ctaBlock}</div>` : "");
+    return normalizedSigHtml + (ctaBlock ? `<div style="margin-top:12px;">${ctaBlock}</div>` : "");
   })();
 
   // Sync fields whenever the modal opens with new defaults (e.g. switching between reply targets).
@@ -1058,6 +1062,11 @@ function ComposeDialog({
         hasSignatureMarker: htmlBody.includes("<!--vs-sig-start-->"),
         containsTable:   htmlBody.includes("<table"),
         containsStyleAttr: htmlBody.includes("style="),
+        // Document-wrapper tags — ALL must be false (any true → WAF 403)
+        containsDoctype: /<!DOCTYPE\b/i.test(htmlBody),
+        containsHtmlTag: /<html\b/i.test(htmlBody),
+        containsHeadTag: /<head\b/i.test(htmlBody),
+        containsBodyTag: /<body\b/i.test(htmlBody),
         // Danger indicators — all should be false after sanitization
         containsDataImage: htmlBody.includes("data:image"),
         containsBase64:  htmlBody.includes("base64"),

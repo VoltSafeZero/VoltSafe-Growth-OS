@@ -1,0 +1,224 @@
+ROOT CAUSE IDENTIFIED
+
+The failing email signature payload contains a FULL HTML DOCUMENT embedded inside the email body:
+
+<!DOCTYPE html>
+<html>
+<head>...</head>
+<body>
+  ...signature...
+</body>
+</html>
+
+The request payload is only ~2.9 KB, so this is NOT a payload-size issue.
+
+Evidence:
+- Email sends successfully with no signature.
+- Email fails with HTML signature.
+- POST /api/gmail/send returns:
+  403 Forbidden
+  Content-Type: text/html
+- Response body:
+  <!doctype html>
+  <title>403</title>
+  403 Forbidden
+- Payload inspection shows full-document HTML inside the signature.
+
+This strongly indicates the Replit proxy/WAF is rejecting the request content before the application processes it.
+
+GOAL
+
+Fix this permanently for:
+- existing users
+- future users
+- imported signatures
+- pasted signatures
+- edited signatures
+- compose/send flows
+
+WITHOUT converting signatures to plain text.
+
+All HTML signature formatting, tables, links, images, and styling must remain intact.
+
+REQUIRED CHANGES
+
+1. Create a shared signature normalizer
+
+Create:
+
+server/services/signature-normalizer.ts
+
+Function:
+
+normalizeSignatureHtml(html: string): string
+
+Strip:
+
+- <!DOCTYPE ...>
+- <html>
+- </html>
+- <head>
+- </head>
+- <body>
+- </body>
+- <meta ...>
+- <title ...>
+
+Preserve:
+
+- tables
+- spans
+- divs
+- inline styles
+- links
+- safe HTTPS images
+- formatting
+- layout
+
+The output should always be a clean HTML fragment.
+
+Example:
+
+INPUT:
+
+<!DOCTYPE html>
+<html>
+<head></head>
+<body>
+<table>...</table>
+</body>
+</html>
+
+OUTPUT:
+
+<table>...</table>
+
+2. Apply normalization everywhere
+
+Apply normalizeSignatureHtml():
+
+A) Signature creation
+B) Signature editing
+C) Signature import
+D) Signature paste/upload
+E) Signature preview
+F) Compose rendering
+G) Frontend send payload assembly
+H) Backend send route
+
+No signature should ever reach the send pipeline containing:
+
+<!DOCTYPE
+<html
+<head
+<body
+
+3. Frontend protection
+
+Before JSON.stringify(payload):
+
+const safeSig = normalizeSignatureHtml(signatureHtml)
+
+Add diagnostics:
+
+console.log("[FINAL FETCH ABOUT TO SEND]", {
+  containsDoctype,
+  containsHtmlTag,
+  containsHeadTag,
+  containsBodyTag,
+  jsonSizeBytes
+})
+
+All four booleans MUST be false.
+
+4. Backend protection
+
+Before MIME generation:
+
+body = normalizeSignatureHtml(body)
+
+Log:
+
+[gmail-send-normalized] {
+  removedDoctype,
+  removedHtml,
+  removedHead,
+  removedBody
+}
+
+5. Existing-user cleanup
+
+Create:
+
+scripts/normalize-all-email-signatures.ts
+
+Features:
+
+--dry-run
+--apply
+
+Dry run should:
+
+- scan all signatures
+- detect full-document signatures
+- report:
+  - user id
+  - signature id
+  - before length
+  - after length
+  - tags removed
+
+Apply should:
+
+- normalize every stored signature
+- preserve visual appearance
+
+6. Database validation
+
+Prevent future storage of full HTML documents.
+
+On save/update:
+
+if signature contains:
+- <!DOCTYPE
+- <html
+- <head
+- <body
+
+normalize automatically before persisting.
+
+7. Tests
+
+Add tests for:
+
+- full-document signature → fragment signature
+- table layout preserved
+- links preserved
+- inline styles preserved
+- images preserved
+- compose payload contains no doctype/html/head/body
+- backend send route sanitizes signatures
+- migration script works
+- create/update signature paths normalize correctly
+
+8. Validation
+
+After implementation:
+
+A) Run migration dry-run
+B) Run migration apply
+C) Verify existing Trevor signature still renders correctly
+D) Verify HTML signature sends successfully
+E) Verify alternate signature sends successfully
+F) Verify CTA-enabled signature sends successfully
+G) Verify non-signature emails still send
+
+DO NOT MARK COMPLETE UNTIL A REAL HTML SIGNATURE EMAIL SENDS SUCCESSFULLY IN PRODUCTION.
+
+Success criteria:
+
+- HTML signatures remain fully formatted.
+- No conversion to plain text.
+- Existing users fixed automatically.
+- Future users protected automatically.
+- No signature can trigger a 403 due to full-document HTML again.

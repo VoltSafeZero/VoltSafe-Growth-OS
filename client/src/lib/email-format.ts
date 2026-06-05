@@ -210,17 +210,59 @@ export function signatureToTextFallback(html: string): string {
 }
 
 /**
+ * Strip HTML document-level wrapper tags from a signature HTML string.
+ *
+ * Root cause: Signatures saved from email clients (Gmail, Outlook, etc.) or
+ * pasted by users frequently arrive as a complete HTML document:
+ *
+ *   <!DOCTYPE html><html><head>...</head><body>..tables..</body></html>
+ *
+ * When this is embedded in the POST /api/gmail/send body the Replit production
+ * proxy/WAF sees a "full HTML document upload" and rejects it with 403 Forbidden
+ * before Express ever processes the request.
+ *
+ * Strips: <!DOCTYPE>, <html>, </html>, <head>...</head>, <body>, </body>,
+ *         stray <meta>, stray <title>...</title>.
+ * Preserves: all body content — tables, divs, spans, inline styles, links,
+ *            safe HTTPS images, HTML comments, formatting.
+ *
+ * Regex-only — works in both browser and Node.js (no DOMParser).
+ */
+export function normalizeSignatureHtmlClientSide(html: string): string {
+  if (!html || !html.trim()) return html;
+  let out = html;
+
+  // Strip <!DOCTYPE ...>
+  out = out.replace(/<!DOCTYPE\b[^>]*>/gi, "");
+  // Strip <head>...</head> (including everything inside — scripts, styles, metas)
+  out = out.replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, "");
+  // Strip <html ...> / </html> wrapper tags (content preserved)
+  out = out.replace(/<html\b[^>]*>/gi, "");
+  out = out.replace(/<\/html\s*>/gi, "");
+  // Strip <body ...> / </body> wrapper tags (content preserved)
+  out = out.replace(/<body\b[^>]*>/gi, "");
+  out = out.replace(/<\/body\s*>/gi, "");
+  // Strip stray <meta ...> surviving outside of a <head> block
+  out = out.replace(/<meta\b[^>]*\/?>/gi, "");
+  // Strip stray <title>...</title>
+  out = out.replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi, "");
+
+  return out.trim();
+}
+
+/**
  * Client-side signature HTML sanitizer.
  *
  * Applied to signature HTML BEFORE it is assembled into the outbound body and
  * serialized for POST /api/gmail/send. This is the critical line of defence
- * because the Replit production proxy rejects oversized request bodies (e.g.
- * those containing base64 data-URI logo images, which can be 100 KB–1 MB each)
- * with a generic 403 HTML page before the Express backend ever sees the request.
+ * because the Replit production proxy rejects request bodies that contain:
+ *   • Base64 data-URI logo images (100 KB–1 MB each) — oversized body → 403
+ *   • Full HTML documents (<!DOCTYPE><html><head><body>) — WAF content check → 403
  *
  * Regex-only — works in both browser and Node.js (no DOMParser).
  *
  * Rules applied (in order):
+ *  0. Normalize: strip document-level wrapper tags (DOCTYPE, html, head, body)
  *  1. Strip dangerous block elements: script, iframe, form, style, svg, object, embed.
  *  2. Strip event-handler attributes (on*="...").
  *  3. Strip img tags whose src is:
@@ -231,7 +273,8 @@ export function signatureToTextFallback(html: string): string {
  */
 export function sanitizeSignatureHtmlClientSide(html: string): string {
   if (!html || !html.trim()) return html;
-  let out = html;
+  // Step 0: Strip document-level wrapper tags before any other processing.
+  let out = normalizeSignatureHtmlClientSide(html);
 
   // 1. Dangerous block elements
   out = out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");

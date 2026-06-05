@@ -335,17 +335,26 @@ test("routes.ts imports from signature-html-sanitizer", () => {
 });
 
 test("send route applies sanitizer after normalizeOutboundHtml", () => {
-  // The sanitizer must wrap normalizeOutboundHtml in the cleanBody assignment
+  // The normalizer strips document-level wrapper tags first, then normalizeOutboundHtml,
+  // then applySignatureSendSanitizer — accepting either the old inline form or the
+  // new two-step (normalizedBody variable) form introduced by the WAF 403 fix.
+  const hasOldForm = sendRouteSrc.includes("applySignatureSendSanitizer(normalizeOutboundHtml(body)");
+  const hasNewForm = sendRouteSrc.includes("normalizeSignatureHtml(body)") &&
+                     sendRouteSrc.includes("normalizeOutboundHtml(normalizedBody)") &&
+                     sendRouteSrc.includes("applySignatureSendSanitizer(");
   assert.ok(
-    sendRouteSrc.includes("applySignatureSendSanitizer(normalizeOutboundHtml(body)"),
-    "should call applySignatureSendSanitizer(normalizeOutboundHtml(body), baseUrl)"
+    hasOldForm || hasNewForm,
+    "send route must apply normalizeOutboundHtml and applySignatureSendSanitizer (either old or new two-step form)"
   );
 });
 
 test("baseUrl is available when sanitizer is called", () => {
-  // baseUrl must be defined BEFORE the cleanBody = ... line
-  const sanitizerCallIdx = sendRouteSrc.indexOf("applySignatureSendSanitizer(normalizeOutboundHtml(body)");
-  const baseUrlDefIdx    = sendRouteSrc.lastIndexOf("const baseUrl", sanitizerCallIdx);
+  // baseUrl must be defined BEFORE the cleanBody = ... line (works for both old and new forms)
+  const sanitizerCallIdx = Math.max(
+    sendRouteSrc.indexOf("applySignatureSendSanitizer(normalizeOutboundHtml(body)"),
+    sendRouteSrc.indexOf("applySignatureSendSanitizer(normalizeOutboundHtml(normalizedBody)")
+  );
+  const baseUrlDefIdx = sendRouteSrc.lastIndexOf("const baseUrl", sanitizerCallIdx);
   assert.ok(baseUrlDefIdx !== -1 && baseUrlDefIdx < sanitizerCallIdx,
     "baseUrl must be defined before applySignatureSendSanitizer is called"
   );

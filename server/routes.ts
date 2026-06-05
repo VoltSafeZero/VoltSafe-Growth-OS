@@ -21,6 +21,7 @@ import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActual
 import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActions, autoCreateTasksFromActions, snapshotGapStatus } from "./services/revenue-operating-system";
 import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
 import { sanitizeSignatureHtml } from "./services/signature-sanitizer";
+import { normalizeSignatureHtml, detectDocumentTags } from "./services/signature-normalizer";
 import { db } from "./db";
 import { metrics, sales, chartData, users, systemSettings, emailMessages, mailFolders, mailFolderDomains, emailFolderAssignments, notifications, activities, tasks, emailSignatures } from "@shared/schema";
 import {
@@ -14157,10 +14158,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
       const host     = req.headers["x-forwarded-host"]  || req.headers.host  || "localhost:5000";
       const baseUrl  = `${protocol}://${host}`;
+      // ── Doc-tag normalizer (WAF 403 fix) ─────────────────────────────────────
+      // Signatures stored as full HTML documents (<!DOCTYPE><html><head><body>)
+      // cause the Replit WAF to return 403 Forbidden before Express sees the
+      // request.  Strip any document-level wrapper tags from the full body here
+      // as a belt-and-suspenders backstop (CRUD routes also normalize at save time).
+      const _sendDocTags = detectDocumentTags(body);
+      if (_sendDocTags.any) {
+        console.log("[gmail-send-normalized] stripping document-level wrapper tags from body:", _sendDocTags);
+      }
+      const normalizedBody = normalizeSignatureHtml(body);
       // Sanitize signature section at send time: strips data URIs, localhost refs,
       // private /api/ routes, and old Replit host URLs that bloat the request body
       // and cause the production proxy to return a 403 HTML page.
-      const cleanBody = applySignatureSendSanitizer(normalizeOutboundHtml(body), baseUrl);
+      const cleanBody = applySignatureSendSanitizer(normalizeOutboundHtml(normalizedBody), baseUrl);
       const trackingEnabled = enableTracking !== false; // default: true
 
       // Parse recipient lists into normalized address arrays.
@@ -28322,7 +28333,12 @@ export function registerConfluenceRoutes(app: Express) {
       if (!name?.trim() || !htmlContent?.trim()) {
         return res.status(400).json({ message: "name and htmlContent are required" });
       }
-      const cleanHtml = sanitizeSignatureHtml(htmlContent);
+      const _createDocTags = detectDocumentTags(htmlContent);
+      if (_createDocTags.any) {
+        console.log(`[sig-normalize] CREATE "${name}": stripping document wrapper tags`, _createDocTags);
+      }
+      const _normalizedHtmlCreate = normalizeSignatureHtml(htmlContent);
+      const cleanHtml = sanitizeSignatureHtml(_normalizedHtmlCreate);
       // Auto-set as default if explicitly requested OR if this is the user's first signature
       const [countResult] = await db.select({ n: sql<number>`count(*)::int` }).from(emailSignatures)
         .where(eq(emailSignatures.userId, userId));
@@ -28366,7 +28382,12 @@ export function registerConfluenceRoutes(app: Express) {
       const [existing] = await db.select().from(emailSignatures)
         .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
       if (!existing) return res.status(404).json({ message: "Not found" });
-      const cleanHtml = sanitizeSignatureHtml(htmlContent);
+      const _updateDocTags = detectDocumentTags(htmlContent);
+      if (_updateDocTags.any) {
+        console.log(`[sig-normalize] UPDATE id=${id} "${name}": stripping document wrapper tags`, _updateDocTags);
+      }
+      const _normalizedHtmlUpdate = normalizeSignatureHtml(htmlContent);
+      const cleanHtml = sanitizeSignatureHtml(_normalizedHtmlUpdate);
       if (isDefault) {
         await db.update(emailSignatures).set({ isDefault: false }).where(eq(emailSignatures.userId, userId));
       }
