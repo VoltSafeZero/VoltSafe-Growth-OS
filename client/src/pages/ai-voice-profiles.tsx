@@ -78,7 +78,7 @@ function TrainVoiceDialog({
   const { toast } = useToast();
   const qc = useQueryClient();
   const [emailCount, setEmailCount] = useState(50);
-  const [profileId, setProfileId] = useState<string>("");
+  const [profileId, setProfileId] = useState<string>("auto");
   const [result, setResult] = useState<TrainVoiceResult | null>(null);
 
   const userProfiles = profiles.filter(p => p.profileType === "user");
@@ -86,7 +86,7 @@ function TrainVoiceDialog({
   const trainMutation = useMutation({
     mutationFn: async () => {
       const body: Record<string, unknown> = { emailCount };
-      if (profileId) body.profileId = Number(profileId);
+      if (profileId && profileId !== "auto") body.profileId = Number(profileId);
       const res = await apiRequest("POST", "/api/ai/voice-profiles/train-from-sent-mail", body);
       return res.json() as Promise<TrainVoiceResult>;
     },
@@ -139,7 +139,7 @@ function TrainVoiceDialog({
                   <SelectValue placeholder="Auto-create or pick a profile…" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Auto-create profile</SelectItem>
+                  <SelectItem value="auto">Auto-select profile</SelectItem>
                   {userProfiles.map(p => (
                     <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
                   ))}
