@@ -1,0 +1,179 @@
+Implement a new “Intent Modifiers” feature for VoltSafe Mail AI email generation.
+
+Goal:
+Users should be able to select multiple intent/tone modifiers before clicking AI Generate Email. These modifiers should steer the generated email while preserving the user’s saved voice profile, especially CEO Wattson voice. Do not create separate voices. Implement this as a lightweight modifier layer on top of the existing AI email generation engine.
+
+Requirements:
+
+1. Add Intent Modifier configuration
+
+Create a reusable config/constants file for intent modifiers.
+
+Include these MVP modifiers:
+
+- advance_decision
+  Label: Advance Decision
+  Category: Strategic Intent
+  Instruction: Move the recipient toward a clear decision or next step without sounding aggressive.
+
+- build_trust
+  Label: Build Trust
+  Category: Relationship Intent
+  Instruction: Prioritize credibility, transparency, proof, and confidence without overexplaining.
+
+- reduce_friction
+  Label: Reduce Friction
+  Category: Strategic Intent
+  Instruction: Make the next step feel easy, specific, and low commitment.
+
+- create_urgency
+  Label: Create Urgency
+  Category: Strategic Intent
+  Instruction: Highlight timing, risk of delay, or opportunity cost without fake pressure or hype.
+
+- executive_level
+  Label: Executive-Level
+  Category: Leadership Intent
+  Instruction: Keep the message concise, strategic, outcome-focused, and respectful of the recipient’s time.
+
+- founder_to_founder
+  Label: Founder-to-Founder
+  Category: Leadership Intent
+  Instruction: Make the email candid, practical, entrepreneurial, and human without becoming casual or sloppy.
+
+- emphasize_roi
+  Label: Emphasize ROI
+  Category: Persuasion Intent
+  Instruction: Connect the message to measurable business value, savings, revenue, efficiency, or risk reduction.
+
+- emphasize_risk
+  Label: Emphasize Risk
+  Category: Persuasion Intent
+  Instruction: Clearly explain the downside of inaction or current-state risk without fearmongering.
+
+- concise
+  Label: Concise
+  Category: Communication Style
+  Instruction: Make the email shorter, tighter, and easier to scan while preserving necessary context.
+
+- ask_for_meeting
+  Label: Ask For Meeting
+  Category: Follow-Up Intent
+  Instruction: End with a clear, simple meeting request or scheduling next step.
+
+2. Add UI checkbox selector
+
+In the AI email generation UI for Lead, Account, and Contact pages, add a section before the AI Generate button:
+
+Title:
+Intent Modifiers
+
+Subtitle:
+Optional — select up to 5 ways to steer this email while preserving your saved voice.
+
+Display modifiers grouped by category.
+
+Use checkboxes and allow multi-select.
+
+Enforce a maximum of 5 selected modifiers in the frontend. If the user tries to select more than 5, prevent it and show a small inline message:
+Choose up to 5 intent modifiers.
+
+Make the UI clean and compact. Do not make it look like a giant settings page.
+
+3. Pass selected modifiers to backend
+
+When the user clicks AI Generate Email, include selectedIntentModifiers in the request payload as an array of modifier ids, for example:
+
+selectedIntentModifiers: ["build_trust", "emphasize_roi", "reduce_friction", "ask_for_meeting"]
+
+4. Backend validation
+
+On the backend, validate selectedIntentModifiers.
+
+Rules:
+- It must be an array.
+- Ignore unknown modifier ids.
+- Limit to maximum 5.
+- Resolve ids to their configured instructions server-side. Do not trust frontend text.
+- If empty or missing, generation should behave exactly as it does today.
+
+5. Prompt injection layer
+
+Update the AI email prompt builder so selected intent modifiers are added after the saved user voice profile and before the final email writing instructions.
+
+The prompt section should look conceptually like:
+
+Use the user’s saved voice profile as the primary writing style.
+
+Also apply these selected intent modifiers:
+- Build Trust: Prioritize credibility, transparency, proof, and confidence without overexplaining.
+- Emphasize ROI: Connect the message to measurable business value, savings, revenue, efficiency, or risk reduction.
+- Reduce Friction: Make the next step feel easy, specific, and low commitment.
+
+Important:
+These modifiers should steer intent only. They must not override the saved voice profile.
+
+Always:
+- Preserve the user’s saved voice.
+- Use the full Lead, Account, Contact, email, note, task, and activity context available.
+- Prioritize the most recent emails and updates.
+- Use proper spacing and readable email formatting.
+- Avoid exaggerated superlatives, hype, buzzwords, fake urgency, and robotic wording.
+- End with:
+Best regards,
+[Your Name]
+[Your Title]
+VoltSafe
+[Your Contact Information]
+
+6. Logging / analytics
+
+If there is an existing AI generation log table, store the selected modifier ids with each generation request.
+
+Preferred:
+selected_intent_modifiers JSON / JSONB
+
+If the app uses SQLite:
+selected_intent_modifiers TEXT containing JSON string
+
+If no generation log table exists, skip this rather than creating a huge new analytics system.
+
+7. Compatibility
+
+Do not break existing AI email generation.
+
+Do not remove existing voice profile logic.
+
+Do not change existing email context selection logic except to pass modifier instructions into the prompt.
+
+Do not create new OpenAI calls just for modifiers.
+
+Do not create separate modifier-specific GPTs.
+
+8. Tests
+
+Add or update tests covering:
+
+- No selected modifiers behaves like current generation.
+- Valid modifier ids are included in the prompt.
+- Unknown modifier ids are ignored.
+- More than 5 modifiers are trimmed or rejected safely.
+- Frontend payload includes selectedIntentModifiers.
+- Prompt still includes the saved voice profile and final signature block.
+
+9. Manual smoke test
+
+After implementation, run a manual smoke test for a Lead/Contact/Account email generation using:
+
+selectedIntentModifiers:
+["build_trust", "emphasize_roi", "reduce_friction", "ask_for_meeting"]
+
+Confirm:
+- Email still sounds like the saved user voice.
+- Email is not generic.
+- Email has proper spacing.
+- Email ends with the required placeholder signature block.
+- Email clearly asks for a meeting.
+- Email avoids superlatives and hype.
+
+Please implement this efficiently with minimal, surgical changes. Reuse existing components and prompt-building utilities wherever possible.
