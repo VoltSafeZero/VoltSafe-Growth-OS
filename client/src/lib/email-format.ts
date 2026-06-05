@@ -254,6 +254,18 @@ export function normalizeSignatureHtmlClientSide(html: string): string {
 }
 
 /**
+ * Strips the signature section (everything between <!--vs-sig-start--> and
+ * <!--vs-sig-end--> markers, inclusive) from an assembled email body.
+ *
+ * Belt-and-suspenders utility: with the server-side signature architecture the
+ * body never contains a signature section, but callers may use this to ensure
+ * no leaked sig HTML reaches the POST body.
+ */
+export function stripSignatureSection(html: string): string {
+  return html.replace(/<!--vs-sig-start-->[\s\S]*?<!--vs-sig-end-->/gi, "").trim();
+}
+
+/**
  * Client-side signature HTML sanitizer.
  *
  * Applied to signature HTML BEFORE it is assembled into the outbound body and

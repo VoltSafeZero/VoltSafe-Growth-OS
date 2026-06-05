@@ -670,25 +670,26 @@ test("gmail-inbox.tsx imports sanitizeSignatureHtmlClientSide", () => {
   );
 });
 
-test("sendMutation applies sanitizeSignatureHtmlClientSide before buildEmailHtml", () => {
-  // The signature sanitizer must appear BEFORE the assembled body is built.
-  // Pattern: sanitizeSignatureHtmlClientSide → safeSigHtml → buildEmailHtml
-  const sanitizerIdx = inboxSrc.indexOf("sanitizeSignatureHtmlClientSide(activeSignatureHtml)");
-  // buildEmailHtml is called with safeSigHtml (or a variable containing it) after the sanitizer
-  const buildIdx     = inboxSrc.indexOf("buildEmailHtml(body,");
-  assert.ok(sanitizerIdx !== -1, "should call sanitizeSignatureHtmlClientSide on activeSignatureHtml");
-  assert.ok(buildIdx     !== -1, "should call buildEmailHtml(body, ...)");
-  assert.ok(sanitizerIdx < buildIdx, "sanitizer must run before buildEmailHtml");
+test("sendMutation uses WAF-safe architecture: selectedSignatureId not raw sig HTML", () => {
+  // New arch: signature HTML is NOT sent in the body; only selectedSignatureId is sent.
+  // The backend loads, normalizes, and appends the signature server-side.
+  const sendStart = inboxSrc.indexOf("const sendMutation = useMutation");
+  const sendEnd   = inboxSrc.indexOf("const draftMutation = useMutation");
+  const sendBlock = inboxSrc.slice(sendStart, sendEnd);
+  assert.ok(sendBlock.includes("selectedSignatureId: effectiveSigId"),
+    "sendMutation must include selectedSignatureId in the payload");
+  assert.ok(!sendBlock.includes("buildEmailHtml(body, safeSigHtml"),
+    "sendMutation must NOT include safeSigHtml in the body (WAF-safe arch)");
 });
 
-test("scheduleMutation also applies sanitizeSignatureHtmlClientSide", () => {
-  // Scheduled sends must also sanitize signatures
-  const schedIdx = inboxSrc.indexOf("scheduleAppendHtml");
-  const sanitizerInSched = inboxSrc.slice(schedIdx - 200, schedIdx + 50);
-  assert.ok(
-    sanitizerInSched.includes("sanitizeSignatureHtmlClientSide"),
-    "scheduleMutation should also sanitize signature HTML client-side"
-  );
+test("scheduleMutation also uses WAF-safe selectedSignatureId architecture", () => {
+  // scheduleMutation must also send selectedSignatureId, not sig HTML
+  const schedStart = inboxSrc.indexOf("const scheduleMutation = useMutation");
+  const schedBlock = inboxSrc.slice(schedStart, schedStart + 2000);
+  assert.ok(schedBlock.includes("selectedSignatureId: effectiveSigId"),
+    "scheduleMutation must send selectedSignatureId for backend assembly");
+  assert.ok(!schedBlock.includes("safeSchedSigHtml"),
+    "scheduleMutation must NOT use safeSchedSigHtml (old client-side sanitization)");
 });
 
 test("sendMutation has body-safety mechanism before send", () => {

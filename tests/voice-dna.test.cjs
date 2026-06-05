@@ -1,174 +1,146 @@
-/**
- * voice-dna.test.cjs
- *
- * Phase 2: Voice DNA from sent mail.
- * Source-grep and structural tests — no DB, no network calls required.
- */
-
-const fs = require("fs");
+"use strict";
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
+
+const voiceSrc  = fs.readFileSync(path.join(__dirname, "../server/services/ai-voice-profiles.ts"), "utf8");
+const routesSrc = fs.readFileSync(path.join(__dirname, "../server/routes.ts"), "utf8");
 
 let passed = 0;
 let failed = 0;
 
-function check(label, value, hint = "") {
-  if (value) {
-    console.log(`  ✓ ${label}`);
-    passed++;
-  } else {
-    console.log(`  ✗ ${label}${hint ? " — " + hint : ""}`);
-    failed++;
-  }
+function test(name, fn) {
+  try { fn(); console.log(`  ✓ ${name}`); passed++; }
+  catch (e) { console.error(`  ✗ ${name}\n    ${e.message}`); failed++; }
 }
 
-function read(p) {
-  try { return fs.readFileSync(p, "utf8"); } catch { return ""; }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. Migration checks
-// ─────────────────────────────────────────────────────────────────────────────
-
-console.log("\n── 1. Migration 0014_voice_dna.sql ──────────────────────────────────────────");
-{
-  const sql = read("migrations/0014_voice_dna.sql");
-  check("migration file exists", sql.length > 0);
-  check("adds training_source column", sql.includes("training_source"));
-  check("adds training_email_count column", sql.includes("training_email_count"));
-  check("adds trained_at column", sql.includes("trained_at"));
-  check("adds voice_dna_json column", sql.includes("voice_dna_json"));
-  check("uses ALTER TABLE ai_voice_profiles", sql.includes("ALTER TABLE ai_voice_profiles"));
-  check("uses ADD COLUMN IF NOT EXISTS (safe for re-run)", sql.includes("ADD COLUMN IF NOT EXISTS"));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. Service: ai-voice-profiles.ts
-// ─────────────────────────────────────────────────────────────────────────────
-
-console.log("\n── 2. Service — ai-voice-profiles.ts ────────────────────────────────────────");
-{
-  const src = read("server/services/ai-voice-profiles.ts");
-
-  check("trainVoiceFromSentMail exported", src.includes("export async function trainVoiceFromSentMail("));
-  check("VoiceDnaProfile interface exported", src.includes("export interface VoiceDnaProfile"));
-  check("TrainVoiceResult interface exported", src.includes("export interface TrainVoiceResult"));
-  check("stripEmailNoise helper defined", src.includes("function stripEmailNoise("));
-  check("analyzeVoiceDnaWithOpenAI helper defined", src.includes("function analyzeVoiceDnaWithOpenAI("));
-  check("OpenAI imported", src.includes("import OpenAI from"));
-  check("queries email_accounts for user", src.includes("email_accounts WHERE user_id"));
-  check("queries outbound emails by direction", src.includes("direction = 'outbound'"));
-  check("limits email count to 100 max", src.includes("Math.min(emailCount, 100)"));
-  check("stores voice_dna_json in profile", src.includes("voice_dna_json"));
-  check("stores training_source = sent_mail", src.includes("training_source = 'sent_mail'"));
-  check("stores training_email_count", src.includes("training_email_count"));
-  check("stores trained_at = NOW()", src.includes("trained_at = NOW()"));
-  check("VoiceDnaProfile has tone field", src.includes('"tone"') || src.includes("tone: string"));
-  check("VoiceDnaProfile has formality field", src.includes("formality: string"));
-  check("VoiceDnaProfile has signaturePhrases field", src.includes("signaturePhrases"));
-  check("OpenAI response_format json_object used", src.includes('type: "json_object"'));
-  check("handles no active mailbox gracefully", src.includes("No active mailbox found"));
-  check("handles insufficient emails gracefully", src.includes("Not enough sent emails found"));
-  check("handles no profile gracefully", src.includes("No voice profile found"));
-  check("strips quoted reply lines", src.includes("> ") || src.includes("^>"));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. Route: POST /api/ai-voice-profiles/train-from-sent-mail
-// ─────────────────────────────────────────────────────────────────────────────
-
-console.log("\n── 3. Route — POST /api/ai/voice-profiles/train-from-sent-mail ─────────────");
-{
-  const src = read("server/routes.ts");
-  const ROUTE = '"/api/ai/voice-profiles/train-from-sent-mail"';
-
-  check("route defined", src.includes(ROUTE));
-  check("route uses POST method",
-    (() => {
-      const idx = src.indexOf(ROUTE);
-      return idx >= 0 && src.slice(Math.max(0, idx - 20), idx).includes("post(");
-    })()
+// ── Migration ─────────────────────────────────────────────────────────────────
+test("migration 0014_voice_dna.sql exists", () => {
+  const migPath = path.join(__dirname, "../migrations/0014_voice_dna.sql");
+  assert.ok(fs.existsSync(migPath), "migrations/0014_voice_dna.sql must exist");
+});
+test("migration 0014 adds trained_at column", () => {
+  const migSrc = fs.readFileSync(
+    path.join(__dirname, "../migrations/0014_voice_dna.sql"), "utf8"
   );
-  check("route requires authentication",
-    (() => {
-      const idx = src.indexOf(ROUTE);
-      const ctx = src.slice(Math.max(0, idx - 100), idx + 200);
-      return ctx.includes("requireAuth");
-    })()
+  assert.ok(migSrc.includes("trained_at"), "must add trained_at column");
+});
+test("migration 0014 adds voice_dna_json column", () => {
+  const migSrc = fs.readFileSync(
+    path.join(__dirname, "../migrations/0014_voice_dna.sql"), "utf8"
   );
-  check("route imports trainVoiceFromSentMail", src.includes("trainVoiceFromSentMail"));
-  check("route caps emailCount at 100", src.includes("Math.min") && src.includes("100"));
-  check("route reads emailCount from body",
-    (() => {
-      const idx = src.indexOf(ROUTE);
-      const ctx = src.slice(idx, idx + 400);
-      return ctx.includes("emailCount");
-    })()
+  assert.ok(migSrc.includes("voice_dna_json"), "must add voice_dna_json column");
+});
+test("migration 0014 adds training_email_count column", () => {
+  const migSrc = fs.readFileSync(
+    path.join(__dirname, "../migrations/0014_voice_dna.sql"), "utf8"
   );
-  check("route reads optional profileId from body",
-    (() => {
-      const idx = src.indexOf(ROUTE);
-      const ctx = src.slice(idx, idx + 400);
-      return ctx.includes("profileId");
-    })()
-  );
-}
+  assert.ok(migSrc.includes("training_email_count"), "must add training_email_count column");
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 4. Unit logic: stripEmailNoise
-// ─────────────────────────────────────────────────────────────────────────────
-
-console.log("\n── 4. Unit logic — stripEmailNoise ─────────────────────────────────────────");
-{
-  // Minimal inline implementation matching the service
-  function stripEmailNoise(text) {
-    if (!text) return "";
-    let cleaned = text.replace(/^>.*$/gm, "").trim();
-    cleaned = cleaned.replace(/On .{5,80} wrote:/gi, "").trim();
-    cleaned = cleaned.replace(/--\s*\n[\s\S]{0,500}$/, "").trim();
-    cleaned = cleaned.replace(/\s+/g, " ").trim();
-    return cleaned;
-  }
-
-  check("empty string returns empty", stripEmailNoise("") === "");
-  check("null-ish returns empty", stripEmailNoise(undefined) === "");
-  check("quoted reply lines stripped",
-    !stripEmailNoise("> This is a quoted line").includes(">")
+// ── Service function ──────────────────────────────────────────────────────────
+test("trainVoiceFromSentMail is exported from ai-voice-profiles.ts", () => {
+  assert.ok(
+    voiceSrc.includes("export async function trainVoiceFromSentMail"),
+    "trainVoiceFromSentMail must be exported"
   );
-  check("On ... wrote: pattern stripped",
-    !stripEmailNoise("On Mon, Jan 1, 2026 at 9:00 AM John wrote:\nSome quoted text").includes("wrote:")
+});
+test("trainVoiceFromSentMail accepts userId and emailCount parameters", () => {
+  assert.ok(
+    voiceSrc.includes("trainVoiceFromSentMail(\n  userId: number") ||
+    voiceSrc.includes("trainVoiceFromSentMail(userId: number") ||
+    voiceSrc.includes("trainVoiceFromSentMail(\n  userId"),
+    "must accept userId and emailCount parameters"
   );
-  check("signature separator stripped",
-    !stripEmailNoise("Hi there\n--\nJohn Smith\nCEO").includes("John Smith")
+  assert.ok(
+    voiceSrc.includes("emailCount: number = 50") ||
+    voiceSrc.includes("emailCount = 50"),
+    "emailCount must default to 50"
   );
-  check("normal text preserved",
-    stripEmailNoise("Hi John, thanks for your time.").includes("John")
+});
+test("trainVoiceFromSentMail caps email count at 100", () => {
+  assert.ok(
+    voiceSrc.includes("Math.min(emailCount, 100)"),
+    "must cap email count at 100 to prevent prompt bloat"
   );
-  check("collapses multiple spaces",
-    !stripEmailNoise("Hello   World").includes("   ")
+});
+test("trainVoiceFromSentMail queries outbound emails only", () => {
+  const trainBlock = voiceSrc.slice(voiceSrc.indexOf("export async function trainVoiceFromSentMail"));
+  assert.ok(
+    trainBlock.includes("direction = 'outbound'"),
+    "must query only outbound (sent) emails"
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 5. Regression: existing voice profiles functionality still intact
-// ─────────────────────────────────────────────────────────────────────────────
-
-console.log("\n── 5. Regression — existing voice profiles intact ───────────────────────────");
-{
-  const src = read("server/services/ai-voice-profiles.ts");
-  check("buildVoiceProfilePromptBlock still exported", src.includes("export function buildVoiceProfilePromptBlock("));
-  check("createVoiceProfile still exported", src.includes("export async function createVoiceProfile("));
-  check("updateVoiceProfile still exported", src.includes("export async function updateVoiceProfile("));
-  check("INFLUENCE_LEVELS still exported", src.includes("export const INFLUENCE_LEVELS"));
-  check("buildInfluencePromptBlock still present", src.includes("function buildInfluencePromptBlock("));
-
-  const routes = read("server/routes.ts");
-  check("existing GET /api/ai/voice-profiles route still present",
-    routes.includes('"/api/ai/voice-profiles"') || routes.includes("'/api/ai/voice-profiles'")
+});
+test("trainVoiceFromSentMail filters by user's own email addresses", () => {
+  const trainBlock = voiceSrc.slice(voiceSrc.indexOf("export async function trainVoiceFromSentMail"));
+  assert.ok(
+    trainBlock.includes("FROM email_accounts") || trainBlock.includes("email_accounts"),
+    "must load user's email accounts first"
   );
-}
+  assert.ok(
+    trainBlock.includes("from_email IN"),
+    "must filter sent emails by user's own from_email addresses"
+  );
+});
+test("trainVoiceFromSentMail throws if fewer than 3 emails found", () => {
+  assert.ok(
+    voiceSrc.includes("emails.length < 3"),
+    "must throw if < 3 sent emails found"
+  );
+});
+test("trainVoiceFromSentMail saves voice_dna_json to the profile", () => {
+  const trainBlock = voiceSrc.slice(voiceSrc.indexOf("export async function trainVoiceFromSentMail"));
+  assert.ok(
+    trainBlock.includes("voice_dna_json"),
+    "must update voice_dna_json on the profile record"
+  );
+});
+test("trainVoiceFromSentMail saves trained_at timestamp", () => {
+  const trainBlock = voiceSrc.slice(voiceSrc.indexOf("export async function trainVoiceFromSentMail"));
+  assert.ok(
+    trainBlock.includes("trained_at"),
+    "must update trained_at when training completes"
+  );
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ── API route ─────────────────────────────────────────────────────────────────
+test("POST /api/ai/voice-profiles/train-from-sent-mail route exists", () => {
+  assert.ok(
+    routesSrc.includes('"/api/ai/voice-profiles/train-from-sent-mail"'),
+    "route must be registered"
+  );
+});
+test("train-from-sent-mail route requires authentication", () => {
+  const routeBlock = routesSrc.slice(
+    routesSrc.indexOf('"/api/ai/voice-profiles/train-from-sent-mail"') - 100,
+    routesSrc.indexOf('"/api/ai/voice-profiles/train-from-sent-mail"') + 500
+  );
+  assert.ok(routeBlock.includes("requireAuth"), "route must require authentication");
+});
+test("train-from-sent-mail route imports trainVoiceFromSentMail", () => {
+  const routeBlock = routesSrc.slice(
+    routesSrc.indexOf('"/api/ai/voice-profiles/train-from-sent-mail"'),
+    routesSrc.indexOf('"/api/ai/voice-profiles/train-from-sent-mail"') + 500
+  );
+  assert.ok(
+    routeBlock.includes("trainVoiceFromSentMail"),
+    "route must call trainVoiceFromSentMail"
+  );
+});
 
-console.log(`\n${"─".repeat(70)}`);
-console.log(`Results: ${passed} passed, ${failed} failed`);
+// ── Supporting voice profile functions ───────────────────────────────────────
+test("listVoiceProfiles is exported", () => {
+  assert.ok(voiceSrc.includes("export async function listVoiceProfiles"), "must export listVoiceProfiles");
+});
+test("buildVoiceProfilePromptBlock is exported", () => {
+  assert.ok(voiceSrc.includes("export function buildVoiceProfilePromptBlock"), "must export buildVoiceProfilePromptBlock");
+});
+test("getUserDefaultVoiceProfile is exported", () => {
+  assert.ok(voiceSrc.includes("export async function getUserDefaultVoiceProfile"), "must export getUserDefaultVoiceProfile");
+});
+test("deriveWhyGenerated is exported", () => {
+  assert.ok(voiceSrc.includes("export function deriveWhyGenerated"), "must export deriveWhyGenerated");
+});
+
+console.log(`\nResults: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

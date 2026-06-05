@@ -13088,9 +13088,52 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
     try {
       const { to, subject, body, threadId, scheduledAt } = req.body;
+      const _schedSigId: number | null = req.body.selectedSignatureId ? Number(req.body.selectedSignatureId) : null;
+      const _schedUserId = req.session.userId!;
       if (!to || !body || !scheduledAt) return res.status(400).json({ message: "to, body, scheduledAt required" });
+      // Server-side signature assembly for scheduled emails — same as send route.
+      let schedBody = String(body);
+      if (_schedSigId) {
+        try {
+          const _schedSigRows = await db.execute(sql.raw(`
+            SELECT es.html_content,
+                   COALESCE(
+                     json_agg(
+                       json_build_object(
+                         'id', c.id, 'type', c.type, 'destination_url', c.destination_url,
+                         'image_url', c.image_url, 'alt_text', c.alt_text, 'width_px', c.width_px,
+                         'name', c.name, 'tracking_enabled', c.tracking_enabled
+                       ) ORDER BY c.id
+                     ) FILTER (WHERE c.id IS NOT NULL),
+                     '[]'::json
+                   ) AS ctas
+            FROM email_signatures es
+            LEFT JOIN email_signature_ctas c ON c.signature_id = es.id AND c.user_id = es.user_id
+            WHERE es.id = ${Number(_schedSigId)} AND es.user_id = ${_schedUserId}
+            GROUP BY es.id
+          `));
+          const _schedRow = (_schedSigRows.rows as any[])[0];
+          if (_schedRow) {
+            const _sn = normalizeSignatureHtml(_schedRow.html_content || "");
+            const _sc: any[] = Array.isArray(_schedRow.ctas) ? _schedRow.ctas : [];
+            const _sh = _sc.map((cta: any) => {
+              const _a = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
+              const _d = String(cta.destination_url || "").replace(/"/g, "&quot;");
+              const _w = Number(cta.width_px) || 200;
+              if (cta.type === "image" && cta.image_url) {
+                const _i = String(cta.image_url).replace(/"/g, "&quot;");
+                return `<a href="${_d}" style="display:inline-block;"><img src="${_i}" alt="${_a}" width="${_w}" style="display:block;border:0;max-width:100%;"></a>`;
+              }
+              return `<a href="${_d}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_a}</a>`;
+            }).join("<br>");
+            schedBody = schedBody + `<!--vs-sig-start-->${_sn}${_sh ? `<div style="margin-top:12px;">${_sh}</div>` : ""}<!--vs-sig-end-->`;
+          }
+        } catch (_se: any) {
+          console.error("[gmail-schedule] signature load error:", _se?.message || _se);
+        }
+      }
       const [email] = await db.insert(scheduledEmails)
-        .values({ to, subject, body, threadId, scheduledAt: new Date(scheduledAt), userId: req.session.userId! })
+        .values({ to, subject, body: schedBody, threadId, scheduledAt: new Date(scheduledAt), userId: _schedUserId })
         .returning();
       res.json(email);
     } catch (err: any) {
@@ -14155,6 +14198,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
     try {
       const { to, subject, body, threadId, attachmentIds, cc, bcc, enableTracking, icalContent, isForward } = req.body;
+      // selectedSignatureId: frontend sends the sig id instead of raw HTML — backend loads + appends.
+      const selectedSignatureId: number | null = req.body.selectedSignatureId ? Number(req.body.selectedSignatureId) : null;
       // Diagnostic: confirm the request reached Express (if this log appears, proxy did not block it)
       const _diagBody = String(body || "");
       console.log(`[gmail-send] arrived userId=${userId} bodyLen=${_diagBody.length} hasSig=${_diagBody.includes("<!--vs-sig-start-->")} imgCount=${(_diagBody.match(/<img\b/gi) || []).length}`);
@@ -14202,6 +14247,56 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // private /api/ routes, and old Replit host URLs that bloat the request body
       // and cause the production proxy to return a 403 HTML page.
       const cleanBody = applySignatureSendSanitizer(normalizeOutboundHtml(normalizedBody), baseUrl);
+
+      // ── Server-side signature assembly ──────────────────────────────────────
+      // Frontend sends selectedSignatureId instead of full signature HTML.
+      // Load, normalize, and append here — keeps HTML sig out of the browser
+      // POST body and away from WAF inspection.
+      let bodyWithSig = cleanBody;
+      if (selectedSignatureId) {
+        try {
+          const _sigRows = await db.execute(sql.raw(`
+            SELECT es.html_content,
+                   COALESCE(
+                     json_agg(
+                       json_build_object(
+                         'id', c.id, 'type', c.type, 'destination_url', c.destination_url,
+                         'image_url', c.image_url, 'alt_text', c.alt_text, 'width_px', c.width_px,
+                         'name', c.name, 'tracking_enabled', c.tracking_enabled
+                       ) ORDER BY c.id
+                     ) FILTER (WHERE c.id IS NOT NULL),
+                     '[]'::json
+                   ) AS ctas
+            FROM email_signatures es
+            LEFT JOIN email_signature_ctas c ON c.signature_id = es.id AND c.user_id = es.user_id
+            WHERE es.id = ${Number(selectedSignatureId)} AND es.user_id = ${userId}
+            GROUP BY es.id
+          `));
+          const _sigRow = (_sigRows.rows as any[])[0];
+          if (!_sigRow) {
+            console.warn(`[gmail-send] selectedSignatureId=${selectedSignatureId} not found or not owned by userId=${userId}`);
+          } else {
+            const _normalizedSig = normalizeSignatureHtml(_sigRow.html_content || "");
+            const _sigCtas: any[] = Array.isArray(_sigRow.ctas) ? _sigRow.ctas : [];
+            const _ctaHtmlBlock = _sigCtas.map((cta: any) => {
+              const _alt  = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
+              const _dest = String(cta.destination_url || "").replace(/"/g, "&quot;");
+              const _w    = Number(cta.width_px) || 200;
+              if (cta.type === "image" && cta.image_url) {
+                const _img = String(cta.image_url).replace(/"/g, "&quot;");
+                return `<a href="${_dest}" style="display:inline-block;"><img src="${_img}" alt="${_alt}" width="${_w}" style="display:block;border:0;max-width:100%;"></a>`;
+              }
+              return `<a href="${_dest}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_alt}</a>`;
+            }).join("<br>");
+            const _sigSection = _normalizedSig + (_ctaHtmlBlock ? `<div style="margin-top:12px;">${_ctaHtmlBlock}</div>` : "");
+            bodyWithSig = cleanBody + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`;
+            console.log(`[gmail-send] sig appended server-side id=${selectedSignatureId} sigBytes=${_normalizedSig.length} ctas=${_sigCtas.length}`);
+          }
+        } catch (_sigErr: any) {
+          console.error("[gmail-send] signature load error (sending without sig):", _sigErr?.message || _sigErr);
+        }
+      }
+
       const trackingEnabled = enableTracking !== false; // default: true
 
       // Parse recipient lists into normalized address arrays.
@@ -14228,10 +14323,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // Wrap signature CTA links at send time (before general tracking injection).
       // injectTracking already skips URLs containing "/track/", so these won't be double-wrapped.
       const _ctaRecipient = (toList[0] || ccList[0] || bccList[0] || String(to || "")).toLowerCase();
-      let ctaWrappedBody = cleanBody;
+      let ctaWrappedBody = bodyWithSig;
       let _ctaTokens: string[] = [];
       try {
-        const _ctaResult = await wrapSignatureCtaLinks(cleanBody, userId, _ctaRecipient, baseUrl);
+        const _ctaResult = await wrapSignatureCtaLinks(bodyWithSig, userId, _ctaRecipient, baseUrl);
         ctaWrappedBody = _ctaResult.html;
         _ctaTokens = _ctaResult.tokens;
       } catch (ctaErr) {
@@ -14250,7 +14345,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           } catch (trackErr) {
             console.error("[tracking] injection failed (non-fatal, sending untracked):", trackErr);
             trackingFailed = true;
-            trackedBody = cleanBody;
+            trackedBody = bodyWithSig;
           }
         }
 

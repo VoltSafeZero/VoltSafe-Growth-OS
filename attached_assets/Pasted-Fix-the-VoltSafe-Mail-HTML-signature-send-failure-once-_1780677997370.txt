@@ -1,0 +1,260 @@
+Fix the VoltSafe Mail HTML signature send failure once and for all.
+
+Do not convert signatures to plain text.
+
+Current evidence:
+
+1. Sending with no signature works.
+2. Sending with CTA but no signature works.
+3. Sending with HTML signature fails.
+4. Successful send payload is ~674 bytes.
+5. Failed signature send payload is ~2875–3194 bytes.
+6. Failed response is:
+   - POST /api/gmail/send
+   - 403 Forbidden
+   - Content-Type: text/html
+   - Response body: <!doctype html><title>403</title>403 Forbidden
+7. This 403 is generated before Express/Gmail logic completes.
+8. Normalizer already strips:
+   - <!DOCTYPE>
+   - <html>
+   - <head>
+   - <body>
+9. The failure still occurs, so the blocker is not only full-document HTML.
+10. The payload-specific culprit is likely one or more of:
+   - table-heavy HTML
+   - inline styles
+   - img tags
+   - external logo URL
+   - href/tel/mailto links
+   - WAF rule triggered by HTML-rich JSON body
+
+Goal:
+
+Preserve visually formatted HTML signatures while making all sends succeed reliably in production.
+
+Required approach:
+
+1. Stop sending raw HTML signature fragments inside the JSON body.
+
+Instead, change the send architecture:
+
+Frontend should send:
+- email body HTML
+- selectedSignatureId
+- selectedCtaIds / inserted CTA ids if needed
+- normal send fields
+
+Frontend should NOT send the full signature HTML inside the JSON payload.
+
+Backend should:
+- look up selectedSignatureId from the database
+- normalize/sanitize signature HTML server-side
+- append the safe HTML signature to the email body server-side
+- build MIME/send from backend-owned HTML
+
+This avoids Replit/WAF inspecting a large HTML signature blob in the browser POST body.
+
+2. Frontend changes
+
+In the compose send flow:
+
+- Remove appended signature HTML from the body field before POST.
+- Add selectedSignatureId to the request payload.
+- Add insertedTrackedCtaIds or insertedCtaHtml only if currently needed.
+- If standalone CTA is inserted, prefer sending CTA id and placement metadata, not raw CTA HTML.
+
+Payload should look like:
+
+{
+  to,
+  cc,
+  bcc,
+  subject,
+  body: "<div>user-written email body only</div>",
+  selectedSignatureId: 1,
+  insertedCtaIds: [],
+  idempotencyKey
+}
+
+The body field should contain only the user-written message content, not the selected signature HTML.
+
+Add diagnostic before fetch:
+
+[FINAL SEND PAYLOAD]
+{
+  bodyLength,
+  jsonSizeBytes,
+  selectedSignatureId,
+  bodyContainsSignature: false,
+  bodyContainsTable,
+  bodyContainsImg,
+  bodyContainsDoctype,
+  bodyContainsHtmlTag,
+  bodyContainsHeadTag,
+  bodyContainsBodyTag
+}
+
+For normal sends with signature:
+- bodyContainsSignature must be false
+- selectedSignatureId must be set
+
+3. Backend route changes
+
+Update POST /api/gmail/send to accept:
+
+selectedSignatureId?: number | string | null
+
+If selectedSignatureId is present:
+
+- Verify the signature belongs to the authenticated user/account.
+- Load signature HTML from DB.
+- Normalize signature HTML:
+  - strip doctype/html/head/body/meta/title/style blocks if unsafe
+  - preserve table layout, inline styles, links, safe HTTPS images
+  - strip scripts/iframes/forms/event handlers/svg/object
+  - strip data/blob/file/cid image sources
+  - rewrite known asset URLs to safe public HTTPS URLs
+- Append signature HTML server-side to body before MIME generation.
+
+Important:
+Do not trust frontend signature HTML.
+Do not accept raw signatureHtml from client for sending.
+
+4. Signature ownership/security
+
+Backend must ensure:
+
+- selectedSignatureId belongs to the logged-in user or authorized account.
+- User cannot send another user’s signature by guessing id.
+- Invalid selectedSignatureId returns clean JSON error.
+- Missing selectedSignatureId behaves like current no-signature send.
+
+5. Preserve current compose preview
+
+The compose UI can still render the selected signature preview visually.
+
+But preview HTML is for display only.
+
+It must not be included in the send request body.
+
+6. Standalone CTA architecture
+
+If user manually inserts a tracked CTA:
+
+Preferred:
+- send CTA id and insertion position metadata
+- backend fetches CTA, builds safe CTA HTML, inserts into body server-side
+
+Minimum acceptable:
+- if raw CTA HTML still must be sent, sanitize it aggressively and ensure it does not contain broken image URLs or full-document HTML.
+
+But priority:
+- fix normal HTML signature sending first.
+
+7. Remove WAF-triggering body content
+
+Before POST, enforce:
+
+if selectedSignatureId exists:
+- strip signature markers
+- strip signature preview HTML
+- strip HTML after signature boundary from body
+- body must only contain user-composed message content
+
+Make sure markers like:
+<!--vs-sig-start-->
+<!--vs-sig-end-->
+
+are not sent from frontend in body.
+
+They may be re-added server-side if useful.
+
+8. Backend append order
+
+Final backend email body should be:
+
+[clean user body HTML]
+
+[optional standalone CTA HTML, if inserted and not already embedded]
+
+[server-loaded normalized signature HTML]
+
+No duplicate signature.
+
+No duplicate CTA unless user explicitly inserted standalone CTA.
+
+9. Tests
+
+Add/update tests for:
+
+Frontend:
+- send payload with selected signature does NOT include signature HTML in body.
+- send payload includes selectedSignatureId.
+- bodyContainsSignature diagnostic false.
+- no doctype/html/head/body signature tags in request body.
+- no table/img/link-heavy signature HTML sent from frontend.
+
+Backend:
+- selectedSignatureId is accepted.
+- signature is loaded server-side.
+- signature ownership is enforced.
+- invalid signature id returns JSON error.
+- no selectedSignatureId still sends normally.
+- server appends normalized HTML signature before MIME generation.
+- Gmail MIME contains signature after backend append.
+- frontend raw signatureHtml is ignored/rejected.
+
+Security:
+- another user’s signature id cannot be used.
+- unsafe signature HTML is sanitized server-side.
+- data/blob/file/cid images stripped.
+- script/iframe/event handlers stripped.
+
+Production regression:
+- no signature send works.
+- CTA-only send works.
+- non-star HTML signature send works.
+- starred HTML signature send works.
+- starred signature with CTA works or safe CTA fallback works.
+
+10. Remove or reduce noisy thread-signals retry loop
+
+There is a separate console flood:
+
+/api/inbox/thread-signals
+431 Request Header Fields Too Large
+
+This is not the main send bug, but it pollutes diagnostics.
+
+Add a guard:
+- if thread-signals returns 431, stop retrying that request loop
+- log one concise warning
+- do not spam console/network
+
+Do not let this distract from the signature send architecture fix.
+
+11. Production validation required
+
+After deployment:
+
+A. Open compose with signature selected.
+B. Confirm [FINAL SEND PAYLOAD]:
+   - selectedSignatureId is set
+   - bodyContainsSignature false
+   - jsonSizeBytes is small
+C. Send.
+D. Confirm POST /api/gmail/send returns 200 JSON.
+E. Confirm received email includes formatted HTML signature.
+F. Confirm non-star and starred signatures both send.
+G. Confirm CTA-only send still works.
+
+Do not mark complete until a real production email with each HTML signature sends successfully.
+
+Core fix summary:
+
+Stop sending full HTML signature content from the browser to /api/gmail/send.
+
+Send only selectedSignatureId.
+
+Load, sanitize, and append the HTML signature server-side.

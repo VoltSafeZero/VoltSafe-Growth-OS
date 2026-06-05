@@ -358,23 +358,25 @@ test("activeSignatureHtml computation normalizes htmlContent", () => {
   );
 });
 
-test("FINAL FETCH diagnostic checks for DOCTYPE in htmlBody", () => {
+test("[FINAL SEND PAYLOAD] diagnostic checks for DOCTYPE in body", () => {
+  // Log renamed from [FINAL FETCH ABOUT TO SEND] → [FINAL SEND PAYLOAD] (WAF-safe arch)
   const fetchBlock = GMAIL_INBOX_SRC.slice(
-    GMAIL_INBOX_SRC.indexOf("[FINAL FETCH ABOUT TO SEND]")
+    GMAIL_INBOX_SRC.indexOf("[FINAL SEND PAYLOAD]")
   ).slice(0, 800);
   assert.ok(
-    fetchBlock.includes("containsDoctype") || fetchBlock.includes("<!DOCTYPE"),
-    "FINAL FETCH log must check for DOCTYPE"
+    fetchBlock.includes("bodyContainsDoctype") || fetchBlock.includes("containsDoctype"),
+    "[FINAL SEND PAYLOAD] log must check for DOCTYPE"
   );
 });
 
-test("FINAL FETCH diagnostic checks for html/head/body tags", () => {
+test("[FINAL SEND PAYLOAD] diagnostic checks for html/head/body tags", () => {
+  // Log renamed from [FINAL FETCH ABOUT TO SEND] → [FINAL SEND PAYLOAD] (WAF-safe arch)
   const fetchBlock = GMAIL_INBOX_SRC.slice(
-    GMAIL_INBOX_SRC.indexOf("[FINAL FETCH ABOUT TO SEND]")
+    GMAIL_INBOX_SRC.indexOf("[FINAL SEND PAYLOAD]")
   ).slice(0, 800);
   assert.ok(
-    fetchBlock.includes("containsHtmlTag") || fetchBlock.includes("<html"),
-    "FINAL FETCH log must check for <html> tag"
+    fetchBlock.includes("bodyContainsHtmlTag") || fetchBlock.includes("containsHtmlTag"),
+    "[FINAL SEND PAYLOAD] log must check for <html> tag"
   );
 });
 

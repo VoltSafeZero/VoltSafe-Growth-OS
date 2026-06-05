@@ -1010,23 +1010,20 @@ function ComposeDialog({
     mutationFn: async () => {
       onTrustEvent?.({ type: "sending", at: Date.now() });
 
-      // ── Step 1: Sanitize signature HTML client-side (strips data: img src etc.) ──
-      console.log("[ACTIVE SIGNATURE HTML]", activeSignatureHtml.slice(0, 1000));
-      const safeSigHtml = sanitizeSignatureHtmlClientSide(activeSignatureHtml);
-
-      // ── Step 2: Build quoted reply/forward block ──────────────────────────────
+      // ── Step 1: Build quoted reply/forward block ──────────────────────────────
+      // Signature HTML is NOT included in the body — only selectedSignatureId is
+      // sent. The backend loads, normalizes, and appends the signature server-side,
+      // keeping full HTML signature content out of the browser POST body (WAF-safe).
       const quotedBlock = isForward && defaultQuotedHtml
         ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
         : (!isForward && threadId && defaultQuotedHtml
           ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
           : "");
 
-      // ── Step 3: Assemble the full HTML body ───────────────────────────────────
-      let htmlBody = buildEmailHtml(body, safeSigHtml + quotedBlock);
+      // ── Step 2: Assemble body — user content + quoted block only ─────────────
+      let htmlBody = buildEmailHtml(body, quotedBlock);
 
-      // ── Step 4: Emergency kill switch on the ENTIRE body field ───────────────
-      // Catches data URIs in style="background-image:url(data:...)" and any other
-      // non-<img> embeddings that the signature-only sanitizer cannot see.
+      // ── Step 3: Emergency strip on the user-composed content ─────────────────
       const { result: strippedBody, stripped: wasEmergencyStripped } =
         emergencyStripDangerousHtml(htmlBody);
       if (wasEmergencyStripped) {
@@ -1034,9 +1031,10 @@ function ComposeDialog({
         htmlBody = strippedBody;
       }
 
-      // ── Step 5: Build final payload ───────────────────────────────────────────
+      // ── Step 4: Build final payload — signature referenced by id, not HTML ───
       const finalPayload = {
         to, subject, body: htmlBody, threadId,
+        selectedSignatureId: effectiveSigId ?? null,
         ...(cc  ? { cc }  : {}),
         ...(bcc ? { bcc } : {}),
         attachmentIds: attachedAssets.map((a) => a.id),
@@ -1046,45 +1044,26 @@ function ComposeDialog({
         idempotencyKey: idempotencyKeyRef.current,
       };
 
-      // ── Step 6: Serialize + full diagnostic log immediately before fetch ─────────
+      // ── Step 5: Serialize + diagnostic log ────────────────────────────────────
       const finalStr = JSON.stringify(finalPayload);
-      // Mask recipient emails from logs
-      const maskedTo  = (typeof finalPayload.to === "string" ? finalPayload.to : String(finalPayload.to ?? "")).replace(/[^@\s,]+@[^@\s,]+/g, (m) => m[0] + "***@" + m.split("@")[1]);
-      const bodyFirst500 = htmlBody.slice(0, 500);
-      const bodyLast500  = htmlBody.slice(-500);
-      console.log("[FINAL FETCH ABOUT TO SEND]", {
-        url:    "/api/gmail/send",
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // Sizes
-        jsonSizeBytes:   finalStr.length,
-        bodyLength:      htmlBody.length,
-        // Signature / structure
-        hasSignatureMarker: htmlBody.includes("<!--vs-sig-start-->"),
-        containsTable:   htmlBody.includes("<table"),
-        containsStyleAttr: htmlBody.includes("style="),
-        // Document-wrapper tags — ALL must be false (any true → WAF 403)
-        containsDoctype: /<!DOCTYPE\b/i.test(htmlBody),
-        containsHtmlTag: /<html\b/i.test(htmlBody),
-        containsHeadTag: /<head\b/i.test(htmlBody),
-        containsBodyTag: /<body\b/i.test(htmlBody),
-        // Danger indicators — all should be false after sanitization
-        containsDataImage: htmlBody.includes("data:image"),
-        containsBase64:  htmlBody.includes("base64"),
-        containsBlob:    htmlBody.includes("blob:"),
-        containsCid:     htmlBody.includes("cid:"),
-        containsScript:  htmlBody.includes("<script"),
-        containsSvg:     htmlBody.includes("<svg"),
-        // Content counts
-        imgCount:  (htmlBody.match(/<img\b/gi)  || []).length,
-        hrefCount: (htmlBody.match(/\bhref=/gi) || []).length,
-        // Body excerpts (for content verification)
-        first500BodyChars: bodyFirst500,
-        last500BodyChars:  bodyLast500,
-        // Metadata
-        maskedTo,
+      const maskedTo = (typeof finalPayload.to === "string" ? finalPayload.to : String(finalPayload.to ?? "")).replace(/[^@\s,]+@[^@\s,]+/g, (m) => m[0] + "***@" + m.split("@")[1]);
+      console.log("[FINAL SEND PAYLOAD]", {
+        bodyLength:             htmlBody.length,
+        jsonSizeBytes:          finalStr.length,
+        selectedSignatureId:    finalPayload.selectedSignatureId,
+        // These must all be false — any true means sig HTML leaked into body
+        bodyContainsSignature:  htmlBody.includes("<!--vs-sig-start-->"),
+        bodyContainsTable:      htmlBody.includes("<table"),
+        bodyContainsImg:        /<img\b/i.test(htmlBody),
+        bodyContainsDoctype:    /<!DOCTYPE\b/i.test(htmlBody),
+        bodyContainsHtmlTag:    /<html\b/i.test(htmlBody),
+        bodyContainsHeadTag:    /<head\b/i.test(htmlBody),
+        bodyContainsBodyTag:    /<body\b/i.test(htmlBody),
+        containsDataImage:      htmlBody.includes("data:image"),
+        containsBase64:         htmlBody.includes("base64"),
         wasEmergencyStripped,
-        payloadKeys: Object.keys(finalPayload),
+        maskedTo,
+        payloadKeys:            Object.keys(finalPayload),
       });
 
       // ── Step 7: Fetch ─────────────────────────────────────────────────────────
@@ -1218,17 +1197,16 @@ function ComposeDialog({
 
   const scheduleMutation = useMutation({
     mutationFn: async () => {
-      // CLIENT-SIDE sanitization — same as sendMutation, prevents proxy 403 on large signatures.
-      const safeSchedSigHtml = sanitizeSignatureHtmlClientSide(activeSignatureHtml);
-      const scheduleAppendHtml = safeSchedSigHtml
-        + (isForward && defaultQuotedHtml
-          ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
-          : (!isForward && threadId && defaultQuotedHtml
-            ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
-            : ""));
-      const htmlBody = buildEmailHtml(body, scheduleAppendHtml);
+      // Quoted block only — signature sent as selectedSignatureId for backend assembly.
+      const schedQuotedBlock = isForward && defaultQuotedHtml
+        ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
+        : (!isForward && threadId && defaultQuotedHtml
+          ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
+          : "");
+      const htmlBody = buildEmailHtml(body, schedQuotedBlock);
       const res = await apiRequest("POST", "/api/gmail/schedule", {
         to, subject, body: htmlBody, threadId, scheduledAt,
+        selectedSignatureId: effectiveSigId ?? null,
         ...(cc ? { cc } : {}),
         ...(bcc ? { bcc } : {}),
         ...(pendingIcal ? { icalContent: pendingIcal } : {}),
