@@ -28726,7 +28726,7 @@ export function registerConfluenceRoutes(app: Express) {
   // ── Voice DNA Training (Phase 2) ──────────────────────────────────────────────
   app.post("/api/ai/voice-profiles/train-from-sent-mail", requireAuth, async (req, res) => {
     try {
-      const userId = (req as any).user?.id;
+      const userId = (req.session as any).userId as number | undefined;
       if (!userId) return res.status(401).json({ message: "Not authenticated" });
       const emailCount = Math.min(Number(req.body.emailCount ?? 50), 100);
       const profileId = req.body.profileId ? Number(req.body.profileId) : undefined;
