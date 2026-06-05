@@ -1037,7 +1037,12 @@ function ComposeDialog({
         data = await res.json();
       } else {
         const text = await res.text();
-        throw new Error(`Send failed (${res.status}): ${text.slice(0, 140)}`);
+        // Never surface raw HTML (e.g. proxy 403 pages) to the user.
+        const isHtmlPage = /^\s*<!doctype|^\s*<html/i.test(text);
+        const displayMsg = isHtmlPage
+          ? "The server encountered an unexpected error. Please try again in a moment."
+          : text.slice(0, 200);
+        throw new Error(`Send failed (${res.status}): ${displayMsg}`);
       }
       if (!res.ok) {
         const err = new Error(data.message || "Send failed") as any;

@@ -1,0 +1,153 @@
+Refocus only on the production signature send failure.
+
+Current confirmed behavior:
+- Email with no signature sends successfully.
+- Email with either production signature fails.
+- Failure happens even without CTA.
+- Dev/local curl tests may pass because local/dev database signatures do not match production signatures.
+- Therefore the root cause is likely production signature HTML or production signature assets.
+
+Do not work on unrelated AI features.
+
+Goal:
+Diagnose and fix production signature HTML/assets so emails with signatures send successfully.
+
+Tasks:
+
+1. Inspect production signature records
+
+Connect to the same production database/environment used by the deployed app.
+
+Fetch all signatures for trevor@voltsafe.com.
+
+For each signature, log safely:
+- signature id
+- name
+- is_default / starred status
+- HTML length
+- all img src values
+- all href values
+- whether any src/href is relative
+- whether any src/href contains localhost, 127.0.0.1, old Replit domains, private app routes, or auth-protected API routes
+- whether any src is data:, blob:, file:, or cid:
+- whether the HTML contains script, iframe, event handlers, svg, form, style blocks, or external CSS
+
+Do not log private email content or credentials.
+
+2. Add a one-time diagnostic endpoint or script
+
+Preferred: script only, not public endpoint.
+
+Create:
+
+scripts/audit-production-signatures.ts
+
+It should:
+- query production signature records
+- parse signature HTML
+- report unsafe images/links/tags
+- print recommended fixes
+- optionally output sanitized preview HTML to a temp file
+
+3. Identify why provider returns 403
+
+Focus on:
+- image URLs inside signatures
+- logo URLs
+- CTA thumbnail URLs
+- private/protected routes
+- old-host Replit asset URLs
+- malformed HTML
+- unsupported attributes
+- excessively large base64/data images
+
+4. Add send-time sanitization specifically for signatures
+
+Create/update:
+
+normalizeSignatureHtmlForSend(signatureHtml, req)
+
+Rules:
+- Convert safe relative asset URLs to absolute HTTPS public URLs.
+- Rewrite old known host URLs to the current public app host only when path is a safe asset path.
+- Strip img tags with src values that are:
+  - data:
+  - blob:
+  - file:
+  - cid:
+  - localhost
+  - 127.0.0.1
+  - protected /api routes
+  - missing or malformed
+- Strip scripts, iframes, forms, event handlers, SVG, external CSS/style blocks.
+- Preserve email-safe tables, inline styles, links, text, line breaks, and images with safe HTTPS public src.
+- If VoltSafe logo image cannot be made safe, omit it rather than blocking send.
+- If CTA image cannot be made safe, replace it with text fallback link.
+
+5. Ensure production asset routes are public
+
+If signature image/CTA image uses an app route, confirm that route:
+- does not require authentication
+- returns image bytes, not HTML
+- has correct Content-Type
+- does not redirect to index.html
+- works in an incognito browser
+
+If not, create or fix a public asset route, for example:
+
+GET /assets/email/:filename
+
+or use the existing safe static route.
+
+6. Fix send route JSON handling
+
+Even if the provider/proxy rejects the message, frontend must not show raw HTML.
+
+Backend must return JSON:
+
+{
+  "success": false,
+  "error": "Send failed",
+  "details": "Provider rejected the email signature or one of its assets."
+}
+
+Frontend toast must never include:
+<!doctype html>
+
+7. Production smoke tests
+
+After deploying, test in the live app:
+
+A. No signature
+Expected: sends.
+
+B. Trevor Burgess non-star signature
+Expected: sends.
+
+C. Trevor Burgess starred/default signature
+Expected: sends.
+
+D. Starred signature with CTA enabled
+Expected:
+- sends
+- no broken image
+- CTA visible or text fallback appears
+
+E. Non-star signature plus manually inserted CTA
+Expected:
+- sends
+- CTA appears before signature
+- link works
+
+8. Add regression tests
+
+Add tests for:
+- production-style signature HTML with unsafe image URLs gets sanitized.
+- production-style signature HTML with old host URLs gets rewritten or stripped.
+- signature with no images sends cleanly.
+- signature with invalid CTA thumbnail falls back to text link.
+- send error parser never exposes raw HTML doctype.
+
+Keep scope narrow:
+Do not work on AI email context, voice DNA, follow-up engine, or unrelated tests.
+Only fix production signature send failure and CTA/signature asset safety.

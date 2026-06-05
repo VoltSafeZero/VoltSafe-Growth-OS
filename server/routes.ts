@@ -61,6 +61,7 @@ import { registerImageRoutes } from "./replit_integrations/image";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
 import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft } from "./gmail";
 import { normalizeOutboundHtml } from "./services/email-html-normalizer";
+import { applySignatureSendSanitizer } from "./services/signature-html-sanitizer";
 import { wrapSignatureCtaLinks, updateSignatureCtaMessageIds, recordSignatureCtaClick, isSafeCtaUrl } from "./services/signature-cta-tracker";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
@@ -14037,11 +14038,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         }
       }
 
-      const cleanBody = normalizeOutboundHtml(body);
-      const trackingEnabled = enableTracking !== false; // default: true
       const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
       const host     = req.headers["x-forwarded-host"]  || req.headers.host  || "localhost:5000";
       const baseUrl  = `${protocol}://${host}`;
+      // Sanitize signature section at send time: strips data URIs, localhost refs,
+      // private /api/ routes, and old Replit host URLs that bloat the request body
+      // and cause the production proxy to return a 403 HTML page.
+      const cleanBody = applySignatureSendSanitizer(normalizeOutboundHtml(body), baseUrl);
+      const trackingEnabled = enableTracking !== false; // default: true
 
       // Parse recipient lists into normalized address arrays.
       // Multi-recipient sends MUST fan out to N envelopes — Gmail can only
