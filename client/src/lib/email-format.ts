@@ -230,6 +230,7 @@ export function signatureToTextFallback(html: string): string {
  */
 export function normalizeSignatureHtmlClientSide(html: string): string {
   if (!html || !html.trim()) return html;
+  console.log("[NORMALIZER INPUT]", html.slice(0, 500));
   let out = html;
 
   // Strip <!DOCTYPE ...>
@@ -247,7 +248,9 @@ export function normalizeSignatureHtmlClientSide(html: string): string {
   // Strip stray <title>...</title>
   out = out.replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi, "");
 
-  return out.trim();
+  const normalized = out.trim();
+  console.log("[NORMALIZER OUTPUT]", normalized.slice(0, 500));
+  return normalized;
 }
 
 /**

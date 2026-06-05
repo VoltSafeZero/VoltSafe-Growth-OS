@@ -6401,6 +6401,36 @@ export async function registerRoutes(
     next();
   }
 
+  // POST /api/admin/normalize-email-signatures
+  // One-shot data-fix: strips <!DOCTYPE>/<html>/<head>/<body> wrappers from every
+  // stored signature. Safe to call repeatedly — idempotent (already-clean rows
+  // are updated with the same content). Requires admin auth.
+  app.post("/api/admin/normalize-email-signatures", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(`SELECT id, user_id, name, html_content FROM email_signatures ORDER BY id`));
+      const allRows = rows.rows as { id: number; user_id: number; name: string; html_content: string }[];
+      const report: { id: number; name: string; hadDoctype: boolean; hadHtml: boolean; hadHead: boolean; hadBody: boolean; bytesBefore: number; bytesAfter: number }[] = [];
+      for (const row of allRows) {
+        const before = row.html_content || "";
+        const hadDoctype = /<!DOCTYPE\b/i.test(before);
+        const hadHtml    = /<html\b/i.test(before);
+        const hadHead    = /<head\b/i.test(before);
+        const hadBody    = /<body\b/i.test(before);
+        const after = normalizeSignatureHtml(before);
+        if (before !== after) {
+          const sigId = row.id;
+          await db.execute(sql`UPDATE email_signatures SET html_content = ${after}, updated_at = NOW() WHERE id = ${sigId}`);
+        }
+        report.push({ id: row.id, name: row.name, hadDoctype, hadHtml, hadHead, hadBody, bytesBefore: before.length, bytesAfter: after.length });
+      }
+      const fixed = report.filter(r => r.hadDoctype || r.hadHtml || r.hadHead || r.hadBody).length;
+      return res.json({ ok: true, total: allRows.length, fixed, report });
+    } catch (err: any) {
+      console.error("[normalize-email-signatures] error:", err);
+      return res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
   app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const allUsers = await db.select({
       id: users.id,

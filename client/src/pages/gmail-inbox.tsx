@@ -1011,6 +1011,7 @@ function ComposeDialog({
       onTrustEvent?.({ type: "sending", at: Date.now() });
 
       // ── Step 1: Sanitize signature HTML client-side (strips data: img src etc.) ──
+      console.log("[ACTIVE SIGNATURE HTML]", activeSignatureHtml.slice(0, 1000));
       const safeSigHtml = sanitizeSignatureHtmlClientSide(activeSignatureHtml);
 
       // ── Step 2: Build quoted reply/forward block ──────────────────────────────
