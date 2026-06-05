@@ -109,6 +109,32 @@ app.use(
   })
 );
 
+// ── Cookie-size guard ────────────────────────────────────────────────────────
+// Logs a warning when the Cookie header exceeds a safe threshold and returns
+// a clean JSON error for API routes so the client gets a readable response
+// instead of the Replit proxy's raw 431 HTML page.
+// Thresholds: warn at 4 KB, hard-block API routes at 7 KB.
+const COOKIE_WARN_BYTES  = 4 * 1024;  // 4 KB
+const COOKIE_BLOCK_BYTES = 7 * 1024;  // 7 KB — Replit proxy limit is ~8 KB total headers
+app.use((req, res, next) => {
+  const cookieHeader = req.headers["cookie"] ?? "";
+  const len = cookieHeader.length;
+  if (len > COOKIE_WARN_BYTES) {
+    const names = cookieHeader.split(";").map(c => c.trim().split("=")[0].trim()).filter(Boolean);
+    const details = { length: len, cookieNames: names, path: req.path };
+    if (len > COOKIE_BLOCK_BYTES && req.path.startsWith("/api/")) {
+      console.error("[cookie-size-BLOCK]", details);
+      return res.status(431).json({
+        message: "Request headers too large — Cookie header is oversized. Clear site data for this app and reload.",
+        cookieHeaderBytes: len,
+        hint: "Run window.__debugCookies() in DevTools to identify large cookies.",
+      });
+    }
+    console.warn("[cookie-size-warning]", details);
+  }
+  next();
+});
+
 // ── CSRF: Origin/Referer host allowlist on state-changing requests ──────────
 // Mounted after session so we can be confident the request has been parsed
 // and any future logging middleware can still observe rejected attempts via

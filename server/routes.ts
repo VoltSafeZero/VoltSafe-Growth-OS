@@ -13798,15 +13798,19 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  // GET /api/inbox/thread-signals — batch signal + triage data for multiple thread IDs
-  app.get("/api/inbox/thread-signals", requireAuth, async (req, res) => {
-    const raw = String(req.query.threadIds || "");
+  // Shared handler for thread-signals — used by both GET (legacy) and POST (preferred).
+  // POST is preferred because a long threadIds list in a GET query string can push the
+  // total request header byte count past the Replit proxy's ~8 KB limit (HTTP 431).
+  async function handleThreadSignals(req: any, res: any) {
+    // Accept threadIds from POST body OR GET query string (backwards compat)
+    const raw = req.method === "POST"
+      ? String((req.body as any)?.threadIds || "")
+      : String(req.query.threadIds || "");
     if (!raw.trim()) return res.json({});
-    const threadIds = raw.split(",").map(s => s.trim()).filter(Boolean).slice(0, 100);
+    const threadIds = raw.split(",").map((s: string) => s.trim()).filter(Boolean).slice(0, 150);
     if (!threadIds.length) return res.json({});
+    const escaped = threadIds.map((id: string) => `'${id.replace(/'/g, "''")}'`).join(",");
     try {
-      const escaped = threadIds.map(id => `'${id.replace(/'/g, "''")}'`).join(",");
-
       // Signal data from tracking pixels (outbound messages in each thread)
       // Also aggregates open/click counts and first/last open timestamps for
       // the Sent Mail tracking indicators.
@@ -13890,7 +13894,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
-  });
+  }
+
+  // GET kept for backwards compatibility (short lists / direct navigation).
+  // POST is the preferred path — threadIds live in the request body so they
+  // never appear in the URL and cannot push the request-header total past the
+  // Replit proxy's ~8 KB limit (which returns HTTP 431).
+  app.get("/api/inbox/thread-signals",  requireAuth, handleThreadSignals);
+  app.post("/api/inbox/thread-signals", requireAuth, handleThreadSignals);
 
   // GET /api/inbox/thread-tasks/:threadId — open tasks for a thread's linked CRM records
   app.get("/api/inbox/thread-tasks/:threadId", requireAuth, async (req, res) => {

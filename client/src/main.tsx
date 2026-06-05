@@ -3,6 +3,76 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
+// ── Cookie diagnostics & cleanup ─────────────────────────────────────────────
+// Runs at startup and also available interactively as window.__debugCookies().
+// Never logs cookie VALUES — only names and lengths.
+
+function auditCookies(verbose = false): { total: number; names: string[]; details: { name: string; bytes: number }[] } {
+  const raw = document.cookie;
+  if (!raw.trim()) return { total: 0, names: [], details: [] };
+  const pairs = raw.split(";").map(c => c.trim());
+  const details = pairs.map(p => {
+    const eq = p.indexOf("=");
+    const name  = eq >= 0 ? p.slice(0, eq).trim() : p.trim();
+    return { name, bytes: p.length };
+  }).sort((a, b) => b.bytes - a.bytes);
+  const total = raw.length;
+  const names = details.map(d => d.name);
+  if (verbose) {
+    console.group(`%c[__debugCookies] total Cookie header: ${total} bytes (${pairs.length} cookies)`, "color:#14b8a6;font-weight:bold");
+    for (const d of details) console.log(`  ${d.name.padEnd(40)} ${d.bytes} bytes`);
+    if (total > 4096) console.warn(`  ⚠️  Cookie header exceeds 4 KB — may cause HTTP 431 on Replit proxy`);
+    if (total > 7168) console.error(`  ❌ Cookie header exceeds 7 KB — WILL cause HTTP 431`);
+    console.groupEnd();
+  }
+  return { total, names, details };
+}
+
+// Expire any cookie that looks like it might contain large structured data
+// (compose payloads, signature HTML, draft bodies, base64 blobs, etc.).
+// Only names are checked — values are never read.
+const UNSAFE_COOKIE_PATTERNS = [
+  /compose/i, /draft/i, /signature/i, /payload/i, /thread/i,
+  /mailbox/i, /session-data/i, /crm/i, /auth-state/i, /oauth/i,
+];
+function cleanupOversizedCookies() {
+  const { details, total } = auditCookies(false);
+  if (total <= 4096) return;  // Nothing to clean
+  for (const { name, bytes } of details) {
+    const isSuspect = UNSAFE_COOKIE_PATTERNS.some(p => p.test(name));
+    const isLarge   = bytes > 512;
+    if (isSuspect || isLarge) {
+      // Expire the cookie on all likely path/domain combinations.
+      const expiry = "Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = `${name}=; path=/; ${expiry}`;
+      document.cookie = `${name}=; path=/api; ${expiry}`;
+      console.warn(`[cookie-cleanup] Expired oversized/suspect cookie: "${name}" (${bytes} bytes)`);
+    }
+  }
+}
+
+// Expose debug helper globally for DevTools console use.
+(window as any).__debugCookies = () => auditCookies(true);
+
+// Run silent audit at startup; only log if cookies are over the warning threshold.
+const _startup = auditCookies(false);
+if (_startup.total > 4096) {
+  console.warn(
+    `[cookie-startup] Cookie header is ${_startup.total} bytes — approaching HTTP 431 limit. ` +
+    `Run window.__debugCookies() for details.`,
+    { names: _startup.names },
+  );
+  cleanupOversizedCookies();
+  // Re-check after cleanup
+  const _after = auditCookies(false);
+  if (_after.total > 4096) {
+    console.error(
+      `[cookie-startup] Still ${_after.total} bytes after cleanup. ` +
+      `Use DevTools → Application → Cookies → Clear all site data, then reload.`,
+    );
+  }
+}
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   constructor(props: { children: ReactNode }) {
     super(props);

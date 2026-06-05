@@ -1,0 +1,166 @@
+Root cause has changed: requests are failing before send with:
+
+GET /api/inbox/thread-signals?... 
+431 Request Header Fields Too Large
+
+This happens while merely composing an email, before clicking Send.
+
+Therefore the issue is not primarily the email body/signature payload. The Replit proxy is rejecting requests because request headers are too large, most likely due to oversized cookies/session data.
+
+Fix this first.
+
+Tasks:
+
+1. Audit browser request headers
+
+Inspect requests to:
+- /api/inbox/thread-signals
+- /api/gmail/send
+- /api/signatures
+- /api/signature-ctas
+
+Determine total request header size and especially Cookie header size.
+
+Log safely:
+- total cookie header length
+- number of cookies
+- cookie names only, not values
+- largest cookie names by length
+- whether any cookie stores signature HTML, email draft body, pending compose payload, OAuth data, CRM data, or base64/image data
+
+Do not log cookie values.
+
+2. Find where oversized cookies are created
+
+Search codebase for:
+- document.cookie
+- setCookie
+- cookie
+- localStorage sync to cookie
+- session middleware config
+- express-session
+- connect-pg-simple
+- pending compose payload
+- draft payload
+- signature HTML
+- email body
+- base64
+- image data
+
+No large content should ever be stored in cookies.
+
+3. Fix cookie/session storage
+
+Cookies should contain only a tiny session id/token.
+
+Do NOT store:
+- signature HTML
+- email body
+- draft content
+- CTA image data
+- base64 data
+- Gmail OAuth tokens
+- user profile JSON
+- mailbox state
+- CRM state
+- large preferences
+
+Move large state to:
+- database
+- server session store
+- localStorage/sessionStorage if client-only
+- in-memory React state
+
+4. Configure session cookie correctly
+
+Ensure Express/session cookie is small.
+
+If using express-session:
+- store only user id/session id in cookie
+- use server-side session store for data
+- set rolling/resave appropriately
+- do not serialize large objects into cookie
+
+5. Add defensive middleware
+
+Add early middleware that logs warning when Cookie header exceeds safe threshold:
+
+if cookie header > 6000 chars:
+console.warn("[cookie-size-warning]", {
+  length,
+  cookieNames
+});
+
+If over hard threshold:
+return JSON error for API routes if Express receives it.
+
+But the real fix is preventing huge cookies from being created.
+
+6. Add client-side cookie debug utility
+
+Temporarily add a dev/admin-only console helper:
+
+window.__debugCookies()
+
+It should print:
+- total document.cookie length
+- cookie names
+- per-cookie approximate length
+- warnings for oversized cookies
+
+No values.
+
+7. Clear bad cookies after fix
+
+Add a one-time cleanup routine for known bad oversized cookies.
+
+If old cookies contain:
+- compose payloads
+- signature HTML
+- draft bodies
+- base64
+- thread signal cache
+- mailbox state
+
+expire them with:
+- Max-Age=0
+- correct path
+- correct domain
+
+Also provide user instruction:
+Clear site data for this Replit app if needed.
+
+8. Fix /api/inbox/thread-signals spam
+
+The UI is repeatedly calling /api/inbox/thread-signals and getting 431.
+
+Add protection so failed 431/4xx responses do not retry in a tight loop.
+
+On 431:
+- stop retrying
+- show a safe internal warning
+- do not flood the console/network
+
+9. After header bug is fixed, retest signature send
+
+Only after 431 is gone:
+- compose email with signature
+- click send
+- check [FINAL FETCH ABOUT TO SEND]
+- check [POST /api/gmail/send ENTERED]
+
+10. Tests
+
+Add tests for:
+- no large payloads stored in cookies
+- cookie size warning detects large Cookie header
+- known bad compose/signature cookies are cleared
+- thread-signals does not retry endlessly after 431
+- send flow does not depend on cookie-stored signature HTML
+
+Success criteria:
+- Opening compose does not produce 431 errors.
+- /api/inbox/thread-signals succeeds or fails cleanly without retry spam.
+- Cookie header is below safe threshold.
+- Signature email send can then be tested without proxy header rejection.
+- Do not mark complete until 431 errors are gone in production.

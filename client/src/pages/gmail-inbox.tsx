@@ -7129,15 +7129,34 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     [crmFilteredMessages]
   );
   const threadSignalsQuery = useQuery<Record<string, ThreadSignal>>({
+    // Use a stable hash-style key so React Query caches correctly.
+    // The join is only for cache key uniqueness — it never goes into the URL now.
     queryKey: ["/api/inbox/thread-signals", visibleThreadIds.join(",")],
     queryFn: async () => {
       if (!visibleThreadIds.length) return {};
-      const res = await fetch(`/api/inbox/thread-signals?threadIds=${visibleThreadIds.join(",")}`, { credentials: "include" });
+      // POST instead of GET: thread IDs live in the request body, never in the
+      // URL query string.  A long GET query string pushes total request-header
+      // bytes past the Replit proxy's ~8 KB limit and returns HTTP 431.
+      const res = await fetch("/api/inbox/thread-signals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ threadIds: visibleThreadIds.join(",") }),
+      });
+      // 431 = Request Header Fields Too Large (still-oversized Cookie header).
+      // 4xx from upstream / network: return empty object — do not let React Query
+      // auto-retry in a tight loop, which would flood the proxy with 431s.
+      if (res.status === 431) {
+        console.warn("[thread-signals] 431 Request Header Fields Too Large — Cookie header may be oversized. Run window.__debugCookies() to inspect.");
+        return {};
+      }
       if (!res.ok) return {};
       return res.json();
     },
     enabled: visibleThreadIds.length > 0 && (tab === "inbox" || tab === "sent" || isCategoryTab),
     staleTime: 30000,
+    // Never auto-retry — a 431/network error will keep firing if we retry.
+    retry: false,
     // Keep previous signal data visible while a new key (larger thread-ID list) loads.
     // Without this, when loadMore() adds emails and visibleThreadIds grows, all CRM signal
     // badges (replied/hot/awaiting) briefly disappear on every row until the new fetch
