@@ -526,14 +526,18 @@ function ComposeDialog({
     const ctaBlock = (activeSig.ctas || []).map(cta => {
       const alt  = (cta.alt_text || cta.name).replace(/"/g, "&quot;");
       const dest = cta.destination_url.replace(/"/g, "&quot;");
-      const w    = cta.width_px || 200;
-      if (cta.type === "image" && cta.image_url) {
+      // Cap at 200 for signature embed — body insertions use 600 separately
+      const w    = Math.min(cta.width_px || 200, 200);
+      if (cta.image_url) {
         const img = cta.image_url.replace(/"/g, "&quot;");
-        return `<a href="${dest}" style="display:inline-block;"><img src="${img}" alt="${alt}" width="${w}" style="display:block;border:0;max-width:100%;"></a>`;
+        return `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${img}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${w}px;height:auto;"></a>`;
       }
-      return `<a href="${dest}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${alt}</a>`;
-    }).join("<br>");
-    return normalizedSigHtml + (ctaBlock ? `<div style="margin-top:12px;">${ctaBlock}</div>` : "");
+      return `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${alt}</a>`;
+    }).join("");
+    // Side-by-side table layout — CTA to the RIGHT of signature text (matches backend send route)
+    return ctaBlock
+      ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:top;padding-left:24px;">${ctaBlock}</td></tr></table>`
+      : normalizedSigHtml;
   })();
 
   // Sync fields whenever the modal opens with new defaults (e.g. switching between reply targets).
@@ -629,14 +633,15 @@ function ComposeDialog({
   function insertCtaIntoBody(cta: CtaPickerItem) {
     const altText = (cta.alt_text || cta.name).replace(/"/g, "&quot;");
     const destUrl = cta.destination_url.replace(/"/g, "&quot;");
-    const width = cta.width_px || 200;
 
     let ctaHtml: string;
-    if (cta.type === "image" && cta.image_url) {
+    if (cta.image_url) {
       const imgUrl = cta.image_url.replace(/"/g, "&quot;");
-      ctaHtml = `<a href="${destUrl}" data-vs-cta-id="${cta.id}" style="display:inline-block;"><img src="${imgUrl}" alt="${altText}" width="${width}" style="display:block;border:0;max-width:100%;"></a>`;
+      // For body insertion always use 600px; swap _200 variant for _600 if available
+      const bodyImgUrl = imgUrl.replace(/(_200)(\.[a-zA-Z]+)(?=[?#]|$)/, "_600$2");
+      ctaHtml = `<a href="${destUrl}" target="_blank" rel="noopener noreferrer" data-vs-cta-id="${cta.id}" style="display:inline-block;"><img src="${bodyImgUrl}" alt="${altText}" width="600" style="display:block;border:0;outline:none;text-decoration:none;max-width:600px;width:100%;height:auto;"></a>`;
     } else {
-      ctaHtml = `<a href="${destUrl}" data-vs-cta-id="${cta.id}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${altText}</a>`;
+      ctaHtml = `<a href="${destUrl}" target="_blank" rel="noopener noreferrer" data-vs-cta-id="${cta.id}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${altText}</a>`;
     }
 
     if (!bodyRef.current) {
@@ -1866,7 +1871,7 @@ function ComposeDialog({
                             className="w-full flex items-center gap-2.5 text-left p-2 rounded-md hover:bg-muted/50 transition-colors"
                             data-testid={`button-insert-cta-${cta.id}`}
                           >
-                            {cta.type === "image" && cta.image_url ? (
+                            {cta.image_url ? (
                               <img src={cta.image_url} alt={cta.name} className="h-8 w-12 object-cover rounded border border-border/40 shrink-0" />
                             ) : (
                               <div className="h-8 w-12 rounded border border-border/40 shrink-0 bg-primary/10 flex items-center justify-center">

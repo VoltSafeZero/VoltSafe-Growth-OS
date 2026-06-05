@@ -1,0 +1,133 @@
+Fix the final CTA rendering bug.
+
+Current status:
+- CTA PNG files now upload and display correctly in CTA Assets.
+- Email sending works.
+- Asset Library filtering is fixed.
+- Remaining bug: CTA renders as a blue “Watch Demo” button/text instead of the clickable PNG image.
+
+Confirmed wrong behavior:
+1. Embedded signature CTA:
+   - Does not show visible PNG in signature preview.
+   - Received email shows blue button below signature.
+   - Expected: clickable PNG image integrated with signature.
+
+2. Standalone body CTA:
+   - Shows as blue “Watch Demo” button.
+   - Expected: clickable WatchDemo_Thumbnail_600.png image above signature.
+
+Goal:
+Use the CTA image whenever a valid CTA image exists. Text/button fallback should ONLY happen when no valid image URL exists.
+
+Tasks:
+
+1. Audit CTA HTML builder
+
+Find every place that generates CTA HTML:
+- compose preview
+- Insert Tracked CTA popover
+- standalone body insertion
+- signature embedded CTA preview
+- backend send route
+- backend schedule route
+
+There should be ONE shared helper for CTA HTML generation.
+
+2. Fix fallback logic
+
+Current code is falling back to blue button even though image exists.
+
+Update logic:
+
+if cta.image_url or cta.imageUrl exists and resolves to public URL:
+  render clickable image
+else:
+  render fallback button/text
+
+Do NOT use button fallback when image_url exists.
+
+3. Use real image markup
+
+Standalone CTA HTML should be:
+
+<a href="[trackedUrl]" target="_blank" rel="noopener noreferrer">
+  <img
+    src="[publicImageUrl]"
+    alt="Watch Demo"
+    width="600"
+    style="display:block; max-width:600px; width:100%; height:auto; border:0; outline:none; text-decoration:none;"
+  />
+</a>
+
+4. Signature embedded CTA HTML should be:
+
+<a href="[trackedUrl]" target="_blank" rel="noopener noreferrer">
+  <img
+    src="[publicImageUrl]"
+    alt="Watch Demo"
+    width="200"
+    style="display:block; width:200px; max-width:200px; height:auto; border:0; outline:none; text-decoration:none;"
+  />
+</a>
+
+5. Signature layout
+
+For embedded signature CTA:
+- text/logo signature block on LEFT
+- Watch Demo PNG on RIGHT
+- email-safe table layout
+- vertically aligned near top/middle
+- no blue button below signature
+- no duplicate CTA
+
+6. Compose preview
+
+When selecting starred signature with embedded CTA:
+- preview should show CTA PNG to the right of signature text
+- not hidden
+- not below as button
+- not text
+
+7. Backend send/schedule
+
+Received email must contain:
+
+<img src="...WatchDemo_Thumbnail_200..." />
+
+for embedded signature CTA.
+
+Received standalone body CTA must contain:
+
+<img src="...WatchDemo_Thumbnail_600..." />
+
+Do not emit button fallback unless image URL is missing.
+
+8. Track click URL
+
+The image must be wrapped in tracked CTA link.
+
+Clicking the image should route through existing tracking URL and then destination.
+
+9. Tests
+
+Add/update tests:
+- CTA with image_url renders img, not button.
+- Button fallback only when image_url missing.
+- Embedded signature CTA uses 200px image.
+- Standalone body CTA uses 600px image.
+- Received MIME contains img tag.
+- Received MIME does not contain blue button when image exists.
+- Signature preview renders image to right of signature.
+- Standalone CTA insertion renders image above signature.
+
+10. Production validation
+
+After deploy:
+- CTA Assets still shows images.
+- Signature preview shows Watch Demo PNG to right.
+- Compose with starred signature shows PNG, not button.
+- Received email with starred signature shows clickable PNG image.
+- Standalone body CTA shows clickable PNG above signature.
+- No blue fallback button appears when image exists.
+
+Do not mark complete until received emails show clickable PNG images instead of blue buttons.

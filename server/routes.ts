@@ -13125,11 +13125,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               const _a = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
               const _d = String(cta.destination_url || "").replace(/"/g, "&quot;");
               const _w = Number(cta.width_px) || 200;
-              if (cta.type === "image" && cta.image_url) {
+              if (cta.image_url) {
                 const _i = _fixScImg(String(cta.image_url)).replace(/"/g, "&quot;");
-                return `<a href="${_d}" style="display:inline-block;"><img src="${_i}" alt="${_a}" width="${_w}" style="display:block;border:0;max-width:100%;"></a>`;
+                const _dw = Math.min(_w, 200);
+                return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_i}" alt="${_a}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${_dw}px;height:auto;"></a>`;
               }
-              return `<a href="${_d}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_a}</a>`;
+              return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_a}</a>`;
             }).join("");
             const _schedSigSection = _sh
               ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_sn}</td><td style="vertical-align:top;padding-left:24px;">${_sh}</td></tr></table>`
@@ -14296,11 +14297,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               const _alt  = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
               const _dest = String(cta.destination_url || "").replace(/"/g, "&quot;");
               const _w    = Number(cta.width_px) || 200;
-              if (cta.type === "image" && cta.image_url) {
+              if (cta.image_url) {
                 const _img = _fixCtaImg(String(cta.image_url)).replace(/"/g, "&quot;");
-                return `<a href="${_dest}" style="display:inline-block;"><img src="${_img}" alt="${_alt}" width="${_w}" style="display:block;border:0;max-width:100%;"></a>`;
+                const _dw = Math.min(_w, 200);
+                return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_img}" alt="${_alt}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${_dw}px;height:auto;"></a>`;
               }
-              return `<a href="${_dest}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_alt}</a>`;
+              return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_alt}</a>`;
             }).join("");
             // Place CTAs to the RIGHT of signature text in a side-by-side table layout.
             const _sigSection = _ctaHtmlBlock

@@ -172,19 +172,38 @@ test("handles URL with query string — extracts filename before ?", () => {
 // ─── Part 4: activeSignatureHtml CTA rendering ────────────────────────────────
 console.log("\nPart 4 — activeSignatureHtml embeds CTA HTML");
 
+// Mirrors the updated logic in gmail-inbox.tsx:
+//   - condition: cta.image_url (no type check required)
+//   - width capped at 200 for signature embed
+//   - table layout: sig text LEFT, CTA RIGHT
+//   - body insertion: separate function uses 600px + _200→_600 swap
 function buildActiveSignatureHtml(activeSig) {
   if (!activeSig) return "";
+  const normalizedSigHtml = activeSig.htmlContent || "";
   const ctaBlock = (activeSig.ctas || []).map(cta => {
     const alt  = (cta.alt_text || cta.name).replace(/"/g, "&quot;");
     const dest = cta.destination_url.replace(/"/g, "&quot;");
-    const w    = cta.width_px || 200;
-    if (cta.type === "image" && cta.image_url) {
+    const w    = Math.min(cta.width_px || 200, 200);
+    if (cta.image_url) {
       const img = cta.image_url.replace(/"/g, "&quot;");
-      return `<a href="${dest}" style="display:inline-block;"><img src="${img}" alt="${alt}" width="${w}" style="display:block;border:0;max-width:100%;"></a>`;
+      return `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${img}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${w}px;height:auto;"></a>`;
     }
-    return `<a href="${dest}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${alt}</a>`;
-  }).join("<br>");
-  return activeSig.htmlContent + (ctaBlock ? `<div style="margin-top:12px;">${ctaBlock}</div>` : "");
+    return `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${alt}</a>`;
+  }).join("");
+  return ctaBlock
+    ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:top;padding-left:24px;">${ctaBlock}</td></tr></table>`
+    : normalizedSigHtml;
+}
+
+function buildBodyCtaHtml(cta) {
+  const altText = (cta.alt_text || cta.name).replace(/"/g, "&quot;");
+  const destUrl = cta.destination_url.replace(/"/g, "&quot;");
+  if (cta.image_url) {
+    const imgUrl = cta.image_url.replace(/"/g, "&quot;");
+    const bodyImgUrl = imgUrl.replace(/(_200)(\.[a-zA-Z]+)(?=[?#]|$)/, "_600$2");
+    return `<a href="${destUrl}" target="_blank" rel="noopener noreferrer" data-vs-cta-id="${cta.id}" style="display:inline-block;"><img src="${bodyImgUrl}" alt="${altText}" width="600" style="display:block;border:0;outline:none;text-decoration:none;max-width:600px;width:100%;height:auto;"></a>`;
+  }
+  return `<a href="${destUrl}" target="_blank" rel="noopener noreferrer" data-vs-cta-id="${cta.id}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${altText}</a>`;
 }
 
 test("signature with image CTA includes img tag", () => {
@@ -193,16 +212,61 @@ test("signature with image CTA includes img tag", () => {
     ctas: [{ id: 10, name: "Demo", type: "image",
              destination_url: "https://example.com/demo",
              image_url: "https://myapp.replit.app/assets/cta/uuid.png",
-             alt_text: "Watch Demo", width_px: 300, tracking_enabled: true }],
+             alt_text: "Watch Demo", width_px: 200, tracking_enabled: true }],
   };
   const html = buildActiveSignatureHtml(sig);
   assert.ok(html.includes("<p>Best, Alice</p>"), "Should include signature content");
   assert.ok(html.includes('<img src="https://myapp.replit.app/assets/cta/uuid.png"'), "Should include img tag");
-  assert.ok(html.includes('width="300"'), "Should use configured width");
+  assert.ok(html.includes('width="200"'), "Should cap at 200 for signature embed");
   assert.ok(html.includes('href="https://example.com/demo"'), "Should link to destination");
+  assert.ok(html.includes('<table role="presentation"'), "Should use table layout");
+  assert.ok(!html.includes("background:#00C1DE"), "Should NOT fall back to button when image_url is set");
 });
 
-test("signature with button CTA renders button-style link", () => {
+test("image CTA renders as img whenever image_url is set (no type check needed)", () => {
+  const sig = {
+    id: 9, htmlContent: "<p>Hi</p>", isDefault: false,
+    ctas: [{ id: 20, name: "Demo", type: "link",
+             destination_url: "https://example.com/demo",
+             image_url: "https://myapp.replit.app/assets/cta/WatchDemo_Thumbnail_200.png",
+             alt_text: "Watch Demo", width_px: 200, tracking_enabled: true }],
+  };
+  const html = buildActiveSignatureHtml(sig);
+  assert.ok(html.includes("<img"), "Should render img even when type is not 'image'");
+  assert.ok(!html.includes("background:#00C1DE"), "Should NOT fall back to button when image_url exists");
+});
+
+test("body CTA insertion uses 600px width", () => {
+  const cta = { id: 10, name: "Watch Demo", type: "image",
+    destination_url: "https://example.com/demo",
+    image_url: "https://myapp.replit.app/assets/cta/WatchDemo_Thumbnail_200.png",
+    alt_text: "Watch Demo", width_px: 200, tracking_enabled: true };
+  const html = buildBodyCtaHtml(cta);
+  assert.ok(html.includes('width="600"'), "Body CTA must use 600px width");
+  assert.ok(html.includes("<img"), "Body CTA must render as image");
+  assert.ok(!html.includes("background:#00C1DE"), "Body CTA must not fall back to button");
+});
+
+test("body CTA swaps _200 image for _600 variant", () => {
+  const cta = { id: 11, name: "Watch Demo", type: "image",
+    destination_url: "https://example.com/demo",
+    image_url: "https://myapp.replit.app/assets/cta/WatchDemo_Thumbnail_200.png",
+    alt_text: "Watch Demo", width_px: 200, tracking_enabled: true };
+  const html = buildBodyCtaHtml(cta);
+  assert.ok(html.includes("WatchDemo_Thumbnail_600.png"), "Should swap _200 → _600 for body insertion");
+  assert.ok(!html.includes("WatchDemo_Thumbnail_200.png"), "Should not use _200 variant in body");
+});
+
+test("body CTA fallback button when no image_url", () => {
+  const cta = { id: 12, name: "Get Quote", type: "button",
+    destination_url: "https://example.com/quote",
+    image_url: null, alt_text: null, width_px: 200, tracking_enabled: true };
+  const html = buildBodyCtaHtml(cta);
+  assert.ok(html.includes("background:#00C1DE"), "No image_url → button fallback");
+  assert.ok(!html.includes("<img"), "No image_url → no img tag");
+});
+
+test("signature with button CTA (no image_url) renders button-style link", () => {
   const sig = {
     id: 2, htmlContent: "<p>Thanks</p>", isDefault: false,
     ctas: [{ id: 11, name: "Get Quote", type: "button",
@@ -237,21 +301,20 @@ test("CTA with quotes in alt_text are escaped", () => {
   assert.ok(html.includes("&quot;Hello&quot;"), "Should use HTML entities for quotes");
 });
 
-test("CTA with multiple CTAs joins with <br>", () => {
+test("CTA with multiple image CTAs renders both in table without br separators", () => {
   const sig = {
     id: 5, htmlContent: "<p>Sig</p>", isDefault: false,
     ctas: [
-      { id: 13, name: "CTA 1", type: "button", destination_url: "https://example.com/1",
-        image_url: null, alt_text: null, width_px: 200, tracking_enabled: true },
-      { id: 14, name: "CTA 2", type: "button", destination_url: "https://example.com/2",
-        image_url: null, alt_text: null, width_px: 200, tracking_enabled: true },
+      { id: 13, name: "CTA 1", type: "image", destination_url: "https://example.com/1",
+        image_url: "https://host/assets/cta/img1.png", alt_text: null, width_px: 200, tracking_enabled: true },
+      { id: 14, name: "CTA 2", type: "image", destination_url: "https://example.com/2",
+        image_url: "https://host/assets/cta/img2.png", alt_text: null, width_px: 200, tracking_enabled: true },
     ],
   };
   const html = buildActiveSignatureHtml(sig);
-  const brCount = (html.match(/<br>/g) || []).length;
-  assert.ok(brCount >= 1, "Multiple CTAs should be joined with <br>");
-  assert.ok(html.includes("CTA 1"), "First CTA should appear");
-  assert.ok(html.includes("CTA 2"), "Second CTA should appear");
+  assert.ok(html.includes("img1.png"), "First CTA image should appear");
+  assert.ok(html.includes("img2.png"), "Second CTA image should appear");
+  assert.ok(html.includes('<table role="presentation"'), "Should wrap in table layout");
 });
 
 // ─── Part 5: Send route pre-try error handling ────────────────────────────────

@@ -436,7 +436,9 @@ function CtaDialog({
     try {
       const assets: CtaAsset[] = await fetch("/api/cta-assets", { credentials: "include" }).then(r => r.json());
       queryClient.setQueryData(["/api/cta-assets"], assets);
-      const demo = assets.find(a => a.name.toLowerCase().includes("watchdemo") || a.filename.toLowerCase().includes("watchdemo"));
+      // Prefer the 200px variant (for signature embed) when both sizes exist
+      const demo = assets.find(a => /watchdemo_thumbnail_200/i.test(a.name) || /watchdemo_thumbnail_200/i.test(a.filename))
+        || assets.find(a => a.name.toLowerCase().includes("watchdemo") || a.filename.toLowerCase().includes("watchdemo"));
       if (demo) {
         setImageUrl(demo.public_url);
         setSelectedAssetId(demo.id);
