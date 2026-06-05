@@ -509,14 +509,28 @@ function ComposeDialog({
   const [body, setBody] = useState(defaultBody);
 
   // ── Dynamic Signatures ───────────────────────────────────────────────────────
-  type EmailSig = { id: number; name: string; htmlContent: string; isDefault: boolean };
+  type SigCta = { id: number; name: string; type: string; destination_url: string; image_url: string | null; alt_text: string | null; width_px: number | null; tracking_enabled: boolean };
+  type EmailSig = { id: number; name: string; htmlContent: string; isDefault: boolean; ctas: SigCta[] };
   const { data: signaturesData = [] } = useQuery<EmailSig[]>({ queryKey: ["/api/signatures"] });
   // undefined = auto-pick default; null = user chose "No signature"; number = specific sig id
   const [selectedSigId, setSelectedSigId] = useState<number | null | undefined>(undefined);
   const defaultSig = signaturesData.find(s => s.isDefault) ?? signaturesData[0];
   const effectiveSigId = selectedSigId === undefined ? (defaultSig?.id ?? null) : selectedSigId;
-  const activeSignatureHtml = effectiveSigId === null ? ""
-    : (signaturesData.find(s => s.id === effectiveSigId)?.htmlContent ?? "");
+  const activeSig = effectiveSigId === null ? null : signaturesData.find(s => s.id === effectiveSigId);
+  const activeSignatureHtml = (() => {
+    if (!activeSig) return "";
+    const ctaBlock = (activeSig.ctas || []).map(cta => {
+      const alt  = (cta.alt_text || cta.name).replace(/"/g, "&quot;");
+      const dest = cta.destination_url.replace(/"/g, "&quot;");
+      const w    = cta.width_px || 200;
+      if (cta.type === "image" && cta.image_url) {
+        const img = cta.image_url.replace(/"/g, "&quot;");
+        return `<a href="${dest}" style="display:inline-block;"><img src="${img}" alt="${alt}" width="${w}" style="display:block;border:0;max-width:100%;"></a>`;
+      }
+      return `<a href="${dest}" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${alt}</a>`;
+    }).join("<br>");
+    return activeSig.htmlContent + (ctaBlock ? `<div style="margin-top:12px;">${ctaBlock}</div>` : "");
+  })();
 
   // Sync fields whenever the modal opens with new defaults (e.g. switching between reply targets).
   // C1 fix: also reset the idempotency key so each open of the compose window gets a fresh UUID.
@@ -1015,7 +1029,16 @@ function ComposeDialog({
           idempotencyKey: idempotencyKeyRef.current,
         }),
       });
-      const data = await res.json();
+      // Guard against non-JSON responses (e.g. HTML error pages from middleware crashes).
+      // Calling .json() on an HTML body throws "Unexpected token '<'" which swallows the real error.
+      const ct = res.headers.get("content-type") ?? "";
+      let data: any;
+      if (ct.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(`Send failed (${res.status}): ${text.slice(0, 140)}`);
+      }
       if (!res.ok) {
         const err = new Error(data.message || "Send failed") as any;
         err.draftId = data.draftId ?? null;

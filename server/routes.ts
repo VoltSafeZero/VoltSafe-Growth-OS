@@ -13995,8 +13995,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   app.post("/api/gmail/send", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
-    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
-    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
+    // Resolve account BEFORE the main try/catch so that any error here also returns JSON
+    // (not an HTML error page) — prevents "Unexpected token '<'" in the frontend.
+    let resolved: Awaited<ReturnType<typeof resolveAccount>> | null = null;
+    try {
+      const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+      resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
+    } catch (_e: any) {
+      return res.status(500).json({ message: "Account lookup failed: " + (_e?.message ?? "unknown error") });
+    }
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected. Connect your Gmail to send emails." });
     // Phase 4: SENDING email is the highest-impact mutation — require edit access.
     // View-only shared-mailbox grants cannot send under any circumstance.
@@ -14289,8 +14296,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (toForDraft && bodyForDraft) {
         try {
           const draft = await saveDraft(
-            resolved.userId, toForDraft, subjectForDraft, bodyForDraft,
-            threadIdForDraft, undefined, resolved.accountId
+            resolved?.userId ?? userId, toForDraft, subjectForDraft, bodyForDraft,
+            threadIdForDraft, undefined, resolved?.accountId
           );
           draftId = draft?.id ?? null;
           draftSaved = !!draftId;
@@ -28148,7 +28155,25 @@ export function registerConfluenceRoutes(app: Express) {
       const rows = await db.select().from(emailSignatures)
         .where(eq(emailSignatures.userId, userId))
         .orderBy(desc(emailSignatures.isDefault), asc(emailSignatures.createdAt));
-      res.json(rows);
+      // Attach CTAs so the compose dialog can preview the signature with embedded CTA images.
+      const ctaRows = ((await db.execute(sql.raw(`
+        SELECT id, signature_id, name, type, destination_url, image_url, alt_text, width_px, tracking_enabled
+        FROM email_signature_ctas WHERE user_id = ${userId} ORDER BY id ASC
+      `))).rows ?? []) as any[];
+      // Rewrite image_url host to match current request — prevents broken images when the
+      // stored URL references an old dev/staging host (e.g. localhost:5000 vs production domain).
+      const baseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
+      const fixImgUrl = (u: string | null) => {
+        if (!u) return u;
+        const m = u.match(/\/assets\/cta\/([^/?#\s]+)$/);
+        return m ? `${baseUrl}/assets/cta/${m[1]}` : u;
+      };
+      const ctaMap = ctaRows.reduce((acc: Record<number, any[]>, c: any) => {
+        const sid = Number(c.signature_id);
+        if (sid) { acc[sid] = acc[sid] || []; acc[sid].push({ ...c, image_url: fixImgUrl(c.image_url) }); }
+        return acc;
+      }, {});
+      res.json(rows.map(sig => ({ ...sig, ctas: ctaMap[sig.id] || [] })));
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
@@ -28272,8 +28297,16 @@ export function registerConfluenceRoutes(app: Express) {
         FROM email_signature_ctas
         WHERE user_id = ${userId} ${filter}
         ORDER BY id ASC
-      `))).rows;
-      res.json(rows);
+      `))).rows as any[];
+      // Rewrite image_url host to the current request's origin so CTA thumbnails render correctly
+      // regardless of which host the asset was uploaded under (dev vs production vs Replit preview).
+      const baseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
+      const fixed = rows.map((r: any) => {
+        if (!r.image_url) return r;
+        const m = (r.image_url as string).match(/\/assets\/cta\/([^/?#\s]+)$/);
+        return m ? { ...r, image_url: `${baseUrl}/assets/cta/${m[1]}` } : r;
+      });
+      res.json(fixed);
     } catch (err: any) {
       console.error("[signature-ctas] GET error:", err);
       res.status(500).json({ message: "Failed to load CTAs" });
