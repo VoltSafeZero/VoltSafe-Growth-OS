@@ -253,7 +253,7 @@ function CtaPickerSection({ cta, onChange }: { cta: CtaConfig; onChange: (c: Cta
               onClick={() => onChange({
                 ...cta,
                 imageUrl: asset.data_uri || asset.public_url,
-                destUrl: cta.destUrl || "https://www.voltsafemarine.com/sdemo",
+                destUrl: cta.destUrl || "https://www.voltsafemarine.com/demo",
                 altText: cta.altText || asset.name,
               })}
               className={`relative rounded-lg border-2 overflow-hidden w-16 h-16 transition-colors ${cta.imageUrl === (asset.data_uri || asset.public_url) ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-border"}`}
@@ -273,7 +273,7 @@ function CtaPickerSection({ cta, onChange }: { cta: CtaConfig; onChange: (c: Cta
             <Input
               value={cta.destUrl}
               onChange={e => setField("destUrl", e.target.value)}
-              placeholder="https://www.voltsafemarine.com/sdemo"
+              placeholder="https://www.voltsafemarine.com/demo"
               className="col-span-2 h-8 text-sm"
               data-testid="input-sig-ctaDestUrl"
             />
@@ -629,7 +629,7 @@ function CtaDialog({
   const applyPreset = async () => {
     setName("Watch a Demo");
     setType("image");
-    setDestinationUrl("https://www.voltsafemarine.com/sdemo");
+    setDestinationUrl("https://www.voltsafemarine.com/demo");
     setAltText("Watch a Demo");
     setWidthPx("200");
     setTrackingEnabled(true);
@@ -716,7 +716,7 @@ function CtaDialog({
           <div>
             <Label className="text-xs text-muted-foreground mb-1 block">Destination URL</Label>
             <Input value={destinationUrl} onChange={e => setDestinationUrl(e.target.value)}
-              placeholder="https://voltsafemarine.com/sdemo"
+              placeholder="https://voltsafemarine.com/demo"
               className="h-8 text-xs" data-testid="input-cta-dest-url" />
           </div>
           <div>
