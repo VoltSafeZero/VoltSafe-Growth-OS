@@ -71,12 +71,17 @@ type SigFields = {
   instagram: string;
   youtube: string;
   brandColor: string;
+  ctaImageUrl: string;
+  ctaDestUrl: string;
+  ctaAltText: string;
+  ctaWidthPx: string;
 };
 
 const DEFAULT_FIELDS: SigFields = {
   fullName: "", jobTitle: "", company: "", email: "", phone: "", mobile: "",
   website: "", address: "", linkedin: "", twitter: "", instagram: "", youtube: "",
   brandColor: "#00C1DE",
+  ctaImageUrl: "", ctaDestUrl: "", ctaAltText: "Watch a Demo", ctaWidthPx: "180",
 };
 
 // ── CtaAssetImg — renders a CTA image with a clear fallback when the file is missing ──
@@ -134,7 +139,8 @@ function buildSignatureHtml(f: SigFields): string {
   const rawWebsite = f.website ? (f.website.startsWith("http") ? f.website : `https://${f.website}`) : "";
   const websiteHref = safeUrl(rawWebsite);
 
-  return `<div style="font-family:Arial,sans-serif;font-size:13px;color:#333;line-height:1.5;">
+  // Left column: all contact/social/logo content
+  const leftContent = `<div style="font-family:Arial,sans-serif;font-size:13px;color:#333;line-height:1.5;">
 <p style="margin:0 0 14px 0;font-size:13px;">Best regards,</p>
 <table cellpadding="0" cellspacing="0" border="0" style="min-width:280px;">
   <tbody>
@@ -164,6 +170,24 @@ function buildSignatureHtml(f: SigFields): string {
   </tbody>
 </table>
 </div>`;
+
+  // If no CTA selected, return single-column layout
+  if (!f.ctaImageUrl || !f.ctaDestUrl) return leftContent;
+
+  // Right column: CTA image linked to destination URL
+  const ctaW = Math.max(80, Math.min(240, Number(f.ctaWidthPx) || 180));
+  const ctaAlt = esc(f.ctaAltText || "Watch a Demo");
+  const ctaHref = esc(safeUrl(f.ctaDestUrl));
+  const ctaSrc = esc(f.ctaImageUrl);
+  const rightContent = `<a href="${ctaHref}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${ctaSrc}" alt="${ctaAlt}" width="${ctaW}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${ctaW}px;height:auto;border-radius:4px;"></a>`;
+
+  // Two-column table: info left, CTA right (top-aligned)
+  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;">
+<tr>
+<td style="vertical-align:top;">${leftContent}</td>
+<td style="vertical-align:top;padding-left:24px;">${rightContent}</td>
+</tr>
+</table>`;
 }
 
 function htmlToPlainText(html: string): string {
@@ -198,6 +222,10 @@ function BuilderForm({ fields, onChange }: { fields: SigFields; onChange: (f: Si
       />
     </div>
   );
+
+  const assetsQuery = useQuery<CtaAsset[]>({ queryKey: ["/api/cta-assets"] });
+  const assets = assetsQuery.data ?? [];
+
   return (
     <div className="space-y-2.5 py-1">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/60 pb-1">Contact Info</p>
@@ -233,6 +261,107 @@ function BuilderForm({ fields, onChange }: { fields: SigFields; onChange: (f: Si
           />
         </div>
       </div>
+
+      {/* ── CTA Image (right column) ── */}
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/60 pt-2 pb-1">CTA Image — Right Column</p>
+      <p className="text-[11px] text-muted-foreground/60 -mt-1">
+        Pick a CTA Asset to embed beside your contact info. It will appear in the right column and link to your demo URL.
+      </p>
+
+      {/* Asset thumbnail picker */}
+      {assetsQuery.isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading CTA assets…
+        </div>
+      ) : assets.length === 0 ? (
+        <p className="text-xs text-muted-foreground/50 italic py-1">
+          No CTA assets uploaded yet. Go to the CTA Assets tab to upload one.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2 py-1">
+          {/* "None" option */}
+          <button
+            type="button"
+            onClick={() => onChange({ ...fields, ctaImageUrl: "", ctaDestUrl: "" })}
+            className={`flex flex-col items-center justify-center rounded-lg border-2 p-2 w-16 h-16 text-[10px] transition-colors ${!fields.ctaImageUrl ? "border-primary bg-primary/10 text-primary" : "border-border/40 text-muted-foreground hover:border-border"}`}
+            data-testid="button-sig-cta-none"
+          >
+            <ImageOff className="h-4 w-4 mb-1" />
+            None
+          </button>
+          {assets.map(asset => (
+            <button
+              key={asset.id}
+              type="button"
+              onClick={() => onChange({
+                ...fields,
+                ctaImageUrl: asset.public_url,
+                ctaDestUrl: fields.ctaDestUrl || "https://www.voltsafemarine.com/sdemo",
+                ctaAltText: fields.ctaAltText || asset.name,
+              })}
+              className={`relative rounded-lg border-2 overflow-hidden w-16 h-16 transition-colors ${fields.ctaImageUrl === asset.public_url ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-border"}`}
+              title={asset.name}
+              data-testid={`button-sig-cta-asset-${asset.id}`}
+            >
+              <CtaAssetImg src={asset.public_url} alt={asset.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Destination URL & size (only shown when a CTA is selected) */}
+      {fields.ctaImageUrl && (
+        <div className="space-y-2 pt-1">
+          <div className="grid grid-cols-3 items-center gap-3">
+            <Label className="text-right text-xs text-muted-foreground">Demo Link</Label>
+            <Input
+              value={fields.ctaDestUrl}
+              onChange={e => set("ctaDestUrl", e.target.value)}
+              placeholder="https://www.voltsafemarine.com/sdemo"
+              className="col-span-2 h-8 text-sm"
+              data-testid="input-sig-ctaDestUrl"
+            />
+          </div>
+          <div className="grid grid-cols-3 items-center gap-3">
+            <Label className="text-right text-xs text-muted-foreground">Alt Text</Label>
+            <Input
+              value={fields.ctaAltText}
+              onChange={e => set("ctaAltText", e.target.value)}
+              placeholder="Watch a Demo"
+              className="col-span-2 h-8 text-sm"
+              data-testid="input-sig-ctaAltText"
+            />
+          </div>
+          <div className="grid grid-cols-3 items-center gap-3">
+            <Label className="text-right text-xs text-muted-foreground">Width (px)</Label>
+            <Input
+              type="number"
+              min={80}
+              max={240}
+              value={fields.ctaWidthPx}
+              onChange={e => set("ctaWidthPx", e.target.value)}
+              placeholder="180"
+              className="col-span-2 h-8 text-sm w-24"
+              data-testid="input-sig-ctaWidthPx"
+            />
+          </div>
+          {/* Live CTA preview */}
+          <div className="rounded-lg border border-border/30 bg-white p-3 flex items-start gap-4 mt-1">
+            <div className="text-[11px] text-gray-500 font-sans">
+              <div className="font-bold text-gray-800 text-sm">{fields.fullName || "Your Name"}</div>
+              <div className="text-[10px] text-cyan-600">{fields.jobTitle || "Job Title"}</div>
+              <div className="text-[10px] text-gray-500">{fields.company || "Company"}</div>
+            </div>
+            <a href={fields.ctaDestUrl || "#"} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
+              <CtaAssetImg
+                src={fields.ctaImageUrl}
+                alt={fields.ctaAltText || "Watch a Demo"}
+                style={{ width: Math.max(80, Math.min(240, Number(fields.ctaWidthPx) || 180)), height: "auto", borderRadius: 4, display: "block" }}
+              />
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
