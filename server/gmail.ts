@@ -160,42 +160,95 @@ function mimeTypeFromExt(ext: string): string {
 }
 
 /**
- * Scans HTML for CTA asset URLs (`/assets/cta/<filename>`), reads the
- * corresponding files from `ctaAssetsDir`, rewrites `src="..."` to
- * `src="cid:..."`, and returns the modified HTML plus inline-image descriptors.
- * Any file that cannot be read is silently skipped (URL left as absolute HTTPS).
+ * Inlines all images found inside the `<!--vs-sig-start-->…<!--vs-sig-end-->`
+ * section of `html` as CID MIME parts so they render correctly in clients that
+ * block remote images (Spark, Apple Mail, Outlook).
+ *
+ * Resolution order for each `src` found in the signature section:
+ *   1. `/assets/cta/<filename>` → read directly from `ctaAssetsDir` (fast, no HTTP).
+ *   2. Any `https://` or `http://` URL → fetched server-side with a 4-second timeout.
+ *   3. Anything else (data:, cid:, relative paths without protocol) → skipped.
+ *
+ * If no signature markers are present the function falls back to legacy behaviour:
+ * only `/assets/cta/` local files are inlined, no external fetches are made.
+ *
+ * All matching `src="…"` attributes in the **full** `html` string are then
+ * rewritten to `src="cid:<id>"`.  The returned `inlineImages` array is passed
+ * directly to `buildMimeRaw` which wraps them in `multipart/related`.
  */
 export async function extractCtaInlineImages(
   html: string,
   ctaAssetsDir: string,
 ): Promise<{ html: string; inlineImages: CidImage[] }> {
-  const seen = new Map<string, CidImage>(); // filename → CidImage
+  const seen = new Map<string, CidImage>(); // full src value → CidImage
+  let cidIndex = 0;
 
-  const fnRe = /\/assets\/cta\/([^"'?#\s]+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = fnRe.exec(html)) !== null) {
-    const filename = m[1];
-    if (seen.has(filename)) continue;
-    const filePath = path.join(ctaAssetsDir, filename);
-    try {
-      if (!fs.existsSync(filePath)) continue;
-      const data = fs.readFileSync(filePath);
-      const ext = filename.split(".").pop() ?? "png";
-      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-      seen.set(filename, { cid: `cta-${safeName}@vs`, mimeType: mimeTypeFromExt(ext), data });
-    } catch {
-      // File unreadable — leave URL as-is (absolute HTTPS fallback).
+  // ── Identify scan scope ──────────────────────────────────────────────────
+  // Prefer the signature section so we never accidentally inline body images.
+  const sigMatch = /<!--vs-sig-start-->([\s\S]*?)<!--vs-sig-end-->/i.exec(html);
+
+  if (sigMatch) {
+    // ── New path: scan sig section, inline ALL images ──────────────────────
+    const sigHtml = sigMatch[1];
+    const srcRe = /\bsrc="([^"]+)"/gi;
+    let m: RegExpExecArray | null;
+    while ((m = srcRe.exec(sigHtml)) !== null) {
+      const src = m[1];
+      if (!src || src.startsWith("cid:") || src.startsWith("data:")) continue;
+      if (seen.has(src)) continue;
+
+      const rawExt = src.split("?")[0].split("/").pop()?.split(".").pop() ?? "png";
+      const mimeType = mimeTypeFromExt(rawExt.toLowerCase());
+      let data: Buffer | null = null;
+
+      // Fast path – local /assets/cta/ file (no HTTP).
+      const ctaFileMatch = src.match(/\/assets\/cta\/([^"'?#\s]+)/);
+      if (ctaFileMatch) {
+        const fp = path.join(ctaAssetsDir, ctaFileMatch[1]);
+        try { if (fs.existsSync(fp)) data = fs.readFileSync(fp); } catch { /* unreadable */ }
+      }
+
+      // Slow path – fetch any other HTTP/HTTPS URL (4 s timeout).
+      if (!data && (src.startsWith("https://") || src.startsWith("http://"))) {
+        try {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 4000);
+          const resp = await fetch(src, { signal: ctrl.signal });
+          clearTimeout(timer);
+          if (resp.ok) data = Buffer.from(await resp.arrayBuffer());
+        } catch { /* timeout / network error — leave URL as-is */ }
+      }
+
+      if (!data) continue;
+      seen.set(src, { cid: `sig-img-${cidIndex++}@vs`, mimeType, data });
+    }
+  } else {
+    // ── Legacy fallback: no sig markers — only /assets/cta/ local files ───
+    const fnRe = /\/assets\/cta\/([^"'?#\s]+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = fnRe.exec(html)) !== null) {
+      const filename = m[1];
+      if (seen.has(filename)) continue;
+      const filePath = path.join(ctaAssetsDir, filename);
+      try {
+        if (!fs.existsSync(filePath)) continue;
+        const data = fs.readFileSync(filePath);
+        const ext = filename.split(".").pop() ?? "png";
+        const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+        seen.set(filename, { cid: `cta-${safeName}@vs`, mimeType: mimeTypeFromExt(ext), data });
+      } catch { /* unreadable — leave URL as-is */ }
     }
   }
 
   if (seen.size === 0) return { html, inlineImages: [] };
 
-  // Replace src="https://host/assets/cta/filename" with src="cid:..."
+  // ── Rewrite all matched src attributes in the full HTML ──────────────────
   let rewritten = html;
-  for (const [filename, cidImg] of seen.entries()) {
-    const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pat = new RegExp(`(\\bsrc=")([^"]*\\/assets\\/cta\\/${escaped})(")`,"gi");
-    rewritten = rewritten.replace(pat, `$1cid:${cidImg.cid}$3`);
+  for (const [src, cidImg] of seen.entries()) {
+    const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Match src="<exact-url>" anywhere in the HTML (both sig and body).
+    const pat = new RegExp(`(\\bsrc=")${escapedSrc}(")`,"g");
+    rewritten = rewritten.replace(pat, `$1cid:${cidImg.cid}$2`);
   }
 
   return { html: rewritten, inlineImages: Array.from(seen.values()) };
