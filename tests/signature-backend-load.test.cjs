@@ -89,8 +89,9 @@ test("send route uses bodyWithSig (not cleanBody) as ctaWrappedBody initializer"
 });
 test("send route uses bodyWithSig as tracking fallback (not cleanBody)", () => {
   assert.ok(
-    sendRouteSrc.includes("trackedBody = bodyWithSig;"),
-    "tracking fallback must use bodyWithSig not cleanBody"
+    sendRouteSrc.includes("trackedBody = bodyWithSig;") ||
+    sendRouteSrc.includes("trackedBody = _b64Body;"),
+    "tracking fallback must use bodyWithSig or _b64Body (post-sig base64-inlined body), not cleanBody"
   );
 });
 test("send route logs sig append confirmation", () => {

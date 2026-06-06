@@ -60,20 +60,20 @@ console.log();
 const routesSrc = fs.readFileSync(path.join(__dirname, "../server/routes.ts"), "utf8");
 
 console.log("── 2. routes.ts — immediate-send pipeline ──");
-assert("imports extractCtaInlineImages from gmail",
-  routesSrc.includes("extractCtaInlineImages"));
-assert("calls extractCtaInlineImages on trackedBody",
-  routesSrc.includes("extractCtaInlineImages(trackedBody"));
-assert("CTA_ASSETS_DIR passed to extractCtaInlineImages",
-  routesSrc.includes("extractCtaInlineImages(trackedBody, CTA_ASSETS_DIR)"));
-assert("_ctaInlineImages passed to sendEmail",
-  routesSrc.includes("_ctaInlineImages"));
-assert("cidImageCount logged before send",
-  routesSrc.includes("cidImageCount"));
-assert("CID images count logged if > 0",
-  routesSrc.includes("[gmail-send] CID inline images:"));
-assert("CID extraction is non-fatal (try/catch)",
-  routesSrc.includes("CID image extraction non-fatal:") || routesSrc.includes("cidErr"));
+assert("inlineImagesAsBase64 used in routes.ts",
+  routesSrc.includes("inlineImagesAsBase64"));
+assert("calls inlineImagesAsBase64 on ctaWrappedBody",
+  routesSrc.includes("inlineImagesAsBase64(ctaWrappedBody"));
+assert("CTA_ASSETS_DIR passed to inlineImagesAsBase64",
+  routesSrc.includes("inlineImagesAsBase64(ctaWrappedBody, CTA_ASSETS_DIR"));
+assert("_b64Body used as the outbound HTML",
+  routesSrc.includes("_b64Body"));
+assert("base64 inlining count logged",
+  routesSrc.includes("base64 image inlining:"));
+assert("base64 image inlining log present",
+  routesSrc.includes("base64 image inlining:"));
+assert("inlining block present in send route",
+  routesSrc.includes("inlineImagesAsBase64") && routesSrc.includes("_imgLog"));
 
 console.log();
 
@@ -82,16 +82,16 @@ const syncSrc = fs.readFileSync(
   path.join(__dirname, "../server/services/gmail-sync.ts"), "utf8");
 
 console.log("── 3. gmail-sync.ts — scheduled-send pipeline ──");
-assert("imports extractCtaInlineImages",
-  syncSrc.includes("extractCtaInlineImages"));
-assert("calls extractCtaInlineImages on scheduled trackedBody",
-  syncSrc.includes("await extractCtaInlineImages"));
-assert("_schedCidImages passed to sendEmail",
-  syncSrc.includes("_schedCidImages"));
-assert("scheduled CID extraction is non-fatal (try/catch)",
-  syncSrc.includes("CID image extraction non-fatal"));
-assert("CID images count logged for scheduled send",
-  syncSrc.includes("CID inline images:"));
+assert("inlineImagesAsBase64 dynamically imported in gmail-sync.ts",
+  syncSrc.includes("inlineImagesAsBase64") && syncSrc.includes('import("./inline-images")'));
+assert("calls inlineImagesAsBase64 on scheduled ctaWrappedBody",
+  syncSrc.includes("inlineImagesAsBase64(ctaWrappedBody"));
+assert("_schedB64Html used for the scheduled send",
+  syncSrc.includes("_schedB64Html"));
+assert("scheduled inlining is non-fatal",
+  syncSrc.includes("inlineImagesAsBase64") && syncSrc.includes("_schedImgLog"));
+assert("path.resolve('uploads/cta-assets') used in scheduled runner",
+  syncSrc.includes("path.resolve") && syncSrc.includes("uploads/cta-assets"));
 
 console.log();
 

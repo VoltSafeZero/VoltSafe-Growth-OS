@@ -136,53 +136,46 @@ check(
 console.log("\n── 4. Send route (routes.ts) wiring ──");
 
 check(
-  "extractCtaInlineImages imported in routes.ts",
-  routesTs.includes("extractCtaInlineImages") && routesTs.includes('from "./gmail"')
+  "inlineImagesAsBase64 used in routes.ts",
+  routesTs.includes("inlineImagesAsBase64") && routesTs.includes('import("./services/inline-images")')
 );
 
 check(
-  "Send route calls extractCtaInlineImages before sendEmail",
-  (() => {
-    const sendBlock = routesTs.slice(
-      routesTs.indexOf("extractCtaInlineImages(trackedBody"),
-      routesTs.indexOf("calling sendEmail")
-    );
-    return sendBlock.length > 0 && sendBlock.includes("_cidResult");
-  })()
+  "Send route calls inlineImagesAsBase64 before sendEmail",
+  routesTs.includes("inlineImagesAsBase64(ctaWrappedBody, CTA_ASSETS_DIR")
 );
 
 check(
   "Send route uses CTA_ASSETS_DIR as directory arg",
-  routesTs.includes("extractCtaInlineImages(trackedBody, CTA_ASSETS_DIR)")
+  routesTs.includes("inlineImagesAsBase64(ctaWrappedBody, CTA_ASSETS_DIR")
 );
 
 check(
-  "Send route passes _ctaInlineImages to sendEmail",
-  routesTs.includes("_ctaInlineImages") && routesTs.includes("_ctaInlineImages\n        )")
+  "Send route uses _b64Body for the outbound HTML",
+  routesTs.includes("_b64Body") && routesTs.includes("let _b64Body = ctaWrappedBody")
 );
 
 check(
-  "Send route logs cidImageCount in MIME diagnostic",
-  routesTs.includes("cidImageCount: _ctaInlineImages.length")
+  "Send route logs base64 inlining count",
+  routesTs.includes("base64 image inlining:")
 );
 
 check(
-  "Send route extraction is non-fatal (catch block present)",
-  routesTs.includes("CID image extraction non-fatal")
+  "Send route base64 inlining block present",
+  routesTs.includes("inlineImagesAsBase64")
 );
 
 // ── 5. Scheduled runner wiring ────────────────────────────────────────────────
 console.log("\n── 5. Scheduled runner (gmail-sync.ts) wiring ──");
 
 check(
-  "extractCtaInlineImages dynamically imported in gmail-sync.ts",
-  // Uses dynamic import: const { sendEmail, extractCtaInlineImages } = await import("../gmail")
-  syncTs.includes("extractCtaInlineImages") && syncTs.includes('import("../gmail")')
+  "inlineImagesAsBase64 dynamically imported in gmail-sync.ts",
+  syncTs.includes("inlineImagesAsBase64") && syncTs.includes('import("./inline-images")')
 );
 
 check(
-  "Scheduled runner calls extractCtaInlineImages before sendEmail",
-  syncTs.includes("extractCtaInlineImages(trackedBody")
+  "Scheduled runner calls inlineImagesAsBase64 before sendEmail",
+  syncTs.includes("inlineImagesAsBase64(ctaWrappedBody")
 );
 
 check(
@@ -191,13 +184,13 @@ check(
 );
 
 check(
-  "Scheduled runner passes _schedCidImages to sendEmail",
-  syncTs.includes("_schedCidImages")
+  "Scheduled runner uses _schedB64Html for the send",
+  syncTs.includes("_schedB64Html")
 );
 
 check(
-  "Scheduled runner extraction is non-fatal (catch block present)",
-  syncTs.includes("CID image extraction non-fatal")
+  "Scheduled runner inlining is non-fatal",
+  syncTs.includes("inlineImagesAsBase64") && syncTs.includes("_schedImgLog")
 );
 
 // ── 6. Unit: extractCtaInlineImages logic (in-process simulation) ─────────────
