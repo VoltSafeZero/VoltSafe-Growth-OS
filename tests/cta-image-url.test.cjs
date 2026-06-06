@@ -89,7 +89,10 @@ check(
 
 check(
   "Public CTA route validates filename with regex",
-  routes.includes('[0-9a-f-]+\\.(png|jpg|jpeg|webp|gif)')
+  // New regex allows uppercase + underscores (WatchDemo_Thumbnail_200.png style)
+  // while still blocking non-image extensions and path traversal.
+  routes.includes('A-Za-z0-9_') &&
+  routes.includes('(png|jpg|jpeg|webp|gif)')
 );
 
 check(
