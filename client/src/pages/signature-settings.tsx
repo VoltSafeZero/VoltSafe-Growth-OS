@@ -207,7 +207,7 @@ function wrapHtmlWithCta(baseHtml: string, cta: CtaConfig): string {
   const dest = safeUrl(cta.destUrl).replace(/"/g, "&quot;");
   const src = cta.imageUrl.replace(/"/g, "&quot;");
   const ctaCell = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${src}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${w}px;height:auto;border-radius:4px;"></a>`;
-  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${baseHtml}</td><td style="vertical-align:top;padding-left:24px;">${ctaCell}</td></tr></table>`;
+  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${baseHtml}</td><td style="vertical-align:middle;padding-left:24px;">${ctaCell}</td></tr></table>`;
 }
 
 // ─── CTA Picker Section (shared by Builder and HTML tabs) ─────────────────────

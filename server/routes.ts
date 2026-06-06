@@ -13143,7 +13143,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                 return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_a}</a>`;
               }).join("");
               _schedSigSection = _sh
-                ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_sn}</td><td style="vertical-align:top;padding-left:24px;">${_sh}</td></tr></table>`
+                ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_sn}</td><td style="vertical-align:middle;padding-left:24px;">${_sh}</td></tr></table>`
                 : _sn;
             }
             schedBody = schedBody + `<!--vs-sig-start-->${_schedSigSection}<!--vs-sig-end-->`;
@@ -14324,7 +14324,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                 return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_alt}</a>`;
               }).join("");
               _sigSection = _ctaHtmlBlock
-                ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_normalizedSig}</td><td style="vertical-align:top;padding-left:24px;">${_ctaHtmlBlock}</td></tr></table>`
+                ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_normalizedSig}</td><td style="vertical-align:middle;padding-left:24px;">${_ctaHtmlBlock}</td></tr></table>`
                 : _normalizedSig;
             }
             bodyWithSig = cleanBody + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`;

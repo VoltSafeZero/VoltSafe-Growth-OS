@@ -545,7 +545,7 @@ function ComposeDialog({
       const dest = activeSig.ctaDestUrl.replace(/"/g, "&quot;");
       const src  = activeSig.ctaImageUrl.replace(/"/g, "&quot;");
       const ctaHtml = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${src}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${w}px;height:auto;border-radius:4px;"></a>`;
-      const wrapped = `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:top;padding-left:24px;">${ctaHtml}</td></tr></table>`;
+      const wrapped = `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:middle;padding-left:24px;">${ctaHtml}</td></tr></table>`;
       console.log(`[sig-composer] using ctaImageUrl column → finalLen=${wrapped.length}`);
       return wrapped;
     }
@@ -564,7 +564,7 @@ function ComposeDialog({
     }).join("");
     // Side-by-side table layout — CTA to the RIGHT of signature text (matches backend send route)
     const result = ctaBlock
-      ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:top;padding-left:24px;">${ctaBlock}</td></tr></table>`
+      ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:middle;padding-left:24px;">${ctaBlock}</td></tr></table>`
       : normalizedSigHtml;
     console.log(`[sig-composer] using legacy ctas → finalLen=${result.length}`);
     return result;
