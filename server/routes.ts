@@ -14087,6 +14087,29 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ─── Dev-only: MIME tree inspector (no email sent) ───────────────────────────
+  // POST /api/dev/mime-tree
+  // Accepts { body, subject, signatureId? } and returns the raw decoded MIME tree
+  // so you can verify the multipart/related structure before actually sending.
+  app.post("/api/dev/mime-tree", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { body: htmlBody = "<p>Test email</p>", subject = "MIME Inspection" } = req.body as { body?: string; subject?: string };
+      const { buildMimeRawDebug, extractCtaInlineImages } = await import("./gmail");
+      const ctaDir = path.resolve("uploads/cta-assets");
+      const { html: rewrittenBody, inlineImages } = await extractCtaInlineImages(htmlBody, ctaDir);
+      const rawMime = buildMimeRawDebug(
+        "test@example.com", "inspector@example.com", subject,
+        rewrittenBody, [], undefined, undefined, undefined, inlineImages,
+      );
+      const tree = rawMime.split(/\r?\n/)
+        .filter(l => l.startsWith("Content-") || l.startsWith("--") || l.startsWith("MIME-Version"))
+        .join("\n");
+      res.json({ ok: true, inlineImageCount: inlineImages.length, mimeTree: tree, rawMime });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message });
+    }
+  });
+
   // ─── Dev-only: signature send diagnostic endpoint ─────────────────────────────
   // POST /api/dev/send-signature-diagnostic
   // Builds the email body 100% server-side from known safe HTML — bypasses the

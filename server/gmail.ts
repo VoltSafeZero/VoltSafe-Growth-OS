@@ -182,6 +182,8 @@ export async function extractCtaInlineImages(
 ): Promise<{ html: string; inlineImages: CidImage[] }> {
   const seen = new Map<string, CidImage>(); // full src value → CidImage
   let cidIndex = 0;
+  // CID base: short alphanumeric timestamp — no @, no slashes, no file extensions.
+  const cidBase = Date.now().toString(36);
 
   // ── Identify scan scope ──────────────────────────────────────────────────
   // Prefer the signature section so we never accidentally inline body images.
@@ -219,8 +221,12 @@ export async function extractCtaInlineImages(
         } catch { /* timeout / network error — leave URL as-is */ }
       }
 
-      if (!data) continue;
-      seen.set(src, { cid: `sig-img-${cidIndex++}@vs`, mimeType, data });
+      if (!data) {
+        console.error(`[sig-cid] FAILED to load signature image — src="${src}" ctaLocalMatch=${!!ctaFileMatch}`);
+        continue;
+      }
+      // CID: purely alphanumeric, no @, no slashes, no file extensions.
+      seen.set(src, { cid: `vsig${cidIndex++}${cidBase}`, mimeType, data });
     }
   } else {
     // ── Legacy fallback: no sig markers — only /assets/cta/ local files ───
@@ -231,12 +237,16 @@ export async function extractCtaInlineImages(
       if (seen.has(filename)) continue;
       const filePath = path.join(ctaAssetsDir, filename);
       try {
-        if (!fs.existsSync(filePath)) continue;
+        if (!fs.existsSync(filePath)) {
+          console.error(`[sig-cid] CTA file not found on disk — path="${filePath}" src="${filename}"`);
+          continue;
+        }
         const data = fs.readFileSync(filePath);
         const ext = filename.split(".").pop() ?? "png";
-        const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-        seen.set(filename, { cid: `cta-${safeName}@vs`, mimeType: mimeTypeFromExt(ext), data });
-      } catch { /* unreadable — leave URL as-is */ }
+        seen.set(filename, { cid: `vsig${cidIndex++}${cidBase}`, mimeType: mimeTypeFromExt(ext), data });
+      } catch (e: any) {
+        console.error(`[sig-cid] CTA file read error — path="${filePath}" error="${e?.message}"`);
+      }
     }
   }
 
@@ -277,161 +287,207 @@ function buildMimeRaw(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  const innerBoundary = `vs_alt_${ts}`;
-  const altPart = [
-    `--${innerBoundary}`,
-    "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: base64",
-    "",
-    mimeBase64(plainText),
-    "",
-    `--${innerBoundary}`,
-    "Content-Type: text/html; charset=UTF-8",
-    "Content-Transfer-Encoding: base64",
-    "",
-    mimeBase64(body),
-    "",
-    `--${innerBoundary}--`,
-  ].join(R);
-
   const extraHeaders: string[] = [];
-  if (cc) extraHeaders.push(`Cc: ${cc}`);
+  if (cc)  extraHeaders.push(`Cc: ${cc}`);
   if (bcc) extraHeaders.push(`Bcc: ${bcc}`);
 
   const needsInline  = inlineImages.length > 0;
   // iCal invite present → must use multipart/mixed so email clients show RSVP buttons.
   const needsMixed   = attachments.length > 0 || !!icalContent;
 
-  // Build the inline-image MIME parts (Content-Disposition: inline, no filename).
-  const buildInlineParts = (boundary: string) =>
-    inlineImages.map((img) => {
+  const plainB64 = mimeBase64(plainText);
+  const htmlB64  = mimeBase64(body);
+
+  // ── Inline image MIME parts ─────────────────────────────────────────────
+  // text/html is the ROOT of multipart/related; images are its direct peers.
+  const inlineParts = (bnd: string): string[] =>
+    inlineImages.flatMap((img) => {
       const b64 = img.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
       return [
-        `--${boundary}`,
+        `--${bnd}`,
         `Content-Type: ${img.mimeType}`,
-        "Content-Transfer-Encoding: base64",
-        "Content-Disposition: inline",
+        `Content-Transfer-Encoding: base64`,
+        `Content-Disposition: inline`,
         `Content-ID: <${img.cid}>`,
-        "",
+        ``,
         b64,
-        "",
-      ].join(R);
+        ``,
+      ];
     });
 
-  // Build the multipart/related block that wraps alt + inline images.
-  const buildRelatedBlock = (outerBoundary: string | null) => {
-    const relBoundary = `vs_rel_${ts + 2}`;
-    const relLines = [
-      outerBoundary ? `--${outerBoundary}` : null,
-      `Content-Type: multipart/related; boundary="${relBoundary}"`,
-      "",
-      `--${relBoundary}`,
-      `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
-      "",
-      altPart,
-      "",
-      ...buildInlineParts(relBoundary),
-      `--${relBoundary}--`,
-    ].filter((l): l is string => l !== null);
-    return relLines.join(R);
+  // ── Attachment + iCal MIME parts ────────────────────────────────────────
+  const attachmentParts = (bnd: string): string[] => {
+    const parts: string[] = [];
+    for (const att of attachments) {
+      const b64 = att.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
+      parts.push(
+        `--${bnd}`, `Content-Type: ${att.mimeType}; name="${att.name}"`,
+        `Content-Transfer-Encoding: base64`, `Content-Disposition: attachment; filename="${att.name}"`,
+        ``, b64, ``
+      );
+    }
+    if (icalContent) {
+      const icalB64 = Buffer.from(icalContent, "utf-8").toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
+      parts.push(`--${bnd}`, `Content-Type: text/calendar; method=REQUEST; charset=UTF-8`,
+        `Content-Transfer-Encoding: base64`, `Content-Disposition: inline`, ``, icalB64, ``);
+      parts.push(`--${bnd}`, `Content-Type: application/ics; name="invite.ics"`,
+        `Content-Transfer-Encoding: base64`, `Content-Disposition: attachment; filename="invite.ics"`,
+        ``, icalB64, ``);
+    }
+    return parts;
   };
+
+  // ── Correct RFC 2387 MIME structure ─────────────────────────────────────
+  //
+  //  Case A — no inline images, no attachments:
+  //    multipart/alternative [altBnd]
+  //      text/plain
+  //      text/html
+  //
+  //  Case B — inline images, no attachments:
+  //    multipart/alternative [altBnd]
+  //      text/plain
+  //      multipart/related [relBnd]   ← text/html is ROOT of related
+  //        text/html
+  //        image/* (Content-ID: <cid>)
+  //
+  //  Case C — inline images + attachments:
+  //    multipart/mixed [mixBnd]
+  //      multipart/alternative [altBnd]
+  //        text/plain
+  //        multipart/related [relBnd]
+  //          text/html
+  //          image/*
+  //      attachment …
+  //
+  //  Case D — attachments only, no inline images:
+  //    multipart/mixed [mixBnd]
+  //      multipart/alternative [altBnd]
+  //        text/plain
+  //        text/html
+  //      attachment …
+
+  const hdr = [
+    `From: ${from}`,
+    `To: ${to}`,
+    ...extraHeaders,
+    `Subject: ${rfc2047EncodeHeader(subject || "")}`,
+    `MIME-Version: 1.0`,
+  ];
 
   let lines: string[];
 
   if (!needsInline && !needsMixed) {
-    // Simple case: no inline images, no attachments → multipart/alternative.
+    // Case A
+    const altBnd = `vs_alt_${ts}`;
     lines = [
-      `From: ${from}`,
-      `To: ${to}`,
-      ...extraHeaders,
-      `Subject: ${rfc2047EncodeHeader(subject || "")}`,
-      "MIME-Version: 1.0",
-      `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
-      "",
-      altPart,
+      ...hdr,
+      `Content-Type: multipart/alternative; boundary="${altBnd}"`,
+      ``,
+      `--${altBnd}`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      plainB64,
+      ``,
+      `--${altBnd}`,
+      `Content-Type: text/html; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      htmlB64,
+      ``,
+      `--${altBnd}--`,
     ];
   } else if (needsInline && !needsMixed) {
-    // Inline images only → multipart/related at top level.
+    // Case B — text/html is the direct root of multipart/related
+    const altBnd = `vs_alt_${ts}`;
+    const relBnd = `vs_rel_${ts + 1}`;
     lines = [
-      `From: ${from}`,
-      `To: ${to}`,
-      ...extraHeaders,
-      `Subject: ${rfc2047EncodeHeader(subject || "")}`,
-      "MIME-Version: 1.0",
-      buildRelatedBlock(null),
+      ...hdr,
+      `Content-Type: multipart/alternative; boundary="${altBnd}"`,
+      ``,
+      `--${altBnd}`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      plainB64,
+      ``,
+      `--${altBnd}`,
+      `Content-Type: multipart/related; boundary="${relBnd}"`,
+      ``,
+      `--${relBnd}`,
+      `Content-Type: text/html; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      htmlB64,
+      ``,
+      ...inlineParts(relBnd),
+      `--${relBnd}--`,
+      ``,
+      `--${altBnd}--`,
     ];
   } else if (needsInline && needsMixed) {
-    // Inline images + regular attachments/ical → multipart/mixed wrapping multipart/related.
-    const outerBoundary = `vs_mix_${ts + 1}`;
-    const attachParts = attachments.map((att) => {
-      const b64 = att.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
-      return [
-        `--${outerBoundary}`,
-        `Content-Type: ${att.mimeType}; name="${att.name}"`,
-        "Content-Transfer-Encoding: base64",
-        `Content-Disposition: attachment; filename="${att.name}"`,
-        "",
-        b64,
-        "",
-      ].join(R);
-    });
-    const icalParts: string[] = [];
-    if (icalContent) {
-      const icalB64 = Buffer.from(icalContent, "utf-8").toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
-      icalParts.push([`--${outerBoundary}`, `Content-Type: text/calendar; method=REQUEST; charset=UTF-8`, "Content-Transfer-Encoding: base64", "Content-Disposition: inline", "", icalB64, ""].join(R));
-      icalParts.push([`--${outerBoundary}`, `Content-Type: application/ics; name="invite.ics"`, "Content-Transfer-Encoding: base64", `Content-Disposition: attachment; filename="invite.ics"`, "", icalB64, ""].join(R));
-    }
+    // Case C
+    const mixBnd = `vs_mix_${ts + 2}`;
+    const altBnd = `vs_alt_${ts}`;
+    const relBnd = `vs_rel_${ts + 1}`;
     lines = [
-      `From: ${from}`,
-      `To: ${to}`,
-      ...extraHeaders,
-      `Subject: ${rfc2047EncodeHeader(subject || "")}`,
-      "MIME-Version: 1.0",
-      `Content-Type: multipart/mixed; boundary="${outerBoundary}"`,
-      "",
-      buildRelatedBlock(outerBoundary),
-      "",
-      ...icalParts,
-      ...attachParts,
-      `--${outerBoundary}--`,
+      ...hdr,
+      `Content-Type: multipart/mixed; boundary="${mixBnd}"`,
+      ``,
+      `--${mixBnd}`,
+      `Content-Type: multipart/alternative; boundary="${altBnd}"`,
+      ``,
+      `--${altBnd}`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      plainB64,
+      ``,
+      `--${altBnd}`,
+      `Content-Type: multipart/related; boundary="${relBnd}"`,
+      ``,
+      `--${relBnd}`,
+      `Content-Type: text/html; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      htmlB64,
+      ``,
+      ...inlineParts(relBnd),
+      `--${relBnd}--`,
+      ``,
+      `--${altBnd}--`,
+      ``,
+      ...attachmentParts(mixBnd),
+      `--${mixBnd}--`,
     ];
   } else {
-    // Regular attachments/ical but no inline images → original multipart/mixed structure.
-    const outerBoundary = `vs_mix_${ts + 1}`;
-    const attachParts = attachments.map((att) => {
-      const b64 = att.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
-      return [
-        `--${outerBoundary}`,
-        `Content-Type: ${att.mimeType}; name="${att.name}"`,
-        "Content-Transfer-Encoding: base64",
-        `Content-Disposition: attachment; filename="${att.name}"`,
-        "",
-        b64,
-        "",
-      ].join(R);
-    });
-    const icalParts: string[] = [];
-    if (icalContent) {
-      const icalB64 = Buffer.from(icalContent, "utf-8").toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
-      icalParts.push([`--${outerBoundary}`, `Content-Type: text/calendar; method=REQUEST; charset=UTF-8`, "Content-Transfer-Encoding: base64", "Content-Disposition: inline", "", icalB64, ""].join(R));
-      icalParts.push([`--${outerBoundary}`, `Content-Type: application/ics; name="invite.ics"`, "Content-Transfer-Encoding: base64", `Content-Disposition: attachment; filename="invite.ics"`, "", icalB64, ""].join(R));
-    }
+    // Case D — attachments only, no inline images
+    const mixBnd = `vs_mix_${ts + 2}`;
+    const altBnd = `vs_alt_${ts}`;
     lines = [
-      `From: ${from}`,
-      `To: ${to}`,
-      ...extraHeaders,
-      `Subject: ${rfc2047EncodeHeader(subject || "")}`,
-      "MIME-Version: 1.0",
-      `Content-Type: multipart/mixed; boundary="${outerBoundary}"`,
-      "",
-      `--${outerBoundary}`,
-      `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
-      "",
-      altPart,
-      "",
-      ...icalParts,
-      ...attachParts,
-      `--${outerBoundary}--`,
+      ...hdr,
+      `Content-Type: multipart/mixed; boundary="${mixBnd}"`,
+      ``,
+      `--${mixBnd}`,
+      `Content-Type: multipart/alternative; boundary="${altBnd}"`,
+      ``,
+      `--${altBnd}`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      plainB64,
+      ``,
+      `--${altBnd}`,
+      `Content-Type: text/html; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      htmlB64,
+      ``,
+      `--${altBnd}--`,
+      ``,
+      ...attachmentParts(mixBnd),
+      `--${mixBnd}--`,
     ];
   }
 
@@ -440,6 +496,16 @@ function buildMimeRaw(
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+}
+
+/** Returns the raw decoded MIME string for diagnostics (not base64url encoded). */
+export function buildMimeRawDebug(
+  from: string, to: string, subject: string, body: string,
+  attachments: MimeAttachment[] = [], cc?: string, bcc?: string,
+  icalContent?: string, inlineImages: CidImage[] = [],
+): string {
+  const b64url = buildMimeRaw(from, to, subject, body, attachments, cc, bcc, icalContent, inlineImages);
+  return Buffer.from(b64url.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
 }
 
 export async function sendEmail(
@@ -459,6 +525,16 @@ export async function sendEmail(
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
   const raw = buildMimeRaw(from, to, subject, body, attachments, cc, bcc, icalContent, inlineImages);
+
+  // ── MIME tree diagnostic (dev only) ─────────────────────────────────────
+  if (process.env.NODE_ENV !== "production") {
+    const decoded = Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
+    const tree = decoded.split(/\r?\n/)
+      .filter(l => l.startsWith("Content-") || l.startsWith("--") || l.startsWith("MIME-Version"))
+      .slice(0, 60).join("\n");
+    console.log(`[mime-tree] Outgoing MIME (${inlineImages.length} inline img(s)):\n${tree}`);
+  }
+
   const params: any = { userId: "me", requestBody: { raw } };
   if (threadId) params.requestBody.threadId = threadId;
   const res = await gmail.users.messages.send(params);

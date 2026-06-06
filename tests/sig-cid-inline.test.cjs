@@ -49,8 +49,8 @@ assert("Content-Disposition: inline for inline images",
   gmailSrc.includes("Content-Disposition: inline"));
 assert("buildMimeRaw needsInline flag controls multipart/related",
   gmailSrc.includes("needsInline"));
-assert("buildRelatedBlock helper wraps alt + inline parts",
-  gmailSrc.includes("buildRelatedBlock"));
+assert("inlineParts helper emits CID image parts inside multipart/related",
+  gmailSrc.includes("inlineParts(relBnd)") || gmailSrc.includes("inlineParts(bnd)"));
 assert("inlineImages param accepted by sendEmail",
   gmailSrc.includes("inlineImages: CidImage[]") || gmailSrc.includes("inlineImages:"));
 

@@ -43,8 +43,8 @@ check(
 );
 
 check(
-  "extractCtaInlineImages generates cid: from filename",
-  gmailTs.includes("cta-") && gmailTs.includes("@vs")
+  "extractCtaInlineImages generates CID (no @ or file extensions)",
+  gmailTs.includes("vsig") && gmailTs.includes("cidBase") && !gmailTs.includes("@vs")
 );
 
 check(
@@ -76,11 +76,12 @@ check(
 );
 
 check(
-  "buildMimeRaw wraps multipart/alternative inside multipart/related",
+  "buildMimeRaw nests text/html + images inside multipart/related (RFC 2387 correct)",
   (() => {
-    const relIdx = gmailTs.indexOf("buildRelatedBlock");
-    const altIdx = gmailTs.indexOf("multipart/alternative");
-    return relIdx !== -1 && altIdx !== -1;
+    // text/html is the ROOT of multipart/related; multipart/alternative wraps the two.
+    return gmailTs.includes("vs_rel_") &&
+      gmailTs.includes("multipart/related") &&
+      gmailTs.includes("inlineParts(relBnd)");
   })()
 );
 
@@ -107,7 +108,7 @@ check(
 );
 
 check(
-  "When inline images only → multipart/related at top level (no mixed wrapper)",
+  "When inline images only → multipart/alternative wraps multipart/related (no mixed wrapper)",
   gmailTs.includes("needsInline && !needsMixed")
 );
 
