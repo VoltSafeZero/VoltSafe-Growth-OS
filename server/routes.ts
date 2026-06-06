@@ -14392,6 +14392,62 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // DEV: Inspect a stored message body and list all img src values with analysis.
+  // Useful for diagnosing broken images in the mail viewer (data:image stripping, etc.)
+  // Usage: GET /api/dev/message-img-inspect/:gmailMessageId
+  if (process.env.NODE_ENV !== "production") {
+    app.get("/api/dev/message-img-inspect/:gmailMessageId", requireAuth, async (req, res) => {
+      try {
+        const { gmailMessageId } = req.params;
+        const rows = await db.execute(
+          sql.raw(`SELECT id, gmail_message_id, body_html FROM gmail_messages WHERE gmail_message_id = '${gmailMessageId.replace(/'/g, "''")}' LIMIT 1`)
+        );
+        const row = (rows as any).rows?.[0] ?? (rows as any)[0];
+        if (!row?.body_html) {
+          return res.status(404).json({ error: "Message not found or no body_html stored" });
+        }
+        const html: string = row.body_html;
+        const srcRe = /\bsrc="([^"]+)"/gi;
+        const imgSrcs: Array<{
+          src: string; type: string; byteLen?: number; allowed: boolean;
+        }> = [];
+        let m: RegExpExecArray | null;
+        while ((m = srcRe.exec(html)) !== null) {
+          const src = m[1];
+          let type = "other";
+          let allowed = true;
+          let byteLen: number | undefined;
+          if (/^data:image\//i.test(src)) {
+            type = "data:image";
+            byteLen = src.length;
+          } else if (/^data:/i.test(src)) {
+            type = "data:OTHER (unsafe)";
+            allowed = false;
+          } else if (/^https?:\/\//i.test(src)) {
+            type = "https";
+          } else if (/^cid:/i.test(src)) {
+            type = "cid:";
+          } else if (/^\//.test(src)) {
+            type = "relative-path";
+          } else {
+            allowed = false;
+            type = "unknown/stripped";
+          }
+          imgSrcs.push({ src: src.length > 120 ? src.slice(0, 120) + "…" : src, type, ...(byteLen !== undefined ? { byteLen } : {}), allowed });
+        }
+        return res.json({
+          gmailMessageId,
+          dbId: row.id,
+          bodyLength: html.length,
+          imgCount: imgSrcs.length,
+          imgs: imgSrcs,
+        });
+      } catch (err: any) {
+        return res.status(500).json({ error: err.message });
+      }
+    });
+  }
+
   // C1: Per-session send idempotency cache — prevents duplicate sends on network retry / double-click.
   // Keys are client-generated UUIDs (one per compose session). TTL: 5 minutes.
   const sendIdempotencyCache = new Map<string, { result: any; expiresAt: number }>();

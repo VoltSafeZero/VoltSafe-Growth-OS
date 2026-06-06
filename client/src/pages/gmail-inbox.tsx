@@ -2459,16 +2459,45 @@ function MessageBody({
   // Result: every email reads like a real email, never a wall of monospace.
   const sanitized = useMemo(() => {
     if (!body) return "";
-    // Resolve cid: references BEFORE DOMPurify (DOMPurify strips cid: URIs by
-    // default). Replace src="cid:xxx" with a backend proxy URL that fetches the
-    // inline image part from Gmail API. This makes signature images visible in
-    // the browser iframe — no change needed to DOMPurify config.
+
+    // ── Pre-process: resolve cid: and log all img srcs ────────────────────
     let resolved = body;
-    if (gmailMessageId && /src="cid:/i.test(body)) {
-      resolved = body.replace(/\bsrc="cid:([^"]+)"/gi, (_, cid) =>
+
+    // 1. Resolve cid: references BEFORE DOMPurify (DOMPurify strips cid: URIs by
+    //    default). Replace src="cid:xxx" with a backend proxy URL that fetches the
+    //    inline image part from Gmail API.
+    if (gmailMessageId && /src="cid:/i.test(resolved)) {
+      resolved = resolved.replace(/\bsrc="cid:([^"]+)"/gi, (_, cid) =>
         `src="/api/gmail/messages/${encodeURIComponent(gmailMessageId)}/cid-image/${encodeURIComponent(cid)}"`
       );
     }
+
+    // 2. Diagnostic: log every img src before and after sanitization so broken
+    //    images in the viewer are traceable in the browser console.
+    if (import.meta.env.DEV || (window as any).__VS_IMG_DEBUG__) {
+      const preSrcs = [...resolved.matchAll(/\bsrc="([^"]+)"/gi)].map(m => m[1]);
+      const result = isHtml ? sanitizeEmailHtml(resolved) : sanitizeEmailHtml(plainTextToEmailHtml(resolved));
+      const postSrcs = [...result.matchAll(/\bsrc="([^"]+)"/gi)].map(m => m[1]);
+      preSrcs.forEach((orig, i) => {
+        const final = postSrcs[i] ?? "(removed)";
+        const isDataImg = /^data:image\//i.test(orig);
+        const isCidProxy = /^\/api\/gmail\/messages\//i.test(orig);
+        const isHttps = /^https?:\/\//i.test(orig);
+        const allowed = final !== "(removed)" && final !== "";
+        const reason = isDataImg ? "data:image (base64 inline)"
+          : isCidProxy ? "cid proxy rewrite"
+          : isHttps ? "https url"
+          : allowed ? "relative/other"
+          : "stripped by sanitizer";
+        if (isDataImg || !allowed) {
+          console.log(
+            `[message-viewer-img] originalSrc=${orig.slice(0, 80)}${orig.length > 80 ? "…" : ""} finalSrc=${final.slice(0, 80)} allowed=${allowed} reason=${reason}`
+          );
+        }
+      });
+      return result;
+    }
+
     if (isHtml) return sanitizeEmailHtml(resolved);
     return sanitizeEmailHtml(plainTextToEmailHtml(resolved));
   }, [body, isHtml, gmailMessageId]);

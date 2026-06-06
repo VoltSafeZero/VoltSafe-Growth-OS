@@ -52,6 +52,20 @@ const FORBID_ATTR_BASE = [
   "ping", "background", "autofocus",
 ];
 
+/**
+ * URI allowlist for email bodies.
+ *
+ * Extends DOMPurify's default pattern to additionally allow
+ * `data:image/(png|jpeg|jpg|gif|webp|svg+xml)` URIs that the send pipeline
+ * inlines as base64.  All other `data:` schemes (data:text/html, etc.) remain
+ * blocked — only the image subtypes listed here pass through.
+ *
+ * Default (from DOMPurify source):
+ *   /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+ */
+const EMAIL_ALLOWED_URI_REGEXP =
+  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|data:image\/(?:png|jpeg|jpg|gif|webp|svg\+xml)[;,]|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+
 /** For email body rendered inside a sandboxed iframe srcDoc. */
 export function sanitizeEmailHtml(html: string): string {
   if (!html) return "";
@@ -66,8 +80,9 @@ export function sanitizeEmailHtml(html: string): string {
     // doesn't degrade.
     ADD_ATTR: ["target", "rel"],
     ALLOW_DATA_ATTR: false,
-    // DOMPurify's default URI regex already blocks javascript:, data:, and
-    // vbscript: in URL attributes — leave it untouched.
+    // Allow data:image/... URIs so signature/CTA images inlined as base64
+    // survive the sanitizer.  All other data: schemes remain blocked.
+    ALLOWED_URI_REGEXP: EMAIL_ALLOWED_URI_REGEXP,
   });
 }
 
