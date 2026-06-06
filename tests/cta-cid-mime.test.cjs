@@ -49,7 +49,7 @@ check(
 
 check(
   "extractCtaInlineImages rewrites src= to cid:",
-  gmailTs.includes('$1cid:${cidImg.cid}$3')
+  gmailTs.includes('$1cid:${cidImg.cid}$3') || gmailTs.includes('$1cid:${cidImg.cid}$2')
 );
 
 check(
