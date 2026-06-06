@@ -22,3 +22,4 @@
 - [Inbox SENT Label Exclusion](inbox-label-sent-exclusion.md) — never exclude SENT in the INBOX label filter; self-sent emails carry both SENT+INBOX labels and would be silently hidden.
 - [CTA Asset URL Rewriting](cta-asset-url-rewriting.md) — GET /api/cta-assets must rewrite public_url to current host; stale workspace.*.repl.co URLs otherwise break image serving.
 - [CID MIME Structure](cid-mime-structure.md) — correct RFC 2387: alt(plain | related(html+images)), NOT related(alt(plain+html)+images); CIDs must be pure alphanumeric (no @, no ext).
+- [CID Image Display Fix](cid-image-display.md) — DOMPurify strips cid: URIs; fix is to rewrite src="cid:xxx" → backend proxy URL before sanitizeEmailHtml runs; proxy at GET /api/gmail/messages/:msgId/cid-image/:cid.

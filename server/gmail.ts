@@ -226,7 +226,9 @@ export async function extractCtaInlineImages(
         continue;
       }
       // CID: purely alphanumeric, no @, no slashes, no file extensions.
-      seen.set(src, { cid: `vsig${cidIndex++}${cidBase}`, mimeType, data });
+      const cid = `vsig${cidIndex++}${cidBase}`;
+      console.log(`[sig-cid] ✓ src="${src.slice(0, 80)}" bytes=${data.byteLength} cid=${cid} type=${mimeType} path=${ctaFileMatch ? "disk" : "fetch"}`);
+      seen.set(src, { cid, mimeType, data });
     }
   } else {
     // ── Legacy fallback: no sig markers — only /assets/cta/ local files ───
@@ -508,6 +510,19 @@ export function buildMimeRawDebug(
   return Buffer.from(b64url.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
 }
 
+// ── Last-sent debug state (dev only) ────────────────────────────────────────
+interface LastSentDebugState {
+  timestamp: string;
+  to: string;
+  subject: string;
+  from: string;
+  inlineImageCount: number;
+  mimeTree: string;
+  rawMime: string;
+}
+let _lastSentDebugState: LastSentDebugState | null = null;
+export function getLastSentDebugState(): LastSentDebugState | null { return _lastSentDebugState; }
+
 export async function sendEmail(
   userId: number,
   to: string,
@@ -526,13 +541,14 @@ export async function sendEmail(
   const from = profileRes.data.emailAddress!;
   const raw = buildMimeRaw(from, to, subject, body, attachments, cc, bcc, icalContent, inlineImages);
 
-  // ── MIME tree diagnostic (dev only) ─────────────────────────────────────
+  // ── MIME tree diagnostic + last-sent capture (dev only) ────────────────
   if (process.env.NODE_ENV !== "production") {
     const decoded = Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
     const tree = decoded.split(/\r?\n/)
       .filter(l => l.startsWith("Content-") || l.startsWith("--") || l.startsWith("MIME-Version"))
-      .slice(0, 60).join("\n");
+      .slice(0, 80).join("\n");
     console.log(`[mime-tree] Outgoing MIME (${inlineImages.length} inline img(s)):\n${tree}`);
+    _lastSentDebugState = { timestamp: new Date().toISOString(), to, subject, from, inlineImageCount: inlineImages.length, mimeTree: tree, rawMime: decoded };
   }
 
   const params: any = { userId: "me", requestBody: { raw } };

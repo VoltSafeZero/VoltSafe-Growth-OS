@@ -10776,6 +10776,85 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ── Inline CID image proxy ────────────────────────────────────────────────
+  // GET /api/gmail/messages/:msgId/cid-image/:contentId
+  // Resolves a cid:xxx reference from a received message's HTML body by
+  // fetching the corresponding MIME attachment part from the Gmail API.
+  // The client replaces src="cid:xxx" → src="/api/gmail/messages/{id}/cid-image/xxx"
+  // before DOMPurify runs, so inline signature images display correctly.
+  app.get("/api/gmail/messages/:msgId/cid-image/:contentId", requireAuth, async (req, res) => {
+    try {
+      const msgId = String(req.params.msgId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+      const contentId = String(req.params.contentId || "");
+      if (!msgId || !contentId) return res.status(400).json({ error: "Invalid params" });
+      const userId = (req.session as any).userId as number;
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+      // Find source account for this message
+      const msgRows = await db.execute(sql.raw(
+        `SELECT source_account_id FROM email_messages WHERE gmail_message_id = '${msgId.replace(/'/g, "''")}' LIMIT 1`
+      ));
+      const accountId: number | null = (msgRows.rows as any[])[0]?.source_account_id ?? null;
+      if (!accountId) return res.status(404).json({ error: "Message not found" });
+      // Access check — same model as attachment download
+      const hasSharedAccess = mailTeamPerms[String(accountId)]?.view === true
+        || mailTeamPerms[String(accountId)]?.edit === true;
+      const ownerRows = await db.execute(sql.raw(
+        `SELECT user_id FROM gmail_accounts WHERE id = ${Number(accountId)} LIMIT 1`
+      ));
+      const ownerUserId: number | null = (ownerRows.rows as any[])[0]?.user_id ?? null;
+      if (ownerUserId !== userId && !isAdmin && !hasSharedAccess) {
+        return res.status(403).json({ error: "Not allowed" });
+      }
+      const gmailClient = await getGmailClient(userId, accountId);
+      // Fetch message payload (need part headers to match Content-ID)
+      const msgRes = await gmailClient.users.messages.get({ userId: "me", id: msgId, format: "full" });
+      const payload = msgRes.data.payload;
+      // Normalize the target CID (strip angle brackets, lowercase)
+      const targetCid = contentId.replace(/^<|>$/g, "").toLowerCase();
+      // Recursively search MIME tree for the part whose Content-ID matches
+      function findInlinePart(parts: any[]): any | null {
+        for (const p of parts || []) {
+          const cidHeader = (p.headers || []).find(
+            (h: any) => String(h.name).toLowerCase() === "content-id"
+          );
+          if (cidHeader) {
+            const val = String(cidHeader.value).replace(/^<|>$/g, "").toLowerCase();
+            if (val === targetCid) return p;
+          }
+          if (Array.isArray(p.parts)) {
+            const found = findInlinePart(p.parts);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      const allParts: any[] = [payload, ...(payload?.parts || [])];
+      const match = findInlinePart(allParts);
+      if (!match) return res.status(404).json({ error: "CID part not found in message" });
+      // Inline data may be in body.data (small images) or body.attachmentId (fetched separately)
+      let imageBuffer: Buffer;
+      if (match.body?.data) {
+        imageBuffer = Buffer.from(String(match.body.data).replace(/-/g, "+").replace(/_/g, "/"), "base64");
+      } else if (match.body?.attachmentId) {
+        const attRes = await gmailClient.users.messages.attachments.get({
+          userId: "me", messageId: msgId, id: match.body.attachmentId,
+        });
+        const b64 = String(attRes.data.data || "").replace(/-/g, "+").replace(/_/g, "/");
+        imageBuffer = Buffer.from(b64, "base64");
+      } else {
+        return res.status(404).json({ error: "No image data in matched part" });
+      }
+      const mimeType = match.mimeType || "image/png";
+      res.set("Content-Type", mimeType);
+      res.set("Cache-Control", "public, max-age=86400, immutable");
+      res.set("Content-Length", String(imageBuffer.length));
+      return res.send(imageBuffer);
+    } catch (err: any) {
+      console.error("[cid-image-proxy]", err?.message);
+      return res.status(500).json({ error: "Failed to fetch inline image" });
+    }
+  });
+
   app.get("/api/gmail/threads", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const rawAcc = req.query.asAccountId as string | undefined;
@@ -14107,6 +14186,42 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       res.json({ ok: true, inlineImageCount: inlineImages.length, mimeTree: tree, rawMime });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message });
+    }
+  });
+
+  // ─── Dev-only: return raw MIME of the last sent email ────────────────────────
+  // GET /api/dev/last-sent-raw-email
+  // Returns the decoded raw MIME string captured during the most recent
+  // sendEmail() call this session.  Use this to verify CID refs, MIME tree,
+  // and inline image presence without relying on an external mail client.
+  app.get("/api/dev/last-sent-raw-email", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { getLastSentDebugState } = await import("./gmail");
+      const state = getLastSentDebugState();
+      if (!state) {
+        return res.json({ ok: false, message: "No email sent this session. Send a test email first, then call this endpoint." });
+      }
+      // Extract just the HTML body for quick inspection
+      const htmlMatch = state.rawMime.match(/Content-Type: text\/html[\s\S]*?\r?\n\r?\n([\s\S]*?)(?=\r?\n--|\r?\n\r?\nContent-Type|$)/i);
+      const htmlBody = htmlMatch ? htmlMatch[1].trim() : null;
+      const hasCidRefs = htmlBody ? /src="cid:/i.test(htmlBody) : false;
+      const cidRefs = htmlBody ? [...(htmlBody.matchAll(/src="cid:([^"]+)"/gi))].map(m => m[1]) : [];
+      const mimePartHeaders = [...state.rawMime.matchAll(/^Content-(Type|ID|Disposition|Transfer-Encoding):.*$/gim)].map(m => m[0]);
+      return res.json({
+        ok: true,
+        timestamp: state.timestamp,
+        to: state.to,
+        subject: state.subject,
+        from: state.from,
+        inlineImageCount: state.inlineImageCount,
+        hasCidRefsInHtml: hasCidRefs,
+        cidRefsFound: cidRefs,
+        mimeTree: state.mimeTree,
+        mimePartHeaders,
+        rawMime: state.rawMime,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err?.message });
     }
   });
 

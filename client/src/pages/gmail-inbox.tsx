@@ -2282,6 +2282,7 @@ function MessageBody({
   isHtml,
   headerLeft,
   calendarAttachmentId,
+  gmailMessageId,
 }: {
   body: string;
   isHtml: boolean;
@@ -2300,6 +2301,10 @@ function MessageBody({
    * new browser tab.
    */
   calendarAttachmentId?: number;
+  /** Gmail message ID (e.g. "18xyzabc"). When provided, src="cid:xxx" refs
+   *  in the HTML body are rewritten to /api/gmail/messages/{id}/cid-image/xxx
+   *  before DOMPurify runs so inline signature images resolve in the browser. */
+  gmailMessageId?: string;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -2447,9 +2452,19 @@ function MessageBody({
   // Result: every email reads like a real email, never a wall of monospace.
   const sanitized = useMemo(() => {
     if (!body) return "";
-    if (isHtml) return sanitizeEmailHtml(body);
-    return sanitizeEmailHtml(plainTextToEmailHtml(body));
-  }, [body, isHtml]);
+    // Resolve cid: references BEFORE DOMPurify (DOMPurify strips cid: URIs by
+    // default). Replace src="cid:xxx" with a backend proxy URL that fetches the
+    // inline image part from Gmail API. This makes signature images visible in
+    // the browser iframe — no change needed to DOMPurify config.
+    let resolved = body;
+    if (gmailMessageId && /src="cid:/i.test(body)) {
+      resolved = body.replace(/\bsrc="cid:([^"]+)"/gi, (_, cid) =>
+        `src="/api/gmail/messages/${encodeURIComponent(gmailMessageId)}/cid-image/${encodeURIComponent(cid)}"`
+      );
+    }
+    if (isHtml) return sanitizeEmailHtml(resolved);
+    return sanitizeEmailHtml(plainTextToEmailHtml(resolved));
+  }, [body, isHtml, gmailMessageId]);
   const plainTextView = useMemo(
     () => (body && isHtml ? htmlToPlainText(sanitized) : body || ""),
     [sanitized, body, isHtml],
@@ -9791,6 +9806,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             <MessageBody
                               body={msg.body}
                               isHtml={msg.isHtml}
+                              gmailMessageId={msg.gmailMessageId}
                               calendarAttachmentId={ics?.id}
                               headerLeft={isLatest && canSend ? (
                                 <EmailFormatToolbar
