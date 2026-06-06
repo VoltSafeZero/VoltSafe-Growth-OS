@@ -1482,6 +1482,18 @@ export async function migrateEmailSignaturesSchema(): Promise<void> {
   }
 }
 
+export async function migrateSignatureCtaAssetColumns(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE email_signatures ADD COLUMN IF NOT EXISTS cta_image_url TEXT`);
+    await db.execute(sql`ALTER TABLE email_signatures ADD COLUMN IF NOT EXISTS cta_dest_url TEXT`);
+    await db.execute(sql`ALTER TABLE email_signatures ADD COLUMN IF NOT EXISTS cta_alt_text TEXT`);
+    await db.execute(sql`ALTER TABLE email_signatures ADD COLUMN IF NOT EXISTS cta_width_px INTEGER`);
+    console.log("[migration] signature cta asset columns ready.");
+  } catch (err) {
+    console.error("[migration] signature cta asset columns error (non-fatal):", err);
+  }
+}
+
 export async function migrateSignatureCtaSchema(): Promise<void> {
   try {
     await db.execute(sql`

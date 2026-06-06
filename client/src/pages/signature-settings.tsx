@@ -29,6 +29,10 @@ type EmailSignature = {
   htmlContent: string;
   plainTextContent: string | null;
   isDefault: boolean;
+  ctaImageUrl: string | null;
+  ctaDestUrl: string | null;
+  ctaAltText: string | null;
+  ctaWidthPx: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -71,17 +75,26 @@ type SigFields = {
   instagram: string;
   youtube: string;
   brandColor: string;
-  ctaImageUrl: string;
-  ctaDestUrl: string;
-  ctaAltText: string;
-  ctaWidthPx: string;
 };
 
 const DEFAULT_FIELDS: SigFields = {
   fullName: "", jobTitle: "", company: "", email: "", phone: "", mobile: "",
   website: "", address: "", linkedin: "", twitter: "", instagram: "", youtube: "",
   brandColor: "#00C1DE",
-  ctaImageUrl: "", ctaDestUrl: "", ctaAltText: "Watch a Demo", ctaWidthPx: "180",
+};
+
+type CtaConfig = {
+  imageUrl: string;
+  destUrl: string;
+  altText: string;
+  widthPx: string;
+};
+
+const DEFAULT_CTA_CONFIG: CtaConfig = {
+  imageUrl: "",
+  destUrl: "",
+  altText: "Watch a Demo",
+  widthPx: "180",
 };
 
 // ── CtaAssetImg — renders a CTA image with a clear fallback when the file is missing ──
@@ -171,23 +184,7 @@ function buildSignatureHtml(f: SigFields): string {
 </table>
 </div>`;
 
-  // If no CTA selected, return single-column layout
-  if (!f.ctaImageUrl || !f.ctaDestUrl) return leftContent;
-
-  // Right column: CTA image linked to destination URL
-  const ctaW = Math.max(80, Math.min(240, Number(f.ctaWidthPx) || 180));
-  const ctaAlt = esc(f.ctaAltText || "Watch a Demo");
-  const ctaHref = esc(safeUrl(f.ctaDestUrl));
-  const ctaSrc = esc(f.ctaImageUrl);
-  const rightContent = `<a href="${ctaHref}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${ctaSrc}" alt="${ctaAlt}" width="${ctaW}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${ctaW}px;height:auto;border-radius:4px;"></a>`;
-
-  // Two-column table: info left, CTA right (top-aligned)
-  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;">
-<tr>
-<td style="vertical-align:top;">${leftContent}</td>
-<td style="vertical-align:top;padding-left:24px;">${rightContent}</td>
-</tr>
-</table>`;
+  return leftContent;
 }
 
 function htmlToPlainText(html: string): string {
@@ -203,9 +200,137 @@ function htmlToPlainText(html: string): string {
     .trim();
 }
 
+function wrapHtmlWithCta(baseHtml: string, cta: CtaConfig): string {
+  if (!cta.imageUrl || !cta.destUrl) return baseHtml;
+  const w = Math.max(80, Math.min(240, Number(cta.widthPx) || 180));
+  const alt = (cta.altText || "Watch a Demo").replace(/"/g, "&quot;");
+  const dest = safeUrl(cta.destUrl).replace(/"/g, "&quot;");
+  const src = cta.imageUrl.replace(/"/g, "&quot;");
+  const ctaCell = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${src}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${w}px;height:auto;border-radius:4px;"></a>`;
+  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${baseHtml}</td><td style="vertical-align:top;padding-left:24px;">${ctaCell}</td></tr></table>`;
+}
+
+// ─── CTA Picker Section (shared by Builder and HTML tabs) ─────────────────────
+function CtaPickerSection({ cta, onChange }: { cta: CtaConfig; onChange: (c: CtaConfig) => void }) {
+  const assetsQuery = useQuery<CtaAsset[]>({ queryKey: ["/api/cta-assets"] });
+  const assets = assetsQuery.data ?? [];
+
+  function setField(key: keyof CtaConfig, val: string) {
+    onChange({ ...cta, [key]: val });
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/60 pt-1 pb-0.5">CTA Image — Right Column</p>
+      <p className="text-[11px] text-muted-foreground/60">
+        Pick an image to show beside your signature. It appears in the right column and links to your demo URL.
+      </p>
+
+      {assetsQuery.isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading CTA assets…
+        </div>
+      ) : assets.length === 0 ? (
+        <p className="text-xs text-muted-foreground/50 italic py-1">
+          No CTA assets uploaded yet. Go to the CTA Assets tab to upload one.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2 py-1">
+          <button
+            type="button"
+            onClick={() => onChange({ ...cta, imageUrl: "", destUrl: "" })}
+            className={`flex flex-col items-center justify-center rounded-lg border-2 p-2 w-16 h-16 text-[10px] transition-colors ${!cta.imageUrl ? "border-primary bg-primary/10 text-primary" : "border-border/40 text-muted-foreground hover:border-border"}`}
+            data-testid="button-sig-cta-none"
+          >
+            <ImageOff className="h-4 w-4 mb-1" />
+            None
+          </button>
+          {assets.map(asset => (
+            <button
+              key={asset.id}
+              type="button"
+              onClick={() => onChange({
+                ...cta,
+                imageUrl: asset.public_url,
+                destUrl: cta.destUrl || "https://www.voltsafemarine.com/sdemo",
+                altText: cta.altText || asset.name,
+              })}
+              className={`relative rounded-lg border-2 overflow-hidden w-16 h-16 transition-colors ${cta.imageUrl === asset.public_url ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-border"}`}
+              title={asset.name}
+              data-testid={`button-sig-cta-asset-${asset.id}`}
+            >
+              <CtaAssetImg src={asset.public_url} alt={asset.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {cta.imageUrl && (
+        <div className="space-y-2 pt-1">
+          <div className="grid grid-cols-3 items-center gap-3">
+            <Label className="text-right text-xs text-muted-foreground">Demo Link</Label>
+            <Input
+              value={cta.destUrl}
+              onChange={e => setField("destUrl", e.target.value)}
+              placeholder="https://www.voltsafemarine.com/sdemo"
+              className="col-span-2 h-8 text-sm"
+              data-testid="input-sig-ctaDestUrl"
+            />
+          </div>
+          <div className="grid grid-cols-3 items-center gap-3">
+            <Label className="text-right text-xs text-muted-foreground">Alt Text</Label>
+            <Input
+              value={cta.altText}
+              onChange={e => setField("altText", e.target.value)}
+              placeholder="Watch a Demo"
+              className="col-span-2 h-8 text-sm"
+              data-testid="input-sig-ctaAltText"
+            />
+          </div>
+          <div className="grid grid-cols-3 items-center gap-3">
+            <Label className="text-right text-xs text-muted-foreground">Width (px)</Label>
+            <Input
+              type="number"
+              min={80}
+              max={240}
+              value={cta.widthPx}
+              onChange={e => setField("widthPx", e.target.value)}
+              placeholder="180"
+              className="col-span-2 h-8 text-sm w-24"
+              data-testid="input-sig-ctaWidthPx"
+            />
+          </div>
+          {/* Live mini-preview */}
+          <div className="rounded-lg border border-border/30 bg-white p-3 flex items-start gap-4 mt-1">
+            <div className="text-[11px] text-gray-500 font-sans flex-1">
+              <div className="font-bold text-gray-800 text-sm">Your Signature</div>
+              <div className="text-[10px] text-cyan-600">Job Title</div>
+              <div className="text-[10px] text-gray-500">Company</div>
+            </div>
+            <a href={cta.destUrl || "#"} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
+              <CtaAssetImg
+                src={cta.imageUrl}
+                alt={cta.altText || "Watch a Demo"}
+                style={{ width: Math.max(80, Math.min(240, Number(cta.widthPx) || 180)), height: "auto", borderRadius: 4, display: "block" }}
+              />
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Builder Form ─────────────────────────────────────────────────────────────
 
-function BuilderForm({ fields, onChange }: { fields: SigFields; onChange: (f: SigFields) => void }) {
+function BuilderForm({
+  fields, onChange, cta, onCtaChange,
+}: {
+  fields: SigFields;
+  onChange: (f: SigFields) => void;
+  cta: CtaConfig;
+  onCtaChange: (c: CtaConfig) => void;
+}) {
   function set(key: keyof SigFields, val: string) {
     onChange({ ...fields, [key]: val });
   }
@@ -222,9 +347,6 @@ function BuilderForm({ fields, onChange }: { fields: SigFields; onChange: (f: Si
       />
     </div>
   );
-
-  const assetsQuery = useQuery<CtaAsset[]>({ queryKey: ["/api/cta-assets"] });
-  const assets = assetsQuery.data ?? [];
 
   return (
     <div className="space-y-2.5 py-1">
@@ -261,107 +383,7 @@ function BuilderForm({ fields, onChange }: { fields: SigFields; onChange: (f: Si
           />
         </div>
       </div>
-
-      {/* ── CTA Image (right column) ── */}
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/60 pt-2 pb-1">CTA Image — Right Column</p>
-      <p className="text-[11px] text-muted-foreground/60 -mt-1">
-        Pick a CTA Asset to embed beside your contact info. It will appear in the right column and link to your demo URL.
-      </p>
-
-      {/* Asset thumbnail picker */}
-      {assetsQuery.isLoading ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading CTA assets…
-        </div>
-      ) : assets.length === 0 ? (
-        <p className="text-xs text-muted-foreground/50 italic py-1">
-          No CTA assets uploaded yet. Go to the CTA Assets tab to upload one.
-        </p>
-      ) : (
-        <div className="flex flex-wrap gap-2 py-1">
-          {/* "None" option */}
-          <button
-            type="button"
-            onClick={() => onChange({ ...fields, ctaImageUrl: "", ctaDestUrl: "" })}
-            className={`flex flex-col items-center justify-center rounded-lg border-2 p-2 w-16 h-16 text-[10px] transition-colors ${!fields.ctaImageUrl ? "border-primary bg-primary/10 text-primary" : "border-border/40 text-muted-foreground hover:border-border"}`}
-            data-testid="button-sig-cta-none"
-          >
-            <ImageOff className="h-4 w-4 mb-1" />
-            None
-          </button>
-          {assets.map(asset => (
-            <button
-              key={asset.id}
-              type="button"
-              onClick={() => onChange({
-                ...fields,
-                ctaImageUrl: asset.public_url,
-                ctaDestUrl: fields.ctaDestUrl || "https://www.voltsafemarine.com/sdemo",
-                ctaAltText: fields.ctaAltText || asset.name,
-              })}
-              className={`relative rounded-lg border-2 overflow-hidden w-16 h-16 transition-colors ${fields.ctaImageUrl === asset.public_url ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-border"}`}
-              title={asset.name}
-              data-testid={`button-sig-cta-asset-${asset.id}`}
-            >
-              <CtaAssetImg src={asset.public_url} alt={asset.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Destination URL & size (only shown when a CTA is selected) */}
-      {fields.ctaImageUrl && (
-        <div className="space-y-2 pt-1">
-          <div className="grid grid-cols-3 items-center gap-3">
-            <Label className="text-right text-xs text-muted-foreground">Demo Link</Label>
-            <Input
-              value={fields.ctaDestUrl}
-              onChange={e => set("ctaDestUrl", e.target.value)}
-              placeholder="https://www.voltsafemarine.com/sdemo"
-              className="col-span-2 h-8 text-sm"
-              data-testid="input-sig-ctaDestUrl"
-            />
-          </div>
-          <div className="grid grid-cols-3 items-center gap-3">
-            <Label className="text-right text-xs text-muted-foreground">Alt Text</Label>
-            <Input
-              value={fields.ctaAltText}
-              onChange={e => set("ctaAltText", e.target.value)}
-              placeholder="Watch a Demo"
-              className="col-span-2 h-8 text-sm"
-              data-testid="input-sig-ctaAltText"
-            />
-          </div>
-          <div className="grid grid-cols-3 items-center gap-3">
-            <Label className="text-right text-xs text-muted-foreground">Width (px)</Label>
-            <Input
-              type="number"
-              min={80}
-              max={240}
-              value={fields.ctaWidthPx}
-              onChange={e => set("ctaWidthPx", e.target.value)}
-              placeholder="180"
-              className="col-span-2 h-8 text-sm w-24"
-              data-testid="input-sig-ctaWidthPx"
-            />
-          </div>
-          {/* Live CTA preview */}
-          <div className="rounded-lg border border-border/30 bg-white p-3 flex items-start gap-4 mt-1">
-            <div className="text-[11px] text-gray-500 font-sans">
-              <div className="font-bold text-gray-800 text-sm">{fields.fullName || "Your Name"}</div>
-              <div className="text-[10px] text-cyan-600">{fields.jobTitle || "Job Title"}</div>
-              <div className="text-[10px] text-gray-500">{fields.company || "Company"}</div>
-            </div>
-            <a href={fields.ctaDestUrl || "#"} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
-              <CtaAssetImg
-                src={fields.ctaImageUrl}
-                alt={fields.ctaAltText || "Watch a Demo"}
-                style={{ width: Math.max(80, Math.min(240, Number(fields.ctaWidthPx) || 180)), height: "auto", borderRadius: 4, display: "block" }}
-              />
-            </a>
-          </div>
-        </div>
-      )}
+      <CtaPickerSection cta={cta} onChange={onCtaChange} />
     </div>
   );
 }
@@ -384,11 +406,20 @@ function SignatureDialog({
     existing ? existing.htmlContent : buildSignatureHtml(DEFAULT_FIELDS)
   );
   const [fields, setFields] = useState<SigFields>(DEFAULT_FIELDS);
+  const [ctaConfig, setCtaConfig] = useState<CtaConfig>(() => ({
+    imageUrl: existing?.ctaImageUrl ?? "",
+    destUrl: existing?.ctaDestUrl ?? "",
+    altText: existing?.ctaAltText ?? "Watch a Demo",
+    widthPx: String(existing?.ctaWidthPx ?? 180),
+  }));
 
   const handleFieldsChange = useCallback((f: SigFields) => {
     setFields(f);
     setHtmlContent(buildSignatureHtml(f));
   }, []);
+
+  // Preview: base signature HTML + CTA wrapped alongside (not below)
+  const previewHtml = wrapHtmlWithCta(htmlContent, ctaConfig);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -397,6 +428,10 @@ function SignatureDialog({
         htmlContent,
         plainTextContent: htmlToPlainText(htmlContent),
         isDefault: existing?.isDefault ?? false,
+        ctaImageUrl: ctaConfig.imageUrl || null,
+        ctaDestUrl: ctaConfig.destUrl || null,
+        ctaAltText: ctaConfig.altText || null,
+        ctaWidthPx: ctaConfig.widthPx ? Number(ctaConfig.widthPx) : null,
       };
       if (existing) {
         const res = await apiRequest("PUT", `/api/signatures/${existing.id}`, body);
@@ -458,24 +493,31 @@ function SignatureDialog({
                   <p>This signature was saved with custom HTML. Use the <strong>Edit HTML</strong> tab to modify it directly, or use the builder below to generate a fresh signature.</p>
                 </div>
               ) : null}
-              <BuilderForm fields={fields} onChange={handleFieldsChange} />
+              <BuilderForm
+                fields={fields}
+                onChange={handleFieldsChange}
+                cta={ctaConfig}
+                onCtaChange={setCtaConfig}
+              />
             </TabsContent>
 
             <TabsContent value="preview" className="mt-3">
               <div className="rounded-lg border border-border/40 bg-white p-6 min-h-[200px]">
-                {htmlContent ? (
-                  <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
+                {previewHtml ? (
+                  <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
                 ) : (
-                  <p className="text-sm text-gray-400 italic">Fill in the Builder fields to see a preview.</p>
+                  <p className="text-sm text-gray-400 italic">Fill in the Builder or HTML fields to see a preview.</p>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground/50 mt-2">Preview shown on white background to match email clients.</p>
+              <p className="text-xs text-muted-foreground/50 mt-2">
+                Preview on white background — {ctaConfig.imageUrl ? "CTA image shown in right column as recipients will see it." : "no CTA selected."}
+              </p>
             </TabsContent>
 
             <TabsContent value="html" className="mt-3">
               <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/30 border border-border/40 text-xs text-muted-foreground mb-3">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-400" />
-                <p>Advanced mode. Edit raw HTML directly. Dangerous code (scripts, event handlers) will be stripped automatically on save.</p>
+                <p>Advanced mode. Edit raw HTML directly. Dangerous code (scripts, event handlers) will be stripped automatically on save. The CTA image below is stored separately and injected at send time — it will NOT appear in the raw HTML.</p>
               </div>
               <Textarea
                 value={htmlContent}
@@ -484,6 +526,9 @@ function SignatureDialog({
                 placeholder="<div>Your custom HTML signature...</div>"
                 data-testid="textarea-sig-html"
               />
+              <div className="mt-4 pt-3 border-t border-border/30">
+                <CtaPickerSection cta={ctaConfig} onChange={setCtaConfig} />
+              </div>
             </TabsContent>
           </Tabs>
         </div>

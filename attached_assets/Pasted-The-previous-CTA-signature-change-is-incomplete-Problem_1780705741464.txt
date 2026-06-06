@@ -1,0 +1,63 @@
+The previous CTA signature change is incomplete.
+
+Problem:
+The CTA Asset picker only affects the Builder-generated signature. But our real VoltSafe signatures often use the Edit HTML tab/custom HTML. When a signature is saved with custom HTML, the CTA asset does NOT get injected into the actual HTML signature. It just lives in the builder state and therefore does not appear in sent emails.
+
+Fix this properly.
+
+Requirements:
+
+1. CTA must work for BOTH modes:
+   - Builder-generated signatures
+   - Custom HTML signatures edited in the Edit HTML tab
+
+2. In the Edit HTML tab, add a clear “CTA Image — Right Column” section, same as Builder:
+   - Asset picker from /api/cta-assets
+   - None button
+   - Demo Link field
+   - Alt Text field
+   - Width px field
+
+3. When a CTA is selected for a custom HTML signature, the saved/sent signature HTML must wrap the existing custom HTML in a two-column email-safe table:
+   - Left column = existing custom HTML exactly as written
+   - Right column = linked CTA image
+   - Use old-school email-safe table markup, inline styles only
+   - CTA image should be clickable and link to the selected Demo Link
+   - Preserve all existing custom HTML content
+
+4. Do NOT place the CTA below the signature.
+   It must appear beside the signature in a right column.
+
+5. Create/centralize a helper like:
+   wrapSignatureHtmlWithCta(baseHtml, ctaConfig)
+   It should be used for both:
+   - Builder signatures
+   - Custom HTML signatures
+   - Preview rendering
+   - Final saved/sent email HTML
+
+6. Data model:
+   Make sure the selected CTA config is saved with the signature record, not only temporary UI state.
+   Store:
+   - ctaAssetId or ctaImageUrl
+   - ctaDestUrl
+   - ctaAltText
+   - ctaWidthPx
+
+7. Preview tab must show the true final result:
+   - If CTA selected, show custom HTML left + CTA image right
+   - If no CTA selected, show normal signature only
+
+8. Sent emails must use the final wrapped HTML, not raw customHtml alone.
+
+9. Backward compatibility:
+   - Existing signatures without CTA must remain unchanged
+   - Existing custom HTML signatures must not be destroyed or regenerated
+   - Builder fields should not overwrite custom HTML unless the user explicitly regenerates
+
+10. Add a simple test or grep validation proving:
+   - custom HTML + CTA produces a two-column table
+   - builder HTML + CTA produces a two-column table
+   - no CTA leaves signature unchanged
+
+Find the signature editor, signature save endpoint, signature preview logic, and send-email signature injection path. Patch all places needed so the CTA asset actually appears in sent emails for custom HTML signatures.

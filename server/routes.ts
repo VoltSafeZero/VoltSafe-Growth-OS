@@ -64,6 +64,7 @@ import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, mar
 import { normalizeOutboundHtml } from "./services/email-html-normalizer";
 import { applySignatureSendSanitizer } from "./services/signature-html-sanitizer";
 import { wrapSignatureCtaLinks, updateSignatureCtaMessageIds, recordSignatureCtaClick, isSafeCtaUrl } from "./services/signature-cta-tracker";
+import { wrapHtmlWithCtaAsset } from "./services/signature-cta-asset";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
@@ -13096,7 +13097,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (_schedSigId) {
         try {
           const _schedSigRows = await db.execute(sql.raw(`
-            SELECT es.html_content,
+            SELECT es.html_content, es.cta_image_url, es.cta_dest_url, es.cta_alt_text, es.cta_width_px,
                    COALESCE(
                      json_agg(
                        json_build_object(
@@ -13115,26 +13116,36 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           const _schedRow = (_schedSigRows.rows as any[])[0];
           if (_schedRow) {
             const _sn = normalizeSignatureHtml(_schedRow.html_content || "");
-            const _sc: any[] = Array.isArray(_schedRow.ctas) ? _schedRow.ctas : [];
             const _schedBaseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
-            const _fixScImg = (url: string) => {
-              const m = String(url).match(/\/assets\/cta\/([^/?#\s]+)$/);
-              return m ? `${_schedBaseUrl}/assets/cta/${m[1]}` : url;
-            };
-            const _sh = _sc.map((cta: any) => {
-              const _a = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
-              const _d = String(cta.destination_url || "").replace(/"/g, "&quot;");
-              const _w = Number(cta.width_px) || 200;
-              if (cta.image_url) {
-                const _i = _fixScImg(String(cta.image_url)).replace(/"/g, "&quot;");
-                const _dw = Math.min(_w, 200);
-                return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_i}" alt="${_a}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${_dw}px;height:auto;"></a>`;
-              }
-              return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_a}</a>`;
-            }).join("");
-            const _schedSigSection = _sh
-              ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_sn}</td><td style="vertical-align:top;padding-left:24px;">${_sh}</td></tr></table>`
-              : _sn;
+            let _schedSigSection: string;
+            if (_schedRow.cta_image_url && _schedRow.cta_dest_url) {
+              _schedSigSection = wrapHtmlWithCtaAsset(_sn, {
+                imageUrl: String(_schedRow.cta_image_url),
+                destUrl: String(_schedRow.cta_dest_url),
+                altText: _schedRow.cta_alt_text ? String(_schedRow.cta_alt_text) : null,
+                widthPx: _schedRow.cta_width_px ? Number(_schedRow.cta_width_px) : null,
+              }, _schedBaseUrl);
+            } else {
+              const _sc: any[] = Array.isArray(_schedRow.ctas) ? _schedRow.ctas : [];
+              const _fixScImg = (url: string) => {
+                const m = String(url).match(/\/assets\/cta\/([^/?#\s]+)$/);
+                return m ? `${_schedBaseUrl}/assets/cta/${m[1]}` : url;
+              };
+              const _sh = _sc.map((cta: any) => {
+                const _a = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
+                const _d = String(cta.destination_url || "").replace(/"/g, "&quot;");
+                const _w = Number(cta.width_px) || 200;
+                if (cta.image_url) {
+                  const _i = _fixScImg(String(cta.image_url)).replace(/"/g, "&quot;");
+                  const _dw = Math.min(_w, 200);
+                  return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_i}" alt="${_a}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${_dw}px;height:auto;"></a>`;
+                }
+                return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_a}</a>`;
+              }).join("");
+              _schedSigSection = _sh
+                ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_sn}</td><td style="vertical-align:top;padding-left:24px;">${_sh}</td></tr></table>`
+                : _sn;
+            }
             schedBody = schedBody + `<!--vs-sig-start-->${_schedSigSection}<!--vs-sig-end-->`;
           }
         } catch (_se: any) {
@@ -14265,7 +14276,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (selectedSignatureId) {
         try {
           const _sigRows = await db.execute(sql.raw(`
-            SELECT es.html_content,
+            SELECT es.html_content, es.cta_image_url, es.cta_dest_url, es.cta_alt_text, es.cta_width_px,
                    COALESCE(
                      json_agg(
                        json_build_object(
@@ -14286,30 +14297,39 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             console.warn(`[gmail-send] selectedSignatureId=${selectedSignatureId} not found or not owned by userId=${userId}`);
           } else {
             const _normalizedSig = normalizeSignatureHtml(_sigRow.html_content || "");
-            const _sigCtas: any[] = Array.isArray(_sigRow.ctas) ? _sigRow.ctas : [];
-            // Rewrite image_url to current baseUrl so CTA thumbnails resolve correctly
-            // regardless of which host the asset was originally uploaded under.
-            const _fixCtaImg = (url: string) => {
-              const m = String(url).match(/\/assets\/cta\/([^/?#\s]+)$/);
-              return m ? `${baseUrl}/assets/cta/${m[1]}` : url;
-            };
-            const _ctaHtmlBlock = _sigCtas.map((cta: any) => {
-              const _alt  = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
-              const _dest = String(cta.destination_url || "").replace(/"/g, "&quot;");
-              const _w    = Number(cta.width_px) || 200;
-              if (cta.image_url) {
-                const _img = _fixCtaImg(String(cta.image_url)).replace(/"/g, "&quot;");
-                const _dw = Math.min(_w, 200);
-                return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_img}" alt="${_alt}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${_dw}px;height:auto;"></a>`;
-              }
-              return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_alt}</a>`;
-            }).join("");
-            // Place CTAs to the RIGHT of signature text in a side-by-side table layout.
-            const _sigSection = _ctaHtmlBlock
-              ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_normalizedSig}</td><td style="vertical-align:top;padding-left:24px;">${_ctaHtmlBlock}</td></tr></table>`
-              : _normalizedSig;
+            // Prefer baked-in CTA asset columns over the legacy email_signature_ctas table.
+            let _sigSection: string;
+            if (_sigRow.cta_image_url && _sigRow.cta_dest_url) {
+              _sigSection = wrapHtmlWithCtaAsset(_normalizedSig, {
+                imageUrl: String(_sigRow.cta_image_url),
+                destUrl: String(_sigRow.cta_dest_url),
+                altText: _sigRow.cta_alt_text ? String(_sigRow.cta_alt_text) : null,
+                widthPx: _sigRow.cta_width_px ? Number(_sigRow.cta_width_px) : null,
+              }, baseUrl);
+            } else {
+              const _sigCtas: any[] = Array.isArray(_sigRow.ctas) ? _sigRow.ctas : [];
+              const _fixCtaImg = (url: string) => {
+                const m = String(url).match(/\/assets\/cta\/([^/?#\s]+)$/);
+                return m ? `${baseUrl}/assets/cta/${m[1]}` : url;
+              };
+              const _ctaHtmlBlock = _sigCtas.map((cta: any) => {
+                const _alt  = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
+                const _dest = String(cta.destination_url || "").replace(/"/g, "&quot;");
+                const _w    = Number(cta.width_px) || 200;
+                if (cta.image_url) {
+                  const _img = _fixCtaImg(String(cta.image_url)).replace(/"/g, "&quot;");
+                  const _dw = Math.min(_w, 200);
+                  return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_img}" alt="${_alt}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${_dw}px;height:auto;"></a>`;
+                }
+                return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_alt}</a>`;
+              }).join("");
+              _sigSection = _ctaHtmlBlock
+                ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_normalizedSig}</td><td style="vertical-align:top;padding-left:24px;">${_ctaHtmlBlock}</td></tr></table>`
+                : _normalizedSig;
+            }
             bodyWithSig = cleanBody + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`;
-            console.log(`[gmail-send] sig appended server-side id=${selectedSignatureId} sigBytes=${_normalizedSig.length} ctas=${_sigCtas.length}`);
+            const _ctaMode = _sigRow.cta_image_url ? "asset-col" : "ctas-table";
+            console.log(`[gmail-send] sig appended id=${selectedSignatureId} bytes=${_normalizedSig.length} cta=${_ctaMode}`);
           }
         } catch (_sigErr: any) {
           console.error("[gmail-send] signature load error (sending without sig):", _sigErr?.message || _sigErr);
@@ -28523,7 +28543,7 @@ export function registerConfluenceRoutes(app: Express) {
   app.post("/api/signatures", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
-      const { name, htmlContent, plainTextContent, isDefault } = req.body;
+      const { name, htmlContent, plainTextContent, isDefault, ctaImageUrl, ctaDestUrl, ctaAltText, ctaWidthPx } = req.body;
       if (!name?.trim() || !htmlContent?.trim()) {
         return res.status(400).json({ message: "name and htmlContent are required" });
       }
@@ -28547,6 +28567,10 @@ export function registerConfluenceRoutes(app: Express) {
         htmlContent: cleanHtml,
         plainTextContent: plainTextContent ?? null,
         isDefault: shouldBeDefault,
+        ctaImageUrl: ctaImageUrl || null,
+        ctaDestUrl: ctaDestUrl || null,
+        ctaAltText: ctaAltText || null,
+        ctaWidthPx: ctaWidthPx ? Number(ctaWidthPx) : null,
       }).returning();
       res.status(201).json(row);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
@@ -28569,7 +28593,7 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = (req.session as any).userId as number;
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
-      const { name, htmlContent, plainTextContent, isDefault } = req.body;
+      const { name, htmlContent, plainTextContent, isDefault, ctaImageUrl, ctaDestUrl, ctaAltText, ctaWidthPx } = req.body;
       if (!name?.trim() || !htmlContent?.trim()) {
         return res.status(400).json({ message: "name and htmlContent are required" });
       }
@@ -28590,6 +28614,10 @@ export function registerConfluenceRoutes(app: Express) {
         htmlContent: cleanHtml,
         plainTextContent: plainTextContent ?? null,
         isDefault: !!isDefault,
+        ctaImageUrl: ctaImageUrl || null,
+        ctaDestUrl: ctaDestUrl || null,
+        ctaAltText: ctaAltText || null,
+        ctaWidthPx: ctaWidthPx ? Number(ctaWidthPx) : null,
         updatedAt: new Date(),
       }).where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId))).returning();
       res.json(updated);

@@ -2717,6 +2717,10 @@ export const emailSignatures = pgTable("email_signatures", {
   htmlContent: text("html_content").notNull(),
   plainTextContent: text("plain_text_content"),
   isDefault: boolean("is_default").notNull().default(false),
+  ctaImageUrl: text("cta_image_url"),
+  ctaDestUrl: text("cta_dest_url"),
+  ctaAltText: text("cta_alt_text"),
+  ctaWidthPx: integer("cta_width_px"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
