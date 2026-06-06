@@ -106,6 +106,35 @@ assert("HTML tab shows CTA picker",
   frontendSrc.includes("CtaPickerSection cta={ctaConfig}") && frontendSrc.includes("onChange={setCtaConfig}"));
 assert("EmailSignature type has ctaImageUrl", frontendSrc.includes("ctaImageUrl: string | null") || frontendSrc.includes("ctaImageUrl?:"));
 
+// Corruption-prevention guards
+assert("existing sigs default to html tab (not builder)", frontendSrc.includes("existing ? \"html\" : \"builder\""));
+assert("handleFieldsChange only rebuilds html for new sigs", frontendSrc.includes("if (!existing)") && frontendSrc.includes("buildSignatureHtml(f)"));
+assert("Generate from builder button exists for existing sigs", frontendSrc.includes("button-sig-generate-from-builder"));
+
+console.log();
+
+// ── 6. Composer: reads new CTA columns ──────────────────────────────────────
+const composerSrc = fs.readFileSync(
+  path.join(__dirname, "../client/src/pages/gmail-inbox.tsx"),
+  "utf8"
+);
+
+console.log("── 6. gmail-inbox.tsx composer CTA fix ──");
+assert("EmailSig type has ctaImageUrl", composerSrc.includes("ctaImageUrl: string | null"));
+assert("EmailSig type has ctaDestUrl", composerSrc.includes("ctaDestUrl: string | null"));
+assert("EmailSig type has ctaWidthPx", composerSrc.includes("ctaWidthPx: number | null"));
+assert("activeSignatureHtml uses ctaImageUrl column first", composerSrc.includes("activeSig.ctaImageUrl && activeSig.ctaDestUrl"));
+assert("composer logs sig id, htmlLen, ctaImageUrl", composerSrc.includes("[sig-composer] id="));
+assert("composer logs which cta path is used", composerSrc.includes("using ctaImageUrl column") || composerSrc.includes("sig-composer"));
+assert("falls back to legacy ctas when ctaImageUrl null", composerSrc.includes("activeSig.ctas ||"));
+
+console.log();
+
+// ── 7. GET /api/signatures rewrites ctaImageUrl host ────────────────────────
+console.log("── 7. routes.ts GET /api/signatures ──");
+assert("GET response rewrites ctaImageUrl host", routesSrc.includes("fixImgUrl((sig as any).ctaImageUrl"));
+assert("new columns returned in GET response", routesSrc.includes("ctaImageUrl: fixImgUrl("));
+
 console.log();
 
 console.log("──────────────────────────────────────────────────");

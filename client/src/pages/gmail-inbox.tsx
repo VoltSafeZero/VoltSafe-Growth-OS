@@ -510,7 +510,11 @@ function ComposeDialog({
 
   // ── Dynamic Signatures ───────────────────────────────────────────────────────
   type SigCta = { id: number; name: string; type: string; destination_url: string; image_url: string | null; alt_text: string | null; width_px: number | null; tracking_enabled: boolean };
-  type EmailSig = { id: number; name: string; htmlContent: string; isDefault: boolean; ctas: SigCta[] };
+  type EmailSig = {
+    id: number; name: string; htmlContent: string; isDefault: boolean; ctas: SigCta[];
+    // CTA asset columns (new format — stored separately, injected at render/send time)
+    ctaImageUrl: string | null; ctaDestUrl: string | null; ctaAltText: string | null; ctaWidthPx: number | null;
+  };
   const { data: signaturesData = [] } = useQuery<EmailSig[]>({ queryKey: ["/api/signatures"] });
   // undefined = auto-pick default; null = user chose "No signature"; number = specific sig id
   const [selectedSigId, setSelectedSigId] = useState<number | null | undefined>(undefined);
@@ -523,6 +527,30 @@ function ComposeDialog({
     // (<!DOCTYPE>, <html>, <head>, <body>) that may be stored in the DB.
     // This prevents the Replit WAF from rejecting POST /api/gmail/send with 403.
     const normalizedSigHtml = normalizeSignatureHtmlClientSide(activeSig.htmlContent || "");
+
+    console.log(
+      `[sig-composer] id=${activeSig.id} name="${activeSig.name}" ` +
+      `htmlLen=${normalizedSigHtml.length} ` +
+      `ctaImageUrl=${activeSig.ctaImageUrl ?? "null"} ` +
+      `legacyCtas=${activeSig.ctas?.length ?? 0}`
+    );
+
+    // ── New format: CTA stored as separate columns ──────────────────────────
+    // Prefer ctaImageUrl/ctaDestUrl (written by new SignatureDialog) over the
+    // legacy email_signature_ctas table, so both Builder and custom-HTML sigs
+    // get their CTA injected identically.
+    if (activeSig.ctaImageUrl && activeSig.ctaDestUrl) {
+      const w   = Math.max(80, Math.min(240, activeSig.ctaWidthPx || 180));
+      const alt = (activeSig.ctaAltText || "Watch a Demo").replace(/"/g, "&quot;");
+      const dest = activeSig.ctaDestUrl.replace(/"/g, "&quot;");
+      const src  = activeSig.ctaImageUrl.replace(/"/g, "&quot;");
+      const ctaHtml = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${src}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${w}px;height:auto;border-radius:4px;"></a>`;
+      const wrapped = `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:top;padding-left:24px;">${ctaHtml}</td></tr></table>`;
+      console.log(`[sig-composer] using ctaImageUrl column → finalLen=${wrapped.length}`);
+      return wrapped;
+    }
+
+    // ── Legacy format: CTA from email_signature_ctas table ──────────────────
     const ctaBlock = (activeSig.ctas || []).map(cta => {
       const alt  = (cta.alt_text || cta.name).replace(/"/g, "&quot;");
       const dest = cta.destination_url.replace(/"/g, "&quot;");
@@ -535,9 +563,11 @@ function ComposeDialog({
       return `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${alt}</a>`;
     }).join("");
     // Side-by-side table layout — CTA to the RIGHT of signature text (matches backend send route)
-    return ctaBlock
+    const result = ctaBlock
       ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:top;padding-left:24px;">${ctaBlock}</td></tr></table>`
       : normalizedSigHtml;
+    console.log(`[sig-composer] using legacy ctas → finalLen=${result.length}`);
+    return result;
   })();
 
   // Sync fields whenever the modal opens with new defaults (e.g. switching between reply targets).

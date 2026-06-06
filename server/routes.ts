@@ -28536,7 +28536,12 @@ export function registerConfluenceRoutes(app: Express) {
         if (sid) { acc[sid] = acc[sid] || []; acc[sid].push({ ...c, image_url: fixImgUrl(c.image_url) }); }
         return acc;
       }, {});
-      res.json(rows.map(sig => ({ ...sig, ctas: ctaMap[sig.id] || [] })));
+      res.json(rows.map(sig => ({
+        ...sig,
+        // Rewrite ctaImageUrl host so /assets/cta/ paths resolve correctly across hosts.
+        ctaImageUrl: fixImgUrl((sig as any).ctaImageUrl ?? null),
+        ctas: ctaMap[sig.id] || [],
+      })));
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 

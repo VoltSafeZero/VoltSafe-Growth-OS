@@ -401,7 +401,9 @@ function SignatureDialog({
 }) {
   const { toast } = useToast();
   const [name, setName] = useState(() => existing?.name ?? "");
-  const [tab, setTab] = useState<"builder" | "preview" | "html">("builder");
+  // Existing signatures default to HTML tab so the builder cannot accidentally
+  // overwrite saved custom HTML content.
+  const [tab, setTab] = useState<"builder" | "preview" | "html">(() => existing ? "html" : "builder");
   const [htmlContent, setHtmlContent] = useState(() =>
     existing ? existing.htmlContent : buildSignatureHtml(DEFAULT_FIELDS)
   );
@@ -415,8 +417,15 @@ function SignatureDialog({
 
   const handleFieldsChange = useCallback((f: SigFields) => {
     setFields(f);
-    setHtmlContent(buildSignatureHtml(f));
-  }, []);
+    // For new signatures: live-update htmlContent from builder fields so the
+    // preview stays in sync.
+    // For existing signatures: do NOT auto-overwrite htmlContent — the user
+    // must explicitly click "Generate from builder" to replace it. This prevents
+    // accidentally destroying saved custom HTML by merely clicking a builder field.
+    if (!existing) {
+      setHtmlContent(buildSignatureHtml(f));
+    }
+  }, [existing]);
 
   // Preview: base signature HTML + CTA wrapped alongside (not below)
   const previewHtml = wrapHtmlWithCta(htmlContent, ctaConfig);
@@ -488,9 +497,26 @@ function SignatureDialog({
 
             <TabsContent value="builder" className="mt-3">
               {existing ? (
-                <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 mb-3">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <p>This signature was saved with custom HTML. Use the <strong>Edit HTML</strong> tab to modify it directly, or use the builder below to generate a fresh signature.</p>
+                <div className="space-y-2 mb-3">
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="mb-1.5">The builder creates a <strong>fresh signature</strong> from scratch. Filling in fields below will <strong>not</strong> change the current saved HTML until you click <strong>"Generate &amp; Replace"</strong>.</p>
+                      <p className="text-amber-400/70">To keep your existing signature and only change the CTA image, use the <strong>Edit HTML</strong> tab instead.</p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setHtmlContent(buildSignatureHtml(fields));
+                      toast({ title: "HTML replaced from builder fields", description: "Click Save to persist the change." });
+                    }}
+                    className="w-full border-amber-500/40 text-amber-300 hover:bg-amber-500/10 text-xs h-7"
+                    data-testid="button-sig-generate-from-builder"
+                  >
+                    <Wand2 className="h-3 w-3 mr-1.5" /> Generate &amp; Replace HTML from builder fields
+                  </Button>
                 </div>
               ) : null}
               <BuilderForm

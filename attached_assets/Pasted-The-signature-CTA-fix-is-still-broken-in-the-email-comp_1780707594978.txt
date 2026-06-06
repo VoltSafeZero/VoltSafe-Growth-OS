@@ -1,0 +1,46 @@
+The signature CTA fix is still broken in the email composer preview.
+
+Current issue:
+- The selected signature shows only “Best regards,” and a blank line.
+- The actual signature identity block is missing.
+- The CTA thumbnail appears beside the empty signature box.
+- This means the CTA wrapping is working, but the signature HTML being injected/rendered is wrong or incomplete.
+
+Fix this properly end-to-end.
+
+Required behavior:
+1. Email composer must render the FULL saved signature HTML exactly as saved.
+2. CTA image should be appended/wrapped beside the full signature, not replace or hide the signature.
+3. Works for BOTH:
+   - Builder-created signatures
+   - Custom pasted HTML signatures
+4. The saved `html_content` must never be overwritten with partial placeholder text like only “Best regards,”.
+5. The composer preview must use the same final HTML that the send route uses.
+6. The sent email must match the composer preview.
+
+Debug and patch:
+- Trace selected signature load in the composer.
+- Confirm `html_content` returned from `/api/signatures` contains the full signature.
+- Confirm frontend state is not rebuilding/sanitizing it into only “Best regards,”.
+- Confirm `wrapHtmlWithCta()` receives full signature HTML.
+- Confirm server `wrapHtmlWithCtaAsset()` receives full signature HTML before send/schedule.
+- Add console/server logs temporarily showing:
+  - selected signature id/name
+  - html_content length
+  - whether CTA config exists
+  - final wrapped signature length
+
+Do not create another parallel signature system.
+Do not bake CTA into `html_content`.
+Keep CTA fields separate.
+Final signature rendering should be:
+
+FULL SIGNATURE HTML + CTA WRAPPER = FINAL EMAIL SIGNATURE
+
+Also add/repair tests:
+- Builder signature with CTA preserves name/title/company/contact fields.
+- Custom HTML signature with CTA preserves all custom HTML.
+- Composer preview and send route produce matching wrapped HTML.
+- No saved signature is reduced to only “Best regards,”.
+
+After fixing, run tests and visually verify the composer shows the complete Trevor Burgess signature plus the WATCH A DEMO CTA.
