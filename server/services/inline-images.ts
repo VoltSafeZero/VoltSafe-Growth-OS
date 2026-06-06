@@ -11,6 +11,7 @@ export interface InlinedImageLog {
   byteSize: number;
   mimeType: string;
   dataUriLen: number;
+  skipReason?: string;
 }
 
 function extToMime(ext: string): string {
@@ -30,15 +31,17 @@ function extToMime(ext: string): string {
  *
  * Sources (in priority order):
  *   src="/assets/cta/filename"             → read ctaAssetsDir/filename from disk
- *   src="https://host/assets/cta/filename" → same disk fast path
+ *   src="https://host/assets/cta/filename" → same disk fast path, HTTP fallback
  *   src="https://..."                      → server-side HTTP fetch
  *   src="data:..."                         → already inlined, leave unchanged
  *
- * Logs every conversion attempt with: original src, resolved path/url,
- * bytes loaded, mime type, and final data URI length.
+ * NON-FATAL: if an image cannot be loaded (disk miss + HTTP fail), it is
+ * skipped with a warning log — the email is still sent with the original src.
+ * This prevents a disk-unavailable image (e.g. ephemeral production storage)
+ * from blocking every send that uses a signature.
  *
- * Throws a descriptive Error if any image cannot be loaded so the caller
- * can fail the send rather than deliver a broken image.
+ * The PREFERRED fix is to store images as data URIs at upload/signature-creation
+ * time so no runtime disk or network access is ever needed at send time.
  */
 export async function inlineImagesAsBase64(
   html: string,
@@ -67,55 +70,99 @@ export async function inlineImagesAsBase64(
     // ── Already a data URI ────────────────────────────────────────────────────
     if (/^data:/i.test(src)) {
       console.log(`[inline-img] SKIP already-data-uri len=${src.length}`);
-      log.push({ originalSrc: src, resolvedFrom: "skipped", byteSize: 0, mimeType: "", dataUriLen: src.length });
+      log.push({ originalSrc: src, resolvedFrom: "skipped", byteSize: 0, mimeType: "", dataUriLen: src.length, skipReason: "already-data-uri" });
       continue;
     }
 
     // ── Resolve: /assets/cta/ path (fast path — read from disk) ──────────────
     const ctaMatch = src.match(/\/assets\/cta\/([A-Za-z0-9_][A-Za-z0-9_ .\-]*)(?:[?#]|$)/);
 
-    let imageBuffer: Buffer;
-    let mimeType: string;
-    let resolvedFrom: "disk" | "http";
+    let imageBuffer: Buffer | null = null;
+    let mimeType = "image/png";
+    let resolvedFrom: "disk" | "http" | "skipped" = "skipped";
     let localPath: string | undefined;
     let fetchUrl: string | undefined;
+    let skipReason: string | undefined;
 
     if (ctaMatch) {
       const filename = decodeURIComponent(ctaMatch[1]);
       localPath = path.join(ctaAssetsDir, filename);
-      if (!fs.existsSync(localPath)) {
-        const available = fs.existsSync(ctaAssetsDir) ? fs.readdirSync(ctaAssetsDir).join(", ") : "(dir missing)";
-        throw new Error(
-          `Signature image not found on disk: "${filename}" (src="${src}")\n` +
-          `Expected at: ${localPath}\nAvailable: ${available}`,
-        );
-      }
-      imageBuffer = fs.readFileSync(localPath);
       mimeType = extToMime(filename.split(".").pop() ?? "png");
-      resolvedFrom = "disk";
+
+      if (fs.existsSync(localPath)) {
+        try {
+          imageBuffer = fs.readFileSync(localPath);
+          resolvedFrom = "disk";
+          console.log(`[inline-img] disk hit: "${filename}" (${imageBuffer.length} bytes)`);
+        } catch (diskErr: any) {
+          console.warn(`[inline-img] disk read failed for "${filename}": ${diskErr?.message} — will try HTTP`);
+        }
+      } else {
+        console.warn(`[inline-img] disk miss for "${filename}" (dir: ${ctaAssetsDir}) — will try HTTP fetch`);
+      }
+
+      // Fall back to HTTP fetch if disk is unavailable
+      if (!imageBuffer) {
+        const httpSrc = /^https?:\/\//i.test(src)
+          ? src
+          : baseUrl ? `${baseUrl}/assets/cta/${filename}` : null;
+        if (httpSrc) {
+          fetchUrl = httpSrc;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+          try {
+            const resp = await fetch(httpSrc, { signal: controller.signal });
+            clearTimeout(timer);
+            if (resp.ok) {
+              imageBuffer = Buffer.from(await resp.arrayBuffer());
+              resolvedFrom = "http";
+              console.log(`[inline-img] HTTP fallback OK for "${filename}" (${imageBuffer.length} bytes)`);
+            } else {
+              clearTimeout(timer);
+              skipReason = `disk-miss + HTTP ${resp.status}`;
+              console.warn(`[inline-img] HTTP fallback ${resp.status} for "${filename}" — skipping (original src kept)`);
+            }
+          } catch (fetchErr: any) {
+            clearTimeout(timer);
+            skipReason = `disk-miss + fetch-error: ${fetchErr?.message}`;
+            console.warn(`[inline-img] HTTP fallback failed for "${filename}": ${fetchErr?.message} — skipping (original src kept)`);
+          }
+        } else {
+          skipReason = "disk-miss + no-http-url";
+          console.warn(`[inline-img] disk miss for "${filename}" and no HTTP URL available — skipping`);
+        }
+      }
     } else if (/^https?:\/\//i.test(src)) {
-      // ── HTTP fetch ──────────────────────────────────────────────────────────
+      // ── HTTP fetch for non-CTA external images ───────────────────────────────
       fetchUrl = src;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
         const resp = await fetch(src, { signal: controller.signal });
         clearTimeout(timer);
-        if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+        if (resp.ok) {
+          const ct = resp.headers.get("content-type") ?? "image/png";
+          mimeType = ct.split(";")[0].trim();
+          imageBuffer = Buffer.from(await resp.arrayBuffer());
+          resolvedFrom = "http";
+        } else {
+          clearTimeout(timer);
+          skipReason = `HTTP ${resp.status}`;
+          console.warn(`[inline-img] HTTP ${resp.status} for "${src.slice(0, 80)}" — skipping (original src kept)`);
         }
-        const ct = resp.headers.get("content-type") ?? "image/png";
-        mimeType = ct.split(";")[0].trim();
-        imageBuffer = Buffer.from(await resp.arrayBuffer());
       } catch (e: any) {
         clearTimeout(timer);
-        throw new Error(`Could not fetch signature image "${src}": ${e?.message}`);
+        skipReason = `fetch-error: ${e?.message}`;
+        console.warn(`[inline-img] fetch failed for "${src.slice(0, 80)}": ${e?.message} — skipping (original src kept)`);
       }
-      resolvedFrom = "http";
     } else {
-      // Relative URL that's not /assets/cta/ — skip (e.g. internal API or tracking paths)
+      // Relative URL that's not /assets/cta/ — skip
+      skipReason = "unrecognized-relative-url";
       console.log(`[inline-img] SKIP unrecognized src="${src}"`);
-      log.push({ originalSrc: src, resolvedFrom: "skipped", byteSize: 0, mimeType: "", dataUriLen: 0 });
+    }
+
+    if (!imageBuffer) {
+      log.push({ originalSrc: src, resolvedFrom: "skipped", localPath, fetchUrl, byteSize: 0, mimeType: "", dataUriLen: 0, skipReason });
       continue;
     }
 
@@ -130,6 +177,10 @@ export async function inlineImagesAsBase64(
   }
 
   if (replacements.size === 0) {
+    const skippedCount = log.filter(l => l.resolvedFrom === "skipped" && l.skipReason !== "already-data-uri").length;
+    if (skippedCount > 0) {
+      console.warn(`[inline-img] ${skippedCount} image(s) could not be inlined — email will be sent with original src URLs`);
+    }
     return { html, log };
   }
 

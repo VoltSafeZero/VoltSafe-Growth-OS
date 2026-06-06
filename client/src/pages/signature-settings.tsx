@@ -55,6 +55,7 @@ type CtaAsset = {
   name: string;
   filename: string;
   public_url: string;
+  data_uri: string | null;
   mime_type: string;
   file_size: number | null;
   created_by_name: string | null;
@@ -251,11 +252,11 @@ function CtaPickerSection({ cta, onChange }: { cta: CtaConfig; onChange: (c: Cta
               type="button"
               onClick={() => onChange({
                 ...cta,
-                imageUrl: asset.public_url,
+                imageUrl: asset.data_uri || asset.public_url,
                 destUrl: cta.destUrl || "https://www.voltsafemarine.com/sdemo",
                 altText: cta.altText || asset.name,
               })}
-              className={`relative rounded-lg border-2 overflow-hidden w-16 h-16 transition-colors ${cta.imageUrl === asset.public_url ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-border"}`}
+              className={`relative rounded-lg border-2 overflow-hidden w-16 h-16 transition-colors ${cta.imageUrl === (asset.data_uri || asset.public_url) ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-border"}`}
               title={asset.name}
               data-testid={`button-sig-cta-asset-${asset.id}`}
             >
@@ -614,7 +615,7 @@ function CtaDialog({
       const res = await fetch("/api/cta-assets/upload", { method: "POST", body: form, credentials: "include" });
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message || "Upload failed"); }
       const asset: CtaAsset = await res.json();
-      setImageUrl(asset.public_url);
+      setImageUrl(asset.data_uri || asset.public_url);
       setSelectedAssetId(asset.id);
       queryClient.invalidateQueries({ queryKey: ["/api/cta-assets"] });
       toast({ title: "Image uploaded", description: "URL filled in automatically." });
@@ -769,8 +770,8 @@ function CtaDialog({
                           <button
                             key={asset.id}
                             type="button"
-                            onClick={() => { setImageUrl(asset.public_url); setSelectedAssetId(asset.id); setShowLibrary(false); }}
-                            className={`rounded border overflow-hidden transition-colors ${imageUrl === asset.public_url ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-primary/50"}`}
+                            onClick={() => { setImageUrl(asset.data_uri || asset.public_url); setSelectedAssetId(asset.id); setShowLibrary(false); }}
+                            className={`rounded border overflow-hidden transition-colors ${imageUrl === (asset.data_uri || asset.public_url) ? "border-primary ring-1 ring-primary" : "border-border/40 hover:border-primary/50"}`}
                             title={asset.name}
                             data-testid={`button-select-asset-${asset.id}`}
                           >

@@ -29049,7 +29049,18 @@ export function registerConfluenceRoutes(app: Express) {
                 ${req.file.size}, ${userId}, NOW())
         RETURNING *
       `))).rows;
-      res.json(row);
+      // Compute base64 data URI from the uploaded file so the frontend can store it
+      // directly in the signature — eliminating any runtime disk/network dependency at
+      // send time (critical for production where uploads/ is ephemeral after restart).
+      let dataUri: string | null = null;
+      try {
+        const filePath = path.join(CTA_ASSETS_DIR, filename);
+        const buf = fs.readFileSync(filePath);
+        dataUri = `data:${req.file.mimetype};base64,${buf.toString("base64")}`;
+      } catch (e) {
+        console.warn("[cta-upload] could not compute dataUri:", (e as any)?.message);
+      }
+      res.json({ ...row, public_url: publicUrl, data_uri: dataUri });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Upload failed" });
     }
@@ -29069,9 +29080,22 @@ export function registerConfluenceRoutes(app: Express) {
       // the stored URL references an old dev/workspace/staging host (e.g. workspace.*.repl.co).
       const baseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
       const rewritten = rows.map((r: any) => {
-        if (!r.public_url) return r;
+        if (!r.public_url) return { ...r, data_uri: null };
         const m = String(r.public_url).match(/\/assets\/cta\/([^/?#\s]+)$/);
-        return m ? { ...r, public_url: `${baseUrl}/assets/cta/${m[1]}` } : r;
+        const publicUrl = m ? `${baseUrl}/assets/cta/${m[1]}` : r.public_url;
+        // Try to compute base64 data URI from disk so the frontend can store it in
+        // signatures — eliminating runtime disk/network dependency at send time.
+        let data_uri: string | null = null;
+        if (m) {
+          try {
+            const localPath = path.join(CTA_ASSETS_DIR, m[1]);
+            if (fs.existsSync(localPath)) {
+              const buf = fs.readFileSync(localPath);
+              data_uri = `data:${r.mime_type || "image/png"};base64,${buf.toString("base64")}`;
+            }
+          } catch { /* ignore — data_uri stays null */ }
+        }
+        return { ...r, public_url: publicUrl, data_uri };
       });
       res.json(rewritten);
     } catch (err: any) {
