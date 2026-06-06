@@ -14586,31 +14586,37 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // saw their own address in To instead of seeing the full To/Cc distribution.
       if (true) {
         const trackingId = generateTrackingId();
-        let trackedBody = ctaWrappedBody;
+
+        // ── Convert all signature/CTA images to base64 data URIs BEFORE tracking ──
+        // Runs on ctaWrappedBody so the tracking pixel (added next) is never converted.
+        // Throws with a clear message if any image cannot be loaded, failing the send.
+        let _b64Body = ctaWrappedBody;
+        {
+          const { inlineImagesAsBase64 } = await import("./services/inline-images");
+          const { html: _inlined, log: _imgLog } = await inlineImagesAsBase64(ctaWrappedBody, CTA_ASSETS_DIR, baseUrl);
+          _b64Body = _inlined;
+          for (const l of _imgLog) {
+            if (l.resolvedFrom !== "skipped") {
+              console.log(`[inline-img] from=${l.resolvedFrom} mime=${l.mimeType} bytes=${l.byteSize} dataUriLen=${l.dataUriLen} src="${l.originalSrc.slice(0, 80)}"`);
+            }
+          }
+          const _converted = _imgLog.filter(l => l.resolvedFrom !== "skipped").length;
+          console.log(`[gmail-send] base64 image inlining: ${_converted} converted, ${_imgLog.length - _converted} skipped`);
+        }
+
+        let trackedBody = _b64Body;
         let trackingFailed = false;
         if (trackingEnabled) {
           try {
-            trackedBody = injectTracking(ctaWrappedBody, trackingId, baseUrl);
+            trackedBody = injectTracking(_b64Body, trackingId, baseUrl);
           } catch (trackErr) {
             console.error("[tracking] injection failed (non-fatal, sending untracked):", trackErr);
             trackingFailed = true;
-            trackedBody = bodyWithSig;
+            trackedBody = _b64Body;
           }
         }
 
-        // ── Inline CTA images as CID parts (Spark / Apple Mail / Outlook compatibility) ──
-        let _cidBody = trackedBody;
-        let _ctaInlineImages: import("./gmail").CidImage[] = [];
-        try {
-          const _cidResult = await extractCtaInlineImages(trackedBody, CTA_ASSETS_DIR);
-          _cidBody = _cidResult.html;
-          _ctaInlineImages = _cidResult.inlineImages;
-          if (_ctaInlineImages.length > 0) {
-            console.log(`[gmail-send] CID inline images: ${_ctaInlineImages.map(i => i.cid).join(", ")}`);
-          }
-        } catch (_cidErr: any) {
-          console.warn("[gmail-send] CID image extraction non-fatal:", _cidErr?.message);
-        }
+        const _cidBody = trackedBody;
 
         // ── MIME diagnostic — logged immediately before Gmail API call ─────────────
         console.log("[gmail-send] calling sendEmail", {
@@ -14628,13 +14634,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           hasSubject: !!subject,
           hasThreadId: !!threadId,
           attachmentCount: mimeAttachments.length,
-          cidImageCount: _ctaInlineImages.length,
+          cidImageCount: 0,
         });
         const result = await sendEmail(
           resolved.userId, to, subject || "", _cidBody,
           threadId, mimeAttachments, resolved.accountId,
           cc || undefined, bcc || undefined, icalContent || undefined,
-          _ctaInlineImages
+          []
         );
         console.log("[gmail-send] sendEmail returned", { messageId: result?.id, threadId: result?.threadId });
 

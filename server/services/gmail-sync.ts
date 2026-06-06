@@ -244,7 +244,7 @@ async function runScheduledEmailSender() {
   );
   if (!due.length) return;
 
-  const { sendEmail, extractCtaInlineImages } = await import("../gmail");
+  const { sendEmail } = await import("../gmail");
 
   for (const email of due) {
     // Resolve which user account to send from.
@@ -300,24 +300,23 @@ async function runScheduledEmailSender() {
       }
 
       const trackingId = generateTrackingId();
-      let trackedBody = ctaWrappedBody;
-      try {
-        trackedBody = injectTracking(ctaWrappedBody, trackingId, baseUrl);
-      } catch (trackErr: any) {
-        log(`[gmail-scheduled] #${email.id} tracking inject non-fatal: ${trackErr.message}`);
+
+      // ── Convert all signature/CTA images to base64 data URIs BEFORE tracking ──
+      // Throws if any image cannot be loaded — marks this scheduled email as failed.
+      const { inlineImagesAsBase64 } = await import("./inline-images");
+      const _p = path.resolve("uploads/cta-assets");
+      const { html: _schedB64Html, log: _schedImgLog } = await inlineImagesAsBase64(ctaWrappedBody, _p, baseUrl);
+      for (const l of _schedImgLog) {
+        if (l.resolvedFrom !== "skipped") {
+          log(`[gmail-scheduled] #${email.id} inline-img from=${l.resolvedFrom} bytes=${l.byteSize} mime=${l.mimeType} dataUriLen=${l.dataUriLen} src="${l.originalSrc.slice(0, 80)}"`);
+        }
       }
 
-      // Inline CTA images as CID parts for client compatibility (Spark / Apple Mail / Outlook).
-      let _schedCidBody = trackedBody;
-      let _schedCidImages: import("../gmail").CidImage[] = [];
+      let trackedBody = _schedB64Html;
       try {
-        const _p = path.resolve("uploads/cta-assets");
-        const _r = await extractCtaInlineImages(trackedBody, _p);
-        _schedCidBody = _r.html;
-        _schedCidImages = _r.inlineImages;
-        if (_schedCidImages.length > 0) log(`[gmail-scheduled] #${email.id} CID inline images: ${_schedCidImages.map(i => i.cid).join(", ")}`);
-      } catch (_ce: any) {
-        log(`[gmail-scheduled] #${email.id} CID image extraction non-fatal: ${_ce?.message}`);
+        trackedBody = injectTracking(_schedB64Html, trackingId, baseUrl);
+      } catch (trackErr: any) {
+        log(`[gmail-scheduled] #${email.id} tracking inject non-fatal: ${trackErr.message}`);
       }
 
       // IMPORTANT: sendEmail(userId, to, subject, body, threadId?, attachments?, accountId?, cc?, bcc?, ical?, inlineImages?)
@@ -325,14 +324,14 @@ async function runScheduledEmailSender() {
         sendUserId,
         email.to,
         email.subject || "",
-        _schedCidBody,
+        trackedBody,
         email.threadId ?? undefined,
         [],
         undefined,
         undefined,
         undefined,
         undefined,
-        _schedCidImages,
+        [],
       );
 
       if (result?.id && _schedCtaTokens.length > 0) {
