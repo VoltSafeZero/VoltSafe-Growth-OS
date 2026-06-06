@@ -14329,7 +14329,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             }
             bodyWithSig = cleanBody + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`;
             const _ctaMode = _sigRow.cta_image_url ? "asset-col" : "ctas-table";
-            console.log(`[gmail-send] sig appended id=${selectedSignatureId} bytes=${_normalizedSig.length} cta=${_ctaMode}`);
+            console.log(`[gmail-send] sig appended server-side id=${selectedSignatureId} bytes=${_normalizedSig.length} cta=${_ctaMode}`);
           }
         } catch (_sigErr: any) {
           console.error("[gmail-send] signature load error (sending without sig):", _sigErr?.message || _sigErr);
