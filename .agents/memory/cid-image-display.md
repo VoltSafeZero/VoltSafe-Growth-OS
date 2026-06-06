@@ -25,6 +25,14 @@ DOMPurify's default URI allowlist does **NOT** include `cid:`. Any `src="cid:xxx
 - Returns image bytes with correct `Content-Type` and `Cache-Control: public, max-age=86400, immutable`
 - Returns 404 (not 500) for missing CID parts — so broken images fail gracefully
 
+## Static Route Filename Regex Bug
+
+The `/assets/cta/:filename` route originally had regex `/^[0-9a-f-]+\.(png|jpg|jpeg|webp|gif)$/i` designed for UUID filenames. Any file with uppercase letters or underscores (e.g. `WatchDemo_Thumbnail_200.png`) returned 404 even when the file existed on disk.
+
+**Fix**: Widened to `/^[A-Za-z0-9_][A-Za-z0-9_ .\-]*\.(png|jpg|jpeg|webp|gif)$/i`. `path.basename()` already prevents path traversal; the regex just guards the extension.
+
+**Rule**: When adding new CTA asset files, name them with alphanumeric/underscore/hyphen characters only. UUID format is ideal but not required.
+
 ## Debug Endpoint
 
 `GET /api/dev/last-sent-raw-email` (admin-only, dev mode only)

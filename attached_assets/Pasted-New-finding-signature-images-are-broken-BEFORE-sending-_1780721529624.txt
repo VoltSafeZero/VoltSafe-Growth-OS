@@ -1,0 +1,55 @@
+New finding: signature images are broken BEFORE sending, inside the mobile composer preview.
+
+So this is not primarily a MIME/CID issue yet. The composer is receiving img src values that the browser/webview cannot load.
+
+Fix the image URL generation first.
+
+Required:
+1. In the composer, inspect the final signature HTML before render.
+2. Log every <img src=""> value.
+3. For each src, test it directly in browser:
+   - CTA image src
+   - VoltSafe logo src
+4. Fix until both image URLs load directly in a browser/webview before send.
+
+Likely causes to check:
+- src is a relative path like /assets/cta/... but mobile/webview needs absolute URL
+- src points to localhost/dev host instead of production host
+- uploads/cta-assets is not publicly served
+- file path exists on server but no static route exposes it
+- image URL requires auth/cookies
+- src got rewritten to cid: in composer preview, which browsers cannot render before send
+- image filename has spaces/special chars not URL encoded
+- HTTPS/mixed-content issue
+
+Required behavior:
+- Composer preview must use public absolute HTTPS image URLs, not cid.
+- Send pipeline can convert those images to CID later.
+- GET /api/signatures must return ctaImageUrl and all signature image URLs as absolute public HTTPS URLs.
+- Static route for /assets/cta/:filename must serve the real image with correct Content-Type and no auth.
+- VoltSafe logo URL must also be absolute HTTPS and publicly reachable.
+
+Add a dev diagnostic endpoint:
+GET /api/dev/signature-image-check/:signatureId
+
+It should return:
+- signature id/name
+- final composer HTML
+- list of img src values
+- for each image:
+  - original src
+  - normalized absolute URL
+  - HTTP status
+  - content-type
+  - byte size
+  - whether browser-safe
+  - local file path if applicable
+
+Do not touch layout.
+Do not touch MIME until composer images render correctly.
+
+Success criteria:
+- Open composer on desktop and mobile.
+- WATCH A DEMO image renders.
+- VoltSafe logo renders.
+- Directly opening each img src URL in browser shows the image.

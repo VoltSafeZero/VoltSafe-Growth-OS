@@ -615,7 +615,10 @@ export async function registerRoutes(
   // Must be registered before auth middleware routes; UUID filename prevents enumeration.
   app.get("/assets/cta/:filename", (req, res) => {
     const filename = path.basename(req.params.filename || "");
-    if (!filename || !/^[0-9a-f-]+\.(png|jpg|jpeg|webp|gif)$/i.test(filename)) {
+    // Allow any safe filename: starts with alphanumeric/underscore, may contain
+    // letters, digits, underscores, hyphens, spaces, dots. Ends with image extension.
+    // Intentionally broad — path.basename() above already prevents path traversal.
+    if (!filename || !/^[A-Za-z0-9_][A-Za-z0-9_ .\-]*\.(png|jpg|jpeg|webp|gif)$/i.test(filename)) {
       return res.status(404).end();
     }
     const filePath = path.join(CTA_ASSETS_DIR, filename);
@@ -14186,6 +14189,75 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       res.json({ ok: true, inlineImageCount: inlineImages.length, mimeTree: tree, rawMime });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message });
+    }
+  });
+
+  // ─── Dev-only: signature image URL checker ──────────────────────────────────
+  // GET /api/dev/signature-image-check/:signatureId
+  // Returns every <img src> value that will appear in the composer for a given
+  // signature, tests each URL with a HEAD request, and reports status/content-type/size.
+  // No auth bypass — still requires admin session.
+  app.get("/api/dev/signature-image-check/:signatureId", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const sigId = parseInt(req.params.signatureId);
+      if (isNaN(sigId)) return res.status(400).json({ error: "Invalid signatureId" });
+      const baseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
+      const userId = (req.session as any).userId as number;
+      const [sig] = await db.select().from(emailSignatures).where(eq(emailSignatures.id, sigId));
+      if (!sig) return res.status(404).json({ error: "Signature not found" });
+      const ctaRows = ((await db.execute(sql.raw(
+        `SELECT id, name, image_url, destination_url, alt_text, width_px FROM email_signature_ctas WHERE user_id = ${userId} AND signature_id = ${sigId}`
+      ))).rows ?? []) as any[];
+      // Collect every img src present in the composer preview
+      const rawHtml = (sig as any).htmlContent || "";
+      const htmlSrcs = [...rawHtml.matchAll(/src="([^"]+)"/g)].map((m: RegExpMatchArray) => ({ source: "htmlContent", raw: m[1] }));
+      const ctaImgUrl = (sig as any).ctaImageUrl;
+      if (ctaImgUrl) htmlSrcs.push({ source: "ctaImageUrl", raw: ctaImgUrl });
+      for (const c of ctaRows) { if (c.image_url) htmlSrcs.push({ source: `cta_id=${c.id}`, raw: c.image_url }); }
+      // Resolve each src to an absolute URL and test it
+      const normalize = (raw: string) => {
+        if (/^https?:\/\//.test(raw)) return raw;
+        if (raw.startsWith("/")) return `${baseUrl}${raw}`;
+        return `${baseUrl}/${raw}`;
+      };
+      const results = await Promise.all(htmlSrcs.map(async ({ source, raw }) => {
+        const absUrl = normalize(raw);
+        const isLocalCta = /\/assets\/cta\//.test(absUrl);
+        let localPath: string | null = null;
+        if (isLocalCta) {
+          const fname = absUrl.split("/assets/cta/").pop()?.split("?")[0] ?? "";
+          localPath = path.join(CTA_ASSETS_DIR, fname);
+        }
+        let status = 0; let contentType = ""; let byteSize = 0; let error = "";
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 5000);
+          const r = await fetch(absUrl, { method: "HEAD", signal: controller.signal });
+          clearTimeout(timer);
+          status = r.status;
+          contentType = r.headers.get("content-type") ?? "";
+          byteSize = parseInt(r.headers.get("content-length") ?? "0") || 0;
+        } catch (e: any) { error = e?.message ?? "fetch failed"; status = 0; }
+        const browserSafe = status >= 200 && status < 300 && /^image\//i.test(contentType);
+        return {
+          source, raw, absoluteUrl: absUrl,
+          status, contentType, byteSize, browserSafe, error: error || undefined,
+          localFileExists: localPath ? fs.existsSync(localPath) : undefined,
+          localPath: localPath ?? undefined,
+        };
+      }));
+      return res.json({
+        signatureId: sigId, name: (sig as any).name, baseUrl,
+        composerHtml: rawHtml,
+        imageCount: results.length, images: results,
+        summary: {
+          total: results.length,
+          ok: results.filter(r => r.browserSafe).length,
+          broken: results.filter(r => !r.browserSafe).length,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message });
     }
   });
 
@@ -28669,6 +28741,14 @@ export function registerConfluenceRoutes(app: Express) {
         const m = u.match(/\/assets\/cta\/([^/?#\s]+)$/);
         return m ? `${baseUrl}/assets/cta/${m[1]}` : u;
       };
+      // Rewrite any src="/assets/cta/fname" or src="https://old-host/assets/cta/fname"
+      // embedded inside htmlContent so composer preview uses absolute HTTPS URLs on all clients
+      // (critical for mobile webview where relative URLs do not resolve).
+      const fixHtmlContent = (html: string) =>
+        (html || "").replace(
+          /src="([^"]*\/assets\/cta\/([A-Za-z0-9_][A-Za-z0-9_ .\-]*\.[a-zA-Z]+))"/g,
+          (_: string, _full: string, fname: string) => `src="${baseUrl}/assets/cta/${fname}"`
+        );
       const ctaMap = ctaRows.reduce((acc: Record<number, any[]>, c: any) => {
         const sid = Number(c.signature_id);
         if (sid) { acc[sid] = acc[sid] || []; acc[sid].push({ ...c, image_url: fixImgUrl(c.image_url) }); }
@@ -28678,6 +28758,8 @@ export function registerConfluenceRoutes(app: Express) {
         ...sig,
         // Rewrite ctaImageUrl host so /assets/cta/ paths resolve correctly across hosts.
         ctaImageUrl: fixImgUrl((sig as any).ctaImageUrl ?? null),
+        // Rewrite any /assets/cta/ img srcs baked into the stored htmlContent.
+        htmlContent: fixHtmlContent((sig as any).htmlContent),
         ctas: ctaMap[sig.id] || [],
       })));
     } catch (err: any) { res.status(500).json({ message: err.message }); }

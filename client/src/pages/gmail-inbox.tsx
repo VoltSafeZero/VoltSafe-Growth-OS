@@ -528,11 +528,18 @@ function ComposeDialog({
     // This prevents the Replit WAF from rejecting POST /api/gmail/send with 403.
     const normalizedSigHtml = normalizeSignatureHtmlClientSide(activeSig.htmlContent || "");
 
+    // Log all img srcs so broken URLs are visible in the browser console.
+    const _allSigImgs = [
+      ...(normalizedSigHtml.match(/src="([^"]+)"/g) || []),
+      ...(activeSig.ctaImageUrl ? [`src="${activeSig.ctaImageUrl}"`] : []),
+      ...((activeSig.ctas || []).filter((c: any) => c.image_url).map((c: any) => `src="${c.image_url}"`)),
+    ].map((s: string) => s.replace(/^src="|"$/g, ""));
     console.log(
       `[sig-composer] id=${activeSig.id} name="${activeSig.name}" ` +
       `htmlLen=${normalizedSigHtml.length} ` +
       `ctaImageUrl=${activeSig.ctaImageUrl ?? "null"} ` +
-      `legacyCtas=${activeSig.ctas?.length ?? 0}`
+      `legacyCtas=${activeSig.ctas?.length ?? 0} ` +
+      `imgSrcs=[${_allSigImgs.join(", ")}]`
     );
 
     // ── New format: CTA stored as separate columns ──────────────────────────
