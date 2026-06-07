@@ -401,23 +401,23 @@ function buildMimeRaw(
   //
   //  Case B — inline images, no attachments:
   //    multipart/related; type="text/html" [relBnd]  ← ROOT
-  //      multipart/alternative [altBnd]
-  //        text/plain
-  //        text/html
+  //      text/html                                   ← DIRECT first child (no alt wrapper)
   //      image/* (Content-ID: <cid>, Content-Disposition: inline; filename=)
+  //      image/* …
   //
   //  Case C — inline images + attachments:
   //    multipart/mixed [mixBnd]
   //      multipart/related; type="text/html" [relBnd]  ← first child
-  //        multipart/alternative [altBnd]
-  //          text/plain
-  //          text/html
+  //        text/html                                   ← DIRECT first child (no alt wrapper)
   //        image/* (Content-ID: <cid>, Content-Disposition: inline; filename=)
   //      attachment …
   //
-  //  NOTE: Gmail's API canonicalizes the inverse layout (alt > related) into a flat
-  //  multipart/mixed with CID parts promoted to top-level attachments (Content-Disposition:
-  //  attachment). Setting related as the root prevents this canonicalization.
+  //  CRITICAL: Cases B and C must NOT wrap text/html in multipart/alternative.
+  //  Gmail's API canonicalizes related→[alternative→[plain,html],CID] into a flat
+  //  multipart/mixed where CID parts become siblings of text/html (i.e. broken:
+  //  images appear as separate attachment cards instead of rendering inline).
+  //  The ONLY layout Gmail preserves is: related → [text/html DIRECT, CID parts].
+  //  text/plain is intentionally omitted from Cases B and C.
   //
   //  Case D — attachments only, no inline images:
   //    multipart/mixed [mixBnd]
@@ -458,58 +458,35 @@ function buildMimeRaw(
       `--${altBnd}--`,
     ];
   } else if (needsInline && !needsMixed) {
-    // Case B — multipart/related is the ROOT; multipart/alternative is its first child.
-    //
-    // Gmail's API canonicalizes the inverse structure (alt > related) into a flat
-    // multipart/mixed with CID parts promoted to top-level attachments. The only
-    // layout Gmail preserves correctly is related at the top level.
-    //
-    //   multipart/related; type="text/html"  [relBnd]
-    //     multipart/alternative              [altBnd]
-    //       text/plain
-    //       text/html
-    //     image/png CID (inline; filename=)
-    //     image/png CID (inline; filename=)
+    // Case B — multipart/related is the ROOT; text/html is the DIRECT first child.
+    // NO multipart/alternative wrapper. NO text/plain part.
+    // Gmail canonicalizes related→[alternative→[plain,html],CID] into a broken flat
+    // multipart/mixed where CID parts become siblings of text/html (images appear as
+    // separate attachment cards, not rendered inline). The only layout that survives
+    // Gmail's canonicalization is: related → [text/html DIRECT, CID parts].
     const relBnd = `vs_rel_${ts}`;
-    const altBnd = `vs_alt_${ts + 1}`;
     lines = [
       ...hdr,
       `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"`,
       ``,
       `--${relBnd}`,
-      `Content-Type: multipart/alternative; boundary="${altBnd}"`,
-      ``,
-      `--${altBnd}`,
-      `Content-Type: text/plain; charset=UTF-8`,
-      `Content-Transfer-Encoding: base64`,
-      ``,
-      plainB64,
-      ``,
-      `--${altBnd}`,
       `Content-Type: text/html; charset=UTF-8`,
       `Content-Transfer-Encoding: base64`,
       ``,
       htmlB64,
       ``,
-      `--${altBnd}--`,
-      ``,
       ...inlineParts(relBnd),
       `--${relBnd}--`,
     ];
   } else if (needsInline && needsMixed) {
-    // Case C — multipart/mixed wraps multipart/related (not multipart/alternative).
-    //
-    //   multipart/mixed                        [mixBnd]
-    //     multipart/related; type="text/html"  [relBnd]
-    //       multipart/alternative              [altBnd]
-    //         text/plain
-    //         text/html
-    //       image/png CID (inline; filename=)
-    //       image/png CID (inline; filename=)
-    //     real file attachment …
-    const mixBnd = `vs_mix_${ts + 2}`;
+    // Case C — multipart/mixed wraps multipart/related; same no-alternative rule as B.
+    //   multipart/mixed [mixBnd]
+    //     multipart/related; type="text/html" [relBnd]
+    //       text/html (direct — no alternative wrapper)
+    //       image/* CID parts …
+    //     real file attachments …
+    const mixBnd = `vs_mix_${ts + 1}`;
     const relBnd = `vs_rel_${ts}`;
-    const altBnd = `vs_alt_${ts + 1}`;
     lines = [
       ...hdr,
       `Content-Type: multipart/mixed; boundary="${mixBnd}"`,
@@ -518,21 +495,10 @@ function buildMimeRaw(
       `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"`,
       ``,
       `--${relBnd}`,
-      `Content-Type: multipart/alternative; boundary="${altBnd}"`,
-      ``,
-      `--${altBnd}`,
-      `Content-Type: text/plain; charset=UTF-8`,
-      `Content-Transfer-Encoding: base64`,
-      ``,
-      plainB64,
-      ``,
-      `--${altBnd}`,
       `Content-Type: text/html; charset=UTF-8`,
       `Content-Transfer-Encoding: base64`,
       ``,
       htmlB64,
-      ``,
-      `--${altBnd}--`,
       ``,
       ...inlineParts(relBnd),
       `--${relBnd}--`,
@@ -618,9 +584,35 @@ export async function sendEmail(
   const from = profileRes.data.emailAddress!;
   const raw = buildMimeRaw(from, to, subject, body, attachments, cc, bcc, icalContent, inlineImages);
 
-  // ── MIME tree diagnostic + last-sent capture (dev only) ────────────────
+  // ── Runtime MIME structure assertion (dev + prod) ─────────────────────
+  // Always decode so this assertion fires in production too (logs error instead
+  // of throwing). If CID images are present but the root MIME part is NOT
+  // multipart/related, Gmail will canonicalize the message into a broken
+  // multipart/mixed where CID parts become attachment cards instead of
+  // rendering inline.  This assertion catches future buildMimeRaw regressions
+  // before they reach the Gmail API.
+  const decoded = Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
+  if (inlineImages.length > 0) {
+    const firstCt = decoded.split(/\r?\n/).find(l => l.startsWith("Content-Type:")) ?? "";
+    const rootIsRelated = firstCt.includes("multipart/related");
+    // Case C: mixed root is acceptable only when multipart/related is the FIRST child.
+    const rootIsMixed = firstCt.includes("multipart/mixed");
+    const relatedAsFirstChild = rootIsMixed && decoded.slice(0, 600).includes("multipart/related");
+    if (!rootIsRelated && !relatedAsFirstChild) {
+      const msg =
+        `[MIME-ASSERT] ${inlineImages.length} CID image(s) present but root MIME is not ` +
+        `multipart/related (firstCT="${firstCt}"). CID parts will render as attachment ` +
+        `cards in Apple Mail / Outlook instead of inline images.`;
+      if (process.env.NODE_ENV !== "production") {
+        throw new Error(msg);
+      } else {
+        console.error(msg);
+      }
+    }
+  }
+
+  // ── MIME tree diagnostic + last-sent capture (dev only) ─────────────────
   if (process.env.NODE_ENV !== "production") {
-    const decoded = Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
     const tree = decoded.split(/\r?\n/)
       .filter(l => l.startsWith("Content-") || l.startsWith("--") || l.startsWith("MIME-Version"))
       .slice(0, 80).join("\n");

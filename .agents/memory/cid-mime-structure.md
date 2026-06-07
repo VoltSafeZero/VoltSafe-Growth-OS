@@ -1,46 +1,70 @@
 ---
-name: CID MIME Structure
-description: Correct RFC 2387 MIME tree for inline-image emails; CID format rules; diagnostic tools.
+name: CID MIME Structure (Gmail canonicalization)
+description: The exact MIME layout for CID inline images that survives Gmail API canonicalization; diagnostic tools.
 ---
 
 ## The Rule
 
-`buildMimeRaw` in `server/gmail.ts` must produce this structure when inline images are present:
+`buildMimeRaw` in `server/gmail.ts` — Cases B and C — must produce `text/html` as the **direct first child** of `multipart/related`. There must be **no** `multipart/alternative` wrapper inside `multipart/related`.
 
+**Case B (CID images, no real attachments) — ROOT is multipart/related:**
 ```
-multipart/alternative [altBnd]
+multipart/related; type="text/html"   ← ROOT
+  text/html; charset=UTF-8            ← DIRECT first child (NO alternative wrapper)
+  image/png; name="logo.png"
+    Content-ID: <vsigNNNabc>
+    Content-Disposition: inline; filename="logo.png"
+  image/jpeg; name="watch-demo.jpg"
+    Content-ID: <vsigNNN2abc>
+    Content-Disposition: inline; filename="watch-demo.jpg"
+```
+
+**Case C (CID images + real attachments):**
+```
+multipart/mixed
+  multipart/related; type="text/html"   ← first child (NO alternative inside)
+    text/html; charset=UTF-8            ← DIRECT
+    image/* CID parts …
+  application/pdf; name="doc.pdf"       ← real attachments under mixed
+    Content-Disposition: attachment
+```
+
+**Cases A and D (no CID images) are unchanged:**
+```
+multipart/alternative  (or multipart/mixed → multipart/alternative)
   text/plain
-  multipart/related [relBnd]   ← text/html is the ROOT of related
-    text/html                  ← DIRECT first child of related (not alt inside related)
-    image/png Content-ID: <cid>
+  text/html
 ```
 
-When attachments are also present, wrap the above in `multipart/mixed`.
+## Why Gmail Canonicalization Breaks the Old Structure
 
-**The old (wrong) structure was:**
-```
-multipart/related
-  multipart/alternative      ← WRONG: alt was root of related
-    text/plain
-    text/html
-  image/png
-```
+Gmail's `users.messages.send` API canonicalizes `related→[alternative→[plain,html],CID]` into a **flat** `multipart/mixed` where CID parts become siblings of `text/html` instead of being inside `multipart/related`. This causes:
+- `X-Attachment-Content-Disposition` header added by Gmail
+- CID renamed from `vsig...` to Gmail's internal `ii_...` format
+- Images appear as attachment cards instead of rendering inline in Apple Mail / Outlook
 
-**Why:** Spark Mail, Outlook, and Apple Mail only resolve `cid:` references when `text/html` is the **direct first child** (root) of `multipart/related`. If `multipart/alternative` is the root, clients can't correlate the CID references in the nested `text/html` with the sibling image parts.
+The only structure that survives is `related→[text/html DIRECT, CID parts]`.
 
-**How to apply:** Any future edit to `buildMimeRaw` that changes the MIME structure must maintain: `text/html` → direct peer of inline images inside `multipart/related`; `multipart/related` → second alternative inside `multipart/alternative`; `multipart/alternative` → top level (or inside `multipart/mixed` if attachments exist).
+**Note:** Gmail renaming `vsig...` CIDs to `ii_...` in delivered/stored messages is **always** expected — it's Gmail's internal format. The structural break (related→mixed) is the actual problem and only occurs when `multipart/alternative` is the first child.
+
+## Runtime Assert
+
+`sendEmail` (in `server/gmail.ts`) has a runtime assertion that fires when:
+- `inlineImages.length > 0` AND
+- Root MIME is not `multipart/related` (or `multipart/mixed` with `multipart/related` as first child within 600 chars)
+
+Dev: throws `Error`. Prod: `console.error`. Catches future `buildMimeRaw` regressions before the Gmail API call.
 
 ## CID Format
 
-CID values must be **purely alphanumeric** — no `@`, no file extensions, no slashes, no spaces.
-
+CID values must be **purely alphanumeric** — no `@`, no file extensions, no slashes, no spaces.  
 Current format: `vsig${cidIndex}${Date.now().toString(36)}` (e.g., `vsig0lbtykq94j`)
-
-**Why:** Some clients (Spark, older Outlook) misparse CIDs containing `.` or `@`, treating the `@domain` part as an email address or the `.ext` as a file extension hint, which breaks the lookup.
 
 ## Diagnostics
 
-- `buildMimeRawDebug(from, to, subject, body, ...)` — exported from `server/gmail.ts`; returns raw decoded MIME string (not base64url) for inspection.
+- `buildMimeRawDebug(from, to, subject, body, ...)` — exported from `server/gmail.ts`; returns raw decoded MIME string (not base64url).
+- `tests/mime-output.test.cjs` (45 assertions) — calls `buildMimeRawDebug` via tsx subprocess and asserts on actual MIME structure for Cases A-D. This is the **authoritative** regression test; source-grep tests alone are insufficient.
+- `scripts/test-mime-generate.ts` — tsx helper used by the above test to produce MIME output JSON.
 - `POST /api/dev/mime-tree` (admin, dev-only) — accepts `{ body, subject }` and returns `{ mimeTree, rawMime, inlineImageCount }` without sending.
-- `sendEmail` logs `[mime-tree]` with the Content-Type/boundary structure for every outgoing email with inline images (dev only).
+- `sendEmail` logs `[mime-tree]` with the Content-Type/boundary structure for every outgoing email (dev only).
 - `[sig-cid]` console.error fired when a signature image fails to load from disk or fetch.
