@@ -184,7 +184,13 @@ export async function wrapSignatureCtaLinks(
     }
   }
 
-  return { html: wrappedBefore + wrappedSig + after, tokens };
+  // Re-inject the sig markers that splitSigSection consumed.
+  // extractCtaInlineImages (called after this) relies on <!--vs-sig-start-->
+  // to choose the full-src-URL scan path. Without the markers it falls back to
+  // the legacy bare-filename path, which builds a regex that can't match
+  // absolute CTA image URLs and leaves CID parts orphaned in the MIME tree.
+  const sigPart = split ? SIG_START + wrappedSig + SIG_END : "";
+  return { html: wrappedBefore + sigPart + after, tokens };
 }
 
 /**

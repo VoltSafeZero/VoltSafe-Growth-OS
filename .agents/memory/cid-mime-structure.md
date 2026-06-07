@@ -60,6 +60,19 @@ Dev: throws `Error`. Prod: `console.error`. Catches future `buildMimeRaw` regres
 CID values must be **purely alphanumeric** — no `@`, no file extensions, no slashes, no spaces.  
 Current format: `vsig${cidIndex}${Date.now().toString(36)}` (e.g., `vsig0lbtykq94j`)
 
+## CID HTML Rewrite — Sig Marker Coupling
+
+`extractCtaInlineImages` has two scan paths; the RIGHT path depends on `<!--vs-sig-start-->` markers being present in the HTML it receives:
+
+- **Sig path** (markers present): scans `src="FULLURL"` inside the sig section → stores full URL as map key → rewrite regex matches
+- **Legacy path** (no markers): scans for `/assets/cta/` path pattern → stores full `src` value as map key (fixed; old code stored bare filename which broke absolute URLs)
+
+**Critical gotcha:** `wrapSignatureCtaLinks` (in `signature-cta-tracker.ts`) used to STRIP the sig markers when reassembling the HTML. This caused the legacy path to always run, and when signature image `src` values were absolute URLs (e.g. `https://image-linker-xxx.replit.app/assets/cta/logo.png`), the old bare-filename key never matched → CID part created but HTML not rewritten → orphaned attachment card.
+
+**Fix:** `wrapSignatureCtaLinks` now re-injects markers: `const sigPart = split ? SIG_START + wrappedSig + SIG_END : "";`
+
+**Integrity check:** `extractCtaInlineImages` logs `[sig-cid] INTEGRITY FAIL` if any CID in `inlineImages` has no `cid:` reference in the returned HTML — catches future regressions immediately.
+
 ## Diagnostics
 
 - `buildMimeRawDebug(from, to, subject, body, ...)` — exported from `server/gmail.ts`; returns raw decoded MIME string (not base64url).

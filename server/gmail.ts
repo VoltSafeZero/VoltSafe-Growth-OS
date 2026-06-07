@@ -249,23 +249,30 @@ export async function extractCtaInlineImages(
     }
   } else {
     // ── Legacy fallback: no sig markers — only /assets/cta/ local files ───
-    // No external fetches in this path; only locally stored CTA assets are inlined.
-    const fnRe = /\/assets\/cta\/([^"'?#\s]+)/g;
+    // Scan for src attributes whose value contains /assets/cta/ so we store
+    // the FULL src value (relative or absolute) as the map key.  The rewrite
+    // loop below then builds a regex from that same full src, guaranteeing a
+    // match regardless of whether the URL is "/assets/cta/logo.png" or
+    // "https://image-linker-xxx.replit.app/assets/cta/logo.png".
+    const srcRe = /\bsrc="([^"]*\/assets\/cta\/[^"]+)"/gi;
     let m: RegExpExecArray | null;
-    while ((m = fnRe.exec(html)) !== null) {
-      const filename = m[1]; // e.g. "banner.jpg" or "logo.png"
-      if (seen.has(filename)) continue;
+    while ((m = srcRe.exec(html)) !== null) {
+      const src = m[1]; // full src value, e.g. "/assets/cta/logo.png" or "https://…/assets/cta/logo.png"
+      if (seen.has(src)) continue;
+      const ctaMatch = src.match(/\/assets\/cta\/([^"'?#\s/]+)/);
+      if (!ctaMatch) continue;
+      const filename = ctaMatch[1]; // bare filename, e.g. "logo.png"
       const filePath = path.join(ctaAssetsDir, filename);
       try {
         if (!fs.existsSync(filePath)) {
-          console.error(`[sig-cid] CTA file not found on disk — path="${filePath}" src="${filename}"`);
+          console.error(`[sig-cid] CTA file not found on disk — path="${filePath}" src="${src}"`);
           continue;
         }
         const data = fs.readFileSync(filePath);
         const ext = (filename.split(".").pop() ?? "png").toLowerCase();
         // Use just the bare filename (last segment) for MIME name= and Content-Disposition filename=.
         const fname = filename.split("/").pop() ?? filename;
-        seen.set(filename, {
+        seen.set(src, {
           cid: `vsig${cidIndex++}${cidBase}`,
           mimeType: mimeTypeFromExt(ext),
           data,
@@ -286,6 +293,20 @@ export async function extractCtaInlineImages(
     // Match src="<exact-url>" anywhere in the HTML (both sig and body).
     const pat = new RegExp(`(\\bsrc=")${escapedSrc}(")`,"g");
     rewritten = rewritten.replace(pat, `$1cid:${cidImg.cid}$2`);
+  }
+
+  // ── Integrity check ──────────────────────────────────────────────────────
+  // Every CID part we created must have a matching cid: reference in the HTML.
+  // A mismatch means the rewrite failed (key/src mismatch) — the image will
+  // appear as an orphaned attachment card instead of rendering inline.
+  for (const [src, cidImg] of seen.entries()) {
+    if (!rewritten.includes(`cid:${cidImg.cid}`)) {
+      console.error(
+        `[sig-cid] INTEGRITY FAIL: CID part created but no cid: reference in HTML — ` +
+        `cid=${cidImg.cid} src="${src.slice(0, 120)}". ` +
+        `Image will render as attachment card, not inline.`
+      );
+    }
   }
 
   // ── Neutralise <a href> attributes that still point to inlined image files ──

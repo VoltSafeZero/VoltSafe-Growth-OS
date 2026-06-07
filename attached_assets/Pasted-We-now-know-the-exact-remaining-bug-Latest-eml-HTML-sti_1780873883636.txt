@@ -1,0 +1,67 @@
+We now know the exact remaining bug.
+
+Latest .eml:
+
+HTML still contains logo as remote/self-hosted URL:
+
+<img src="https://image-linker-burgesstrevor76.replit.app/assets/cta/d4959dbc-40c8-4aec-a073-ab6710ab9c38.png">
+
+But MIME also contains a generated CID image part for that exact same logo asset:
+
+Content-Type: image/png; name=d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+Content-Disposition: inline; filename=d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+Content-ID: <vsig0mq4dmh6z>
+
+Problem:
+The CID part is created, but the HTML src is NOT rewritten to:
+
+<img src="cid:vsig0mq4dmh6z">
+
+Therefore the logo part is orphaned and Gmail/Apple show it as an attachment/duplicate.
+
+Watch Demo is now correct:
+HTML references cid:ii_...
+MIME part has matching Content-ID.
+It renders correctly.
+
+So the remaining issue is specifically in extractCtaInlineImages() or its caller:
+- it detects the logo image
+- creates the CID image part
+- but fails to assign/preserve the rewritten HTML
+
+Check for:
+1. html.replace(...) result not assigned back
+2. replace matching relative /assets/cta/... while actual src is absolute https://image-linker.../assets/cta/...
+3. rewrite happening after quoted-printable encoding
+4. function returning rewritten HTML but caller still uses old original HTML
+5. function only rewriting injected CTA image, not images inside saved signature html_content
+
+Fix:
+- Rewrite must run on raw HTML before MIME encoding.
+- For every image part generated, HTML must be rewritten to cid:<same id>.
+- If a CID part is created but no matching cid: reference exists in final HTML, throw/log hard error.
+- Final .eml must show:
+  <img src="cid:vsig0mq4dmh6z">
+  and Content-ID: <vsig0mq4dmh6z>
+
+Also fix MIME wrapper:
+Current tree is still:
+multipart/mixed
+  text/html
+  image/png
+  image/png
+
+Target with no real attachments:
+multipart/related; type="text/html"
+  text/html
+  image/png logo
+  image/png Watch Demo
+
+Target with real attachments:
+multipart/mixed
+  multipart/related; type="text/html"
+    text/html
+    CID images
+  real attachments only
+
+But the first priority is the HTML rewrite bug. The orphan logo CID part is the visible duplicate.
