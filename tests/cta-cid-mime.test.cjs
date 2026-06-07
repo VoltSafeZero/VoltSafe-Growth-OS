@@ -86,9 +86,19 @@ check(
 );
 
 check(
-  "Inline image parts use Content-Disposition: inline (not attachment)",
-  gmailTs.includes("Content-Disposition: inline") &&
-  !gmailTs.includes('Content-Disposition: attachment; filename="${img')
+  "inlineParts helper does NOT include Content-Disposition (Apple Mail compat — RFC 2392 §2)",
+  // Content-Disposition: inline on CID parts causes Apple Mail to list the image
+  // as an attachment in addition to rendering it inline. Content-ID alone is
+  // sufficient per RFC 2392. We extract the inlineParts function body and confirm
+  // it has no Content-Disposition directive. (iCal uses Content-Disposition: inline
+  // separately — that's correct and not affected by this check.)
+  (() => {
+    const start = gmailTs.indexOf("const inlineParts = (bnd:");
+    const end   = gmailTs.indexOf("const attachmentParts", start);
+    if (start < 0 || end < 0) return false;
+    const fn = gmailTs.slice(start, end);
+    return !fn.includes("Content-Disposition");
+  })()
 );
 
 check(

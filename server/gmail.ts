@@ -210,11 +210,11 @@ export async function extractCtaInlineImages(
         try { if (fs.existsSync(fp)) data = fs.readFileSync(fp); } catch { /* unreadable */ }
       }
 
-      // Slow path – fetch any other HTTP/HTTPS URL (4 s timeout).
+      // Slow path – fetch any other HTTP/HTTPS URL (10 s timeout — matches inlineImagesAsBase64).
       if (!data && (src.startsWith("https://") || src.startsWith("http://"))) {
         try {
           const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 4000);
+          const timer = setTimeout(() => ctrl.abort(), 10000);
           const resp = await fetch(src, { signal: ctrl.signal });
           clearTimeout(timer);
           if (resp.ok) data = Buffer.from(await resp.arrayBuffer());
@@ -309,7 +309,10 @@ function buildMimeRaw(
         `--${bnd}`,
         `Content-Type: ${img.mimeType}`,
         `Content-Transfer-Encoding: base64`,
-        `Content-Disposition: inline`,
+        // RFC 2392 §2: Content-ID alone marks a part as inline-referenced.
+        // Intentionally no disposition header — adding one causes Apple Mail 16+
+        // (macOS Ventura/Sonoma) to list the image as a named attachment even when
+        // it is also rendered inline in the HTML body.
         `Content-ID: <${img.cid}>`,
         ``,
         b64,
@@ -415,7 +418,9 @@ function buildMimeRaw(
       plainB64,
       ``,
       `--${altBnd}`,
-      `Content-Type: multipart/related; boundary="${relBnd}"`,
+      // RFC 2387 §3.1: type parameter identifies the root body part MIME type.
+      // Apple Mail uses this to avoid showing CID image parts as attachments.
+      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"`,
       ``,
       `--${relBnd}`,
       `Content-Type: text/html; charset=UTF-8`,
@@ -447,7 +452,7 @@ function buildMimeRaw(
       plainB64,
       ``,
       `--${altBnd}`,
-      `Content-Type: multipart/related; boundary="${relBnd}"`,
+      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"`,
       ``,
       `--${relBnd}`,
       `Content-Type: text/html; charset=UTF-8`,

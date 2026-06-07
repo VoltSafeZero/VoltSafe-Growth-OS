@@ -31,8 +31,8 @@ assert("fast path reads /assets/cta/ from disk",
 assert("slow path fetches HTTPS URLs with AbortController timeout",
   (gmailSrc.includes("fetch(src") || gmailSrc.includes("await fetch(")) &&
   gmailSrc.includes("AbortController"));
-assert("4-second fetch timeout",
-  gmailSrc.includes("4000"));
+assert("10-second fetch timeout (matches inlineImagesAsBase64 for slow external URLs)",
+  gmailSrc.includes("10000"));
 assert("data:image and cid: srcs are skipped",
   gmailSrc.includes('startsWith("cid:")') && gmailSrc.includes('startsWith("data:")'));
 assert("legacy fallback for missing sig markers (no fetch)",
@@ -45,8 +45,17 @@ assert("multipart/related boundary emitted",
   gmailSrc.includes("multipart/related"));
 assert("Content-ID header written for each inline image",
   gmailSrc.includes("Content-ID:"));
-assert("Content-Disposition: inline for inline images",
-  gmailSrc.includes("Content-Disposition: inline"));
+assert("inlineParts helper has no Content-Disposition (Apple Mail compat — RFC 2392 §2)",
+  // Content-ID alone marks a part as inline-referenced per RFC 2392.
+  // Content-Disposition: inline on CID parts causes Apple Mail to list the image
+  // both inline AND as an attachment. iCal uses Content-Disposition: inline
+  // separately — that's correct. We scope the check to the inlineParts fn body.
+  (() => {
+    const start = gmailSrc.indexOf("const inlineParts = (bnd:");
+    const end   = gmailSrc.indexOf("const attachmentParts", start);
+    if (start < 0 || end < 0) return false;
+    return !gmailSrc.slice(start, end).includes("Content-Disposition");
+  })());
 assert("buildMimeRaw needsInline flag controls multipart/related",
   gmailSrc.includes("needsInline"));
 assert("inlineParts helper emits CID image parts inside multipart/related",
