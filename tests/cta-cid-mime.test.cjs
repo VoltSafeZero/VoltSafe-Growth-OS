@@ -114,18 +114,25 @@ check(
 );
 
 check(
-  "inlineParts helper does NOT include Content-Disposition (Apple Mail compat — RFC 2392 §2)",
-  // Content-Disposition: inline on CID parts causes Apple Mail to list the image
-  // as an attachment in addition to rendering it inline. Content-ID alone is
-  // sufficient per RFC 2392. We extract the inlineParts function body and confirm
-  // it has no Content-Disposition directive. (iCal uses Content-Disposition: inline
-  // separately — that's correct and not affected by this check.)
+  "inlineParts helper includes Content-Disposition: inline (no filename) to prevent Apple Mail attachment ghost",
+  // Apple Mail 16+ (Ventura/Sonoma) treats CID parts WITHOUT Content-Disposition
+  // as both inline AND as a downloadable attachment (desktop: download card named
+  // after alt text; mobile: full-size image appended below the email body).
+  // Content-Disposition: inline (no filename) explicitly marks the part as
+  // display-only so Apple Mail does not surface it as a separate attachment.
+  // We verify (a) the disposition is "inline", and (b) no filename= is set.
   (() => {
     const start = gmailTs.indexOf("const inlineParts = (bnd:");
     const end   = gmailTs.indexOf("const attachmentParts", start);
     if (start < 0 || end < 0) return false;
     const fn = gmailTs.slice(start, end);
-    return !fn.includes("Content-Disposition");
+    // Must include Content-Disposition: inline
+    if (!fn.includes("Content-Disposition: inline")) return false;
+    // Must NOT include a filename= parameter (that would create a named attachment)
+    const dispIdx = fn.indexOf("Content-Disposition: inline");
+    const lineEnd = fn.indexOf("\n", dispIdx);
+    const dispLine = fn.slice(dispIdx, lineEnd < 0 ? undefined : lineEnd);
+    return !dispLine.includes("filename=");
   })()
 );
 

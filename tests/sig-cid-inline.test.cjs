@@ -45,16 +45,21 @@ assert("multipart/related boundary emitted",
   gmailSrc.includes("multipart/related"));
 assert("Content-ID header written for each inline image",
   gmailSrc.includes("Content-ID:"));
-assert("inlineParts helper has no Content-Disposition (Apple Mail compat — RFC 2392 §2)",
-  // Content-ID alone marks a part as inline-referenced per RFC 2392.
-  // Content-Disposition: inline on CID parts causes Apple Mail to list the image
-  // both inline AND as an attachment. iCal uses Content-Disposition: inline
-  // separately — that's correct. We scope the check to the inlineParts fn body.
+assert("inlineParts helper emits Content-Disposition: inline (no filename) to prevent Apple Mail attachment ghost",
+  // Apple Mail 16+ (Ventura/Sonoma) treats CID parts WITHOUT Content-Disposition
+  // as both inline AND a downloadable attachment. Content-Disposition: inline
+  // (no filename) suppresses the attachment card/duplicate rendering.
+  // We verify (a) disposition is "inline" and (b) no filename= parameter.
   (() => {
     const start = gmailSrc.indexOf("const inlineParts = (bnd:");
     const end   = gmailSrc.indexOf("const attachmentParts", start);
     if (start < 0 || end < 0) return false;
-    return !gmailSrc.slice(start, end).includes("Content-Disposition");
+    const fn = gmailSrc.slice(start, end);
+    if (!fn.includes("Content-Disposition: inline")) return false;
+    const dispIdx = fn.indexOf("Content-Disposition: inline");
+    const lineEnd = fn.indexOf("\n", dispIdx);
+    const dispLine = fn.slice(dispIdx, lineEnd < 0 ? undefined : lineEnd);
+    return !dispLine.includes("filename=");
   })());
 assert("buildMimeRaw needsInline flag controls multipart/related",
   gmailSrc.includes("needsInline"));
