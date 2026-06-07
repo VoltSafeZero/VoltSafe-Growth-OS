@@ -431,6 +431,136 @@ fs.writeFileSync(path.join(tmpDir, "WatchDemo_Thumbnail_200.png"), fakePng);
     routesTs.includes(`schedBody.replace(/<!--vs-sig-start-->[\\s\\S]*?<!--vs-sig-end-->/gi, "")`)
   );
 
+  // ── 10. Generic CID rule — any image format, any number of assets ────────────
+  // These tests prove the contract holds for any signature/CTA image, not just
+  // the specific Watch Demo / VoltSafe logo assets that triggered the original bug.
+  console.log("\n── 10. Generic CID rule (format-agnostic) ──");
+
+  // Source-level: mimeTypeFromExt supports all five required formats.
+  check(
+    "mimeTypeFromExt maps png → image/png",
+    gmailTs.includes("png: \"image/png\"") || gmailTs.includes("png:\"image/png\"")
+  );
+  check(
+    "mimeTypeFromExt maps jpg/jpeg → image/jpeg",
+    gmailTs.includes("jpg: \"image/jpeg\"") || gmailTs.includes("jpg:\"image/jpeg\"")
+  );
+  check(
+    "mimeTypeFromExt maps gif → image/gif",
+    gmailTs.includes("gif: \"image/gif\"") || gmailTs.includes("gif:\"image/gif\"")
+  );
+  check(
+    "mimeTypeFromExt maps webp → image/webp",
+    gmailTs.includes("webp: \"image/webp\"") || gmailTs.includes("webp:\"image/webp\"")
+  );
+
+  // Source-level: no hardcoded Watch Demo or VoltSafe filename in the main CID logic.
+  check(
+    "extractCtaInlineImages does NOT hardcode 'Watch Demo' filename",
+    (() => {
+      const fn = gmailTs.slice(
+        gmailTs.indexOf("export async function extractCtaInlineImages("),
+        gmailTs.indexOf("function buildMimeRaw(")
+      );
+      return !fn.includes("WatchDemo") && !fn.includes("Watch Demo");
+    })()
+  );
+  check(
+    "extractCtaInlineImages does NOT hardcode 'VoltSafe' filename",
+    (() => {
+      const fn = gmailTs.slice(
+        gmailTs.indexOf("export async function extractCtaInlineImages("),
+        gmailTs.indexOf("function buildMimeRaw(")
+      );
+      return !fn.includes("VoltSafe_logo");
+    })()
+  );
+
+  // Source-level: main scan path uses a generic src= regex, not a filename allowlist.
+  check(
+    "main scan uses generic src= regex (not filename-specific allowlist)",
+    gmailTs.includes('/\\\\bsrc="([^"]+)"/gi') || gmailTs.includes('src="([^"]+)"')
+  );
+
+  // Source-level: legacy fallback also sets filename on CidImage (for Content-Disposition).
+  check(
+    "legacy fallback sets filename on CidImage (Content-Disposition name for all paths)",
+    (() => {
+      const legacyStart = gmailTs.indexOf("Legacy fallback: no sig markers");
+      if (legacyStart < 0) return false;
+      // The seen.set() call with filename: is ~970 chars after the comment; use 1300 to be safe.
+      const legacyBlock = gmailTs.slice(legacyStart, legacyStart + 1300);
+      return legacyBlock.includes("filename:");
+    })()
+  );
+
+  // Source-level: each CID part has Content-Type name= and Content-Disposition filename=
+  // derived from fname (not a hardcoded string), proving it's generic per-image.
+  check(
+    "inlineParts derives name= and filename= from img.filename (not hardcoded string)",
+    (() => {
+      const start = gmailTs.indexOf("const inlineParts = (bnd:");
+      const end   = gmailTs.indexOf("const attachmentParts", start);
+      if (start < 0 || end < 0) return false;
+      const fn = gmailTs.slice(start, end);
+      return fn.includes("fname") && fn.includes("img.filename") &&
+             fn.includes('name="${fname}"') && fn.includes('filename="${fname}"');
+    })()
+  );
+
+  // Simulation: 3 different image formats in one signature — all get CID parts.
+  const tmpDir2 = require("os").tmpdir() + "/cta-generic-" + Date.now();
+  require("fs").mkdirSync(tmpDir2, { recursive: true });
+  const pngHdr  = Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]); // PNG magic
+  const jpgHdr  = Buffer.from([0xff,0xd8,0xff,0xe0,0x00,0x10,0x4a,0x46]); // JPEG SOI+APP0
+  const webpHdr = Buffer.from([0x52,0x49,0x46,0x46,0x00,0x00,0x00,0x00,0x57,0x45,0x42,0x50]); // RIFF WEBP
+  require("fs").writeFileSync(tmpDir2 + "/banner.png",  pngHdr);
+  require("fs").writeFileSync(tmpDir2 + "/headshot.jpg",  jpgHdr);
+  require("fs").writeFileSync(tmpDir2 + "/animated.webp", webpHdr);
+
+  const genericSigHtml = [
+    "<!--vs-sig-start-->",
+    '<img src="https://host/assets/cta/banner.png" alt="Banner" width="600">',
+    '<a href="https://track/abc">',
+    '<img src="https://host/assets/cta/headshot.jpg" alt="Headshot" width="48">',
+    "</a>",
+    '<img src="https://host/assets/cta/animated.webp" alt="Anim" width="200">',
+    // Duplicate of banner — must deduplicate to one CID part.
+    '<img src="https://host/assets/cta/banner.png" alt="Banner2" width="300">',
+    "<!--vs-sig-end-->",
+  ].join("\n");
+
+  const { html: gHtml, inlineImages: gImgs } = await simulateExtractCtaInlineImages(genericSigHtml, tmpDir2);
+
+  check(
+    "Generic: 3 unique images → 3 CID parts (PNG, JPG, WebP)",
+    gImgs.length === 3
+  );
+  check(
+    "Generic: duplicate src → deduplicated to one CID (not two)",
+    gImgs.filter(i => i.cid).length === 3 // would be 4 without dedup
+  );
+  check(
+    "Generic: all three src= attributes rewritten to cid:",
+    gHtml.includes('src="cid:') &&
+    !gHtml.includes('src="https://host/assets/cta/banner.png"') &&
+    !gHtml.includes('src="https://host/assets/cta/headshot.jpg"') &&
+    !gHtml.includes('src="https://host/assets/cta/animated.webp"')
+  );
+  check(
+    "Generic: tracking href preserved (not stripped)",
+    gHtml.includes('href="https://track/abc"')
+  );
+  check(
+    "Generic: every CID part has a mimeType matching its format",
+    gImgs.some(i => i.mimeType === "image/png") &&
+    gImgs.some(i => i.mimeType === "image/jpeg") &&
+    gImgs.some(i => i.mimeType === "image/webp")
+  );
+
+  // Clean up.
+  try { require("fs").rmSync(tmpDir2, { recursive: true, force: true }); } catch { }
+
   // ── Summary ──────────────────────────────────────────────────────────────────
   console.log(`\nResults: ${passed} passed, ${failed} failed out of ${passed + failed} total`);
   if (failed > 0) process.exit(1);

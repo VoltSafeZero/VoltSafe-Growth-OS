@@ -160,21 +160,31 @@ function mimeTypeFromExt(ext: string): string {
 }
 
 /**
- * Inlines all images found inside the `<!--vs-sig-start-->…<!--vs-sig-end-->`
- * section of `html` as CID MIME parts so they render correctly in clients that
- * block remote images (Spark, Apple Mail, Outlook).
+ * Generic CID inline-image rule for all signature / CTA HTML.
+ *
+ * For every unique `<img src="…">` found inside the signature section:
+ *   • Exactly ONE CID MIME part is generated (duplicates are deduplicated).
+ *   • The part sits inside `multipart/related` — never under `multipart/mixed`.
+ *   • The part carries `Content-Disposition: inline; filename="…"`.
+ *   • The HTML `src="…"` is rewritten to `src="cid:<id>"`.
+ *   • The surrounding `<a href>` tracking/demo link is preserved.
+ *   • The part is NEVER added as a normal file attachment.
+ *
+ * Works for all image formats (PNG, JPG, JPEG, GIF, WebP), any number of CTA
+ * assets, any user's signature, immediate send, and scheduled send.
  *
  * Resolution order for each `src` found in the signature section:
- *   1. `/assets/cta/<filename>` → read directly from `ctaAssetsDir` (fast, no HTTP).
- *   2. Any `https://` or `http://` URL → fetched server-side with a 4-second timeout.
- *   3. Anything else (data:, cid:, relative paths without protocol) → skipped.
+ *   1. `/assets/cta/<filename>` → read from `ctaAssetsDir` on disk (no HTTP).
+ *   2. Any `https://` or `http://` URL → fetched server-side with a 10 s timeout.
+ *   3. Anything else (data:, cid:, protocol-relative, relative without /assets/cta/)
+ *      → skipped (left as-is).
  *
  * If no signature markers are present the function falls back to legacy behaviour:
- * only `/assets/cta/` local files are inlined, no external fetches are made.
+ * only local `/assets/cta/` files are inlined, no external fetches are made.
  *
- * All matching `src="…"` attributes in the **full** `html` string are then
- * rewritten to `src="cid:<id>"`.  The returned `inlineImages` array is passed
- * directly to `buildMimeRaw` which wraps them in `multipart/related`.
+ * All matched `src="…"` attributes in the **full** `html` string are rewritten
+ * to `src="cid:<id>"`. The returned `inlineImages` array is passed to
+ * `buildMimeRaw` which places them inside `multipart/related`.
  */
 export async function extractCtaInlineImages(
   html: string,
@@ -239,10 +249,11 @@ export async function extractCtaInlineImages(
     }
   } else {
     // ── Legacy fallback: no sig markers — only /assets/cta/ local files ───
+    // No external fetches in this path; only locally stored CTA assets are inlined.
     const fnRe = /\/assets\/cta\/([^"'?#\s]+)/g;
     let m: RegExpExecArray | null;
     while ((m = fnRe.exec(html)) !== null) {
-      const filename = m[1];
+      const filename = m[1]; // e.g. "banner.jpg" or "logo.png"
       if (seen.has(filename)) continue;
       const filePath = path.join(ctaAssetsDir, filename);
       try {
@@ -251,8 +262,15 @@ export async function extractCtaInlineImages(
           continue;
         }
         const data = fs.readFileSync(filePath);
-        const ext = filename.split(".").pop() ?? "png";
-        seen.set(filename, { cid: `vsig${cidIndex++}${cidBase}`, mimeType: mimeTypeFromExt(ext), data });
+        const ext = (filename.split(".").pop() ?? "png").toLowerCase();
+        // Use just the bare filename (last segment) for MIME name= and Content-Disposition filename=.
+        const fname = filename.split("/").pop() ?? filename;
+        seen.set(filename, {
+          cid: `vsig${cidIndex++}${cidBase}`,
+          mimeType: mimeTypeFromExt(ext),
+          data,
+          filename: fname,
+        });
       } catch (e: any) {
         console.error(`[sig-cid] CTA file read error — path="${filePath}" error="${e?.message}"`);
       }
@@ -271,8 +289,8 @@ export async function extractCtaInlineImages(
   }
 
   // ── Neutralise <a href> attributes that still point to inlined image files ──
-  // Apple Mail treats <a href="...Watch Demo.png"><img src="cid:x"> as two
-  // things: the CID img (renders inline) AND the href file (shown as attachment).
+  // Apple Mail treats <a href="image.png"><img src="cid:x"> as two things: the
+  // CID img (renders inline) AND the href file (shown as an attachment card).
   // This happens when destination_url in the CTA config equals the image_url, or
   // when tracking is disabled and the link was never replaced by wrapSignatureCtaLinks.
   // Fix: replace any href that points to an image-file URL we just inlined with
