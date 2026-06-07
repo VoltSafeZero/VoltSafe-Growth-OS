@@ -1,37 +1,40 @@
 ---
-name: Signature CID inline images — Content-Disposition
-description: Apple Mail requires Content-Disposition: inline on CID MIME parts; without it, images appear both inline AND as attachments.
+name: Signature CID image rules
+description: Rules for CID-inlined signature images — MIME disposition, local storage, dedup guard
 ---
 
-## Rule
-CID inline image MIME parts in `inlineParts()` (server/gmail.ts) MUST include
-`Content-Disposition: inline` (no filename parameter).
+## Rules
 
-## Why
-Apple Mail 16+ (Ventura/Sonoma) treats CID MIME parts WITHOUT
-Content-Disposition as both inline (rendered at the <img> position) AND as an
-attachment. On desktop this shows as a download card named after the alt text;
-on mobile it renders the image again at full size below the email body.
+**Content-Disposition: inline (no filename=)**
+CID MIME parts for signature images MUST have `Content-Disposition: inline` with NO `filename=`
+parameter. Apple Mail 16+ (Ventura/Sonoma) treats CID parts without any disposition as both
+inline (renders at `<img>`) AND a named attachment card / full-size mobile append.
+Verified in `server/gmail.ts` `inlineParts()`.
 
-`Content-Disposition: inline` (no filename) suppresses the attachment
-rendering without giving the image a user-visible filename.
+**Local /assets/cta/ storage for all sig images**
+All images in signatures (Watch Demo CTA, VoltSafe logo) MUST be stored as local files in
+`uploads/cta-assets/` and referenced in sig HTML as `/assets/cta/<filename>`. This lets
+`extractCtaInlineImages` use the fast path (disk read) rather than the slow HTTP fetch path,
+which can time out for external URLs (e.g. voltsafe.com WordPress). The fast path regex
+`/\/assets\/cta\/([^"'?#\s]+)/` matches both relative and absolute URLs that contain `/assets/cta/`.
 
-A previous concern that adding Content-Disposition would CAUSE named attachment
-listing was based on an undocumented test with `Content-Disposition: attachment`
-— not `inline`. The `inline` variant is safe.
+**Stale sig section strip (send + scheduled paths)**
+Before appending the server-assembled sig section to the body, strip any existing
+`<!--vs-sig-start-->...<!--vs-sig-end-->` block from the body (handles saved-draft case
+where the frontend body already contains an old sig section).
+Pattern: `cleanBody.replace(/<!--vs-sig-start-->[\s\S]*?<!--vs-sig-end-->/gi, "")`
 
-## How to apply
-When generating MIME inline image parts (any multipart/related construction),
-always emit:
-```
-Content-Type: image/png
-Content-Transfer-Encoding: base64
-Content-ID: <cid>
-Content-Disposition: inline
-```
-The Gmail has_attachments flag will remain false for properly structured emails.
+**Filename-based dedup guard**
+After assembling `bodyWithSig`, collect all image filenames from inside the sig section
+and strip any `<img>` tags outside the sig section whose filename matches. Prevents a
+Watch Demo or logo img from appearing twice when the body had a reference outside the sig markers.
 
-## srcdoc iframe base URL
-CID proxy URLs are relative (/api/gmail/messages/…). srcdoc iframes need
-`<base href="/">` in their <head> to resolve these correctly. Added to the
-srcDoc template in gmail-inbox.tsx MessageBody component.
+**max-width:100%;height:auto on all CTA images**
+`wrapHtmlWithCtaAsset`, the legacy `_ctaHtmlBlock` map, and the scheduled `_sh` map
+all use `max-width:100%;height:auto` (NOT `max-width:${w}px`). The `width="N"` HTML
+attribute still controls pixel width for clients that ignore CSS.
+
+**Why:**
+Remote URLs in sig images break on desktop Apple Mail (blocks remote images). Fixed px
+max-width breaks responsive display on mobile. CID without Content-Disposition creates
+both an inline render AND a downloadable attachment in Apple Mail.

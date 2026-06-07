@@ -71,8 +71,10 @@ test("send route appends signature in vs-sig markers to bodyWithSig", () => {
   );
   assert.ok(
     sendRouteSrc.includes("bodyWithSig = cleanBody + `<!--vs-sig-start-->`")
-      || sendRouteSrc.includes('bodyWithSig = cleanBody + `<!--vs-sig-start-->${'),
-    "send route must build bodyWithSig from cleanBody + sig section"
+      || sendRouteSrc.includes('bodyWithSig = cleanBody + `<!--vs-sig-start-->${')
+      // dedup guard: stale sig section stripped from cleanBody before appending fresh sig
+      || sendRouteSrc.includes('bodyWithSig = _cleanBodyNoStaleSig + `<!--vs-sig-start-->'),
+    "send route must build bodyWithSig from cleanBody (or deduplicated variant) + sig section"
   );
 });
 test("send route uses bodyWithSig (not cleanBody) for CTA wrapping", () => {

@@ -13220,7 +13220,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                 if (cta.image_url) {
                   const _i = _fixScImg(String(cta.image_url)).replace(/"/g, "&quot;");
                   const _dw = Math.min(_w, 200);
-                  return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_i}" alt="${_a}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${_dw}px;height:auto;"></a>`;
+                  return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_i}" alt="${_a}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;height:auto;"></a>`;
                 }
                 return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_a}</a>`;
               }).join("");
@@ -13228,6 +13228,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                 ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_sn}</td><td style="vertical-align:middle;padding-left:24px;">${_sh}</td></tr></table>`
                 : _sn;
             }
+            // Strip any stale sig section from the scheduled body before appending fresh sig.
+            schedBody = schedBody.replace(/<!--vs-sig-start-->[\s\S]*?<!--vs-sig-end-->/gi, "");
             schedBody = schedBody + `<!--vs-sig-start-->${_schedSigSection}<!--vs-sig-end-->`;
           }
         } catch (_se: any) {
@@ -14849,7 +14851,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                 if (cta.image_url) {
                   const _img = _fixCtaImg(String(cta.image_url)).replace(/"/g, "&quot;");
                   const _dw = Math.min(_w, 200);
-                  return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_img}" alt="${_alt}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${_dw}px;height:auto;"></a>`;
+                  return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_img}" alt="${_alt}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;height:auto;"></a>`;
                 }
                 return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_alt}</a>`;
               }).join("");
@@ -14857,7 +14859,51 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                 ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_normalizedSig}</td><td style="vertical-align:middle;padding-left:24px;">${_ctaHtmlBlock}</td></tr></table>`
                 : _normalizedSig;
             }
-            bodyWithSig = cleanBody + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`;
+            // Strip any stale sig section from the frontend body (saved-draft safety net).
+            // If the editor body contains a <!--vs-sig-start-->...<!--vs-sig-end--> block
+            // from a previously saved draft, it would create a duplicate sig section.
+            // Always remove it before appending the freshly assembled server-side sig.
+            const _cleanBodyNoStaleSig = cleanBody.replace(/<!--vs-sig-start-->[\s\S]*?<!--vs-sig-end-->/gi, "");
+
+            bodyWithSig = _cleanBodyNoStaleSig + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`;
+
+            // ── Dedup guard: remove duplicate CTA images outside the sig section ────
+            // Ensures exactly ONE instance of each sig image (Watch Demo, VoltSafe logo,
+            // etc.) in the final HTML — only the canonical copy inside <!--vs-sig-*-->
+            // is kept. Catches cases where cleanBody still had an img reference via a
+            // different path (e.g., absolute-host URL for the same /assets/cta/ file).
+            {
+              const _SIG_S = "<!--vs-sig-start-->";
+              const _SIG_E = "<!--vs-sig-end-->";
+              const _si = bodyWithSig.indexOf(_SIG_S);
+              const _ei = bodyWithSig.indexOf(_SIG_E, _si);
+              if (_si !== -1 && _ei !== -1) {
+                const _sigBlock = bodyWithSig.slice(_si, _ei + _SIG_E.length);
+                // Collect all CTA asset filenames referenced inside the sig section.
+                const _sigFilenames = new Set<string>();
+                for (const _sm of _sigBlock.matchAll(/\bsrc="([^"]+)"/gi)) {
+                  const _fn = _sm[1].split("/").pop()?.split("?")[0];
+                  if (_fn) _sigFilenames.add(_fn.toLowerCase());
+                }
+                if (_sigFilenames.size > 0) {
+                  const _before = bodyWithSig.slice(0, _si);
+                  const _after  = bodyWithSig.slice(_ei + _SIG_E.length);
+                  const _stripDupe = (chunk: string) =>
+                    chunk.replace(/<img\b[^>]*>/gi, (tag) => {
+                      const _sm2 = tag.match(/\bsrc="([^"]*)"/i);
+                      if (!_sm2) return tag;
+                      const _fn2 = _sm2[1].split("/").pop()?.split("?")[0]?.toLowerCase();
+                      if (_fn2 && _sigFilenames.has(_fn2)) {
+                        console.log(`[gmail-send] dedup: removed outside-sig duplicate img filename="${_fn2}"`);
+                        return "";
+                      }
+                      return tag;
+                    });
+                  bodyWithSig = _stripDupe(_before) + _sigBlock + _stripDupe(_after);
+                }
+              }
+            }
+
             const _ctaMode = _sigRow.cta_image_url ? "asset-col" : "ctas-table";
             console.log(`[gmail-send] sig appended server-side id=${selectedSignatureId} bytes=${_normalizedSig.length} cta=${_ctaMode}`);
           }

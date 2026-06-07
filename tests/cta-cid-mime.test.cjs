@@ -337,6 +337,69 @@ fs.writeFileSync(path.join(tmpDir, "WatchDemo_Thumbnail_200.png"), fakePng);
   // Clean up temp dir.
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { }
 
+    // ── 7. VoltSafe logo stored locally ──────────────────────────────────────────
+  console.log("\n── 7. VoltSafe logo local file ──");
+  const ctaAssetsDir = path.resolve("uploads/cta-assets");
+  check(
+    "VoltSafe_logo.png exists in uploads/cta-assets/ (local CID asset, no remote WordPress URL)",
+    fs.existsSync(path.join(ctaAssetsDir, "VoltSafe_logo.png"))
+  );
+  check(
+    "WatchDemo_Thumbnail_200.png exists in uploads/cta-assets/ (CTA image)",
+    fs.existsSync(path.join(ctaAssetsDir, "WatchDemo_Thumbnail_200.png"))
+  );
+  if (fs.existsSync(path.join(ctaAssetsDir, "VoltSafe_logo.png"))) {
+    check(
+      "VoltSafe_logo.png is non-empty (>0 bytes)",
+      fs.statSync(path.join(ctaAssetsDir, "VoltSafe_logo.png")).size > 0
+    );
+  }
+
+  // ── 8. CTA img style: max-width:100% (responsive, no fixed pixel max-width) ──
+  console.log("\n── 8. CTA img styles ──");
+  const ctaAssetSvc = fs.readFileSync(
+    path.join(__dirname, "../server/services/signature-cta-asset.ts"), "utf8");
+  check(
+    "wrapHtmlWithCtaAsset uses max-width:100% (responsive, not fixed px max-width)",
+    ctaAssetSvc.includes("max-width:100%") && !ctaAssetSvc.includes("max-width:${w}px")
+  );
+  check(
+    "legacy email_signature_ctas CTA img also uses max-width:100%",
+    (() => {
+      // Find the legacy _ctaHtmlBlock build in routes.ts (not inside wrapHtmlWithCtaAsset)
+      const idx = routesTs.indexOf("const _ctaHtmlBlock = _sigCtas.map");
+      if (idx < 0) return false;
+      const snippet = routesTs.slice(idx, idx + 800);
+      return snippet.includes("max-width:100%") && !snippet.includes("max-width:${_dw}px");
+    })()
+  );
+  check(
+    "scheduled legacy CTA img also uses max-width:100%",
+    (() => {
+      const idx = routesTs.indexOf("const _sh = _sc.map");
+      if (idx < 0) return false;
+      const snippet = routesTs.slice(idx, idx + 800);
+      return snippet.includes("max-width:100%") && !snippet.includes("max-width:${_dw}px");
+    })()
+  );
+
+  // ── 9. Dedup guard: stale sig section stripped and duplicate imgs removed ────
+  console.log("\n── 9. Dedup guards in routes.ts ──");
+  check(
+    "send route strips stale sig section from cleanBody before appending fresh sig",
+    routesTs.includes("_cleanBodyNoStaleSig") &&
+    routesTs.includes("_cleanBodyNoStaleSig + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`")
+  );
+  check(
+    "send route dedup guard collects sig filenames and strips dupes outside sig section",
+    routesTs.includes("_sigFilenames") && routesTs.includes("_stripDupe") &&
+    routesTs.includes("dedup: removed outside-sig duplicate img")
+  );
+  check(
+    "scheduled route strips stale sig section before appending fresh sig",
+    routesTs.includes(`schedBody.replace(/<!--vs-sig-start-->[\\s\\S]*?<!--vs-sig-end-->/gi, "")`)
+  );
+
   // ── Summary ──────────────────────────────────────────────────────────────────
   console.log(`\nResults: ${passed} passed, ${failed} failed out of ${passed + failed} total`);
   if (failed > 0) process.exit(1);

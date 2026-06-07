@@ -174,10 +174,18 @@ assert('data: src correctly detected as skippable',
 assert('cid: src correctly detected as skippable',
   skipSrc2.startsWith("cid:"));
 
-// 4f. Sig with external logo URL (would be fetched).
+// 4f. VoltSafe logo stored locally as /assets/cta/ file (CID-inlined via fast path).
+const voltSafeLogoFile = path.join(ctaDir, "VoltSafe_logo.png");
+assert("VoltSafe_logo.png exists in uploads/cta-assets/ (local file, no remote URL needed)",
+  fs.existsSync(voltSafeLogoFile));
+if (fs.existsSync(voltSafeLogoFile)) {
+  assert("VoltSafe_logo.png is non-empty (>0 bytes)", fs.statSync(voltSafeLogoFile).size > 0);
+}
+
+// Verify that the fast-path extractor would find the local logo via /assets/cta/ pattern.
 const fakeLogoSig = [
   "<!--vs-sig-start-->",
-  '<img src="https://cdn.voltsafe.com/logo.png" alt="VoltSafe unplug. connect.">',
+  '<img src="/assets/cta/VoltSafe_logo.png" alt="VoltSafe" width="180" style="max-width:100%;height:auto;">',
   "<!--vs-sig-end-->",
 ].join("");
 const logoSigMatch = sigRe.exec(fakeLogoSig);
@@ -187,10 +195,33 @@ if (logoSigMatch) {
   let lm;
   while ((lm = logoSrcRe.exec(logoSigMatch[1])) !== null) logoSrcs.push(lm[1]);
 }
-assert("external logo URL found in sig section by src= scanner",
-  logoSrcs.some(s => s.includes("cdn.voltsafe.com")));
-assert("external logo URL starts with https:// → would trigger fetch path",
-  logoSrcs[0] && logoSrcs[0].startsWith("https://"));
+assert("local VoltSafe logo /assets/cta/ src found in sig section by src= scanner",
+  logoSrcs.some(s => s.includes("/assets/cta/VoltSafe_logo.png")));
+assert("VoltSafe logo uses local /assets/cta/ path → triggers fast-path (disk read, no fetch)",
+  logoSrcs[0] && logoSrcs[0].startsWith("/assets/cta/"));
+
+// 4g. Dedup guard — stale sig section stripped from cleanBody before new sig appended.
+console.log();
+console.log("── 5. Dedup guard in routes.ts ──");
+assert("send route strips stale sig section from cleanBody before appending fresh sig",
+  routesSrc.includes("_cleanBodyNoStaleSig") &&
+  routesSrc.includes("<!--vs-sig-start-->[\\s\\S]*?<!--vs-sig-end-->") &&
+  routesSrc.includes("_cleanBodyNoStaleSig + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`"));
+assert("scheduled route strips stale sig section before appending fresh sig",
+  routesSrc.includes("schedBody.replace(/<!--vs-sig-start-->[\\s\\S]*?<!--vs-sig-end-->/gi, \"\")"));
+assert("dedup guard removes duplicate CTA images outside sig section (filename-based)",
+  routesSrc.includes("_sigFilenames") && routesSrc.includes("_stripDupe") &&
+  routesSrc.includes("dedup: removed outside-sig duplicate img"));
+assert("dedup guard logs filename of removed duplicate img for diagnostics",
+  routesSrc.includes('dedup: removed outside-sig duplicate img filename="'));
+
+// 4h. Img style: max-width:100%;height:auto (no fixed pixel max-width on CTA images).
+console.log();
+console.log("── 6. CTA img style ──");
+const ctaAssetSrc = fs.readFileSync(
+  path.join(__dirname, "../server/services/signature-cta-asset.ts"), "utf8");
+assert("wrapHtmlWithCtaAsset uses max-width:100% (not fixed pixel max-width)",
+  ctaAssetSrc.includes("max-width:100%") && !ctaAssetSrc.includes("max-width:${w}px"));
 
 console.log();
 console.log("─".repeat(50));
