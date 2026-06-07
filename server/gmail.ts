@@ -331,11 +331,15 @@ function buildMimeRaw(
         `--${bnd}`,
         `Content-Type: ${img.mimeType}`,
         `Content-Transfer-Encoding: base64`,
-        // RFC 2392 §2: Content-ID alone marks a part as inline-referenced.
-        // Intentionally no disposition header — adding one causes Apple Mail 16+
-        // (macOS Ventura/Sonoma) to list the image as a named attachment even when
-        // it is also rendered inline in the HTML body.
+        // RFC 2392 §2: Content-ID marks the part as inline-referenced.
+        // Content-Disposition: inline (no filename) explicitly tells Apple Mail
+        // the part is inline-only and must NOT be surfaced as a download
+        // attachment or rendered as a separate full-size image below the body.
+        // Using "inline" without a filename parameter avoids showing a named
+        // attachment card while still suppressing the duplicate rendering that
+        // occurs when Content-Disposition is absent entirely.
         `Content-ID: <${img.cid}>`,
+        `Content-Disposition: inline`,
         ``,
         b64,
         ``,

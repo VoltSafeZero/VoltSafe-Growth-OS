@@ -1,0 +1,72 @@
+Apple Mail still has one remaining real bug: duplicate Watch Demo image.
+
+Current state:
+- Apple Mail desktop:
+  - Main Watch Demo CTA renders correctly and links correctly.
+  - BUT a second unwanted Watch Demo PNG appears below the VoltSafe logo area.
+  - VoltSafe logo image also sometimes fails in desktop Apple Mail.
+- Apple Mail mobile:
+  - Signature mostly renders correctly.
+  - BUT extra Watch Demo PNG appears below the logo.
+- VoltSafe Mail:
+  - Watch Demo sometimes broken in viewer.
+  - VoltSafe logo now renders.
+
+This means the outgoing HTML still contains TWO Watch Demo image references:
+1. The real CTA image in the right column.
+2. A second leftover Watch Demo image somewhere in html_content, attachment rendering, or CID proxy rendering.
+
+Fix this surgically.
+
+Required:
+1. Inspect the final outgoing HTML BEFORE MIME creation.
+2. Count every image:
+   - Watch Demo
+   - VoltSafe logo
+3. Final HTML must contain:
+   - exactly ONE Watch Demo img
+   - exactly ONE VoltSafe logo img
+4. Search and remove duplicate Watch Demo sources from:
+   - signature html_content
+   - cta wrapper
+   - attachment rendering
+   - inline CID extraction output
+   - Gmail attachment display renderer
+   - any “inline_image” fallback block
+
+Important:
+- Do NOT remove the working CTA right-column Watch Demo image.
+- Remove only the second unwanted Watch Demo image that appears below the VoltSafe logo.
+- Do NOT render inline CID image parts as visible attachments inside the HTML viewer.
+- Do NOT append inline image attachments to the displayed email body.
+- Inline images referenced by cid should only appear where the HTML <img src="cid:..."> places them.
+
+Likely root cause:
+The MIME parser/viewer is treating CID inline image parts as attachments and appending them to the body, or the signature HTML still has an old embedded Watch Demo image below the logo.
+
+Add diagnostics:
+- On send:
+  [final-html-images] list every img src + alt + parent href + position index
+- On read/view:
+  [viewer-inline-images] cid, filename, disposition, renderedInBody, appendedAsAttachment
+- Add endpoint:
+  GET /api/dev/message-image-debug?messageId=...
+  Return:
+  - final HTML img list
+  - CID parts
+  - attachment parts
+  - which images are rendered inline
+  - which images are appended below the body
+  - duplicate image detection by filename/content hash
+
+Rules:
+- CID inline parts must NOT be shown as attachments.
+- Signature images must appear only through their matching HTML img tag.
+- User-uploaded real attachments should still appear as attachments.
+
+Success criteria:
+- Apple Mail desktop shows Watch Demo exactly once.
+- Apple Mail mobile shows Watch Demo exactly once.
+- No Watch Demo.png attachment/card appears anywhere.
+- VoltSafe logo shows exactly once.
+- VoltSafe Mail viewer shows the same layout as Apple/Spark.
