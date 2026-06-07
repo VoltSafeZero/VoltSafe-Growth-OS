@@ -38,3 +38,17 @@ attribute still controls pixel width for clients that ignore CSS.
 Remote URLs in sig images break on desktop Apple Mail (blocks remote images). Fixed px
 max-width breaks responsive display on mobile. CID without Content-Disposition creates
 both an inline render AND a downloadable attachment in Apple Mail.
+
+## Gmail API MIME Canonicalization Bug
+
+Gmail's API (`users.messages.send` with raw MIME) canonicalizes the layout:
+  multipart/alternative > multipart/related > [text/html, CID images]
+into:
+  multipart/mixed > [multipart/alternative > [text/plain, text/html], CID images (Content-Disposition: attachment)]
+
+The Gmail API adds `X-Attachment-Content-Disposition: inline` to preserve original intent,
+but email clients (Apple Mail, Outlook) use the standard `Content-Disposition` header which
+now says `attachment`, causing the images to render as download cards.
+
+**Fix:** Set `multipart/related; type="text/html"` as the ROOT (not nested inside alternative).
+Gmail preserves this layout and does not re-canonicalize it.

@@ -45,22 +45,38 @@ assert("multipart/related boundary emitted",
   gmailSrc.includes("multipart/related"));
 assert("Content-ID header written for each inline image",
   gmailSrc.includes("Content-ID:"));
-assert("inlineParts helper emits Content-Disposition: inline (no filename) to prevent Apple Mail attachment ghost",
-  // Apple Mail 16+ (Ventura/Sonoma) treats CID parts WITHOUT Content-Disposition
-  // as both inline AND a downloadable attachment. Content-Disposition: inline
-  // (no filename) suppresses the attachment card/duplicate rendering.
-  // We verify (a) disposition is "inline" and (b) no filename= parameter.
+assert("inlineParts helper emits Content-Disposition: inline; filename= to tell Apple Mail the part is inline-only",
+  // RFC 2183: Content-Disposition: inline tells clients the part is displayed
+  // inline at the img src="cid:..." reference. Adding filename= is required so
+  // Apple Mail, Outlook, and Gmail all recognise the part as an inline asset
+  // and NOT a downloadable attachment. Both name= (on Content-Type) and
+  // filename= (on Content-Disposition) must be present.
   (() => {
     const start = gmailSrc.indexOf("const inlineParts = (bnd:");
     const end   = gmailSrc.indexOf("const attachmentParts", start);
     if (start < 0 || end < 0) return false;
     const fn = gmailSrc.slice(start, end);
+    // Must include Content-Disposition: inline
     if (!fn.includes("Content-Disposition: inline")) return false;
+    // Must include filename= parameter
     const dispIdx = fn.indexOf("Content-Disposition: inline");
     const lineEnd = fn.indexOf("\n", dispIdx);
     const dispLine = fn.slice(dispIdx, lineEnd < 0 ? undefined : lineEnd);
-    return !dispLine.includes("filename=");
+    return dispLine.includes("filename=");
   })());
+assert("inlineParts helper adds name= to Content-Type for each CID part",
+  (() => {
+    const start = gmailSrc.indexOf("const inlineParts = (bnd:");
+    const end   = gmailSrc.indexOf("const attachmentParts", start);
+    if (start < 0 || end < 0) return false;
+    const fn = gmailSrc.slice(start, end);
+    return fn.includes("name=") && fn.includes("Content-Type:");
+  })());
+assert("Case B: multipart/related; type=\"text/html\" is the ROOT (not multipart/alternative)",
+  // Gmail's API canonicalizes alt > related into flat mixed+attachments.
+  // The only safe layout is: related at the root, alternative inside it.
+  gmailSrc.includes('multipart/related; boundary="${relBnd}"; type="text/html"') ||
+  gmailSrc.includes("multipart/related; boundary=") && gmailSrc.includes('type="text/html"'));
 assert("buildMimeRaw needsInline flag controls multipart/related",
   gmailSrc.includes("needsInline"));
 assert("inlineParts helper emits CID image parts inside multipart/related",

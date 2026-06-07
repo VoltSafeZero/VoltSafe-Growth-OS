@@ -151,7 +151,7 @@ function mimeBase64(content: string): string {
 }
 
 export type MimeAttachment = { name: string; mimeType: string; data: Buffer };
-export type CidImage = { cid: string; mimeType: string; data: Buffer };
+export type CidImage = { cid: string; mimeType: string; data: Buffer; filename?: string };
 
 // Map file extension to MIME type for CTA images.
 function mimeTypeFromExt(ext: string): string {
@@ -227,8 +227,15 @@ export async function extractCtaInlineImages(
       }
       // CID: purely alphanumeric, no @, no slashes, no file extensions.
       const cid = `vsig${cidIndex++}${cidBase}`;
-      console.log(`[sig-cid] ✓ src="${src.slice(0, 80)}" bytes=${data.byteLength} cid=${cid} type=${mimeType} path=${ctaFileMatch ? "disk" : "fetch"}`);
-      seen.set(src, { cid, mimeType, data });
+      // Derive a clean filename for Content-Type name= and Content-Disposition filename= parameters.
+      const fname = (() => {
+        const ctaName = src.match(/\/assets\/cta\/([^"'?#\s/]+)$/);
+        if (ctaName) return ctaName[1];
+        try { return new URL(src).pathname.split("/").pop() || "inline-image.png"; } catch { /* */ }
+        return "inline-image.png";
+      })();
+      console.log(`[sig-cid] ✓ src="${src.slice(0, 80)}" bytes=${data.byteLength} cid=${cid} type=${mimeType} fname=${fname} path=${ctaFileMatch ? "disk" : "fetch"}`);
+      seen.set(src, { cid, mimeType, data, filename: fname });
     }
   } else {
     // ── Legacy fallback: no sig markers — only /assets/cta/ local files ───
@@ -323,23 +330,22 @@ function buildMimeRaw(
   const htmlB64  = mimeBase64(body);
 
   // ── Inline image MIME parts ─────────────────────────────────────────────
-  // text/html is the ROOT of multipart/related; images are its direct peers.
+  // These parts are always children of multipart/related, never multipart/mixed.
+  // RFC 2392: Content-ID links the part to the src="cid:…" reference in HTML.
+  // Content-Disposition: inline; filename="…" tells Apple Mail the part is
+  // inline-only and must NOT be surfaced as a download attachment card.
+  // name= on Content-Type + filename= on Content-Disposition are both required
+  // so that Apple Mail, Outlook, and Gmail all recognise the part as inline.
   const inlineParts = (bnd: string): string[] =>
     inlineImages.flatMap((img) => {
       const b64 = img.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
+      const fname = img.filename ?? "inline-image.png";
       return [
         `--${bnd}`,
-        `Content-Type: ${img.mimeType}`,
+        `Content-Type: ${img.mimeType}; name="${fname}"`,
         `Content-Transfer-Encoding: base64`,
-        // RFC 2392 §2: Content-ID marks the part as inline-referenced.
-        // Content-Disposition: inline (no filename) explicitly tells Apple Mail
-        // the part is inline-only and must NOT be surfaced as a download
-        // attachment or rendered as a separate full-size image below the body.
-        // Using "inline" without a filename parameter avoids showing a named
-        // attachment card while still suppressing the duplicate rendering that
-        // occurs when Content-Disposition is absent entirely.
         `Content-ID: <${img.cid}>`,
-        `Content-Disposition: inline`,
+        `Content-Disposition: inline; filename="${fname}"`,
         ``,
         b64,
         ``,
@@ -376,20 +382,24 @@ function buildMimeRaw(
   //      text/html
   //
   //  Case B — inline images, no attachments:
-  //    multipart/alternative [altBnd]
-  //      text/plain
-  //      multipart/related [relBnd]   ← text/html is ROOT of related
+  //    multipart/related; type="text/html" [relBnd]  ← ROOT
+  //      multipart/alternative [altBnd]
+  //        text/plain
   //        text/html
-  //        image/* (Content-ID: <cid>)
+  //      image/* (Content-ID: <cid>, Content-Disposition: inline; filename=)
   //
   //  Case C — inline images + attachments:
   //    multipart/mixed [mixBnd]
-  //      multipart/alternative [altBnd]
-  //        text/plain
-  //        multipart/related [relBnd]
+  //      multipart/related; type="text/html" [relBnd]  ← first child
+  //        multipart/alternative [altBnd]
+  //          text/plain
   //          text/html
-  //          image/*
+  //        image/* (Content-ID: <cid>, Content-Disposition: inline; filename=)
   //      attachment …
+  //
+  //  NOTE: Gmail's API canonicalizes the inverse layout (alt > related) into a flat
+  //  multipart/mixed with CID parts promoted to top-level attachments (Content-Disposition:
+  //  attachment). Setting related as the root prevents this canonicalization.
   //
   //  Case D — attachments only, no inline images:
   //    multipart/mixed [mixBnd]
@@ -430,11 +440,25 @@ function buildMimeRaw(
       `--${altBnd}--`,
     ];
   } else if (needsInline && !needsMixed) {
-    // Case B — text/html is the direct root of multipart/related
-    const altBnd = `vs_alt_${ts}`;
-    const relBnd = `vs_rel_${ts + 1}`;
+    // Case B — multipart/related is the ROOT; multipart/alternative is its first child.
+    //
+    // Gmail's API canonicalizes the inverse structure (alt > related) into a flat
+    // multipart/mixed with CID parts promoted to top-level attachments. The only
+    // layout Gmail preserves correctly is related at the top level.
+    //
+    //   multipart/related; type="text/html"  [relBnd]
+    //     multipart/alternative              [altBnd]
+    //       text/plain
+    //       text/html
+    //     image/png CID (inline; filename=)
+    //     image/png CID (inline; filename=)
+    const relBnd = `vs_rel_${ts}`;
+    const altBnd = `vs_alt_${ts + 1}`;
     lines = [
       ...hdr,
+      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"`,
+      ``,
+      `--${relBnd}`,
       `Content-Type: multipart/alternative; boundary="${altBnd}"`,
       ``,
       `--${altBnd}`,
@@ -444,29 +468,38 @@ function buildMimeRaw(
       plainB64,
       ``,
       `--${altBnd}`,
-      `Content-Type: multipart/related; boundary="${relBnd}"`,
-      ``,
-      `--${relBnd}`,
       `Content-Type: text/html; charset=UTF-8`,
       `Content-Transfer-Encoding: base64`,
       ``,
       htmlB64,
       ``,
+      `--${altBnd}--`,
+      ``,
       ...inlineParts(relBnd),
       `--${relBnd}--`,
-      ``,
-      `--${altBnd}--`,
     ];
   } else if (needsInline && needsMixed) {
-    // Case C
+    // Case C — multipart/mixed wraps multipart/related (not multipart/alternative).
+    //
+    //   multipart/mixed                        [mixBnd]
+    //     multipart/related; type="text/html"  [relBnd]
+    //       multipart/alternative              [altBnd]
+    //         text/plain
+    //         text/html
+    //       image/png CID (inline; filename=)
+    //       image/png CID (inline; filename=)
+    //     real file attachment …
     const mixBnd = `vs_mix_${ts + 2}`;
-    const altBnd = `vs_alt_${ts}`;
-    const relBnd = `vs_rel_${ts + 1}`;
+    const relBnd = `vs_rel_${ts}`;
+    const altBnd = `vs_alt_${ts + 1}`;
     lines = [
       ...hdr,
       `Content-Type: multipart/mixed; boundary="${mixBnd}"`,
       ``,
       `--${mixBnd}`,
+      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"`,
+      ``,
+      `--${relBnd}`,
       `Content-Type: multipart/alternative; boundary="${altBnd}"`,
       ``,
       `--${altBnd}`,
@@ -476,18 +509,15 @@ function buildMimeRaw(
       plainB64,
       ``,
       `--${altBnd}`,
-      `Content-Type: multipart/related; boundary="${relBnd}"`,
-      ``,
-      `--${relBnd}`,
       `Content-Type: text/html; charset=UTF-8`,
       `Content-Transfer-Encoding: base64`,
       ``,
       htmlB64,
       ``,
+      `--${altBnd}--`,
+      ``,
       ...inlineParts(relBnd),
       `--${relBnd}--`,
-      ``,
-      `--${altBnd}--`,
       ``,
       ...attachmentParts(mixBnd),
       `--${mixBnd}--`,

@@ -1,0 +1,63 @@
+Fix MIME builder exactly from raw .eml diagnosis.
+
+Raw .eml confirmed:
+- HTML is clean.
+- Exactly one logo cid reference.
+- Exactly one Watch Demo cid reference.
+- But CID image parts are emitted as siblings under multipart/mixed.
+- Worse: both image parts have Content-Disposition: attachment.
+- Custom X-Attachment-Content-Disposition: inline exists but is ignored by clients.
+
+Fix buildMimeRaw/sendEmail MIME assembly:
+
+1. If HTML has CID inline images and there are no real file attachments:
+   Root must be:
+   multipart/related; type="text/html"
+     multipart/alternative
+       text/plain
+       text/html
+     image/png CID logo
+     image/png CID Watch Demo
+
+2. If HTML has CID inline images and real file attachments:
+   Root must be:
+   multipart/mixed
+     multipart/related; type="text/html"
+       multipart/alternative
+         text/plain
+         text/html
+       image/png CID logo
+       image/png CID Watch Demo
+     real file attachments only
+
+3. For every CID image part:
+   - Content-Type: image/png; name="watch-demo.png" or "voltsafe-logo.png"
+   - Content-Transfer-Encoding: base64
+   - Content-ID: <matching-cid>
+   - Content-Disposition: inline; filename="watch-demo.png"
+   - No Content-Disposition: attachment
+   - Remove X-Attachment-Content-Disposition
+
+4. CID matching:
+   HTML src="cid:XYZ" must match Content-ID: <XYZ> exactly.
+
+5. No CID image part should sit directly under multipart/mixed.
+6. Only real uploaded user files should be under multipart/mixed as attachments.
+
+Add tests using MIME string parsing:
+- With inline images and no attachments:
+  root is multipart/related, not multipart/mixed.
+- With inline images and attachments:
+  root is multipart/mixed, first child is multipart/related.
+- CID image parts have Content-Disposition: inline.
+- CID image parts do NOT contain Content-Disposition: attachment.
+- CID image parts are inside multipart/related.
+- No X-Attachment-Content-Disposition header exists.
+- HTML cid refs exactly match image Content-IDs.
+- Watch Demo appears once as a CID part.
+- Logo appears once as a CID part.
+
+Do not change signature HTML.
+Do not change CTA layout.
+Do not change tracking.
+Only fix MIME structure and disposition headers.

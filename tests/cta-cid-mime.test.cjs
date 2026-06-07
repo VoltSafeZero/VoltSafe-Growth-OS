@@ -114,25 +114,56 @@ check(
 );
 
 check(
-  "inlineParts helper includes Content-Disposition: inline (no filename) to prevent Apple Mail attachment ghost",
-  // Apple Mail 16+ (Ventura/Sonoma) treats CID parts WITHOUT Content-Disposition
-  // as both inline AND as a downloadable attachment (desktop: download card named
-  // after alt text; mobile: full-size image appended below the email body).
-  // Content-Disposition: inline (no filename) explicitly marks the part as
-  // display-only so Apple Mail does not surface it as a separate attachment.
-  // We verify (a) the disposition is "inline", and (b) no filename= is set.
+  "inlineParts helper emits Content-Disposition: inline; filename= (RFC 2183 inline with name)",
+  // RFC 2183: Content-Disposition: inline tells clients the part is displayed at
+  // the src="cid:..." reference. Both name= (on Content-Type) and filename= (on
+  // Content-Disposition) are required so Apple Mail, Outlook, and Gmail all treat
+  // the part as an inline asset and NOT a downloadable attachment. Content-Disposition:
+  // attachment (which Gmail emits when CID parts are under multipart/mixed) is the
+  // root cause of signature image duplication in Apple Mail.
   (() => {
     const start = gmailTs.indexOf("const inlineParts = (bnd:");
     const end   = gmailTs.indexOf("const attachmentParts", start);
     if (start < 0 || end < 0) return false;
     const fn = gmailTs.slice(start, end);
-    // Must include Content-Disposition: inline
     if (!fn.includes("Content-Disposition: inline")) return false;
-    // Must NOT include a filename= parameter (that would create a named attachment)
+    // Must include filename= parameter
     const dispIdx = fn.indexOf("Content-Disposition: inline");
     const lineEnd = fn.indexOf("\n", dispIdx);
     const dispLine = fn.slice(dispIdx, lineEnd < 0 ? undefined : lineEnd);
-    return !dispLine.includes("filename=");
+    return dispLine.includes("filename=");
+  })()
+);
+
+check(
+  "inlineParts helper adds name= to Content-Type for each CID part",
+  (() => {
+    const start = gmailTs.indexOf("const inlineParts = (bnd:");
+    const end   = gmailTs.indexOf("const attachmentParts", start);
+    if (start < 0 || end < 0) return false;
+    const fn = gmailTs.slice(start, end);
+    return fn.includes("name=") && fn.includes("Content-Type:");
+  })()
+);
+
+check(
+  "Case B: multipart/related; type=\"text/html\" is ROOT (Gmail canonicalizes alt>related into flat mixed)",
+  gmailTs.includes('type="text/html"') && gmailTs.includes("multipart/related; boundary=")
+);
+
+check(
+  "When inline images only → multipart/related is the root (multipart/related appears before multipart/alternative)",
+  (() => {
+    // Use "else if (needsInline && !needsMixed)" to avoid matching the Case A
+    // "!needsInline && !needsMixed" which contains the same substring.
+    const start = gmailTs.indexOf("else if (needsInline && !needsMixed)");
+    const end   = gmailTs.indexOf("else if (needsInline && needsMixed)");
+    if (start < 0 || end < 0) return false;
+    const caseB = gmailTs.slice(start, end);
+    // Both must appear; related must come first (it is the root)
+    const relIdx = caseB.indexOf("multipart/related");
+    const altIdx = caseB.indexOf("multipart/alternative");
+    return relIdx >= 0 && altIdx >= 0 && relIdx < altIdx;
   })()
 );
 
