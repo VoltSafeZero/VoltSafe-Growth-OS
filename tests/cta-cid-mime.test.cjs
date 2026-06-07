@@ -136,46 +136,47 @@ check(
 console.log("\n── 4. Send route (routes.ts) wiring ──");
 
 check(
-  "inlineImagesAsBase64 used in routes.ts",
-  routesTs.includes("inlineImagesAsBase64") && routesTs.includes('import("./services/inline-images")')
+  "extractCtaInlineImages called in main send route",
+  routesTs.includes("extractCtaInlineImages(ctaWrappedBody, CTA_ASSETS_DIR)")
 );
 
 check(
-  "Send route calls inlineImagesAsBase64 before sendEmail",
-  routesTs.includes("inlineImagesAsBase64(ctaWrappedBody, CTA_ASSETS_DIR")
+  "Send route uses _sigInlineImages variable",
+  routesTs.includes("_sigInlineImages")
 );
 
 check(
-  "Send route uses CTA_ASSETS_DIR as directory arg",
-  routesTs.includes("inlineImagesAsBase64(ctaWrappedBody, CTA_ASSETS_DIR")
+  "Send route passes _sigInlineImages to sendEmail (CID approach)",
+  routesTs.includes("_sigInlineImages") &&
+  routesTs.includes("const result = await sendEmail(")
 );
 
 check(
-  "Send route uses _b64Body for the outbound HTML",
-  routesTs.includes("_b64Body") && routesTs.includes("let _b64Body = ctaWrappedBody")
+  "Send route logs CID inlining count",
+  routesTs.includes("sig CID inlining:")
 );
 
 check(
-  "Send route logs base64 inlining count",
-  routesTs.includes("base64 image inlining:")
+  "Send route diagnostic logs cidImageCount from _sigInlineImages",
+  routesTs.includes("cidImageCount: _sigInlineImages.length")
 );
 
 check(
-  "Send route base64 inlining block present",
-  routesTs.includes("inlineImagesAsBase64")
+  "data:image NOT used as the inlining strategy (CID used instead)",
+  !routesTs.includes("inlineImagesAsBase64(ctaWrappedBody, CTA_ASSETS_DIR")
 );
 
 // ── 5. Scheduled runner wiring ────────────────────────────────────────────────
 console.log("\n── 5. Scheduled runner (gmail-sync.ts) wiring ──");
 
 check(
-  "inlineImagesAsBase64 dynamically imported in gmail-sync.ts",
-  syncTs.includes("inlineImagesAsBase64") && syncTs.includes('import("./inline-images")')
+  "extractCtaInlineImages dynamically imported in gmail-sync.ts",
+  syncTs.includes("extractCtaInlineImages") && syncTs.includes('import("../gmail")')
 );
 
 check(
-  "Scheduled runner calls inlineImagesAsBase64 before sendEmail",
-  syncTs.includes("inlineImagesAsBase64(ctaWrappedBody")
+  "Scheduled runner calls extractCtaInlineImages before sendEmail",
+  syncTs.includes("extractCtaInlineImages(ctaWrappedBody")
 );
 
 check(
@@ -184,13 +185,13 @@ check(
 );
 
 check(
-  "Scheduled runner uses _schedB64Html for the send",
-  syncTs.includes("_schedB64Html")
+  "Scheduled runner uses _schedInlineImgs for the send",
+  syncTs.includes("_schedInlineImgs")
 );
 
 check(
-  "Scheduled runner inlining is non-fatal",
-  syncTs.includes("inlineImagesAsBase64") && syncTs.includes("_schedImgLog")
+  "Scheduled runner logs CID inlining count",
+  syncTs.includes("CID inlining:")
 );
 
 // ── 6. Unit: extractCtaInlineImages logic (in-process simulation) ─────────────

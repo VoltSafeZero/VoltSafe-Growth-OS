@@ -1,0 +1,68 @@
+Fix final signature image duplication/rendering bugs.
+
+Current confirmed behavior:
+- Spark Mail renders the signature correctly.
+- Apple Mail shows duplicate images:
+  - VoltSafe logo appears twice.
+  - Watch Demo appears twice.
+  - First Watch Demo displays/links correctly.
+  - Second Watch Demo is broken and opens the raw PNG attachment when clicked.
+- VoltSafe Mail sent/read viewer still shows broken images.
+
+This means:
+1. The HTML signature image now works.
+2. But the send pipeline is ALSO attaching those same images as separate attachments/inline attachments.
+3. VoltSafe Mail viewer still does not render data URI/cid images correctly.
+
+Fix send pipeline:
+- If signature images are converted to data:image/... inside HTML, DO NOT also attach them as Gmail attachments.
+- Remove duplicate inline attachment generation for signature images.
+- Pick one strategy only:
+  Preferred strategy now:
+  - Signature images live only as data:image/png;base64,... inside HTML.
+  - No separate attachment part for Watch Demo.
+  - No separate attachment part for VoltSafe logo.
+- Normal user attachments must still work.
+- Calendar/image/file attachments must still work.
+- Signature images must not appear as downloadable attachments.
+
+Search for:
+- inlineImages
+- cidImages
+- relatedImages
+- inline image attachments
+- Content-Disposition: inline
+- Watch Demo.png
+- inline_image
+
+Then remove/dedupe signature image attachments when src already starts with data:image/.
+
+Fix VoltSafe Mail viewer:
+- Message renderer/sanitizer must allow:
+  img[src^="data:image/png;base64,"]
+  img[src^="data:image/jpeg;base64,"]
+  img[src^="https://"]
+- Do not strip data:image src.
+- Do not replace data:image with broken "inline_image".
+- If body contains cid: images, map cid to attachment URL.
+- But if body contains data:image, render directly.
+
+Add diagnostics:
+- On send, log:
+  [signature-images] htmlDataUriCount, inlineAttachmentCount, normalAttachmentCount
+- In message viewer, log:
+  [viewer-images] originalSrc, finalSrc, allowed, strippedReason
+
+Tests:
+1. Sending signature with Watch Demo + VoltSafe logo produces:
+   - HTML containing data:image/png;base64
+   - ZERO signature image attachments
+   - ZERO duplicate Watch Demo.png attachments
+2. Apple Mail should show exactly one Watch Demo and one VoltSafe logo.
+3. VoltSafe Mail viewer preserves data:image img src.
+4. User-added attachments still appear as attachments.
+5. Scheduled emails follow same rule.
+
+Do not touch signature layout.
+Do not add another image system.
+Use one strategy only: data URI in HTML for signature images, no separate image attachments.

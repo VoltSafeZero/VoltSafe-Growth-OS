@@ -1,0 +1,139 @@
+PRODUCTION FIRE: PolyWeather `.app` has gone down 7 times in 24 hours while `.dev` keeps working.
+
+Stop patching symptoms. I need a permanent production stability fix now.
+
+Do all work automatically. Do not ask me to run commands unless completely blocked.
+
+Required outcome:
+- `.app` stays alive.
+- Root recurring failure is eliminated.
+- Production has guardrails so it cannot silently hang again.
+- Commit, push, redeploy, and prove it.
+
+Priority order:
+
+1. Immediately identify current outage cause
+- Check production deployment status.
+- Check production logs from the exact time `.app` stopped responding.
+- Find whether the server is:
+  - crashed
+  - hung
+  - OOM killed
+  - stuck on DB
+  - stuck on weather/PWS fetch
+  - stuck on background polling
+  - stuck on startup
+  - deadlocked in async task buildup
+
+2. Add hard production kill-switches / circuit breakers
+Implement emergency stability controls:
+
+- Disable or degrade non-critical background polling if task count exceeds safe threshold.
+- Disable Synoptic/WU/PWS fetch temporarily if it stalls repeatedly.
+- Disable expensive rankings/top-bets refresh if DB latency spikes.
+- Homepage `/` must always render shell instantly.
+- `/api/latest` must return cached/stale data instead of hanging.
+- No external API call may run without a hard timeout.
+- No asyncio gather may run without an outer timeout.
+- No run_in_executor(None, ...) in hot paths.
+- No production request should wait indefinitely on DB/weather.
+
+3. Add watchdog self-healing
+Implement a production watchdog that:
+- logs asyncio task count
+- logs executor queue pressure
+- logs stuck task names
+- detects repeated stuck tasks
+- cancels stale polling tasks
+- trips provider circuit breakers after repeated timeouts
+- prevents overlapping poll cycles
+- refuses to start a new poll cycle if the previous one is still running
+
+This is critical: overlapping poll cycles must be impossible.
+
+4. Fix the likely recurring root cause
+Based on prior logs, specifically harden:
+
+- fetch_station_pws
+- Synoptic/WU station fetches
+- database pool fallback
+- Neon SSL EOF handling
+- polling scheduler
+- compute_top_bets
+- model rankings
+- mml_predictions_cache
+- any DB call from async code
+- any weather provider call from async code
+
+5. Add production health endpoints
+Ensure:
+
+- `/healthz` returns 200 fast with no DB/weather dependency.
+- `/readyz` checks DB with a short timeout only.
+- `/debug/runtime` or equivalent admin-safe endpoint reports:
+  - task count
+  - current poll state
+  - last successful poll time
+  - provider circuit breaker status
+  - executor queue sizes
+  - DB pool status
+  - app uptime
+  - commit SHA
+
+6. Add anti-hang guardrails
+Required code behavior:
+
+- Poll scheduler must use a lock/semaphore so only one poll runs at a time.
+- If a poll is still running, skip the next poll. Do not stack tasks.
+- Every provider fetch must have per-call timeout.
+- Every provider group must have outer timeout.
+- Every DB query in poll path must have statement_timeout.
+- Any failed provider returns empty/stale data, never blocks app.
+- Any long route logs warning after 2 seconds.
+- Any route exceeding timeout returns graceful JSON fallback.
+
+7. Soak test production
+After deploy, run a 15-minute production soak.
+
+Every 30 seconds test:
+
+- `.app /`
+- `.app /healthz`
+- `.app /readyz`
+- `.app /api/latest`
+- main dashboard boot APIs
+
+Record:
+- status
+- response time
+- max response time
+- failures
+- task count
+- whether poll cycles overlap
+- provider timeout count
+- DB errors
+
+8. Add regression tests
+Add tests/scripts that fail if:
+- `run_in_executor(None, ...)` appears in hot paths
+- provider fetches lack hard timeouts
+- poll cycles can overlap
+- `/api/latest` can block on live provider calls
+- homepage depends on DB/weather
+- healthz depends on DB/weather
+
+9. Final report
+Return:
+- exact root cause
+- exact files changed
+- exact code protections added
+- before/after curl timings
+- 15-minute soak result
+- confirmation `.app` loads on mobile Safari
+- remaining risk list
+- next recommended hardening step
+
+Important:
+A restart is not a fix.
+A timeout alone is not enough.
+The permanent fix is: no overlapping poll cycles, no unbounded tasks, no unbounded executors, no request path waiting on weather/DB, and automatic degradation when providers or DB misbehave.

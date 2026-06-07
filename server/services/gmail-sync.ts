@@ -301,20 +301,17 @@ async function runScheduledEmailSender() {
 
       const trackingId = generateTrackingId();
 
-      // ── Convert all signature/CTA images to base64 data URIs BEFORE tracking ──
-      // Throws if any image cannot be loaded — marks this scheduled email as failed.
-      const { inlineImagesAsBase64 } = await import("./inline-images");
+      // ── Convert signature/CTA images to CID inline parts (multipart/related) ──
+      // Matches the immediate-send pipeline: CID avoids Apple Mail duplication and
+      // ensures Gmail preserves images in the stored message body.
+      const { extractCtaInlineImages } = await import("../gmail");
       const _p = path.resolve("uploads/cta-assets");
-      const { html: _schedB64Html, log: _schedImgLog } = await inlineImagesAsBase64(ctaWrappedBody, _p, baseUrl);
-      for (const l of _schedImgLog) {
-        if (l.resolvedFrom !== "skipped") {
-          log(`[gmail-scheduled] #${email.id} inline-img from=${l.resolvedFrom} bytes=${l.byteSize} mime=${l.mimeType} dataUriLen=${l.dataUriLen} src="${l.originalSrc.slice(0, 80)}"`);
-        }
-      }
+      const { html: _schedCidHtml, inlineImages: _schedInlineImgs } = await extractCtaInlineImages(ctaWrappedBody, _p);
+      log(`[gmail-scheduled] #${email.id} CID inlining: ${_schedInlineImgs.length} inline image(s)`);
 
-      let trackedBody = _schedB64Html;
+      let trackedBody = _schedCidHtml;
       try {
-        trackedBody = injectTracking(_schedB64Html, trackingId, baseUrl);
+        trackedBody = injectTracking(_schedCidHtml, trackingId, baseUrl);
       } catch (trackErr: any) {
         log(`[gmail-scheduled] #${email.id} tracking inject non-fatal: ${trackErr.message}`);
       }
@@ -331,7 +328,7 @@ async function runScheduledEmailSender() {
         undefined,
         undefined,
         undefined,
-        [],
+        _schedInlineImgs,
       );
 
       if (result?.id && _schedCtaTokens.length > 0) {

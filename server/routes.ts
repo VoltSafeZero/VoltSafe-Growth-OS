@@ -60,7 +60,7 @@ import { registerChatRoutes } from "./replit_integrations/chat";
 import { registerAudioRoutes } from "./replit_integrations/audio";
 import { registerImageRoutes } from "./replit_integrations/image";
 import { generateInvoiceHtml, generateQuoteXlsx, type QuoteData } from "./quote-generator";
-import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft, extractCtaInlineImages } from "./gmail";
+import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, markMessageRead, saveDraft, listDraftSummaries, getDraftContent, deleteDraft, extractCtaInlineImages, type CidImage } from "./gmail";
 import { normalizeOutboundHtml } from "./services/email-html-normalizer";
 import { applySignatureSendSanitizer } from "./services/signature-html-sanitizer";
 import { wrapSignatureCtaLinks, updateSignatureCtaMessageIds, recordSignatureCtaClick, isSafeCtaUrl } from "./services/signature-cta-tracker";
@@ -14643,32 +14643,33 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (true) {
         const trackingId = generateTrackingId();
 
-        // ── Convert all signature/CTA images to base64 data URIs BEFORE tracking ──
-        // Runs on ctaWrappedBody so the tracking pixel (added next) is never converted.
-        // Throws with a clear message if any image cannot be loaded, failing the send.
-        let _b64Body = ctaWrappedBody;
+        // ── Convert signature/CTA images to CID inline parts (multipart/related) ──
+        // CID is the RFC-correct approach for email images. Apple Mail 16+ (macOS
+        // Ventura/Sonoma) treats data:image/ URIs as attachments AND renders them
+        // inline — causing every signature image to appear twice. Gmail also strips
+        // data: URIs from stored message bodies, breaking the VoltSafe Mail viewer.
+        // CID images are preserved by all clients and render exactly once.
+        let _cidBodyHtml = ctaWrappedBody;
+        let _sigInlineImages: CidImage[] = [];
         {
-          const { inlineImagesAsBase64 } = await import("./services/inline-images");
-          const { html: _inlined, log: _imgLog } = await inlineImagesAsBase64(ctaWrappedBody, CTA_ASSETS_DIR, baseUrl);
-          _b64Body = _inlined;
-          for (const l of _imgLog) {
-            if (l.resolvedFrom !== "skipped") {
-              console.log(`[inline-img] from=${l.resolvedFrom} mime=${l.mimeType} bytes=${l.byteSize} dataUriLen=${l.dataUriLen} src="${l.originalSrc.slice(0, 80)}"`);
-            }
+          const { html: _rewritten, inlineImages: _imgs } = await extractCtaInlineImages(ctaWrappedBody, CTA_ASSETS_DIR);
+          _cidBodyHtml = _rewritten;
+          _sigInlineImages = _imgs;
+          console.log(`[gmail-send] sig CID inlining: ${_imgs.length} inline image(s) → multipart/related`);
+          for (const img of _imgs) {
+            console.log(`[gmail-send-cid] cid=${img.cid} mime=${img.mimeType} bytes=${img.data.byteLength}`);
           }
-          const _converted = _imgLog.filter(l => l.resolvedFrom !== "skipped").length;
-          console.log(`[gmail-send] base64 image inlining: ${_converted} converted, ${_imgLog.length - _converted} skipped`);
         }
 
-        let trackedBody = _b64Body;
+        let trackedBody = _cidBodyHtml;
         let trackingFailed = false;
         if (trackingEnabled) {
           try {
-            trackedBody = injectTracking(_b64Body, trackingId, baseUrl);
+            trackedBody = injectTracking(_cidBodyHtml, trackingId, baseUrl);
           } catch (trackErr) {
             console.error("[tracking] injection failed (non-fatal, sending untracked):", trackErr);
             trackingFailed = true;
-            trackedBody = _b64Body;
+            trackedBody = _cidBodyHtml;
           }
         }
 
@@ -14690,13 +14691,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           hasSubject: !!subject,
           hasThreadId: !!threadId,
           attachmentCount: mimeAttachments.length,
-          cidImageCount: 0,
+          cidImageCount: _sigInlineImages.length,
         });
         const result = await sendEmail(
           resolved.userId, to, subject || "", _cidBody,
           threadId, mimeAttachments, resolved.accountId,
           cc || undefined, bcc || undefined, icalContent || undefined,
-          []
+          _sigInlineImages
         );
         console.log("[gmail-send] sendEmail returned", { messageId: result?.id, threadId: result?.threadId });
 
