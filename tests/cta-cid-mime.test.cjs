@@ -86,24 +86,31 @@ check(
 );
 
 check(
-  "multipart/related includes RFC 2387 §3.3 start= parameter (Apple Mail anchor-linked CID fix)",
-  // Apple Mail 16+ treats CID images inside <a href> anchors as attachments unless the
-  // multipart/related has an explicit start= pointing to the HTML root Content-ID.
-  gmailTs.includes('start="<${htmlRootCid}>"') || gmailTs.includes("start=")
+  "multipart/related has no start= parameter (reverted — Apple Mail mishandled Content-ID on html root)",
+  // The RFC 2387 §3.3 start= approach caused Apple Mail 16+ to stop rendering
+  // CID images inline at all, making things worse. The correct fix is to strip
+  // <a href> attributes that point to image file URLs we inlined as CID parts
+  // (see extractCtaInlineImages href-stripping pass in server/gmail.ts).
+  !gmailTs.includes('start="<${htmlRootCid}>"')
 );
 
 check(
-  "text/html root part carries Content-ID header matching start= (RFC 2387 §3.3)",
-  gmailTs.includes("Content-ID: <${htmlRootCid}>")
+  "text/html root does NOT have an extra Content-ID (reverted — caused Apple Mail regression)",
+  !gmailTs.includes("Content-ID: <${htmlRootCid}>")
 );
 
 check(
-  "htmlRootCid variable defined for both Case B and Case C",
-  (() => {
-    // htmlRootCid must appear at least twice — once per case (B and C each declare it).
-    const allMatches = gmailTs.split("htmlRootCid").length - 1;
-    return allMatches >= 2;
-  })()
+  "extractCtaInlineImages strips <a href> pointing to inlined image file URLs (Apple Mail attachment ghost fix)",
+  // The root cause of Watch Demo appearing as a duplicate attachment is that
+  // the <a href> wrapping the CID img still pointed to the PNG file URL.
+  // Apple Mail downloads the href file as a separate attachment even though
+  // the img src is already rendered inline via CID.
+  gmailTs.includes("Neutralise <a href> attributes") || gmailTs.includes("IMAGE_EXT_RE")
+);
+
+check(
+  "href-strip logs the stripped URL for diagnostics",
+  gmailTs.includes("stripped image href") && gmailTs.includes("Apple Mail attachment prevention")
 );
 
 check(

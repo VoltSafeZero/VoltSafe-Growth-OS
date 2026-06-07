@@ -263,6 +263,28 @@ export async function extractCtaInlineImages(
     rewritten = rewritten.replace(pat, `$1cid:${cidImg.cid}$2`);
   }
 
+  // ── Neutralise <a href> attributes that still point to inlined image files ──
+  // Apple Mail treats <a href="...Watch Demo.png"><img src="cid:x"> as two
+  // things: the CID img (renders inline) AND the href file (shown as attachment).
+  // This happens when destination_url in the CTA config equals the image_url, or
+  // when tracking is disabled and the link was never replaced by wrapSignatureCtaLinks.
+  // Fix: replace any href that points to an image-file URL we just inlined with
+  // "#" so Apple Mail has no file URL to attach. If a proper destination URL was
+  // set and tracking is enabled, wrapSignatureCtaLinks already replaced the href
+  // with a /track/ redirect BEFORE this function runs — such hrefs are safe.
+  const IMAGE_EXT_RE = /\.(png|jpg|jpeg|gif|webp)(\?[^"]*)?$/i;
+  for (const [src] of seen.entries()) {
+    // Only strip hrefs that look like image file URLs.
+    if (!IMAGE_EXT_RE.test(src.split("?")[0])) continue;
+    const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const hrefPat = new RegExp(`(\\bhref=")${escapedSrc}(")`,"g");
+    if (hrefPat.test(rewritten)) {
+      console.log(`[sig-cid] stripped image href="${src.slice(0, 80)}" → "#" (Apple Mail attachment prevention)`);
+      hrefPat.lastIndex = 0;
+      rewritten = rewritten.replace(hrefPat, `$1#$2`);
+    }
+  }
+
   return { html: rewritten, inlineImages: Array.from(seen.values()) };
 }
 
@@ -407,12 +429,6 @@ function buildMimeRaw(
     // Case B — text/html is the direct root of multipart/related
     const altBnd = `vs_alt_${ts}`;
     const relBnd = `vs_rel_${ts + 1}`;
-    // RFC 2387 §3.3: when start= is present the root part MUST carry a
-    // matching Content-ID.  Apple Mail 16+ (Ventura/Sonoma) uses the start=
-    // parameter to identify which MIME part is the display root; without it the
-    // client may treat CID image parts (especially those wrapped in <a href>
-    // anchors) as downloadable attachments in addition to rendering them inline.
-    const htmlRootCid = `vs-html-root-${ts}`;
     lines = [
       ...hdr,
       `Content-Type: multipart/alternative; boundary="${altBnd}"`,
@@ -424,15 +440,11 @@ function buildMimeRaw(
       plainB64,
       ``,
       `--${altBnd}`,
-      // RFC 2387 §3.1 type= + §3.3 start= make the root unambiguous:
-      //   type="text/html" declares the root's MIME type.
-      //   start=<vs-html-root-…> pins the exact root part by Content-ID.
-      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"; start="<${htmlRootCid}>"`,
+      `Content-Type: multipart/related; boundary="${relBnd}"`,
       ``,
       `--${relBnd}`,
       `Content-Type: text/html; charset=UTF-8`,
       `Content-Transfer-Encoding: base64`,
-      `Content-ID: <${htmlRootCid}>`,
       ``,
       htmlB64,
       ``,
@@ -446,7 +458,6 @@ function buildMimeRaw(
     const mixBnd = `vs_mix_${ts + 2}`;
     const altBnd = `vs_alt_${ts}`;
     const relBnd = `vs_rel_${ts + 1}`;
-    const htmlRootCid = `vs-html-root-${ts}`;
     lines = [
       ...hdr,
       `Content-Type: multipart/mixed; boundary="${mixBnd}"`,
@@ -461,12 +472,11 @@ function buildMimeRaw(
       plainB64,
       ``,
       `--${altBnd}`,
-      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"; start="<${htmlRootCid}>"`,
+      `Content-Type: multipart/related; boundary="${relBnd}"`,
       ``,
       `--${relBnd}`,
       `Content-Type: text/html; charset=UTF-8`,
       `Content-Transfer-Encoding: base64`,
-      `Content-ID: <${htmlRootCid}>`,
       ``,
       htmlB64,
       ``,

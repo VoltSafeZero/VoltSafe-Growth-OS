@@ -14448,6 +14448,172 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     });
   }
 
+  // ─── Dev: Raw MIME tree debugger ───────────────────────────────────────────
+  // GET /api/dev/raw-email-debug?messageId=<gmailMessageId>
+  // Fetches the raw MIME structure for a Gmail message and returns a structured
+  // tree showing every part's content-type, content-id, disposition, filename,
+  // and whether it will appear as an attachment in Apple Mail / other clients.
+  app.get("/api/dev/raw-email-debug", requireAuth, requireAdmin, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const messageId = ((req.query.messageId as string) || "").trim();
+    if (!messageId) {
+      return res.status(400).json({ ok: false, error: "?messageId= required (Gmail message ID)" });
+    }
+    try {
+      const { getGmailClient } = await import("./gmail-oauth");
+      const [acct] = await db.execute(sql.raw(
+        `SELECT id, email_address FROM email_accounts WHERE user_id = ${userId} AND is_active = TRUE LIMIT 1`
+      )).then((r: any) => (r.rows ?? r));
+      if (!acct) return res.status(400).json({ ok: false, error: "No active Gmail account for this user." });
+
+      const gmail = await getGmailClient(userId, acct.id);
+      const msg = await gmail.users.messages.get({
+        userId: "me",
+        id: messageId,
+        format: "full",
+      });
+
+      // Recursively walk the MIME part tree.
+      function walkPart(part: any, depth: number = 0): any {
+        const hdrs: Record<string, string> = {};
+        for (const h of (part.headers || [])) {
+          hdrs[h.name.toLowerCase()] = h.value;
+        }
+        const ct = hdrs["content-type"] || "";
+        const cid = hdrs["content-id"] || null;
+        const disp = hdrs["content-disposition"] || null;
+        const xattId = hdrs["x-attachment-id"] || null;
+        const contentLocation = hdrs["content-location"] || null;
+
+        // Extract filename/name from Content-Type and Content-Disposition.
+        const nameMatch = ct.match(/\bname="?([^";\r\n]+)"?/i) ||
+                          (disp || "").match(/\bfilename="?([^";\r\n]+)"?/i);
+        const filename = nameMatch ? nameMatch[1] : null;
+
+        // Predict whether Apple Mail will show this as an attachment.
+        // Apple Mail treats a part as an attachment when:
+        //   1. Content-Disposition: attachment (explicit)
+        //   2. Content-Disposition: inline with a filename= (treated as named attachment)
+        //   3. name= on Content-Type for non-text/non-image types
+        //   4. X-Attachment-Id header present
+        const isExplicitAttachment = /\battachment\b/i.test(disp || "");
+        const isInlineWithFilename = /\binline\b/i.test(disp || "") && !!filename;
+        const hasXAttachId = !!xattId;
+        const likelyAttachment = isExplicitAttachment || isInlineWithFilename || hasXAttachId;
+
+        // For image/* parts: is the CID referenced in any sibling's HTML?
+        const cidBare = cid ? cid.replace(/^<|>$/g, "") : null;
+
+        const info: any = {
+          depth,
+          mimeType: ct.split(";")[0].trim(),
+          contentType: ct,
+          contentId: cid,
+          contentIdBare: cidBare,
+          contentDisposition: disp,
+          filename,
+          xAttachmentId: xattId,
+          contentLocation,
+          likelyAttachment,
+          likelyAttachmentReason: likelyAttachment
+            ? (isExplicitAttachment ? "Content-Disposition: attachment" :
+               isInlineWithFilename ? "inline with filename" :
+               "X-Attachment-Id present")
+            : null,
+          size: part.body?.size ?? null,
+        };
+
+        if (part.parts && part.parts.length > 0) {
+          info.children = part.parts.map((p: any) => walkPart(p, depth + 1));
+        }
+
+        // For text/html: extract img src values and hrefs around images.
+        if (/^text\/html/i.test(ct) && part.body?.data) {
+          try {
+            const html = Buffer.from(part.body.data, "base64url").toString("utf-8");
+            const imgSrcs: string[] = [];
+            const imgHrefs: Array<{ href: string; imgSrc: string }> = [];
+            let m: RegExpExecArray | null;
+
+            const srcRe = /<img\b[^>]*\bsrc="([^"]+)"[^>]*>/gi;
+            while ((m = srcRe.exec(html)) !== null) imgSrcs.push(m[1]);
+
+            // Find <a href="..."><img ...>
+            const aRe = /<a\b[^>]*\bhref="([^"]+)"[^>]*>[\s\S]*?<img\b[^>]*\bsrc="([^"]+)"[^>]*>/gi;
+            while ((m = aRe.exec(html)) !== null) imgHrefs.push({ href: m[1], imgSrc: m[2] });
+
+            info.htmlImgSrcs = imgSrcs;
+            info.htmlImgHrefs = imgHrefs;
+            // Flag hrefs that look like raw image files (potential attachment triggers).
+            info.htmlImgHrefWarnings = imgHrefs
+              .filter(x => /\.(png|jpg|jpeg|gif|webp)(\?[^"]*)?$/i.test(x.href.split("?")[0]))
+              .map(x => `WARN: <a href="${x.href.slice(0, 100)}"> wraps CID img — Apple Mail may show as attachment`);
+          } catch { /* non-fatal */ }
+        }
+
+        return info;
+      }
+
+      const tree = walkPart(msg.data.payload || {});
+
+      // Collect all CID parts and all HTML img srcs for cross-reference.
+      const cidParts: string[] = [];
+      const htmlSrcs: string[] = [];
+      function collectCids(node: any) {
+        if (node.contentIdBare) cidParts.push(node.contentIdBare);
+        if (node.htmlImgSrcs) htmlSrcs.push(...node.htmlImgSrcs);
+        if (node.children) node.children.forEach(collectCids);
+      }
+      collectCids(tree);
+
+      const cidSrcs = htmlSrcs.filter(s => s.startsWith("cid:")).map(s => s.slice(4));
+      const unreferencedCids = cidParts.filter(c => !cidSrcs.includes(c));
+      const missingCids = cidSrcs.filter(c => !cidParts.includes(c));
+
+      // Collect all parts that Apple Mail would show as attachments.
+      const attachmentPredictions: any[] = [];
+      function collectAttachments(node: any) {
+        if (node.likelyAttachment) attachmentPredictions.push({
+          mimeType: node.mimeType,
+          contentId: node.contentId,
+          filename: node.filename,
+          reason: node.likelyAttachmentReason,
+        });
+        if (node.children) node.children.forEach(collectAttachments);
+      }
+      collectAttachments(tree);
+
+      // Collect all href-around-img warnings.
+      const hrefWarnings: string[] = [];
+      function collectHrefWarnings(node: any) {
+        if (node.htmlImgHrefWarnings?.length) hrefWarnings.push(...node.htmlImgHrefWarnings);
+        if (node.children) node.children.forEach(collectHrefWarnings);
+      }
+      collectHrefWarnings(tree);
+
+      return res.json({
+        ok: true,
+        messageId,
+        accountEmail: acct.email_address,
+        labelIds: msg.data.labelIds,
+        snippet: (msg.data.snippet || "").slice(0, 100),
+        mimeTree: tree,
+        summary: {
+          cidPartsFound: cidParts,
+          cidReferencedInHtml: cidSrcs,
+          unreferencedCidParts: unreferencedCids,
+          missingCidReferences: missingCids,
+          predictedAttachments: attachmentPredictions,
+          attachmentCount: attachmentPredictions.length,
+          hrefWarnings,
+          hrefWarningCount: hrefWarnings.length,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err?.message ?? String(err) });
+    }
+  });
+
   // ─── Dev: Gmail sync diagnostic ────────────────────────────────────────────
   // GET /api/dev/gmail-sync-check?query=from:user@example.com+newer_than:1d
   // Compares what Gmail's API returns for a query against what's in the local DB.

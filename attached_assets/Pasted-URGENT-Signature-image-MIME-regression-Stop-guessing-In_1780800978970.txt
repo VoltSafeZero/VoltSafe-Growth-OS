@@ -1,0 +1,66 @@
+URGENT: Signature image MIME regression. Stop guessing. Inspect raw MIME and fix.
+
+Current results:
+- 6:21pm Apple Mail: Watch Demo rendered inline, but duplicate Watch Demo.png attachment still appeared.
+- After latest MIME changes, 7:40pm Apple Mail got worse:
+  - Watch Demo no longer renders inline.
+  - It shows as a downloading/broken attachment.
+  - Another Watch Demo.png attachment appears below.
+- VoltSafe Mail also still shows broken Watch Demo image.
+- VoltSafe logo renders in VoltSafe Mail, but Watch Demo does not.
+
+Immediate action:
+1. Revert the latest RFC start= / html root Content-ID MIME changes if they caused the 7:40pm regression.
+2. Compare raw MIME from:
+   - last semi-working email around 6:21pm
+   - broken email around 7:40pm
+3. Print/inspect the MIME tree for both.
+
+Required MIME target:
+multipart/mixed
+  multipart/alternative
+    text/plain
+    multipart/related
+      text/html
+      image/png CID part for Watch Demo
+
+For the Watch Demo CID part:
+- Must have Content-ID: <watch_demo_xxx>
+- Must have Content-Type: image/png
+- Must have Content-Transfer-Encoding: base64
+- Must NOT have:
+  - Content-Disposition: attachment
+  - filename=
+  - name=
+  - Content-Disposition: inline; filename=
+  - X-Attachment-Id
+  - Content-Location unless absolutely required
+
+For the HTML:
+- Must contain exactly one Watch Demo <img>
+- That img src must be cid:watch_demo_xxx
+- The clickable <a href> around it must point to the demo/tracking URL, not the PNG URL.
+- There must be no second <a href="...Watch Demo.png"> or <img src="...Watch Demo.png"> anywhere.
+
+Critical:
+- Do not attach Watch Demo as a normal Gmail attachment.
+- Do not include filename/name metadata on CID image parts.
+- Do not use data:image in final outgoing email.
+- Do not rely on remote URL for Watch Demo in final outgoing email.
+
+Add diagnostic endpoint:
+GET /api/dev/raw-email-debug?messageId=...
+
+It must return:
+- raw MIME tree
+- all image parts with content-type, content-id, disposition, filename/name, content-location
+- all HTML img src values
+- all HTML links around images
+- whether each img src has matching CID part
+- whether any image part would appear as an attachment
+
+Do not claim fixed until:
+- Apple Mail shows Watch Demo exactly once inline
+- Apple Mail shows zero Watch Demo.png attachments
+- VoltSafe Mail shows Watch Demo inline
+- Spark still works

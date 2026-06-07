@@ -62,10 +62,10 @@ assert("inlineParts helper emits CID image parts inside multipart/related",
   gmailSrc.includes("inlineParts(relBnd)") || gmailSrc.includes("inlineParts(bnd)"));
 assert("inlineImages param accepted by sendEmail",
   gmailSrc.includes("inlineImages: CidImage[]") || gmailSrc.includes("inlineImages:"));
-assert("multipart/related has RFC 2387 §3.3 start= parameter (prevents Apple Mail from showing linked CID images as attachments)",
-  gmailSrc.includes('start="<${htmlRootCid}>"') || gmailSrc.includes("start="));
-assert("text/html root in multipart/related has matching Content-ID (required when start= is present)",
-  gmailSrc.includes("Content-ID: <${htmlRootCid}>"));
+assert("multipart/related does NOT use start= parameter (reverted — caused Apple Mail inline rendering regression)",
+  !gmailSrc.includes('start="<${htmlRootCid}>"'));
+assert("extractCtaInlineImages includes href-stripping pass to prevent Apple Mail attachment ghost",
+  gmailSrc.includes("IMAGE_EXT_RE") && gmailSrc.includes("hrefPat"));
 
 console.log();
 
