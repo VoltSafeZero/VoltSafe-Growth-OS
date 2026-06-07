@@ -407,6 +407,12 @@ function buildMimeRaw(
     // Case B — text/html is the direct root of multipart/related
     const altBnd = `vs_alt_${ts}`;
     const relBnd = `vs_rel_${ts + 1}`;
+    // RFC 2387 §3.3: when start= is present the root part MUST carry a
+    // matching Content-ID.  Apple Mail 16+ (Ventura/Sonoma) uses the start=
+    // parameter to identify which MIME part is the display root; without it the
+    // client may treat CID image parts (especially those wrapped in <a href>
+    // anchors) as downloadable attachments in addition to rendering them inline.
+    const htmlRootCid = `vs-html-root-${ts}`;
     lines = [
       ...hdr,
       `Content-Type: multipart/alternative; boundary="${altBnd}"`,
@@ -418,13 +424,15 @@ function buildMimeRaw(
       plainB64,
       ``,
       `--${altBnd}`,
-      // RFC 2387 §3.1: type parameter identifies the root body part MIME type.
-      // Apple Mail uses this to avoid showing CID image parts as attachments.
-      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"`,
+      // RFC 2387 §3.1 type= + §3.3 start= make the root unambiguous:
+      //   type="text/html" declares the root's MIME type.
+      //   start=<vs-html-root-…> pins the exact root part by Content-ID.
+      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"; start="<${htmlRootCid}>"`,
       ``,
       `--${relBnd}`,
       `Content-Type: text/html; charset=UTF-8`,
       `Content-Transfer-Encoding: base64`,
+      `Content-ID: <${htmlRootCid}>`,
       ``,
       htmlB64,
       ``,
@@ -438,6 +446,7 @@ function buildMimeRaw(
     const mixBnd = `vs_mix_${ts + 2}`;
     const altBnd = `vs_alt_${ts}`;
     const relBnd = `vs_rel_${ts + 1}`;
+    const htmlRootCid = `vs-html-root-${ts}`;
     lines = [
       ...hdr,
       `Content-Type: multipart/mixed; boundary="${mixBnd}"`,
@@ -452,11 +461,12 @@ function buildMimeRaw(
       plainB64,
       ``,
       `--${altBnd}`,
-      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"`,
+      `Content-Type: multipart/related; boundary="${relBnd}"; type="text/html"; start="<${htmlRootCid}>"`,
       ``,
       `--${relBnd}`,
       `Content-Type: text/html; charset=UTF-8`,
       `Content-Transfer-Encoding: base64`,
+      `Content-ID: <${htmlRootCid}>`,
       ``,
       htmlB64,
       ``,

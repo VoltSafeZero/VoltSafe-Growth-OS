@@ -14448,6 +14448,104 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     });
   }
 
+  // ─── Dev: Gmail sync diagnostic ────────────────────────────────────────────
+  // GET /api/dev/gmail-sync-check?query=from:user@example.com+newer_than:1d
+  // Compares what Gmail's API returns for a query against what's in the local DB.
+  // Useful for diagnosing self-sent or missing inbox messages after deployment.
+  app.get("/api/dev/gmail-sync-check", requireAuth, requireAdmin, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const q = ((req.query.query as string) || "").trim();
+    if (!q) {
+      return res.status(400).json({ ok: false, error: "?query= required. Example: from:me@company.com newer_than:1d" });
+    }
+    try {
+      const { getGmailClient } = await import("./gmail-oauth");
+      // Use the first active email account for this user.
+      const [acct] = await db.execute(sql.raw(
+        `SELECT id, email_address FROM email_accounts WHERE user_id = ${userId} AND is_active = TRUE LIMIT 1`
+      )).then((r: any) => (r.rows ?? r));
+      if (!acct) return res.status(400).json({ ok: false, error: "No active Gmail account found for this user." });
+
+      const gmailClient = await getGmailClient(userId, acct.id);
+      const listRes = await gmailClient.users.messages.list({
+        userId: "me",
+        q,
+        maxResults: 20,
+      });
+      const gmailMessages = listRes.data.messages || [];
+
+      const results = await Promise.all(gmailMessages.map(async (gm: any) => {
+        // Fetch Gmail metadata for this message.
+        let gmailLabels: string[] = [];
+        let gmailDate: string | null = null;
+        let gmailFrom: string | null = null;
+        let gmailSubject: string | null = null;
+        try {
+          const meta = await gmailClient.users.messages.get({
+            userId: "me",
+            id: gm.id,
+            format: "metadata",
+            metadataHeaders: ["From", "Subject", "Date"],
+          });
+          gmailLabels = meta.data.labelIds || [];
+          gmailDate = meta.data.internalDate
+            ? new Date(Number(meta.data.internalDate)).toISOString()
+            : null;
+          const hdrs: any[] = meta.data.payload?.headers || [];
+          gmailFrom = hdrs.find((h: any) => h.name === "From")?.value ?? null;
+          gmailSubject = hdrs.find((h: any) => h.name === "Subject")?.value ?? null;
+        } catch { /* non-fatal */ }
+
+        // Check local DB for this Gmail message ID.
+        const dbRows = await db.execute(sql.raw(
+          `SELECT id, label_ids, direction, ignored_reason, sent_at, from_email
+           FROM email_messages WHERE gmail_message_id = '${gm.id.replace(/'/g,"''")}' LIMIT 1`
+        )).then((r: any) => (r.rows ?? r));
+        const dbRow = dbRows[0] ?? null;
+
+        let dbLabelIds: string[] = [];
+        try { if (dbRow?.label_ids) dbLabelIds = JSON.parse(dbRow.label_ids); } catch { }
+        const inDbInbox = dbLabelIds.includes("INBOX") ||
+          dbLabelIds.some((l: string) => l.startsWith("CATEGORY_"));
+        const gmailHasInbox = gmailLabels.includes("INBOX");
+
+        return {
+          gmailMessageId: gm.id,
+          gmailLabels,
+          gmailHasInbox,
+          gmailDate,
+          gmailFrom,
+          gmailSubject,
+          inDb: !!dbRow,
+          dbId: dbRow?.id ?? null,
+          dbLabelIds,
+          dbInDbInbox: inDbInbox,
+          dbDirection: dbRow?.direction ?? null,
+          dbIgnoredReason: dbRow?.ignored_reason ?? null,
+          dbFromEmail: dbRow?.from_email ?? null,
+          labelMismatch: !!dbRow && gmailHasInbox && !inDbInbox,
+          verdict: !dbRow
+            ? "MISSING_FROM_DB"
+            : (gmailHasInbox && !inDbInbox ? "IN_DB_BUT_WRONG_LABELS" : "OK"),
+        };
+      }));
+
+      const missing = results.filter(r => r.verdict === "MISSING_FROM_DB").length;
+      const labelMismatch = results.filter(r => r.verdict === "IN_DB_BUT_WRONG_LABELS").length;
+      return res.json({
+        ok: true,
+        query: q,
+        accountEmail: acct.email_address,
+        gmailCount: gmailMessages.length,
+        missingFromDb: missing,
+        labelMismatch,
+        messages: results,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err?.message ?? String(err) });
+    }
+  });
+
   // C1: Per-session send idempotency cache — prevents duplicate sends on network retry / double-click.
   // Keys are client-generated UUIDs (one per compose session). TTL: 5 minutes.
   const sendIdempotencyCache = new Map<string, { result: any; expiresAt: number }>();

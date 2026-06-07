@@ -1,0 +1,68 @@
+Two remaining production bugs.
+
+BUG 1 — Apple Mail still shows duplicate Watch Demo PNG attachment
+
+Current behavior:
+- Watch Demo renders correctly inline and links correctly.
+- Apple Mail also shows a second Watch Demo.png attachment.
+- Clicking the second opens the raw PNG.
+- Spark does not show this issue.
+
+This means Watch Demo is still present as an actual attachment part somewhere, not just as a CID related part.
+
+Fix:
+1. Inspect raw MIME for the 6:18pm or 6:21pm sent email.
+2. Search raw MIME for:
+   - Watch Demo.png
+   - Content-Disposition
+   - Content-ID
+   - Content-Type: image/png
+3. Ensure the Watch Demo CID image part is inside multipart/related only.
+4. Ensure it has:
+   - Content-ID: <...>
+   - Content-Type: image/png
+   - Content-Transfer-Encoding: base64
+5. Ensure it does NOT have:
+   - filename="Watch Demo.png"
+   - name="Watch Demo.png"
+   - Content-Disposition: attachment
+   - Content-Disposition: inline; filename=...
+6. For CID signature images, strip filename/name metadata entirely.
+7. Only real user-uploaded attachments should include filename/name.
+
+BUG 2 — Emails received in Apple/Spark but missing from VoltSafe Mail inbox
+
+Current behavior:
+- Emails sent at 6:18pm and 6:21pm arrived in Apple Mail and Spark.
+- Same emails do not appear in VoltSafe Mail inbox.
+- This is an inbox sync/indexing bug, not a delivery bug.
+
+Fix:
+1. Search Gmail API directly for those messages:
+   - from:trevor@voltsafe.com to:trevor@voltsafe.com newer_than:1d
+   - subject/body contains "t"
+2. Compare Gmail API result vs VoltSafe DB email_messages.
+3. Find why sync skipped them:
+   - duplicate message id?
+   - sent/self-email classified only as SENT not INBOX?
+   - label_ids missing INBOX?
+   - thread merge hiding latest copy?
+   - pagination cursor skipped newest Gmail messages?
+   - category/seen filter excluding them?
+4. Self-sent emails to the same account must appear in BOTH:
+   - Sent
+   - Inbox
+   if Gmail labels include both SENT and INBOX, or if Gmail returns separate messages in the thread.
+5. Fix sync so any Gmail message with INBOX label is inserted/updated into VoltSafe Mail inbox regardless of sender.
+6. Add a manual sync button/debug endpoint:
+   GET /api/dev/gmail-sync-check?query=from:trevor@voltsafe.com to:trevor@voltsafe.com newer_than:1d
+   Return Gmail IDs, labels, internalDate, DB presence, folder/category assignment.
+7. Add tests:
+   - self-sent message with INBOX label appears in inbox
+   - same thread can show sent and received copy correctly
+   - sync does not skip newest self-sent messages
+   - Gmail labels drive folder placement, not from-address assumptions
+
+Do not touch signature layout.
+Do not touch the working Watch Demo inline render.
+Fix the duplicate attachment metadata and fix inbox sync.

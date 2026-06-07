@@ -86,6 +86,27 @@ check(
 );
 
 check(
+  "multipart/related includes RFC 2387 §3.3 start= parameter (Apple Mail anchor-linked CID fix)",
+  // Apple Mail 16+ treats CID images inside <a href> anchors as attachments unless the
+  // multipart/related has an explicit start= pointing to the HTML root Content-ID.
+  gmailTs.includes('start="<${htmlRootCid}>"') || gmailTs.includes("start=")
+);
+
+check(
+  "text/html root part carries Content-ID header matching start= (RFC 2387 §3.3)",
+  gmailTs.includes("Content-ID: <${htmlRootCid}>")
+);
+
+check(
+  "htmlRootCid variable defined for both Case B and Case C",
+  (() => {
+    // htmlRootCid must appear at least twice — once per case (B and C each declare it).
+    const allMatches = gmailTs.split("htmlRootCid").length - 1;
+    return allMatches >= 2;
+  })()
+);
+
+check(
   "inlineParts helper does NOT include Content-Disposition (Apple Mail compat — RFC 2392 §2)",
   // Content-Disposition: inline on CID parts causes Apple Mail to list the image
   // as an attachment in addition to rendering it inline. Content-ID alone is
