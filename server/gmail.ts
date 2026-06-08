@@ -4,7 +4,7 @@
 import fs from "fs";
 import path from "path";
 import { getGmailClient } from "./gmail-oauth";
-import { resolveCtaAsset } from "./services/cta-asset-resolver";
+import { resolveCtaAsset, getCtaAssetHealth } from "./services/cta-asset-resolver";
 
 function decodeBase64(data: string) {
   return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
@@ -257,6 +257,23 @@ export async function extractCtaInlineImages(
       if (ctaFileMatch) {
         const _ctaFilename = ctaFileMatch[1];
         console.log(`[CID-RESOLVE-FILENAME] src="${src.slice(0, 80)}" filename="${_ctaFilename}"`);
+        // Pre-check: reject archived or byte-less assets before attempting resolution.
+        const _ctaHealth = await getCtaAssetHealth(_ctaFilename);
+        console.log("[CID-HEALTH-CHECK]", { filename: _ctaFilename, ..._ctaHealth });
+        if (_ctaHealth.exists && _ctaHealth.is_archived) {
+          throw new Error(
+            `Signature references archived CTA asset: "${_ctaFilename}"` +
+            `${_ctaHealth.original_name ? ` (${_ctaHealth.original_name})` : ""}. ` +
+            `Re-upload or replace this image before sending.`,
+          );
+        }
+        if (_ctaHealth.exists && !_ctaHealth.has_file_data) {
+          throw new Error(
+            `Signature references CTA asset with no image data: "${_ctaFilename}"` +
+            `${_ctaHealth.original_name ? ` (${_ctaHealth.original_name})` : ""}. ` +
+            `Re-upload or replace this image before sending.`,
+          );
+        }
         const _ctaResolved = await resolveCtaAsset(_ctaFilename);
         console.log("[CID-FORENSIC]", {
           src: src.slice(0, 100),
@@ -331,6 +348,23 @@ export async function extractCtaInlineImages(
       if (!ctaMatch) continue;
       const filename = ctaMatch[1]; // bare filename, e.g. "logo.png"
       const fname = filename.split("/").pop() ?? filename;
+      // Pre-check: reject archived or byte-less assets before attempting resolution.
+      const _legacyHealth = await getCtaAssetHealth(filename);
+      console.log("[CID-HEALTH-CHECK-LEGACY]", { filename, ..._legacyHealth });
+      if (_legacyHealth.exists && _legacyHealth.is_archived) {
+        throw new Error(
+          `Signature references archived CTA asset: "${filename}"` +
+          `${_legacyHealth.original_name ? ` (${_legacyHealth.original_name})` : ""}. ` +
+          `Re-upload or replace this image before sending.`,
+        );
+      }
+      if (_legacyHealth.exists && !_legacyHealth.has_file_data) {
+        throw new Error(
+          `Signature references CTA asset with no image data: "${filename}"` +
+          `${_legacyHealth.original_name ? ` (${_legacyHealth.original_name})` : ""}. ` +
+          `Re-upload or replace this image before sending.`,
+        );
+      }
       const _legacyResolved = await resolveCtaAsset(filename);
       console.log("[CID-FORENSIC-LEGACY]", {
         src: src.slice(0, 100),

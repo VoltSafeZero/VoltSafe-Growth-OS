@@ -492,8 +492,8 @@ fs.writeFileSync(path.join(tmpDir, "WatchDemo_Thumbnail_200.png"), fakePng);
     (() => {
       const legacyStart = gmailTs.indexOf("Legacy fallback: no sig markers");
       if (legacyStart < 0) return false;
-      // The seen.set() call with filename: is ~2200 chars after the comment; use 2600 to be safe.
-      const legacyBlock = gmailTs.slice(legacyStart, legacyStart + 2600);
+      // The seen.set() call with filename: is ~3300 chars after the comment; use 4000 to be safe.
+      const legacyBlock = gmailTs.slice(legacyStart, legacyStart + 4000);
       return legacyBlock.includes("filename:");
     })()
   );

@@ -6771,6 +6771,134 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/admin/cta-assets/audit-signatures
+  // Scans every signature for CTA image URL references and reports health of each asset.
+  app.get("/api/admin/cta-assets/audit-signatures", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const sigs = (await db.execute(sql.raw(`
+        SELECT es.id, es.user_id, es.name AS sig_name, es.cta_image_url,
+               u.name AS user_name, u.email AS user_email
+        FROM email_signatures es
+        LEFT JOIN users u ON u.id = es.user_id
+        WHERE es.cta_image_url IS NOT NULL AND es.cta_image_url <> ''
+        ORDER BY es.id
+      `))).rows as any[];
+
+      const results = await Promise.all(sigs.map(async (sig: any) => {
+        const ctaUrl = String(sig.cta_image_url || "");
+        const fnMatch = ctaUrl.match(/\/assets\/cta\/([^/?#\s]+)$/);
+        const filename = fnMatch ? fnMatch[1] : null;
+        if (!filename) {
+          return {
+            signature_id: sig.id, user_id: sig.user_id, user_name: sig.user_name,
+            user_email: sig.user_email, sig_name: sig.sig_name,
+            cta_image_url: ctaUrl, filename: null,
+            asset_id: null, is_archived: null, has_file_data: null, magic_ok: null,
+            original_name: null, status: "no_cta_filename",
+          };
+        }
+        const sf = filename.replace(/'/g, "''");
+        const assetRows = (await db.execute(sql.raw(`
+          SELECT id, filename, original_name, is_archived,
+            (file_data IS NOT NULL AND octet_length(file_data) > 0) AS has_file_data,
+            encode(substring(file_data from 1 for 4), 'hex') AS first4_hex
+          FROM cta_assets WHERE filename = '${sf}' OR public_url LIKE '%/${sf}' LIMIT 1
+        `))).rows as any[];
+        if (!assetRows.length) {
+          return {
+            signature_id: sig.id, user_id: sig.user_id, user_name: sig.user_name,
+            user_email: sig.user_email, sig_name: sig.sig_name,
+            cta_image_url: ctaUrl, filename,
+            asset_id: null, is_archived: null, has_file_data: false, magic_ok: false,
+            original_name: null, status: "asset_not_found",
+          };
+        }
+        const a = assetRows[0];
+        const f4 = String(a.first4_hex || "");
+        const magic_ok = f4.startsWith("89504e47") || f4.startsWith("ffd8ff") || f4.startsWith("474946") || f4.startsWith("52494646");
+        const is_archived = !!a.is_archived;
+        const has_file_data = !!a.has_file_data;
+        const status = is_archived ? "archived" : !has_file_data ? "no_file_data" : !magic_ok ? "bad_magic" : "ok";
+        return {
+          signature_id: sig.id, user_id: sig.user_id, user_name: sig.user_name,
+          user_email: sig.user_email, sig_name: sig.sig_name,
+          cta_image_url: ctaUrl, filename,
+          asset_id: Number(a.id), is_archived, has_file_data, magic_ok,
+          original_name: a.original_name || null, status,
+        };
+      }));
+
+      const broken = results.filter(r => r.status !== "ok" && r.status !== "no_cta_filename");
+      return res.json({ ok: true, total: results.length, broken: broken.length, rows: results });
+    } catch (err: any) {
+      console.error("[audit-signatures] error:", err);
+      return res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  // POST /api/admin/cta-assets/repair-signatures
+  // Clears cta_image_url (and related columns) for all signatures that reference
+  // archived or byte-less CTA assets. Dry-run by default; pass { confirm: true } to apply.
+  app.post("/api/admin/cta-assets/repair-signatures", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const dryRun = req.body?.confirm !== true;
+      const sigs = (await db.execute(sql.raw(`
+        SELECT es.id, es.user_id, es.name AS sig_name, es.cta_image_url,
+               u.name AS user_name, u.email AS user_email
+        FROM email_signatures es
+        LEFT JOIN users u ON u.id = es.user_id
+        WHERE es.cta_image_url IS NOT NULL AND es.cta_image_url <> ''
+        ORDER BY es.id
+      `))).rows as any[];
+
+      const toRepair: number[] = [];
+      const report: any[] = [];
+
+      for (const sig of sigs as any[]) {
+        const ctaUrl = String(sig.cta_image_url || "");
+        const fnMatch = ctaUrl.match(/\/assets\/cta\/([^/?#\s]+)$/);
+        const filename = fnMatch ? fnMatch[1] : null;
+        if (!filename) continue;
+        const sf = filename.replace(/'/g, "''");
+        const assetRows = (await db.execute(sql.raw(`
+          SELECT id, is_archived, (file_data IS NOT NULL AND octet_length(file_data) > 0) AS has_file_data
+          FROM cta_assets WHERE filename = '${sf}' OR public_url LIKE '%/${sf}' LIMIT 1
+        `))).rows as any[];
+        const asset = assetRows[0];
+        const isDead = !asset || !!asset.is_archived || !asset.has_file_data;
+        if (isDead) {
+          toRepair.push(Number(sig.id));
+          report.push({
+            signature_id: sig.id, sig_name: sig.sig_name, user_name: sig.user_name,
+            user_email: sig.user_email, filename, cta_image_url: ctaUrl,
+            reason: !asset ? "asset_not_found" : asset.is_archived ? "archived" : "no_file_data",
+            action: dryRun ? "would_clear_cta" : "cleared_cta",
+          });
+        }
+      }
+
+      if (!dryRun && toRepair.length > 0) {
+        for (const sigId of toRepair) {
+          await db.execute(sql.raw(
+            `UPDATE email_signatures SET cta_image_url = NULL, cta_dest_url = NULL, ` +
+            `cta_alt_text = NULL, cta_width_px = NULL, updated_at = NOW() WHERE id = ${sigId}`,
+          ));
+        }
+        console.log(`[repair-signatures] Cleared CTA from ${toRepair.length} signature(s): ${toRepair.join(", ")}`);
+      }
+
+      return res.json({
+        ok: true, dry_run: dryRun,
+        repaired: dryRun ? 0 : toRepair.length,
+        would_repair: toRepair.length,
+        rows: report,
+      });
+    } catch (err: any) {
+      console.error("[repair-signatures] error:", err);
+      return res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
   app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const allUsers = await db.select({
       id: users.id,
@@ -29628,6 +29756,20 @@ export function registerConfluenceRoutes(app: Express) {
       if (!name?.trim() || !htmlContent?.trim()) {
         return res.status(400).json({ message: "name and htmlContent are required" });
       }
+      // Guard: reject saves that reference archived or byte-less CTA assets.
+      if (ctaImageUrl) {
+        const _ctaFn = String(ctaImageUrl).match(/\/assets\/cta\/([^/?#\s]+)$/)?.[1];
+        if (_ctaFn) {
+          const sf = _ctaFn.replace(/'/g, "''");
+          const _ctaValid = (await db.execute(sql.raw(
+            `SELECT id FROM cta_assets WHERE (filename = '${sf}' OR public_url LIKE '%/${sf}') ` +
+            `AND is_archived = FALSE AND file_data IS NOT NULL AND octet_length(file_data) > 0 LIMIT 1`,
+          ))).rows;
+          if (_ctaValid.length === 0) {
+            return res.status(400).json({ message: `Signature references archived or missing CTA asset: ${_ctaFn}. Re-upload or replace this image before saving.` });
+          }
+        }
+      }
       const _createDocTags = detectDocumentTags(htmlContent);
       if (_createDocTags.any) {
         console.log(`[sig-normalize] CREATE "${name}": stripping document wrapper tags`, _createDocTags);
@@ -29677,6 +29819,20 @@ export function registerConfluenceRoutes(app: Express) {
       const { name, htmlContent, plainTextContent, isDefault, ctaImageUrl, ctaDestUrl, ctaAltText, ctaWidthPx } = req.body;
       if (!name?.trim() || !htmlContent?.trim()) {
         return res.status(400).json({ message: "name and htmlContent are required" });
+      }
+      // Guard: reject saves that reference archived or byte-less CTA assets.
+      if (ctaImageUrl) {
+        const _ctaFn = String(ctaImageUrl).match(/\/assets\/cta\/([^/?#\s]+)$/)?.[1];
+        if (_ctaFn) {
+          const sf = _ctaFn.replace(/'/g, "''");
+          const _ctaValid = (await db.execute(sql.raw(
+            `SELECT id FROM cta_assets WHERE (filename = '${sf}' OR public_url LIKE '%/${sf}') ` +
+            `AND is_archived = FALSE AND file_data IS NOT NULL AND octet_length(file_data) > 0 LIMIT 1`,
+          ))).rows;
+          if (_ctaValid.length === 0) {
+            return res.status(400).json({ message: `Signature references archived or missing CTA asset: ${_ctaFn}. Re-upload or replace this image before saving.` });
+          }
+        }
       }
       const [existing] = await db.select().from(emailSignatures)
         .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
@@ -29924,10 +30080,13 @@ export function registerConfluenceRoutes(app: Express) {
   app.get("/api/cta-assets", requireAuth, async (req, res) => {
     try {
       const rows = (await db.execute(sql.raw(`
-        SELECT a.*, u.name AS created_by_name
+        SELECT a.*, u.name AS created_by_name,
+          encode(substring(a.file_data from 1 for 4), 'hex') AS first4_hex,
+          (a.file_data IS NOT NULL AND octet_length(a.file_data) > 0) AS has_file_data
         FROM cta_assets a
         LEFT JOIN users u ON u.id = a.created_by
         WHERE a.is_archived = FALSE
+          AND a.file_data IS NOT NULL AND octet_length(a.file_data) > 0
         ORDER BY a.created_at DESC
       `))).rows;
       // Rewrite public_url to the current request's host — prevents broken images when
@@ -29949,7 +30108,15 @@ export function registerConfluenceRoutes(app: Express) {
             }
           } catch { /* ignore — data_uri stays null */ }
         }
-        return { ...r, public_url: publicUrl, data_uri };
+        // Compute magic_ok from first 4 bytes (already validated via DB filter but include for transparency)
+        const f4 = String(r.first4_hex || "");
+        const isPng  = f4.startsWith("89504e47");
+        const isJpeg = f4.startsWith("ffd8ff");
+        const isGif  = f4.startsWith("474946");
+        const isWebp = f4.length >= 8; // RIFF check requires 12 bytes; trust DB filter
+        const magic_ok = isPng || isJpeg || isGif;
+        const is_usable = !!r.has_file_data && !r.is_archived;
+        return { ...r, public_url: publicUrl, data_uri, magic_ok, is_usable };
       });
       res.json(rewritten);
     } catch (err: any) {

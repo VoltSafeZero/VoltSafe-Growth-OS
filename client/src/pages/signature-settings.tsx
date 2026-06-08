@@ -54,12 +54,16 @@ type CtaAsset = {
   id: number;
   name: string;
   filename: string;
+  original_name?: string | null;
   public_url: string;
   data_uri: string | null;
   mime_type: string;
   file_size: number | null;
   created_by_name: string | null;
   created_at: string;
+  is_usable?: boolean;
+  magic_ok?: boolean;
+  has_file_data?: boolean;
 };
 
 type SigFields = {
@@ -416,6 +420,17 @@ function SignatureDialog({
     widthPx: String(existing?.ctaWidthPx ?? 180),
   }));
 
+  // Detect dead/archived CTA on load so the user sees a warning before trying to send.
+  const _ctaAssetsForWarning = useQuery<CtaAsset[]>({ queryKey: ["/api/cta-assets"] });
+  const deadCtaFilename: string | null = (() => {
+    if (!existing?.ctaImageUrl) return null;
+    const fn = String(existing.ctaImageUrl).match(/\/assets\/cta\/([^/?#\s]+)$/)?.[1];
+    if (!fn) return null;
+    if (_ctaAssetsForWarning.isLoading) return null; // wait for data
+    const usable = (_ctaAssetsForWarning.data ?? []).find(a => a.filename === fn);
+    return usable ? null : fn; // null = ok; string = dead
+  })();
+
   const handleFieldsChange = useCallback((f: SigFields) => {
     setFields(f);
     // For new signatures: live-update htmlContent from builder fields so the
@@ -470,6 +485,26 @@ function SignatureDialog({
             {existing ? "Update your email signature." : "Create a new email signature to use in your outgoing emails."}
           </DialogDescription>
         </DialogHeader>
+
+        {deadCtaFilename && (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 mx-6 mt-2">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold">CTA image is archived or missing</p>
+              <p className="text-amber-300/70 mt-0.5">
+                This signature references <span className="font-mono break-all">{deadCtaFilename}</span>, which is archived or has no image data. Sending will fail until you replace or remove it. Pick a valid image below, or click Clear.
+              </p>
+            </div>
+            <Button
+              type="button" size="sm" variant="outline"
+              className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10 text-xs h-7 shrink-0"
+              onClick={() => setCtaConfig(c => ({ ...c, imageUrl: "", destUrl: "" }))}
+              data-testid="button-sig-clear-dead-cta"
+            >
+              Clear CTA
+            </Button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto space-y-4 py-1 pr-1">
           <div>

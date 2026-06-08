@@ -142,6 +142,40 @@ function getImageDimensions(buf: Buffer, detectedMime: string): { width: number;
   return null;
 }
 
+export interface CtaAssetHealth {
+  exists: boolean;
+  is_archived: boolean;
+  has_file_data: boolean;
+  id?: number;
+  filename?: string;
+  original_name?: string;
+}
+
+/** Quick DB-only check — does NOT load bytes. Used for pre-send validation. */
+export async function getCtaAssetHealth(filename: string): Promise<CtaAssetHealth> {
+  try {
+    const safeF = filename.replace(/'/g, "''");
+    const rows = (await db.execute(sql.raw(
+      `SELECT id, filename, original_name, is_archived, ` +
+      `(file_data IS NOT NULL AND octet_length(file_data) > 0) AS has_file_data ` +
+      `FROM cta_assets WHERE filename = '${safeF}' OR public_url LIKE '%/${safeF}' LIMIT 1`,
+    ))).rows as any[];
+    if (!rows.length) return { exists: false, is_archived: false, has_file_data: false };
+    const r = rows[0];
+    return {
+      exists: true,
+      is_archived: !!r.is_archived,
+      has_file_data: !!r.has_file_data,
+      id: Number(r.id),
+      filename: String(r.filename),
+      original_name: r.original_name ? String(r.original_name) : undefined,
+    };
+  } catch (e: any) {
+    console.warn(`[cta-health-check] DB error for "${filename}":`, e?.message);
+    return { exists: false, is_archived: false, has_file_data: false };
+  }
+}
+
 export async function resolveCtaAsset(
   filename: string,
 ): Promise<ResolvedCtaAsset | null> {
