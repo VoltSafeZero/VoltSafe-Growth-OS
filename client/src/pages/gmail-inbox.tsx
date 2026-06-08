@@ -7794,7 +7794,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         </div>
       )}
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 overflow-hidden min-w-0">
         {/* ── LEFT NAV SIDEBAR ───────────────────────────────────────────── */}
         <aside className={`hidden flex-col w-56 flex-shrink-0 border-r border-border/50 bg-background transition-[width,opacity] duration-300 ease-out ${focusMode ? "md:!hidden" : "md:flex"}`}>
           {/* Compose button — replaced by Read-only badge on shared view-only mailboxes (Phase 4) */}
@@ -9758,7 +9758,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             </div>
 
             {/* Messages in thread — bottom padding so last message is not hidden under FAB */}
-            <div className={`flex-1 overflow-y-auto pb-36 lg:pb-24 transition-[padding] duration-300 ${focusMode ? "pt-8 px-4 sm:px-6" : `${densityClasses.readerThreadPt} ${densityClasses.readerThreadPx}`}`}>
+            <div className={`flex-1 overflow-y-auto overflow-x-hidden pb-36 lg:pb-24 transition-[padding] duration-300 ${focusMode ? "pt-8 px-4 sm:px-6" : `${densityClasses.readerThreadPt} ${densityClasses.readerThreadPx}`}`}>
             <div className={`transition-[max-width] duration-300 ${focusMode ? "space-y-6 max-w-3xl mx-auto w-full" : densityClasses.readerThreadGap}`}>
               {threadQuery.isLoading && (
                 <div className="space-y-3">

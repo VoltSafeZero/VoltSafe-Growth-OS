@@ -1,0 +1,175 @@
+Fix VoltSafe Mail horizontal overflow / page-width bug.
+
+Current problem:
+In VoltSafe Mail, the full app page is wider than the desktop browser viewport. I have to horizontally scroll right to see the full email content. When I scroll right, the left sidebar/email list gets cut off. This should never happen.
+
+Goal:
+All VoltSafe CMS pages, especially VoltSafe Mail, must dynamically fit the browser viewport on desktop and mobile. The app shell must never create page-level horizontal scrolling. Mail content should wrap/shrink/scroll internally where appropriate.
+
+Screenshots show:
+- Screenshot 1: email content extends off the right side of the browser.
+- Screenshot 2: after horizontal scroll, the left side/sidebar is cut off.
+- This means some parent container is using width/min-width/fixed width incorrectly and causing document/body overflow-x.
+
+Tasks:
+
+1. Find the VoltSafe Mail layout components:
+Search for:
+- Mail
+- mailbox
+- inbox
+- thread
+- thread view
+- message list
+- sidebar
+- mail-layout
+- all mail history
+- Search Mailbox
+- message-content
+- thread-panel
+- email-body
+- min-w
+- w-screen
+- width:
+- overflow-x
+- grid-cols
+- flex
+
+Likely files may include:
+- client/src/pages/mail*
+- client/src/components/mail*
+- client/src/components/email*
+- client/src/App.tsx/layout components
+- global CSS / index.css / app.css
+
+2. Find the element causing horizontal overflow.
+Use browser devtools or temporary debugging:
+- Add outline/debug classes if needed.
+- Check document.documentElement.scrollWidth vs window.innerWidth.
+- Identify which element has scrollWidth wider than viewport.
+
+3. Fix the app shell:
+At the top-level app/page layout, ensure:
+- html, body, #root use width:100%; max-width:100%; overflow-x:hidden;
+- the main app container uses width:100%; max-width:100vw; min-width:0;
+- do NOT use width:100vw in a way that adds scrollbar width and causes overflow.
+- do NOT use giant fixed widths that exceed viewport.
+
+4. Fix the Mail page layout:
+The Mail page should behave like this:
+
+Desktop:
+- Left nav/sidebar: fixed or flexible width, but cannot force total page overflow.
+- Message list: fixed/flexible width, but can shrink.
+- Thread/detail pane: flex:1 and min-width:0.
+- Email body card: max-width:100%.
+- Content area: overflow:hidden at shell level.
+- Only internal panels may scroll vertically/horizontally as needed.
+
+Use the key CSS rule everywhere inside flex/grid children:
+min-width: 0;
+
+This is probably the main missing piece.
+
+5. For flex layouts, apply:
+- parent: display:flex; width:100%; max-width:100%; overflow:hidden;
+- sidebar/list panels: flex-shrink:0 only if their widths fit inside layout
+- main/thread panel: flex:1 1 auto; min-width:0; overflow:hidden;
+- email content wrapper: width:100%; max-width:100%; min-width:0; overflow-x:auto only inside the email body if needed
+
+6. For grid layouts, apply:
+- grid-template-columns should use minmax(0, 1fr) for flexible columns.
+Bad:
+grid-template-columns: 280px 360px 1fr;
+Better:
+grid-template-columns: 280px 360px minmax(0, 1fr);
+
+On smaller widths, collapse:
+- desktop: sidebar + list + thread
+- tablet: narrower list + thread
+- mobile: single panel view, not all columns side-by-side
+
+7. Fix email body rendering:
+Email content often includes wide tables, images, or long links. These must not blow out the whole app.
+
+Wrap rendered email HTML in a safe container:
+
+.email-body-wrapper {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.email-body-wrapper img {
+  max-width: 100%;
+  height: auto;
+}
+
+.email-body-wrapper table {
+  max-width: 100%;
+}
+
+.email-body-wrapper pre,
+.email-body-wrapper code,
+.email-body-wrapper a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+Important:
+Do not globally destroy legitimate email table layout. If an email has a very wide table, it should scroll inside the email body area, not push the whole VoltSafe Mail page wider.
+
+8. Add a regression test or Playwright/browser test if available:
+Test at desktop widths:
+- 1440px
+- 1280px
+- 1024px
+
+Assert:
+document.documentElement.scrollWidth <= window.innerWidth + 1
+
+For the Mail page/thread route, also assert:
+- no page-level horizontal scrollbar
+- mail thread pane is visible
+- left sidebar remains visible
+- email body wrapper handles overflow internally
+
+9. Add a quick runtime/debug utility during development if helpful:
+console.log({
+  viewport: window.innerWidth,
+  docScrollWidth: document.documentElement.scrollWidth,
+  overflowingElements: [...document.querySelectorAll('*')]
+    .filter(el => el.scrollWidth > window.innerWidth)
+    .slice(0, 20)
+    .map(el => ({
+      tag: el.tagName,
+      className: el.className,
+      id: el.id,
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth
+    }))
+});
+
+Remove or guard this debug code before final commit.
+
+10. Do not just hide the symptom by slapping overflow-x:hidden everywhere if it clips important content.
+Correct fix:
+- App shell never horizontally scrolls.
+- Wide email content scrolls inside the email body wrapper only.
+- Mail columns shrink/collapse properly.
+
+11. Run:
+npm run test:grep mail
+npm run test:grep layout
+npm run test:grep responsive
+npm run test
+npm run build
+
+Return:
+- root cause element/class causing horizontal overflow
+- files changed
+- exact CSS/layout changes
+- before/after scrollWidth vs innerWidth values
+- test results
