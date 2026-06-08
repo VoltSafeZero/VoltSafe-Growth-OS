@@ -38,3 +38,27 @@ Run once after deploying this version to heal the existing UUID asset.
 - [CID-RESOLVE-FILENAME] / [CID-RESOLVE-RESULT] per-filename in extractCtaInlineImages
 - [CID-RESOLVE-STEP4] in resolveCtaAsset
 - [CID-RESOLVE-FAIL] on total failure
+
+## Magic-byte validation (forensic v2)
+`resolveCtaAsset` now validates every resolved buffer against PNG/JPEG/GIF/WebP
+magic bytes BEFORE returning it. Bytes that fail are rejected at each step;
+`selfHeal()` also validates before writing to DB so wrong bytes can't poison it.
+
+`ResolvedCtaAsset` now includes: source, dbId, dbFilename, dbPublicUrl, sha256,
+first32hex, magicOk, detectedMime. Callers log these for every resolve.
+
+**Why:** Production showed wrong bytes (document/screenshot) stored under the
+CTA asset row. Without validation, those bytes would be base64'd into a CID part
+and Apple Mail would render the garbage. With validation, they're rejected and
+logged with [CID-MAGIC-FAIL].
+
+Key log markers:
+- [CID-FORENSIC-DB/DISK/HTTP/PUBURL] — per-step forensic dump
+- [CID-MAGIC-FAIL] — bytes rejected (wrong magic)
+- [CID-FORENSIC] / [CID-FORENSIC-LEGACY] — in extractCtaInlineImages
+- [CID-MAGIC-REJECT] — CID part NOT created due to magic failure
+- [CID-GATE-VERIFY] / [CID-GATE-MAGIC-FAIL] — in FINAL-CID-GATE
+
+If all steps fail or all return invalid bytes → resolveCtaAsset returns null
+→ no CID part → image src stays as URL (not inlined). User must re-upload the
+correct PNG via the asset library.

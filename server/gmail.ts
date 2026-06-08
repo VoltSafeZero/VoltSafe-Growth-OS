@@ -258,10 +258,30 @@ export async function extractCtaInlineImages(
         const _ctaFilename = ctaFileMatch[1];
         console.log(`[CID-RESOLVE-FILENAME] src="${src.slice(0, 80)}" filename="${_ctaFilename}"`);
         const _ctaResolved = await resolveCtaAsset(_ctaFilename);
-        console.log(`[CID-RESOLVE-RESULT] filename="${_ctaFilename}" found=${!!_ctaResolved} bytes=${_ctaResolved?.data.byteLength ?? 0}`);
+        console.log("[CID-FORENSIC]", {
+          src: src.slice(0, 100),
+          filename: _ctaFilename,
+          found: !!_ctaResolved,
+          bytes: _ctaResolved?.data.byteLength ?? 0,
+          source: _ctaResolved?.source,
+          dbId: _ctaResolved?.dbId,
+          dbFilename: _ctaResolved?.dbFilename,
+          dbPublicUrl: _ctaResolved?.dbPublicUrl?.slice(0, 80),
+          claimedMime: _ctaResolved?.mimeType,
+          sha256: _ctaResolved?.sha256,
+          first32hex: _ctaResolved?.first32hex,
+          magicOk: _ctaResolved?.magicOk,
+          detectedMime: _ctaResolved?.detectedMime,
+        });
         if (_ctaResolved) {
-          data = _ctaResolved.data;
-          mimeType = _ctaResolved.mimeType;
+          if (!_ctaResolved.magicOk) {
+            console.error(`[CID-MAGIC-REJECT] sig-path: bytes for "${_ctaFilename}" failed magic check ` +
+              `claimedMime=${_ctaResolved.mimeType} detectedMime=${_ctaResolved.detectedMime} ` +
+              `first32hex=${_ctaResolved.first32hex} sha256=${_ctaResolved.sha256} — image will NOT be inlined`);
+          } else {
+            data = _ctaResolved.data;
+            mimeType = _ctaResolved.mimeType;
+          }
         }
       }
 
@@ -309,8 +329,28 @@ export async function extractCtaInlineImages(
       const filename = ctaMatch[1]; // bare filename, e.g. "logo.png"
       const fname = filename.split("/").pop() ?? filename;
       const _legacyResolved = await resolveCtaAsset(filename);
+      console.log("[CID-FORENSIC-LEGACY]", {
+        src: src.slice(0, 100),
+        filename,
+        found: !!_legacyResolved,
+        bytes: _legacyResolved?.data.byteLength ?? 0,
+        source: _legacyResolved?.source,
+        dbId: _legacyResolved?.dbId,
+        dbFilename: _legacyResolved?.dbFilename,
+        claimedMime: _legacyResolved?.mimeType,
+        sha256: _legacyResolved?.sha256,
+        first32hex: _legacyResolved?.first32hex,
+        magicOk: _legacyResolved?.magicOk,
+        detectedMime: _legacyResolved?.detectedMime,
+      });
       if (!_legacyResolved) {
         console.error(`[sig-cid] CTA asset unresolvable — filename="${filename}" src="${src}"`);
+        continue;
+      }
+      if (!_legacyResolved.magicOk) {
+        console.error(`[CID-MAGIC-REJECT] legacy-path: bytes for "${filename}" failed magic check ` +
+          `claimedMime=${_legacyResolved.mimeType} detectedMime=${_legacyResolved.detectedMime} ` +
+          `first32hex=${_legacyResolved.first32hex} sha256=${_legacyResolved.sha256} — image will NOT be inlined`);
         continue;
       }
       seen.set(src, {
@@ -694,6 +734,32 @@ export async function sendEmail(
       }
     }
 
+    // Verify every merged CID part has valid image magic bytes.
+    for (const img of inlineImages) {
+      const h = img.data.slice(0, 12);
+      const first32hex = img.data.slice(0, 32).toString("hex");
+      const isPng  = h[0] === 0x89 && h[1] === 0x50 && h[2] === 0x4E && h[3] === 0x47;
+      const isJpeg = h[0] === 0xFF && h[1] === 0xD8 && h[2] === 0xFF;
+      const isGif  = img.data.byteLength >= 6 && img.data.slice(0, 6).toString("ascii").startsWith("GIF8");
+      const isWebp = img.data.byteLength >= 12 && h.slice(0, 4).toString("ascii") === "RIFF" && img.data.slice(8, 12).toString("ascii") === "WEBP";
+      const detected = isPng ? "image/png" : isJpeg ? "image/jpeg" : isGif ? "image/gif" : isWebp ? "image/webp" : "unknown";
+      const sha256 = require("crypto").createHash("sha256").update(img.data).digest("hex");
+      console.log("[CID-GATE-VERIFY]", {
+        cid: img.cid,
+        filename: img.filename,
+        claimedMime: img.mimeType,
+        detectedMime: detected,
+        magicOk: detected !== "unknown",
+        sha256,
+        first32hex,
+        bytes: img.data.byteLength,
+      });
+      if (detected === "unknown") {
+        console.error(`[CID-GATE-MAGIC-FAIL] CID part "${img.cid}" filename="${img.filename}" ` +
+          `claimedMime=${img.mimeType} has INVALID magic bytes first32hex=${first32hex} sha256=${sha256} ` +
+          `— this part will render as a broken image or phantom attachment in Apple Mail`);
+      }
+    }
     console.log("[FINAL-CID-GATE-RESULT]", {
       beforeImgSrcs: _imgSrcsBefore,
       afterImgSrcs: _extractImgSrcs(body),

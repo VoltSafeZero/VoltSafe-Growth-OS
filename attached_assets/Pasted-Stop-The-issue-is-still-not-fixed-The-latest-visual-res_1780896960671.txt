@@ -1,0 +1,75 @@
+Stop. The issue is still not fixed.
+
+The latest visual result shows the wrong content/image rendering — it looks like an unrelated document/report page, not the intended VoltSafe CTA image. This suggests an asset identity collision or wrong binary/blob being resolved, not just a missing CID conversion.
+
+Do not make another regex-only fix.
+
+I need a full forensic trace of the actual UI send path.
+
+Do this exactly:
+
+1. Trigger the failed send from the real VoltSafe Mail UI.
+
+2. Capture the full server logs from:
+   POST /api/gmail/send ENTERED
+   through:
+   saved as draft / Gmail send / FINAL-CID-GATE result
+
+3. For every <img src=...> in the body, log:
+   - original src
+   - normalized filename
+   - whether it matched /assets/cta/
+   - resolved DB row id
+   - resolved DB filename
+   - resolved public_url
+   - resolved mime_type
+   - resolved file_data byte length
+   - SHA256 hash of resolved bytes
+   - first 32 bytes of resolved file in hex
+   - whether the bytes are actually PNG/JPEG/GIF/WebP based on magic bytes
+
+4. Add hard validation before creating CID inline images:
+   - If mime_type says image/png, the bytes must start with PNG magic bytes: 89 50 4E 47
+   - If image/jpeg, bytes must start with FF D8 FF
+   - If image/gif, bytes must start with GIF87a or GIF89a
+   - If image/webp, bytes must contain RIFF....WEBP
+   - If the bytes do not match the claimed image type, DO NOT inline them. Log a fatal error.
+
+5. Query the cta_assets table for the exact failing URL/filename:
+   d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+
+   Show:
+   - id
+   - filename
+   - original_name
+   - public_url
+   - mime_type
+   - file_size
+   - octet_length(file_data)
+   - created_at
+   - updated_at
+   - SHA256(file_data)
+
+6. Also query all CTA assets with similar file sizes and public URLs:
+   - WHERE public_url ILIKE '%d4959dbc%'
+   - WHERE filename ILIKE '%d4959dbc%'
+   - WHERE original_name ILIKE '%WatchDemo%'
+   - WHERE public_url ILIKE '%WatchDemo%'
+
+7. Verify the actual bytes in the DB are the intended VoltSafe CTA image, not some other uploaded/generated image/document screenshot.
+
+8. If the wrong bytes are stored under the CTA asset row, fix the upload/storage/backfill logic. Do not patch MIME.
+
+9. If the right bytes are stored but the wrong image renders, dump the final MIME tree and raw Content-ID references.
+
+10. Required final proof:
+   - exact UI-send route hit
+   - exact asset row used
+   - exact byte hash used
+   - image magic bytes match claimed MIME type
+   - final HTML references cid:
+   - final CID MIME part contains the same byte hash
+   - received email displays the intended VoltSafe CTA image, not a random document/page
+   - no ghost attachment
+
+Do not declare this fixed using an isolated script. Only the real UI send counts.
