@@ -1,9 +1,9 @@
 /**
  * Real-world MIME structure verification for CTA inline images.
  * Runs the full extractCtaInlineImages → buildMimeRaw pipeline
- * using real DB data and dumps the resulting MIME tree to inspect.
+ * using real DB data and WatchDemo CTA images specifically.
  *
- * Also optionally sends a live test email when SEND=1 env var is set.
+ * Set SEND=1 to also fire a live test email to self.
  */
 import path from "path";
 import fs from "fs";
@@ -14,239 +14,216 @@ import { extractCtaInlineImages, buildMimeRawDebug } from "../server/gmail";
 const CTA_ASSETS_DIR = path.resolve("uploads/cta-assets");
 const MIME_DUMP_PATH = "/tmp/cid-mime-dump.txt";
 
-async function getSigWithCta(): Promise<{ html: string; userId: number } | null> {
-  // Find a signature whose html_content references /assets/cta/ images
-  const rows = (await db.execute(sql.raw(`
-    SELECT es.id, es.user_id, es.html_content
-    FROM email_signatures es
-    WHERE es.html_content LIKE '%/assets/cta/%'
-    ORDER BY es.updated_at DESC NULLS LAST
-    LIMIT 1
-  `))).rows as any[];
-  if (!rows.length) return null;
-  return { html: rows[0].html_content as string, userId: rows[0].user_id as number };
-}
-
 async function main() {
   console.log("=== CTA MIME Structure Verification ===\n");
 
-  // ── Step 1: Get real signature HTML ─────────────────────────────────────
-  const sig = await getSigWithCta();
-  if (!sig) {
-    console.error("[FAIL] No signature found with /assets/cta/ images in DB");
+  // ── Step 1: Confirm WatchDemo assets are in DB with file_data ────────────
+  const assets = (await db.execute(sql.raw(`
+    SELECT id, filename, file_size, (file_data IS NOT NULL) as has_data, mime_type
+    FROM cta_assets
+    WHERE filename IN ('WatchDemo_Thumbnail_200.png', 'WatchDemo_Thumbnail_600.png')
+    AND is_archived = FALSE
+    ORDER BY filename
+  `))).rows as any[];
+  console.log("[1] CTA assets in DB:");
+  assets.forEach(a => console.log(`    id=${a.id}  ${a.filename}  size=${a.file_size}  has_data=${a.has_data}`));
+  if (assets.length < 2 || !assets.every(a => a.has_data)) {
+    console.error("[FAIL] WatchDemo assets missing or file_data not populated");
     process.exit(1);
   }
-  const ctaSrcs = (sig.html.match(/src="([^"]*\/assets\/cta\/[^"]+)"/gi) ?? []);
-  console.log("[1] Found signature with CTA images:");
-  console.log("    userId =", sig.userId);
-  console.log("    ctaSrcs =", ctaSrcs);
-  console.log("    htmlLen =", sig.html.length);
 
-  // ── Step 2: Wrap in vs-sig-start/end markers (simulates send pipeline) ──
-  const wrappedHtml = `<html><body><p>Test email body — verifying CTA CID inlining.</p><!--vs-sig-start-->${sig.html}<!--vs-sig-end--></body></html>`;
+  // ── Step 2: Craft HTML with both WatchDemo images inside sig markers ─────
+  const baseUrl = "https://voltsafe-app.replit.app";
+  const html = [
+    "<html><body>",
+    "<p>Test email body — verifying CTA CID inlining for Apple Mail.</p>",
+    "<!--vs-sig-start-->",
+    "<table cellpadding='0' cellspacing='0'><tr><td>",
+    `<a href="${baseUrl}/watch-demo">`,
+    `<img src="${baseUrl}/assets/cta/WatchDemo_Thumbnail_200.png" width="200" alt="Watch Demo" />`,
+    `</a>`,
+    `<a href="${baseUrl}/watch-demo">`,
+    `<img src="${baseUrl}/assets/cta/WatchDemo_Thumbnail_600.png" width="600" alt="Watch Demo HD" />`,
+    `</a>`,
+    "</td></tr></table>",
+    "<!--vs-sig-end-->",
+    "</body></html>",
+  ].join("\n");
+
+  console.log("\n[2] Input HTML img srcs:", (html.match(/src="([^"]+)"/g) ?? []));
 
   // ── Step 3: extractCtaInlineImages ──────────────────────────────────────
-  console.log("\n[2] Running extractCtaInlineImages...");
-  const { html: cidHtml, inlineImages } = await extractCtaInlineImages(wrappedHtml, CTA_ASSETS_DIR);
+  console.log("\n[3] Running extractCtaInlineImages...");
+  const { html: cidHtml, inlineImages } = await extractCtaInlineImages(html, CTA_ASSETS_DIR);
 
-  console.log("[2] Result:");
-  console.log("    inlineImages.length =", inlineImages.length);
+  console.log("[3] Result:");
+  console.log("    inlineImages.length =", inlineImages.length, "(want 2)");
   for (const img of inlineImages) {
     console.log(`    • cid=${img.cid}  bytes=${img.data.byteLength}  mime=${img.mimeType}  fname=${img.filename}`);
   }
-  const htmlHasCidSrc = /src="cid:/.test(cidHtml);
+  const htmlHasCidSrc        = /src="cid:/.test(cidHtml);
   const htmlStillHasAssetSrc = /<img[^>]*src="[^"]*\/assets\/cta\//.test(cidHtml);
-  console.log("    htmlHasCidSrc =", htmlHasCidSrc);
-  console.log("    htmlStillHasAssetSrc =", htmlStillHasAssetSrc);
+  console.log("    htmlHasCidSrc =", htmlHasCidSrc, "(want true)");
+  console.log("    htmlStillHasAssetSrc =", htmlStillHasAssetSrc, "(want false)");
 
   if (inlineImages.length === 0) {
     console.error("\n[FAIL] extractCtaInlineImages returned 0 images — GATE would fire!");
     process.exit(1);
   }
 
-  // ── Step 4: Build raw MIME and inspect structure ─────────────────────────
-  console.log("\n[3] Building raw MIME via buildMimeRawDebug...");
-  const from = "test@voltsafe.com";
-  const to = "verify@example.com";
-  const subject = "CTA CID Inline Test — " + new Date().toISOString();
+  // ── Step 4: Build raw MIME and inspect ──────────────────────────────────
+  console.log("\n[4] Building raw MIME via buildMimeRawDebug...");
+  const from    = "trevor@voltsafe.com";
+  const to      = "trevor@voltsafe.com";
+  const subject = "CTA CID Inline Structure Test — " + new Date().toISOString();
 
-  const { rawMime } = buildMimeRawDebug(from, to, subject, cidHtml, [], undefined, undefined, undefined, inlineImages);
+  // buildMimeRawDebug returns a plain string (decoded from base64url)
+  const rawMime: string = buildMimeRawDebug(
+    from, to, subject, cidHtml, [], undefined, undefined, undefined, inlineImages,
+  );
 
-  // Write full MIME to file for inspection
   fs.writeFileSync(MIME_DUMP_PATH, rawMime, "utf-8");
-  console.log("[3] Full MIME written to", MIME_DUMP_PATH, `(${rawMime.length} bytes)`);
+  console.log("[4] Full MIME written to", MIME_DUMP_PATH, `(${rawMime.length.toLocaleString()} bytes)`);
 
-  // ── Step 5: Parse and display MIME tree ──────────────────────────────────
-  console.log("\n[4] MIME Structure Tree:\n");
+  // ── Step 5: Print abridged MIME header tree ──────────────────────────────
+  console.log("\n[5] MIME Header Tree (boundaries + headers only):\n");
   const lines = rawMime.split(/\r\n|\n/);
-
-  // Print header lines and part boundaries
   let inBody = false;
-  let partCount = 0;
-  let headerLines: string[] = [];
-  const boundaryStack: string[] = [];
-  const tree: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Detect boundary markers
-    if (line.startsWith("--") && !line.startsWith("---")) {
-      const bnd = line.replace(/^--/, "").replace(/--$/, "").trim();
-      if (line.endsWith("--")) {
-        tree.push(`  END BOUNDARY: ${line.trim()}`);
-      } else {
-        tree.push(`PART: ${line.trim()}`);
-        partCount++;
-        headerLines = [];
-        inBody = false;
-      }
+  for (const line of lines) {
+    if (line.startsWith("--")) {
+      inBody = false;
+      console.log(line.endsWith("--") ? `  └─ ${line.trim()} (end)` : `\n  ├─ ${line.trim()}`);
       continue;
     }
-
-    // Track important header lines
     if (!inBody) {
-      if (line === "") {
-        inBody = true;
-        continue;
-      }
-      const key = line.toLowerCase();
+      if (line === "") { inBody = true; continue; }
+      const lc = line.toLowerCase();
       if (
-        key.startsWith("content-type:") ||
-        key.startsWith("content-disposition:") ||
-        key.startsWith("content-transfer-encoding:") ||
-        key.startsWith("content-id:") ||
-        key.startsWith("from:") ||
-        key.startsWith("to:") ||
-        key.startsWith("subject:")
+        lc.startsWith("content-type:") || lc.startsWith("content-disposition:") ||
+        lc.startsWith("content-transfer-encoding:") || lc.startsWith("content-id:") ||
+        lc.startsWith("from:") || lc.startsWith("to:") || lc.startsWith("subject:")
       ) {
-        tree.push("  " + line.trim());
+        console.log("  │  " + line.trim());
       }
     }
   }
 
-  tree.forEach(l => console.log(l));
-  console.log(`\n  Total MIME parts detected: ${partCount}`);
+  // ── Step 6: Verification checklist ──────────────────────────────────────
+  console.log("\n[6] Verification Checklist:");
+  let allOk = true;
 
-  // ── Step 6: Checklist ─────────────────────────────────────────────────────
-  console.log("\n[5] Verification Checklist:");
-
-  const check = (label: string, pass: boolean) => {
+  const chk = (label: string, pass: boolean) => {
     console.log(`  ${pass ? "✓" : "✗"} ${label}`);
+    if (!pass) allOk = false;
     return pass;
   };
 
   const mimeHasRelated = rawMime.includes("multipart/related");
   const mimeHasMixed   = rawMime.includes("multipart/mixed");
   const mimeHasAlt     = rawMime.includes("multipart/alternative");
-  const mimeHasCidRef  = rawMime.includes("cid:");
-  const noAssetSrc     = !/<img[^>]*src="[^"]*\/assets\/cta\//.test(rawMime);
 
-  // Check each CTA image MIME part
-  let imageParts: { ok: boolean; cid: string; hasCT: boolean; hasTE: boolean; hasCID: boolean; hasDisp: boolean }[] = [];
+  chk("2 inline images produced by extractCtaInlineImages", inlineImages.length === 2);
+  chk("HTML has cid: src references", htmlHasCidSrc);
+  chk("HTML has NO remaining /assets/cta/ img src", !htmlStillHasAssetSrc);
+  chk("MIME contains multipart/related", mimeHasRelated);
+  chk("MIME does NOT use multipart/alternative (would orphan CID parts)", !mimeHasAlt);
+  chk("No /assets/cta/ URL in MIME img src attributes", !/<img[^>]*src="[^"]*\/assets\/cta\//.test(rawMime));
+
+  // Verify each CID image part headers
   for (const img of inlineImages) {
     const cidMarker = `Content-ID: <${img.cid}>`;
     const idx = rawMime.indexOf(cidMarker);
     if (idx === -1) {
-      imageParts.push({ ok: false, cid: img.cid, hasCT: false, hasTE: false, hasCID: false, hasDisp: false });
+      chk(`CID part <${img.cid}> found in MIME`, false);
       continue;
     }
-    // Grab the 300 chars around this CID header for inspection
-    const snippet = rawMime.substring(idx - 200, idx + 200);
-    const hasCT   = /content-type:\s*image\/png/i.test(snippet);
-    const hasTE   = /content-transfer-encoding:\s*base64/i.test(snippet);
-    const hasCID  = snippet.includes(`Content-ID: <${img.cid}>`);
-    const hasDisp = /content-disposition:\s*inline/i.test(snippet);
-    imageParts.push({ ok: hasCT && hasTE && hasCID, cid: img.cid, hasCT, hasTE, hasCID, hasDisp });
+    const snippet = rawMime.substring(Math.max(0, idx - 300), idx + 100);
+    chk(`CID part <${img.cid}>: Content-Type: image/png`, /content-type:\s*image\/png/i.test(snippet));
+    chk(`CID part <${img.cid}>: Content-Transfer-Encoding: base64`, /content-transfer-encoding:\s*base64/i.test(snippet));
+    chk(`CID part <${img.cid}>: Content-ID header`, snippet.includes(cidMarker));
+
+    // Content-Disposition must be ABSENT (Apple Mail ghost attachment bug)
+    const hasDisp = /content-disposition:/i.test(snippet);
+    chk(`CID part <${img.cid}>: Content-Disposition ABSENT (Apple Mail fix)`, !hasDisp);
+    if (hasDisp) {
+      const dispLine = snippet.match(/content-disposition:[^\n]*/i)?.[0] ?? "";
+      console.log(`    (found: ${dispLine.trim()})`);
+    }
   }
 
-  let allOk = true;
-  allOk = check(`extractCtaInlineImages produced ${inlineImages.length} inline images (want 2)`, inlineImages.length === 2) && allOk;
-  allOk = check("HTML has cid: src references", htmlHasCidSrc) && allOk;
-  allOk = check("HTML does NOT still have /assets/cta/ img src", !htmlStillHasAssetSrc) && allOk;
-  allOk = check("MIME contains multipart/related container", mimeHasRelated) && allOk;
-  allOk = check("MIME does NOT use multipart/alternative for inline-image case (would break CID)", !mimeHasAlt || mimeHasRelated) && allOk;
-  allOk = check("MIME contains cid: references", mimeHasCidRef) && allOk;
-  allOk = check("MIME has no /assets/cta/ in img src after send pipeline", noAssetSrc) && allOk;
-
-  for (const ip of imageParts) {
-    allOk = check(`CID part <${ip.cid}>: Content-Type: image/png`, ip.hasCT) && allOk;
-    allOk = check(`CID part <${ip.cid}>: Content-Transfer-Encoding: base64`, ip.hasTE) && allOk;
-    allOk = check(`CID part <${ip.cid}>: Content-ID header present`, ip.hasCID) && allOk;
-    console.log(`  ${ip.hasDisp ? "✓" : "·"} CID part <${ip.cid}>: Content-Disposition: inline (${ip.hasDisp ? "present" : "absent — omitted per RFC 2392"})`);
-  }
-
-  // Correct structure: CTA images are children of multipart/related, not siblings of text/html under multipart/mixed
+  // Verify images are inside multipart/related, not loose under multipart/mixed
   const relBndMatch = rawMime.match(/multipart\/related;\s*boundary="([^"]+)"/);
   if (relBndMatch) {
     const relBnd = relBndMatch[1];
-    // Find the related section
-    const relStart = rawMime.indexOf(`Content-Type: multipart/related; boundary="${relBnd}"`);
+    const relStart = rawMime.indexOf(`multipart/related; boundary="${relBnd}"`);
     const relEnd   = rawMime.indexOf(`--${relBnd}--`, relStart);
     if (relStart !== -1 && relEnd !== -1) {
-      const relSection = rawMime.substring(relStart, relEnd + `--${relBnd}--`.length);
-      const htmlInRelated  = relSection.includes("Content-Type: text/html");
-      const imagesInRelated = inlineImages.every(img => relSection.includes(`Content-ID: <${img.cid}>`));
-      allOk = check("text/html is inside multipart/related (correct structure)", htmlInRelated) && allOk;
-      allOk = check("All CID image parts are inside multipart/related (not loose under mixed)", imagesInRelated) && allOk;
+      const relSection = rawMime.substring(relStart, relEnd);
+      chk("text/html is direct child of multipart/related", relSection.includes("Content-Type: text/html"));
+      chk("ALL CID parts are inside multipart/related", inlineImages.every(i => relSection.includes(`<${i.cid}>`)));
     }
   }
 
-  // Show the top-level MIME type
-  const topLevel = lines.find(l => l.toLowerCase().startsWith("content-type: multipart/"));
-  console.log("\n[6] Top-level MIME type:", topLevel ?? "(not found — check dump)");
+  // Check no CTA images appear as attachments (should not have disposition: attachment)
+  const attachmentCount = (rawMime.match(/Content-Disposition: attachment/g) ?? []).length;
+  chk("No CTA images have Content-Disposition: attachment", attachmentCount === 0);
 
-  // Case B or C?
+  // Determine and display the MIME case
+  console.log("\n[7] MIME Structure:");
   if (mimeHasRelated && !mimeHasMixed) {
-    console.log("    → Case B: multipart/related is ROOT (no attachments) ✓");
+    console.log("    Case B: multipart/related → text/html + inline CID parts  ✓");
+    console.log("    (No attachments — correct for signature-only email)");
   } else if (mimeHasRelated && mimeHasMixed) {
-    console.log("    → Case C: multipart/mixed wraps multipart/related (has attachments)");
+    console.log("    Case C: multipart/mixed → multipart/related → text/html + inline CID parts");
   } else if (!mimeHasRelated) {
-    console.log("    → PROBLEM: No multipart/related found — CID images are orphaned!");
+    console.log("    ⚠ No multipart/related — CID images would be orphaned!");
     allOk = false;
   }
 
   console.log("\n" + (allOk ? "✅ All checks PASSED" : "❌ Some checks FAILED — see ✗ above"));
-  console.log("\nFull MIME dump at:", MIME_DUMP_PATH);
+  console.log("Full MIME dump at:", MIME_DUMP_PATH, "\n");
 
-  // ── Optional live send ────────────────────────────────────────────────────
+  // ── Step 7: Optional live send ────────────────────────────────────────────
   if (process.env.SEND === "1") {
-    console.log("\n[7] SEND=1 — sending live test email...");
+    console.log("[8] SEND=1 — firing live test email...");
     const { sendEmail } = await import("../server/gmail");
-    // Find a real Gmail account
     const accs = (await db.execute(sql.raw(
       "SELECT id, email FROM gmail_accounts WHERE status = 'active' ORDER BY id LIMIT 1"
     ))).rows as any[];
     if (!accs.length) { console.error("[SEND] No active Gmail account found"); process.exit(1); }
     const acc = accs[0];
-    console.log(`[SEND] Using account: ${acc.email} (id=${acc.id})`);
+    console.log(`[SEND] Account: ${acc.email} (id=${acc.id}) → sending to self`);
     const result = await sendEmail(
-      acc.id,
-      acc.email,
-      acc.email,  // send to self
+      acc.id as number,
+      acc.email as string,
       subject,
       cidHtml,
-      [],
-      undefined,
-      undefined,
-      undefined,
+      undefined,    // threadId
+      [],           // attachments
+      undefined,    // accountId
+      undefined,    // cc
+      undefined,    // bcc
+      undefined,    // icalContent
       inlineImages,
     );
-    console.log("[SEND] Result:", JSON.stringify(result));
-    if (result.messageId) {
-      console.log(`[SEND] ✅ Sent! messageId=${result.messageId}`);
-      console.log(`[SEND] Check Gmail for message with subject: ${subject}`);
+    if ((result as any)?.messageId) {
+      console.log(`[SEND] ✅ Sent! messageId=${(result as any).messageId}`);
+      console.log(`[SEND] Check Gmail for: "${subject}"`);
+      // Show final MIME dump from the actual send
+      if (fs.existsSync("/tmp/live-sent-mime.txt")) {
+        console.log("\n[SEND] Live MIME dump at: /tmp/live-sent-mime.txt");
+      }
     } else {
-      console.log("[SEND] ❌ Send failed");
+      console.log("[SEND] result:", JSON.stringify(result));
     }
   } else {
-    console.log("\n(Set SEND=1 to also fire a live test email to self)");
+    console.log("(Set SEND=1 to also fire a live test email)");
   }
 
   process.exit(allOk ? 0 : 1);
 }
 
 main().catch((e) => {
-  console.error("[FATAL]", e.message, e.stack);
+  console.error("[FATAL]", e.message, "\n", e.stack);
   process.exit(1);
 });

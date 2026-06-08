@@ -322,10 +322,17 @@ export async function extractCtaInlineImages(
   // ── Rewrite all matched src attributes in the full HTML ──────────────────
   let rewritten = html;
   for (const [src, cidImg] of seen.entries()) {
-    const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Match src="<exact-url>" anywhere in the HTML (both sig and body).
-    const pat = new RegExp(`(\\bsrc=")${escapedSrc}(")`,"g");
-    rewritten = rewritten.replace(pat, `$1cid:${cidImg.cid}$2`);
+    if (src.startsWith("data:")) {
+      // data: URIs are kilobytes of base64 — building a RegExp from them is
+      // both slow and throws "Invalid regular expression" in V8 when the
+      // escaped string contains regex meta-sequences. Use literal split/join.
+      rewritten = rewritten.split(`src="${src}"`).join(`src="cid:${cidImg.cid}"`);
+    } else {
+      const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Match src="<exact-url>" anywhere in the HTML (both sig and body).
+      const pat = new RegExp(`(\\bsrc=")${escapedSrc}(")`,"g");
+      rewritten = rewritten.replace(pat, `$1cid:${cidImg.cid}$2`);
+    }
   }
 
   // ── Integrity check ──────────────────────────────────────────────────────
@@ -403,11 +410,12 @@ function buildMimeRaw(
 
   // ── Inline image MIME parts ─────────────────────────────────────────────
   // These parts are always children of multipart/related, never multipart/mixed.
-  // RFC 2392: Content-ID links the part to the src="cid:…" reference in HTML.
-  // Content-Disposition: inline; filename="…" tells Apple Mail the part is
-  // inline-only and must NOT be surfaced as a download attachment card.
-  // name= on Content-Type + filename= on Content-Disposition are both required
-  // so that Apple Mail, Outlook, and Gmail all recognise the part as inline.
+  // RFC 2392 §2: Content-ID alone is sufficient to reference a CID image.
+  // Content-Disposition MUST be omitted entirely for CID parts — Apple Mail 16+
+  // (macOS Ventura/Sonoma, iOS 17+) interprets Content-Disposition: inline as
+  // "show this both inline AND as a downloadable attachment", producing a ghost
+  // attachment card for every signature image. Confirmed fix: no Content-Disposition.
+  // name= on Content-Type is kept for client compatibility (Gmail, Outlook).
   const inlineParts = (bnd: string): string[] =>
     inlineImages.flatMap((img) => {
       const b64 = img.data.toString("base64").match(/.{1,76}/g)?.join(R) ?? "";
@@ -417,7 +425,6 @@ function buildMimeRaw(
         `Content-Type: ${img.mimeType}; name="${fname}"`,
         `Content-Transfer-Encoding: base64`,
         `Content-ID: <${img.cid}>`,
-        `Content-Disposition: inline; filename="${fname}"`,
         ``,
         b64,
         ``,
