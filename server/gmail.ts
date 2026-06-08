@@ -4,6 +4,7 @@
 import fs from "fs";
 import path from "path";
 import { getGmailClient } from "./gmail-oauth";
+import { resolveCtaAsset } from "./services/cta-asset-resolver";
 
 function decodeBase64(data: string) {
   return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
@@ -232,42 +233,22 @@ export async function extractCtaInlineImages(
       if (seen.has(src)) continue;
 
       const rawExt = src.split("?")[0].split("/").pop()?.split(".").pop() ?? "png";
-      const mimeType = mimeTypeFromExt(rawExt.toLowerCase());
+      let mimeType = mimeTypeFromExt(rawExt.toLowerCase());
       let data: Buffer | null = null;
 
-      // Fast path – local /assets/cta/ file (no HTTP).
+      // Resolve /assets/cta/ URLs via DB-backed 4-step chain (DB → disk → localhost → public_url).
+      // Using the shared cta-asset-resolver service means the FINAL-CID-GATE inside sendEmail()
+      // also resolves UUID-named assets that survive production disk wipes.
       const ctaFileMatch = src.match(/\/assets\/cta\/([^"'?#\s]+)/);
       if (ctaFileMatch) {
-        const fp = path.join(ctaAssetsDir, ctaFileMatch[1]);
-        if (fs.existsSync(fp)) {
-          try { data = fs.readFileSync(fp); } catch (readErr: any) {
-            console.error(`[sig-cid] disk read error — path="${fp}" src="${src.slice(0,120)}" err="${readErr?.message}"`);
-          }
-        } else {
-          console.error(`[sig-cid] CTA file not found on disk — path="${fp}" src="${src.slice(0,120)}"`);
-          // Fallback: try fetching from the local Express server (handles cases where
-          // the file is served via a route but the direct path resolution differs).
-          // Relative /assets/cta/ paths are reachable at http://127.0.0.1:PORT/assets/cta/...
-          const port = process.env.PORT || 5000;
-          const localUrl = `http://127.0.0.1:${port}/assets/cta/${encodeURIComponent(ctaFileMatch[1])}`;
-          try {
-            const ctrl = new AbortController();
-            const t = setTimeout(() => ctrl.abort(), 8000);
-            const resp = await fetch(localUrl, { signal: ctrl.signal });
-            clearTimeout(t);
-            if (resp.ok) {
-              data = Buffer.from(await resp.arrayBuffer());
-              console.log(`[sig-cid] ✓ localhost fallback fetched — url="${localUrl}" bytes=${data.byteLength}`);
-            } else {
-              console.error(`[sig-cid] localhost fallback 404/error — url="${localUrl}" status=${resp.status}`);
-            }
-          } catch (fetchErr: any) {
-            console.error(`[sig-cid] localhost fallback fetch failed — url="${localUrl}" err="${fetchErr?.message}"`);
-          }
+        const _ctaResolved = await resolveCtaAsset(ctaFileMatch[1]);
+        if (_ctaResolved) {
+          data = _ctaResolved.data;
+          mimeType = _ctaResolved.mimeType;
         }
       }
 
-      // Slow path – fetch any other HTTP/HTTPS URL (10 s timeout — matches inlineImagesAsBase64).
+      // Non-CTA HTTP/HTTPS URL — direct fetch with 10 s timeout (leave URL as-is on failure).
       if (!data && (src.startsWith("https://") || src.startsWith("http://"))) {
         try {
           const ctrl = new AbortController();
@@ -309,25 +290,18 @@ export async function extractCtaInlineImages(
       const ctaMatch = src.match(/\/assets\/cta\/([^"'?#\s/]+)/);
       if (!ctaMatch) continue;
       const filename = ctaMatch[1]; // bare filename, e.g. "logo.png"
-      const filePath = path.join(ctaAssetsDir, filename);
-      try {
-        if (!fs.existsSync(filePath)) {
-          console.error(`[sig-cid] CTA file not found on disk — path="${filePath}" src="${src}"`);
-          continue;
-        }
-        const data = fs.readFileSync(filePath);
-        const ext = (filename.split(".").pop() ?? "png").toLowerCase();
-        // Use just the bare filename (last segment) for MIME name= and Content-Disposition filename=.
-        const fname = filename.split("/").pop() ?? filename;
-        seen.set(src, {
-          cid: `vsig${cidIndex++}${cidBase}`,
-          mimeType: mimeTypeFromExt(ext),
-          data,
-          filename: fname,
-        });
-      } catch (e: any) {
-        console.error(`[sig-cid] CTA file read error — path="${filePath}" error="${e?.message}"`);
+      const fname = filename.split("/").pop() ?? filename;
+      const _legacyResolved = await resolveCtaAsset(filename);
+      if (!_legacyResolved) {
+        console.error(`[sig-cid] CTA asset unresolvable — filename="${filename}" src="${src}"`);
+        continue;
       }
+      seen.set(src, {
+        cid: `vsig${cidIndex++}${cidBase}`,
+        mimeType: _legacyResolved.mimeType,
+        data: _legacyResolved.data,
+        filename: fname,
+      });
     }
   }
 

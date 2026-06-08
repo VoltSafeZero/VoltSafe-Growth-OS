@@ -38,8 +38,8 @@ check(
 );
 
 check(
-  "extractCtaInlineImages reads files from ctaAssetsDir",
-  gmailTs.includes("ctaAssetsDir") && gmailTs.includes("fs.readFileSync")
+  "extractCtaInlineImages resolves assets via ctaAssetsDir or DB-backed resolver",
+  gmailTs.includes("ctaAssetsDir") && (gmailTs.includes("resolveCtaAsset") || gmailTs.includes("fs.readFileSync"))
 );
 
 check(
