@@ -95,7 +95,7 @@ const routesSrc = fs.readFileSync(path.join(__dirname, "../server/routes.ts"), "
 
 console.log("── 2. routes.ts — immediate-send pipeline ──");
 assert("extractCtaInlineImages called in main send route",
-  routesSrc.includes("extractCtaInlineImages(ctaWrappedBody, CTA_ASSETS_DIR)"));
+  routesSrc.includes("extractCtaInlineImages(_dbResolvedBody, CTA_ASSETS_DIR)"));
 assert("_sigInlineImages variable used for CID images",
   routesSrc.includes("_sigInlineImages"));
 assert("CID inlining count logged",

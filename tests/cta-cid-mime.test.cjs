@@ -213,7 +213,7 @@ console.log("\n── 4. Send route (routes.ts) wiring ──");
 
 check(
   "extractCtaInlineImages called in main send route",
-  routesTs.includes("extractCtaInlineImages(ctaWrappedBody, CTA_ASSETS_DIR)")
+  routesTs.includes("extractCtaInlineImages(_dbResolvedBody, CTA_ASSETS_DIR)")
 );
 
 check(

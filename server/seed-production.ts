@@ -1494,6 +1494,44 @@ export async function migrateSignatureCtaAssetColumns(): Promise<void> {
   }
 }
 
+export async function migrateCtaFileData(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE cta_assets ADD COLUMN IF NOT EXISTS file_data BYTEA`);
+    console.log("[migration] cta_assets.file_data column ready.");
+    // Fire-and-forget backfill: populate file_data from disk for any existing
+    // asset rows that don't have bytes stored yet (idempotent on re-run).
+    (async () => {
+      try {
+        const assetsDir = path.resolve("uploads/cta-assets");
+        const rows = (await db.execute(sql`
+          SELECT id, filename, mime_type FROM cta_assets
+          WHERE file_data IS NULL AND is_archived = FALSE
+        `)).rows as any[];
+        let count = 0;
+        for (const row of rows) {
+          const fp = path.join(assetsDir, String(row.filename));
+          try {
+            if (!fs.existsSync(fp)) continue;
+            const buf = fs.readFileSync(fp);
+            const hex = buf.toString("hex");
+            await db.execute(sql.raw(
+              `UPDATE cta_assets SET file_data = decode('${hex}', 'hex') WHERE id = ${Number(row.id)}`
+            ));
+            count++;
+          } catch { /* skip individual asset failures */ }
+        }
+        if (count > 0) {
+          console.log(`[migration] cta_assets.file_data backfilled ${count} asset(s) from disk.`);
+        }
+      } catch (bfErr) {
+        console.warn("[migration] cta_assets.file_data disk backfill non-fatal:", bfErr);
+      }
+    })();
+  } catch (err) {
+    console.error("[migration] cta_assets.file_data error (non-fatal):", err);
+  }
+}
+
 export async function migrateSignatureCtaSchema(): Promise<void> {
   try {
     await db.execute(sql`
