@@ -1151,8 +1151,12 @@ function ComposeDialog({
       }
       if (!res.ok) {
         const err = new Error(data.message || "Send failed") as any;
-        err.draftId    = data.draftId    ?? null;
-        err.draftSaved = data.draftSaved ?? false;
+        err.draftId      = data.draftId      ?? null;
+        err.draftSaved   = data.draftSaved   ?? false;
+        err.cidGateError = data.cidGateError ?? false;
+        // Preserve the backend error detail (exact gate error text) separately
+        // from `message` so the toast can show it even when draftSaved is true.
+        err.detail = data.error ?? null;
         throw err;
       }
       return data;
@@ -1176,15 +1180,23 @@ function ComposeDialog({
       onClose();
     },
     onError: (err: any) => {
+      // Use the exact gate error text when available; otherwise fall back to message.
+      const errorDetail: string | null = err.detail || null;
       if (err.draftSaved && err.draftId) {
         // C2: Server saved content as Gmail draft — switch compose to draft-edit mode so user can retry.
         onTrustEvent?.({ type: "send-failed-draft-saved", at: Date.now() });
         setActiveDraftId(err.draftId);
         queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
-        toast({ title: "Send failed — saved as draft", description: "Your message was saved. Open Drafts to retry.", variant: "destructive" });
+        toast({
+          title: "Send failed — saved as draft",
+          description: errorDetail
+            ? `${errorDetail}\n\nYour message was saved. Open Drafts to retry.`
+            : "Your message was saved. Open Drafts to retry.",
+          variant: "destructive",
+        });
       } else {
         onTrustEvent?.({ type: "send-failed", at: Date.now() });
-        toast({ title: "Failed to send", description: err.message, variant: "destructive" });
+        toast({ title: "Failed to send", description: errorDetail || err.message, variant: "destructive" });
       }
     },
   });

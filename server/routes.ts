@@ -15311,12 +15311,28 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         recipients:      sentResults,
       });
     } catch (err: any) {
-      console.error(`[gmail-send] FAILED userId=${userId}: ${err.message}`);
-      // C2: Try to preserve the compose content as a Gmail draft before returning the error.
-      // This ensures the user never loses a composed email due to a transient API/network failure.
+      // Detect gate errors so we can return the exact failure reason to the frontend.
+      const isCidGateError = typeof err.message === "string" &&
+        err.message.startsWith("CID conversion failed before Gmail send");
+
+      if (isCidGateError) {
+        // Log structured details for the CID gate failure (leftoverUrls, counts, etc.)
+        const gateLines = err.message.split(/\n/).filter(Boolean);
+        console.error(`[gmail-send][FINAL-CID-GATE-FAIL] userId=${userId} gate blocked send:`);
+        for (const line of gateLines) console.error(`  ${line}`);
+      } else {
+        console.error(`[gmail-send] FAILED userId=${userId}: ${err.message}`);
+      }
+
+      // C2: Preserve compose content as a Gmail draft before returning the error.
+      // IMPORTANT: draft fallback MUST use saveDraft() — NOT sendEmail() — so it
+      // never runs through the FINAL-CID-GATE.  saveDraft() builds a plain MIME
+      // message with no CID inlining and no gate assertions.
       let draftId: string | null = null;
       let draftSaved = false;
       const toForDraft = req.body.to || "";
+      // Use raw req.body.body (pre-signature-assembly) so the draft is always
+      // saveable regardless of what caused the send failure.
       const bodyForDraft = req.body.body || "";
       const subjectForDraft = req.body.subject || "";
       const threadIdForDraft = req.body.threadId;
@@ -15333,9 +15349,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           console.error(`[gmail-send] draft fallback also failed: ${draftErr.message}`);
         }
       }
+
+      // For CID gate errors, set message = full gate error text so the frontend
+      // can display exactly what went wrong instead of a generic phrase.
+      const clientMessage = isCidGateError
+        ? err.message
+        : (draftSaved ? "Send failed — message saved as draft" : "Failed to send email");
+
       res.status(503).json({
-        message: draftSaved ? "Send failed — message saved as draft" : "Failed to send email",
+        message: clientMessage,
         error: err.message,
+        cidGateError: isCidGateError,
         draftId,
         draftSaved,
       });

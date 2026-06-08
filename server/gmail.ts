@@ -239,7 +239,32 @@ export async function extractCtaInlineImages(
       const ctaFileMatch = src.match(/\/assets\/cta\/([^"'?#\s]+)/);
       if (ctaFileMatch) {
         const fp = path.join(ctaAssetsDir, ctaFileMatch[1]);
-        try { if (fs.existsSync(fp)) data = fs.readFileSync(fp); } catch { /* unreadable */ }
+        if (fs.existsSync(fp)) {
+          try { data = fs.readFileSync(fp); } catch (readErr: any) {
+            console.error(`[sig-cid] disk read error — path="${fp}" src="${src.slice(0,120)}" err="${readErr?.message}"`);
+          }
+        } else {
+          console.error(`[sig-cid] CTA file not found on disk — path="${fp}" src="${src.slice(0,120)}"`);
+          // Fallback: try fetching from the local Express server (handles cases where
+          // the file is served via a route but the direct path resolution differs).
+          // Relative /assets/cta/ paths are reachable at http://127.0.0.1:PORT/assets/cta/...
+          const port = process.env.PORT || 5000;
+          const localUrl = `http://127.0.0.1:${port}/assets/cta/${encodeURIComponent(ctaFileMatch[1])}`;
+          try {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 8000);
+            const resp = await fetch(localUrl, { signal: ctrl.signal });
+            clearTimeout(t);
+            if (resp.ok) {
+              data = Buffer.from(await resp.arrayBuffer());
+              console.log(`[sig-cid] ✓ localhost fallback fetched — url="${localUrl}" bytes=${data.byteLength}`);
+            } else {
+              console.error(`[sig-cid] localhost fallback 404/error — url="${localUrl}" status=${resp.status}`);
+            }
+          } catch (fetchErr: any) {
+            console.error(`[sig-cid] localhost fallback fetch failed — url="${localUrl}" err="${fetchErr?.message}"`);
+          }
+        }
       }
 
       // Slow path – fetch any other HTTP/HTTPS URL (10 s timeout — matches inlineImagesAsBase64).
