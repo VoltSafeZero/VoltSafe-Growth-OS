@@ -194,20 +194,42 @@ const ASSETS_DIR = path.resolve("uploads/assets");
 if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true });
 
 const ALLOWED_ATTACHMENT_TYPES = new Set([
-  // Images & video
+  // Images
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif",
-  "image/svg+xml", "image/tiff", "image/bmp",
-  "video/mp4", "video/quicktime", "video/webm", "video/ogg",
+  "image/svg+xml", "image/tiff", "image/bmp", "image/avif", "image/ico", "image/x-icon",
+  // Video
+  "video/mp4", "video/quicktime", "video/webm", "video/ogg", "video/avi",
+  "video/x-msvideo", "video/mpeg", "video/3gpp", "video/x-matroska",
+  // Audio
+  "audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg", "audio/webm",
+  "audio/flac", "audio/aac", "audio/x-m4a", "audio/mp4",
   // Documents
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
+  "application/vnd.ms-excel", "application/vnd.ms-excel.sheet.macroEnabled.12",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "text/csv", "text/plain",
-  "application/zip",
+  "application/vnd.oasis.opendocument.text",
+  "application/vnd.oasis.opendocument.spreadsheet",
+  "application/vnd.oasis.opendocument.presentation",
+  "application/rtf", "text/rtf",
+  // Text / code
+  "text/csv", "text/plain", "text/html", "text/css", "text/xml",
+  "text/javascript", "text/typescript", "text/x-python", "text/x-java-source",
+  "text/x-c", "text/x-c++", "text/x-sh", "text/x-ruby", "text/x-go",
+  "text/x-rust", "text/x-swift", "text/x-kotlin", "text/x-scala",
+  "text/markdown", "text/x-yaml", "text/x-toml",
+  "application/json", "application/xml", "application/javascript",
+  "application/x-httpd-php", "application/x-sh",
+  // Archives
+  "application/zip", "application/x-zip-compressed",
+  "application/x-tar", "application/gzip", "application/x-gzip",
+  "application/x-7z-compressed", "application/x-rar-compressed",
+  "application/x-bzip2",
+  // Data / misc
+  "application/octet-stream",
 ]);
 
 // Parse "Name <a@x.com>, b@y.com, \"Doe, J.\" <c@z.com>" → ["a@x.com","b@y.com","c@z.com"]
@@ -234,16 +256,23 @@ const upload = multer({
       cb(null, crypto.randomUUID() + ext);
     },
   }),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
+    // Allow all file types that are in the explicit set, plus any image/video/audio/text.
+    // Unknown MIME types (e.g. proprietary formats) fall through via octet-stream.
     if (
       ALLOWED_ATTACHMENT_TYPES.has(file.mimetype) ||
       file.mimetype.startsWith("image/") ||
-      file.mimetype.startsWith("video/")
+      file.mimetype.startsWith("video/") ||
+      file.mimetype.startsWith("audio/") ||
+      file.mimetype.startsWith("text/") ||
+      file.mimetype === "application/octet-stream"
     ) {
       cb(null, true);
     } else {
-      cb(new Error("File type not supported. Allowed: images, videos, PDF, Word, Excel, CSV, ZIP"));
+      // For any remaining unknown type, still allow it — internal CRM users
+      // need to be able to attach any file (code, proprietary docs, etc.)
+      cb(null, true);
     }
   },
 });
@@ -6287,24 +6316,22 @@ export async function registerRoutes(
   });
 
   app.post("/api/attachments", requireAuth, (req, res, next) => {
-    upload.single("file")(req, res, (err) => {
+    upload.array("file", 20)(req, res, (err) => {
       if (err) {
         return res.status(400).json({ message: err.message || "Upload failed" });
       }
       next();
     });
   }, async (req, res) => {
-    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+    const files = (req.files as Express.Multer.File[]) ?? [];
+    if (files.length === 0) return res.status(400).json({ message: "No file uploaded" });
     const { objectType, objectId, category, title, notes, tags } = req.body;
     const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task", "tradeshow_event"];
     if (!objectType || !objectId || !allowedTypes.includes(objectType)) {
-      try { fs.unlinkSync(req.file.path); } catch {}
+      for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
       return res.status(400).json({ message: "Valid objectType and objectId required" });
     }
-    // Commit #5: section-aware edit gate. The GET handler already gates on
-    // attachmentSectionFor(objectType) at view-level — POST must require edit
-    // on the same section so a viewer cannot upload a file to a record they
-    // can only read.
+    // Section-aware edit gate — viewer cannot upload to a record they can only read.
     {
       const userId = (req.session as any).userId as number;
       const role = String((req.session as any).globalRole || "");
@@ -6315,51 +6342,53 @@ export async function registerRoutes(
           .from(users).where(eq(users.id, userId)).limit(1);
         const perms = (u?.permissions as Record<string, string>) || {};
         if ((perms[section] ?? "none") !== "edit") {
-          try { fs.unlinkSync(req.file.path); } catch {}
+          for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
           return res.status(403).json({
             message: `Edit access required on ${section} to upload attachments`,
           });
         }
       }
     }
-    try {
-      const attachment = await storage.createAttachment({
-        objectType,
-        objectId: Number(objectId),
-        fileName: req.file.filename,
-        originalName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        fileSize: req.file.size,
-        uploadedBy: req.session.userId ?? null,
-        uploadedByName: req.session.name ?? null,
-        category: category ?? "general",
-        title: title ?? null,
-        notes: notes ?? null,
-        tags: tags ? (Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean)) : null,
-        source: "upload",
-        url: null,
-      });
-      // Phase 6 — emit activity for notable document categories.
-      // Uses parameterized sql`` (NOT sql.raw with string concat) so a malicious
-      // filename or title cannot break out of the SQL string.
-      const NOTABLE_CATS = ["certification", "contract", "lab_report", "quote_proposal"];
-      if (NOTABLE_CATS.includes(attachment.category || "")) {
-        const docLabel = attachment.title || attachment.originalName || "document";
-        const catLabel = (attachment.category || "general").replace(/_/g, " ");
-        const uid = req.session.userId ?? null;
-        const summary = `${catLabel} uploaded: ${docLabel}`;
-        db.execute(sql`
-          INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
-          VALUES (${objectType}, ${Number(objectId)}, 'activity', 'Important document added', ${summary}, ${uid}, NOW())
-        `).catch(() => {});
+    const NOTABLE_CATS = ["certification", "contract", "lab_report", "quote_proposal"];
+    const created: any[] = [];
+    for (const file of files) {
+      try {
+        const attachment = await storage.createAttachment({
+          objectType,
+          objectId: Number(objectId),
+          fileName: file.filename,
+          originalName: file.originalname,
+          mimeType: file.mimetype,
+          fileSize: file.size,
+          uploadedBy: req.session.userId ?? null,
+          uploadedByName: req.session.name ?? null,
+          category: category ?? "general",
+          title: files.length === 1 ? (title ?? null) : null,
+          notes: files.length === 1 ? (notes ?? null) : null,
+          tags: files.length === 1 && tags ? (Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean)) : null,
+          source: "upload",
+          url: null,
+        });
+        if (NOTABLE_CATS.includes(attachment.category || "")) {
+          const docLabel = attachment.title || attachment.originalName || "document";
+          const catLabel = (attachment.category || "general").replace(/_/g, " ");
+          const uid = req.session.userId ?? null;
+          const summary = `${catLabel} uploaded: ${docLabel}`;
+          db.execute(sql`
+            INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_by, created_at)
+            VALUES (${objectType}, ${Number(objectId)}, 'activity', 'Important document added', ${summary}, ${uid}, NOW())
+          `).catch(() => {});
+        }
+        created.push(attachment);
+      } catch {
+        try { fs.unlinkSync(file.path); } catch {}
       }
-      res.status(201).json(attachment);
-      if (["lead","account","contact"].includes(objectType))
-        import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(objectType as any, Number(objectId), "attachment_uploaded")).catch(() => {});
-    } catch (e) {
-      try { fs.unlinkSync(req.file.path); } catch {}
-      res.status(500).json({ message: "Failed to save attachment" });
     }
+    if (created.length === 0) return res.status(500).json({ message: "Failed to save attachment(s)" });
+    if (["lead","account","contact"].includes(objectType))
+      import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(objectType as any, Number(objectId), "attachment_uploaded")).catch(() => {});
+    // Return single object for backward compat (single-file callers), or array for multi
+    res.status(201).json(created.length === 1 ? created[0] : created);
   });
 
   app.patch("/api/attachments/:id", requireAuth, async (req, res) => {

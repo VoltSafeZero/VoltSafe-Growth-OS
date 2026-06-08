@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,9 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, Paperclip, Upload, Trash2, FileImage, FileVideo, X,
-  File, FileText, Link2, Download, ExternalLink,
+  File, FileText, Link2, Download, ExternalLink, CheckCircle2,
+  AlertCircle, Music, Archive, Code2, FileSpreadsheet, FileType,
+  FileCog,
 } from "lucide-react";
 import type { Attachment } from "@shared/schema";
 import { DOCUMENT_CATEGORIES } from "@/pages/documents";
@@ -40,12 +42,47 @@ function getMimeIcon(mimeType: string, source: string) {
   if (source === "link") return Link2;
   if (mimeType.startsWith("image/")) return FileImage;
   if (mimeType.startsWith("video/")) return FileVideo;
-  if (mimeType === "application/pdf" || mimeType.includes("document") || mimeType.includes("word")) return FileText;
+  if (mimeType.startsWith("audio/")) return Music;
+  if (mimeType === "application/pdf") return FileText;
+  if (mimeType.includes("word") || mimeType.includes("document") || mimeType.includes("rtf") || mimeType.includes("opendocument.text")) return FileText;
+  if (mimeType.includes("excel") || mimeType.includes("spreadsheet") || mimeType.includes("csv") || mimeType.includes("opendocument.spreadsheet")) return FileSpreadsheet;
+  if (mimeType.includes("powerpoint") || mimeType.includes("presentation") || mimeType.includes("opendocument.presentation")) return FileType;
+  if (mimeType.includes("zip") || mimeType.includes("tar") || mimeType.includes("gzip") || mimeType.includes("7z") || mimeType.includes("rar") || mimeType.includes("bzip")) return Archive;
+  if (
+    mimeType.startsWith("text/") ||
+    mimeType.includes("javascript") || mimeType.includes("typescript") ||
+    mimeType.includes("python") || mimeType.includes("json") ||
+    mimeType.includes("xml") || mimeType.includes("php") ||
+    mimeType.includes("java") || mimeType.includes("ruby") ||
+    mimeType.includes("go") || mimeType.includes("rust") || mimeType.includes("sh")
+  ) return Code2;
+  if (mimeType.includes("octet-stream")) return FileCog;
   return File;
+}
+
+function getMimeIconColor(mimeType: string, source: string): string {
+  if (source === "link") return "text-primary";
+  if (mimeType.startsWith("image/")) return "text-violet-400";
+  if (mimeType.startsWith("video/")) return "text-rose-400";
+  if (mimeType.startsWith("audio/")) return "text-amber-400";
+  if (mimeType === "application/pdf") return "text-red-400";
+  if (mimeType.includes("word") || mimeType.includes("document") || mimeType.includes("rtf")) return "text-blue-400";
+  if (mimeType.includes("excel") || mimeType.includes("spreadsheet") || mimeType.includes("csv")) return "text-emerald-400";
+  if (mimeType.includes("powerpoint") || mimeType.includes("presentation")) return "text-orange-400";
+  if (mimeType.includes("zip") || mimeType.includes("tar") || mimeType.includes("gz") || mimeType.includes("7z") || mimeType.includes("rar")) return "text-yellow-500";
+  if (mimeType.startsWith("text/") || mimeType.includes("javascript") || mimeType.includes("json") || mimeType.includes("python")) return "text-teal-400";
+  return "text-muted-foreground";
 }
 
 function getCategoryMeta(key: string) {
   return DOCUMENT_CATEGORIES.find(c => c.key === key) ?? DOCUMENT_CATEGORIES[DOCUMENT_CATEGORIES.length - 1];
+}
+
+interface UploadQueueItem {
+  id: string;
+  file: File;
+  status: "uploading" | "done" | "error";
+  error?: string;
 }
 
 interface AttachmentsSectionProps {
@@ -115,9 +152,13 @@ function LinkDocumentModal({ open, onClose, objectType, objectId }: { open: bool
 export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [uploadCategory, setUploadCategory] = useState("general");
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
+  const dragCounter = useRef(0);
 
   const { data: attachmentsList = [], isLoading } = useQuery<Attachment[]>({
     queryKey: ["/api/attachments", objectType, objectId],
@@ -128,8 +169,10 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
     },
   });
 
-  const uploadMutation = useMutation({
-    mutationFn: async ({ file, category }: { file: File; category: string }) => {
+  const uploadFile = useCallback(async (file: File, category: string): Promise<void> => {
+    const queueId = crypto.randomUUID();
+    setUploadQueue(q => [...q, { id: queueId, file, status: "uploading" }]);
+    try {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("objectType", objectType);
@@ -144,17 +187,33 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
         const err = await res.json().catch(() => ({ message: "Upload failed" }));
         throw new Error(err.message);
       }
-      return res.json();
-    },
-    onSuccess: () => {
+      setUploadQueue(q => q.map(item => item.id === queueId ? { ...item, status: "done" } : item));
       queryClient.invalidateQueries({ queryKey: ["/api/attachments", objectType, objectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
-      toast({ title: "File uploaded" });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
-    },
-  });
+    } catch (err: any) {
+      setUploadQueue(q => q.map(item => item.id === queueId ? { ...item, status: "error", error: err.message } : item));
+      toast({ title: `Failed: ${file.name}`, description: err.message, variant: "destructive" });
+    }
+  }, [objectType, objectId, toast]);
+
+  const uploadFiles = useCallback((files: FileList | File[], category: string) => {
+    const arr = Array.from(files);
+    if (arr.length === 0) return;
+    arr.forEach(f => uploadFile(f, category));
+    if (arr.length > 1) {
+      toast({ title: `Uploading ${arr.length} files…` });
+    }
+  }, [uploadFile, toast]);
+
+  // Clear "done" queue items after a short delay
+  useEffect(() => {
+    const done = uploadQueue.filter(q => q.status === "done");
+    if (done.length === 0) return;
+    const timer = setTimeout(() => {
+      setUploadQueue(q => q.filter(item => item.status !== "done"));
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [uploadQueue]);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -166,23 +225,79 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
       toast({ title: "Deleted" });
     },
-    onError: () => {
-      toast({ title: "Delete failed", variant: "destructive" });
-    },
+    onError: () => toast({ title: "Delete failed", variant: "destructive" }),
   });
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) uploadMutation.mutate({ file, category: uploadCategory });
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      uploadFiles(e.target.files, uploadCategory);
+    }
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounter.current = 0;
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      uploadFiles(files, uploadCategory);
+    }
   };
 
   const isImage = (mime: string) => mime.startsWith("image/");
   const isVideo = (mime: string) => mime.startsWith("video/");
+  const isAudio = (mime: string) => mime.startsWith("audio/");
+
+  const activeUploads = uploadQueue.filter(q => q.status === "uploading");
+  const hasActivity = uploadQueue.length > 0;
 
   return (
-    <div className="space-y-3" data-testid="section-attachments">
-      <div className="flex items-center justify-between">
+    <div
+      ref={dropZoneRef}
+      className={`space-y-3 relative transition-colors rounded-xl ${isDragging ? "ring-2 ring-primary ring-offset-1 bg-primary/5" : ""}`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      data-testid="section-attachments"
+    >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-primary/60 bg-primary/8 pointer-events-none">
+          <Upload className="h-8 w-8 text-primary mb-2" />
+          <p className="text-sm font-semibold text-primary">Drop files here</p>
+          <p className="text-xs text-primary/70 mt-0.5">Any file type · up to 100 MB each</p>
+        </div>
+      )}
+
+      {/* Header toolbar */}
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Paperclip className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Documents</span>
@@ -200,8 +315,9 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             className="hidden"
-            onChange={handleFileSelect}
+            onChange={handleFileInputChange}
             data-testid="input-file-upload"
           />
           <Button
@@ -217,11 +333,11 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
             variant="outline"
             size="sm"
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploadMutation.isPending}
+            disabled={activeUploads.length > 0}
             className="h-7 text-[11px] px-2"
             data-testid="button-upload-file"
           >
-            {uploadMutation.isPending ? (
+            {activeUploads.length > 0 ? (
               <Loader2 className="h-3 w-3 animate-spin mr-1" />
             ) : (
               <Upload className="h-3 w-3 mr-1" />
@@ -231,24 +347,79 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
         </div>
       </div>
 
+      {/* Upload queue — in-progress and recently done */}
+      {hasActivity && (
+        <div className="space-y-1">
+          {uploadQueue.map(item => (
+            <div
+              key={item.id}
+              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
+                item.status === "uploading" ? "border-primary/20 bg-primary/5" :
+                item.status === "done" ? "border-emerald-500/20 bg-emerald-500/5" :
+                "border-destructive/20 bg-destructive/5"
+              }`}
+            >
+              {item.status === "uploading" && <Loader2 className="h-3 w-3 animate-spin text-primary flex-shrink-0" />}
+              {item.status === "done" && <CheckCircle2 className="h-3 w-3 text-emerald-500 flex-shrink-0" />}
+              {item.status === "error" && <AlertCircle className="h-3 w-3 text-destructive flex-shrink-0" />}
+              <span className={`truncate flex-1 ${item.status === "error" ? "text-destructive" : "text-foreground/80"}`}>
+                {item.file.name}
+              </span>
+              <span className="text-muted-foreground/60 flex-shrink-0">
+                {item.status === "uploading" ? "Uploading…" :
+                 item.status === "done" ? "Done" :
+                 (item.error ?? "Failed")}
+              </span>
+              {item.status === "error" && (
+                <button
+                  onClick={() => setUploadQueue(q => q.filter(x => x.id !== item.id))}
+                  className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {isLoading && (
         <div className="flex justify-center py-4">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         </div>
       )}
 
-      {!isLoading && attachmentsList.length === 0 && (
-        <p className="text-xs text-muted-foreground text-center py-3">No documents yet</p>
+      {/* Empty drop zone CTA */}
+      {!isLoading && attachmentsList.length === 0 && uploadQueue.length === 0 && (
+        <button
+          className="w-full flex flex-col items-center gap-2 py-6 rounded-lg border border-dashed border-border/50 bg-muted/20 hover:bg-muted/40 hover:border-primary/30 transition-colors cursor-pointer group"
+          onClick={() => fileInputRef.current?.click()}
+          data-testid="drop-zone-empty"
+        >
+          <Upload className="h-5 w-5 text-muted-foreground/50 group-hover:text-primary/60 transition-colors" />
+          <div className="text-center">
+            <p className="text-xs font-medium text-muted-foreground/70 group-hover:text-foreground/70 transition-colors">
+              Drop files here or click to upload
+            </p>
+            <p className="text-[10px] text-muted-foreground/40 mt-0.5">
+              Images, videos, docs, spreadsheets, code, archives — any file type
+            </p>
+          </div>
+        </button>
       )}
 
+      {/* Attachment list */}
       {attachmentsList.length > 0 && (
         <div className="space-y-1.5">
           {attachmentsList.map((att) => {
             const MimeIcon = getMimeIcon(att.mimeType, att.source ?? "upload");
+            const iconColor = getMimeIconColor(att.mimeType, att.source ?? "upload");
             const catMeta = getCategoryMeta(att.category ?? "general");
             const CatIcon = catMeta.icon;
             const isImg = isImage(att.mimeType);
             const isVid = isVideo(att.mimeType);
+            const isAud = isAudio(att.mimeType);
+            const clickable = isImg || isVid || isAud;
 
             return (
               <div
@@ -258,8 +429,8 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
               >
                 {/* Icon / thumbnail */}
                 <div
-                  className="w-8 h-8 rounded-md bg-muted/30 flex items-center justify-center shrink-0 cursor-pointer overflow-hidden"
-                  onClick={() => (isImg || isVid) && setPreviewAttachment(att)}
+                  className={`w-8 h-8 rounded-md bg-muted/30 flex items-center justify-center shrink-0 overflow-hidden ${clickable ? "cursor-pointer hover:ring-1 hover:ring-primary/30 transition-all" : ""}`}
+                  onClick={() => clickable && setPreviewAttachment(att)}
                 >
                   {isImg ? (
                     <img src={`/api/attachments/file/${att.fileName}`} alt={att.originalName} className="w-full h-full object-cover" loading="lazy" />
@@ -268,7 +439,7 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
                   ) : att.source === "link" ? (
                     <Link2 className="h-3.5 w-3.5 text-primary" />
                   ) : (
-                    <MimeIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    <MimeIcon className={`h-3.5 w-3.5 ${iconColor}`} />
                   )}
                 </div>
 
@@ -311,18 +482,23 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
               </div>
             );
           })}
+
+          {/* Drop hint when list is non-empty */}
+          <p className="text-[10px] text-muted-foreground/40 text-center pt-1 select-none">
+            Drop more files anywhere in this section to upload
+          </p>
         </div>
       )}
 
-      {/* Image/video preview lightbox */}
+      {/* Lightbox preview — images, video, audio */}
       {previewAttachment && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85"
           onClick={() => setPreviewAttachment(null)}
           data-testid="attachment-preview-overlay"
         >
           <button
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white transition-colors"
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
             onClick={() => setPreviewAttachment(null)}
             data-testid="button-close-preview"
           >
@@ -345,6 +521,12 @@ export function AttachmentsSection({ objectType, objectId }: AttachmentsSectionP
                 autoPlay
                 className="max-w-full max-h-[85vh] rounded-lg"
               />
+            ) : isAudio(previewAttachment.mimeType) ? (
+              <div className="bg-card rounded-2xl p-8 flex flex-col items-center gap-4 shadow-2xl">
+                <Music className="h-12 w-12 text-amber-400" />
+                <p className="text-sm font-medium text-foreground">{previewAttachment.originalName}</p>
+                <audio src={`/api/attachments/file/${previewAttachment.fileName}`} controls autoPlay className="w-72" />
+              </div>
             ) : null}
           </div>
           <p className="absolute bottom-4 text-sm text-white/70">
