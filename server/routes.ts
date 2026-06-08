@@ -7015,6 +7015,163 @@ export async function registerRoutes(
     res.json(allUsers);
   });
 
+  // ── Admin — User Signature Management (master_admin only) ─────────────────────
+  // canManageAnyUserSignature: only master_admin role may view or edit other users' signatures.
+  // Regular admin is intentionally excluded — backend enforces this regardless of UI state.
+  function canManageAnyUserSignature(session: any): boolean {
+    return String(session?.globalRole || "") === "master_admin";
+  }
+
+  // GET /api/admin/users/signatures — list all users with signature status
+  app.get("/api/admin/users/signatures", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      if (!canManageAnyUserSignature(req.session)) {
+        return res.status(403).json({ message: "Master Admin access required to manage user signatures" });
+      }
+      const rows = (await db.execute(sql.raw(`
+        SELECT
+          u.id AS user_id, u.name, u.email, u.global_role,
+          es.id AS sig_id, es.name AS sig_name, es.is_default,
+          es.updated_at, es.cta_image_url
+        FROM users u
+        LEFT JOIN email_signatures es ON es.user_id = u.id AND es.is_default = TRUE
+        ORDER BY u.name ASC
+      `))).rows as any[];
+      const hasAnySig = new Set(
+        ((await db.execute(sql.raw(`SELECT DISTINCT user_id FROM email_signatures`))).rows as any[])
+          .map((r: any) => Number(r.user_id))
+      );
+      res.json(rows.map(r => ({
+        userId: Number(r.user_id),
+        name: r.name,
+        email: r.email,
+        globalRole: r.global_role,
+        hasSignature: hasAnySig.has(Number(r.user_id)),
+        sigName: r.sig_name ?? null,
+        updatedAt: r.updated_at ?? null,
+      })));
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/admin/users/:userId/signature — get a specific user's signature data
+  app.get("/api/admin/users/:userId/signature", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      if (!canManageAnyUserSignature(req.session)) {
+        return res.status(403).json({ message: "Master Admin access required to manage user signatures" });
+      }
+      const targetUserId = parseInt(req.params.userId);
+      if (isNaN(targetUserId)) return res.status(400).json({ message: "Invalid userId" });
+      const [targetUser] = await db.select({ id: users.id, name: users.name, email: users.email })
+        .from(users).where(eq(users.id, targetUserId)).limit(1);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
+      const baseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
+      const fixImgUrl = (u: string | null) => {
+        if (!u) return u;
+        const m = u.match(/\/assets\/cta\/([^/?#\s]+)$/);
+        return m ? `${baseUrl}/assets/cta/${m[1]}` : u;
+      };
+      const fixHtml = (html: string) =>
+        (html || "").replace(
+          /src="([^"]*\/assets\/cta\/([A-Za-z0-9_][A-Za-z0-9_ .\-]*\.[a-zA-Z]+))"/g,
+          (_: string, _full: string, fname: string) => `src="${baseUrl}/assets/cta/${fname}"`
+        );
+      const sigs = await db.select().from(emailSignatures)
+        .where(eq(emailSignatures.userId, targetUserId))
+        .orderBy(desc(emailSignatures.isDefault), asc(emailSignatures.createdAt));
+      const sig = sigs[0] ? {
+        ...sigs[0],
+        ctaImageUrl: fixImgUrl((sigs[0] as any).ctaImageUrl ?? null),
+        htmlContent: fixHtml((sigs[0] as any).htmlContent ?? ""),
+      } : null;
+      res.json({ user: targetUser, signature: sig });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // PUT /api/admin/users/:userId/signature — upsert a user's signature (master_admin only)
+  app.put("/api/admin/users/:userId/signature", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const actorId = (req.session as any).userId as number;
+      if (!canManageAnyUserSignature(req.session)) {
+        return res.status(403).json({ message: "Master Admin access required to manage user signatures" });
+      }
+      const targetUserId = parseInt(req.params.userId);
+      if (isNaN(targetUserId)) return res.status(400).json({ message: "Invalid userId" });
+      const [targetUser] = await db.select({ id: users.id, name: users.name }).from(users)
+        .where(eq(users.id, targetUserId)).limit(1);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
+      const { name, htmlContent, plainTextContent, ctaImageUrl, ctaDestUrl, ctaAltText, ctaWidthPx } = req.body;
+      if (!name?.trim() || !htmlContent?.trim()) {
+        return res.status(400).json({ message: "name and htmlContent are required" });
+      }
+      // CTA asset guard (same as self-service endpoint)
+      if (ctaImageUrl) {
+        const _ctaFn = String(ctaImageUrl).match(/\/assets\/cta\/([^/?#\s]+)$/)?.[1];
+        if (_ctaFn) {
+          const sf = _ctaFn.replace(/'/g, "''");
+          const _ctaValid = (await db.execute(sql.raw(
+            `SELECT id FROM cta_assets WHERE (filename = '${sf}' OR public_url LIKE '%/${sf}') ` +
+            `AND is_archived = FALSE AND file_data IS NOT NULL AND octet_length(file_data) > 0 LIMIT 1`,
+          ))).rows;
+          if (_ctaValid.length === 0) {
+            return res.status(400).json({ message: `Signature references archived or missing CTA asset: ${_ctaFn}.` });
+          }
+        }
+      }
+      // Normalize + sanitize HTML (same pipeline as self-service routes)
+      const _docTags = detectDocumentTags(htmlContent);
+      if (_docTags.any) console.log(`[admin-sig] actor=${actorId} target=${targetUserId}: stripping doc wrapper tags`);
+      const _normalized = normalizeSignatureHtml(htmlContent);
+      const cleanHtml = sanitizeSignatureHtml(_normalized);
+      // Upsert: update existing default sig, or create new one
+      const existingSigs = await db.select().from(emailSignatures)
+        .where(eq(emailSignatures.userId, targetUserId))
+        .orderBy(desc(emailSignatures.isDefault), asc(emailSignatures.createdAt));
+      let result;
+      if (existingSigs.length > 0) {
+        const sigToUpdate = existingSigs[0];
+        // Always mark target sig as default (admin managing = canonical sig)
+        await db.update(emailSignatures).set({ isDefault: false })
+          .where(eq(emailSignatures.userId, targetUserId));
+        const [updated] = await db.update(emailSignatures).set({
+          name: name.trim(),
+          htmlContent: cleanHtml,
+          plainTextContent: plainTextContent ?? null,
+          isDefault: true,
+          ctaImageUrl: ctaImageUrl || null,
+          ctaDestUrl: ctaDestUrl || null,
+          ctaAltText: ctaAltText || null,
+          ctaWidthPx: ctaWidthPx ? Number(ctaWidthPx) : null,
+          updatedAt: new Date(),
+        }).where(eq(emailSignatures.id, sigToUpdate.id)).returning();
+        result = updated;
+      } else {
+        const [created] = await db.insert(emailSignatures).values({
+          userId: targetUserId,
+          name: name.trim(),
+          htmlContent: cleanHtml,
+          plainTextContent: plainTextContent ?? null,
+          isDefault: true,
+          ctaImageUrl: ctaImageUrl || null,
+          ctaDestUrl: ctaDestUrl || null,
+          ctaAltText: ctaAltText || null,
+          ctaWidthPx: ctaWidthPx ? Number(ctaWidthPx) : null,
+        }).returning();
+        result = created;
+      }
+      // Audit log
+      await db.insert(activities).values({
+        type: "admin_signature_update",
+        description: `Master Admin (id=${actorId}) updated email signature for ${targetUser.name} (id=${targetUserId})`,
+        userId: actorId,
+        linkedObjectType: "user",
+        linkedObjectId: targetUserId,
+        metadata: { actorUserId: actorId, targetUserId, sigName: name.trim() },
+      } as any).catch(() => {});
+      console.log(`[admin-sig] actor=${actorId} saved signature for target=${targetUserId} (${targetUser.name})`);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
   // PATCH /api/admin/users/:id/permissions — update granular access permissions
   const accessLevelSchema = z.enum(["none", "view", "edit"]);
   const permissionsBodySchema = z.object({

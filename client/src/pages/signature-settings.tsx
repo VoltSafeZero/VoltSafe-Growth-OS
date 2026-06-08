@@ -23,7 +23,7 @@ import {
   Upload, Images, Image, ImageOff,
 } from "lucide-react";
 
-type EmailSignature = {
+export type EmailSignature = {
   id: number;
   name: string;
   htmlContent: string;
@@ -66,7 +66,7 @@ type CtaAsset = {
   has_file_data?: boolean;
 };
 
-type SigFields = {
+export type SigFields = {
   fullName: string;
   jobTitle: string;
   company: string;
@@ -82,20 +82,20 @@ type SigFields = {
   brandColor: string;
 };
 
-const DEFAULT_FIELDS: SigFields = {
+export const DEFAULT_FIELDS: SigFields = {
   fullName: "", jobTitle: "", company: "", email: "", phone: "", mobile: "",
   website: "", address: "", linkedin: "", twitter: "", instagram: "", youtube: "",
   brandColor: "#00C1DE",
 };
 
-type CtaConfig = {
+export type CtaConfig = {
   imageUrl: string;
   destUrl: string;
   altText: string;
   widthPx: string;
 };
 
-const DEFAULT_CTA_CONFIG: CtaConfig = {
+export const DEFAULT_CTA_CONFIG: CtaConfig = {
   imageUrl: "",
   destUrl: "",
   altText: "Watch a Demo",
@@ -143,7 +143,7 @@ function safeUrl(url: string): string {
   return url;
 }
 
-function buildSignatureHtml(f: SigFields): string {
+export function buildSignatureHtml(f: SigFields): string {
   const color = f.brandColor || "#00C1DE";
   const phoneLinks: string[] = [];
   if (f.phone) phoneLinks.push(`<b style="color:#555;">P:</b> <a href="tel:${esc(f.phone)}" style="text-decoration:none;color:#787f84;">${esc(f.phone)}</a>`);
@@ -192,7 +192,7 @@ function buildSignatureHtml(f: SigFields): string {
   return leftContent;
 }
 
-function htmlToPlainText(html: string): string {
+export function htmlToPlainText(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/p>/gi, "\n")
@@ -205,7 +205,7 @@ function htmlToPlainText(html: string): string {
     .trim();
 }
 
-function wrapHtmlWithCta(baseHtml: string, cta: CtaConfig): string {
+export function wrapHtmlWithCta(baseHtml: string, cta: CtaConfig): string {
   if (!cta.imageUrl || !cta.destUrl) return baseHtml;
   const alt = (cta.altText || "Watch a Demo").replace(/"/g, "&quot;");
   const dest = safeUrl(cta.destUrl).replace(/"/g, "&quot;");
@@ -394,14 +394,16 @@ function BuilderForm({
 
 // ─── Create / Edit Dialog ─────────────────────────────────────────────────────
 
-function SignatureDialog({
+export function SignatureDialog({
   open,
   onClose,
   existing,
+  adminTargetUser,
 }: {
   open: boolean;
   onClose: () => void;
   existing?: EmailSignature | null;
+  adminTargetUser?: { id: number; name: string; email: string };
 }) {
   const { toast } = useToast();
   const [name, setName] = useState(() => existing?.name ?? "");
@@ -457,6 +459,13 @@ function SignatureDialog({
         ctaAltText: ctaConfig.altText || null,
         ctaWidthPx: ctaConfig.widthPx ? Number(ctaConfig.widthPx) : null,
       };
+      // Admin path: upsert via master-admin-only endpoint
+      if (adminTargetUser) {
+        const res = await apiRequest("PUT", `/api/admin/users/${adminTargetUser.id}/signature`, body);
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message || "Failed to save"); }
+        return res.json();
+      }
+      // Self-service path
       if (existing) {
         const res = await apiRequest("PUT", `/api/signatures/${existing.id}`, body);
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message || "Failed to save"); }
@@ -468,8 +477,12 @@ function SignatureDialog({
       }
     },
     onSuccess: () => {
-      toast({ title: existing ? "Signature updated" : "Signature created" });
+      toast({ title: adminTargetUser ? `Signature saved for ${adminTargetUser.name}` : existing ? "Signature updated" : "Signature created" });
       queryClient.invalidateQueries({ queryKey: ["/api/signatures"] });
+      if (adminTargetUser) {
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/users/signatures"] });
+        queryClient.invalidateQueries({ queryKey: [`/api/admin/users/${adminTargetUser.id}/signature`] });
+      }
       onClose();
     },
     onError: (err: any) => toast({ title: "Failed to save signature", description: err.message, variant: "destructive" }),
@@ -479,9 +492,15 @@ function SignatureDialog({
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>{existing ? "Edit Signature" : "New Signature"}</DialogTitle>
+          <DialogTitle>
+            {adminTargetUser
+              ? `Edit Signature — ${adminTargetUser.name}`
+              : existing ? "Edit Signature" : "New Signature"}
+          </DialogTitle>
           <DialogDescription>
-            {existing ? "Update your email signature." : "Create a new email signature to use in your outgoing emails."}
+            {adminTargetUser
+              ? `Editing signature for: ${adminTargetUser.name} <${adminTargetUser.email}>`
+              : existing ? "Update your email signature." : "Create a new email signature to use in your outgoing emails."}
           </DialogDescription>
         </DialogHeader>
 
