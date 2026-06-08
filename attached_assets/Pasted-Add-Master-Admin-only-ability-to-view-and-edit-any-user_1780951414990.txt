@@ -1,0 +1,147 @@
+Add Master Admin-only ability to view and edit any user's email signature.
+
+Goal:
+Master/Super Admin users must be able to see, create, edit, and save the email signature settings for any VoltSafe Mail user. This is needed so the company can centrally manage user signatures, CTA images, titles, phone numbers, branding, etc.
+
+Permissions:
+- Only Master Admin / Super Admin users can access this capability.
+- Regular users can still only view/edit their own signature.
+- Regular admins should NOT automatically get this unless they also have the master/super admin role.
+- Backend must enforce this. Do not rely only on frontend hiding.
+- Any unauthorized attempt must return 403.
+
+Find existing signature routes and UI:
+Search for:
+- signature-settings
+- buildSignatureHtml
+- /api/signature
+- /api/email-signature
+- user signature
+- ctaImageUrl
+- ctaDestUrl
+- currentUser
+- isMasterAdmin
+- role
+- admin
+
+Backend requirements:
+
+1. Add/confirm a reusable permission helper:
+   - canManageAnyUserSignature(req.user)
+   - Returns true only for master/super admin users.
+   - Use the existing role/permissions system. Do not invent a second disconnected auth system.
+
+2. Add Master Admin routes:
+
+GET /api/admin/users/signatures
+Returns a list of users with signature status:
+- userId
+- name
+- email
+- role
+- hasSignature
+- updatedAt
+- signaturePreviewHtml if safe/available, or basic fields needed for list view
+
+GET /api/admin/users/:userId/signature
+Returns the selected user's full signature settings/data.
+
+PUT /api/admin/users/:userId/signature
+Updates/creates the selected user's signature settings.
+
+3. Authorization rules:
+- If req.user is not master/super admin, return 403.
+- Master Admin can target any userId.
+- Normal user endpoint remains scoped to req.user.id only.
+- Do not allow a normal user to pass ?userId= or body.userId to edit another user's signature.
+- Validate the target user exists before saving.
+- Log admin signature changes with actorUserId and targetUserId.
+
+4. Reuse existing signature save/build logic:
+- Do not create a separate inconsistent signature builder.
+- The admin edit path must use the exact same buildSignatureHtml logic as the user self-edit path.
+- CTA image sizing rules must remain intact:
+  - CTA img width="200"
+  - style contains width:200px
+  - max-width:200px
+  - min-width:200px
+  - parent CTA td width="224"
+  - outer signature table width="620"
+  - table-layout:fixed
+- CID extraction must keep working.
+
+5. Database:
+Use the existing signature table if one exists.
+If signatures are currently stored by user_id, use that.
+If there is no unique constraint, add/confirm uniqueness on user_id so each user has one active signature record unless the current product intentionally supports multiple signatures.
+
+6. Frontend requirements:
+
+Add a Master Admin-only UI section, likely under Settings/Admin:
+Title: "User Signatures"
+
+It should include:
+- Search users by name/email
+- User list/table:
+  - Name
+  - Email
+  - Role
+  - Signature status
+  - Last updated
+  - Edit button
+- Clicking Edit opens the existing signature editor loaded with that user's signature data.
+- The editor should clearly show:
+  "Editing signature for: [Name] <email>"
+- Save button updates that selected user's signature.
+- Master Admin should be able to create a signature if the user does not have one yet.
+- Add a clear Cancel/Back button to return to user list.
+
+7. Frontend access control:
+- Hide the User Signatures admin panel unless current user is master/super admin.
+- Still rely on backend 403 as the source of truth.
+
+8. Safety:
+- Do not expose email bodies, inbox data, OAuth tokens, Gmail settings, or private user content here.
+- This feature is only for signature settings.
+- Sanitize/validate HTML exactly as existing signature save does.
+- Do not allow arbitrary script tags, event handlers, iframe tags, or dangerous URLs.
+- Preserve allowed links/images used by the existing signature builder.
+
+9. Tests:
+Add/adjust tests for:
+
+Backend permissions:
+- Master Admin can list users/signatures.
+- Master Admin can fetch another user's signature.
+- Master Admin can update another user's signature.
+- Regular admin cannot fetch/update another user's signature.
+- Regular user cannot fetch/update another user's signature.
+- Regular user can still update own signature.
+- Passing another userId into normal self-service endpoint is ignored or rejected.
+
+Signature consistency:
+- Admin-updated signature uses the same builder as self-updated signature.
+- CTA sizing remains:
+  - width="200"
+  - width:200px
+  - max-width:200px
+  - min-width:200px
+  - no max-width:100% on CTA image
+  - parent td width="224"
+  - table-layout:fixed
+
+Audit/logging:
+- Admin update records actor user and target user.
+
+10. Run:
+npm run test:grep signature
+npm run test:grep admin
+npm run test:grep permissions
+npm run test:grep mail
+
+Return:
+- files changed
+- new API endpoints
+- how Master Admin is detected
+- screenshots or description of the new UI location
+- test results
