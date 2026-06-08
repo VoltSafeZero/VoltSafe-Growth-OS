@@ -134,6 +134,9 @@ type ThreadAttachment = {
 
 type ThreadMessage = {
   id: string;
+  /** Same as `id` — the Gmail message ID. Present when source=local so the
+   *  MessageBody CID-image proxy can resolve inline signature images. */
+  gmailMessageId?: string;
   threadId: string;
   snippet: string;
   internalDate: string;
@@ -2478,8 +2481,13 @@ function MessageBody({
     // 1. Resolve cid: references BEFORE DOMPurify (DOMPurify strips cid: URIs by
     //    default). Replace src="cid:xxx" with a backend proxy URL that fetches the
     //    inline image part from Gmail API.
-    if (gmailMessageId && /src="cid:/i.test(resolved)) {
+    if (gmailMessageId && /src=["']cid:/i.test(resolved)) {
+      // Handle both double-quoted (src="cid:...") and single-quoted (src='cid:...')
+      // attribute forms — rich-text editors sometimes produce single-quote attrs.
       resolved = resolved.replace(/\bsrc="cid:([^"]+)"/gi, (_, cid) =>
+        `src="/api/gmail/messages/${encodeURIComponent(gmailMessageId)}/cid-image/${encodeURIComponent(cid)}"`
+      );
+      resolved = resolved.replace(/\bsrc='cid:([^']+)'/gi, (_, cid) =>
         `src="/api/gmail/messages/${encodeURIComponent(gmailMessageId)}/cid-image/${encodeURIComponent(cid)}"`
       );
     }
@@ -9855,7 +9863,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             <MessageBody
                               body={msg.body}
                               isHtml={msg.isHtml}
-                              gmailMessageId={msg.gmailMessageId}
+                              gmailMessageId={msg.gmailMessageId || msg.id}
                               calendarAttachmentId={ics?.id}
                               headerLeft={isLatest && canSend ? (
                                 <EmailFormatToolbar
@@ -9876,13 +9884,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       );
                     })()}
                     {/* Attachment strip (Phase 2E) — bigger & grid-laid in Focus Mode */}
-                    {Array.isArray((msg as any).attachments) && (msg as any).attachments.filter((a: any) => !a.isInline).length > 0 && (
+                    {Array.isArray((msg as any).attachments) && (msg as any).attachments.filter((a: any) => !a.isInline && !a.contentId).length > 0 && (
                       <div className={`bg-background/30 border-t border-border/20 ${focusMode ? "px-6 md:px-8 pb-6 pt-4" : "px-5 pb-4 pt-1"}`}>
                         <div className={`uppercase tracking-wider text-muted-foreground/60 ${focusMode ? "text-[11px] mb-3 font-semibold" : "text-[10px] mb-2"}`}>
-                          {(msg as any).attachments.filter((a: any) => !a.isInline).length} attachment{(msg as any).attachments.filter((a: any) => !a.isInline).length === 1 ? "" : "s"}
+                          {(msg as any).attachments.filter((a: any) => !a.isInline && !a.contentId).length} attachment{(msg as any).attachments.filter((a: any) => !a.isInline && !a.contentId).length === 1 ? "" : "s"}
                         </div>
                         <div className={focusMode ? "grid grid-cols-1 sm:grid-cols-2 gap-2.5" : "flex flex-wrap gap-2"}>
-                          {(msg as any).attachments.filter((a: any) => !a.isInline).map((a: any, i: number) => {
+                          {(msg as any).attachments.filter((a: any) => !a.isInline && !a.contentId).map((a: any, i: number) => {
                             // Clickable only when we have a DB id AND Gmail has fetchable bytes
                             // for it (downloadable=true means gmail_attachment_id IS NOT NULL).
                             // Without that guard, some inline-but-not-isInline parts would

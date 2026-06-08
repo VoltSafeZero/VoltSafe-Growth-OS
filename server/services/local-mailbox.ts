@@ -665,6 +665,9 @@ export async function getLocalThread(p: { resolved: Resolved; threadId: string }
     const sentAt = r.sent_at ? new Date(r.sent_at) : null;
     return {
       id: r.gmail_message_id,
+      // Explicitly expose gmailMessageId so the frontend CID-image proxy can
+      // use it without relying on the id field being the same value.
+      gmailMessageId: r.gmail_message_id,
       threadId: r.gmail_thread_id,
       snippet: r.snippet || "",
       internalDate: sentAt ? String(sentAt.getTime()) : "0",

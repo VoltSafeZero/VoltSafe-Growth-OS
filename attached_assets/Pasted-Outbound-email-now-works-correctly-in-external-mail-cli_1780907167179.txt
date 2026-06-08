@@ -1,0 +1,85 @@
+Outbound email now works correctly in external mail clients. Gmail, Spark, Apple Mail, etc. render the signature CTA images correctly.
+
+Remaining bug:
+VoltSafe Mail’s own message viewer does not render the received inline CID images correctly.
+
+Current VoltSafe Mail behavior:
+- The message body shows broken image icons where inline signature images should appear.
+- The inline CID images also appear as normal attachments:
+  - sig-image-1.png
+  - sig-image-2.png
+
+Diagnosis:
+The send pipeline is now correct. The remaining issue is the inbound/read/render pipeline. VoltSafe Mail is not resolving cid: image references in the HTML body to the matching MIME inline image parts. It is also displaying inline CID image parts as normal downloadable attachments.
+
+Required fix:
+Update the VoltSafe Mail message reading/rendering pipeline so inline CID attachments are treated as inline resources, not normal attachments.
+
+Tasks:
+
+1. Inspect the inbound Gmail message read path:
+   - Gmail API message fetch
+   - MIME parser
+   - attachment extraction
+   - message body sanitizer/renderer
+   - MessageBody component or equivalent UI rendering component
+
+2. For every MIME part with:
+   - Content-ID header present, or
+   - Content-Disposition: inline, or
+   - filename matching sig-image-*.png from CID send pipeline
+   treat it as an inline image resource.
+
+3. Build a cid map:
+   - key should normalize Content-ID by removing < and >
+   - also support cid values with/without angle brackets
+   - map cid -> attachment blob/data URL/download URL
+
+Example:
+HTML body contains:
+<img src="cid:vsig0abc123">
+
+MIME part contains:
+Content-ID: <vsig0abc123>
+
+Renderer should replace:
+src="cid:vsig0abc123"
+
+with:
+src="<safe blob URL or data URL for that MIME part>"
+
+4. Do not show inline CID images in the normal attachments list.
+   Normal attachments list should exclude any attachment/part where:
+   - contentId exists, or
+   - disposition is inline, or
+   - the cid map consumed it
+
+5. Preserve real attachments.
+   Do not hide PDFs, docs, or non-inline files unless they have Content-ID/disposition inline and are referenced by cid: in the HTML.
+
+6. Add diagnostics:
+   When opening an email, log:
+   - number of cid: refs found in HTML
+   - number of MIME parts with Content-ID
+   - which cid refs were matched
+   - which cid refs were missing
+   - which attachments were hidden from attachment list because they are inline
+
+7. Add tests:
+   - HTML with <img src="cid:abc"> and MIME part Content-ID <abc> renders image
+   - cid matching works with and without angle brackets
+   - inline CID images are not displayed in attachments list
+   - real attachments still display
+   - missing CID ref leaves a safe placeholder/broken image indicator
+   - multiple CID images render correctly
+
+Important:
+Do not change the outbound send/MIME pipeline. External clients already prove that outbound MIME is correct.
+Fix only the inbound VoltSafe Mail render/read path.
+
+Final proof:
+- Send/receive the same signature email
+- Open it in VoltSafe Mail
+- Both signature images render inline
+- No sig-image-1.png / sig-image-2.png appear as attachments
+- Real attachments still appear normally

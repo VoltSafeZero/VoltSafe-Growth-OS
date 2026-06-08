@@ -122,7 +122,15 @@ function extractAttachments(payload: any, out: ParsedAttachment[] = []): ParsedA
   const isAttachmentDisp = /^attachment/i.test(disposition);
   const isInlineDisp = /^inline/i.test(disposition);
 
-  if ((hasFilename || hasAttachId || isAttachmentDisp || (isInlineDisp && contentId)) &&
+  // RFC 2392: any part carrying a Content-ID header is an inline CID part
+  // referenced by the HTML body, regardless of whether it also has a filename
+  // in Content-Type (name=...). Our send pipeline intentionally omits
+  // Content-Disposition on CID parts to prevent Apple Mail from showing a
+  // ghost attachment card, so isInlineDisp is always false for these parts.
+  // The old formula `!hasFilename && !!contentId` incorrectly set isInline=false
+  // for CID images like sig-image-1.png (which DO have a name= in Content-Type).
+  const isInline = isInlineDisp || !!contentId;
+  if ((hasFilename || hasAttachId || isAttachmentDisp || isInline) &&
       payload.mimeType && !payload.mimeType.startsWith("multipart/")) {
     out.push({
       gmailAttachmentId: payload.body?.attachmentId || null,
@@ -130,7 +138,7 @@ function extractAttachments(payload: any, out: ParsedAttachment[] = []): ParsedA
       mimeType: payload.mimeType || "application/octet-stream",
       sizeBytes: Number(payload.body?.size || 0),
       contentId,
-      isInline: isInlineDisp || (!hasFilename && !!contentId),
+      isInline,
       partId: payload.partId || null,
     });
   }
