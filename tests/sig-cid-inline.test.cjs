@@ -45,24 +45,21 @@ assert("multipart/related boundary emitted",
   gmailSrc.includes("multipart/related"));
 assert("Content-ID header written for each inline image",
   gmailSrc.includes("Content-ID:"));
-assert("inlineParts helper emits Content-Disposition: inline; filename= to tell Apple Mail the part is inline-only",
-  // RFC 2183: Content-Disposition: inline tells clients the part is displayed
-  // inline at the img src="cid:..." reference. Adding filename= is required so
-  // Apple Mail, Outlook, and Gmail all recognise the part as an inline asset
-  // and NOT a downloadable attachment. Both name= (on Content-Type) and
-  // filename= (on Content-Disposition) must be present.
+assert("inlineParts helper OMITS Content-Disposition entirely (Apple Mail ghost-attachment fix)",
+  // Apple Mail 16+ (macOS Ventura/Sonoma, iOS 17+) interprets Content-Disposition: inline
+  // on a CID image part as "show this both inline AND as a downloadable attachment",
+  // creating a ghost attachment card for every signature CTA image. RFC 2392 §2 says
+  // Content-ID alone is sufficient. Fix: no Content-Disposition on CID inline parts;
+  // keep name= on Content-Type only for Gmail / Outlook client compatibility.
   (() => {
     const start = gmailSrc.indexOf("const inlineParts = (bnd:");
     const end   = gmailSrc.indexOf("const attachmentParts", start);
     if (start < 0 || end < 0) return false;
     const fn = gmailSrc.slice(start, end);
-    // Must include Content-Disposition: inline
-    if (!fn.includes("Content-Disposition: inline")) return false;
-    // Must include filename= parameter
-    const dispIdx = fn.indexOf("Content-Disposition: inline");
-    const lineEnd = fn.indexOf("\n", dispIdx);
-    const dispLine = fn.slice(dispIdx, lineEnd < 0 ? undefined : lineEnd);
-    return dispLine.includes("filename=");
+    // Must NOT have Content-Disposition in the inline-parts helper.
+    // (attachmentParts legitimately uses Content-Disposition: attachment — this slice
+    //  ends before that function, so the check is unambiguous.)
+    return !fn.includes("Content-Disposition");
   })());
 assert("inlineParts helper adds name= to Content-Type for each CID part",
   (() => {
