@@ -64,7 +64,7 @@ import { listThreads, getThread, getMessageSummaries, sendEmail, getProfile, mar
 import { normalizeOutboundHtml } from "./services/email-html-normalizer";
 import { applySignatureSendSanitizer } from "./services/signature-html-sanitizer";
 import { wrapSignatureCtaLinks, updateSignatureCtaMessageIds, recordSignatureCtaClick, isSafeCtaUrl } from "./services/signature-cta-tracker";
-import { wrapHtmlWithCtaAsset } from "./services/signature-cta-asset";
+import { wrapHtmlWithCtaAsset, sigHtmlAlreadyContainsCta, stripCtaImgFromHtml } from "./services/signature-cta-asset";
 import { getAuthUrl, exchangeCodeForTokens, isGmailConnected, getGmailClient } from "./gmail-oauth";
 import { parseGmailMessage } from "./services/email-parser";
 import { runAssociationEngine } from "./services/association-engine";
@@ -6899,6 +6899,101 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/admin/cta-assets/dedup-check
+  // Scans every signature for CTA images duplicated between html_content and cta_image_url.
+  app.get("/api/admin/cta-assets/dedup-check", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const sigs = (await db.execute(sql.raw(`
+        SELECT es.id, es.user_id, es.name AS sig_name,
+               es.html_content, es.cta_image_url,
+               u.name AS user_name, u.email AS user_email
+        FROM email_signatures es
+        LEFT JOIN users u ON u.id = es.user_id
+        WHERE es.cta_image_url IS NOT NULL AND es.cta_image_url <> ''
+          AND es.html_content IS NOT NULL AND es.html_content <> ''
+        ORDER BY es.id
+      `))).rows as any[];
+
+      const results: any[] = [];
+      for (const sig of sigs) {
+        const ctaUrl = String(sig.cta_image_url || "");
+        const isDup = sigHtmlAlreadyContainsCta(String(sig.html_content || ""), ctaUrl);
+        if (isDup) {
+          const fnMatch = ctaUrl.match(/\/assets\/cta\/([^/?#\s]+)$/);
+          results.push({
+            signature_id: sig.id, user_id: sig.user_id,
+            user_name: sig.user_name, user_email: sig.user_email,
+            sig_name: sig.sig_name, cta_image_url: ctaUrl,
+            filename: fnMatch ? fnMatch[1] : null,
+            issue: "CTA image appears in both html_content and cta_image_url",
+          });
+        }
+      }
+      return res.json({ ok: true, total_scanned: sigs.length, duplicates: results.length, rows: results });
+    } catch (err: any) {
+      console.error("[dedup-check] error:", err);
+      return res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  // POST /api/admin/cta-assets/dedup-html
+  // For each signature where the same CTA image is in both html_content and
+  // cta_image_url, strips the duplicate <a><img></a> (or bare <img>) from
+  // html_content, keeping cta_image_url as the canonical source.
+  // Dry-run by default; pass { confirm: true } to apply.
+  app.post("/api/admin/cta-assets/dedup-html", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const dryRun = req.body?.confirm !== true;
+      const sigs = (await db.execute(sql.raw(`
+        SELECT es.id, es.user_id, es.name AS sig_name,
+               es.html_content, es.cta_image_url,
+               u.name AS user_name, u.email AS user_email
+        FROM email_signatures es
+        LEFT JOIN users u ON u.id = es.user_id
+        WHERE es.cta_image_url IS NOT NULL AND es.cta_image_url <> ''
+          AND es.html_content IS NOT NULL AND es.html_content <> ''
+        ORDER BY es.id
+      `))).rows as any[];
+
+      const report: any[] = [];
+      let repaired = 0;
+
+      for (const sig of sigs as any[]) {
+        const ctaUrl = String(sig.cta_image_url || "");
+        const origHtml = String(sig.html_content || "");
+        if (!sigHtmlAlreadyContainsCta(origHtml, ctaUrl)) continue;
+
+        const fnMatch = ctaUrl.match(/\/assets\/cta\/([^/?#\s]+)$/);
+        const filename = fnMatch ? fnMatch[1] : null;
+        if (!filename) continue;
+
+        const strippedHtml = stripCtaImgFromHtml(origHtml, filename);
+        report.push({
+          signature_id: sig.id, user_id: sig.user_id,
+          user_name: sig.user_name, user_email: sig.user_email,
+          sig_name: sig.sig_name, cta_image_url: ctaUrl, filename,
+          html_before_len: origHtml.length, html_after_len: strippedHtml.length,
+          action: dryRun ? "would_strip_from_html" : "stripped_from_html",
+        });
+
+        if (!dryRun) {
+          const safeHtml = strippedHtml.replace(/'/g, "''");
+          const sigId = Number(sig.id);
+          await db.execute(sql.raw(
+            `UPDATE email_signatures SET html_content = '${safeHtml}', updated_at = NOW() WHERE id = ${sigId}`,
+          ));
+          repaired++;
+          console.log(`[dedup-html] stripped CTA duplicate from sig ${sigId} ("${sig.sig_name}") filename="${filename}"`);
+        }
+      }
+
+      return res.json({ ok: true, dry_run: dryRun, repaired: dryRun ? 0 : repaired, would_repair: report.length, rows: report });
+    } catch (err: any) {
+      console.error("[dedup-html] error:", err);
+      return res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
   app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const allUsers = await db.select({
       id: users.id,
@@ -13704,12 +13799,18 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                   }
                 }
               }
-              _schedSigSection = wrapHtmlWithCtaAsset(_sn, {
-                imageUrl: _resolvedSchedCtaUrl,
-                destUrl: String(_schedRow.cta_dest_url),
-                altText: _schedRow.cta_alt_text ? String(_schedRow.cta_alt_text) : null,
-                widthPx: _schedRow.cta_width_px ? Number(_schedRow.cta_width_px) : null,
-              }, _schedBaseUrl);
+              // ── Dedup guard: same as immediate-send path ────────────────────
+              if (sigHtmlAlreadyContainsCta(_sn, String(_schedRow.cta_image_url))) {
+                console.log(`[gmail-sched] cta-dedup: sig HTML already contains CTA filename — skipping wrapHtmlWithCtaAsset for sig ${_schedSigId}`);
+                _schedSigSection = _sn;
+              } else {
+                _schedSigSection = wrapHtmlWithCtaAsset(_sn, {
+                  imageUrl: _resolvedSchedCtaUrl,
+                  destUrl: String(_schedRow.cta_dest_url),
+                  altText: _schedRow.cta_alt_text ? String(_schedRow.cta_alt_text) : null,
+                  widthPx: _schedRow.cta_width_px ? Number(_schedRow.cta_width_px) : null,
+                }, _schedBaseUrl);
+              }
             } else {
               const _sc: any[] = Array.isArray(_schedRow.ctas) ? _schedRow.ctas : [];
               const _fixScImg = (url: string) => {
@@ -15386,12 +15487,21 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                   }
                 }
               }
-              _sigSection = wrapHtmlWithCtaAsset(_normalizedSig, {
-                imageUrl: _resolvedCtaImageUrl,
-                destUrl: String(_sigRow.cta_dest_url),
-                altText: _sigRow.cta_alt_text ? String(_sigRow.cta_alt_text) : null,
-                widthPx: _sigRow.cta_width_px ? Number(_sigRow.cta_width_px) : null,
-              }, baseUrl);
+              // ── Dedup guard: if sig HTML already embeds the same CTA image,
+              // skip wrapHtmlWithCtaAsset so the image only appears once.
+              // This handles signatures where the editor baked the image into
+              // html_content AND cta_image_url also references the same asset.
+              if (sigHtmlAlreadyContainsCta(_normalizedSig, String(_sigRow.cta_image_url))) {
+                console.log(`[gmail-send] cta-dedup: sig HTML already contains CTA filename — skipping wrapHtmlWithCtaAsset for sig ${selectedSignatureId}`);
+                _sigSection = _normalizedSig;
+              } else {
+                _sigSection = wrapHtmlWithCtaAsset(_normalizedSig, {
+                  imageUrl: _resolvedCtaImageUrl,
+                  destUrl: String(_sigRow.cta_dest_url),
+                  altText: _sigRow.cta_alt_text ? String(_sigRow.cta_alt_text) : null,
+                  widthPx: _sigRow.cta_width_px ? Number(_sigRow.cta_width_px) : null,
+                }, baseUrl);
+              }
             } else {
               const _sigCtas: any[] = Array.isArray(_sigRow.ctas) ? _sigRow.ctas : [];
               const _fixCtaImg = (url: string) => {
