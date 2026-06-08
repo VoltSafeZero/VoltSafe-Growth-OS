@@ -114,24 +114,21 @@ check(
 );
 
 check(
-  "inlineParts helper emits Content-Disposition: inline; filename= (RFC 2183 inline with name)",
-  // RFC 2183: Content-Disposition: inline tells clients the part is displayed at
-  // the src="cid:..." reference. Both name= (on Content-Type) and filename= (on
-  // Content-Disposition) are required so Apple Mail, Outlook, and Gmail all treat
-  // the part as an inline asset and NOT a downloadable attachment. Content-Disposition:
-  // attachment (which Gmail emits when CID parts are under multipart/mixed) is the
-  // root cause of signature image duplication in Apple Mail.
+  "inlineParts helper OMITS Content-Disposition entirely (Apple Mail ghost-attachment fix)",
+  // Apple Mail 16+ (macOS Ventura/Sonoma, iOS 17+) interprets Content-Disposition: inline
+  // on a CID image part as "show this both inline AND as a downloadable attachment", producing
+  // a ghost attachment card for every signature CTA image. RFC 2392 §2 says Content-ID alone
+  // is sufficient to mark a part as inline. Fix: no Content-Disposition on inline CID parts;
+  // keep name= on Content-Type only for client compatibility (Gmail, Outlook, Thunderbird).
   (() => {
     const start = gmailTs.indexOf("const inlineParts = (bnd:");
     const end   = gmailTs.indexOf("const attachmentParts", start);
     if (start < 0 || end < 0) return false;
     const fn = gmailTs.slice(start, end);
-    if (!fn.includes("Content-Disposition: inline")) return false;
-    // Must include filename= parameter
-    const dispIdx = fn.indexOf("Content-Disposition: inline");
-    const lineEnd = fn.indexOf("\n", dispIdx);
-    const dispLine = fn.slice(dispIdx, lineEnd < 0 ? undefined : lineEnd);
-    return dispLine.includes("filename=");
+    // Must NOT have Content-Disposition in the inline-parts helper.
+    // (attachmentParts legitimately uses Content-Disposition: attachment — this slice
+    //  ends before that function, so the check is unambiguous.)
+    return !fn.includes("Content-Disposition");
   })()
 );
 
@@ -494,17 +491,19 @@ fs.writeFileSync(path.join(tmpDir, "WatchDemo_Thumbnail_200.png"), fakePng);
     })()
   );
 
-  // Source-level: each CID part has Content-Type name= and Content-Disposition filename=
-  // derived from fname (not a hardcoded string), proving it's generic per-image.
+  // Source-level: each CID part has Content-Type name= derived from img.filename
+  // (not a hardcoded string), proving it's generic per-image.
+  // Note: Content-Disposition filename= is intentionally absent — omitting
+  // Content-Disposition entirely is the Apple Mail ghost-attachment fix.
   check(
-    "inlineParts derives name= and filename= from img.filename (not hardcoded string)",
+    "inlineParts derives name= from img.filename on Content-Type (not hardcoded string)",
     (() => {
       const start = gmailTs.indexOf("const inlineParts = (bnd:");
       const end   = gmailTs.indexOf("const attachmentParts", start);
       if (start < 0 || end < 0) return false;
       const fn = gmailTs.slice(start, end);
       return fn.includes("fname") && fn.includes("img.filename") &&
-             fn.includes('name="${fname}"') && fn.includes('filename="${fname}"');
+             fn.includes('name="${fname}"') && !fn.includes('filename="${fname}"');
     })()
   );
 
