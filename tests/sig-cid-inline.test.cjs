@@ -228,13 +228,14 @@ assert("dedup guard removes duplicate CTA images outside sig section (filename-b
 assert("dedup guard logs filename of removed duplicate img for diagnostics",
   routesSrc.includes('dedup: removed outside-sig duplicate img filename="'));
 
-// 4h. Img style: max-width:100%;height:auto (no fixed pixel max-width on CTA images).
+// 4h. Img style: fixed 200px (not max-width:100%) — canonical bulletproof pattern.
 console.log();
 console.log("── 6. CTA img style ──");
 const ctaAssetSrc = fs.readFileSync(
   path.join(__dirname, "../server/services/signature-cta-asset.ts"), "utf8");
-assert("wrapHtmlWithCtaAsset uses max-width:100% (not fixed pixel max-width)",
-  ctaAssetSrc.includes("max-width:100%") && !ctaAssetSrc.includes("max-width:${w}px"));
+assert("wrapHtmlWithCtaAsset uses fixed 200px width (not max-width:100%)",
+  ctaAssetSrc.includes("width:200px") && ctaAssetSrc.includes("max-width:200px") &&
+  ctaAssetSrc.includes("min-width:200px") && !ctaAssetSrc.includes("max-width:100%"));
 
 console.log();
 console.log("─".repeat(50));

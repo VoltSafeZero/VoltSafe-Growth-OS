@@ -387,31 +387,33 @@ fs.writeFileSync(path.join(tmpDir, "WatchDemo_Thumbnail_200.png"), fakePng);
     );
   }
 
-  // ── 8. CTA img style: max-width:100% (responsive, no fixed pixel max-width) ──
+  // ── 8. CTA img style: bulletproof fixed 200px (not max-width:100%) ──
   console.log("\n── 8. CTA img styles ──");
   const ctaAssetSvc = fs.readFileSync(
     path.join(__dirname, "../server/services/signature-cta-asset.ts"), "utf8");
   check(
-    "wrapHtmlWithCtaAsset uses max-width:100% (responsive, not fixed px max-width)",
-    ctaAssetSvc.includes("max-width:100%") && !ctaAssetSvc.includes("max-width:${w}px")
+    "wrapHtmlWithCtaAsset uses fixed 200px widths (not max-width:100%)",
+    ctaAssetSvc.includes("width:200px") && ctaAssetSvc.includes("max-width:200px") &&
+    ctaAssetSvc.includes("min-width:200px") && !ctaAssetSvc.includes("max-width:100%")
   );
   check(
-    "legacy email_signature_ctas CTA img also uses max-width:100%",
+    "legacy email_signature_ctas CTA img uses fixed 200px (not max-width:100%)",
     (() => {
-      // Find the legacy _ctaHtmlBlock build in routes.ts (not inside wrapHtmlWithCtaAsset)
       const idx = routesTs.indexOf("const _ctaHtmlBlock = _sigCtas.map");
       if (idx < 0) return false;
-      const snippet = routesTs.slice(idx, idx + 800);
-      return snippet.includes("max-width:100%") && !snippet.includes("max-width:${_dw}px");
+      const snippet = routesTs.slice(idx, idx + 2000);
+      return snippet.includes("width:200px") && snippet.includes("max-width:200px") &&
+             snippet.includes("min-width:200px") && !snippet.includes("max-width:100%");
     })()
   );
   check(
-    "scheduled legacy CTA img also uses max-width:100%",
+    "scheduled legacy CTA img uses fixed 200px (not max-width:100%)",
     (() => {
       const idx = routesTs.indexOf("const _sh = _sc.map");
       if (idx < 0) return false;
-      const snippet = routesTs.slice(idx, idx + 800);
-      return snippet.includes("max-width:100%") && !snippet.includes("max-width:${_dw}px");
+      const snippet = routesTs.slice(idx, idx + 2000);
+      return snippet.includes("width:200px") && snippet.includes("max-width:200px") &&
+             snippet.includes("min-width:200px") && !snippet.includes("max-width:100%");
     })()
   );
 

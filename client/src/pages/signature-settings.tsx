@@ -99,7 +99,7 @@ const DEFAULT_CTA_CONFIG: CtaConfig = {
   imageUrl: "",
   destUrl: "",
   altText: "Watch a Demo",
-  widthPx: "180",
+  widthPx: "200",
 };
 
 // ── CtaAssetImg — renders a CTA image with a clear fallback when the file is missing ──
@@ -207,12 +207,11 @@ function htmlToPlainText(html: string): string {
 
 function wrapHtmlWithCta(baseHtml: string, cta: CtaConfig): string {
   if (!cta.imageUrl || !cta.destUrl) return baseHtml;
-  const w = Math.max(80, Math.min(240, Number(cta.widthPx) || 180));
   const alt = (cta.altText || "Watch a Demo").replace(/"/g, "&quot;");
   const dest = safeUrl(cta.destUrl).replace(/"/g, "&quot;");
   const src = cta.imageUrl.replace(/"/g, "&quot;");
-  const ctaCell = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${src}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${w}px;height:auto;border-radius:4px;"></a>`;
-  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${baseHtml}</td><td style="vertical-align:middle;padding-left:24px;">${ctaCell}</td></tr></table>`;
+  const ctaCell = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;border:0;"><img src="${src}" alt="${alt}" width="200" border="0" style="display:block;width:200px;max-width:200px;min-width:200px;height:auto;border:0;outline:none;text-decoration:none;border-radius:4px;-ms-interpolation-mode:bicubic;"></a>`;
+  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" width="620" style="width:620px;max-width:620px;border-collapse:collapse;table-layout:fixed;"><tr><td width="396" valign="top" style="width:396px;max-width:396px;vertical-align:top;">${baseHtml}</td><td width="224" valign="middle" align="right" style="width:224px;min-width:224px;vertical-align:middle;padding-left:24px;text-align:right;">${ctaCell}</td></tr></table>`;
 }
 
 // ─── CTA Picker Section (shared by Builder and HTML tabs) ─────────────────────
@@ -417,7 +416,7 @@ function SignatureDialog({
     imageUrl: existing?.ctaImageUrl ?? "",
     destUrl: existing?.ctaDestUrl ?? "",
     altText: existing?.ctaAltText ?? "Watch a Demo",
-    widthPx: String(existing?.ctaWidthPx ?? 180),
+    widthPx: String(existing?.ctaWidthPx ?? 200),
   }));
 
   // Detect dead/archived CTA on load so the user sees a warning before trying to send.

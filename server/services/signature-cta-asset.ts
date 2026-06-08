@@ -1,3 +1,6 @@
+/** Canonical CTA image width — the ONLY place this constant lives. */
+export const CTA_IMAGE_WIDTH = 200;
+
 export interface CtaAssetConfig {
   imageUrl: string;
   destUrl: string;
@@ -18,14 +21,13 @@ export function wrapHtmlWithCtaAsset(
     if (m) src = `${baseUrl}/assets/cta/${m[1]}`;
   }
 
-  const w = Math.max(80, Math.min(240, cta.widthPx || 180));
   const alt = (cta.altText || "Watch a Demo").replace(/"/g, "&quot;");
   const dest = cta.destUrl.replace(/"/g, "&quot;");
   const safeSrc = src.replace(/"/g, "&quot;");
 
-  const ctaCell = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${safeSrc}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;height:auto;border-radius:4px;"></a>`;
+  const ctaLink = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;border:0;"><img src="${safeSrc}" alt="${alt}" width="200" border="0" style="display:block;width:200px;max-width:200px;min-width:200px;height:auto;border:0;outline:none;text-decoration:none;border-radius:4px;-ms-interpolation-mode:bicubic;"></a>`;
 
-  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${baseHtml}</td><td style="vertical-align:middle;padding-left:24px;">${ctaCell}</td></tr></table>`;
+  return `<table cellpadding="0" cellspacing="0" border="0" role="presentation" width="620" style="width:620px;max-width:620px;border-collapse:collapse;table-layout:fixed;"><tr><td width="396" valign="top" style="width:396px;max-width:396px;vertical-align:top;">${baseHtml}</td><td width="224" valign="middle" align="right" style="width:224px;min-width:224px;vertical-align:middle;padding-left:24px;text-align:right;">${ctaLink}</td></tr></table>`;
 }
 
 /**

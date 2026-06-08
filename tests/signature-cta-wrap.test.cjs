@@ -26,10 +26,10 @@ console.log("── 1. signature-cta-asset.ts helper ──");
 assert("exports wrapHtmlWithCtaAsset function", helperSrc.includes("export function wrapHtmlWithCtaAsset"));
 assert("wraps in two-column table", helperSrc.includes("role=\"presentation\""));
 assert("left td: vertical-align:top", helperSrc.includes("vertical-align:top;\">${baseHtml}</td>"));
-assert("right td: padding-left:24px", helperSrc.includes("padding-left:24px;\">${ctaCell}</td>"));
+assert("right td: padding-left:24px", helperSrc.includes("padding-left:24px;"));
 assert("CTA image has border:0", helperSrc.includes("border:0"));
 assert("CTA link has target=_blank", helperSrc.includes("target=\"_blank\""));
-assert("width clamped 80-240", helperSrc.includes("Math.max(80, Math.min(240"));
+assert("canonical CTA width is 200px (hardcoded, not variable)", helperSrc.includes('width="200"') && helperSrc.includes("width:200px") && !helperSrc.includes("Math.max(80, Math.min(240"));
 assert("returns baseHtml unchanged when no imageUrl", helperSrc.includes("if (!cta.imageUrl || !cta.destUrl) return baseHtml"));
 assert("rewrites /assets/cta/ path with baseUrl", helperSrc.includes("/assets/cta/"));
 

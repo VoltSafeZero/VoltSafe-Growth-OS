@@ -13820,16 +13820,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               const _sh = _sc.map((cta: any) => {
                 const _a = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
                 const _d = String(cta.destination_url || "").replace(/"/g, "&quot;");
-                const _w = Number(cta.width_px) || 200;
                 if (cta.image_url) {
                   const _i = _fixScImg(String(cta.image_url)).replace(/"/g, "&quot;");
-                  const _dw = Math.min(_w, 200);
-                  return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_i}" alt="${_a}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;height:auto;"></a>`;
+                  return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;border:0;"><img src="${_i}" alt="${_a}" width="200" border="0" style="display:block;width:200px;max-width:200px;min-width:200px;height:auto;border:0;outline:none;text-decoration:none;border-radius:4px;-ms-interpolation-mode:bicubic;"></a>`;
                 }
                 return `<a href="${_d}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_a}</a>`;
               }).join("");
               _schedSigSection = _sh
-                ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_sn}</td><td style="vertical-align:middle;padding-left:24px;">${_sh}</td></tr></table>`
+                ? `<table cellpadding="0" cellspacing="0" border="0" role="presentation" width="620" style="width:620px;max-width:620px;border-collapse:collapse;table-layout:fixed;"><tr><td width="396" valign="top" style="width:396px;max-width:396px;vertical-align:top;">${_sn}</td><td width="224" valign="middle" align="right" style="width:224px;min-width:224px;vertical-align:middle;padding-left:24px;text-align:right;">${_sh}</td></tr></table>`
                 : _sn;
             }
             // Strip any stale sig section from the scheduled body before appending fresh sig.
@@ -15511,16 +15509,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               const _ctaHtmlBlock = _sigCtas.map((cta: any) => {
                 const _alt  = String(cta.alt_text || cta.name || "").replace(/"/g, "&quot;");
                 const _dest = String(cta.destination_url || "").replace(/"/g, "&quot;");
-                const _w    = Number(cta.width_px) || 200;
                 if (cta.image_url) {
                   const _img = _fixCtaImg(String(cta.image_url)).replace(/"/g, "&quot;");
-                  const _dw = Math.min(_w, 200);
-                  return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${_img}" alt="${_alt}" width="${_dw}" style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;height:auto;"></a>`;
+                  return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;border:0;"><img src="${_img}" alt="${_alt}" width="200" border="0" style="display:block;width:200px;max-width:200px;min-width:200px;height:auto;border:0;outline:none;text-decoration:none;border-radius:4px;-ms-interpolation-mode:bicubic;"></a>`;
                 }
                 return `<a href="${_dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${_alt}</a>`;
               }).join("");
               _sigSection = _ctaHtmlBlock
-                ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${_normalizedSig}</td><td style="vertical-align:middle;padding-left:24px;">${_ctaHtmlBlock}</td></tr></table>`
+                ? `<table cellpadding="0" cellspacing="0" border="0" role="presentation" width="620" style="width:620px;max-width:620px;border-collapse:collapse;table-layout:fixed;"><tr><td width="396" valign="top" style="width:396px;max-width:396px;vertical-align:top;">${_normalizedSig}</td><td width="224" valign="middle" align="right" style="width:224px;min-width:224px;vertical-align:middle;padding-left:24px;text-align:right;">${_ctaHtmlBlock}</td></tr></table>`
                 : _normalizedSig;
             }
             // Strip any stale sig section from the frontend body (saved-draft safety net).

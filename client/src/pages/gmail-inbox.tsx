@@ -550,12 +550,11 @@ function ComposeDialog({
     // legacy email_signature_ctas table, so both Builder and custom-HTML sigs
     // get their CTA injected identically.
     if (activeSig.ctaImageUrl && activeSig.ctaDestUrl) {
-      const w   = Math.max(80, Math.min(240, activeSig.ctaWidthPx || 180));
       const alt = (activeSig.ctaAltText || "Watch a Demo").replace(/"/g, "&quot;");
       const dest = activeSig.ctaDestUrl.replace(/"/g, "&quot;");
       const src  = activeSig.ctaImageUrl.replace(/"/g, "&quot;");
-      const ctaHtml = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${src}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${w}px;height:auto;border-radius:4px;"></a>`;
-      const wrapped = `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:middle;padding-left:24px;">${ctaHtml}</td></tr></table>`;
+      const ctaHtml = `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;border:0;"><img src="${src}" alt="${alt}" width="200" border="0" style="display:block;width:200px;max-width:200px;min-width:200px;height:auto;border:0;outline:none;text-decoration:none;border-radius:4px;-ms-interpolation-mode:bicubic;"></a>`;
+      const wrapped = `<table cellpadding="0" cellspacing="0" border="0" role="presentation" width="620" style="width:620px;max-width:620px;border-collapse:collapse;table-layout:fixed;"><tr><td width="396" valign="top" style="width:396px;max-width:396px;vertical-align:top;">${normalizedSigHtml}</td><td width="224" valign="middle" align="right" style="width:224px;min-width:224px;vertical-align:middle;padding-left:24px;text-align:right;">${ctaHtml}</td></tr></table>`;
       console.log(`[sig-composer] using ctaImageUrl column → finalLen=${wrapped.length}`);
       return wrapped;
     }
@@ -564,17 +563,15 @@ function ComposeDialog({
     const ctaBlock = (activeSig.ctas || []).map(cta => {
       const alt  = (cta.alt_text || cta.name).replace(/"/g, "&quot;");
       const dest = cta.destination_url.replace(/"/g, "&quot;");
-      // Cap at 200 for signature embed — body insertions use 600 separately
-      const w    = Math.min(cta.width_px || 200, 200);
       if (cta.image_url) {
         const img = cta.image_url.replace(/"/g, "&quot;");
-        return `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="${img}" alt="${alt}" width="${w}" style="display:block;border:0;outline:none;text-decoration:none;max-width:${w}px;height:auto;"></a>`;
+        return `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;border:0;"><img src="${img}" alt="${alt}" width="200" border="0" style="display:block;width:200px;max-width:200px;min-width:200px;height:auto;border:0;outline:none;text-decoration:none;border-radius:4px;-ms-interpolation-mode:bicubic;"></a>`;
       }
       return `<a href="${dest}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 22px;background:#00C1DE;color:#fff;text-decoration:none;border-radius:4px;font-family:Arial,sans-serif;font-size:14px;">${alt}</a>`;
     }).join("");
     // Side-by-side table layout — CTA to the RIGHT of signature text (matches backend send route)
     const result = ctaBlock
-      ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="vertical-align:top;">${normalizedSigHtml}</td><td style="vertical-align:middle;padding-left:24px;">${ctaBlock}</td></tr></table>`
+      ? `<table cellpadding="0" cellspacing="0" border="0" role="presentation" width="620" style="width:620px;max-width:620px;border-collapse:collapse;table-layout:fixed;"><tr><td width="396" valign="top" style="width:396px;max-width:396px;vertical-align:top;">${normalizedSigHtml}</td><td width="224" valign="middle" align="right" style="width:224px;min-width:224px;vertical-align:middle;padding-left:24px;text-align:right;">${ctaBlock}</td></tr></table>`
       : normalizedSigHtml;
     console.log(`[sig-composer] using legacy ctas → finalLen=${result.length}`);
     return result;

@@ -1,0 +1,135 @@
+The EML comparison confirms the CTA thumbnail shrinking bug.
+
+Bad/tiny email CTA HTML:
+<img src="cid:vsig1mq5excxl" alt="Watch Demo" width="180" style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;height:auto;border-radius:4px;">
+
+Good/normal email CTA HTML:
+<img src="cid:vsig1mq5kc2d4" alt="Watch Demo" width="200" style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;height:auto;border-radius:4px;">
+
+Also, the bad email's VoltSafe logo image had no explicit style:
+<img src="cid:vsig0mq5excxl">
+
+The good email's logo image had:
+<img src="cid:vsig0mq5kc2d4" style="width: 200px;">
+
+Root cause:
+The signature HTML generation is inconsistent. The CTA image is sometimes generated at width="180" and sometimes width="200". Worse, the CTA image uses max-width:100% while the parent CTA <td> has no explicit width. In recipient inboxes/reply threads, the parent cell can collapse, causing max-width:100% to shrink the CTA image.
+
+Fix this permanently.
+
+Tasks:
+
+1. Search the codebase for all CTA/signature image generation paths:
+- ctaWidthPx
+- Watch Demo
+- Watch a Demo
+- ctaImageUrl
+- buildSignatureHtml
+- vs-sig-start
+- signature-click
+- max-width:100%
+- width="180"
+- width="200"
+
+2. There must be exactly ONE canonical CTA image width source. Set it to 200px.
+
+3. Update the CTA image HTML to this exact bulletproof pattern:
+
+<a href="{{ctaDestUrl}}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none;border:0;">
+  <img
+    src="{{ctaImageUrl}}"
+    alt="{{ctaAltText}}"
+    width="200"
+    border="0"
+    style="display:block;width:200px;max-width:200px;min-width:200px;height:auto;border:0;outline:none;text-decoration:none;border-radius:4px;-ms-interpolation-mode:bicubic;"
+  />
+</a>
+
+4. Update the CTA parent table cell to this exact pattern:
+
+<td
+  width="224"
+  valign="middle"
+  align="right"
+  style="width:224px;min-width:224px;vertical-align:middle;padding-left:24px;text-align:right;"
+>
+  {{CTA_LINK_AND_IMAGE}}
+</td>
+
+5. Update the left signature cell so it cannot crush the CTA column:
+
+<td
+  width="396"
+  valign="top"
+  style="width:396px;max-width:396px;vertical-align:top;"
+>
+  {{SIGNATURE_CONTACT_INFO}}
+</td>
+
+6. Update the outer two-column signature table to fixed layout:
+
+<table
+  cellpadding="0"
+  cellspacing="0"
+  border="0"
+  role="presentation"
+  width="620"
+  style="width:620px;max-width:620px;border-collapse:collapse;table-layout:fixed;"
+>
+  <tr>
+    <td width="396" valign="top" style="width:396px;max-width:396px;vertical-align:top;">
+      {{SIGNATURE_CONTACT_INFO}}
+    </td>
+    <td width="224" valign="middle" align="right" style="width:224px;min-width:224px;vertical-align:middle;padding-left:24px;text-align:right;">
+      {{CTA_LINK_AND_IMAGE}}
+    </td>
+  </tr>
+</table>
+
+7. Fix the VoltSafe logo image too. It must always include explicit sizing:
+
+<img
+  src="{{logoImageUrl}}"
+  width="200"
+  border="0"
+  style="display:block;width:200px;max-width:200px;min-width:200px;height:auto;border:0;outline:none;text-decoration:none;"
+/>
+
+8. Important:
+Do not use max-width:100% for the CTA image.
+Do not rely on only width attributes.
+Do not rely on only CSS.
+Do not use flexbox/grid/classes/external CSS.
+Do not allow the CTA parent <td> to auto-size.
+Do not let different send paths generate different widths.
+
+9. Check both immediate send and reply send paths. The bad/tiny email was a reply:
+Subject: Re: Critical Components List
+
+So make sure replies use the same final signature builder as new outbound emails.
+
+10. Ensure CID replacement preserves the width/style/border attributes. The CID rewrite should only replace src, not rebuild the whole img tag.
+
+11. Add tests that assert generated final email HTML includes:
+- CTA img width="200"
+- CTA img style contains width:200px
+- CTA img style contains max-width:200px
+- CTA img style contains min-width:200px
+- CTA img style does NOT contain max-width:100%
+- CTA parent td width="224"
+- CTA parent td style contains min-width:224px
+- outer signature table contains width="620"
+- outer signature table contains table-layout:fixed
+- VoltSafe logo img width="200"
+- VoltSafe logo img style contains width:200px
+
+12. Run:
+npm run test:grep signature
+npm run test:grep cid
+npm run test:grep mail
+
+Return:
+- files changed
+- where the inconsistent 180px vs 200px generation was coming from
+- before/after HTML snippets
+- test results

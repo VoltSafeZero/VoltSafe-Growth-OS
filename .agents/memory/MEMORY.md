@@ -29,3 +29,4 @@
 - [Apple Mail CID Attachment Bug](apple-mail-cid.md) — Content-Disposition: inline on CID parts causes Apple Mail to show image both inline AND as attachment; omit it entirely (RFC 2392 §2); also add type="text/html" to multipart/related; use 10s fetch timeout for external URLs.
 - [CTA Quote Compat](cta-quote-compat.md) — all CTA src= scanners must handle both "..." and '...' quote styles; single-quote attrs from rich-text editors silently bypassed double-quote-only regex.
 - [CTA Asset Inlining Hardening](cta-asset-inlining.md) — memoryStorage upload always saves file_data; resolver v5 has 5-step chain + self-heal; backfill endpoint for existing NULL rows.
+- [CTA Image Width Fix](cta-image-width-fix.md) — canonical CTA img is 200px fixed; outer table 620px table-layout:fixed; 5 generation paths all updated.
