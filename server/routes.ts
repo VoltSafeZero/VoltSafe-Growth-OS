@@ -289,6 +289,10 @@ if (!fs.existsSync(CTA_ASSETS_DIR)) fs.mkdirSync(CTA_ASSETS_DIR, { recursive: tr
  * Only rewrites src="" attributes; href="" tracking links are never touched.
  */
 async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promise<string> {
+  console.log("[CTA-CID-LIVE-VERSION-2026-06-08-0435] resolveCtaImagesInHtml called", {
+    htmlLen: html?.length,
+    baseUrlHint: baseUrlHint?.slice(0, 60),
+  });
   // Match both double- and single-quoted src attributes (case-insensitive SRC).
   const imgRe = /<img\b[^>]*\bsrc=["']([^"']+)["']/gi;
   const toResolve: Array<{ src: string; filename: string }> = [];
@@ -299,6 +303,7 @@ async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promis
     const fnMatch = src.match(/\/assets\/cta\/([^/?#\s"']+)/);
     if (fnMatch) toResolve.push({ src, filename: fnMatch[1] });
   }
+  console.log("[cta-resolve] toResolve", toResolve.map(x => ({ src: x.src.slice(0, 80), filename: x.filename })));
   if (toResolve.length === 0) return html;
 
   const uniqueFilenames = [...new Set(toResolve.map(x => x.filename))];
@@ -308,15 +313,20 @@ async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promis
     let buf: Buffer | null = null;
     let mime = "image/png";
     const safeFilename = filename.replace(/'/g, "''");
+    let _step1Hit = false;
 
-    // 1. DB file_data (persistent across deploy restarts)
+    // 1. DB file_data — match by filename OR public_url suffix so UUID-named assets
+    //    uploaded via multer are found even when the DB row uses the same UUID as
+    //    both filename and the tail of public_url.
     try {
       const rows = (await db.execute(sql.raw(
-        `SELECT file_data, mime_type FROM cta_assets WHERE filename = '${safeFilename}' AND is_archived = FALSE LIMIT 1`
+        `SELECT file_data, mime_type FROM cta_assets WHERE (filename = '${safeFilename}' OR public_url LIKE '%/${safeFilename}') AND is_archived = FALSE LIMIT 1`
       ))).rows as any[];
+      console.log(`[cta-resolve] step1 DB filename="${filename}" rowFound=${!!rows[0]} fileDataPresent=${!!rows[0]?.file_data}`);
       if (rows[0]?.file_data) {
         buf = Buffer.isBuffer(rows[0].file_data) ? rows[0].file_data : Buffer.from(rows[0].file_data);
         mime = rows[0].mime_type || "image/png";
+        _step1Hit = true;
         console.log(`[cta-resolve] DB file_data hit filename="${filename}" bytes=${buf.byteLength}`);
       }
     } catch (_e: any) {
@@ -327,7 +337,9 @@ async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promis
     if (!buf) {
       const diskPath = path.join(CTA_ASSETS_DIR, filename);
       try {
-        if (fs.existsSync(diskPath)) {
+        const _exists = fs.existsSync(diskPath);
+        console.log(`[cta-resolve] step2 disk filename="${filename}" exists=${_exists} path="${diskPath}"`);
+        if (_exists) {
           buf = fs.readFileSync(diskPath);
           const ext = filename.split(".").pop()?.toLowerCase() ?? "png";
           const mimeMap: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
@@ -348,6 +360,7 @@ async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promis
         const t = setTimeout(() => ctrl.abort(), 6000);
         const resp = await fetch(localUrl, { signal: ctrl.signal });
         clearTimeout(t);
+        console.log(`[cta-resolve] step3 localhost "${localUrl}" status=${resp.status}`);
         if (resp.ok) {
           buf = Buffer.from(await resp.arrayBuffer());
           mime = (resp.headers.get("content-type") || "image/png").split(";")[0].trim();
@@ -360,24 +373,31 @@ async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promis
       }
     }
 
-    // 4. Stored public_url (external HTTP, absolute last resort)
+    // 4. Stored public_url — handles both absolute (https://…) and relative (/assets/cta/…)
+    //    values. Relative values are made absolute using baseUrlHint (the request origin).
+    //    Also queries by public_url LIKE so UUID rows are found when filename differs.
     if (!buf) {
       try {
         const pubRows = (await db.execute(sql.raw(
-          `SELECT public_url FROM cta_assets WHERE filename = '${safeFilename}' LIMIT 1`
+          `SELECT public_url FROM cta_assets WHERE (filename = '${safeFilename}' OR public_url LIKE '%/${safeFilename}') LIMIT 1`
         ))).rows as any[];
-        const pubUrl = pubRows[0]?.public_url;
-        if (pubUrl && String(pubUrl).startsWith("http")) {
+        const rawPubUrl = pubRows[0]?.public_url;
+        console.log(`[cta-resolve] step4 rawPubUrl="${String(rawPubUrl || "").slice(0, 80)}"`);
+        if (rawPubUrl) {
+          const absUrl = String(rawPubUrl).startsWith("http")
+            ? String(rawPubUrl)
+            : `${baseUrlHint}${rawPubUrl}`;
           const ctrl = new AbortController();
           const t = setTimeout(() => ctrl.abort(), 10000);
-          const resp = await fetch(String(pubUrl), { signal: ctrl.signal });
+          const resp = await fetch(absUrl, { signal: ctrl.signal });
           clearTimeout(t);
+          console.log(`[cta-resolve] step4 fetch "${absUrl.slice(0, 80)}" status=${resp.status}`);
           if (resp.ok) {
             buf = Buffer.from(await resp.arrayBuffer());
             mime = (resp.headers.get("content-type") || "image/png").split(";")[0].trim();
-            console.log(`[cta-resolve] public_url hit filename="${filename}" url="${String(pubUrl).slice(0, 80)}" bytes=${buf.byteLength}`);
+            console.log(`[cta-resolve] public_url hit filename="${filename}" url="${absUrl.slice(0, 80)}" bytes=${buf.byteLength}`);
           } else {
-            console.error(`[cta-resolve] public_url miss status=${resp.status} filename="${filename}" url="${String(pubUrl).slice(0, 80)}" — CID inlining will fail`);
+            console.error(`[cta-resolve] public_url miss status=${resp.status} filename="${filename}" url="${absUrl.slice(0, 80)}"`);
           }
         }
       } catch (_e: any) {
@@ -385,10 +405,46 @@ async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promis
       }
     }
 
+    // 5. Direct fetch of the original absolute src URL — catches cases where no DB row
+    //    exists yet (image lives at an external URL that hasn't been imported into cta_assets).
+    if (!buf) {
+      const origEntry = toResolve.find(x => x.filename === filename);
+      if (origEntry && /^https?:\/\//i.test(origEntry.src)) {
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 10000);
+          const resp = await fetch(origEntry.src, { signal: ctrl.signal });
+          clearTimeout(t);
+          console.log(`[cta-resolve] step5 direct-src "${origEntry.src.slice(0, 80)}" status=${resp.status}`);
+          if (resp.ok) {
+            buf = Buffer.from(await resp.arrayBuffer());
+            mime = (resp.headers.get("content-type") || "image/png").split(";")[0].trim();
+            console.log(`[cta-resolve] direct-src hit filename="${filename}" bytes=${buf.byteLength}`);
+          }
+        } catch (_e: any) {
+          console.warn(`[cta-resolve] direct-src fetch error for "${filename}":`, _e?.message);
+        }
+      }
+    }
+
+    // Self-heal: when bytes were obtained via steps 2–5, persist to file_data so the
+    // next send hits step 1 (DB) without disk/network roundtrips.
+    if (buf && !_step1Hit) {
+      try {
+        const hexStr = buf.toString("hex");
+        await db.execute(sql.raw(
+          `UPDATE cta_assets SET file_data = decode('${hexStr}', 'hex') WHERE (filename = '${safeFilename}' OR public_url LIKE '%/${safeFilename}') AND is_archived = FALSE AND (file_data IS NULL OR octet_length(file_data) = 0)`
+        ));
+        console.log(`[cta-resolve] self-healed file_data filename="${filename}" bytes=${buf.byteLength}`);
+      } catch (_e: any) {
+        console.warn(`[cta-resolve] self-heal error for "${filename}":`, _e?.message);
+      }
+    }
+
     if (buf) {
       resolved.set(filename, `data:${mime};base64,${buf.toString("base64")}`);
     } else {
-      console.error(`[cta-resolve] ALL 4 methods failed for filename="${filename}" — image will be missing from sent email`);
+      console.error(`[cta-resolve] ALL 5 methods failed for filename="${filename}" — image will be missing from sent email`);
     }
   }
 
@@ -404,14 +460,11 @@ async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promis
   return result;
 }
 
+// CTA asset uploader — uses memoryStorage so req.file.buffer is always available
+// for immediate DB persistence (file_data). The handler writes to disk separately
+// for Express static serving; if that fails, the DB copy is the canonical source.
 const ctaUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, CTA_ASSETS_DIR),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase() || ".png";
-      cb(null, crypto.randomUUID() + ext);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
@@ -6557,6 +6610,68 @@ export async function registerRoutes(
       return res.json({ ok: true, total: allRows.length, fixed, report });
     } catch (err: any) {
       console.error("[normalize-email-signatures] error:", err);
+      return res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
+  // POST /api/admin/cta-assets/backfill-file-data
+  // Finds every CTA asset with NULL/empty file_data and attempts to populate it from
+  // disk → localhost HTTP → public_url HTTP. Safe to call repeatedly (idempotent).
+  // Critical for production assets uploaded before the memoryStorage migration.
+  app.post("/api/admin/cta-assets/backfill-file-data", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const rows = (await db.execute(sql.raw(`
+        SELECT id, filename, public_url, mime_type FROM cta_assets
+        WHERE is_archived = FALSE AND (file_data IS NULL OR octet_length(file_data) = 0)
+        ORDER BY id
+      `))).rows as any[];
+      const port = process.env.PORT || 5000;
+      const results: { id: number; filename: string; status: string; bytes?: number }[] = [];
+      for (const row of rows) {
+        const fn = String(row.filename || "");
+        const safeId = Number(row.id);
+        let buf: Buffer | null = null;
+        let status = "not_found";
+        // Step 1: disk
+        try {
+          const diskPath = path.join(CTA_ASSETS_DIR, fn);
+          if (fs.existsSync(diskPath)) {
+            buf = fs.readFileSync(diskPath);
+            status = "disk";
+          }
+        } catch (_) {}
+        // Step 2: localhost HTTP (Express static)
+        if (!buf) {
+          try {
+            const r = await fetch(`http://127.0.0.1:${port}/assets/cta/${encodeURIComponent(fn)}`, { signal: AbortSignal.timeout(8000) });
+            if (r.ok) { buf = Buffer.from(await r.arrayBuffer()); status = "localhost"; }
+          } catch (_) {}
+        }
+        // Step 3: public_url (absolute or relative)
+        if (!buf && row.public_url) {
+          try {
+            const absUrl = String(row.public_url).startsWith("http")
+              ? String(row.public_url)
+              : `http://127.0.0.1:${port}${row.public_url}`;
+            const r = await fetch(absUrl, { signal: AbortSignal.timeout(12000) });
+            if (r.ok) { buf = Buffer.from(await r.arrayBuffer()); status = `public_url:${absUrl.slice(0, 60)}`; }
+          } catch (_) {}
+        }
+        if (buf && buf.byteLength > 0) {
+          const hexStr = buf.toString("hex");
+          await db.execute(sql.raw(
+            `UPDATE cta_assets SET file_data = decode('${hexStr}', 'hex') WHERE id = ${safeId}`
+          ));
+          results.push({ id: safeId, filename: fn, status, bytes: buf.byteLength });
+          console.log(`[cta-backfill] id=${safeId} filename="${fn}" status=${status} bytes=${buf.byteLength}`);
+        } else {
+          results.push({ id: safeId, filename: fn, status });
+          console.warn(`[cta-backfill] id=${safeId} filename="${fn}" NOT FOUND via disk/localhost/public_url`);
+        }
+      }
+      return res.json({ ok: true, total: rows.length, healed: results.filter(r => r.bytes).length, results });
+    } catch (err: any) {
+      console.error("[cta-backfill] error:", err);
       return res.status(500).json({ error: String(err.message || err) });
     }
   });
@@ -14898,6 +15013,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       contentLength: req.headers["content-length"],
       contentType:   req.headers["content-type"],
     });
+    console.log("[CTA-CID-LIVE-VERSION-2026-06-08-0435] POST /api/gmail/send active — resolver v5 (step5+self-heal+public_url-LIKE+relative-url-fix)");
     const userId = (req.session as any).userId;
     const asAccountId = req.body.asAccountId ? Number(req.body.asAccountId) : undefined;
     // Resolve account BEFORE the main try/catch so that any error here also returns JSON
@@ -29674,7 +29790,10 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const userId = (req.session as any).userId as number;
-      const filename = req.file.filename;
+      // memoryStorage: req.file.buffer is the raw upload bytes; generate UUID filename ourselves.
+      const ext = path.extname(req.file.originalname).toLowerCase() || ".png";
+      const filename = crypto.randomUUID() + ext;
+      const buf = req.file.buffer;
       // Always derive URL from request forwarded headers — Replit's edge proxy sets
       // X-Forwarded-Host to the canonical public hostname, so this is always correct
       // for both dev (preview domain) and production (.replit.app / custom domain).
@@ -29682,29 +29801,24 @@ export function registerConfluenceRoutes(app: Express) {
       const publicUrl = `${baseUrl}/assets/cta/${filename}`;
       const name = (req.body.name || req.file.originalname.replace(/\.[^.]+$/, "")).slice(0, 100);
       const s = (v: string) => v.replace(/'/g, "''");
+      // Persist bytes to DB first (canonical source) — disk is an optional cache for static serving.
+      const hexStr = buf.toString("hex");
       const [row] = (await db.execute(sql.raw(`
-        INSERT INTO cta_assets (name, filename, public_url, mime_type, file_size, created_by, created_at)
+        INSERT INTO cta_assets (name, filename, public_url, mime_type, file_size, file_data, created_by, created_at)
         VALUES ('${s(name)}', '${s(filename)}', '${s(publicUrl)}', '${s(req.file.mimetype)}',
-                ${req.file.size}, ${userId}, NOW())
+                ${buf.byteLength}, decode('${hexStr}', 'hex'), ${userId}, NOW())
         RETURNING *
       `))).rows;
-      // Compute base64 data URI from the uploaded file so the frontend can store it
-      // directly in the signature — eliminating any runtime disk/network dependency at
-      // send time (critical for production where uploads/ is ephemeral after restart).
-      // Also persist raw bytes to DB (file_data column) so resolveCtaImagesInHtml can
-      // recover them even when the ephemeral disk has been wiped on a production restart.
-      let dataUri: string | null = null;
+      console.log(`[cta-upload] saved file_data to DB id=${(row as any).id} filename="${filename}" bytes=${buf.byteLength}`);
+      // Write to disk for Express static serving — non-fatal if it fails (DB is the source of truth).
       try {
-        const filePath = path.join(CTA_ASSETS_DIR, filename);
-        const buf = fs.readFileSync(filePath);
-        dataUri = `data:${req.file.mimetype};base64,${buf.toString("base64")}`;
-        await db.execute(sql.raw(
-          `UPDATE cta_assets SET file_data = decode('${buf.toString("hex")}', 'hex') WHERE id = ${Number((row as any).id)}`
-        ));
-        console.log(`[cta-upload] saved file_data to DB id=${(row as any).id} filename="${filename}" bytes=${buf.byteLength}`);
-      } catch (e) {
-        console.warn("[cta-upload] could not save file_data/dataUri:", (e as any)?.message);
+        fs.mkdirSync(CTA_ASSETS_DIR, { recursive: true });
+        fs.writeFileSync(path.join(CTA_ASSETS_DIR, filename), buf);
+      } catch (diskErr) {
+        console.warn("[cta-upload] disk write failed (DB copy is authoritative):", (diskErr as any)?.message);
       }
+      // Compute data URI so the frontend can preview immediately without a round-trip.
+      const dataUri = `data:${req.file.mimetype};base64,${buf.toString("base64")}`;
       res.json({ ...row, public_url: publicUrl, data_uri: dataUri });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Upload failed" });

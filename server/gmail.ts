@@ -199,7 +199,7 @@ export async function extractCtaInlineImages(
     while ((mm = re.exec(h)) !== null) srcs.push(mm[1]);
     return srcs;
   };
-  console.log("[CID-DEBUG] extractCtaInlineImages LIVE VERSION 2026-06-07", {
+  console.log("[CTA-CID-LIVE-VERSION-2026-06-08-0435] extractCtaInlineImages called", {
     htmlLen: html?.length,
     imgSrcs: extractImgSrcs(html),
   });
@@ -246,7 +246,6 @@ export async function extractCtaInlineImages(
 
       if (seen.has(src)) continue;
 
-      console.log("[CID-DEBUG] resolving img src", src);
       const rawExt = src.split("?")[0].split("/").pop()?.split(".").pop() ?? "png";
       let mimeType = mimeTypeFromExt(rawExt.toLowerCase());
       let data: Buffer | null = null;
@@ -256,7 +255,10 @@ export async function extractCtaInlineImages(
       // also resolves UUID-named assets that survive production disk wipes.
       const ctaFileMatch = src.match(/\/assets\/cta\/([^"'?#\s]+)/);
       if (ctaFileMatch) {
-        const _ctaResolved = await resolveCtaAsset(ctaFileMatch[1]);
+        const _ctaFilename = ctaFileMatch[1];
+        console.log(`[CID-RESOLVE-FILENAME] src="${src.slice(0, 80)}" filename="${_ctaFilename}"`);
+        const _ctaResolved = await resolveCtaAsset(_ctaFilename);
+        console.log(`[CID-RESOLVE-RESULT] filename="${_ctaFilename}" found=${!!_ctaResolved} bytes=${_ctaResolved?.data.byteLength ?? 0}`);
         if (_ctaResolved) {
           data = _ctaResolved.data;
           mimeType = _ctaResolved.mimeType;

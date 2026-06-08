@@ -1,0 +1,60 @@
+The real VoltSafe Mail UI send still fails with the exact same CTA URL:
+
+https://image-linker-burgesstrevor76.replit.app/assets/cta/d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+
+Do not run another isolated script and call it done. The UI send path is the failing path.
+
+Immediate task:
+
+1. Add a unique version marker inside POST /api/gmail/send and inside extractCtaInlineImages, for example:
+   [CTA-CID-LIVE-VERSION-2026-06-07-2155]
+
+2. Restart the app.
+
+3. Send the same failing email from the actual VoltSafe Mail UI.
+
+4. Read the server logs for that exact UI send.
+
+5. Confirm whether the version marker appears.
+
+If the marker does NOT appear:
+- The UI is not hitting the code you edited.
+- Find the actual route/function used by the UI send.
+- Do not touch the CID converter until you find the real send path.
+
+If the marker DOES appear:
+- Log every IMG src seen by the final send body immediately before CID conversion.
+- Log every IMG src seen by extractCtaInlineImages.
+- Log the normalized filename for each CTA src.
+- Log the result of resolveCtaAsset for:
+  d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+
+Critical bug to check:
+The DB may not contain a row where filename = d4959dbc-40c8-4aec-a073-ab6710ab9c38.png, and public_url may not contain that UUID either. If so, resolveCtaAsset cannot find the asset, even if another row contains the same image under a human-readable filename.
+
+Fix required if that is true:
+When a CTA URL is served as:
+https://image-linker-burgesstrevor76.replit.app/assets/cta/<uuid>.png
+
+the upload/serve/signature pipeline must either:
+A. store that exact public URL / UUID filename in cta_assets.public_url, OR
+B. rewrite the signature to use the DB-backed filename that resolveCtaAsset can find, OR
+C. add a DB mapping from served UUID filename → original CTA asset row.
+
+Do not just add more regex.
+
+The current regex may now see the URL, but the resolver likely cannot map:
+d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+to the actual stored CTA row.
+
+Required proof before declaring fixed:
+- UI POST /api/gmail/send marker appears
+- failing URL is logged before conversion
+- extractCtaInlineImages logs that exact URL
+- normalized filename is d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+- resolveCtaAsset returns found=true for that filename
+- rewritten HTML contains cid:
+- FINAL-CID-GATE passes
+- UI send returns success, not draft fallback
+
+Then send the real UI email again and report the actual logs.

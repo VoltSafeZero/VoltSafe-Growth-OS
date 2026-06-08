@@ -27,3 +27,4 @@
 - [Signature Image Inlining](signature-image-inlining.md) — resolveCtaAsset() (server/services/cta-asset-resolver.ts) is the shared 4-step chain; extractCtaInlineImages calls it; upload route saves file_data via post-INSERT UPDATE; scripts/test-cid-pipeline.ts verifies end-to-end.
 - [Apple Mail CID Attachment Bug](apple-mail-cid.md) — Content-Disposition: inline on CID parts causes Apple Mail to show image both inline AND as attachment; omit it entirely (RFC 2392 §2); also add type="text/html" to multipart/related; use 10s fetch timeout for external URLs.
 - [CTA Quote Compat](cta-quote-compat.md) — all CTA src= scanners must handle both "..." and '...' quote styles; single-quote attrs from rich-text editors silently bypassed double-quote-only regex.
+- [CTA Asset Inlining Hardening](cta-asset-inlining.md) — memoryStorage upload always saves file_data; resolver v5 has 5-step chain + self-heal; backfill endpoint for existing NULL rows.

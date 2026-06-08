@@ -67,6 +67,19 @@ export async function resolveCtaAsset(
     console.warn(`[cta-resolver] DB lookup error for "${filename}":`, e?.message);
   }
 
+  // Helper: persist bytes to file_data so the next resolve hits step 1 (DB).
+  async function selfHeal(buf: Buffer, mime: string): Promise<void> {
+    try {
+      const hexStr = buf.toString("hex");
+      await db.execute(sql.raw(
+        `UPDATE cta_assets SET file_data = decode('${hexStr}', 'hex') WHERE (filename = '${safeFilename}' OR public_url LIKE '%/${safeFilename}') AND is_archived = FALSE AND (file_data IS NULL OR octet_length(file_data) = 0)`,
+      ));
+      console.log(`[cta-resolver] self-healed file_data filename="${filename}" bytes=${buf.byteLength}`);
+    } catch (healErr: any) {
+      console.warn(`[cta-resolver] self-heal error filename="${filename}":`, healErr?.message);
+    }
+  }
+
   // 2. Disk
   const diskPath = path.join(CTA_ASSETS_DIR, filename);
   try {
@@ -74,8 +87,10 @@ export async function resolveCtaAsset(
     console.log("[CID-RESOLVE-DISK]", { filename, diskPath, exists: _diskExists });
     if (_diskExists) {
       const buf = fs.readFileSync(diskPath);
+      const mime = mimeFromFilename(filename);
       console.log(`[cta-resolver] disk hit filename="${filename}" bytes=${buf.byteLength}`);
-      return { data: buf, mimeType: mimeFromFilename(filename) };
+      await selfHeal(buf, mime);
+      return { data: buf, mimeType: mime };
     }
   } catch (e: any) {
     console.warn(`[cta-resolver] disk read error for "${filename}":`, e?.message);
@@ -94,6 +109,7 @@ export async function resolveCtaAsset(
       const mime = (resp.headers.get("content-type") || mimeFromFilename(filename)).split(";")[0].trim();
       console.log("[CID-RESOLVE-HTTP]", { filename, status: resp.status, bytes: buf.byteLength });
       console.log(`[cta-resolver] localhost hit filename="${filename}" bytes=${buf.byteLength}`);
+      await selfHeal(buf, mime);
       return { data: buf, mimeType: mime };
     }
     console.log("[CID-RESOLVE-HTTP]", { filename, status: resp.status, bytes: 0 });
@@ -102,24 +118,34 @@ export async function resolveCtaAsset(
     console.warn(`[cta-resolver] localhost fetch error for "${filename}":`, e?.message);
   }
 
-  // 4. Stored public_url from DB (external HTTP, absolute last resort)
+  // 4. Stored public_url from DB — handles both absolute (https://…) and relative
+  //    (/assets/cta/…) values. Relative values are made absolute using the local port
+  //    so they hit the same Express static route as step 3, but via a DB-stored URL
+  //    rather than a hard-coded filename. Also queries by public_url LIKE so UUID rows
+  //    are found when the filename column differs from the UUID used in public_url.
   try {
     const rows = (await db.execute(sql.raw(
-      `SELECT public_url FROM cta_assets WHERE filename = '${safeFilename}' LIMIT 1`,
+      `SELECT public_url FROM cta_assets WHERE (filename = '${safeFilename}' OR public_url LIKE '%/${safeFilename}') LIMIT 1`,
     ))).rows as any[];
-    const pubUrl = rows[0]?.public_url;
-    if (pubUrl && String(pubUrl).startsWith("http")) {
+    const rawPubUrl = rows[0]?.public_url;
+    console.log("[CID-RESOLVE-STEP4]", { filename, rawPubUrl: String(rawPubUrl || "").slice(0, 80) });
+    if (rawPubUrl) {
+      const port = process.env.PORT || 5000;
+      const absUrl = String(rawPubUrl).startsWith("http")
+        ? String(rawPubUrl)
+        : `http://127.0.0.1:${port}${rawPubUrl}`;
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 10000);
-      const resp = await fetch(String(pubUrl), { signal: ctrl.signal });
+      const resp = await fetch(absUrl, { signal: ctrl.signal });
       clearTimeout(t);
       if (resp.ok) {
         const buf = Buffer.from(await resp.arrayBuffer());
         const mime = (resp.headers.get("content-type") || mimeFromFilename(filename)).split(";")[0].trim();
-        console.log(`[cta-resolver] public_url hit filename="${filename}" url="${String(pubUrl).slice(0, 80)}" bytes=${buf.byteLength}`);
+        console.log(`[cta-resolver] public_url hit filename="${filename}" url="${absUrl.slice(0, 80)}" bytes=${buf.byteLength}`);
+        await selfHeal(buf, mime);
         return { data: buf, mimeType: mime };
       }
-      console.error(`[cta-resolver] public_url miss status=${resp.status} filename="${filename}" url="${String(pubUrl).slice(0, 80)}"`);
+      console.error(`[cta-resolver] public_url miss status=${resp.status} filename="${filename}" url="${absUrl.slice(0, 80)}"`);
     }
   } catch (e: any) {
     console.error(`[cta-resolver] public_url fetch error for "${filename}":`, e?.message);
