@@ -26,3 +26,4 @@
 - [CID Image Display Fix](cid-image-display.md) — DOMPurify strips cid: URIs; fix is to rewrite src="cid:xxx" → backend proxy URL before sanitizeEmailHtml runs; proxy at GET /api/gmail/messages/:msgId/cid-image/:cid.
 - [Signature Image Inlining](signature-image-inlining.md) — resolveCtaAsset() (server/services/cta-asset-resolver.ts) is the shared 4-step chain; extractCtaInlineImages calls it; upload route saves file_data via post-INSERT UPDATE; scripts/test-cid-pipeline.ts verifies end-to-end.
 - [Apple Mail CID Attachment Bug](apple-mail-cid.md) — Content-Disposition: inline on CID parts causes Apple Mail to show image both inline AND as attachment; omit it entirely (RFC 2392 §2); also add type="text/html" to multipart/related; use 10s fetch timeout for external URLs.
+- [CTA Quote Compat](cta-quote-compat.md) — all CTA src= scanners must handle both "..." and '...' quote styles; single-quote attrs from rich-text editors silently bypassed double-quote-only regex.

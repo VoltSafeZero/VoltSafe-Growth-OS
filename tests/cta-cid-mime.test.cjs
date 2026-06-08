@@ -49,7 +49,11 @@ check(
 
 check(
   "extractCtaInlineImages rewrites src= to cid:",
-  gmailTs.includes('$1cid:${cidImg.cid}$3') || gmailTs.includes('$1cid:${cidImg.cid}$2')
+  // Old pattern used capture groups ($1cid:$2 / $3); new pattern replaces the full
+  // src="..." or src='...' match directly with src="cid:..." (no groups needed).
+  gmailTs.includes('$1cid:${cidImg.cid}$3') ||
+  gmailTs.includes('$1cid:${cidImg.cid}$2') ||
+  gmailTs.includes('`src="cid:${cidImg.cid}"`')
 );
 
 check(
@@ -474,9 +478,12 @@ fs.writeFileSync(path.join(tmpDir, "WatchDemo_Thumbnail_200.png"), fakePng);
   );
 
   // Source-level: main scan path uses a generic src= regex, not a filename allowlist.
+  // Accepts both the original double-quote-only form and the upgraded quote-agnostic form.
   check(
     "main scan uses generic src= regex (not filename-specific allowlist)",
-    gmailTs.includes('/\\\\bsrc="([^"]+)"/gi') || gmailTs.includes('src="([^"]+)"')
+    gmailTs.includes('/\\\\bsrc="([^"]+)"/gi') ||
+    gmailTs.includes('src="([^"]+)"') ||
+    gmailTs.includes(`src=["']([^"']+)["']`)
   );
 
   // Source-level: legacy fallback also sets filename on CidImage (for Content-Disposition).

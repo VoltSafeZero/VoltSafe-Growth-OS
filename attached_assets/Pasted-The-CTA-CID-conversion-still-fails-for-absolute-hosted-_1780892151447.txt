@@ -1,0 +1,66 @@
+The CTA CID conversion still fails for absolute hosted CTA URLs.
+
+Current failing error from the app:
+
+CID conversion failed before Gmail send:
+IMG SRC still contains /assets/cta/ after final CID conversion:
+https://image-linker-burgesstrevor76.replit.app/assets/cta/d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+
+IMG SRC still contains external CTA host URL after final CID conversion:
+https://image-linker-burgesstrevor76.replit.app/assets/cta/d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+
+Diagnosis:
+The CID converter is still not handling absolute CTA asset URLs like:
+
+https://image-linker-burgesstrevor76.replit.app/assets/cta/<filename>.png
+
+It appears to handle relative /assets/cta/... URLs and data: URIs, but the live signature/editor is producing absolute hosted Replit CTA URLs.
+
+Required fix:
+Update extractCtaInlineImages / resolveCtaAsset / CTA src matching so it recognizes and converts ALL of these equivalent CTA image src forms:
+
+1. /assets/cta/<filename>.png
+2. https://<any-host>/assets/cta/<filename>.png
+3. http://<any-host>/assets/cta/<filename>.png
+4. data:image/png;base64,...
+
+For absolute URLs, normalize the src by extracting the filename after /assets/cta/ and pass that filename into resolveCtaAsset.
+
+Example:
+https://image-linker-burgesstrevor76.replit.app/assets/cta/d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+
+should normalize to:
+d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+
+Then resolve it from cta_assets DB first, disk second, localhost/fetch fallback last.
+
+Important:
+Do NOT weaken or remove the FINAL-CID-GATE. It correctly caught the failure. Fix the converter so the gate passes.
+
+Also make the src parser quote-compatible:
+- src="..."
+- src='...'
+
+And case tolerant:
+- SRC=
+- Img src=
+
+Add tests for:
+1. relative /assets/cta/<filename>.png converts to cid:
+2. absolute https://some-host/assets/cta/<filename>.png converts to cid:
+3. absolute http://some-host/assets/cta/<filename>.png converts to cid:
+4. single-quoted src='/assets/cta/<filename>.png' converts to cid:
+5. single-quoted src='https://some-host/assets/cta/<filename>.png' converts to cid:
+6. final HTML has no /assets/cta/ src left
+7. final HTML has no image-linker-burgesstrevor76.replit.app CTA URL left
+8. inlineImagesCount > 0
+9. MIME tree remains multipart/related
+10. inline CID parts still have no Content-Disposition header
+
+After fixing:
+- restart the app
+- send the exact same real email again from the UI
+- confirm no red draft fallback error
+- confirm Gmail API returns 200
+- confirm logs show FINAL-CID-GATE passed
+- report exact files changed and tests run

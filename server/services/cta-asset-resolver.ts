@@ -42,10 +42,13 @@ export async function resolveCtaAsset(
   const safeFilename = filename.replace(/'/g, "''");
   console.log("[CID-RESOLVE-START]", { filename });
 
-  // 1. DB file_data — persistent, survives production disk wipes
+  // 1. DB file_data — persistent, survives production disk wipes.
+  // Also tries public_url basename match so UUID-named disk files stored under a
+  // human-readable DB filename are still found (e.g. filename="WatchDemo_200.png"
+  // but public_url ends with "/d4959dbc.png" — or vice versa).
   try {
     const rows = (await db.execute(sql.raw(
-      `SELECT file_data, mime_type FROM cta_assets WHERE filename = '${safeFilename}' AND is_archived = FALSE LIMIT 1`,
+      `SELECT file_data, mime_type FROM cta_assets WHERE (filename = '${safeFilename}' OR public_url LIKE '%/${safeFilename}') AND is_archived = FALSE LIMIT 1`,
     ))).rows as any[];
     const _foundDb = !!rows[0]?.file_data;
     const _fileDataBytes = _foundDb

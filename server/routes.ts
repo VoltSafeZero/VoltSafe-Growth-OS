@@ -289,13 +289,14 @@ if (!fs.existsSync(CTA_ASSETS_DIR)) fs.mkdirSync(CTA_ASSETS_DIR, { recursive: tr
  * Only rewrites src="" attributes; href="" tracking links are never touched.
  */
 async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promise<string> {
-  const imgRe = /<img\b[^>]*\bsrc="([^"]+)"/gi;
+  // Match both double- and single-quoted src attributes (case-insensitive SRC).
+  const imgRe = /<img\b[^>]*\bsrc=["']([^"']+)["']/gi;
   const toResolve: Array<{ src: string; filename: string }> = [];
   let m: RegExpExecArray | null;
   while ((m = imgRe.exec(html)) !== null) {
     const src = m[1];
     if (src.startsWith("data:") || src.startsWith("cid:")) continue;
-    const fnMatch = src.match(/\/assets\/cta\/([^/?#\s"]+)/);
+    const fnMatch = src.match(/\/assets\/cta\/([^/?#\s"']+)/);
     if (fnMatch) toResolve.push({ src, filename: fnMatch[1] });
   }
   if (toResolve.length === 0) return html;
@@ -391,12 +392,14 @@ async function resolveCtaImagesInHtml(html: string, baseUrlHint: string): Promis
     }
   }
 
-  // Rewrite matching img src attributes to data: URIs (exact string match, never touches href)
+  // Rewrite matching img src attributes to data: URIs (exact string match, never touches href).
+  // Handle both double- and single-quoted src attributes; normalise to double quotes.
   let result = html;
   for (const { src, filename } of toResolve) {
     const dataUri = resolved.get(filename);
     if (!dataUri) continue;
     result = result.split(`src="${src}"`).join(`src="${dataUri}"`);
+    result = result.split(`src='${src}'`).join(`src="${dataUri}"`);
   }
   return result;
 }
@@ -15205,13 +15208,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
         // ── [MIME-PRECHECK] Hard diagnostic — logged immediately before Gmail API call ──
         {
-          const _preHtmlImgSrcs = (ctaWrappedBody.match(/\bsrc="([^"]+)"/gi) || [])
-            .map(s => s.replace(/^src="/i, "").replace(/"$/, "")).slice(0, 5);
-          const _postHtmlImgSrcs = (_cidBody.match(/\bsrc="([^"]+)"/gi) || [])
-            .map(s => s.replace(/^src="/i, "").replace(/"$/, "")).slice(0, 5);
-          const _cidRefs = (_cidBody.match(/src="cid:[^"]+"/gi) || []).slice(0, 10);
-          const _hasCtaUrl = /\/assets\/cta\/|image-linker[^"']*\/assets\/cta\//.test(_cidBody);
-          const _hasCidInHtml = /src="cid:/i.test(_cidBody);
+          // Extract img src values — handle both double- and single-quoted attrs.
+          const _preHtmlImgSrcs = (ctaWrappedBody.match(/\bsrc=["']([^"']+)["']/gi) || [])
+            .map(s => s.replace(/^src=["']/i, "").replace(/["']$/, "")).slice(0, 5);
+          const _postHtmlImgSrcs = (_cidBody.match(/\bsrc=["']([^"']+)["']/gi) || [])
+            .map(s => s.replace(/^src=["']/i, "").replace(/["']$/, "")).slice(0, 5);
+          const _cidRefs = (_cidBody.match(/src=["']cid:[^"']+["']/gi) || []).slice(0, 10);
+          // Any remaining /assets/cta/ in a src (either quote style) is a problem.
+          const _hasCtaUrl = /\/assets\/cta\//.test(_cidBody);
+          const _hasCidInHtml = /src=["']cid:/i.test(_cidBody);
           const _rootMimeType = _sigInlineImages.length > 0 ? "multipart/related" : "multipart/alternative";
           console.log("[MIME-PRECHECK]", {
             subject: subject || "(no subject)",

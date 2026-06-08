@@ -193,7 +193,8 @@ export async function extractCtaInlineImages(
 ): Promise<{ html: string; inlineImages: CidImage[] }> {
   const extractImgSrcs = (h: string): string[] => {
     const srcs: string[] = [];
-    const re = /<img\b[^>]*\bsrc="([^"]+)"/gi;
+    // Handle both double- and single-quoted src attributes.
+    const re = /<img\b[^>]*\bsrc=["']([^"']+)["']/gi;
     let mm: RegExpExecArray | null;
     while ((mm = re.exec(h)) !== null) srcs.push(mm[1]);
     return srcs;
@@ -214,7 +215,9 @@ export async function extractCtaInlineImages(
   if (sigMatch) {
     // ── New path: scan sig section, inline ALL images ──────────────────────
     const sigHtml = sigMatch[1];
-    const srcRe = /\bsrc="([^"]+)"/gi;
+    // Match both double- and single-quoted src attributes (case-insensitive SRC).
+    // Single-quoted attrs arise from some WYSIWYG editors and HTML templates.
+    const srcRe = /\bsrc=["']([^"']+)["']/gi;
     let m: RegExpExecArray | null;
     while ((m = srcRe.exec(sigHtml)) !== null) {
       const src = m[1];
@@ -291,10 +294,10 @@ export async function extractCtaInlineImages(
     // ── Legacy fallback: no sig markers — only /assets/cta/ local files ───
     // Scan for src attributes whose value contains /assets/cta/ so we store
     // the FULL src value (relative or absolute) as the map key.  The rewrite
-    // loop below then builds a regex from that same full src, guaranteeing a
-    // match regardless of whether the URL is "/assets/cta/logo.png" or
-    // "https://image-linker-xxx.replit.app/assets/cta/logo.png".
-    const srcRe = /\bsrc="([^"]*\/assets\/cta\/[^"]+)"/gi;
+    // loop below then replaces that same full src, handling both quote styles
+    // regardless of whether the URL is "/assets/cta/logo.png" or
+    // "https://<any-host>/assets/cta/logo.png".
+    const srcRe = /\bsrc=["']([^"']*\/assets\/cta\/[^"']+)["']/gi;
     let m: RegExpExecArray | null;
     while ((m = srcRe.exec(html)) !== null) {
       const src = m[1]; // full src value, e.g. "/assets/cta/logo.png" or "https://…/assets/cta/logo.png"
@@ -326,12 +329,15 @@ export async function extractCtaInlineImages(
       // data: URIs are kilobytes of base64 — building a RegExp from them is
       // both slow and throws "Invalid regular expression" in V8 when the
       // escaped string contains regex meta-sequences. Use literal split/join.
+      // Handle both double- and single-quoted src attributes.
       rewritten = rewritten.split(`src="${src}"`).join(`src="cid:${cidImg.cid}"`);
+      rewritten = rewritten.split(`src='${src}'`).join(`src="cid:${cidImg.cid}"`);
     } else {
       const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      // Match src="<exact-url>" anywhere in the HTML (both sig and body).
-      const pat = new RegExp(`(\\bsrc=")${escapedSrc}(")`,"g");
-      rewritten = rewritten.replace(pat, `$1cid:${cidImg.cid}$2`);
+      // Match src="..." or src='...' anywhere in the HTML (case-insensitive).
+      // Normalises output to double quotes for consistency.
+      const pat = new RegExp(`\\bsrc=["']${escapedSrc}["']`, "gi");
+      rewritten = rewritten.replace(pat, `src="cid:${cidImg.cid}"`);
     }
   }
 
@@ -363,11 +369,12 @@ export async function extractCtaInlineImages(
     // Only strip hrefs that look like image file URLs.
     if (!IMAGE_EXT_RE.test(src.split("?")[0])) continue;
     const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const hrefPat = new RegExp(`(\\bhref=")${escapedSrc}(")`,"g");
+    // Handle href="..." and href='...' (case-insensitive HREF).
+    const hrefPat = new RegExp(`\\bhref=["']${escapedSrc}["']`, "gi");
     if (hrefPat.test(rewritten)) {
       console.log(`[sig-cid] stripped image href="${src.slice(0, 80)}" → "#" (Apple Mail attachment prevention)`);
       hrefPat.lastIndex = 0;
-      rewritten = rewritten.replace(hrefPat, `$1#$2`);
+      rewritten = rewritten.replace(hrefPat, `href="#"`);
     }
   }
 
@@ -662,7 +669,8 @@ export async function sendEmail(
     // NEVER trigger a gate failure.
     const _extractImgSrcs = (html: string): string[] => {
       const srcs: string[] = [];
-      const re = /<img\b[^>]*\bsrc="([^"]+)"/gi;
+      // Handle both double- and single-quoted src attributes (case-insensitive).
+      const re = /<img\b[^>]*\bsrc=["']([^"']+)["']/gi;
       let m: RegExpExecArray | null;
       while ((m = re.exec(html)) !== null) srcs.push(m[1]);
       return srcs;
@@ -694,9 +702,12 @@ export async function sendEmail(
     const _htmlPreviewAfter  = body.slice(0, 300);
     const _imgSrcsAfter      = _extractImgSrcs(body);
     const _leftoverAssetUrls = _imgSrcsAfter.filter(s => s.includes("/assets/cta/"));
-    const _leftoverHostUrls  = _imgSrcsAfter.filter(s => /image-linker/i.test(s) && s.includes("/assets/cta/"));
+    // Any external http(s) URL that still references /assets/cta/ is a failure.
+    const _leftoverHostUrls  = _imgSrcsAfter.filter(s => /^https?:\/\//i.test(s) && s.includes("/assets/cta/"));
     const _contentIds        = inlineImages.map(i => i.cid);
-    const _missingCidRefs    = _contentIds.filter(cid => !body.includes(`src="cid:${cid}"`));
+    // Check both quote styles for cid: references in the final HTML.
+    const _missingCidRefs    = _contentIds.filter(cid =>
+      !body.includes(`src="cid:${cid}"`) && !body.includes(`src='cid:${cid}'`));
     const _finalCidImgCount  = _imgSrcsAfter.filter(s => s.startsWith("cid:")).length;
 
     console.log("[FINAL-CID-GATE]", {
