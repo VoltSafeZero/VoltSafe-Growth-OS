@@ -660,10 +660,23 @@ export async function sendEmail(
   // the resulting CID parts, then asserts the HTML is clean before continuing.
   {
     const _cidGateAssetsDir = path.resolve("uploads/cta-assets");
-    // Count /assets/cta/ src= references BEFORE conversion (diagnostic only).
-    const _assetSrcRe = /\/assets\/cta\//gi;
+
+    // ── Helper: extract <img src="..."> values only ──────────────────────────
+    // All gate assertions operate exclusively on IMG SRC attributes.
+    // HREF attributes (tracking links, anchor wraps around CTA images, social
+    // links) legitimately contain /assets/cta/ or image-linker URLs and must
+    // NEVER trigger a gate failure.
+    const _extractImgSrcs = (html: string): string[] => {
+      const srcs: string[] = [];
+      const re = /<img\b[^>]*\bsrc="([^"]+)"/gi;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(html)) !== null) srcs.push(m[1]);
+      return srcs;
+    };
+
     const _htmlPreviewBefore = body.slice(0, 300);
-    const _origAssetImgCount = (body.match(_assetSrcRe) ?? []).length;
+    const _imgSrcsBefore = _extractImgSrcs(body);
+    const _origAssetImgCount = _imgSrcsBefore.filter(s => s.includes("/assets/cta/")).length;
 
     const _cidGate = await extractCtaInlineImages(body, _cidGateAssetsDir);
     body = _cidGate.html;
@@ -677,19 +690,23 @@ export async function sendEmail(
       }
     }
 
-    const _htmlPreviewAfter = body.slice(0, 300);
-    const _leftoverAssetUrls = (body.match(/\/assets\/cta\/[^"'\s]*/gi) ?? []);
-    const _leftoverHostUrls  = (body.match(/image-linker[^"'\s]*/gi) ?? []);
-    const _contentIds         = inlineImages.map(i => i.cid);
-    const _missingCidRefs     = _contentIds.filter(cid => !body.includes(`src="cid:${cid}"`));
-    const _finalCidImgCount   = (body.match(/src="cid:/gi) ?? []).length;
+    // Assertions use img src values ONLY — not raw body text.
+    const _htmlPreviewAfter  = body.slice(0, 300);
+    const _imgSrcsAfter      = _extractImgSrcs(body);
+    const _leftoverAssetUrls = _imgSrcsAfter.filter(s => s.includes("/assets/cta/"));
+    const _leftoverHostUrls  = _imgSrcsAfter.filter(s => /image-linker/i.test(s) && s.includes("/assets/cta/"));
+    const _contentIds        = inlineImages.map(i => i.cid);
+    const _missingCidRefs    = _contentIds.filter(cid => !body.includes(`src="cid:${cid}"`));
+    const _finalCidImgCount  = _imgSrcsAfter.filter(s => s.startsWith("cid:")).length;
 
     console.log("[FINAL-CID-GATE]", {
       originalAssetImgCount: _origAssetImgCount,
       finalCidImgCount: _finalCidImgCount,
       inlineImagesCount: inlineImages.length,
-      leftoverAssetUrls: _leftoverAssetUrls,
-      leftoverHostUrls: _leftoverHostUrls,
+      imgSrcsBefore: _imgSrcsBefore,
+      imgSrcsAfter: _imgSrcsAfter,
+      leftoverAssetImgSrcs: _leftoverAssetUrls,
+      leftoverHostImgSrcs: _leftoverHostUrls,
       contentIds: _contentIds,
       missingCidRefs: _missingCidRefs,
       htmlPreviewBefore: _htmlPreviewBefore,
@@ -698,13 +715,13 @@ export async function sendEmail(
 
     const _gateErrors: string[] = [];
     if (_leftoverAssetUrls.length > 0) {
-      _gateErrors.push(`HTML still contains /assets/cta/ after final CID conversion: ${_leftoverAssetUrls.slice(0, 5).join(", ")}`);
+      _gateErrors.push(`IMG SRC still contains /assets/cta/ after final CID conversion: ${_leftoverAssetUrls.slice(0, 5).join(", ")}`);
     }
     if (_leftoverHostUrls.length > 0) {
-      _gateErrors.push(`HTML still contains external CTA host URL after final CID conversion: ${_leftoverHostUrls.slice(0, 3).join(", ")}`);
+      _gateErrors.push(`IMG SRC still contains external CTA host URL after final CID conversion: ${_leftoverHostUrls.slice(0, 3).join(", ")}`);
     }
     if (_origAssetImgCount > 0 && inlineImages.length === 0) {
-      _gateErrors.push(`Original HTML had ${_origAssetImgCount} CTA image src(s) but final inlineImages is empty — conversion produced no CID parts`);
+      _gateErrors.push(`Original HTML had ${_origAssetImgCount} CTA img src(s) but final inlineImages is empty — conversion produced no CID parts`);
     }
     if (_missingCidRefs.length > 0) {
       _gateErrors.push(`CID parts exist but have no matching src="cid:<id>" in final HTML: ${_missingCidRefs.join(", ")}`);
