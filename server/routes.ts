@@ -11361,7 +11361,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const hasSharedAccess = mailTeamPerms[String(accountId)]?.view === true
         || mailTeamPerms[String(accountId)]?.edit === true;
       const ownerRows = await db.execute(sql.raw(
-        `SELECT user_id FROM gmail_accounts WHERE id = ${Number(accountId)} LIMIT 1`
+        `SELECT user_id FROM email_accounts WHERE id = ${Number(accountId)} LIMIT 1`
       ));
       const ownerUserId: number | null = (ownerRows.rows as any[])[0]?.user_id ?? null;
       if (ownerUserId !== userId && !isAdmin && !hasSharedAccess) {

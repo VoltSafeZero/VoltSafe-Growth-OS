@@ -36,6 +36,14 @@ The filter `!a.isInline` didn't exclude them.
 
 - CID rewrite regex also handles single-quoted `src='cid:...'` attrs (some rich-text editors emit these).
 
+## Root cause 4 — CID proxy queried wrong table name
+
+`GET /api/gmail/messages/:msgId/cid-image/:contentId` in `server/routes.ts` queried
+`gmail_accounts` (does not exist) for owner-check. Correct table is `email_accounts`.
+This caused all CID proxy requests to return HTTP 500.
+
+**Fix:** `FROM gmail_accounts` → `FROM email_accounts` (line ~11367 in routes.ts).
+
 ## Tests
 
 `tests/cid-viewer.test.cjs` — 15 checks covering all three root causes + URL encoding + quote styles.
