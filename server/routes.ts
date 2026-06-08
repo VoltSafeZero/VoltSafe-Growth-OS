@@ -13201,8 +13201,47 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             const _schedBaseUrl = `${req.headers["x-forwarded-proto"] || req.protocol || "https"}://${req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000"}`;
             let _schedSigSection: string;
             if (_schedRow.cta_image_url && _schedRow.cta_dest_url) {
+              // Pre-resolve CTA image URL → base64 data URI (same as immediate-send path)
+              let _resolvedSchedCtaUrl = String(_schedRow.cta_image_url);
+              if (!_resolvedSchedCtaUrl.startsWith("data:")) {
+                const _scFnMatch = _resolvedSchedCtaUrl.match(/\/assets\/cta\/([^/?#\s]+)$/);
+                if (_scFnMatch) {
+                  const _scFilename = _scFnMatch[1];
+                  const _scDiskPath = path.join(CTA_ASSETS_DIR, _scFilename);
+                  try {
+                    if (fs.existsSync(_scDiskPath)) {
+                      const _scBytes = fs.readFileSync(_scDiskPath);
+                      const _scExtRaw = _scFilename.split(".").pop()?.toLowerCase() ?? "png";
+                      const _scMimeMap: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+                      _resolvedSchedCtaUrl = `data:${_scMimeMap[_scExtRaw] || "image/png"};base64,${_scBytes.toString("base64")}`;
+                      console.log(`[gmail-sched] CTA pre-resolve disk hit filename="${_scFilename}" bytes=${_scBytes.byteLength}`);
+                    } else {
+                      const _scFetchUrl = _resolvedSchedCtaUrl.startsWith("http") ? _resolvedSchedCtaUrl : `${_schedBaseUrl}${_resolvedSchedCtaUrl.startsWith("/") ? "" : "/"}${_resolvedSchedCtaUrl}`;
+                      const _scCtrl = new AbortController();
+                      const _scTimer = setTimeout(() => _scCtrl.abort(), 8000);
+                      try {
+                        const _scResp = await fetch(_scFetchUrl, { signal: _scCtrl.signal });
+                        clearTimeout(_scTimer);
+                        if (_scResp.ok) {
+                          const _scBytes = Buffer.from(await _scResp.arrayBuffer());
+                          const _scMime = (_scResp.headers.get("content-type") || "image/png").split(";")[0].trim();
+                          _resolvedSchedCtaUrl = `data:${_scMime};base64,${_scBytes.toString("base64")}`;
+                          console.log(`[gmail-sched] CTA pre-resolve HTTP hit url="${_scFetchUrl.slice(0, 80)}" bytes=${_scBytes.byteLength}`);
+                        } else {
+                          console.error(`[gmail-sched] CTA pre-resolve HTTP miss status=${_scResp.status}`);
+                        }
+                      } catch (_scFetchErr: any) {
+                        clearTimeout(_scTimer);
+                        console.error(`[gmail-sched] CTA pre-resolve fetch error: ${_scFetchErr?.message}`);
+                      }
+                    }
+                  } catch (_scDiskErr: any) {
+                    console.error(`[gmail-sched] CTA pre-resolve disk error: ${_scDiskErr?.message}`);
+                  }
+                }
+              }
               _schedSigSection = wrapHtmlWithCtaAsset(_sn, {
-                imageUrl: String(_schedRow.cta_image_url),
+                imageUrl: _resolvedSchedCtaUrl,
                 destUrl: String(_schedRow.cta_dest_url),
                 altText: _schedRow.cta_alt_text ? String(_schedRow.cta_alt_text) : null,
                 widthPx: _schedRow.cta_width_px ? Number(_schedRow.cta_width_px) : null,
@@ -14832,8 +14871,57 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             // Prefer baked-in CTA asset columns over the legacy email_signature_ctas table.
             let _sigSection: string;
             if (_sigRow.cta_image_url && _sigRow.cta_dest_url) {
+              // ── Pre-resolve CTA image URL → base64 data URI ──────────────────────
+              // The /assets/cta/:filename disk file is ephemeral in production. If it
+              // was wiped after a deploy, extractCtaInlineImages would HTTP-fetch the
+              // same URL, get a 404 from our own server, return inlineImages:[] and
+              // fall back to multipart/alternative with no CID image parts.
+              // Pre-resolving here (disk → HTTP fetch) and embedding as a data: URI
+              // guarantees the bytes are available for CID inlining regardless of disk state.
+              let _resolvedCtaImageUrl = String(_sigRow.cta_image_url);
+              if (!_resolvedCtaImageUrl.startsWith("data:")) {
+                const _ctaFnMatch = _resolvedCtaImageUrl.match(/\/assets\/cta\/([^/?#\s]+)$/);
+                if (_ctaFnMatch) {
+                  const _ctaFilename = _ctaFnMatch[1];
+                  const _ctaDiskPath = path.join(CTA_ASSETS_DIR, _ctaFilename);
+                  try {
+                    if (fs.existsSync(_ctaDiskPath)) {
+                      const _ctaBytes = fs.readFileSync(_ctaDiskPath);
+                      const _ctaExtRaw = _ctaFilename.split(".").pop()?.toLowerCase() ?? "png";
+                      const _ctaMimeMap: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+                      const _ctaMime = _ctaMimeMap[_ctaExtRaw] || "image/png";
+                      _resolvedCtaImageUrl = `data:${_ctaMime};base64,${_ctaBytes.toString("base64")}`;
+                      console.log(`[gmail-send] CTA pre-resolve disk hit filename="${_ctaFilename}" bytes=${_ctaBytes.byteLength}`);
+                    } else {
+                      // Disk miss → try HTTP fetch (may be stored on another host or an older URL)
+                      const _ctaFetchUrl = _resolvedCtaImageUrl.startsWith("http")
+                        ? _resolvedCtaImageUrl
+                        : `${baseUrl}${_resolvedCtaImageUrl.startsWith("/") ? "" : "/"}${_resolvedCtaImageUrl}`;
+                      const _ctaCtrl = new AbortController();
+                      const _ctaTimer = setTimeout(() => _ctaCtrl.abort(), 8000);
+                      try {
+                        const _ctaResp = await fetch(_ctaFetchUrl, { signal: _ctaCtrl.signal });
+                        clearTimeout(_ctaTimer);
+                        if (_ctaResp.ok) {
+                          const _ctaBytes = Buffer.from(await _ctaResp.arrayBuffer());
+                          const _ctaMime = (_ctaResp.headers.get("content-type") || "image/png").split(";")[0].trim();
+                          _resolvedCtaImageUrl = `data:${_ctaMime};base64,${_ctaBytes.toString("base64")}`;
+                          console.log(`[gmail-send] CTA pre-resolve HTTP hit url="${_ctaFetchUrl.slice(0, 80)}" bytes=${_ctaBytes.byteLength}`);
+                        } else {
+                          console.error(`[gmail-send] CTA pre-resolve HTTP miss status=${_ctaResp.status} url="${_ctaFetchUrl.slice(0, 80)}" — CID inlining may fail`);
+                        }
+                      } catch (_fetchErr: any) {
+                        clearTimeout(_ctaTimer);
+                        console.error(`[gmail-send] CTA pre-resolve fetch error: ${_fetchErr?.message} — CID inlining may fail`);
+                      }
+                    }
+                  } catch (_diskErr: any) {
+                    console.error(`[gmail-send] CTA pre-resolve disk error: ${_diskErr?.message}`);
+                  }
+                }
+              }
               _sigSection = wrapHtmlWithCtaAsset(_normalizedSig, {
-                imageUrl: String(_sigRow.cta_image_url),
+                imageUrl: _resolvedCtaImageUrl,
                 destUrl: String(_sigRow.cta_dest_url),
                 altText: _sigRow.cta_alt_text ? String(_sigRow.cta_alt_text) : null,
                 widthPx: _sigRow.cta_width_px ? Number(_sigRow.cta_width_px) : null,
@@ -14985,24 +15073,49 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
         const _cidBody = trackedBody;
 
-        // ── MIME diagnostic — logged immediately before Gmail API call ─────────────
-        console.log("[gmail-send] calling sendEmail", {
-          userId: resolved.userId,
-          accountId: resolved.accountId,
-          bodyLen: _cidBody.length,
-          hasVsSigMarker: _cidBody.includes("<!--vs-sig-start-->"),
-          containsTable: _cidBody.includes("<table"),
-          containsStyleAttr: _cidBody.includes("style="),
-          containsDataImg: _cidBody.includes("data:image"),
-          containsBase64: _cidBody.includes("base64"),
-          imgCount: (_cidBody.match(/<img\b/gi) || []).length,
-          hrefCount: (_cidBody.match(/\bhref=/gi) || []).length,
-          hasTo: !!to,
-          hasSubject: !!subject,
-          hasThreadId: !!threadId,
-          attachmentCount: mimeAttachments.length,
-          cidImageCount: _sigInlineImages.length,
-        });
+        // ── [MIME-PRECHECK] Hard diagnostic — logged immediately before Gmail API call ──
+        {
+          const _preHtmlImgSrcs = (ctaWrappedBody.match(/\bsrc="([^"]+)"/gi) || [])
+            .map(s => s.replace(/^src="/i, "").replace(/"$/, "")).slice(0, 5);
+          const _postHtmlImgSrcs = (_cidBody.match(/\bsrc="([^"]+)"/gi) || [])
+            .map(s => s.replace(/^src="/i, "").replace(/"$/, "")).slice(0, 5);
+          const _cidRefs = (_cidBody.match(/src="cid:[^"]+"/gi) || []).slice(0, 10);
+          const _hasCtaUrl = /\/assets\/cta\/|image-linker[^"']*\/assets\/cta\//.test(_cidBody);
+          const _hasCidInHtml = /src="cid:/i.test(_cidBody);
+          const _rootMimeType = _sigInlineImages.length > 0 ? "multipart/related" : "multipart/alternative";
+          console.log("[MIME-PRECHECK]", {
+            subject: subject || "(no subject)",
+            signatureId: selectedSignatureId,
+            hasSignature: bodyWithSig !== cleanBody,
+            ctaImageUrlPresent: !!(_sigRow as any)?.cta_image_url,
+            htmlImgSrcsBefore: _preHtmlImgSrcs,
+            htmlImgSrcsAfter: _postHtmlImgSrcs,
+            cidRefs: _cidRefs,
+            inlineImagesCount: _sigInlineImages.length,
+            cidImageCount: _sigInlineImages.length,
+            rootMimeType: _rootMimeType,
+          });
+          // ── Dev fail conditions ─────────────────────────────────────────────
+          if (process.env.NODE_ENV !== "production") {
+            if (_hasCtaUrl && _sigInlineImages.length === 0) {
+              throw new Error(`[MIME-FAIL] HTML contains /assets/cta/ URL but inlineImagesCount=0 — CID inlining did not run. Srcs: ${_postHtmlImgSrcs.join(", ")}`);
+            }
+            if (_hasCidInHtml && _sigInlineImages.length === 0) {
+              throw new Error(`[MIME-FAIL] HTML contains cid: ref but inlineImagesCount=0 — CID MIME parts missing`);
+            }
+            for (const _img of _sigInlineImages) {
+              const _cidSrc = `src="cid:${_img.cid}"`;
+              const _originalSrcs = _preHtmlImgSrcs;
+              for (const _origSrc of _originalSrcs) {
+                if (_origSrc === _cidBody.match(new RegExp(`src="([^"]*${_img.cid}[^"]*)"`))?.[1]) continue;
+                // Check that each inline image's original URL no longer appears in final HTML
+                if (_origSrc.includes("/assets/cta/") && _cidBody.includes(_origSrc)) {
+                  throw new Error(`[MIME-FAIL] extractCtaInlineImages created CID for src="${_origSrc.slice(0, 80)}" but URL still present in final HTML — rewrite failed`);
+                }
+              }
+            }
+          }
+        }
         const result = await sendEmail(
           resolved.userId, to, subject || "", _cidBody,
           threadId, mimeAttachments, resolved.accountId,

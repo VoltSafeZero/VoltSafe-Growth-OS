@@ -206,7 +206,29 @@ export async function extractCtaInlineImages(
     let m: RegExpExecArray | null;
     while ((m = srcRe.exec(sigHtml)) !== null) {
       const src = m[1];
-      if (!src || src.startsWith("cid:") || src.startsWith("data:")) continue;
+      if (!src || src.startsWith("cid:")) continue;
+
+      // ── data: URI images — create CID parts directly from embedded base64 ──
+      // Covers the case where cta_image_url was pre-resolved to a data URI at
+      // signature build time (disk file available but UUID-named path was lost
+      // after a production deploy wipe).
+      if (src.startsWith("data:")) {
+        if (seen.has(src)) continue;
+        const dataMatch = src.match(/^data:(image\/[a-zA-Z+]+);base64,([A-Za-z0-9+/=\r\n]+)/);
+        if (dataMatch) {
+          const mimeType = dataMatch[1];
+          const data = Buffer.from(dataMatch[2].replace(/[\r\n]/g, ""), "base64");
+          const cid = `vsig${cidIndex++}${cidBase}`;
+          const ext = mimeType.split("/")[1].split("+")[0].replace(/[^a-z]/gi, "") || "png";
+          const fname = `sig-image-${cidIndex}.${ext}`;
+          console.log(`[sig-cid] ✓ data:URI mimeType=${mimeType} bytes=${data.byteLength} cid=${cid}`);
+          seen.set(src, { cid, mimeType: mimeType as any, data, filename: fname });
+        } else {
+          console.error(`[sig-cid] data:URI parse failed — not base64 or unrecognized MIME: "${src.slice(0, 80)}"`);
+        }
+        continue;
+      }
+
       if (seen.has(src)) continue;
 
       const rawExt = src.split("?")[0].split("/").pop()?.split(".").pop() ?? "png";
