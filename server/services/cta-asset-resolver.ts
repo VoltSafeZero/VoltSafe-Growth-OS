@@ -40,12 +40,18 @@ export async function resolveCtaAsset(
   filename: string,
 ): Promise<ResolvedCtaAsset | null> {
   const safeFilename = filename.replace(/'/g, "''");
+  console.log("[CID-RESOLVE-START]", { filename });
 
   // 1. DB file_data — persistent, survives production disk wipes
   try {
     const rows = (await db.execute(sql.raw(
       `SELECT file_data, mime_type FROM cta_assets WHERE filename = '${safeFilename}' AND is_archived = FALSE LIMIT 1`,
     ))).rows as any[];
+    const _foundDb = !!rows[0]?.file_data;
+    const _fileDataBytes = _foundDb
+      ? (Buffer.isBuffer(rows[0].file_data) ? rows[0].file_data.byteLength : Buffer.from(rows[0].file_data).length)
+      : 0;
+    console.log("[CID-RESOLVE-DB]", { filename, foundDb: _foundDb, fileDataBytes: _fileDataBytes });
     if (rows[0]?.file_data) {
       const buf = Buffer.isBuffer(rows[0].file_data)
         ? rows[0].file_data
@@ -61,7 +67,9 @@ export async function resolveCtaAsset(
   // 2. Disk
   const diskPath = path.join(CTA_ASSETS_DIR, filename);
   try {
-    if (fs.existsSync(diskPath)) {
+    const _diskExists = fs.existsSync(diskPath);
+    console.log("[CID-RESOLVE-DISK]", { filename, diskPath, exists: _diskExists });
+    if (_diskExists) {
       const buf = fs.readFileSync(diskPath);
       console.log(`[cta-resolver] disk hit filename="${filename}" bytes=${buf.byteLength}`);
       return { data: buf, mimeType: mimeFromFilename(filename) };
@@ -81,9 +89,11 @@ export async function resolveCtaAsset(
     if (resp.ok) {
       const buf = Buffer.from(await resp.arrayBuffer());
       const mime = (resp.headers.get("content-type") || mimeFromFilename(filename)).split(";")[0].trim();
+      console.log("[CID-RESOLVE-HTTP]", { filename, status: resp.status, bytes: buf.byteLength });
       console.log(`[cta-resolver] localhost hit filename="${filename}" bytes=${buf.byteLength}`);
       return { data: buf, mimeType: mime };
     }
+    console.log("[CID-RESOLVE-HTTP]", { filename, status: resp.status, bytes: 0 });
     console.warn(`[cta-resolver] localhost miss status=${resp.status} filename="${filename}"`);
   } catch (e: any) {
     console.warn(`[cta-resolver] localhost fetch error for "${filename}":`, e?.message);
@@ -112,6 +122,7 @@ export async function resolveCtaAsset(
     console.error(`[cta-resolver] public_url fetch error for "${filename}":`, e?.message);
   }
 
+  console.log("[CID-RESOLVE-FAIL]", { filename });
   console.error(`[cta-resolver] ALL 4 methods failed for filename="${filename}" — CTA image will be missing`);
   return null;
 }

@@ -191,6 +191,17 @@ export async function extractCtaInlineImages(
   html: string,
   ctaAssetsDir: string,
 ): Promise<{ html: string; inlineImages: CidImage[] }> {
+  const extractImgSrcs = (h: string): string[] => {
+    const srcs: string[] = [];
+    const re = /<img\b[^>]*\bsrc="([^"]+)"/gi;
+    let mm: RegExpExecArray | null;
+    while ((mm = re.exec(h)) !== null) srcs.push(mm[1]);
+    return srcs;
+  };
+  console.log("[CID-DEBUG] extractCtaInlineImages LIVE VERSION 2026-06-07", {
+    htmlLen: html?.length,
+    imgSrcs: extractImgSrcs(html),
+  });
   const seen = new Map<string, CidImage>(); // full src value → CidImage
   let cidIndex = 0;
   // CID base: short alphanumeric timestamp — no @, no slashes, no file extensions.
@@ -232,6 +243,7 @@ export async function extractCtaInlineImages(
 
       if (seen.has(src)) continue;
 
+      console.log("[CID-DEBUG] resolving img src", src);
       const rawExt = src.split("?")[0].split("/").pop()?.split(".").pop() ?? "png";
       let mimeType = mimeTypeFromExt(rawExt.toLowerCase());
       let data: Buffer | null = null;
@@ -624,6 +636,7 @@ export async function sendEmail(
   const gmail = await getGmailClient(userId, accountId);
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
+  console.log("[LIVE-SEND] sendEmail entered", { subject, bodyLen: body?.length, inlineImagesIn: inlineImages?.length });
 
   // ── FINAL MANDATORY CID GATE ─────────────────────────────────────────────
   // This runs unconditionally for EVERY send path (immediate, scheduled,
@@ -664,6 +677,12 @@ export async function sendEmail(
       }
     }
 
+    console.log("[FINAL-CID-GATE-RESULT]", {
+      beforeImgSrcs: _imgSrcsBefore,
+      afterImgSrcs: _extractImgSrcs(body),
+      inlineImagesCount: inlineImages.length,
+      cids: inlineImages.map(i => i.cid),
+    });
     // Assertions use img src values ONLY — not raw body text.
     const _htmlPreviewAfter  = body.slice(0, 300);
     const _imgSrcsAfter      = _extractImgSrcs(body);
