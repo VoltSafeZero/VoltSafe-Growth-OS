@@ -90,8 +90,10 @@ console.log("\n── Case B1: one CID image, no attachments ──");
   check("CID value is <vsigtest1abc>",          has(m, "Content-ID: <vsigtest1abc>"));
   check("CID part has Content-Type image/png",  has(m, "Content-Type: image/png;"));
   check("CID part has name= with extension",    /Content-Type: image\/png; name="[^"]+\.(png|jpg|jpeg|gif|webp)"/i.test(m));
-  check("CID part has Content-Disposition: inline", has(m, "Content-Disposition: inline"));
-  check("filename= has extension",             /Content-Disposition: inline; filename="[^"]+\.(png|jpg|jpeg|gif|webp)"/i.test(m));
+  // Apple Mail ghost-attachment fix: CID parts must NOT have Content-Disposition.
+  // RFC 2392 §2 — Content-ID alone is sufficient to mark a part as inline.
+  check("CID part has NO Content-Disposition (Apple Mail ghost-attachment fix)", !has(m, "Content-Disposition: inline"));
+  check("name= on Content-Type has extension",  /Content-Type: image\/png; name="[^"]+\.(png|jpg|jpeg|gif|webp)"/i.test(m));
   check("no X-Attachment-Content-Disposition", !has(m, "X-Attachment-Content-Disposition"));
   check("no real attachment (no disposition: attachment)", !has(m, "Content-Disposition: attachment"));
 }
