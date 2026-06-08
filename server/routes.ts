@@ -15452,7 +15452,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         console.error(`[gmail-send] FAILED userId=${userId}: ${err.message}`);
       }
 
-      // C2: Preserve compose content as a Gmail draft before returning the error.
+      // C2: Try to preserve the compose content as a Gmail draft before returning the error.
       // IMPORTANT: draft fallback MUST use saveDraft() — NOT sendEmail() — so it
       // never runs through the FINAL-CID-GATE.  saveDraft() builds a plain MIME
       // message with no CID inlining and no gate assertions.
