@@ -1,0 +1,87 @@
+Good progress, but magic-byte validation alone is not enough.
+
+A wrong image/report screenshot can still be a valid PNG and pass magicOk=true. The actual bug may be that the UUID CTA row points to the wrong valid PNG bytes.
+
+Now add asset identity verification.
+
+For every CTA asset resolved during UI send, log:
+
+- original img src
+- normalized filename
+- resolved DB id
+- resolved filename
+- resolved original_name
+- resolved public_url
+- mime_type
+- file_size
+- octet_length(file_data)
+- image width
+- image height
+- SHA256(file_data)
+- first32hex
+- detected mime from magic bytes
+- whether magicOk is true
+
+Also query production for the two failing UUIDs:
+
+d4959dbc-40c8-4aec-a073-ab6710ab9c38.png
+2542df0d-c7ba-493a-bef0-3b296590b275.png
+
+Show:
+
+SELECT id, filename, original_name, public_url, mime_type, file_size, octet_length(file_data), created_at, updated_at
+FROM cta_assets
+WHERE filename ILIKE '%d4959dbc%'
+   OR public_url ILIKE '%d4959dbc%'
+   OR original_name ILIKE '%d4959dbc%'
+   OR filename ILIKE '%2542df0d%'
+   OR public_url ILIKE '%2542df0d%'
+   OR original_name ILIKE '%2542df0d%'
+   OR original_name ILIKE '%WatchDemo%'
+   OR filename ILIKE '%WatchDemo%'
+   OR public_url ILIKE '%WatchDemo%';
+
+Then create a temporary admin diagnostic endpoint that returns safe metadata only, not raw bytes:
+
+GET /api/admin/cta-assets/diagnose?needle=d4959dbc
+
+Response should include:
+- matching rows
+- sha256
+- byte length
+- detected mime
+- image dimensions
+- whether file_data exists
+- public_url
+- filename
+- original_name
+
+Do not return raw file_data.
+
+Critical required proof:
+Compare the SHA256 and dimensions of the intended WatchDemo CTA image against the SHA256 and dimensions of the UUID asset actually used in the failed UI send.
+
+If the UUID asset hash/dimensions do not match the intended CTA image:
+- The resolver is finding a valid image, but the wrong image.
+- Fix the signature/CTA mapping so the signature uses the correct CTA asset row.
+- Do not patch MIME.
+- Do not declare fixed just because magicOk=true.
+
+If the UUID asset row has no file_data:
+- Re-upload the correct CTA image.
+- Update the signature to use the new CTA asset.
+- Confirm the new row stores file_data immediately.
+
+If the UUID asset row contains the wrong PNG bytes:
+- Delete/archive that CTA asset row or replace it with the correct image bytes.
+- Update the signature to reference the correct asset row/public_url.
+- Confirm the UI send uses the corrected asset.
+
+Final proof required:
+- UI send path logs the two exact UUID URLs
+- each UUID resolves to the intended CTA image row
+- each row has expected dimensions
+- each row has expected SHA256
+- final HTML contains cid:
+- FINAL-CID-GATE passes
+- sent email displays the correct VoltSafe CTA image, not a random PNG/report screenshot

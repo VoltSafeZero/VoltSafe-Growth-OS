@@ -266,12 +266,15 @@ export async function extractCtaInlineImages(
           source: _ctaResolved?.source,
           dbId: _ctaResolved?.dbId,
           dbFilename: _ctaResolved?.dbFilename,
+          dbOriginalName: _ctaResolved?.dbOriginalName,
           dbPublicUrl: _ctaResolved?.dbPublicUrl?.slice(0, 80),
           claimedMime: _ctaResolved?.mimeType,
           sha256: _ctaResolved?.sha256,
           first32hex: _ctaResolved?.first32hex,
           magicOk: _ctaResolved?.magicOk,
           detectedMime: _ctaResolved?.detectedMime,
+          width: _ctaResolved?.width,
+          height: _ctaResolved?.height,
         });
         if (_ctaResolved) {
           if (!_ctaResolved.magicOk) {
@@ -337,11 +340,14 @@ export async function extractCtaInlineImages(
         source: _legacyResolved?.source,
         dbId: _legacyResolved?.dbId,
         dbFilename: _legacyResolved?.dbFilename,
+        dbOriginalName: _legacyResolved?.dbOriginalName,
         claimedMime: _legacyResolved?.mimeType,
         sha256: _legacyResolved?.sha256,
         first32hex: _legacyResolved?.first32hex,
         magicOk: _legacyResolved?.magicOk,
         detectedMime: _legacyResolved?.detectedMime,
+        width: _legacyResolved?.width,
+        height: _legacyResolved?.height,
       });
       if (!_legacyResolved) {
         console.error(`[sig-cid] CTA asset unresolvable — filename="${filename}" src="${src}"`);

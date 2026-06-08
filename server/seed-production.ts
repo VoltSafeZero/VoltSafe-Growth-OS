@@ -1532,6 +1532,17 @@ export async function migrateCtaFileData(): Promise<void> {
   }
 }
 
+export async function migrateCtaOriginalName(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE cta_assets ADD COLUMN IF NOT EXISTS original_name TEXT`);
+    // Back-fill: if original_name is null, copy name into it as a best-effort.
+    await db.execute(sql`UPDATE cta_assets SET original_name = name WHERE original_name IS NULL AND name IS NOT NULL`);
+    console.log("[migration] cta_assets.original_name column ready.");
+  } catch (err) {
+    console.error("[migration] cta_assets.original_name error (non-fatal):", err);
+  }
+}
+
 export async function migrateSignatureCtaSchema(): Promise<void> {
   try {
     await db.execute(sql`

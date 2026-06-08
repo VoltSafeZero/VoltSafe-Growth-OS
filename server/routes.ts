@@ -6676,6 +6676,101 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/admin/cta-assets/diagnose?needle=<substring>
+  // Returns safe metadata only (NO raw bytes). Use to verify which bytes are
+  // stored for a UUID CTA asset and whether they match the intended image.
+  // needle matches against filename, public_url, original_name.
+  app.get("/api/admin/cta-assets/diagnose", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const needle = String(req.query.needle || "").trim().replace(/'/g, "''");
+      if (!needle || needle.length < 4) {
+        return res.status(400).json({ error: "needle must be at least 4 characters" });
+      }
+      const rows = (await db.execute(sql.raw(`
+        SELECT
+          id, name, filename, original_name, public_url, mime_type, file_size,
+          is_archived, created_at,
+          octet_length(file_data) AS file_data_bytes,
+          encode(sha256(file_data), 'hex') AS sha256,
+          encode(substring(file_data from 1 for 32), 'hex') AS first_32_hex,
+          encode(substring(file_data from 1 for 1), 'hex') AS byte1,
+          encode(substring(file_data from 2 for 1), 'hex') AS byte2,
+          encode(substring(file_data from 3 for 1), 'hex') AS byte3,
+          encode(substring(file_data from 4 for 1), 'hex') AS byte4
+        FROM cta_assets
+        WHERE
+          filename   ILIKE '%${needle}%'
+          OR public_url ILIKE '%${needle}%'
+          OR (original_name IS NOT NULL AND original_name ILIKE '%${needle}%')
+          OR (name IS NOT NULL AND name ILIKE '%${needle}%')
+        ORDER BY id
+      `))).rows as any[];
+
+      const result = rows.map((r: any) => {
+        // Detect MIME from magic bytes stored in DB
+        const b1 = parseInt(r.byte1 || "00", 16);
+        const b2 = parseInt(r.byte2 || "00", 16);
+        const b3 = parseInt(r.byte3 || "00", 16);
+        const b4 = parseInt(r.byte4 || "00", 16);
+        const first32 = String(r.first_32_hex || "");
+        const isPng  = b1 === 0x89 && b2 === 0x50 && b3 === 0x4E && b4 === 0x47;
+        const isJpeg = b1 === 0xFF && b2 === 0xD8 && b3 === 0xFF;
+        const isGif  = first32.startsWith("474946"); // GIF
+        const isWebp = first32.startsWith("52494646") && first32.slice(16, 24) === "57454250"; // RIFF....WEBP
+        const detectedMime = isPng ? "image/png" : isJpeg ? "image/jpeg" : isGif ? "image/gif" : isWebp ? "image/webp" : "unknown";
+        const magicOk = detectedMime !== "unknown";
+
+        // Decode PNG dimensions from first_32_hex if available
+        let width: number | null = null;
+        let height: number | null = null;
+        if (isPng && first32.length >= 48) {
+          // PNG IHDR: bytes 16-19 = width, 20-23 = height (big-endian uint32)
+          try {
+            width  = parseInt(first32.slice(32, 40), 16);
+            height = parseInt(first32.slice(40, 48), 16);
+            if (width <= 0 || width > 100000 || height <= 0 || height > 100000) { width = null; height = null; }
+          } catch { /* */ }
+        }
+        if (isGif && first32.length >= 20) {
+          // GIF: bytes 6-7 = width, 8-9 = height (little-endian uint16)
+          try {
+            const w1 = parseInt(first32.slice(12, 14), 16);
+            const w2 = parseInt(first32.slice(14, 16), 16);
+            const h1 = parseInt(first32.slice(16, 18), 16);
+            const h2 = parseInt(first32.slice(18, 20), 16);
+            width  = w1 + (w2 << 8);
+            height = h1 + (h2 << 8);
+          } catch { /* */ }
+        }
+
+        return {
+          id: r.id,
+          name: r.name,
+          original_name: r.original_name,
+          filename: r.filename,
+          public_url: r.public_url,
+          mime_type: r.mime_type,
+          file_size: r.file_size,
+          file_data_bytes: r.file_data_bytes,
+          has_file_data: (Number(r.file_data_bytes) || 0) > 0,
+          sha256: r.sha256 || null,
+          first_32_hex: first32 || null,
+          detected_mime: detectedMime,
+          magic_ok: magicOk,
+          width_px: width,
+          height_px: height,
+          is_archived: r.is_archived,
+          created_at: r.created_at,
+        };
+      });
+
+      return res.json({ ok: true, count: result.length, needle, rows: result });
+    } catch (err: any) {
+      console.error("[cta-diagnose] error:", err);
+      return res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
   app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const allUsers = await db.select({
       id: users.id,
@@ -29804,8 +29899,8 @@ export function registerConfluenceRoutes(app: Express) {
       // Persist bytes to DB first (canonical source) — disk is an optional cache for static serving.
       const hexStr = buf.toString("hex");
       const [row] = (await db.execute(sql.raw(`
-        INSERT INTO cta_assets (name, filename, public_url, mime_type, file_size, file_data, created_by, created_at)
-        VALUES ('${s(name)}', '${s(filename)}', '${s(publicUrl)}', '${s(req.file.mimetype)}',
+        INSERT INTO cta_assets (name, original_name, filename, public_url, mime_type, file_size, file_data, created_by, created_at)
+        VALUES ('${s(name)}', '${s(req.file.originalname)}', '${s(filename)}', '${s(publicUrl)}', '${s(req.file.mimetype)}',
                 ${buf.byteLength}, decode('${hexStr}', 'hex'), ${userId}, NOW())
         RETURNING *
       `))).rows;
