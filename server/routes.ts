@@ -14844,6 +14844,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // Load, normalize, and append here — keeps HTML sig out of the browser
       // POST body and away from WAF inspection.
       let bodyWithSig = cleanBody;
+      let _sigCtaImageUrlPresent = false; // hoisted so [MIME-PRECHECK] block can read it
       if (selectedSignatureId) {
         try {
           const _sigRows = await db.execute(sql.raw(`
@@ -14992,6 +14993,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               }
             }
 
+            _sigCtaImageUrlPresent = !!_sigRow.cta_image_url;
             const _ctaMode = _sigRow.cta_image_url ? "asset-col" : "ctas-table";
             console.log(`[gmail-send] sig appended server-side id=${selectedSignatureId} bytes=${_normalizedSig.length} cta=${_ctaMode}`);
           }
@@ -15087,7 +15089,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             subject: subject || "(no subject)",
             signatureId: selectedSignatureId,
             hasSignature: bodyWithSig !== cleanBody,
-            ctaImageUrlPresent: !!(_sigRow as any)?.cta_image_url,
+            ctaImageUrlPresent: _sigCtaImageUrlPresent,
             htmlImgSrcsBefore: _preHtmlImgSrcs,
             htmlImgSrcsAfter: _postHtmlImgSrcs,
             cidRefs: _cidRefs,
