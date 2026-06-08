@@ -625,6 +625,70 @@ export async function sendEmail(
   const gmail = await getGmailClient(userId, accountId);
   const profileRes = await gmail.users.getProfile({ userId: "me" });
   const from = profileRes.data.emailAddress!;
+
+  // ── FINAL MANDATORY CID GATE ─────────────────────────────────────────────
+  // This runs unconditionally for EVERY send path (immediate, scheduled,
+  // reply, forward, draft-send).  Earlier pipeline stages may have produced a
+  // converted HTML string that was then copied/reassembled into a different
+  // variable before being passed here.  This gate takes the exact HTML that is
+  // about to be serialised, runs extractCtaInlineImages one final time, merges
+  // the resulting CID parts, then asserts the HTML is clean before continuing.
+  {
+    const _cidGateAssetsDir = path.resolve("uploads/cta-assets");
+    // Count /assets/cta/ src= references BEFORE conversion (diagnostic only).
+    const _assetSrcRe = /\/assets\/cta\//gi;
+    const _htmlPreviewBefore = body.slice(0, 300);
+    const _origAssetImgCount = (body.match(_assetSrcRe) ?? []).length;
+
+    const _cidGate = await extractCtaInlineImages(body, _cidGateAssetsDir);
+    body = _cidGate.html;
+
+    // Merge new CID parts — deduplicate by cid so we never double-attach.
+    const _existingCids = new Set(inlineImages.map(i => i.cid));
+    for (const img of _cidGate.inlineImages) {
+      if (!_existingCids.has(img.cid)) {
+        inlineImages = [...inlineImages, img];
+        _existingCids.add(img.cid);
+      }
+    }
+
+    const _htmlPreviewAfter = body.slice(0, 300);
+    const _leftoverAssetUrls = (body.match(/\/assets\/cta\/[^"'\s]*/gi) ?? []);
+    const _leftoverHostUrls  = (body.match(/image-linker[^"'\s]*/gi) ?? []);
+    const _contentIds         = inlineImages.map(i => i.cid);
+    const _missingCidRefs     = _contentIds.filter(cid => !body.includes(`src="cid:${cid}"`));
+    const _finalCidImgCount   = (body.match(/src="cid:/gi) ?? []).length;
+
+    console.log("[FINAL-CID-GATE]", {
+      originalAssetImgCount: _origAssetImgCount,
+      finalCidImgCount: _finalCidImgCount,
+      inlineImagesCount: inlineImages.length,
+      leftoverAssetUrls: _leftoverAssetUrls,
+      leftoverHostUrls: _leftoverHostUrls,
+      contentIds: _contentIds,
+      missingCidRefs: _missingCidRefs,
+      htmlPreviewBefore: _htmlPreviewBefore,
+      htmlPreviewAfter: _htmlPreviewAfter,
+    });
+
+    const _gateErrors: string[] = [];
+    if (_leftoverAssetUrls.length > 0) {
+      _gateErrors.push(`HTML still contains /assets/cta/ after final CID conversion: ${_leftoverAssetUrls.slice(0, 5).join(", ")}`);
+    }
+    if (_leftoverHostUrls.length > 0) {
+      _gateErrors.push(`HTML still contains external CTA host URL after final CID conversion: ${_leftoverHostUrls.slice(0, 3).join(", ")}`);
+    }
+    if (_origAssetImgCount > 0 && inlineImages.length === 0) {
+      _gateErrors.push(`Original HTML had ${_origAssetImgCount} CTA image src(s) but final inlineImages is empty — conversion produced no CID parts`);
+    }
+    if (_missingCidRefs.length > 0) {
+      _gateErrors.push(`CID parts exist but have no matching src="cid:<id>" in final HTML: ${_missingCidRefs.join(", ")}`);
+    }
+    if (_gateErrors.length > 0) {
+      throw new Error(`CID conversion failed before Gmail send:\n${_gateErrors.join("\n")}`);
+    }
+  }
+
   const raw = buildMimeRaw(from, to, subject, body, attachments, cc, bcc, icalContent, inlineImages);
 
   // ── Runtime MIME structure assertion (dev + prod) ─────────────────────
