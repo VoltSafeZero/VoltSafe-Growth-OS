@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { CreateContactDialog } from "@/components/contacts/create-contact-dialog";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import type { Contact, Account, SavedView } from "@shared/schema";
 
 type ContactWithAccount = Contact & { accountName?: string };
@@ -453,12 +454,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
                       />
                     </div>
 
-                    <div className="w-9 h-9 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-semibold text-primary">
-                        {(contact.firstName?.[0] || contact.name?.[0] || "?").toUpperCase()}
-                        {(contact.lastName?.[0] || "").toUpperCase()}
-                      </span>
-                    </div>
+                    <ContactAvatar name={contact.name} avatarUrl={contact.avatarUrl} size="md" />
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
