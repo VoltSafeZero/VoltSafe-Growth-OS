@@ -12232,6 +12232,61 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // POST /api/inbox/bulk-trash — move multiple threads to Trash across all accounts.
+  // Accepts { threadIds: string[], asAccountId?: string|"all" }.
+  // Looks up each thread's source account, calls Gmail threads.trash(), and
+  // mirrors the label change (remove INBOX, add TRASH) to the local cache.
+  app.post("/api/inbox/bulk-trash", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const { threadIds, asAccountId } = req.body as { threadIds?: string[]; asAccountId?: string };
+    if (!Array.isArray(threadIds) || threadIds.length === 0) {
+      return res.status(400).json({ message: "threadIds array required" });
+    }
+    const safeIds = threadIds.map(String).slice(0, 200);
+
+    // Group threads by their source account (one DB lookup per thread).
+    const accountMap = new Map<number, string[]>(); // accId → threadIds[]
+    for (const threadId of safeIds) {
+      const [anchor] = await db
+        .select({ accId: emailMessages.sourceAccountId })
+        .from(emailMessages)
+        .where(eq(emailMessages.gmailThreadId, threadId))
+        .limit(1);
+      if (!anchor?.accId) continue;
+      const list = accountMap.get(anchor.accId) ?? [];
+      list.push(threadId);
+      accountMap.set(anchor.accId, list);
+    }
+
+    if (accountMap.size === 0) {
+      return res.status(404).json({ message: "None of the threads found in any synced mailbox" });
+    }
+
+    // Check edit access — use the first account as the access gate.
+    const firstAccId = [...accountMap.keys()][0];
+    if (!(await requireAccountEditAccess(req, res, firstAccId))) return;
+
+    let trashed = 0;
+    let failed = 0;
+    const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
+
+    for (const [accId, ids] of accountMap) {
+      let gmail: any;
+      try { gmail = await getGmailClient(userId, accId); } catch {
+        failed += ids.length; continue;
+      }
+      for (const threadId of ids) {
+        try {
+          await gmail.users.threads.trash({ userId: "me", id: threadId });
+          trashed++;
+        } catch { failed++; continue; }
+        mirrorLabelChangeForThreads([threadId], accId, { remove: ["INBOX", "SPAM", "UNREAD"], add: ["TRASH"] }).catch(() => {});
+      }
+    }
+
+    res.json({ ok: true, trashed, failed, total: safeIds.length });
+  });
+
   // POST /api/inbox/threads/:threadId/not-spam — remove SPAM label, add INBOX
   // Uses the canonical not-spam service which:
   //   • resolves ALL linked messages via gmail_thread_id (+ normalized_subject fallback)

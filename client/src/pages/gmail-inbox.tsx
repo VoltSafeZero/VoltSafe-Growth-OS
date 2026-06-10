@@ -40,7 +40,7 @@ import {
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronUp, ChevronRight, Folder,
   Reply, ReplyAll, Forward, Pencil, User, Building2, Zap, Flame, Video, UserPlus,
   Check, CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
-  CheckCheck, ArrowLeft, ArrowUp, ClipboardList, StickyNote, ArchiveX, Square, Filter, Eye,
+  CheckCheck, ArrowLeft, ArrowUp, ClipboardList, StickyNote, ArchiveX, Square, CheckSquare, Filter, Eye,
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
   Maximize2, Minimize2, Pin, PinOff, LayoutList, List as ListIcon,
   Command as CommandIcon, AlignJustify, Hash, AtSign, Folders, Zap as ZapIcon,
@@ -5134,6 +5134,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, []);
 
   const [selectedInboxIds, setSelectedInboxIds] = useState<Set<string>>(new Set());
+  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const lastAnchorIdxRef = useRef<number>(-1);
   const [crmFilter, setCrmFilter] = useState<CrmInboxFilter>("all");
   const [quickTaskThreadId, setQuickTaskThreadId] = useState<string | null>(null);
@@ -6539,7 +6541,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }
 
   function selectAllInboxThreads() {
-    setSelectedInboxIds(new Set(activeMessages.map(m => m.threadId)));
+    if (tab === "drafts") {
+      setSelectedDraftIds(new Set((draftsQuery.data || []).map(d => d.id)));
+    } else if (tab === "folder") {
+      setSelectedInboxIds(new Set((folderEmailsQuery.data || []).map(e => e.gmailThreadId).filter(Boolean) as string[]));
+    } else if (isCategoryTab) {
+      setSelectedInboxIds(new Set((categoryQuery.data?.messages || []).map(m => m.threadId)));
+    } else {
+      setSelectedInboxIds(new Set(activeMessages.map(m => m.threadId)));
+    }
   }
 
   const bulkMarkReadMutation = useMutation({
@@ -6646,6 +6656,53 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       toast({ title: `Marked ${threadIds.length} thread${threadIds.length !== 1 ? "s" : ""} as done` });
     },
     onError: (err: any) => toast({ title: "Mark done failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkTrashMutation = useMutation({
+    mutationFn: async (overrideIds?: string[]) => {
+      const threadIds = overrideIds ?? Array.from(selectedInboxIds);
+      const res = await apiRequest("POST", "/api/inbox/bulk-trash", {
+        threadIds,
+        ...(activeAccountId ? { asAccountId: activeAccountId } : {}),
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return { threadIds, result: await res.json() };
+    },
+    onSuccess: ({ threadIds }) => {
+      const removeDeleted = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+        old ? { ...old, messages: old.messages.filter(m => !threadIds.includes(m.threadId)) } : old;
+      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeDeleted);
+      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery, activeAccountId], removeDeleted);
+      queryClient.setQueryData(["/api/gmail/messages", "spam", searchQuery, activeAccountId], removeDeleted);
+      setInboxExtra(prev => prev.filter(m => !threadIds.includes(m.threadId)));
+      queryClient.invalidateQueries({ queryKey: ["/api/mail-folders", selectedFolderId, "emails"] });
+      if (selectedThreadId && threadIds.includes(selectedThreadId)) {
+        setSelectedThreadId(null);
+        setSelectedMessageId(null);
+      }
+      setSelectedInboxIds(new Set());
+      setConfirmDeleteAll(false);
+      toast({ title: `Moved ${threadIds.length} thread${threadIds.length !== 1 ? "s" : ""} to Trash` });
+    },
+    onError: (err: any) => { toast({ title: "Delete failed", description: err.message, variant: "destructive" }); setConfirmDeleteAll(false); },
+  });
+
+  const bulkDeleteDraftsMutation = useMutation({
+    mutationFn: async (overrideIds?: string[]) => {
+      const ids = overrideIds ?? Array.from(selectedDraftIds);
+      const results = await Promise.allSettled(
+        ids.map(id => fetch(`/api/gmail/drafts/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" }))
+      );
+      const deleted = results.filter(r => r.status === "fulfilled").length;
+      return { ids, deleted };
+    },
+    onSuccess: ({ ids, deleted }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/drafts"] });
+      setSelectedDraftIds(new Set());
+      setConfirmDeleteAll(false);
+      toast({ title: `Deleted ${deleted} draft${deleted !== 1 ? "s" : ""}` });
+    },
+    onError: () => { toast({ title: "Delete failed", variant: "destructive" }); setConfirmDeleteAll(false); },
   });
 
   const archiveThreadMutation = useMutation({
@@ -7474,6 +7531,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     } else {
       // Plain click → open thread; clear any bulk selection first
       if (selectedInboxIds.size > 0) setSelectedInboxIds(new Set());
+      if (selectedDraftIds.size > 0) setSelectedDraftIds(new Set());
       handleSelectMessage(msg);
       lastAnchorIdxRef.current = idx;
     }
@@ -7502,7 +7560,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
       // Cmd/Ctrl+A → select all visible email threads (prevent browser text-select)
       if ((e.metaKey || e.ctrlKey) && (e.key === "a" || e.key === "A") && !e.altKey) {
-        if (tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review") {
+        if (tab !== "scheduled" && tab !== "review") {
           e.preventDefault();
           selectAllInboxThreads();
           return;
@@ -7564,13 +7622,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         case "Escape":
           if (focusMode) { e.preventDefault(); setFocusMode(false); }
           else if (selectedInboxIds.size > 0) { e.preventDefault(); setSelectedInboxIds(new Set()); }
+          else if (selectedDraftIds.size > 0) { e.preventDefault(); setSelectedDraftIds(new Set()); }
+          else if (confirmDeleteAll) { e.preventDefault(); setConfirmDeleteAll(false); }
           else if (selectedThreadId) { e.preventDefault(); handleBack(); }
           break;
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [tab, navList, selectedThreadId, focusedMsg, canSend, selectedInboxIds, focusMode]);
+  }, [tab, navList, selectedThreadId, focusedMsg, canSend, selectedInboxIds, selectedDraftIds, confirmDeleteAll, focusMode]);
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
@@ -8458,23 +8518,37 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <div className="p-6 text-center text-sm text-muted-foreground"><FileText className="h-8 w-8 mx-auto mb-2 opacity-30" /><p>No drafts</p></div>
               ) : (
                 (draftsQuery.data || []).map((draft) => (
-                  <button
+                  <div
                     key={draft.id}
-                    onClick={() => openDraft(draft.id)}
-                    disabled={loadingDraftId === draft.id}
-                    data-testid={`draft-row-${draft.id}`}
-                    className="w-full text-left px-3 py-2.5 border-b border-border/30 transition-colors hover:bg-muted/50 flex flex-col gap-0.5"
+                    className={`relative group flex items-stretch border-b border-border/30 transition-colors ${selectedDraftIds.has(draft.id) ? "bg-primary/8" : "hover:bg-muted/50"}`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm truncate text-muted-foreground">
-                        {loadingDraftId === draft.id ? <Loader2 className="h-3.5 w-3.5 animate-spin inline" /> : null}
-                        {draft.to || "(no recipient)"}
-                      </span>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(draft.date, draft.internalDate)}</span>
-                    </div>
-                    <p className="text-xs truncate text-foreground/70">{draft.subject || "(no subject)"}</p>
-                    <p className="text-xs text-muted-foreground truncate">{draft.snippet}</p>
-                  </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedDraftIds(prev => { const n = new Set(prev); n.has(draft.id) ? n.delete(draft.id) : n.add(draft.id); return n; }); }}
+                      data-testid={`checkbox-draft-${draft.id}`}
+                      className={`flex-shrink-0 w-8 flex items-center justify-center text-muted-foreground/30 hover:text-primary transition-all ${selectedDraftIds.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                      title="Select draft"
+                    >
+                      {selectedDraftIds.has(draft.id)
+                        ? <CheckSquare className="h-3.5 w-3.5 text-primary" />
+                        : <Square className="h-3.5 w-3.5" />}
+                    </button>
+                    <button
+                      onClick={() => openDraft(draft.id)}
+                      disabled={loadingDraftId === draft.id}
+                      data-testid={`draft-row-${draft.id}`}
+                      className="flex-1 text-left px-2 py-2.5 flex flex-col gap-0.5 min-w-0"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm truncate text-muted-foreground">
+                          {loadingDraftId === draft.id ? <Loader2 className="h-3.5 w-3.5 animate-spin inline" /> : null}
+                          {draft.to || "(no recipient)"}
+                        </span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(draft.date, draft.internalDate)}</span>
+                      </div>
+                      <p className="text-xs truncate text-foreground/70">{draft.subject || "(no subject)"}</p>
+                      <p className="text-xs text-muted-foreground truncate">{draft.snippet}</p>
+                    </button>
+                  </div>
                 ))
               )
             )}
@@ -8768,6 +8842,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               ) : (
                 (folderEmailsQuery.data || []).map((email) => {
                   const isSelected = email.gmailThreadId === selectedThreadId;
+                  const isBulkSelected = email.gmailThreadId ? selectedInboxIds.has(email.gmailThreadId) : false;
                   const senderName = email.fromName || email.fromEmail?.split("@")[0] || "Unknown";
                   const dateStr = email.sentAt
                     ? formatDate(new Date(email.sentAt).toISOString(), undefined)
@@ -8776,15 +8851,27 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <div
                       key={email.id}
                       className={`relative group flex items-stretch transition-colors border-b border-border/20 ${
-                        isSelected
+                        isBulkSelected
+                          ? "bg-primary/8 border-l-[3px] border-l-primary/60"
+                          : isSelected
                           ? "bg-primary/8 border-l-[3px] border-l-primary"
                           : "border-l-[3px] border-l-transparent hover:bg-muted/25"
                       }`}
                     >
                       <button
+                        onClick={(e) => { e.stopPropagation(); if (!email.gmailThreadId) return; setSelectedInboxIds(prev => { const n = new Set(prev); n.has(email.gmailThreadId!) ? n.delete(email.gmailThreadId!) : n.add(email.gmailThreadId!); return n; }); }}
+                        data-testid={`checkbox-folder-email-${email.id}`}
+                        className={`flex-shrink-0 w-8 flex items-center justify-center text-muted-foreground/30 hover:text-primary transition-all ${selectedInboxIds.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                        title="Select email"
+                      >
+                        {isBulkSelected
+                          ? <CheckSquare className="h-3.5 w-3.5 text-primary" />
+                          : <Square className="h-3.5 w-3.5" />}
+                      </button>
+                      <button
                         onClick={() => { setSelectedThreadId(email.gmailThreadId); setSelectedMessageId(null); }}
                         data-testid={`folder-email-row-${email.id}`}
-                        className="flex-1 text-left px-3 py-3 pr-10 min-w-0"
+                        className="flex-1 text-left px-2 py-3 pr-10 min-w-0"
                       >
                         <div className="flex items-center justify-between gap-2 mb-[3px]">
                           <span className="text-[13px] leading-none font-medium text-foreground/80 truncate">{senderName}</span>
@@ -8836,9 +8923,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       }`}
                     >
                       <button
+                        onClick={(e) => { e.stopPropagation(); setSelectedInboxIds(prev => { const n = new Set(prev); n.has(msg.threadId) ? n.delete(msg.threadId) : n.add(msg.threadId); return n; }); }}
+                        data-testid={`checkbox-category-email-${msg.id}`}
+                        className={`flex-shrink-0 w-8 flex items-center justify-center text-muted-foreground/30 hover:text-primary transition-all ${selectedInboxIds.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                        title="Select email"
+                      >
+                        {selectedInboxIds.has(msg.threadId)
+                          ? <CheckSquare className="h-3.5 w-3.5 text-primary" />
+                          : <Square className="h-3.5 w-3.5" />}
+                      </button>
+                      <button
                         onClick={() => { setSelectedThreadId(msg.threadId); setSelectedMessageId(null); }}
                         data-testid={`button-open-category-thread-${msg.id}`}
-                        className="flex-1 text-left px-3 py-2.5 pr-16 min-w-0"
+                        className="flex-1 text-left px-2 py-2.5 pr-16 min-w-0"
                       >
                         <div className="flex items-center justify-between gap-2 mb-[3px]">
                           <span className={`text-[13px] leading-none truncate ${isUnread ? "font-semibold text-foreground" : "font-medium text-foreground/80"}`}>{senderName}</span>
@@ -8930,13 +9027,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 )}
               </div>
             )}
-            {/* Bulk action toolbar — shown when inbox threads are selected */}
-            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && selectedInboxIds.size > 0 && (
+            {/* Bulk action toolbar — shown when threads OR drafts are selected */}
+            {tab !== "scheduled" && tab !== "review" && (selectedInboxIds.size > 0 || selectedDraftIds.size > 0) && (
               <div className="sticky top-0 z-10 flex items-center gap-1.5 px-2 py-2 bg-background/98 backdrop-blur border-b border-primary/20 border-l-[3px] border-l-primary/40">
                 <span className="text-[11px] font-semibold text-foreground/70 mr-0.5 tabular-nums shrink-0" data-testid="text-bulk-selected-count">
-                  {selectedInboxIds.size} sel.
+                  {tab === "drafts" ? selectedDraftIds.size : selectedInboxIds.size} sel.
                 </span>
-                {canSend && (
+                {/* Read/Unread/Archive/Done — only for non-draft thread tabs */}
+                {tab !== "drafts" && canSend && (
                   <>
                     <button
                       onClick={() => bulkMarkReadMutation.mutate({ markAs: "read" })}
@@ -8960,7 +9058,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     </button>
                   </>
                 )}
-                {canSend && (
+                {tab !== "drafts" && canSend && (
                   <button
                     onClick={() => bulkArchiveMutation.mutate()}
                     disabled={bulkMarkReadMutation.isPending || bulkArchiveMutation.isPending}
@@ -8972,16 +9070,77 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <span className="hidden sm:inline">Archive</span>
                   </button>
                 )}
-                <button
-                  onClick={() => bulkMarkDoneMutation.mutate()}
-                  disabled={bulkMarkDoneMutation.isPending}
-                  data-testid="button-bulk-mark-done"
-                  title="Mark selected threads as done (clears awaiting reply)"
-                  className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 min-h-[32px]"
-                >
-                  {bulkMarkDoneMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
-                  <span className="hidden sm:inline">Done</span>
-                </button>
+                {tab !== "drafts" && (
+                  <button
+                    onClick={() => bulkMarkDoneMutation.mutate()}
+                    disabled={bulkMarkDoneMutation.isPending}
+                    data-testid="button-bulk-mark-done"
+                    title="Mark selected threads as done (clears awaiting reply)"
+                    className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 min-h-[32px]"
+                  >
+                    {bulkMarkDoneMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
+                    <span className="hidden sm:inline">Done</span>
+                  </button>
+                )}
+                {/* Delete — always available */}
+                {confirmDeleteAll ? (
+                  <div className="flex items-center gap-1.5 ml-1">
+                    <span className="text-[10px] text-destructive/80 font-medium">Delete all?</span>
+                    <button
+                      onClick={() => {
+                        if (tab === "drafts") {
+                          const allIds = (draftsQuery.data || []).map(d => d.id);
+                          bulkDeleteDraftsMutation.mutate(allIds);
+                        } else {
+                          const allIds = tab === "folder"
+                            ? (folderEmailsQuery.data || []).map(e => e.gmailThreadId).filter(Boolean) as string[]
+                            : isCategoryTab
+                            ? (categoryQuery.data?.messages || []).map(m => m.threadId)
+                            : activeMessages.map(m => m.threadId);
+                          bulkTrashMutation.mutate(allIds);
+                        }
+                      }}
+                      disabled={bulkTrashMutation.isPending || bulkDeleteDraftsMutation.isPending}
+                      data-testid="button-confirm-delete-all"
+                      className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors disabled:opacity-50 min-h-[32px] font-semibold"
+                    >
+                      {(bulkTrashMutation.isPending || bulkDeleteDraftsMutation.isPending) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      Yes, delete all
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteAll(false)}
+                      className="text-[11px] px-2 py-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors min-h-[32px]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        if (tab === "drafts") bulkDeleteDraftsMutation.mutate();
+                        else bulkTrashMutation.mutate();
+                      }}
+                      disabled={bulkTrashMutation.isPending || bulkDeleteDraftsMutation.isPending}
+                      data-testid="button-bulk-delete-selected"
+                      title={tab === "drafts" ? "Delete selected drafts" : "Move selected to Trash"}
+                      className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg bg-destructive/10 text-destructive/80 hover:bg-destructive/20 transition-colors disabled:opacity-50 min-h-[32px]"
+                    >
+                      {(bulkTrashMutation.isPending || bulkDeleteDraftsMutation.isPending) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      <span className="hidden sm:inline">Delete</span>
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteAll(true)}
+                      disabled={bulkTrashMutation.isPending || bulkDeleteDraftsMutation.isPending}
+                      data-testid="button-bulk-delete-all"
+                      title={tab === "drafts" ? "Delete all drafts" : "Move all visible to Trash"}
+                      className="flex items-center gap-1 text-[11px] px-2 py-1.5 rounded-lg text-destructive/50 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 min-h-[32px]"
+                    >
+                      <span className="hidden sm:inline">All</span>
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </>
+                )}
                 <div className="flex items-center gap-1 ml-auto">
                   <button
                     onClick={selectAllInboxThreads}
@@ -8992,7 +9151,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     All
                   </button>
                   <button
-                    onClick={() => setSelectedInboxIds(new Set())}
+                    onClick={() => { setSelectedInboxIds(new Set()); setSelectedDraftIds(new Set()); setConfirmDeleteAll(false); }}
                     data-testid="button-clear-inbox-selection"
                     title="Clear selection"
                     className="text-muted-foreground/40 hover:text-foreground transition-colors p-1.5 min-h-[32px]"
