@@ -13,7 +13,7 @@
  *   CtaEngagementBanner         — thin backward-compat banner (kept for reference)
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format, isToday, isYesterday } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -119,6 +119,20 @@ interface RecipientBreakdown {
   ctaClickCount: number;
   lastActivityAt: string | null;
   intentScore: number;
+  confidence?: "high" | "low";
+}
+
+interface RawOpenEvent {
+  id: number;
+  occurredAt: string;
+  eventType: "open" | "click";
+  url: string | null;
+  userAgent: string | null;
+  recipientEmail: string;
+  isBot: boolean;
+  isDuplicate: boolean;
+  isInternal: boolean;
+  confidence: "high" | "low";
 }
 
 interface ThreadEngagementFull {
@@ -139,6 +153,7 @@ interface ThreadEngagementFull {
   hasHighIntent: boolean;
   bannerText: string | null;
   suggestedAction: string | null;
+  rawOpenEvents?: RawOpenEvent[];
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -157,6 +172,111 @@ function friendlyDate(isoStr: string | null): string {
 const INTENT_ORDER: IntentLevel[] = [
   "none", "interested", "high_intent", "very_high_intent", "follow_up_recommended",
 ];
+
+function detectMailClient(ua: string | null): string {
+  if (!ua) return "Unknown";
+  const u = ua.toLowerCase();
+  if (u.includes("googleimageproxy") || u.includes("google image proxy")) return "Gmail Proxy";
+  if (u.includes("apple mail") || u.includes("applemail"))                 return "Apple Mail";
+  if (u.includes("iphone") || u.includes("ipad"))                          return "iOS Mail";
+  if (u.includes("outlook"))                                                return "Outlook";
+  if (u.includes("thunderbird"))                                            return "Thunderbird";
+  if (u.includes("barracuda") || u.includes("mimecast") || u.includes("ironport") || u.includes("cisco")) return "Security Scanner";
+  if (u.includes("bot") || u.includes("crawler"))                          return "Bot/Crawler";
+  if (u.includes("mozilla") || u.includes("webkit"))                       return "Web Browser";
+  return "Email Client";
+}
+
+function EventTimeline({ events }: { events: RawOpenEvent[] }) {
+  const [showFiltered, setShowFiltered] = useState(false);
+
+  const humanEvents  = events.filter(e => !e.isBot && !e.isInternal);
+  const displayEvents = showFiltered ? events : humanEvents;
+  const filteredCount = events.length - humanEvents.length;
+
+  if (events.length === 0) return null;
+
+  return (
+    <div className="pt-2 border-t border-border/15" data-testid="event-timeline-section">
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-medium flex items-center gap-1">
+          <Clock className="h-2.5 w-2.5 text-primary" />
+          Open Events
+          <span className="ml-1 text-[9px] bg-muted/30 px-1.5 py-0.5 rounded-full font-normal normal-case tracking-normal">
+            {humanEvents.length} real{filteredCount > 0 ? ` / ${events.length} total` : ""}
+          </span>
+        </p>
+        {filteredCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowFiltered(v => !v)}
+            className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          >
+            {showFiltered ? "Hide filtered" : `+${filteredCount} filtered`}
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-0.5 max-h-52 overflow-y-auto pr-0.5">
+        {displayEvents.map((ev) => {
+          const client     = detectMailClient(ev.userAgent);
+          const isFiltered = ev.isBot || ev.isInternal || ev.isDuplicate;
+          return (
+            <div
+              key={ev.id}
+              className={`flex items-center gap-2 text-[10.5px] rounded px-1 py-0.5 ${isFiltered ? "opacity-35" : ""}`}
+              data-testid={`event-row-${ev.id}`}
+              title={ev.userAgent ?? undefined}
+            >
+              {/* Icon */}
+              <span className={`flex-shrink-0 ${ev.eventType === "open" ? "text-sky-400" : "text-blue-400"}`}>
+                {ev.eventType === "open"
+                  ? <Eye className="h-2.5 w-2.5" />
+                  : <Link2 className="h-2.5 w-2.5" />}
+              </span>
+
+              {/* Timestamp */}
+              <span className="flex-shrink-0 text-muted-foreground/60 tabular-nums whitespace-nowrap"
+                title={new Date(ev.occurredAt).toLocaleString()}>
+                {format(new Date(ev.occurredAt), "MMM d, h:mm a")}
+              </span>
+
+              {/* Mail client */}
+              <span className="flex-1 min-w-0 truncate text-muted-foreground/45">{client}</span>
+
+              {/* Confidence */}
+              {!isFiltered && (
+                <span
+                  className={`flex-shrink-0 text-[8.5px] font-medium px-1 py-0.5 rounded ${
+                    ev.confidence === "high"
+                      ? "bg-emerald-500/8 text-emerald-400/70"
+                      : "bg-muted/25 text-muted-foreground/40"
+                  }`}
+                  title={ev.confidence === "high"
+                    ? "Per-recipient pixel — high-confidence attribution"
+                    : "Shared pixel — recipient attributed by email address"}
+                >
+                  {ev.confidence === "high" ? "✓ confirmed" : "estimated"}
+                </span>
+              )}
+
+              {/* Filter flags */}
+              {ev.isBot && (
+                <span className="flex-shrink-0 text-[8.5px] text-orange-400/60 bg-orange-500/8 px-1 py-0.5 rounded">bot</span>
+              )}
+              {ev.isDuplicate && !ev.isBot && (
+                <span className="flex-shrink-0 text-[8.5px] text-muted-foreground/35 bg-muted/15 px-1 py-0.5 rounded">dup</span>
+              )}
+              {ev.isInternal && (
+                <span className="flex-shrink-0 text-[8.5px] text-violet-400/50 bg-violet-500/6 px-1 py-0.5 rounded">internal</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function activityTypeIcon(t: ActivityType) {
   switch (t) {
@@ -607,6 +727,22 @@ export function ThreadEngagementWidget({ threadId }: { threadId: string | null }
   const [filter, setFilter]     = useState<FilterType>("all");
   const [sort, setSort]         = useState<SortType>("newest");
 
+  // Auto-expand when the user clicks "Opened X×" badge in the inbox list
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ threadId: string }>).detail;
+      if (detail?.threadId === threadId) {
+        setExpanded(true);
+        setTimeout(() => {
+          document.querySelector('[data-testid="thread-engagement-widget"]')
+            ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 80);
+      }
+    };
+    window.addEventListener("expand-engagement", handler);
+    return () => window.removeEventListener("expand-engagement", handler);
+  }, [threadId]);
+
   const { data: mostEngaged } = useQuery<RIMostEngaged | null>({
     queryKey: ["/api/revenue-intelligence/thread", threadId, "most-engaged"],
     queryFn: () =>
@@ -667,6 +803,10 @@ export function ThreadEngagementWidget({ threadId }: { threadId: string | null }
   const bannerText = data.bannerText ?? (
     data.summary?.opens > 0
       ? `Opened ${data.summary.opens} time${data.summary.opens !== 1 ? "s" : ""}`
+      : (data.activities?.length ?? 0) > 0
+      ? `${data.activities.length} engagement signal${data.activities.length !== 1 ? "s" : ""}`
+      : (data.rawOpenEvents?.filter(e => !e.isBot && !e.isInternal).length ?? 0) > 0
+      ? `${data.rawOpenEvents!.filter(e => !e.isBot && !e.isInternal).length} email open${data.rawOpenEvents!.filter(e => !e.isBot && !e.isInternal).length !== 1 ? "s" : ""} detected`
       : null
   );
   if (!bannerText) return null;
@@ -772,6 +912,22 @@ export function ThreadEngagementWidget({ threadId }: { threadId: string | null }
                     {r.recipientName || r.recipientEmail}
                   </span>
 
+                  {/* Confidence badge */}
+                  {!r.isInternal && r.confidence && (
+                    <span
+                      className={`flex-shrink-0 text-[8.5px] font-medium px-1 py-0.5 rounded ${
+                        r.confidence === "high"
+                          ? "bg-emerald-500/8 text-emerald-400/70"
+                          : "bg-muted/25 text-muted-foreground/40"
+                      }`}
+                      title={r.confidence === "high"
+                        ? "Per-recipient pixel — opens attributed to this address with high confidence"
+                        : "Shared pixel — open count estimated, may include opens from other recipients"}
+                    >
+                      {r.confidence === "high" ? "✓ tracked" : "estimated"}
+                    </span>
+                  )}
+
                   {/* Internal tag */}
                   {r.isInternal && (
                     <span className="text-[9.5px] text-muted-foreground/50 italic flex-shrink-0">internal</span>
@@ -810,6 +966,11 @@ export function ThreadEngagementWidget({ threadId }: { threadId: string | null }
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Event Timeline — individual open events with timestamps */}
+          {(data.rawOpenEvents?.length ?? 0) > 0 && (
+            <EventTimeline events={data.rawOpenEvents!} />
           )}
 
           {/* 🏆 Most Engaged Contact */}
@@ -910,6 +1071,14 @@ export function ThreadEngagementWidget({ threadId }: { threadId: string | null }
               />
             </div>
           )}
+
+          {/* Privacy / accuracy notice */}
+          <div className="pt-1.5 border-t border-border/10" data-testid="engagement-disclaimer">
+            <p className="text-[9.5px] text-muted-foreground/30 leading-relaxed flex items-start gap-1">
+              <AlertTriangle className="h-2.5 w-2.5 flex-shrink-0 mt-0.5 text-muted-foreground/25" />
+              Open tracking uses a 1×1 pixel. Apple Mail Privacy Protection and email security tools may inflate open counts — focus on patterns, not exact numbers.
+            </p>
+          </div>
         </div>
       )}
     </div>

@@ -334,8 +334,12 @@ function SentTrackingRow({ sig, threadId, signalsMt }: {
           Not opened
         </span>
       ) : (
-        <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-400 bg-emerald-500/8 border border-emerald-500/20 px-1.5 py-0 rounded font-medium"
-          data-testid={`sent-badge-opened-${threadId}`}>
+        <span
+          className="inline-flex items-center gap-0.5 text-[10px] text-emerald-400 bg-emerald-500/8 border border-emerald-500/20 px-1.5 py-0 rounded font-medium cursor-pointer hover:bg-emerald-500/15 transition-colors"
+          data-testid={`sent-badge-opened-${threadId}`}
+          title="Click to see detailed open events"
+          onClick={() => window.dispatchEvent(new CustomEvent("expand-engagement", { detail: { threadId } }))}
+        >
           {opens === 1 ? "Opened" : `Opened ${opens}×`}
         </span>
       )}

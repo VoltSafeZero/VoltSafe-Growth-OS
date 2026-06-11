@@ -1,0 +1,44 @@
+In VoltSafe Mail, the email list shows aggregate engagement badges like “Opened 13×” and “5 clicks,” but the thread-level Engagement panel says “No engagement yet.” Fix this.
+
+Goal:
+When a user opens an email thread, the Engagement panel must show detailed tracking data for that selected thread/email, including recipient-level breakdown and event-level timeline.
+
+Required behavior:
+1. The green “Opened X×” badge in the message list should be clickable.
+2. Clicking it should open the email thread and expand/focus the Engagement panel.
+3. The Engagement panel should no longer say “No engagement yet” when the selected email has open/click events.
+4. Show summary metrics:
+   - total opens
+   - unique recipients/identities detected
+   - total clicks
+   - first opened timestamp
+   - last opened timestamp
+   - last click timestamp
+5. Show recipient-level breakdown:
+   - recipient email
+   - open count
+   - click count
+   - first open time
+   - last open time
+   - last click time
+   - confidence level: high / medium / low / unknown
+6. Show event-level timeline:
+   - timestamp
+   - event type: open, click, reply, forwarded/unknown if detectable
+   - recipient identity if known
+   - URL clicked if click event
+   - user agent / mail client if available
+   - IP/location estimate if available
+   - privacy proxy/security scanner flag if detected
+7. For emails with multiple recipients and CCs, attribute events to the correct recipient wherever possible using recipient-specific tracking IDs/tokens.
+8. If older tracking events were not stored with recipient-level tokens, display them under “Unknown / legacy tracking” instead of losing them.
+9. Add a small disclaimer in the panel:
+   “Open tracking may be affected by Apple Mail Privacy Protection, Gmail image caching, forwarding, and security scanners.”
+10. The backend API should return engagement data by thread/message ID, not just global aggregate counts.
+11. The UI must handle empty states correctly:
+   - If there is truly no tracking data, show “No engagement yet.”
+   - If there are aggregate counts but no detailed events, show “13 opens recorded, but detailed event metadata is unavailable for this legacy email.”
+12. Make sure sent emails, inbox emails, and CRM-linked emails all use the same engagement data source.
+
+Acceptance test:
+Open the email shown in the list with “Opened 13×”. The Engagement panel should show 13 total opens and a table/timeline explaining who opened it, when, and what level of confidence we have in the attribution.

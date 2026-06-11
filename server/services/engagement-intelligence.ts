@@ -123,6 +123,20 @@ export interface RecipientBreakdown {
   ctaClickCount: number;
   lastActivityAt: string | null;
   intentScore: number;
+  confidence?: "high" | "low";
+}
+
+export interface RawOpenEvent {
+  id: number;
+  occurredAt: string;
+  eventType: "open" | "click";
+  url: string | null;
+  userAgent: string | null;
+  recipientEmail: string;
+  isBot: boolean;
+  isDuplicate: boolean;
+  isInternal: boolean;
+  confidence: "high" | "low";
 }
 
 export interface ThreadEngagementFull {
@@ -137,6 +151,7 @@ export interface ThreadEngagementFull {
   hasHighIntent: boolean;
   bannerText: string | null;
   suggestedAction: string | null;
+  rawOpenEvents: RawOpenEvent[];
 }
 
 export interface RecentHighIntentRecord {
@@ -921,6 +936,7 @@ export async function getThreadEngagementFull(
           ctaClickCount:  cta,
           lastActivityAt: r.last_activity_at ? String(r.last_activity_at) : null,
           intentScore:    score,
+          confidence:     r.tracking_token ? "high" as const : "low" as const,
         };
       });
     } else {
@@ -962,11 +978,54 @@ export async function getThreadEngagementFull(
           ctaClickCount:  0,
           lastActivityAt: r.last_activity_at ? String(r.last_activity_at) : null,
           intentScore:    score,
+          confidence:     "low" as const,
         };
       });
     }
   } catch (rbErr) {
     console.warn("[engagement] recipientBreakdown query non-fatal:", rbErr);
+  }
+
+  // ── Raw event-level timeline ─────────────────────────────────────────────
+  // Individual events with exact timestamps — powers the EventTimeline UI.
+  let rawOpenEvents: RawOpenEvent[] = [];
+  try {
+    const rawRows = (await db.execute(sql.raw(`
+      SELECT
+        ee.id,
+        ee.occurred_at,
+        ee.event_type,
+        ee.url,
+        ee.user_agent,
+        COALESCE(ee.is_bot, FALSE)       AS is_bot,
+        COALESCE(ee.is_duplicate, FALSE) AS is_duplicate,
+        COALESCE(ee.is_internal, FALSE)  AS is_internal,
+        COALESCE(p.recipient_email, '')  AS recipient_email,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM email_recipients er3 WHERE er3.tracking_token = p.tracking_id
+        ) THEN 'high' ELSE 'low' END     AS confidence
+      FROM email_tracking_pixels p
+      JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
+      JOIN email_engagement_events ee ON ee.tracking_id = p.tracking_id
+      WHERE m.gmail_thread_id = '${tEsc}'
+        AND m.direction = 'outbound'
+      ORDER BY ee.occurred_at ASC
+      LIMIT 500
+    `))).rows as any[];
+    rawOpenEvents = rawRows.map((r: any) => ({
+      id:            Number(r.id),
+      occurredAt:    String(r.occurred_at),
+      eventType:     String(r.event_type) as "open" | "click",
+      url:           r.url         ? String(r.url)          : null,
+      userAgent:     r.user_agent  ? String(r.user_agent)   : null,
+      recipientEmail: String(r.recipient_email ?? ""),
+      isBot:         r.is_bot       === true || r.is_bot       === "true",
+      isDuplicate:   r.is_duplicate === true || r.is_duplicate === "true",
+      isInternal:    r.is_internal  === true || r.is_internal  === "true",
+      confidence:    r.confidence === "high" ? "high" : "low" as "high" | "low",
+    }));
+  } catch (evErr) {
+    console.warn("[engagement] rawOpenEvents query non-fatal:", evErr);
   }
 
   return {
@@ -980,6 +1039,7 @@ export async function getThreadEngagementFull(
     hasHighIntent,
     bannerText,
     suggestedAction: bannerSuggestedAction,
+    rawOpenEvents,
   };
 }
 
