@@ -130,7 +130,7 @@ export default function ResetPasswordPage({ onLogin, token }: { onLogin: (user: 
               <Button
                 variant="outline"
                 className="w-full mt-2"
-                onClick={() => navigate("/")}
+                onClick={() => { window.location.href = "/"; }}
                 data-testid="button-back-to-login"
               >
                 Back to Sign In
