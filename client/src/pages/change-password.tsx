@@ -5,11 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Anchor, KeyRound, Eye, EyeOff } from "lucide-react";
 
-export default function ChangePasswordPage({ onComplete }: { onComplete: () => void }) {
-  const [currentPassword, setCurrentPassword] = useState("");
+export default function ChangePasswordPage({ onComplete, onChanged }: { onComplete?: () => void; onChanged?: () => void }) {
+  const done = onChanged ?? onComplete ?? (() => {});
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,26 +18,21 @@ export default function ChangePasswordPage({ onComplete }: { onComplete: () => v
     setError("");
 
     if (newPassword !== confirmPassword) {
-      setError("New passwords don't match");
+      setError("Passwords don't match");
       return;
     }
 
-    if (newPassword.length < 6) {
-      setError("New password must be at least 6 characters");
-      return;
-    }
-
-    if (currentPassword === newPassword) {
-      setError("New password must be different from current password");
+    if (newPassword.length < 8) {
+      setError("New password must be at least 8 characters");
       return;
     }
 
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/change-password", {
+      const res = await fetch("/api/auth/change-password-forced", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({ newPassword }),
         credentials: "include",
       });
       const data = await res.json();
@@ -46,7 +40,7 @@ export default function ChangePasswordPage({ onComplete }: { onComplete: () => v
         setError(data.message || "Failed to change password");
         return;
       }
-      onComplete();
+      done();
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
@@ -63,35 +57,13 @@ export default function ChangePasswordPage({ onComplete }: { onComplete: () => v
               <Anchor className="w-7 h-7 text-primary-foreground" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Change Password</CardTitle>
+          <CardTitle className="text-2xl font-bold">Set New Password</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
             You must set a new password before continuing.
           </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Label>Current Password</Label>
-              <div className="relative">
-                <Input
-                  type={showCurrent ? "text" : "password"}
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  required
-                  autoFocus
-                  data-testid="input-current-password"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
-                  onClick={() => setShowCurrent(!showCurrent)}
-                >
-                  {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
             <div>
               <Label>New Password</Label>
               <div className="relative">
@@ -100,6 +72,7 @@ export default function ChangePasswordPage({ onComplete }: { onComplete: () => v
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
+                  autoFocus
                   data-testid="input-new-password"
                 />
                 <Button
