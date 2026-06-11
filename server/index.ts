@@ -257,6 +257,14 @@ app.use((req, res, next) => {
     console.error("[startup] Migration error:", migErr);
   }
 
+  // ONE-TIME: reset trevor@voltsafe.com password — remove after first login
+  try {
+    const { db: _db } = await import("./db");
+    const { sql: _sql } = await import("drizzle-orm");
+    await _db.execute(_sql.raw(`UPDATE users SET password = '$2b$12$M8CEwhbXKKBSZkjd0vP1AeoOMYU/g97G90GQ1k.L1.faG/umrpjSG' WHERE email = 'trevor@voltsafe.com' AND (password IS NULL OR password != '$2b$12$M8CEwhbXKKBSZkjd0vP1AeoOMYU/g97G90GQ1k.L1.faG/umrpjSG')`));
+    console.log("[startup] trevor@voltsafe.com password reset applied");
+  } catch (e) { console.error("[startup] pw-reset error:", e); }
+
   await registerRoutes(httpServer, app);
   registerJiraRoutes(app);
   registerConfluenceRoutes(app);
