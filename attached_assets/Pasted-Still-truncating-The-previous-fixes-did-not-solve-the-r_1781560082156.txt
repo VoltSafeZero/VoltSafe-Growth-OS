@@ -1,0 +1,96 @@
+Still truncating. The previous fixes did not solve the real live path.
+
+Do not make more blind fixes. Instrument the actual failing reply/reply-all/forward flow and prove exactly where the content disappears.
+
+Add a temporary dev-only trace panel/log behind:
+
+FORWARD_REPLY_TRACE=true
+
+For the exact failing email/thread, log and display this chain:
+
+A) Database/storage layer
+- message id
+- gmail message id
+- thread id
+- subject
+- body_html length
+- body_text length
+- snippet length
+- first 200 chars of body_html/body_text
+- last 200 chars of body_html/body_text
+- whether body_html is null
+- whether body_text ends around the old 4,000-char boundary
+- whether body_html ends around the old 200,000-char boundary
+
+B) Thread API response
+Log the exact message object returned to the frontend:
+- body length
+- html/body field names present
+- first 200 chars of returned body
+- last 200 chars of returned body
+- whether it matches DB body_html/body_text length
+
+C) Frontend click handler
+Inside handleReply, handleReplyAll, and handleForward log:
+- action type
+- selected message id
+- source field used for quote: body / bodyHtml / html / text / snippet / preview
+- source length
+- quotedHtml length
+- first 200 chars of quotedHtml
+- last 200 chars of quotedHtml
+- whether the expected unique text near the END of the original email is present
+
+D) Composer/editor
+After composer hydration and before send:
+- editor HTML length
+- quoted block length
+- first 200 chars
+- last 200 chars
+- whether expected unique end-text is still present
+
+E) Network request to send endpoint
+Log the outgoing payload:
+- body length
+- first 200 chars
+- last 200 chars
+- whether expected unique end-text is present
+
+F) Server receive/send pipeline
+In the send route log:
+- received body length
+- after emergencyStripDangerousHtml length
+- after normalizeOutboundHtml length
+- after signature replacement length
+- final MIME HTML length
+- whether expected unique end-text is present at every stage
+
+Critical:
+Pick a unique phrase from near the very bottom of the original email/thread and track that exact phrase through every step. Do not use only length. Length can lie.
+
+Likely remaining causes to inspect:
+1. Frontend thread view is receiving a truncated body even after DB fixes.
+2. handleForward/handleReplyAll is still reading a rendered preview/collapsed body instead of the full message body.
+3. TipTap/editor is dropping hidden quoted content during hydration or serialization.
+4. The send payload is built from editor HTML only and excludes quotedHtml state.
+5. A Gmail-style quoted text trimmer is removing content after a quote marker.
+6. The database already contains old truncated rows and the repair/backfill is not actually running for this message.
+7. The wrong API endpoint is used for compose versus thread view.
+8. Reply All is only quoting the most recent message, not the full prior thread.
+
+Do this exact test:
+1. Open the failing email/thread.
+2. Copy a unique phrase from the very bottom of the original email.
+3. Reply All.
+4. Confirm whether that phrase exists in:
+   - DB stored body
+   - thread API response
+   - handleReplyAll quotedHtml
+   - composer HTML
+   - send request payload
+   - server input body
+   - final MIME HTML
+
+Then report the first stage where the phrase disappears. Fix only that stage. Add a regression test for that exact failure shape.
+
+Do not report “tests pass” unless the real failing email preserves the unique bottom phrase in final MIME.

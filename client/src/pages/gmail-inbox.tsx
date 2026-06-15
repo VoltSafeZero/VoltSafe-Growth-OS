@@ -1065,10 +1065,13 @@ function ComposeDialog({
       const _frtOn = (import.meta.env.DEV as boolean) ||
         (typeof localStorage !== "undefined" && localStorage.getItem("FORWARD_REPLY_TRACE") === "true");
       if (_frtOn) {
-        console.log("[FRT:send:step1-input]", {
+        console.log("[FRT:E:send:step1-input]", {
           isForward, hasThread: !!threadId,
           defaultQuotedHtmlLen: defaultQuotedHtml?.length ?? 0,
           defaultQuotedHtmlFirst200: defaultQuotedHtml?.slice(0, 200) ?? "",
+          defaultQuotedHtmlLast200:  defaultQuotedHtml?.slice(-200) ?? "",
+          atOld4KCap:  !!(defaultQuotedHtml && defaultQuotedHtml.length >= 3900 && defaultQuotedHtml.length <= 4100),
+          atOld200KCap: !!(defaultQuotedHtml && defaultQuotedHtml.length >= 199000 && defaultQuotedHtml.length <= 201000),
           defaultQuotedFrom, defaultQuotedDate,
         });
       }
@@ -1078,9 +1081,10 @@ function ComposeDialog({
           ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
           : "");
       if (_frtOn) {
-        console.log("[FRT:send:step1-quotedBlock]", {
+        console.log("[FRT:E:send:step1-quotedBlock]", {
           quotedBlockLen: quotedBlock.length,
           quotedBlockFirst200: quotedBlock.slice(0, 200),
+          quotedBlockLast200:  quotedBlock.slice(-200),
           hasGmailQuote: quotedBlock.includes("gmail_quote") || quotedBlock.includes("blockquote"),
         });
       }
@@ -1136,6 +1140,17 @@ function ComposeDialog({
         maskedTo,
         payloadKeys:            Object.keys(finalPayload),
       });
+      if (_frtOn) {
+        console.log("[FRT:E:send:payload-final]", {
+          htmlBodyLen: htmlBody.length,
+          htmlBodyFirst200: htmlBody.slice(0, 200),
+          htmlBodyLast200:  htmlBody.slice(-200),
+          quotedBlockLen: quotedBlock.length,
+          quotedBlockLast200: quotedBlock.slice(-200),
+          atOld4KCap:   quotedBlock.length >= 3900 && quotedBlock.length <= 4100,
+          atOld200KCap: quotedBlock.length >= 199000 && quotedBlock.length <= 201000,
+        });
+      }
 
       // ── Step 7: Fetch ─────────────────────────────────────────────────────────
       const res = await fetch("/api/gmail/send", {
@@ -7600,14 +7615,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   //   localStorage.setItem('FORWARD_REPLY_TRACE', 'true')
   const _frtEnabled = (import.meta.env.DEV as boolean) ||
     (typeof localStorage !== "undefined" && localStorage.getItem("FORWARD_REPLY_TRACE") === "true");
-  const frtLog = (action: string, data: object) => {
+  const [frtEvents, setFrtEvents] = useState<Array<{ stage: string; ts: number; data: Record<string, any> }>>([]);
+  const frtLog = (action: string, data: Record<string, any>) => {
     if (!_frtEnabled) return;
-    console.log(`[FRT:${action}]`, { ...data, _ts: Date.now() });
+    const evt = { stage: action, ts: Date.now(), data };
+    setFrtEvents(prev => [...prev.slice(-99), evt]);
+    console.log(`[FRT:${action}]`, { ...data, _ts: evt.ts });
   };
+  const _frtSnippet = (s: string | null | undefined, len = 200) => (s ?? "").slice(0, len);
+  const _frtTail    = (s: string | null | undefined, len = 200) => (s ?? "").slice(-(len));
+  const _frtAtOld4K  = (n: number) => n >= 3900 && n <= 4100;
+  const _frtAtOld200K = (n: number) => n >= 199000 && n <= 201000;
 
   // Fetches the full body_html for a message at compose time.
-  // If body_html is already stored it returns in ~0ms (fast DB path).
-  // If not, fetches live from Gmail, caches the result, and returns.
+  // Fast path: returns body_html from DB (~0ms). Slow path: fetches live from Gmail.
   const fetchFullMessageBody = async (msgId: string) => {
     const qs = activeAccountId && activeAccountId !== "all"
       ? `?asAccountId=${activeAccountId}` : "";
@@ -7617,7 +7638,33 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         { credentials: "include" }
       );
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return await r.json() as { bodyHtml: string; bodyText: string; isHtml: boolean; source: string };
+      const json = await r.json() as {
+        bodyHtml: string; bodyText: string; isHtml: boolean; source: string;
+        bodyHtmlLength?: number; bodyTextLength?: number;
+        first200Html?: string; last200Html?: string;
+        first200Text?: string; last200Text?: string;
+        atOld4KCap?: boolean; atOld200KCap?: boolean;
+        snippetLen?: number; snippet200?: string; dbId?: number;
+      };
+      const htmlLen = json.bodyHtmlLength ?? json.bodyHtml?.length ?? 0;
+      const textLen = json.bodyTextLength ?? json.bodyText?.length ?? 0;
+      frtLog("A:db-full-body", {
+        msgId,
+        source: json.source,
+        isHtml: json.isHtml,
+        dbId: json.dbId,
+        bodyHtmlLen: htmlLen,
+        bodyTextLen: textLen,
+        first200Html: json.first200Html ?? _frtSnippet(json.bodyHtml),
+        last200Html:  json.last200Html  ?? _frtTail(json.bodyHtml),
+        first200Text: json.first200Text ?? _frtSnippet(json.bodyText),
+        last200Text:  json.last200Text  ?? _frtTail(json.bodyText),
+        atOld4KCap:   json.atOld4KCap   ?? _frtAtOld4K(textLen),
+        atOld200KCap: json.atOld200KCap ?? _frtAtOld200K(htmlLen),
+        snippetLen: json.snippetLen,
+        snippet200: json.snippet200,
+      });
+      return json;
     } catch (e: any) {
       console.warn("[frt] fetchFullMessageBody failed:", e.message);
       return { bodyHtml: "", bodyText: "", isHtml: false, source: "error" } as const;
@@ -7642,9 +7689,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     let quotedHtml = msg.body || "";
     let bodySource = msg.isHtml ? "body_html" : (msg.body ? "body_text_truncated" : "empty");
 
-    frtLog("reply:start", {
+    frtLog("C:reply:start", {
       action: "reply", msgId: msg.id, isHtml: msg.isHtml,
       bodyLen: msg.body?.length ?? 0, bodySource,
+      first200: _frtSnippet(msg.body), last200: _frtTail(msg.body),
+      atOld4KCap: _frtAtOld4K(msg.body?.length ?? 0),
+      atOld200KCap: _frtAtOld200K(msg.body?.length ?? 0),
       threadMsgCount: threadQuery.data?.messages?.length ?? 0,
     });
 
@@ -7653,9 +7703,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // would produce a severely truncated quoted block without this fetch.
     if (!msg.isHtml) {
       const full = await fetchFullMessageBody(msg.id);
-      frtLog("reply:full-body-fetch", {
+      frtLog("A:reply:full-body-fetch", {
         source: full.source, isHtml: full.isHtml,
         htmlLen: full.bodyHtml?.length ?? 0, textLen: full.bodyText?.length ?? 0,
+        first200Html: _frtSnippet(full.bodyHtml), last200Html: _frtTail(full.bodyHtml),
+        first200Text: _frtSnippet(full.bodyText), last200Text: _frtTail(full.bodyText),
       });
       if (full.bodyHtml) {
         quotedHtml = full.bodyHtml;
@@ -7671,12 +7723,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       }
     }
 
-    frtLog("reply:final", {
+    frtLog("C:reply:final", {
       action: "reply", msgId: msg.id, bodySource,
-      quotedHtmlLen: quotedHtml.length, first300: quotedHtml.slice(0, 300),
+      quotedHtmlLen: quotedHtml.length,
+      first200: _frtSnippet(quotedHtml), last200: _frtTail(quotedHtml),
+      atOld4KCap: _frtAtOld4K(quotedHtml.length),
+      atOld200KCap: _frtAtOld200K(quotedHtml.length),
     });
 
-    setReplyTo({
+    const _replyToPayload = {
       to: parseSenderEmail(msg.from),
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       threadId: msg.threadId,
@@ -7684,7 +7739,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       quotedHtml,
       quotedFrom: msg.from || "",
       quotedDate: dateStr,
+    };
+    frtLog("D:compose:set-replyTo", {
+      action: "reply",
+      quotedHtmlLen: (_replyToPayload.quotedHtml ?? "").length,
+      first200: _frtSnippet(_replyToPayload.quotedHtml),
+      last200: _frtTail(_replyToPayload.quotedHtml),
     });
+    setReplyTo(_replyToPayload);
   };
 
   // ── Reply All ─────────────────────────────────────────────────────────────
@@ -7700,17 +7762,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     let quotedHtml = msg.body || "";
     let bodySource = msg.isHtml ? "body_html" : (msg.body ? "body_text_truncated" : "empty");
 
-    frtLog("replyAll:start", {
+    frtLog("C:replyAll:start", {
       action: "replyAll", msgId: msg.id, isHtml: msg.isHtml,
       bodyLen: msg.body?.length ?? 0, bodySource, ccCount: allRecipients.length,
+      first200: _frtSnippet(msg.body), last200: _frtTail(msg.body),
+      atOld4KCap: _frtAtOld4K(msg.body?.length ?? 0),
+      atOld200KCap: _frtAtOld200K(msg.body?.length ?? 0),
       threadMsgCount: threadQuery.data?.messages?.length ?? 0,
     });
 
     if (!msg.isHtml) {
       const full = await fetchFullMessageBody(msg.id);
-      frtLog("replyAll:full-body-fetch", {
+      frtLog("A:replyAll:full-body-fetch", {
         source: full.source, isHtml: full.isHtml,
         htmlLen: full.bodyHtml?.length ?? 0, textLen: full.bodyText?.length ?? 0,
+        first200Html: _frtSnippet(full.bodyHtml), last200Html: _frtTail(full.bodyHtml),
+        first200Text: _frtSnippet(full.bodyText), last200Text: _frtTail(full.bodyText),
       });
       if (full.bodyHtml) {
         quotedHtml = full.bodyHtml;
@@ -7725,12 +7792,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       }
     }
 
-    frtLog("replyAll:final", {
+    frtLog("C:replyAll:final", {
       action: "replyAll", msgId: msg.id, bodySource,
-      quotedHtmlLen: quotedHtml.length, first300: quotedHtml.slice(0, 300),
+      quotedHtmlLen: quotedHtml.length,
+      first200: _frtSnippet(quotedHtml), last200: _frtTail(quotedHtml),
+      atOld4KCap: _frtAtOld4K(quotedHtml.length),
+      atOld200KCap: _frtAtOld200K(quotedHtml.length),
     });
 
-    setReplyTo({
+    const _raPayload = {
       to: parseSenderEmail(msg.from),
       cc: allRecipients.length > 0 ? allRecipients.join(", ") : undefined,
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
@@ -7739,7 +7809,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       quotedHtml,
       quotedFrom: msg.from || "",
       quotedDate: dateStr,
+    };
+    frtLog("D:compose:set-replyAll", {
+      action: "replyAll",
+      quotedHtmlLen: (_raPayload.quotedHtml ?? "").length,
+      first200: _frtSnippet(_raPayload.quotedHtml),
+      last200: _frtTail(_raPayload.quotedHtml),
     });
+    setReplyTo(_raPayload);
   };
 
   // ── Forward ───────────────────────────────────────────────────────────────
@@ -7747,8 +7824,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toUTCString() : "");
     const allMsgs = threadQuery.data?.messages || [msg];
 
-    frtLog("forward:start", {
+    frtLog("C:forward:start", {
       action: "forward", msgId: msg.id, threadMsgCount: allMsgs.length,
+      focusedBodyLen: msg.body?.length ?? 0,
+      first200: _frtSnippet(msg.body), last200: _frtTail(msg.body),
+      atOld4KCap: _frtAtOld4K(msg.body?.length ?? 0),
+      atOld200KCap: _frtAtOld200K(msg.body?.length ?? 0),
       msgsWithoutHtml: allMsgs.filter((m) => !m.isHtml).map((m) => m.id),
     });
 
@@ -7756,13 +7837,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // This covers: emails not yet backfilled, pure plain-text emails (body_text 4 KB limit).
     const resolvedMsgs = await Promise.all(allMsgs.map(async (m) => {
       if (m.isHtml && (m.body?.length ?? 0) > 0) {
-        frtLog("forward:msg-ok", { msgId: m.id, source: "body_html", len: m.body.length });
+        frtLog("C:forward:msg-ok", {
+          msgId: m.id, source: "body_html", len: m.body.length,
+          first200: _frtSnippet(m.body), last200: _frtTail(m.body),
+          atOld4KCap: _frtAtOld4K(m.body.length), atOld200KCap: _frtAtOld200K(m.body.length),
+        });
         return { m, resolvedBody: m.body, resolvedIsHtml: true, bodySource: "body_html" };
       }
       const full = await fetchFullMessageBody(m.id);
-      frtLog("forward:msg-fetch", {
+      frtLog("A:forward:msg-fetch", {
         msgId: m.id, source: full.source, isHtml: full.isHtml,
         htmlLen: full.bodyHtml?.length ?? 0, textLen: full.bodyText?.length ?? 0,
+        first200Html: _frtSnippet(full.bodyHtml), last200Html: _frtTail(full.bodyHtml),
+        first200Text: _frtSnippet(full.bodyText), last200Text: _frtTail(full.bodyText),
       });
       if (full.bodyHtml) {
         return { m, resolvedBody: full.bodyHtml, resolvedIsHtml: true, bodySource: `full-body:${full.source}` };
@@ -7792,14 +7879,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       }).join("");
     }
 
-    frtLog("forward:final", {
+    frtLog("C:forward:final", {
       action: "forward", msgId: msg.id, threadMsgCount: allMsgs.length,
-      quotedHtmlLen: quotedHtml.length, first300: quotedHtml.slice(0, 300),
+      quotedHtmlLen: quotedHtml.length,
+      first200: _frtSnippet(quotedHtml), last200: _frtTail(quotedHtml),
+      atOld4KCap: _frtAtOld4K(quotedHtml.length),
+      atOld200KCap: _frtAtOld200K(quotedHtml.length),
     });
 
-    setReplyTo(null);
-    setComposeInitial({
-      to: "",
+    const _fwdPayload = {
+      to: "" as string,
       subject: msg.subject.startsWith("Fwd:") ? msg.subject : `Fwd: ${msg.subject}`,
       body: "",
       isForward: true,
@@ -7808,7 +7897,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       quotedDate: dateStr,
       forwardSubject: msg.subject || "",
       forwardTo: msg.to || "",
+    };
+    frtLog("D:compose:set-forward", {
+      action: "forward",
+      quotedHtmlLen: (_fwdPayload.quotedHtml ?? "").length,
+      first200: _frtSnippet(_fwdPayload.quotedHtml),
+      last200: _frtTail(_fwdPayload.quotedHtml),
     });
+    setReplyTo(null);
+    setComposeInitial(_fwdPayload);
   };
 
   const selectedMessages = threadQuery.data?.messages || [];
@@ -11318,6 +11415,178 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── FORWARD_REPLY_TRACE panel ───────────────────────────────────────────
+           Visible only in dev or when localStorage.FORWARD_REPLY_TRACE='true'.
+           Shows every instrumented stage so you can find where content disappears.
+           ────────────────────────────────────────────────────────────────────── */}
+      {_frtEnabled && <FrtTracePanel events={frtEvents} onClear={() => setFrtEvents([])} />}
+    </div>
+  );
+}
+
+// ── FrtTracePanel — dev-only forward/reply/forward trace panel ─────────────────
+// Shows the A→F chain so you can find where a "unique bottom phrase" disappears.
+function FrtTracePanel({
+  events,
+  onClear,
+}: {
+  events: Array<{ stage: string; ts: number; data: Record<string, any> }>;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const stageColor = (s: string) => {
+    if (s.startsWith("A:")) return "#22d3ee";   // cyan  — DB
+    if (s.startsWith("B:")) return "#a78bfa";   // purple — thread API
+    if (s.startsWith("C:")) return "#86efac";   // green  — click handler
+    if (s.startsWith("D:")) return "#fbbf24";   // amber  — compose state
+    if (s.startsWith("E:") || s.includes("send")) return "#f472b6"; // pink — network
+    if (s.startsWith("F:")) return "#fb923c";   // orange — server
+    return "#94a3b8";
+  };
+
+  const filtered = search
+    ? events.filter(e =>
+        e.stage.toLowerCase().includes(search.toLowerCase()) ||
+        JSON.stringify(e.data).toLowerCase().includes(search.toLowerCase())
+      )
+    : events;
+
+  const capsWarning = (d: Record<string, any>) => {
+    if (d.atOld4KCap)   return "⚠️ AT 4K TEXT CAP";
+    if (d.atOld200KCap) return "⚠️ AT 200K HTML CAP";
+    return null;
+  };
+
+  return (
+    <div style={{
+      position: "fixed", bottom: 0, right: 0, zIndex: 99999,
+      fontFamily: "monospace", fontSize: "11px",
+      maxWidth: open ? "680px" : "200px",
+      maxHeight: open ? "420px" : "36px",
+      background: "#0f172a", color: "#e2e8f0",
+      border: "1px solid #334155", borderRadius: "8px 0 0 0",
+      boxShadow: "0 -4px 24px rgba(0,0,0,0.6)",
+      overflow: "hidden",
+      transition: "max-height 0.2s, max-width 0.2s",
+      display: "flex", flexDirection: "column",
+    }}>
+      {/* Header bar */}
+      <div
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "6px 10px", cursor: "pointer",
+          background: "#1e293b", borderBottom: "1px solid #334155",
+          flexShrink: 0,
+        }}
+        onClick={() => setOpen((o: boolean) => !o)}
+      >
+        <span style={{ color: "#22d3ee", fontWeight: "bold" }}>FRT</span>
+        <span style={{ color: "#64748b" }}>TRACE</span>
+        <span style={{
+          marginLeft: 4, background: "#334155", borderRadius: 9,
+          padding: "1px 7px", color: "#f472b6",
+        }}>{events.length}</span>
+        <span style={{ marginLeft: "auto", color: "#475569" }}>{open ? "▼" : "▲"}</span>
+      </div>
+
+      {open && (
+        <>
+          {/* Toolbar */}
+          <div style={{
+            display: "flex", gap: 6, padding: "4px 8px",
+            background: "#1e293b", borderBottom: "1px solid #334155", flexShrink: 0,
+          }}>
+            <input
+              style={{
+                flex: 1, background: "#0f172a", border: "1px solid #334155",
+                color: "#e2e8f0", borderRadius: 4, padding: "2px 6px", fontSize: 11,
+              }}
+              placeholder="filter stages or content..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onClick={e => e.stopPropagation()}
+            />
+            <button
+              style={{
+                background: "#334155", border: "none", color: "#94a3b8",
+                borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 11,
+              }}
+              onClick={e => { e.stopPropagation(); onClear(); }}
+            >Clear</button>
+          </div>
+
+          {/* Event list */}
+          <div style={{ overflow: "auto", flex: 1, padding: "4px 0" }}>
+            {filtered.length === 0 && (
+              <div style={{ padding: "8px 12px", color: "#475569" }}>
+                No events yet. Open a thread and click Reply / Reply-All / Forward.
+              </div>
+            )}
+            {filtered.map((evt, i) => {
+              const d = evt.data;
+              const len = d.quotedHtmlLen ?? d.htmlLen ?? d.bodyLen ?? d.bodyHtmlLen ?? d.htmlBodyLen ?? d.quotedBlockLen ?? null;
+              const warn = capsWarning(d);
+              const last200 = d.last200 ?? d.last200Html ?? d.htmlBodyLast200 ?? d.last200Text ?? d.quotedBlockLast200 ?? null;
+              return (
+                <div key={i} style={{
+                  padding: "3px 10px",
+                  borderBottom: "1px solid #1e293b",
+                  background: warn ? "rgba(251,191,36,0.08)" : undefined,
+                }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+                    <span style={{
+                      color: stageColor(evt.stage), fontWeight: "bold", minWidth: 180,
+                    }}>{evt.stage}</span>
+                    {len !== null && (
+                      <span style={{ color: "#64748b" }}>
+                        len=<span style={{ color: "#e2e8f0" }}>{len}</span>
+                      </span>
+                    )}
+                    {warn && <span style={{ color: "#fbbf24", marginLeft: 4 }}>{warn}</span>}
+                  </div>
+                  {last200 && (
+                    <div style={{
+                      color: "#94a3b8", marginTop: 1, paddingLeft: 4,
+                      wordBreak: "break-all", lineHeight: 1.3,
+                    }}>
+                      <span style={{ color: "#475569" }}>last200: </span>
+                      {String(last200).replace(/<[^>]+>/g, "").slice(-200)}
+                    </div>
+                  )}
+                  {d.source && (
+                    <span style={{ color: "#475569", paddingLeft: 4 }}>
+                      src=<span style={{ color: "#a78bfa" }}>{d.source}</span>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Legend */}
+          <div style={{
+            display: "flex", gap: 8, padding: "4px 10px",
+            background: "#1e293b", borderTop: "1px solid #334155",
+            flexShrink: 0, flexWrap: "wrap",
+          }}>
+            {[
+              ["A:", "#22d3ee", "DB fetch"],
+              ["C:", "#86efac", "handler"],
+              ["D:", "#fbbf24", "compose state"],
+              ["E:", "#f472b6", "network"],
+              ["F:", "#fb923c", "server"],
+            ].map(([prefix, color, label]) => (
+              <span key={String(prefix)} style={{ display: "flex", gap: 3, alignItems: "center" }}>
+                <span style={{ color: String(color), fontWeight: "bold" }}>{prefix}</span>
+                <span style={{ color: "#475569" }}>{label}</span>
+              </span>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

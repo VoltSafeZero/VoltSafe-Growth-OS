@@ -11873,13 +11873,35 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
       // Fast path — body_html already in DB
       if (msgRow.body_html) {
+        const _bh  = msgRow.body_html as string;
+        const _bt  = (msgRow.body_text || "") as string;
+        const _sn  = (msgRow.snippet || "") as string;
+        const _at4K   = _bt.length >= 3900  && _bt.length <= 4100;
+        const _at200K = _bh.length >= 199000 && _bh.length <= 201000;
+        console.log("[FRT:A:full-body:db-fast]", {
+          msgId, dbId: msgRow.id, source: "db",
+          bodyHtmlLen: _bh.length, bodyTextLen: _bt.length, snippetLen: _sn.length,
+          first200Html: _bh.slice(0, 200), last200Html: _bh.slice(-200),
+          first200Text: _bt.slice(0, 200), last200Text: _bt.slice(-200),
+          atOld4KCap: _at4K, atOld200KCap: _at200K,
+          snippet200: _sn.slice(0, 200),
+        });
         return res.json({
-          bodyHtml: msgRow.body_html,
-          bodyText: msgRow.body_text || "",
+          bodyHtml: _bh,
+          bodyText: _bt,
           isHtml: true,
           source: "db",
-          bodyHtmlLength: (msgRow.body_html as string).length,
-          bodyTextLength: (msgRow.body_text || "").length,
+          bodyHtmlLength: _bh.length,
+          bodyTextLength: _bt.length,
+          first200Html: _bh.slice(0, 200),
+          last200Html:  _bh.slice(-200),
+          first200Text: _bt.slice(0, 200),
+          last200Text:  _bt.slice(-200),
+          atOld4KCap: _at4K,
+          atOld200KCap: _at200K,
+          snippetLen: _sn.length,
+          snippet200: _sn.slice(0, 200),
+          dbId: msgRow.id,
         });
       }
 
@@ -11901,18 +11923,40 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           await db.update(emailMessages)
             .set({ bodyHtml: parsed.bodyHtml })
             .where(eq(emailMessages.gmailMessageId, msgId));
-          console.log(`[full-body] Gmail live fetch OK msgId=${msgId} htmlLen=${parsed.bodyHtml.length}`);
+          const _bh2 = parsed.bodyHtml;
+          const _bt2 = parsed.bodyText || msgRow.body_text || "";
+          const _at4K2   = _bt2.length >= 3900  && _bt2.length <= 4100;
+          const _at200K2 = _bh2.length >= 199000 && _bh2.length <= 201000;
+          console.log("[FRT:A:full-body:gmail-live]", {
+            msgId, dbId: msgRow.id, source: "gmail-live",
+            bodyHtmlLen: _bh2.length, bodyTextLen: _bt2.length,
+            first200Html: _bh2.slice(0, 200), last200Html: _bh2.slice(-200),
+            first200Text: _bt2.slice(0, 200), last200Text: _bt2.slice(-200),
+            atOld4KCap: _at4K2, atOld200KCap: _at200K2,
+          });
           return res.json({
-            bodyHtml: parsed.bodyHtml,
-            bodyText: parsed.bodyText || msgRow.body_text || "",
+            bodyHtml: _bh2,
+            bodyText: _bt2,
             isHtml: true,
             source: "gmail-live",
-            bodyHtmlLength: parsed.bodyHtml.length,
-            bodyTextLength: (parsed.bodyText || msgRow.body_text || "").length,
+            bodyHtmlLength: _bh2.length,
+            bodyTextLength: _bt2.length,
+            first200Html: _bh2.slice(0, 200),
+            last200Html:  _bh2.slice(-200),
+            first200Text: _bt2.slice(0, 200),
+            last200Text:  _bt2.slice(-200),
+            atOld4KCap: _at4K2,
+            atOld200KCap: _at200K2,
+            dbId: msgRow.id,
           });
         }
         // Plain-text only email — no HTML part
         const bt = parsed.bodyText || msgRow.body_text || "";
+        console.log("[FRT:A:full-body:plaintext]", {
+          msgId, dbId: msgRow.id, source: "gmail-live-plaintext",
+          bodyTextLen: bt.length, atOld4KCap: bt.length >= 3900 && bt.length <= 4100,
+          first200Text: bt.slice(0, 200), last200Text: bt.slice(-200),
+        });
         return res.json({
           bodyHtml: "",
           bodyText: bt,
@@ -11920,10 +11964,19 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           source: "gmail-live-plaintext",
           bodyHtmlLength: 0,
           bodyTextLength: bt.length,
+          first200Text: bt.slice(0, 200),
+          last200Text:  bt.slice(-200),
+          atOld4KCap: bt.length >= 3900 && bt.length <= 4100,
+          dbId: msgRow.id,
         });
       } catch (gmailErr: any) {
         console.warn(`[full-body] Gmail fetch failed msgId=${msgId}:`, gmailErr.message?.slice(0, 120));
         const bt = msgRow.body_text || msgRow.snippet || "";
+        console.log("[FRT:A:full-body:db-fallback]", {
+          msgId, dbId: msgRow.id, source: "db-fallback",
+          bodyTextLen: bt.length, atOld4KCap: bt.length >= 3900 && bt.length <= 4100,
+          first200Text: bt.slice(0, 200), last200Text: bt.slice(-200),
+        });
         return res.json({
           bodyHtml: "",
           bodyText: bt,
@@ -11931,6 +11984,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           source: "db-fallback",
           bodyHtmlLength: 0,
           bodyTextLength: bt.length,
+          first200Text: bt.slice(0, 200),
+          last200Text:  bt.slice(-200),
+          atOld4KCap: bt.length >= 3900 && bt.length <= 4100,
+          dbId: msgRow.id,
         });
       }
     } catch (err: any) {
@@ -12090,6 +12147,26 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               } catch (e: any) {
                 console.warn(`[on-demand-html] gmail client error: ${e.message?.slice(0, 120)}`);
               }
+            }
+            // ── FRT:B — Thread API FRT logging ─────────────────────────────────
+            // Logs what the frontend actually receives so we can compare against DB.
+            if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
+              const _frtMsgs = (local.messages || []) as any[];
+              console.log("[FRT:B:thread-api:response]", {
+                threadId: req.params.id,
+                msgCount: _frtMsgs.length,
+                messages: _frtMsgs.map((m: any) => {
+                  const _mb = String(m.body || "");
+                  const _textLen = _mb.length;
+                  return {
+                    id: m.id, gmailMessageId: m.gmailMessageId,
+                    isHtml: m.isHtml, bodyLen: _textLen,
+                    first200: _mb.slice(0, 200), last200: _mb.slice(-200),
+                    atOld4KCap:   _textLen >= 3900  && _textLen <= 4100,
+                    atOld200KCap: _textLen >= 199000 && _textLen <= 201000,
+                  };
+                }),
+              });
             }
             res.setHeader("X-Mail-Source", "local");
             return res.json(local);
@@ -15980,6 +16057,19 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (_sendDocTags.any) {
         console.log("[gmail-send-normalized] stripping document-level wrapper tags from body:", _sendDocTags);
       }
+      // ── FRT:F:server — raw input before normalization ────────────────────────
+      if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
+        const _rawBody = body || "";
+        console.log("[FRT:F:server:raw-input]", {
+          rawBodyLen: _rawBody.length,
+          first200: _rawBody.slice(0, 200),
+          last200:  _rawBody.slice(-200),
+          atOld4KCap:   _rawBody.length >= 3900  && _rawBody.length <= 4100,
+          atOld200KCap: _rawBody.length >= 199000 && _rawBody.length <= 201000,
+          isForward: req.body?.isForward ?? false,
+          hasThreadId: !!(req.body?.threadId),
+        });
+      }
       const normalizedBody = normalizeSignatureHtml(body);
       // Sanitize signature section at send time: strips data URIs, localhost refs,
       // private /api/ routes, and old Replit host URLs that bloat the request body
@@ -15990,15 +16080,21 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         const _hasSigStart = cleanBody.includes("<!--vs-sig-start-->");
         const _hasGmailQuote = cleanBody.includes("gmail_quote") || cleanBody.includes("blockquote");
         const _hasVsBodyDiv = cleanBody.includes("vs-body");
-        console.log("[FRT-SEND:pre-sig]", {
+        console.log("[FRT:F:server:pre-sig]", {
           rawBodyLen: (body || "").length,
           cleanBodyLen: cleanBody.length,
+          first200: cleanBody.slice(0, 200),
+          last200:  cleanBody.slice(-200),
+          atOld4KCap:   cleanBody.length >= 3900  && cleanBody.length <= 4100,
+          atOld200KCap: cleanBody.length >= 199000 && cleanBody.length <= 201000,
           hasSigStart: _hasSigStart,
           hasGmailQuote: _hasGmailQuote,
           hasVsBodyDiv: _hasVsBodyDiv,
           isForward: req.body?.isForward ?? false,
           hasThreadId: !!(req.body?.threadId),
         });
+        // Legacy alias so existing log greps still match
+        console.log("[FRT-SEND:pre-sig]", { rawBodyLen: (body || "").length, cleanBodyLen: cleanBody.length, hasSigStart: _hasSigStart, hasGmailQuote: _hasGmailQuote });
       }
 
       // ── Server-side signature assembly ──────────────────────────────────────
@@ -16125,11 +16221,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
             bodyWithSig = _cleanBodyNoStaleSig + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`;
             if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
-              console.log("[FRT-SEND:post-sig]", {
+              console.log("[FRT:F:server:post-sig]", {
                 cleanBodyNoStaleSigLen: _cleanBodyNoStaleSig.length,
                 bodyWithSigLen: bodyWithSig.length,
+                first200: bodyWithSig.slice(0, 200),
+                last200:  bodyWithSig.slice(-200),
+                atOld4KCap:   bodyWithSig.length >= 3900  && bodyWithSig.length <= 4100,
+                atOld200KCap: bodyWithSig.length >= 199000 && bodyWithSig.length <= 201000,
                 hasQuotedContent: bodyWithSig.includes("gmail_quote") || bodyWithSig.includes("blockquote"),
               });
+              // Legacy alias
+              console.log("[FRT-SEND:post-sig]", { cleanBodyNoStaleSigLen: _cleanBodyNoStaleSig.length, bodyWithSigLen: bodyWithSig.length });
             }
 
             // ── Dedup guard: remove duplicate CTA images outside the sig section ────
@@ -16300,6 +16402,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               }
             }
           }
+        }
+        // ── FRT:F:server:mime-final — last snapshot before handoff to Gmail ────
+        if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
+          const _cbLen = _cidBody.length;
+          console.log("[FRT:F:server:mime-final]", {
+            cidBodyLen: _cbLen,
+            first200: _cidBody.slice(0, 200),
+            last200:  _cidBody.slice(-200),
+            atOld4KCap:   _cbLen >= 3900  && _cbLen <= 4100,
+            atOld200KCap: _cbLen >= 199000 && _cbLen <= 201000,
+            inlineImagesCount: _sigInlineImages.length,
+            hasBlockquote: _cidBody.includes("blockquote"),
+            hasGmailQuote: _cidBody.includes("gmail_quote"),
+          });
         }
         const result = await sendEmail(
           resolved.userId, to, subject || "", _cidBody,
