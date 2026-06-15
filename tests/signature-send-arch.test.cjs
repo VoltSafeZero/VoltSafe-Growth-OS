@@ -40,14 +40,22 @@ test("sendMutation does NOT call sanitizeSignatureHtmlClientSide for send body",
     "sendMutation must NOT sanitize activeSignatureHtml for inclusion in body"
   );
 });
-test("sendMutation builds body with quotedBlock only (no safeSigHtml)", () => {
+test("sendMutation builds body with buildEmailHtml(body) only, quotedBlock appended separately", () => {
+  // After fix: quotedBlock must NOT be the 2nd arg to buildEmailHtml.
+  // buildEmailHtml wraps its 2nd arg in <!--vs-sig-start--> markers; the server
+  // then strips those markers to insert the real signature, which would silently
+  // discard the entire forward/reply history.
   assert.ok(
-    sendBlock.includes("buildEmailHtml(body, quotedBlock)"),
-    "sendMutation must call buildEmailHtml(body, quotedBlock) without safeSigHtml"
+    !sendBlock.includes("buildEmailHtml(body, quotedBlock)"),
+    "sendMutation must NOT pass quotedBlock as 2nd arg to buildEmailHtml (sig marker trap)"
   );
   assert.ok(
-    !sendBlock.includes("buildEmailHtml(body, safeSigHtml"),
-    "sendMutation must NOT include safeSigHtml in buildEmailHtml"
+    sendBlock.includes("buildEmailHtml(body)"),
+    "sendMutation must call buildEmailHtml(body) with no quotedBlock arg"
+  );
+  assert.ok(
+    sendBlock.includes("if (quotedBlock) htmlBody = htmlBody + quotedBlock"),
+    "sendMutation must append quotedBlock directly after buildEmailHtml(body)"
   );
 });
 test("sendMutation includes selectedSignatureId in finalPayload", () => {
