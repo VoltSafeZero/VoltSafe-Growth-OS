@@ -192,10 +192,24 @@ export async function upsertMessageById(
       return { inserted: false, updatedLabels: false };
     }
 
-    // Update label_ids if they changed
+    // Update label_ids if they changed — apply inbox-visibility guard before writing.
+    // This is the critical path that was silently stripping INBOX from categorized
+    // messages: upsertMessageById receives a full message.get() response from Gmail,
+    // and Gmail does not include INBOX for messages it delivers to CATEGORY_* tabs.
+    // We apply the same ensureInboxForCategoryLabels guard used in the label-change
+    // path so the sync layer never overwrites local inbox visibility for unread mail.
+    // requireUnread=true: archived messages have UNREAD removed by Gmail at archive
+    // time, so we will not re-add INBOX to messages the user deliberately archived.
     if (parsed.labelIds && parsed.labelIds !== existing.labelIds) {
+      const parsedLabels: string[] = (() => {
+        try { return JSON.parse(parsed.labelIds); } catch { return []; }
+      })();
+      const guardedLabels = ensureInboxForCategoryLabels(parsedLabels, true /* requireUnread */);
+      const labelIdsToWrite = guardedLabels !== parsedLabels
+        ? JSON.stringify(guardedLabels)
+        : parsed.labelIds;
       await db.update(emailMessages)
-        .set({ labelIds: parsed.labelIds, updatedAt: new Date() })
+        .set({ labelIds: labelIdsToWrite, updatedAt: new Date() })
         .where(eq(emailMessages.id, existing.id));
       return { inserted: false, updatedLabels: true };
     }

@@ -7056,6 +7056,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
+  // Server-side total unread inbox count — reflects the full database, not just
+  // the first 50 messages loaded on the current page.  Used for all badge/counter
+  // displays so the user sees the true total even before scrolling.
+  // Falls back to the client-side count while the health query is loading.
+  const serverInboxUnreadCount = useMemo(() => {
+    const accounts = accountsHealthQuery.data ?? [];
+    if (accounts.length === 0) return inboxUnreadCount;
+    if (activeAccountId === null) {
+      return accounts.reduce((sum, a) => sum + (a.unreadCount ?? 0), 0);
+    }
+    return accounts.find((a) => a.id === activeAccountId)?.unreadCount ?? inboxUnreadCount;
+  }, [accountsHealthQuery.data, activeAccountId, inboxUnreadCount]);
+
   const pinnedMessages = useMemo(
     () => inboxMain.filter((m) => pinnedAPI.pinned.has(m.threadId)),
     [inboxMain, pinnedAPI.pinned],
@@ -7940,8 +7953,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       })()}
                     </span>
                     <span className="flex-1 text-left text-[12px] font-medium truncate">{personalAccount.emailAddress}</span>
-                    {activeAccountId === null && inboxUnreadCount > 0 && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                    {activeAccountId === null && serverInboxUnreadCount > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
                     )}
                   </button>
                   <button
@@ -7959,7 +7972,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-inbox"
                       className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                       <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
-                      {inboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>}
+                      {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
                     </button>
                     <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-sent"
                       className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
@@ -8052,7 +8065,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-inbox"
                 className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === "inbox" && activeAccountId === null ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                 <Inbox className="h-4 w-4" /><span className="flex-1 text-left">Inbox</span>
-                {inboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>}
+                {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
               </button>
             )}
 
@@ -8087,8 +8100,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             })()}
                           </span>
                           <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
-                          {isThisActive && inboxUnreadCount > 0 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{inboxUnreadCount}</span>
+                          {isThisActive && serverInboxUnreadCount > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
                           )}
                         </button>
                         {isAdmin && (
@@ -8108,7 +8121,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-inbox-${acct.id}`}
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                             <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
-                            {inboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{inboxUnreadCount}</span>}
+                            {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
                           </button>
                           <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-sent-${acct.id}`}
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
@@ -8277,7 +8290,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           <div className="md:hidden flex-shrink-0 overflow-x-auto border-b border-border/50 bg-background/80">
             <div className="flex whitespace-nowrap px-2 py-1.5 gap-0.5 min-w-max">
               {[
-                { key: "inbox",    label: "Inbox",   badge: inboxUnreadCount > 0 ? inboxUnreadCount : null },
+                { key: "inbox",    label: "Inbox",   badge: serverInboxUnreadCount > 0 ? serverInboxUnreadCount : null },
                 { key: "sent",     label: "Sent",    badge: null },
                 ...(canSend ? [{ key: "drafts", label: "Drafts", badge: (draftsQuery.data?.length ?? 0) > 0 ? draftsQuery.data?.length : null }] : []),
                 { key: "review",   label: "Review",  badge: (reviewStatsQuery.data?.needsReview ?? 0) > 0 ? reviewStatsQuery.data?.needsReview : null },

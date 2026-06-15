@@ -1,0 +1,94 @@
+IMPLEMENT FIX — VoltSafe Mail Inbox Visibility
+
+Root cause confirmed:
+1. The Inbox badge is not a true inbox unread total. It only counts unread messages in the first-page client result.
+2. Local DB backfill added INBOX, but Gmail incremental sync later overwrote local labels with Gmail’s authoritative label set.
+3. Some Gmail-categorized emails have CATEGORY_PROMOTIONS / CATEGORY_UPDATES / CATEGORY_SOCIAL / CATEGORY_FORUMS but no INBOX, so they stay hidden from VoltSafe Mail Inbox unless we either:
+   - persist INBOX back to Gmail, or
+   - make the local sync layer preserve local inbox visibility for unread categorized inbound mail.
+
+Required behavior:
+All unread inbound emails, except spam/trash/sent/draft/archived, must be inbox-visible in VoltSafe Mail.
+Categories are tags only, not destination folders.
+
+Implement the smallest safe durable fix:
+
+PART A — Sync Layer
+Fix Gmail incremental sync so it does NOT overwrite local INBOX visibility for unread inbound categorized messages.
+
+When parsing Gmail labels:
+- If message is inbound
+- has UNREAD
+- has any CATEGORY_PROMOTIONS, CATEGORY_UPDATES, CATEGORY_SOCIAL, CATEGORY_FORUMS
+- does NOT have SPAM, TRASH, SENT, DRAFT
+- and local message already has INBOX or should be inbox-visible
+then ensure INBOX remains in the local labelIds before writing to DB.
+
+Important:
+Do not force INBOX onto:
+- spam
+- trash
+- sent
+- draft
+- read archived messages
+- messages the user explicitly archived
+- CATEGORY_PERSONAL / custom Gmail filter labels unless already inbox-visible
+
+PART B — Repair Existing Messages Durably
+Create a one-time repair that restores local INBOX visibility for unread categorized inbound emails:
+- CATEGORY_PROMOTIONS
+- CATEGORY_UPDATES
+- CATEGORY_SOCIAL
+- CATEGORY_FORUMS
+
+Exclude:
+- CATEGORY_PERSONAL
+- SPAM
+- TRASH
+- SENT
+- DRAFT
+- read messages
+- archived messages where user clearly removed INBOX manually
+
+The repair must be idempotent.
+
+If Gmail API access is available and safe, also call Gmail threads.modify/messages.modify to add INBOX to these messages in Gmail so future sync cannot strip it again.
+
+If Gmail API write-back is not safe, then the sync-layer preservation in Part A must guarantee local INBOX is not stripped again.
+
+PART C — Inbox Count
+Fix the sidebar inbox unread badge.
+
+Current bug:
+It uses client-side:
+inboxMain.filter(isUnread).length
+from only the first page of results.
+
+Replace with a true server-side unread inbox count:
+- use /api/gmail/accounts/health unread_count if correct
+OR
+- create/use a dedicated endpoint that returns total unread inbox-visible count for the selected mailbox/account.
+
+The badge should show total unread inbox-visible messages, not unread messages in the first 50 displayed emails.
+
+PART D — Verification
+Run live verification for trevor@voltsafe.com:
+
+1. Total unread inbox-visible count before/after
+2. Count of unread CATEGORY_* no INBOX before/after
+3. Count of unread CATEGORY_* with INBOX before/after
+4. Confirm first-page UI list still loads normally
+5. Confirm sidebar badge now matches server total
+6. Confirm spam/trash/sent/draft do not appear in Inbox
+7. Confirm archived read emails do not reappear
+8. Confirm new future category emails remain Inbox-visible after incremental sync
+
+Do not touch CTA assets.
+
+Final output:
+- Files changed
+- Exact sync logic changed
+- Repair count
+- Whether Gmail-side label write-back was used
+- Before/after counts
+- Test results
