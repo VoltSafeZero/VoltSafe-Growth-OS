@@ -1,0 +1,79 @@
+AUDIT ONLY — DO NOT CHANGE CODE UNTIL THE AUDIT IS COMPLETE.
+
+Current UI after latest fix:
+
+Inbox unread = 120
+Unread pill = 120
+People = 57
+Inbox · Notifications = 53
+Sidebar:
+
+* Newsletters & Updates = 48
+* Promotions = 10
+* Social = 5
+* Forums = 0 / no badge
+
+This is closer, but I need exact reconciliation.
+
+For the currently selected mailbox (trevor@voltsafe.com only), report:
+
+1. Inbox unread total used by the badge.
+2. People unread count.
+3. Newsletter unread count.
+4. Promotion unread count.
+5. Updates unread count.
+6. Social unread count.
+7. Forum unread count.
+8. Notification section count formula.
+9. Newsletter section count formula.
+10. Whether “Newsletters & Updates” in the sidebar combines CATEGORY_UPDATES plus newsletter detection while Smart Inbox separates Updates into Notifications.
+11. Whether any Smart Inbox section counts are based on loaded/paginated results rather than full mailbox totals.
+12. Whether any counts are being derived from different account scopes (active account vs all accounts).
+13. Whether any counts are using thread counts while others use message counts.
+14. Whether any counts are using unread messages only while others include read messages.
+15. Whether any counts are using different label universes (INBOX-only vs CATEGORY_* vs both).
+
+Reconcile the exact math:
+
+Inbox Total =
+? People
+
+* ? Inbox · Newsletters
+* ? Inbox · Notifications
+* ? Priority Highlights
+* ? Other
+
+Identify every message that falls into the “Other” bucket and explain why it is not appearing inside People, Newsletters, Notifications, or Priority.
+
+Additionally verify that:
+
+* ALL existing users follow the same inbox/category schema.
+* ALL newly created users automatically follow the same inbox/category schema.
+* ALL connected inboxes (personal and shared/team inboxes) follow the same counting logic.
+* ALL future inbound emails are handled using the same rules.
+* Categories are always treated as tags/labels and never as separate folders that remove emails from Inbox.
+* Any email with INBOX remains visible in Inbox regardless of category assignment.
+* Category counts, Inbox counts, Smart Inbox counts, and sidebar counts are all calculated from the same logical universe.
+* No hidden account-specific exceptions, legacy code paths, migrations, feature flags, or fallback logic can cause different behavior for different users.
+
+Do not change code yet.
+
+Final output required:
+
+A) Exact reconciliation of every displayed count.
+B) Root cause of any remaining mismatch.
+C) Confirmation whether the schema is universally enforced across all existing and future users.
+D) Any code paths that violate that rule.
+E) Smallest safe fix (if still required).
+F) Explicit PASS/FAIL matrix for:
+
+* Existing users
+* New users
+* Personal inboxes
+* Shared inboxes
+* Smart Inbox
+* Sidebar categories
+* Inbox badge
+* Unread pill
+* Category tagging behavior
+* Future inbound email handling
