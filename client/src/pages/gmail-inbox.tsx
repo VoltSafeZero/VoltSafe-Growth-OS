@@ -211,7 +211,7 @@ function parseSenderDomain(from: string): string {
 }
 
 type EmailFilter = { id: number; domain: string; createdAt: string };
-type InboxCategory = "all" | "people" | "newsletters" | "updates" | "priority";
+type InboxCategory = "all" | "people" | "newsletters" | "promotions" | "social" | "forums" | "priority";
 type CrmInboxFilter = "all" | "unread" | "starred" | "follow-up" | "needs-reply" | "awaiting-reply" | "hot" | "unlinked";
 
 type MailFolderDomain = { id: number; folderId: number; domain: string; matchType: string };
@@ -438,9 +438,11 @@ function isStarred(labelIds: string[]) {
   return labelIds.includes("STARRED");
 }
 
-function getEmailCategory(labelIds: string[]): "people" | "newsletters" | "updates" {
-  if (labelIds.includes("CATEGORY_PROMOTIONS") || labelIds.includes("CATEGORY_FORUMS")) return "newsletters";
-  if (labelIds.includes("CATEGORY_UPDATES") || labelIds.includes("CATEGORY_SOCIAL")) return "updates";
+function getEmailCategory(labelIds: string[]): "people" | "newsletters" | "promotions" | "social" | "forums" {
+  if (labelIds.includes("CATEGORY_UPDATES"))    return "newsletters";
+  if (labelIds.includes("CATEGORY_PROMOTIONS")) return "promotions";
+  if (labelIds.includes("CATEGORY_SOCIAL"))     return "social";
+  if (labelIds.includes("CATEGORY_FORUMS"))     return "forums";
   return "people";
 }
 
@@ -4850,9 +4852,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
   const [shownSenderEmailIds, setShownSenderEmailIds] = useState<Set<string>>(new Set());
   const toggleSenderEmail = (msgId: string) => setShownSenderEmailIds(prev => { const n = new Set(prev); n.has(msgId) ? n.delete(msgId) : n.add(msgId); return n; });
-  const [tab, setTab] = useState<"inbox" | "sent" | "spam" | "other" | "drafts" | "scheduled" | "folder" | "review" | "pinned" | "updates" | "promotions" | "social" | "forums">("inbox");
-  const CATEGORY_TABS = ["updates", "promotions", "social", "forums"] as const;
-  const isCategoryTab = CATEGORY_TABS.includes(tab as typeof CATEGORY_TABS[number]);
+  const [tab, setTab] = useState<"inbox" | "sent" | "spam" | "other" | "drafts" | "scheduled" | "folder" | "review" | "pinned">("inbox");
+  const isCategoryTab = false;
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [inboxCategory, setInboxCategory] = useState<InboxCategory>("all");
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
@@ -7061,21 +7062,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const categorizedInbox =
     inboxCategory === "priority"    ? inboxMain.filter((m) => isStarred(m.labelIds)) :
     inboxCategory === "all"         ? inboxMain :
-    // "newsletters" tab consolidates newsletters + updates (automated/notification emails)
-    inboxCategory === "newsletters" ? inboxMain.filter((m) => {
-                                        const cat = getEmailCategory(m.labelIds);
-                                        return cat === "newsletters" || cat === "updates";
-                                      }) :
     inboxMain.filter((m) => getEmailCategory(m.labelIds) === inboxCategory);
 
-  const priorityCount = inboxMain.filter((m) => isStarred(m.labelIds)).length;
-  const peopleCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "people").length;
-  // newsletters tab consolidates newsletters + updates counts
-  const newslettersCount = inboxMain.filter((m) => {
-    const cat = getEmailCategory(m.labelIds);
-    return cat === "newsletters" || cat === "updates";
-  }).length;
-  const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
+  const priorityCount    = inboxMain.filter((m) => isStarred(m.labelIds)).length;
+  const peopleCount      = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "people").length;
+  const newslettersCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "newsletters").length;
+  const updatesCount     = newslettersCount;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
   // Returns 0 while health data is loading — no badge shown until the true server
@@ -7109,6 +7101,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       "unread-newsletters":   newsletters,
       "unread-notifications": notifications,
     } as const;
+  }, [categoryCountsQuery.data, serverInboxUnreadCount]);
+
+  // Per-category unread badge counts for the Inbox subcategory sidebar items.
+  const sidebarCategoryBadges = useMemo(() => {
+    const cc = categoryCountsQuery.data;
+    const newsletters  = cc?.updates?.unread    ?? 0;
+    const promotions   = cc?.promotions?.unread ?? 0;
+    const social       = cc?.social?.unread     ?? 0;
+    const forums       = cc?.forums?.unread     ?? 0;
+    const people       = Math.max(0, serverInboxUnreadCount - newsletters - promotions - social - forums);
+    return { people, newsletters, promotions, social, forums };
   }, [categoryCountsQuery.data, serverInboxUnreadCount]);
 
   const pinnedMessages = useMemo(
@@ -7983,6 +7986,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 onClick={() => {
                   setActiveAccountId("all");
                   setTab("inbox");
+                  setInboxCategory("all");
                   setSelectedMessageId(null);
                   setSelectedThreadId(null);
                   setCurrentThreadAccountId(null);
@@ -8006,7 +8010,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <div className="group flex items-center gap-0.5">
                   <button
                     onClick={() => {
-                      setActiveAccountId(null); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
+                      setActiveAccountId(null); setTab("inbox"); setInboxCategory("all"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
                     }}
                     data-testid="btn-account-personal"
                     className={`flex-1 flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${activeAccountId === null ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
@@ -8039,11 +8043,36 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 {/* Personal account subtabs */}
                 {activeAccountId === null && (
                   <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
-                    <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-inbox"
+                    <button onClick={() => { setTab("inbox"); setInboxCategory("all"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-inbox"
                       className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                       <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
                       {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
                     </button>
+                    {/* ── Category subcategories nested under Inbox ──────────── */}
+                    {tab === "inbox" && (
+                      <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
+                        {([
+                          { key: "all" as const,         label: "All",                   Icon: Inbox,     badge: 0 },
+                          { key: "people" as const,      label: "People",                Icon: User,      badge: sidebarCategoryBadges.people },
+                          { key: "newsletters" as const, label: "Newsletters & Updates", Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
+                          { key: "promotions" as const,  label: "Promotions",            Icon: Tag,       badge: sidebarCategoryBadges.promotions },
+                          { key: "social" as const,      label: "Social",                Icon: Users,     badge: sidebarCategoryBadges.social },
+                          { key: "forums" as const,      label: "Forums & Communities",  Icon: Hash,      badge: sidebarCategoryBadges.forums },
+                        ]).map(({ key, label, Icon, badge }) => {
+                          const isActive = inboxCategory === key;
+                          return (
+                            <button key={key}
+                              onClick={() => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                              data-testid={`nav-inbox-cat-${key}`}
+                              className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
+                              <Icon className="h-3 w-3 flex-shrink-0" />
+                              <span className="flex-1 text-left truncate">{label}</span>
+                              {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge > 99 ? "99+" : badge}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-sent"
                       className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                       <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
@@ -8079,32 +8108,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         {(reviewStatsQuery.data?.needsReview ?? 0) > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "review" ? "bg-amber-500/30 text-amber-300" : "bg-amber-500/20 text-amber-400"}`}>{reviewStatsQuery.data!.needsReview}</span>}
                       </button>
                     )}
-                    {/* ── Categories (Gmail hidden tabs visibility layer) ──────── */}
-                    <div className={`${densityClasses.sidebarSectionPt} pb-0 px-1`}>
-                      <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Categories</span>
-                    </div>
-                    <p className="px-2 pb-1 text-[10px] text-muted-foreground/35 italic leading-tight">Tags only — emails stay in Inbox.</p>
-                    {([
-                      { key: "updates",    label: "Newsletters & Updates", Icon: Newspaper },
-                      { key: "promotions", label: "Promotions",            Icon: Tag       },
-                      { key: "social",     label: "Social",                Icon: Users     },
-                      { key: "forums",     label: "Forums & Communities",  Icon: Hash      },
-                    ] as const).map(({ key, label, Icon }) => {
-                      const counts = categoryCountsQuery.data?.[key];
-                      const isActive = tab === key;
-                      const badge = counts?.unread ?? 0;
-                      return (
-                        <button key={key}
-                          onClick={() => { setTab(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                          data-testid={`nav-tab-${key}`}
-                          className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
-                          <Icon className="h-3.5 w-3.5 flex-shrink-0" />
-                          <span className="flex-1 text-left truncate">{label}</span>
-                          {badge > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{badge > 99 ? "99+" : badge}</span>}
-                        </button>
-                      );
-                    })}
-
                     {/* Folders under personal */}
                     <div className={`${densityClasses.sidebarSectionPt} pb-0.5 flex items-center justify-between pr-1`}>
                       <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Folders</span>
@@ -8154,7 +8157,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       <div className="group flex items-center gap-0.5">
                         <button
                           onClick={() => {
-                            setActiveAccountId(acct.id); setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
+                            setActiveAccountId(acct.id); setTab("inbox"); setInboxCategory("all"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
                           }}
                           data-testid={`btn-account-shared-${acct.id}`}
                           title={acct.emailAddress}
@@ -8189,11 +8192,36 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       {/* Subtabs for this team inbox when active */}
                       {isThisActive && (
                         <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
-                          <button onClick={() => { setTab("inbox"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-inbox-${acct.id}`}
+                          <button onClick={() => { setTab("inbox"); setInboxCategory("all"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-inbox-${acct.id}`}
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                             <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
                             {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
                           </button>
+                          {/* ── Category subcategories nested under Inbox ──────────── */}
+                          {tab === "inbox" && (
+                            <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
+                              {([
+                                { key: "all" as const,         label: "All",                   Icon: Inbox,     badge: 0 },
+                                { key: "people" as const,      label: "People",                Icon: User,      badge: sidebarCategoryBadges.people },
+                                { key: "newsletters" as const, label: "Newsletters & Updates", Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
+                                { key: "promotions" as const,  label: "Promotions",            Icon: Tag,       badge: sidebarCategoryBadges.promotions },
+                                { key: "social" as const,      label: "Social",                Icon: Users,     badge: sidebarCategoryBadges.social },
+                                { key: "forums" as const,      label: "Forums & Communities",  Icon: Hash,      badge: sidebarCategoryBadges.forums },
+                              ]).map(({ key, label, Icon, badge }) => {
+                                const isActive = inboxCategory === key;
+                                return (
+                                  <button key={key}
+                                    onClick={() => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                                    data-testid={`nav-inbox-cat-${key}-${acct.id}`}
+                                    className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
+                                    <Icon className="h-3 w-3 flex-shrink-0" />
+                                    <span className="flex-1 text-left truncate">{label}</span>
+                                    {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge > 99 ? "99+" : badge}</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                           <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-sent-${acct.id}`}
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
                             <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
@@ -8984,19 +9012,21 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               )
             )}
 
-            {/* ── Category tab header — "Inbox · [Category]" ───────────────── */}
-            {isCategoryTab && (
+            {/* ── Inbox subcategory header — "Inbox · [Category]" ─────────── */}
+            {tab === "inbox" && inboxCategory !== "all" && (
               <div className="px-3 py-2 border-b border-border/40 flex items-center gap-1.5 bg-muted/15 flex-shrink-0">
                 <InboxIcon className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" />
                 <span className="text-[11px] text-muted-foreground/55">Inbox</span>
                 <span className="text-[11px] text-muted-foreground/30">·</span>
                 <span className="text-[11px] font-medium text-foreground/70">
-                  {tab === "updates" ? "Newsletters & Updates"
-                    : tab === "promotions" ? "Promotions"
-                    : tab === "social" ? "Social"
-                    : "Forums & Communities"}
+                  {inboxCategory === "people"      ? "People"
+                    : inboxCategory === "newsletters" ? "Newsletters & Updates"
+                    : inboxCategory === "promotions"  ? "Promotions"
+                    : inboxCategory === "social"       ? "Social"
+                    : inboxCategory === "forums"       ? "Forums & Communities"
+                    : inboxCategory === "priority"     ? "Priority"
+                    : ""}
                 </span>
-                <span className="ml-auto text-[10px] italic text-muted-foreground/35">Inbox-tagged view</span>
               </div>
             )}
 
@@ -9198,8 +9228,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         } else {
                           const allIds = tab === "folder"
                             ? (folderEmailsQuery.data || []).map(e => e.gmailThreadId).filter(Boolean) as string[]
-                            : isCategoryTab
-                            ? (categoryQuery.data?.messages || []).map(m => m.threadId)
                             : activeMessages.map(m => m.threadId);
                           bulkTrashMutation.mutate(allIds);
                         }
