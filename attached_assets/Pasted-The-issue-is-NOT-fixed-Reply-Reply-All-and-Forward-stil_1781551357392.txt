@@ -1,0 +1,88 @@
+The issue is NOT fixed. Reply, Reply All, and Forward still truncate emails in the real app.
+
+Do a fresh end-to-end audit from the live user action, not only isolated tests.
+
+Important:
+The previous signature-marker fix may be valid, but it did not solve the actual live truncation. Find the remaining truncation point.
+
+Audit these exact paths:
+
+1. Forward flow:
+   - Click Forward from an email/thread in VoltSafe Mail.
+   - Trace the selected source message object used by handleForward.
+   - Confirm whether it uses:
+     - msg.body
+     - msg.html
+     - msg.fullBody
+     - msg.snippet
+     - msg.preview
+     - rendered/collapsed body
+     - threadQuery.data.messages
+   - It must use the complete original HTML body from the full message/thread, not a UI preview or sanitized excerpt.
+
+2. Reply / Reply All flow:
+   - Click Reply and Reply All from a multi-message thread.
+   - Trace quotedHtml creation.
+   - Confirm whether it only includes the latest message instead of the full conversation history.
+   - Reply/Reply All must preserve the complete prior thread history below the new reply.
+
+3. Message fetch/API:
+   - Inspect the API response that feeds the thread view/composer.
+   - Confirm whether the backend is returning a truncated/summarized body.
+   - Search for any body clipping logic such as:
+     - snippet
+     - preview
+     - excerpt
+     - truncate
+     - maxLength
+     - substring
+     - slice
+     - bodyText.slice
+     - collapsed
+     - quoted text removal
+     - gmail_quote stripping
+     - “trimmed content”
+     - “show quoted text”
+   - If the backend stores only a shortened body, fetch the full Gmail message body before composing reply/forward.
+
+4. Composer/editor:
+   - Confirm the composer receives the full quoted/forwarded HTML.
+   - Confirm TipTap/editor serialization does not drop content.
+   - Confirm no CSS-only collapsed content is being mistaken for actual body content.
+   - Confirm the outbound payload includes full quoted content before it reaches the server.
+
+5. Server send path:
+   - Log/inspect body length and key markers at:
+     a) composer quotedHtml creation
+     b) payload sent to /api/email/send
+     c) route handler input body
+     d) after emergencyStripDangerousHtml
+     e) after normalizeOutboundHtml
+     f) after signature replacement
+     g) final MIME/raw HTML
+   - Use a real long email/thread and compare lengths/content at every stage.
+
+Required fix:
+- Forward must include the full original email HTML.
+- Reply/Reply All must include the full prior thread history, not only the latest visible/expanded message.
+- Do not rely on snippet/preview/displayBody for outbound reply/forward.
+- If necessary, add a new backend endpoint or query mode that returns the full untrimmed raw/sanitized HTML for compose actions.
+
+Required debug proof:
+Add temporary diagnostic logging behind a dev-only flag:
+FORWARD_REPLY_TRACE=true
+
+Log:
+- action type: reply / replyAll / forward
+- source message id
+- number of thread messages used
+- source body field selected
+- source body length
+- quotedHtml length
+- outbound body length before send
+- final HTML length after server processing
+- whether quoted content contains expected unique text from the old email
+
+Then test on the actual failing email and confirm the unique old email text survives into final MIME.
+
+Do not stop at tests that simulate a correct input. The real failure is probably that the input to the pipeline is already truncated.
