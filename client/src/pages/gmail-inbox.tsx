@@ -6323,7 +6323,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
     },
-    enabled: !!selectedThreadId,
+    // In "all inboxes" mode the correct asAccountId comes from currentThreadAccountId which
+    // is set in the same handleSelectMessage batch as selectedThreadId.  Holding the query
+    // until that value is populated prevents a spurious first-fire with no asAccountId that
+    // resolves to the primary account and returns 404 for messages owned by secondary accounts.
+    enabled: !!selectedThreadId && (activeAccountId !== "all" || currentThreadAccountId !== null),
   });
 
   const profileQuery = useQuery({

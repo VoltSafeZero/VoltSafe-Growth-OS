@@ -11878,14 +11878,16 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         const _sn  = (msgRow.snippet || "") as string;
         const _at4K   = _bt.length >= 3900  && _bt.length <= 4100;
         const _at200K = _bh.length >= 199000 && _bh.length <= 201000;
-        console.log("[FRT:A:full-body:db-fast]", {
-          msgId, dbId: msgRow.id, source: "db",
-          bodyHtmlLen: _bh.length, bodyTextLen: _bt.length, snippetLen: _sn.length,
-          first200Html: _bh.slice(0, 200), last200Html: _bh.slice(-200),
-          first200Text: _bt.slice(0, 200), last200Text: _bt.slice(-200),
-          atOld4KCap: _at4K, atOld200KCap: _at200K,
-          snippet200: _sn.slice(0, 200),
-        });
+        if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
+          console.log("[FRT:A:full-body:db-fast]", {
+            msgId, dbId: msgRow.id, source: "db",
+            bodyHtmlLen: _bh.length, bodyTextLen: _bt.length, snippetLen: _sn.length,
+            first200Html: _bh.slice(0, 200), last200Html: _bh.slice(-200),
+            first200Text: _bt.slice(0, 200), last200Text: _bt.slice(-200),
+            atOld4KCap: _at4K, atOld200KCap: _at200K,
+            snippet200: _sn.slice(0, 200),
+          });
+        }
         return res.json({
           bodyHtml: _bh,
           bodyText: _bt,
@@ -11927,13 +11929,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           const _bt2 = parsed.bodyText || msgRow.body_text || "";
           const _at4K2   = _bt2.length >= 3900  && _bt2.length <= 4100;
           const _at200K2 = _bh2.length >= 199000 && _bh2.length <= 201000;
-          console.log("[FRT:A:full-body:gmail-live]", {
-            msgId, dbId: msgRow.id, source: "gmail-live",
-            bodyHtmlLen: _bh2.length, bodyTextLen: _bt2.length,
-            first200Html: _bh2.slice(0, 200), last200Html: _bh2.slice(-200),
-            first200Text: _bt2.slice(0, 200), last200Text: _bt2.slice(-200),
-            atOld4KCap: _at4K2, atOld200KCap: _at200K2,
-          });
+          if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
+            console.log("[FRT:A:full-body:gmail-live]", {
+              msgId, dbId: msgRow.id, source: "gmail-live",
+              bodyHtmlLen: _bh2.length, bodyTextLen: _bt2.length,
+              first200Html: _bh2.slice(0, 200), last200Html: _bh2.slice(-200),
+              first200Text: _bt2.slice(0, 200), last200Text: _bt2.slice(-200),
+              atOld4KCap: _at4K2, atOld200KCap: _at200K2,
+            });
+          }
           return res.json({
             bodyHtml: _bh2,
             bodyText: _bt2,
@@ -11952,11 +11956,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         }
         // Plain-text only email — no HTML part
         const bt = parsed.bodyText || msgRow.body_text || "";
-        console.log("[FRT:A:full-body:plaintext]", {
-          msgId, dbId: msgRow.id, source: "gmail-live-plaintext",
-          bodyTextLen: bt.length, atOld4KCap: bt.length >= 3900 && bt.length <= 4100,
-          first200Text: bt.slice(0, 200), last200Text: bt.slice(-200),
-        });
+        if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
+          console.log("[FRT:A:full-body:plaintext]", {
+            msgId, dbId: msgRow.id, source: "gmail-live-plaintext",
+            bodyTextLen: bt.length, atOld4KCap: bt.length >= 3900 && bt.length <= 4100,
+            first200Text: bt.slice(0, 200), last200Text: bt.slice(-200),
+          });
+        }
         return res.json({
           bodyHtml: "",
           bodyText: bt,
@@ -11972,11 +11978,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       } catch (gmailErr: any) {
         console.warn(`[full-body] Gmail fetch failed msgId=${msgId}:`, gmailErr.message?.slice(0, 120));
         const bt = msgRow.body_text || msgRow.snippet || "";
-        console.log("[FRT:A:full-body:db-fallback]", {
-          msgId, dbId: msgRow.id, source: "db-fallback",
-          bodyTextLen: bt.length, atOld4KCap: bt.length >= 3900 && bt.length <= 4100,
-          first200Text: bt.slice(0, 200), last200Text: bt.slice(-200),
-        });
+        if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
+          console.log("[FRT:A:full-body:db-fallback]", {
+            msgId, dbId: msgRow.id, source: "db-fallback",
+            bodyTextLen: bt.length, atOld4KCap: bt.length >= 3900 && bt.length <= 4100,
+            first200Text: bt.slice(0, 200), last200Text: bt.slice(-200),
+          });
+        }
         return res.json({
           bodyHtml: "",
           bodyText: bt,
