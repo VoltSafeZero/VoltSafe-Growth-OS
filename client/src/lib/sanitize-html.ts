@@ -192,6 +192,14 @@ export function plainTextToEmailHtml(text: string): string {
     '<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#eef2f7;color:#7d8590;font-size:11px;">[image]</span>',
   );
 
+  // 2b. Gmail's [cid:FILENAME] plain-text inline-image format. These appear in
+  //     the text/plain MIME alternative when the email contains embedded CID
+  //     images (e.g. signature logos). Replace with the same muted marker.
+  s = s.replace(
+    /\[cid:[^\]]+\]/gi,
+    '<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#eef2f7;color:#7d8590;font-size:11px;">[image]</span>',
+  );
+
   // 3. Gmail's `<URL>` plain-text URL wrapping → clickable link with the
   //    angle brackets stripped from the visible text. We match `&lt;…&gt;`
   //    because step 1 already escaped the original `<…>`.

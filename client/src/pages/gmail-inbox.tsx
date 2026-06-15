@@ -2481,6 +2481,20 @@ function MessageBody({
     // ── Pre-process: resolve cid: and log all img srcs ────────────────────
     let resolved = body;
 
+    // 0. Pre-process: Apple Mail (iPhone) and some Outlook versions replace
+    //    <img src="cid:FILE.png"> with &lt;FILE.png&gt; text when quoting an
+    //    email they cannot re-embed inline images in.  That HTML-entity-encoded
+    //    filename renders as visible text <FILE.png> in the browser.
+    //    Reconstruct a proper <img src="cid:FILE"> tag so the proxy step below
+    //    can attempt to resolve it — or at least show a silent broken-image
+    //    placeholder instead of confusing filename text.
+    if (isHtml) {
+      resolved = resolved.replace(
+        /&lt;([A-Za-z0-9][A-Za-z0-9_\-]*\.(?:png|jpg|jpeg|gif|webp|svg|PNG|JPG|JPEG|GIF|WEBP|SVG))(?:@[^&\s]*)?\s*&gt;/g,
+        (_match, filename) => `<img src="cid:${filename}" style="max-width:200px;height:auto" alt="${filename}">`
+      );
+    }
+
     // 1. Resolve cid: references BEFORE DOMPurify (DOMPurify strips cid: URIs by
     //    default). Replace src="cid:xxx" with a backend proxy URL that fetches the
     //    inline image part from Gmail API.
@@ -2628,7 +2642,57 @@ function MessageBody({
 
   /* Selection highlight */
   ::selection { background: rgba(11,110,212,0.15); }
+
+  /* Broken-image placeholder — shown when onerror fires */
+  img.vs-broken {
+    display: inline-block !important;
+    width: auto !important; height: auto !important;
+    min-width: 0 !important; min-height: 0 !important;
+    content: none;
+  }
+  .vs-img-ph {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #eef2f7;
+    color: #7d8590;
+    font-size: 11px;
+    font-family: sans-serif;
+    vertical-align: middle;
+  }
 </style>
+<script>
+(function(){
+  function handleImgError(img){
+    if(img.__vsHandled) return;
+    img.__vsHandled = true;
+    img.classList.add('vs-broken');
+    img.style.display='none';
+    var ph = document.createElement('span');
+    ph.className = 'vs-img-ph';
+    ph.textContent = '[image]';
+    if(img.parentNode) img.parentNode.insertBefore(ph, img.nextSibling);
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('img').forEach(function(img){
+      if(!img.complete || img.naturalWidth===0){
+        img.addEventListener('error', function(){ handleImgError(img); }, {once:true});
+      }
+    });
+    var obs = new MutationObserver(function(muts){
+      muts.forEach(function(m){
+        m.addedNodes.forEach(function(n){
+          if(n.nodeName==='IMG') n.addEventListener('error', function(){ handleImgError(n); }, {once:true});
+          if(n.querySelectorAll) n.querySelectorAll('img').forEach(function(img){
+            img.addEventListener('error', function(){ handleImgError(img); }, {once:true});
+          });
+        });
+      });
+    });
+    obs.observe(document.body, {childList:true, subtree:true});
+  });
+})();
+</script>
 </head>
 <body>${sanitized}</body>
 </html>`;

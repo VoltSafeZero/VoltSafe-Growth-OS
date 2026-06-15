@@ -11725,7 +11725,36 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         return null;
       }
       const allParts: any[] = [payload, ...(payload?.parts || [])];
-      const match = findInlinePart(allParts);
+      let match = findInlinePart(allParts);
+
+      // Fallback: if exact Content-ID match failed, try matching by filename.
+      // Some Outlook/Apple Mail signatures use the filename itself as the CID
+      // (e.g. src="cid:logo.png" and Content-ID: <logo.png>). If the Content-ID
+      // header is missing but a matching filename part exists, serve that instead.
+      if (!match) {
+        function findByFilename(parts: any[]): any | null {
+          for (const p of parts || []) {
+            const hdrs: Record<string, string> = {};
+            for (const h of (p.headers || [])) hdrs[String(h.name).toLowerCase()] = String(h.value);
+            const ct = hdrs["content-type"] || "";
+            const disp = hdrs["content-disposition"] || "";
+            const nameMatch =
+              ct.match(/\bname="?([^";\r\n]+)"?/i) ||
+              disp.match(/\bfilename="?([^";\r\n]+)"?/i);
+            if (nameMatch) {
+              const fname = nameMatch[1].replace(/^<|>$/g, "").toLowerCase();
+              if (fname === targetCid) return p;
+            }
+            if (Array.isArray(p.parts)) {
+              const found = findByFilename(p.parts);
+              if (found) return found;
+            }
+          }
+          return null;
+        }
+        match = findByFilename(allParts);
+      }
+
       if (!match) return res.status(404).json({ error: "CID part not found in message" });
       // Inline data may be in body.data (small images) or body.attachmentId (fetched separately)
       let imageBuffer: Buffer;
@@ -16445,7 +16474,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           a.sync_error_message,
           (SELECT count(*)::int FROM email_messages m
              WHERE m.source_account_id = a.id
-               AND m.label_ids LIKE '%"INBOX"%'
+               AND (m.label_ids LIKE '%"INBOX"%'
+                 OR m.label_ids LIKE '%CATEGORY_UPDATES%'
+                 OR m.label_ids LIKE '%CATEGORY_PROMOTIONS%'
+                 OR m.label_ids LIKE '%CATEGORY_SOCIAL%'
+                 OR m.label_ids LIKE '%CATEGORY_FORUMS%')
                AND m.label_ids NOT LIKE '%"DRAFT"%'
                AND m.label_ids NOT LIKE '%"SPAM"%'
                AND m.label_ids NOT LIKE '%"TRASH"%'
@@ -16454,7 +16487,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
              WHERE m.source_account_id = a.id) AS message_count,
           (SELECT count(*)::int FROM email_messages m
              WHERE m.source_account_id = a.id
-               AND m.label_ids LIKE '%"INBOX"%'
+               AND (m.label_ids LIKE '%"INBOX"%'
+                 OR m.label_ids LIKE '%CATEGORY_UPDATES%'
+                 OR m.label_ids LIKE '%CATEGORY_PROMOTIONS%'
+                 OR m.label_ids LIKE '%CATEGORY_SOCIAL%'
+                 OR m.label_ids LIKE '%CATEGORY_FORUMS%')
                AND m.label_ids NOT LIKE '%"DRAFT"%'
                AND m.label_ids NOT LIKE '%"SPAM"%'
                AND m.label_ids NOT LIKE '%"TRASH"%') AS inbox_count,
