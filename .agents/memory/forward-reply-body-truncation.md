@@ -38,6 +38,26 @@ description: Why Reply/Reply-All/Forward email bodies are truncated in the live 
   Logs `[FRT:reply:start]`, `[FRT:reply:full-body-fetch]`, `[FRT:reply:final]`, `[FRT:send:step1-input]`, `[FRT:send:step1-quotedBlock]`.
 - Backend: logs `[FRT-SEND:pre-sig]` and `[FRT-SEND:post-sig]` in dev or when `FORWARD_REPLY_TRACE=true`.
 
+## Stage-C Multi-Message Override Fix (plain-text threads)
+
+**Root cause:** For multi-message threads where the focused msg is `isHtml=false`, `handleReply`/`handleReplyAll` fetched the full body (10 K+) but still called `buildThreadQuoteBlock(allMsgs)` which used the 4 K–cached Stage-B values. The full-fetch result was fetched but discarded.
+
+**Fix:** New `buildThreadQuoteBlockWithOverrides(msgs, overridesMap)` helper. On reply/replyAll, after the full-body fetch, the focused message's entry is added to an override `Map<msgId, {body, isHtml, source}>` and passed to the new builder. Override log: `C:reply:override-applied` / `C:replyAll:override-applied`.
+
+**End-to-end validation (IRAP thread `18bedd09d2968ac8`, account 93 = sales@voltsafe.com):**
+
+| Stage | Length | Canary ✓ |
+|-------|--------|----------|
+| B cached (old) | 4,000 | ✗ truncated |
+| A full-body | 10,410 | ✓ |
+| C override applied | 33,146 | ✓ |
+| E reply wrapping | 33,449 | ✓ |
+| F normalizeSignatureHtml | 31,848 | ✓ |
+| F normalizeOutboundHtml | 25,948 | ✓ |
+| F applySignatureSendSanitizer (mimeFinal) | 25,948 | ✓ |
+
+All three flows (reply / replyAll / forward) confirmed. Regression test: `tests/forward-reply-body-hydration.test.cjs` (49 tests).
+
 ## Structural test update
 
 `tests/forward-reply-sig-isolation.test.cjs` section 5 was updated to handle both sync and async handler signatures (`async (msg: ThreadMessage)` vs `(msg: ThreadMessage)`) and to allow `resolvedMsgs.map(` as an alternative to `allMsgs.map(`.
