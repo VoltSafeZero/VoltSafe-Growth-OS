@@ -1,0 +1,89 @@
+AUDIT + FIX — VoltSafe Mail does not render received signature images correctly.
+
+Problem:
+Spark Mail renders Terri Breker’s received VoltSafe signature image correctly (“VoltSafe unplug. connect.”), but VoltSafe Mail shows a broken/missing image placeholder in the same received email thread.
+
+This means VoltSafe Mail’s inbound email renderer is failing to resolve or safely render at least one signature image.
+
+Audit first, then fix.
+
+Inspect the specific inbound email/thread:
+Subject:
+Re: Meeting: VoltSafe x Onur Erkal | EMKO Engineering Inc.
+
+Sender:
+Terri Breker / terri@voltsafe.com
+
+Observed broken image:
+VoltSafe signature logo near bottom of email body.
+
+Audit:
+1. Locate the raw stored email body for this message.
+2. Identify the exact img tag for the broken signature image.
+3. Report its src value:
+   - cid:
+   - data:
+   - https:
+   - relative URL
+   - proxied URL
+   - stripped/empty
+4. Check if the image exists as:
+   - Gmail inline attachment
+   - local email_attachments row
+   - contentId / cid
+   - attachment filename
+   - external remote image URL
+5. Check whether DOMPurify or sanitizer is stripping the image src.
+6. Check whether the renderer rewrites cid: images to a local/proxy URL.
+7. Check whether the attachment proxy route works for this image.
+8. Check whether CSP, mixed content, auth, or CORS blocks the image.
+9. Compare behavior against other inline images and signature images that do render.
+
+Expected behavior:
+- Received inline signature images must render inside VoltSafe Mail just like Spark/Gmail.
+- If the email has img src="cid:...", VoltSafe Mail must resolve it to the correct inline attachment.
+- If the email has a remote https image, VoltSafe Mail should proxy or safely allow it.
+- The sanitizer must not strip valid resolved image URLs.
+- Broken images should not appear when the source data exists.
+
+Fix requirements:
+1. Do not alter the original raw email body.
+2. Add or repair CID image rewriting before sanitization/rendering.
+3. Ensure contentId matching handles:
+   - angle brackets: <abc@xyz>
+   - no brackets: abc@xyz
+   - case differences
+   - cid:abc@xyz
+   - URL-encoded cid values
+4. Ensure inline attachments are stored with:
+   - message id
+   - contentId
+   - mimeType
+   - filename if present
+   - attachmentId/blob reference
+5. Ensure the local/proxy image URL returns correct:
+   - Content-Type
+   - Cache-Control
+   - binary body
+6. Ensure DOMPurify allows the final safe image URL.
+7. Add fallback logging when an img cannot be resolved:
+   - message id
+   - cid/src
+   - available contentIds
+8. Do not break outbound CTA/signature image rendering.
+9. Do not break existing remote image blocking/security behavior.
+
+Add verification:
+1. This Terri Breker signature image renders.
+2. Existing received inline images still render.
+3. Missing CID shows useful debug log, not silent failure.
+4. Remote https image still renders or proxies safely according to current policy.
+5. No XSS sanitizer regression.
+6. No broken CTA asset regression.
+
+Final output:
+- Root cause
+- Files changed
+- Exact image src before/after
+- Whether this was CID, remote URL, or attachment proxy issue
+- Test results
