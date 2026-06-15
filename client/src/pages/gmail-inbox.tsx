@@ -8365,7 +8365,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                   {([
                     { key: "all",     label: "All",     icon: <Filter className="h-3 w-3" />,   activeColor: "bg-violet-500/15 text-violet-300 ring-violet-400/40 shadow-[0_0_10px_-2px_rgba(167,139,250,0.3)]", count: null },
-                    { key: "unread",  label: "Unread",  icon: <MailOpen className="h-3 w-3" />, activeColor: "bg-blue-500/15 text-blue-300 ring-blue-400/40 shadow-[0_0_10px_-2px_rgba(96,165,250,0.3)]",    count: inboxUnreadCount || null },
+                    { key: "unread",  label: "Unread",  icon: <MailOpen className="h-3 w-3" />, activeColor: "bg-blue-500/15 text-blue-300 ring-blue-400/40 shadow-[0_0_10px_-2px_rgba(96,165,250,0.3)]",    count: serverInboxUnreadCount || inboxUnreadCount || null },
                     { key: "starred", label: "Starred", icon: <Star className="h-3 w-3" />,     activeColor: "bg-amber-500/15 text-amber-300 ring-amber-400/40 shadow-[0_0_10px_-2px_rgba(251,191,36,0.3)]",  count: null },
                   ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; activeColor: string; count: number | null }[]).map(({ key, label, icon, activeColor, count }) => {
                     const active = crmFilter === key;
@@ -9335,6 +9335,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   item.glyph === "notifications" ? Bell       :
                   item.glyph === "pinned"        ? Pin        :
                   /* "seen" */                     MailOpen;
+                const isPriority = item.id === "priority";
                 return (
                   <div
                     key={`smart-header-${item.id}`}
@@ -9348,6 +9349,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <span className="text-[10px] tabular-nums text-muted-foreground/40 ml-0.5">
                       {serverGroupCounts?.[item.id as keyof typeof serverGroupCounts] ?? item.count}
                     </span>
+                    {isPriority && (
+                      <span className="ml-auto text-[9px] text-muted-foreground/35 italic font-normal normal-case tracking-normal">
+                        also counted below
+                      </span>
+                    )}
                   </div>
                 );
               }
@@ -9355,6 +9361,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               // ── Show-all sentinel (below last visible email) ────────────────
               if (item.kind === "show-all") {
                 const { sectionId, total } = item as { kind: "show-all"; sectionId: SmartSectionId; total: number };
+                // When server group counts are available and exceed what's loaded,
+                // show "Show loaded (N of TOTAL)" so users understand more exist server-side.
+                const serverTotal = serverGroupCounts?.[sectionId as keyof typeof serverGroupCounts];
+                const label = serverTotal && serverTotal > total
+                  ? `Show loaded (${total} of ${serverTotal})`
+                  : `Show all (${total})`;
                 return (
                   <button
                     key={`show-all-${sectionId}`}
@@ -9363,7 +9375,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     className={`w-full flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium cursor-pointer rounded-b-md mx-2 ${sStyle.rowBg} text-primary/60 hover:text-primary border-t border-white/[0.04] transition-colors`}
                   >
                     <ChevronDown className="h-3 w-3" aria-hidden="true" />
-                    Show all ({total})
+                    {label}
                   </button>
                 );
               }

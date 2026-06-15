@@ -310,7 +310,7 @@ export function groupSmartInbox<M extends GroupableMessage>(
   // The three unread sections only include messages still carrying UNREAD.
   // Empty sections are not emitted — they stay invisible.
   if (orderedPriority.length > 0) {
-    out.push({ kind: "header", id: "priority", title: "Priority", glyph: "priority", count: orderedPriority.length, isSubsection: false });
+    out.push({ kind: "header", id: "priority", title: "Priority Highlights", glyph: "priority", count: orderedPriority.length, isSubsection: false });
     for (const m of orderedPriority) out.push({ kind: "msg", section: "priority", msg: m });
   }
   if (orderedPeople.length > 0) {
