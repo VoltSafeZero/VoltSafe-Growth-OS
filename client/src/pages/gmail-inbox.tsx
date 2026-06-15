@@ -2493,7 +2493,21 @@ function MessageBody({
       );
     }
 
-    // 2. Diagnostic: log every img src before and after sanitization so broken
+    // 2. Proxy remote https:// image URLs through our server so they always
+    //    render in the sandboxed iframe reading pane, regardless of cross-origin
+    //    or network-sandbox restrictions (same approach as Spark Mail / Gmail).
+    //    Only rewrites src="https://..." — skips CID proxy paths (already /api/),
+    //    data: URIs, and relative paths.
+    if (isHtml) {
+      resolved = resolved.replace(/\bsrc="(https?:\/\/[^"]+)"/gi, (_, url) =>
+        `src="/api/gmail/proxy-image?url=${encodeURIComponent(url)}"`
+      );
+      resolved = resolved.replace(/\bsrc='(https?:\/\/[^']+)'/gi, (_, url) =>
+        `src='/api/gmail/proxy-image?url=${encodeURIComponent(url)}'`
+      );
+    }
+
+    // 3. Diagnostic: log every img src before and after sanitization so broken
     //    images in the viewer are traceable in the browser console.
     if (import.meta.env.DEV || (window as any).__VS_IMG_DEBUG__) {
       const preSrcs = [...resolved.matchAll(/\bsrc="([^"]+)"/gi)].map(m => m[1]);
@@ -2503,10 +2517,12 @@ function MessageBody({
         const final = postSrcs[i] ?? "(removed)";
         const isDataImg = /^data:image\//i.test(orig);
         const isCidProxy = /^\/api\/gmail\/messages\//i.test(orig);
+        const isImgProxy = /^\/api\/gmail\/proxy-image/i.test(orig);
         const isHttps = /^https?:\/\//i.test(orig);
         const allowed = final !== "(removed)" && final !== "";
         const reason = isDataImg ? "data:image (base64 inline)"
           : isCidProxy ? "cid proxy rewrite"
+          : isImgProxy ? "remote-image proxy rewrite"
           : isHttps ? "https url"
           : allowed ? "relative/other"
           : "stripped by sanitizer";
@@ -5655,7 +5671,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   // Helper to append asAccountId to URLSearchParams when viewing a shared account
   const appendAccountId = (params: URLSearchParams) => {
-    if (activeAccountId) params.set("asAccountId", String(activeAccountId));
+    // null means "All Inboxes" unified view — send asAccountId=all so backend
+    // queries span all accounts (same scope as serverInboxUnreadCount / health).
+    if (activeAccountId === null) {
+      params.set("asAccountId", "all");
+    } else {
+      params.set("asAccountId", String(activeAccountId));
+    }
   };
 
   // canSend: account must be active AND user must have edit permission for shared inboxes.
@@ -7061,7 +7083,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const serverInboxUnreadCount = useMemo(() => {
     const accounts = accountsHealthQuery.data;
     if (!accounts || accounts.length === 0) return 0;
-    if (activeAccountId === null) {
+    // null = personal/unified (no account filter) and "all" = explicit All Inboxes —
+    // both represent the unified view, so sum every account's unread count.
+    if (activeAccountId === null || activeAccountId === "all") {
       return accounts.reduce((sum, a) => sum + (a.unreadCount ?? 0), 0);
     }
     return accounts.find((a) => a.id === activeAccountId)?.unreadCount ?? 0;

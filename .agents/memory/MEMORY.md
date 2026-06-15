@@ -31,3 +31,5 @@
 - [CTA Asset Inlining Hardening](cta-asset-inlining.md) — memoryStorage upload always saves file_data; resolver v5 has 5-step chain + self-heal; backfill endpoint for existing NULL rows.
 - [CTA Image Width Fix](cta-image-width-fix.md) — canonical CTA img is 200px fixed; outer table 620px table-layout:fixed; 5 generation paths all updated.
 - [Inbox Category Visibility](inbox-category-visibility.md) — Gmail skip-inbox delivers CATEGORY_* emails without INBOX; ensureInboxForCategoryLabels() in gmail-incremental.ts; move-to-primary must NOT strip CATEGORY_*; backfill in scripts/inbox-visibility-backfill.ts.
+- [Remote Image Proxy](remote-image-proxy.md) — received email remote https:// images must be proxied through GET /api/gmail/proxy-image?url=... (requireAuth + SSRF guard); rewrite happens in MessageBody.sanitized memo before DOMPurify; handles both " and ' quote styles.
+- [Inbox Unread Count Bugs](inbox-unread-bugs.md) — activeAccountId is number|"all"|null; serverInboxUnreadCount must handle BOTH null and "all" as sum-all; appendAccountId must send asAccountId=all when null (unified All Inboxes mode) or category-counts only scopes to personal account.

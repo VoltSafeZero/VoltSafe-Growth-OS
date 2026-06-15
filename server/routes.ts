@@ -11751,6 +11751,62 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // GET /api/gmail/proxy-image?url=...
+  // Securely proxies external HTTPS images from received email bodies through
+  // our server so they always render in the sandboxed iframe reading pane.
+  // This mirrors what Spark Mail / Gmail do — the browser loads images from
+  // our own origin, eliminating cross-origin or network-sandbox failures.
+  // Requires authentication; applies SSRF protection to block private ranges.
+  app.get("/api/gmail/proxy-image", requireAuth, async (req, res) => {
+    try {
+      const rawUrl = String(req.query.url || "");
+      if (!rawUrl.startsWith("https://")) {
+        return res.status(400).json({ error: "Only https:// URLs allowed" });
+      }
+      let parsed: URL;
+      try { parsed = new URL(rawUrl); } catch {
+        return res.status(400).json({ error: "Invalid URL" });
+      }
+      const h = parsed.hostname.toLowerCase();
+      // SSRF guard — block loopback, private, link-local, and metadata ranges
+      const PRIVATE_RE =
+        /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.0\.0\.0|::1|fd[0-9a-f]{2}:)/i;
+      if (PRIVATE_RE.test(h)) {
+        return res.status(403).json({ error: "Private URL not allowed" });
+      }
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 10_000);
+      let upstream: Response;
+      try {
+        upstream = await fetch(rawUrl, {
+          signal: controller.signal,
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (compatible; VoltSafeMailViewer/1.0; +https://voltsafe.com)",
+          },
+          redirect: "follow",
+        });
+      } finally {
+        clearTimeout(tid);
+      }
+      if (!upstream.ok) {
+        return res.status(502).json({ error: `Upstream returned ${upstream.status}` });
+      }
+      const ct = (upstream.headers.get("content-type") || "").split(";")[0].trim();
+      if (!ct.startsWith("image/")) {
+        return res.status(400).json({ error: "Not an image content-type" });
+      }
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.set("Content-Type", ct);
+      res.set("Cache-Control", "public, max-age=86400, immutable");
+      res.set("Content-Length", String(buf.length));
+      return res.send(buf);
+    } catch (err: any) {
+      console.error("[proxy-image]", err?.message);
+      return res.status(502).json({ error: "Failed to fetch image" });
+    }
+  });
+
   app.get("/api/gmail/threads", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const rawAcc = req.query.asAccountId as string | undefined;
