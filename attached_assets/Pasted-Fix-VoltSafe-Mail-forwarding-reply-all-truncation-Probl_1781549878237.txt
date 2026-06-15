@@ -1,0 +1,38 @@
+Fix VoltSafe Mail forwarding/reply-all truncation.
+
+Problem:
+When I forward an email from VoltSafe Mail, the forwarded content is truncated. Reply All also appears to truncate prior replies/original thread history. This must behave like Gmail/Superhuman: forwarding and reply-all should preserve the full original email/thread content unless the user manually deletes it.
+
+Expected behavior:
+1. Forward:
+   - Include the complete original email body, not just the visible preview/snippet.
+   - Preserve original formatting, images, tables, links, signatures, quoted text, and prior replies.
+   - Do not collapse, clip, sanitize away, or truncate the forwarded body.
+   - Forwarded content should appear below my typed message in the composer.
+
+2. Reply / Reply All:
+   - Include the complete prior thread history below the new reply.
+   - Do not truncate prior replies or the original email.
+   - Preserve quoted email formatting and nested replies.
+   - Keep all relevant previous conversation content available in the outgoing email.
+
+3. Backend:
+   - Ensure the send/reply/forward payload uses the full stored HTML body/thread body, not snippet, preview, display excerpt, cleaned short body, or clipped UI version.
+   - If the app currently stores both sanitized/display HTML and raw/full HTML, use the full version for outbound replies/forwards.
+   - If Gmail API/thread data is needed, fetch the full message/thread before constructing the forward/reply body.
+   - Avoid using Gmail snippet fields for any outbound body generation.
+
+4. Frontend:
+   - Composer should render the full quoted/forwarded content.
+   - The editor container must not visually crop the quoted content.
+   - Do not use CSS max-height/overflow hidden on quoted/forwarded content unless there is an explicit “show trimmed content” control, and even then the outgoing send body must include everything.
+
+5. Tests:
+   - Add/repair tests proving:
+     a) Forward includes the full original HTML body.
+     b) Forward preserves long emails and nested quoted replies.
+     c) Reply All includes complete prior thread history.
+     d) No outbound reply/forward body is built from snippet/preview fields.
+     e) Long forwarded emails are not clipped by composer serialization.
+
+Please audit the full reply/reply-all/forward pipeline end-to-end: message fetch → body selection → composer hydration → editor serialization → send API → MIME/raw body generation.

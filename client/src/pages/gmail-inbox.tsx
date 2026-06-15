@@ -1069,7 +1069,13 @@ function ComposeDialog({
           : "");
 
       // ── Step 2: Assemble body — user content + quoted block only ─────────────
-      let htmlBody = buildEmailHtml(body, quotedBlock);
+      // IMPORTANT: quotedBlock must NOT be passed as appendHtml to buildEmailHtml.
+      // buildEmailHtml wraps appendHtml in <!--vs-sig-start-->...<!--vs-sig-end-->
+      // markers.  The server strips those markers to insert the real signature, which
+      // would silently discard the entire forward/reply history.  Append the quoted
+      // block directly after the wrapped body div instead.
+      let htmlBody = buildEmailHtml(body);
+      if (quotedBlock) htmlBody = htmlBody + quotedBlock;
 
       // ── Step 3: Emergency strip on the user-composed content ─────────────────
       const { result: strippedBody, stripped: wasEmergencyStripped } =
@@ -1263,7 +1269,10 @@ function ComposeDialog({
         : (!isForward && threadId && defaultQuotedHtml
           ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
           : "");
-      const htmlBody = buildEmailHtml(body, schedQuotedBlock);
+      // Same as sendMutation: append quoted block OUTSIDE sig markers so the
+      // server-side signature replacement doesn't discard forward/reply history.
+      let htmlBody = buildEmailHtml(body);
+      if (schedQuotedBlock) htmlBody = htmlBody + schedQuotedBlock;
       const res = await apiRequest("POST", "/api/gmail/schedule", {
         to, subject, body: htmlBody, threadId, scheduledAt,
         selectedSignatureId: effectiveSigId ?? null,
