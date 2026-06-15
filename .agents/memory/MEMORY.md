@@ -30,3 +30,4 @@
 - [CTA Quote Compat](cta-quote-compat.md) — all CTA src= scanners must handle both "..." and '...' quote styles; single-quote attrs from rich-text editors silently bypassed double-quote-only regex.
 - [CTA Asset Inlining Hardening](cta-asset-inlining.md) — memoryStorage upload always saves file_data; resolver v5 has 5-step chain + self-heal; backfill endpoint for existing NULL rows.
 - [CTA Image Width Fix](cta-image-width-fix.md) — canonical CTA img is 200px fixed; outer table 620px table-layout:fixed; 5 generation paths all updated.
+- [Inbox Category Visibility](inbox-category-visibility.md) — Gmail skip-inbox delivers CATEGORY_* emails without INBOX; ensureInboxForCategoryLabels() in gmail-incremental.ts; move-to-primary must NOT strip CATEGORY_*; backfill in scripts/inbox-visibility-backfill.ts.

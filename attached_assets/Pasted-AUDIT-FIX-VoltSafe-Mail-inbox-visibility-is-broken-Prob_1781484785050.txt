@@ -1,0 +1,96 @@
+AUDIT + FIX — VoltSafe Mail inbox visibility is broken.
+
+Problem:
+All newly received emails for every VoltSafe Mail user must land in the user's Inbox first and remain visible in Inbox until the user has seen/read/handled them.
+
+Current unacceptable behavior:
+Emails appear to be getting auto-sorted into Categories like:
+- Newsletters & Updates
+- Promotions
+- Social
+- Forums & Community
+
+Those category sections seem to be behaving like destination folders instead of labels/tags. This is causing missing inbox emails. Example: trevor@voltsafe.com shows only 26 inbox emails in VoltSafe Mail, while Spark Mail shows 200+.
+
+Required behavior:
+1. Every new inbound email addressed to a user must appear in that user's Inbox.
+2. Category classification may still happen, but Categories must behave only as labels/tags.
+3. A categorized email must still remain in Inbox unless:
+   - the user manually archives it,
+   - the user manually deletes it,
+   - the user manually marks it as spam,
+   - or an explicit user-created rule moves it out of Inbox.
+4. System auto-categorization must NEVER remove the Inbox label/status.
+5. Spam is the only exception: emails classified or manually marked as spam may leave Inbox.
+6. This must apply to all users and all connected inboxes, not just trevor@voltsafe.com.
+
+Audit first:
+Find every place where inbound emails are:
+- synced from Gmail
+- inserted into local mailbox tables
+- assigned categories
+- assigned folders
+- assigned labels
+- marked as inbox/sent/spam/draft/scheduled
+- hidden from Inbox queries
+- filtered into smart categories
+- counted for sidebar totals
+
+Specifically inspect:
+- Gmail sync logic
+- local mailbox sync logic
+- inbox query APIs
+- category query APIs
+- sidebar count APIs
+- frontend Mail sidebar/category rendering
+- any rules/automation engine
+- any code that removes INBOX when assigning category
+- any code where category = folder
+- unread/new email filtering
+- Gmail label mapping logic
+- local database fields like folder, category, labels, systemLabel, mailbox, isInbox, archivedAt, spamAt, readAt, etc.
+
+Fix requirements:
+1. Inbox should be a primary visibility state.
+2. Category should be metadata only.
+3. When syncing new inbound messages:
+   - preserve or set Inbox visibility if the Gmail message has INBOX or is newly received inbound mail.
+   - also add category label if detected.
+   - do not replace Inbox with category.
+4. Inbox query should include all non-spam, non-trash, non-archived inbound messages that are still inbox-visible, even if they have category labels.
+5. Category views should show matching tagged emails, but those emails must also remain in Inbox.
+6. Sidebar category counts should not imply that messages are outside Inbox. They are category tag counts.
+7. Existing manually archived/deleted/spam emails should remain archived/deleted/spam.
+8. Do not reintroduce already archived emails into Inbox unless they are unread/new and were only moved because of auto-category logic.
+9. Add a one-time safe repair/backfill:
+   - find unread/unseen inbound messages that are currently only in category folders/labels and not spam/trash/sent/draft
+   - restore Inbox visibility for them
+   - keep their category labels
+   - do this for all users
+   - make it idempotent
+10. Add tests or verification scripts proving:
+   - newsletter email appears in Inbox + Newsletter category
+   - promotions email appears in Inbox + Promotions category
+   - social email appears in Inbox + Social category
+   - forum email appears in Inbox + Forum category
+   - spam does NOT appear in Inbox
+   - archived email does NOT reappear in Inbox
+   - sent/draft/scheduled emails do NOT appear in Inbox
+   - sidebar Inbox count includes categorized unread inbox-visible emails
+
+Important:
+- Do not remove Categories.
+- Do not remove smart classification.
+- Do not delete user data.
+- Do not change Gmail itself.
+- Do not break sent, drafts, spam, scheduled, pinned, or search.
+- Do not make Categories folders. They are tags.
+
+Final output:
+Provide:
+1. Root cause summary
+2. Files changed
+3. Exact logic changed
+4. Backfill/repair performed
+5. Test results
+6. Any remaining risks

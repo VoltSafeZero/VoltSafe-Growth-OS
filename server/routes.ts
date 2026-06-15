@@ -12364,7 +12364,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // POST /api/inbox/threads/:threadId/move-to-primary
-  // Adds INBOX label and strips CATEGORY_* labels from every message in the thread.
+  // Adds the INBOX label to every message in the thread so it appears in the
+  // primary inbox view.  CATEGORY_* labels are intentionally preserved — they
+  // are metadata tags, not folders.  Removing them would destroy the user's
+  // category metadata; the email belongs in both "inbox" and its category tag.
   // Calls the Gmail API for every distinct account that owns messages in this thread,
   // then mirrors the change into the local DB regardless of provider outcome.
   app.post("/api/inbox/threads/:threadId/move-to-primary", requireAuth, async (req, res) => {
@@ -12392,7 +12395,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // Deduplicate by account so we issue one threads.modify call per account.
       const accountIds = [...new Set(msgs.map(m => m.source_account_id))];
       const addLabelIds = ["INBOX"];
-      const removeLabelIds = ["CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"];
+      // Do NOT remove CATEGORY_* labels — categories are metadata tags, not folders.
+      // Stripping them would destroy the user's category classification.  The email
+      // should appear in both the inbox AND its original category tag view.
+      const removeLabelIds: string[] = [];
 
       let gmailOk = true;
       for (const accId of accountIds) {

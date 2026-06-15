@@ -12,6 +12,33 @@ import { routeEmailToFolders } from "./email-folder-router";
 import { log } from "../index";
 import { syncEmailAccount } from "./gmail-sync";
 
+// ─── Inbox-visibility guard for category-tagged messages ─────────────────────
+// Gmail can deliver inbound messages directly to a CATEGORY_* tab (Promotions,
+// Updates, Social, Forums) WITHOUT the INBOX label when the user has configured
+// that category to "skip inbox."  In VoltSafe, categories are metadata tags —
+// not destination folders — so every inbound message must remain inbox-visible.
+//
+// The guard is applied:
+//   1. On new message insertions (messagesAdded) — unconditionally for inbound.
+//   2. On label-change events — only when the message is still UNREAD, to avoid
+//      re-adding INBOX to messages the user has explicitly archived (archiving
+//      removes both INBOX and UNREAD; an archived-but-unread pattern is rare and
+//      we accept the small false-positive rather than permanently hiding mail).
+//
+// Exported so tests can verify the function directly.
+
+const CATEGORY_LABEL_SET = ["CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"];
+const SKIP_INBOX_LABELS  = ["SENT", "DRAFT", "SPAM", "TRASH"];
+
+export function ensureInboxForCategoryLabels(labels: string[], requireUnread = false): string[] {
+  const upper = labels.map(l => l.toUpperCase());
+  if (upper.includes("INBOX")) return labels;                              // already fine
+  if (!upper.some(l => CATEGORY_LABEL_SET.includes(l))) return labels;    // no category tag
+  if (SKIP_INBOX_LABELS.some(l => upper.includes(l))) return labels;      // sent/draft/spam/trash
+  if (requireUnread && !upper.includes("UNREAD")) return labels;           // read+archived path
+  return [...labels, "INBOX"];
+}
+
 // ─── Trusted-sender override ─────────────────────────────────────────────────
 // Exported so gmail-sync.ts (full page sync) can reuse the exact same guard.
 //
@@ -139,7 +166,16 @@ export async function upsertMessageById(
     const { attachments, ...emailDataRaw } = parsed;
     // Apply trusted-sender guard before writing any labels to the DB.
     const override = await applyTrustedSenderOverride(emailDataRaw, gmailClient);
-    const emailData = { ...emailDataRaw, ...override };
+    const emailDataBase = { ...emailDataRaw, ...override };
+
+    // Inbox-visibility guard: new inbound messages that arrive with only CATEGORY_*
+    // labels (no INBOX) must still appear in the inbox.  Apply unconditionally on
+    // insertion — no requireUnread because the message is brand-new.
+    const insertLabels: string[] = (() => { try { return JSON.parse(emailDataBase.labelIds || "[]"); } catch { return []; } })();
+    const fixedInsertLabels = ensureInboxForCategoryLabels(insertLabels, false);
+    const emailData = fixedInsertLabels !== insertLabels
+      ? { ...emailDataBase, labelIds: JSON.stringify(fixedInsertLabels) }
+      : emailDataBase;
 
     if (!existing) {
       const [inserted] = await db
@@ -293,6 +329,13 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
               });
               newLabels = meta.data.labelIds || [];
             }
+
+            // Inbox-visibility guard (label-change path): if Gmail removes INBOX
+            // from an inbound message that still has a CATEGORY_* label and is
+            // still UNREAD, restore INBOX locally.  Requiring UNREAD prevents
+            // re-adding INBOX to messages the user has already read and archived
+            // (archiving removes both INBOX and UNREAD in one operation).
+            newLabels = ensureInboxForCategoryLabels(newLabels, true /* requireUnread */);
 
             // Trusted-sender guard: if Gmail is adding SPAM to a message from
             // a sender the user has explicitly trusted (via "Not Spam"), override
