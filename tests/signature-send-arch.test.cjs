@@ -106,10 +106,18 @@ test("scheduleMutation sends selectedSignatureId", () => {
     "scheduleMutation must include selectedSignatureId in request"
   );
 });
-test("scheduleMutation builds body with schedQuotedBlock only", () => {
+test("scheduleMutation builds body with buildEmailHtml(body) only, schedQuotedBlock appended separately", () => {
   assert.ok(
-    schedBlock.includes("buildEmailHtml(body, schedQuotedBlock)"),
-    "scheduleMutation must call buildEmailHtml(body, schedQuotedBlock)"
+    !schedBlock.includes("buildEmailHtml(body, schedQuotedBlock)"),
+    "scheduleMutation must NOT pass schedQuotedBlock as 2nd arg to buildEmailHtml (sig marker trap)"
+  );
+  assert.ok(
+    schedBlock.includes("buildEmailHtml(body)"),
+    "scheduleMutation must call buildEmailHtml(body) with no schedQuotedBlock arg"
+  );
+  assert.ok(
+    schedBlock.includes("if (schedQuotedBlock) htmlBody = htmlBody + schedQuotedBlock"),
+    "scheduleMutation must append schedQuotedBlock directly after buildEmailHtml(body)"
   );
 });
 
