@@ -1,0 +1,73 @@
+IMPLEMENT FIX — Smart Inbox Count Reconciliation
+
+Root cause confirmed:
+- Inbox badge is now a full server-side unread count.
+- Smart Inbox group counts are only based on the first loaded page.
+- This creates the mismatch:
+  Inbox unread = 249
+  People + Newsletters + Notifications = 24
+
+Required product behavior:
+Smart Inbox section counts must reconcile with the Inbox unread badge.
+If Inbox unread says 249, the grouped unread totals should explain where those 249 emails are.
+
+Implement safely:
+
+PART A — Server-total group counts
+Update Smart Inbox section header counts so they use true server-side unread totals, not only first-page loaded counts.
+
+Compute:
+- Newsletters = unread inbox-visible CATEGORY_PROMOTIONS + CATEGORY_FORUMS
+- Notifications = unread inbox-visible CATEGORY_UPDATES + CATEGORY_SOCIAL
+- People = serverInboxUnreadCount - Newsletters - Notifications - Priority adjustments only if Priority is counted separately
+- Seen remains read loaded messages only, no need for server total
+
+Important:
+Avoid double-counting Priority if starred/priority unread messages also live inside People/Newsletter/Notification.
+Pick one clear model:
+Preferred:
+- Priority is a highlight section only, not subtracted from group totals.
+- People/Newsletters/Notifications should still include those emails in their category totals.
+- Header counts should represent total unread by classification.
+
+PART B — Auto-load unread pages
+In Smart Inbox view, auto-load more inbox pages when:
+serverInboxUnreadCount > inboxUnreadCountLoaded
+
+Use existing loadMoreInbox / autoChain mechanism if possible.
+
+Rules:
+- Only auto-load while Smart Inbox is open.
+- Stop when loaded unread count >= serverInboxUnreadCount.
+- Stop when no more pages exist.
+- Add a safety cap, e.g. max 500 loaded messages or max 10 auto-load cycles, to avoid runaway loading.
+- Do not auto-load Sent/Drafts/Spam/etc.
+- Do not break search.
+
+PART C — UI clarity
+Add small helper text near the top of Smart Inbox:
+“Showing grouped unread inbox mail. Older unread emails load automatically.”
+
+If only partial results are loaded, show:
+“Loading remaining unread emails…”
+
+PART D — Verification
+Run live verification for trevor@voltsafe.com:
+
+1. Inbox badge total unread.
+2. Server Newsletters unread.
+3. Server Notifications unread.
+4. Derived People unread.
+5. Smart Inbox section header counts.
+6. Confirm People + Newsletters + Notifications reconciles to Inbox unread, minus any explicitly separate buckets if applicable.
+7. Confirm auto-load stops safely.
+8. Confirm no spam/trash/sent/draft messages appear.
+9. Confirm search still works.
+10. Confirm UI remains responsive.
+
+Final output:
+- Files changed
+- Exact count logic changed
+- Before/after reconciliation
+- Auto-load behavior
+- Test results

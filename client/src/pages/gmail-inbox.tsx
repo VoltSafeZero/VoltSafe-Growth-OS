@@ -7067,6 +7067,26 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return accounts.find((a) => a.id === activeAccountId)?.unreadCount ?? 0;
   }, [accountsHealthQuery.data, activeAccountId]);
 
+  // PART A — Server-side group counts for Smart Inbox section headers.
+  // Newsletters = PROMOTIONS + FORUMS unread (inbox-visible, from category-counts API).
+  // Notifications = UPDATES + SOCIAL unread (inbox-visible, from category-counts API).
+  // People = serverInboxUnreadCount − Newsletters − Notifications.
+  // Priority is a highlight layer only — starred messages are counted inside their
+  // category group (not subtracted), so totals always reconcile to the badge.
+  const serverGroupCounts = useMemo(() => {
+    if (!categoryCountsQuery.data || serverInboxUnreadCount === 0) return null;
+    const newsletters  = (categoryCountsQuery.data.promotions?.unread ?? 0)
+                       + (categoryCountsQuery.data.forums?.unread     ?? 0);
+    const notifications = (categoryCountsQuery.data.updates?.unread  ?? 0)
+                        + (categoryCountsQuery.data.social?.unread    ?? 0);
+    const people = Math.max(0, serverInboxUnreadCount - newsletters - notifications);
+    return {
+      "unread-people":        people,
+      "unread-newsletters":   newsletters,
+      "unread-notifications": notifications,
+    } as const;
+  }, [categoryCountsQuery.data, serverInboxUnreadCount]);
+
   const pinnedMessages = useMemo(
     () => inboxMain.filter((m) => pinnedAPI.pinned.has(m.threadId)),
     [inboxMain, pinnedAPI.pinned],
@@ -7307,6 +7327,34 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // loadMoreRef is kept current by a separate sync effect above.
     loadMoreRef.current();
   }, [tab, hasMore, isLoadingMore, inboxChainKey, navList.length, autoChainExhaustedKey]);
+
+  // PART B — Smart Inbox unread auto-loader.
+  // While Smart Inbox is open and the loaded unread count is below the server total,
+  // keep paging automatically — without waiting for the scroll sentinel — so all
+  // unread messages reach the grouper.  Safety caps: ≤10 cycles OR ≤500 messages.
+  const smartUnreadLoaderRef = useRef<{ key: string; cycles: number }>({ key: "", cycles: 0 });
+  useEffect(() => {
+    // Only fire in Smart view, on the inbox tab, without an active search query.
+    if (!isSmartView || tab !== "inbox" || searchQuery) return;
+    // Need a next page and must not already be loading.
+    if (!inboxNextToken || loadingMoreInbox) return;
+    // Stop when server count is unknown (health query still loading).
+    if (serverInboxUnreadCount === 0) return;
+    // Stop when all unread messages are already loaded.
+    if (inboxUnreadCount >= serverInboxUnreadCount) return;
+    // Hard cap: don't load more than 500 total messages via this path.
+    if (allInboxMessages.length >= 500) return;
+    // Per-context cycle cap of 10 auto-loads.
+    const loaderKey = inboxChainKey;
+    if (smartUnreadLoaderRef.current.key !== loaderKey) {
+      smartUnreadLoaderRef.current = { key: loaderKey, cycles: 0 };
+    }
+    if (smartUnreadLoaderRef.current.cycles >= 10) return;
+    smartUnreadLoaderRef.current.cycles += 1;
+    loadMoreRef.current();
+  }, [isSmartView, tab, searchQuery, inboxNextToken, loadingMoreInbox,
+      inboxUnreadCount, serverInboxUnreadCount, allInboxMessages.length, inboxChainKey]);
+
   // Strictly scope: only render the "more available" CTA when (a) we exhausted THIS chain key,
   // (b) we're on a tab where auto-chain even applies, and (c) hasMore is still true.
   const autoChainExhausted =
@@ -9251,6 +9299,21 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <p>No filtered emails</p>
               </div>
             )}
+
+            {/* PART C — Smart Inbox status strip */}
+            {isSmartView && (
+              <div className="px-3 py-1.5 flex items-center gap-1.5 border-b border-border/20">
+                {loadingMoreInbox || (!!inboxNextToken && inboxUnreadCount < serverInboxUnreadCount && serverInboxUnreadCount > 0) ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/35 flex-shrink-0" />
+                    <span className="text-[10px] text-muted-foreground/45 italic">Loading remaining unread emails…</span>
+                  </>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground/35 italic">Showing grouped unread inbox mail. Older unread emails load automatically.</span>
+                )}
+              </div>
+            )}
+
             {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && (
               isUnreadCardsView
                 ? unreadCardsMessages.map((m) => ({ kind: "msg" as const, section: "flat" as SmartSectionId, msg: m }))
@@ -9283,7 +9346,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       {item.title}
                     </span>
                     <span className="text-[10px] tabular-nums text-muted-foreground/40 ml-0.5">
-                      {item.count}
+                      {serverGroupCounts?.[item.id as keyof typeof serverGroupCounts] ?? item.count}
                     </span>
                   </div>
                 );
