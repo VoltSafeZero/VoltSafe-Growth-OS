@@ -821,7 +821,7 @@ export async function registerRoutes(
 
   // ── Public CTA asset file server (no auth — images served to email recipients) ──
   // Must be registered before auth middleware routes; UUID filename prevents enumeration.
-  app.get("/assets/cta/:filename", (req, res) => {
+  app.get("/assets/cta/:filename", async (req, res) => {
     const filename = path.basename(req.params.filename || "");
     // Allow any safe filename: starts with alphanumeric/underscore, may contain
     // letters, digits, underscores, hyphens, spaces, dots. Ends with image extension.
@@ -829,16 +829,38 @@ export async function registerRoutes(
     if (!filename || !/^[A-Za-z0-9_][A-Za-z0-9_ .\-]*\.(png|jpg|jpeg|webp|gif)$/i.test(filename)) {
       return res.status(404).end();
     }
-    const filePath = path.join(CTA_ASSETS_DIR, filename);
-    if (!fs.existsSync(filePath)) return res.status(404).end();
     const ext = filename.split(".").pop()?.toLowerCase() ?? "png";
     const mimeMap: Record<string, string> = {
       png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
       webp: "image/webp", gif: "image/gif",
     };
-    res.setHeader("Content-Type", mimeMap[ext] ?? "image/png");
-    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-    res.sendFile(filePath);
+    const filePath = path.join(CTA_ASSETS_DIR, filename);
+    // Fast path: file already on disk.
+    if (fs.existsSync(filePath)) {
+      res.setHeader("Content-Type", mimeMap[ext] ?? "image/png");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      return res.sendFile(filePath);
+    }
+    // Fallback: serve from DB file_data and self-heal the disk file so the next
+    // request is instant.  Handles the case where the disk was wiped (Replit container
+    // restart / deployment) but the bytes are safely stored in the database.
+    try {
+      const sf = filename.replace(/'/g, "''");
+      const rows = (await db.execute(sql.raw(
+        `SELECT file_data, mime_type FROM cta_assets WHERE (filename = '${sf}' OR public_url LIKE '%/${sf}') AND is_archived = FALSE AND file_data IS NOT NULL AND octet_length(file_data) > 0 LIMIT 1`
+      ))).rows;
+      const row = rows[0] as any;
+      if (row?.file_data) {
+        const buf: Buffer = Buffer.isBuffer(row.file_data) ? row.file_data : Buffer.from(row.file_data as string, "hex");
+        const mime: string = row.mime_type || mimeMap[ext] || "image/png";
+        res.setHeader("Content-Type", mime);
+        res.setHeader("Cache-Control", "public, max-age=300");
+        // Self-heal: write to disk so subsequent requests hit the fast path.
+        try { fs.mkdirSync(CTA_ASSETS_DIR, { recursive: true }); fs.writeFileSync(filePath, buf); } catch {}
+        return res.send(buf);
+      }
+    } catch { /* fall through to 404 */ }
+    return res.status(404).end();
   });
 
   // ── Email Address Autocomplete ────────────────────────────────────────────
@@ -30451,6 +30473,8 @@ export function registerConfluenceRoutes(app: Express) {
         const publicUrl = m ? `${baseUrl}/assets/cta/${m[1]}` : r.public_url;
         // Try to compute base64 data URI from disk so the frontend can store it in
         // signatures — eliminating runtime disk/network dependency at send time.
+        // Fallback: read from DB file_data if disk file is missing, and self-heal the
+        // disk copy so subsequent requests are instant.
         let data_uri: string | null = null;
         if (m) {
           try {
@@ -30458,6 +30482,11 @@ export function registerConfluenceRoutes(app: Express) {
             if (fs.existsSync(localPath)) {
               const buf = fs.readFileSync(localPath);
               data_uri = `data:${r.mime_type || "image/png"};base64,${buf.toString("base64")}`;
+            } else if (r.file_data) {
+              const buf: Buffer = Buffer.isBuffer(r.file_data) ? r.file_data : Buffer.from(r.file_data as string, "hex");
+              data_uri = `data:${r.mime_type || "image/png"};base64,${buf.toString("base64")}`;
+              // Self-heal: write to disk so the /assets/cta/:filename route can serve it instantly next time.
+              try { fs.mkdirSync(CTA_ASSETS_DIR, { recursive: true }); fs.writeFileSync(localPath, buf); } catch {}
             }
           } catch { /* ignore — data_uri stays null */ }
         }
