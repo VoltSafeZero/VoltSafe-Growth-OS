@@ -1,0 +1,97 @@
+Fix the Stage C reply/reply-all truncation bug now.
+
+Root cause:
+For plain-text-only multi-message threads, handleReply / handleReplyAll correctly fetch full.bodyText from fetchFullMessageBody(), but then ignores it when allMsgs.length > 1.
+
+Instead it calls:
+
+buildThreadQuoteBlock(allMsgs)
+
+That function uses cached Stage B message bodies:
+
+m.body = body_text from DB
+
+For old/plain-text-only messages, body_text is capped at 4,000 chars, so reply/reply-all quoted history is truncated.
+
+Forward is mostly fine because it uses full.bodyText directly.
+
+Required fix:
+In handleReply and handleReplyAll, when:
+- msg.isHtml === false
+- fetchFullMessageBody(msg.id) returns full.bodyText
+- full.bodyHtml is empty
+- allMsgs.length > 1
+
+Do NOT call buildThreadQuoteBlock(allMsgs) using cached truncated m.body.
+
+Instead, use the fetched full.bodyText as the quoted body for the focused message.
+
+Recommended implementation:
+1. Add a helper:
+
+function buildThreadQuoteBlockWithOverrides(
+  messages,
+  overridesByMessageId
+)
+
+It should behave like buildThreadQuoteBlock(messages), except:
+- if overridesByMessageId has a value for m.id or m.gmailMessageId, use that full body instead of m.body
+- preserve the same author/date/header wrapping
+- escape plain text with escapeHtml
+- preserve newline formatting using <pre style="white-space:pre-wrap;...">
+
+2. In handleReply / handleReplyAll:
+After fetchFullMessageBody(msg.id), build an override map:
+
+const overrides = new Map();
+if (full.bodyText && !full.bodyHtml) {
+  overrides.set(msg.id, {
+    body: full.bodyText,
+    isHtml: false,
+    source: "full-body-endpoint"
+  });
+}
+
+Then use:
+
+quotedHtml = allMsgs.length > 1
+  ? buildThreadQuoteBlockWithOverrides(allMsgs, overrides)
+  : `<pre ...>${escapeHtml(full.bodyText || msg.body || "")}</pre>`;
+
+3. Also handle the case where full.bodyHtml exists:
+If the focused message has full.bodyHtml, override that focused message too, so multi-message thread quoting uses the hydrated full HTML instead of cached body.
+
+4. Add FRT logs:
+When an override is used, log:
+- action
+- message id
+- override source
+- override body length
+- cached body length
+- canary present if available
+- final quotedHtml length
+
+5. Add regression tests:
+Create a multi-message thread where:
+- focused message has isHtml=false
+- cached msg.body length is exactly 4,000
+- full-body endpoint returns 10,410 chars
+- allMsgs.length > 1
+- buildThreadQuoteBlockWithOverrides includes text past the 4,000 boundary
+- old buildThreadQuoteBlock(allMsgs) would fail
+
+Add same coverage for:
+- handleReply
+- handleReplyAll
+- hydrated full HTML override
+- message id and gmailMessageId override matching
+
+Acceptance criteria:
+- IRAP thread reply/reply-all includes content beyond the old 4,000-char boundary.
+- The canary phrase from the bottom of the full plain-text body survives into:
+  C handler quotedHtml
+  D compose state
+  E send payload
+  F final MIME
+- Forward still works and does not regress.
+- Existing rich HTML forward/reply tests still pass.

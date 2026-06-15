@@ -7683,6 +7683,27 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       return `${divider}<p style="margin:0 0 4px 0;font-size:11px;color:#888;font-weight:bold;">${escHtml(m.from || "Unknown")}&nbsp;&nbsp;<span style="font-weight:normal;">${escHtml(mDate)}</span></p>${mBody}`;
     }).join("");
 
+  // Like buildThreadQuoteBlock but allows per-message body overrides.
+  // Use this when a freshly-fetched full body (from fetchFullMessageBody) should
+  // replace the 4K-capped Stage-B cache value for the focused message.
+  // overridesByMessageId keys are checked against both m.id (gmailMessageId) and
+  // any secondary id so either lookup works.
+  const buildThreadQuoteBlockWithOverrides = (
+    msgs: ThreadMessage[],
+    overridesByMessageId: Map<string, { body: string; isHtml: boolean; source: string }>
+  ): string =>
+    msgs.map((m, idx) => {
+      const override = overridesByMessageId.get(m.id);
+      const body   = override ? override.body   : (m.body   || "");
+      const isHtml = override ? override.isHtml : m.isHtml;
+      const mDate  = m.date || (m.internalDate ? new Date(Number(m.internalDate)).toLocaleString() : "");
+      const mBody  = isHtml
+        ? body
+        : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(body)}</pre>`;
+      const divider = idx > 0 ? `<div style="margin:12px 0;border-top:1px solid #e8e8e8;"></div>` : "";
+      return `${divider}<p style="margin:0 0 4px 0;font-size:11px;color:#888;font-weight:bold;">${escHtml(m.from || "Unknown")}&nbsp;&nbsp;<span style="font-weight:normal;">${escHtml(mDate)}</span></p>${mBody}`;
+    }).join("");
+
   // ── Reply ─────────────────────────────────────────────────────────────────
   const handleReply = async (msg: ThreadMessage) => {
     const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toLocaleString() : "");
@@ -7709,17 +7730,41 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         first200Html: _frtSnippet(full.bodyHtml), last200Html: _frtTail(full.bodyHtml),
         first200Text: _frtSnippet(full.bodyText), last200Text: _frtTail(full.bodyText),
       });
+      // Build override map: hydrate the focused message with the freshly-fetched
+      // full body so buildThreadQuoteBlockWithOverrides doesn't use the 4K-capped
+      // Stage-B cache value for it.
+      const _replyOverrides = new Map<string, { body: string; isHtml: boolean; source: string }>();
+      if (full.bodyHtml) {
+        _replyOverrides.set(msg.id, { body: full.bodyHtml, isHtml: true,  source: full.source ?? "full-body" });
+      } else if (full.bodyText) {
+        _replyOverrides.set(msg.id, { body: full.bodyText, isHtml: false, source: full.source ?? "full-body" });
+      }
+
       if (full.bodyHtml) {
         quotedHtml = full.bodyHtml;
         bodySource = `full-body:${full.source}`;
       } else {
-        // Pure plain-text email or fetch failed — use full thread context so prior messages survive
+        // Pure plain-text email or fetch failed — use full thread context so prior messages survive.
+        // IMPORTANT: use buildThreadQuoteBlockWithOverrides so the focused message uses the
+        // freshly-fetched full bodyText instead of the 4K-capped body_text from the Stage-B cache.
         const allMsgs = threadQuery.data?.messages || [msg];
         const plainText = full.bodyText || msg.body || "";
-        quotedHtml = allMsgs.length > 1
-          ? buildThreadQuoteBlock(allMsgs)
-          : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(plainText)}</pre>`;
-        bodySource = allMsgs.length > 1 ? "thread-context-fallback" : "plaintext-fallback";
+        if (allMsgs.length > 1) {
+          if (_replyOverrides.size > 0) {
+            frtLog("C:reply:override-applied", {
+              action: "reply", msgId: msg.id,
+              overrideSource: full.source,
+              overrideBodyLen: (full.bodyText || "").length,
+              cachedBodyLen: msg.body?.length ?? 0,
+              overrideCount: _replyOverrides.size,
+            });
+          }
+          quotedHtml = buildThreadQuoteBlockWithOverrides(allMsgs, _replyOverrides);
+          bodySource = _replyOverrides.size > 0 ? "thread-context-with-overrides" : "thread-context-fallback";
+        } else {
+          quotedHtml = `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(plainText)}</pre>`;
+          bodySource = "plaintext-fallback";
+        }
       }
     }
 
@@ -7779,16 +7824,41 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         first200Html: _frtSnippet(full.bodyHtml), last200Html: _frtTail(full.bodyHtml),
         first200Text: _frtSnippet(full.bodyText), last200Text: _frtTail(full.bodyText),
       });
+      // Build override map: hydrate the focused message with the freshly-fetched
+      // full body so buildThreadQuoteBlockWithOverrides doesn't use the 4K-capped
+      // Stage-B cache value for it.
+      const _raOverrides = new Map<string, { body: string; isHtml: boolean; source: string }>();
+      if (full.bodyHtml) {
+        _raOverrides.set(msg.id, { body: full.bodyHtml, isHtml: true,  source: full.source ?? "full-body" });
+      } else if (full.bodyText) {
+        _raOverrides.set(msg.id, { body: full.bodyText, isHtml: false, source: full.source ?? "full-body" });
+      }
+
       if (full.bodyHtml) {
         quotedHtml = full.bodyHtml;
         bodySource = `full-body:${full.source}`;
       } else {
+        // Pure plain-text email or fetch failed — use full thread context so prior messages survive.
+        // IMPORTANT: use buildThreadQuoteBlockWithOverrides so the focused message uses the
+        // freshly-fetched full bodyText instead of the 4K-capped body_text from the Stage-B cache.
         const allMsgs = threadQuery.data?.messages || [msg];
         const plainText = full.bodyText || msg.body || "";
-        quotedHtml = allMsgs.length > 1
-          ? buildThreadQuoteBlock(allMsgs)
-          : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(plainText)}</pre>`;
-        bodySource = allMsgs.length > 1 ? "thread-context-fallback" : "plaintext-fallback";
+        if (allMsgs.length > 1) {
+          if (_raOverrides.size > 0) {
+            frtLog("C:replyAll:override-applied", {
+              action: "replyAll", msgId: msg.id,
+              overrideSource: full.source,
+              overrideBodyLen: (full.bodyText || "").length,
+              cachedBodyLen: msg.body?.length ?? 0,
+              overrideCount: _raOverrides.size,
+            });
+          }
+          quotedHtml = buildThreadQuoteBlockWithOverrides(allMsgs, _raOverrides);
+          bodySource = _raOverrides.size > 0 ? "thread-context-with-overrides" : "thread-context-fallback";
+        } else {
+          quotedHtml = `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(plainText)}</pre>`;
+          bodySource = "plaintext-fallback";
+        }
       }
     }
 
