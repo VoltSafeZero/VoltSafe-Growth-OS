@@ -1062,11 +1062,28 @@ function ComposeDialog({
       // Signature HTML is NOT included in the body — only selectedSignatureId is
       // sent. The backend loads, normalizes, and appends the signature server-side,
       // keeping full HTML signature content out of the browser POST body (WAF-safe).
+      const _frtOn = (import.meta.env.DEV as boolean) ||
+        (typeof localStorage !== "undefined" && localStorage.getItem("FORWARD_REPLY_TRACE") === "true");
+      if (_frtOn) {
+        console.log("[FRT:send:step1-input]", {
+          isForward, hasThread: !!threadId,
+          defaultQuotedHtmlLen: defaultQuotedHtml?.length ?? 0,
+          defaultQuotedHtmlFirst200: defaultQuotedHtml?.slice(0, 200) ?? "",
+          defaultQuotedFrom, defaultQuotedDate,
+        });
+      }
       const quotedBlock = isForward && defaultQuotedHtml
         ? buildForwardedBlockHtml(defaultQuotedFrom, defaultQuotedDate, forwardSubject, forwardTo, defaultQuotedHtml)
         : (!isForward && threadId && defaultQuotedHtml
           ? buildReplyQuoteBlockHtml(defaultQuotedFrom, defaultQuotedDate, defaultQuotedHtml)
           : "");
+      if (_frtOn) {
+        console.log("[FRT:send:step1-quotedBlock]", {
+          quotedBlockLen: quotedBlock.length,
+          quotedBlockFirst200: quotedBlock.slice(0, 200),
+          hasGmailQuote: quotedBlock.includes("gmail_quote") || quotedBlock.includes("blockquote"),
+        });
+      }
 
       // ── Step 2: Assemble body — user content + quoted block only ─────────────
       // IMPORTANT: quotedBlock must NOT be passed as appendHtml to buildEmailHtml.
@@ -7578,21 +7595,100 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     };
   }, []);
 
-  const handleReply = (msg: ThreadMessage) => {
+  // ── FORWARD_REPLY_TRACE helpers ─────────────────────────────────────────────
+  // Always on in dev (import.meta.env.DEV), or enable at runtime with:
+  //   localStorage.setItem('FORWARD_REPLY_TRACE', 'true')
+  const _frtEnabled = (import.meta.env.DEV as boolean) ||
+    (typeof localStorage !== "undefined" && localStorage.getItem("FORWARD_REPLY_TRACE") === "true");
+  const frtLog = (action: string, data: object) => {
+    if (!_frtEnabled) return;
+    console.log(`[FRT:${action}]`, { ...data, _ts: Date.now() });
+  };
+
+  // Fetches the full body_html for a message at compose time.
+  // If body_html is already stored it returns in ~0ms (fast DB path).
+  // If not, fetches live from Gmail, caches the result, and returns.
+  const fetchFullMessageBody = async (msgId: string) => {
+    const qs = activeAccountId && activeAccountId !== "all"
+      ? `?asAccountId=${activeAccountId}` : "";
+    try {
+      const r = await fetch(
+        `/api/gmail/messages/${encodeURIComponent(msgId)}/full-body${qs}`,
+        { credentials: "include" }
+      );
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json() as { bodyHtml: string; bodyText: string; isHtml: boolean; source: string };
+    } catch (e: any) {
+      console.warn("[frt] fetchFullMessageBody failed:", e.message);
+      return { bodyHtml: "", bodyText: "", isHtml: false, source: "error" } as const;
+    }
+  };
+
+  // Builds a multi-message quoted thread block (used as fallback for Reply/Reply-All
+  // when the focused message has no body_html so the full prior chain is preserved).
+  const buildThreadQuoteBlock = (msgs: ThreadMessage[]): string =>
+    msgs.map((m, idx) => {
+      const mDate = m.date || (m.internalDate ? new Date(Number(m.internalDate)).toLocaleString() : "");
+      const mBody = m.isHtml
+        ? (m.body || "")
+        : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(m.body || "")}</pre>`;
+      const divider = idx > 0 ? `<div style="margin:12px 0;border-top:1px solid #e8e8e8;"></div>` : "";
+      return `${divider}<p style="margin:0 0 4px 0;font-size:11px;color:#888;font-weight:bold;">${escHtml(m.from || "Unknown")}&nbsp;&nbsp;<span style="font-weight:normal;">${escHtml(mDate)}</span></p>${mBody}`;
+    }).join("");
+
+  // ── Reply ─────────────────────────────────────────────────────────────────
+  const handleReply = async (msg: ThreadMessage) => {
     const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toLocaleString() : "");
+    let quotedHtml = msg.body || "";
+    let bodySource = msg.isHtml ? "body_html" : (msg.body ? "body_text_truncated" : "empty");
+
+    frtLog("reply:start", {
+      action: "reply", msgId: msg.id, isHtml: msg.isHtml,
+      bodyLen: msg.body?.length ?? 0, bodySource,
+      threadMsgCount: threadQuery.data?.messages?.length ?? 0,
+    });
+
+    // If stored body is plain-text (body_html was empty/null in DB), fetch the full HTML on-demand.
+    // body_text is stored with a 4 KB historical limit — plain-text emails and unbackfilled messages
+    // would produce a severely truncated quoted block without this fetch.
+    if (!msg.isHtml) {
+      const full = await fetchFullMessageBody(msg.id);
+      frtLog("reply:full-body-fetch", {
+        source: full.source, isHtml: full.isHtml,
+        htmlLen: full.bodyHtml?.length ?? 0, textLen: full.bodyText?.length ?? 0,
+      });
+      if (full.bodyHtml) {
+        quotedHtml = full.bodyHtml;
+        bodySource = `full-body:${full.source}`;
+      } else {
+        // Pure plain-text email or fetch failed — use full thread context so prior messages survive
+        const allMsgs = threadQuery.data?.messages || [msg];
+        const plainText = full.bodyText || msg.body || "";
+        quotedHtml = allMsgs.length > 1
+          ? buildThreadQuoteBlock(allMsgs)
+          : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(plainText)}</pre>`;
+        bodySource = allMsgs.length > 1 ? "thread-context-fallback" : "plaintext-fallback";
+      }
+    }
+
+    frtLog("reply:final", {
+      action: "reply", msgId: msg.id, bodySource,
+      quotedHtmlLen: quotedHtml.length, first300: quotedHtml.slice(0, 300),
+    });
+
     setReplyTo({
       to: parseSenderEmail(msg.from),
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       threadId: msg.threadId,
       fromName: parseSenderName(msg.from),
-      quotedHtml: msg.body || "",
+      quotedHtml,
       quotedFrom: msg.from || "",
       quotedDate: dateStr,
     });
   };
 
-  const handleReplyAll = (msg: ThreadMessage) => {
-    // Collect all addresses from To and CC, exclude the sender's own address
+  // ── Reply All ─────────────────────────────────────────────────────────────
+  const handleReplyAll = async (msg: ThreadMessage) => {
     const ownEmail = currentUserEmail.toLowerCase();
     const allRecipients = [msg.to, msg.cc]
       .filter(Boolean)
@@ -7601,41 +7697,106 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       .map((e) => e.trim())
       .filter((e) => e && parseSenderEmail(e).toLowerCase() !== ownEmail);
     const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toLocaleString() : "");
+    let quotedHtml = msg.body || "";
+    let bodySource = msg.isHtml ? "body_html" : (msg.body ? "body_text_truncated" : "empty");
+
+    frtLog("replyAll:start", {
+      action: "replyAll", msgId: msg.id, isHtml: msg.isHtml,
+      bodyLen: msg.body?.length ?? 0, bodySource, ccCount: allRecipients.length,
+      threadMsgCount: threadQuery.data?.messages?.length ?? 0,
+    });
+
+    if (!msg.isHtml) {
+      const full = await fetchFullMessageBody(msg.id);
+      frtLog("replyAll:full-body-fetch", {
+        source: full.source, isHtml: full.isHtml,
+        htmlLen: full.bodyHtml?.length ?? 0, textLen: full.bodyText?.length ?? 0,
+      });
+      if (full.bodyHtml) {
+        quotedHtml = full.bodyHtml;
+        bodySource = `full-body:${full.source}`;
+      } else {
+        const allMsgs = threadQuery.data?.messages || [msg];
+        const plainText = full.bodyText || msg.body || "";
+        quotedHtml = allMsgs.length > 1
+          ? buildThreadQuoteBlock(allMsgs)
+          : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(plainText)}</pre>`;
+        bodySource = allMsgs.length > 1 ? "thread-context-fallback" : "plaintext-fallback";
+      }
+    }
+
+    frtLog("replyAll:final", {
+      action: "replyAll", msgId: msg.id, bodySource,
+      quotedHtmlLen: quotedHtml.length, first300: quotedHtml.slice(0, 300),
+    });
+
     setReplyTo({
       to: parseSenderEmail(msg.from),
       cc: allRecipients.length > 0 ? allRecipients.join(", ") : undefined,
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       threadId: msg.threadId,
       fromName: parseSenderName(msg.from),
-      quotedHtml: msg.body || "",
+      quotedHtml,
       quotedFrom: msg.from || "",
       quotedDate: dateStr,
     });
   };
 
-  const handleForward = (msg: ThreadMessage) => {
+  // ── Forward ───────────────────────────────────────────────────────────────
+  const handleForward = async (msg: ThreadMessage) => {
     const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toUTCString() : "");
-    // Build full thread history so the recipient gets the entire conversation context.
-    // For a single-message thread use that message's body directly.
-    // For multi-message threads, concatenate all messages oldest-first with dividers
-    // so each sender/date is visible — this is the correct behaviour when the stored
-    // body_html of a message doesn't contain Gmail's native quoted-chain inline.
     const allMsgs = threadQuery.data?.messages || [msg];
+
+    frtLog("forward:start", {
+      action: "forward", msgId: msg.id, threadMsgCount: allMsgs.length,
+      msgsWithoutHtml: allMsgs.filter((m) => !m.isHtml).map((m) => m.id),
+    });
+
+    // For every message without body_html, fetch the full body on-demand in parallel.
+    // This covers: emails not yet backfilled, pure plain-text emails (body_text 4 KB limit).
+    const resolvedMsgs = await Promise.all(allMsgs.map(async (m) => {
+      if (m.isHtml && (m.body?.length ?? 0) > 0) {
+        frtLog("forward:msg-ok", { msgId: m.id, source: "body_html", len: m.body.length });
+        return { m, resolvedBody: m.body, resolvedIsHtml: true, bodySource: "body_html" };
+      }
+      const full = await fetchFullMessageBody(m.id);
+      frtLog("forward:msg-fetch", {
+        msgId: m.id, source: full.source, isHtml: full.isHtml,
+        htmlLen: full.bodyHtml?.length ?? 0, textLen: full.bodyText?.length ?? 0,
+      });
+      if (full.bodyHtml) {
+        return { m, resolvedBody: full.bodyHtml, resolvedIsHtml: true, bodySource: `full-body:${full.source}` };
+      }
+      return {
+        m,
+        resolvedBody: full.bodyText || m.body || "",
+        resolvedIsHtml: false,
+        bodySource: "plaintext-fallback",
+      };
+    }));
+
     let quotedHtml: string;
-    if (allMsgs.length <= 1) {
-      quotedHtml = msg.isHtml
-        ? (msg.body || "")
-        : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(msg.body || "")}</pre>`;
+    if (resolvedMsgs.length === 1) {
+      const { resolvedBody, resolvedIsHtml } = resolvedMsgs[0];
+      quotedHtml = resolvedIsHtml
+        ? resolvedBody
+        : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(resolvedBody)}</pre>`;
     } else {
-      quotedHtml = allMsgs.map((m, idx) => {
+      quotedHtml = resolvedMsgs.map(({ m, resolvedBody, resolvedIsHtml }, idx) => {
         const mDate = m.date || (m.internalDate ? new Date(Number(m.internalDate)).toLocaleString() : "");
-        const mBody = m.isHtml
-          ? (m.body || "")
-          : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(m.body || "")}</pre>`;
+        const mBody = resolvedIsHtml
+          ? resolvedBody
+          : `<pre style="font-family:inherit;white-space:pre-wrap;">${escHtml(resolvedBody)}</pre>`;
         const divider = idx > 0 ? `<div style="margin:12px 0;border-top:1px solid #e8e8e8;"></div>` : "";
         return `${divider}<p style="margin:0 0 4px 0;font-size:11px;color:#888;font-weight:bold;">${escHtml(m.from || "Unknown")}&nbsp;&nbsp;<span style="font-weight:normal;">${escHtml(mDate)}</span></p>${mBody}`;
       }).join("");
     }
+
+    frtLog("forward:final", {
+      action: "forward", msgId: msg.id, threadMsgCount: allMsgs.length,
+      quotedHtmlLen: quotedHtml.length, first300: quotedHtml.slice(0, 300),
+    });
+
     setReplyTo(null);
     setComposeInitial({
       to: "",

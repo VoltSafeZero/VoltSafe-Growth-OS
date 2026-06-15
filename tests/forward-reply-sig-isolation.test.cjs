@@ -152,12 +152,21 @@ test("stripSignatureSection exported from email-format.ts", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Section 5 — handleForward / handleReplyAll source structure
 // ─────────────────────────────────────────────────────────────────────────────
-const fwdStart  = inboxSrc.indexOf("const handleForward = (msg: ThreadMessage)");
+// Handlers may be sync or async — search for either form
+const fwdStart  = (() => {
+  const async_ = inboxSrc.indexOf("const handleForward = async (msg: ThreadMessage)");
+  const sync_  = inboxSrc.indexOf("const handleForward = (msg: ThreadMessage)");
+  return async_ !== -1 ? async_ : sync_;
+})();
 const fwdEnd    = inboxSrc.indexOf("const selectedMessages = ");
 const fwdBlock  = inboxSrc.slice(fwdStart, fwdEnd);
 
-const raStart   = inboxSrc.indexOf("const handleReplyAll = (msg: ThreadMessage)");
-const raEnd     = inboxSrc.indexOf("const handleForward = (msg: ThreadMessage)");
+const raStart   = (() => {
+  const async_ = inboxSrc.indexOf("const handleReplyAll = async (msg: ThreadMessage)");
+  const sync_  = inboxSrc.indexOf("const handleReplyAll = (msg: ThreadMessage)");
+  return async_ !== -1 ? async_ : sync_;
+})();
+const raEnd     = fwdStart;
 const raBlock   = inboxSrc.slice(raStart, raEnd);
 
 console.log("\n=== 5. handleForward / handleReplyAll source structure ===");
@@ -167,8 +176,9 @@ test("handleForward reads full thread from threadQuery.data.messages", () => {
     "handleForward must use threadQuery.data.messages to build full thread context");
 });
 test("handleForward multi-message: iterates all messages", () => {
-  ok(fwdBlock, "allMsgs.map(",
-    "handleForward must map over all messages for multi-message threads");
+  // May use allMsgs.map or resolvedMsgs.map depending on whether on-demand fetch is present
+  const hasMsgMap = fwdBlock.includes("allMsgs.map(") || fwdBlock.includes("resolvedMsgs.map(");
+  if (!hasMsgMap) throw new Error("handleForward must map over all messages (allMsgs.map or resolvedMsgs.map)");
 });
 test("handleForward sets isForward:true on composeInitial", () => {
   ok(fwdBlock, "isForward: true",
@@ -181,8 +191,9 @@ test("handleForward passes quotedHtml to composeInitial (not sig-wrapped)", () =
     "handleForward must NEVER embed quoted content inside sig markers");
 });
 test("handleReplyAll sets quotedHtml from msg.body", () => {
-  ok(raBlock, "quotedHtml: msg.body",
-    "handleReplyAll must populate quotedHtml from the focused message body");
+  // May be 'quotedHtml: msg.body' (sync) or 'let quotedHtml = msg.body' (async with fallback)
+  const hasBody = raBlock.includes("quotedHtml: msg.body") || raBlock.includes("quotedHtml = msg.body");
+  if (!hasBody) throw new Error("handleReplyAll must populate quotedHtml from msg.body (directly or as initial value)");
 });
 test("handleReplyAll does not embed quoted content in sig markers", () => {
   no(raBlock, "vs-sig-start",

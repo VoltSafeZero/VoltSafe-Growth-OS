@@ -11836,6 +11836,109 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ── Compose-time full-body endpoint ────────────────────────────────────────
+  // Called by Reply / Reply-All / Forward handlers when the stored body_html is
+  // empty (message not yet backfilled, or email is plain-text only).
+  // 1. Returns body_html from DB if already populated.
+  // 2. Otherwise fetches the live Gmail message, updates the DB cache, and
+  //    returns the full HTML so the compose dialog has the complete email body.
+  // Response: { bodyHtml, bodyText, isHtml, source, bodyHtmlLength, bodyTextLength }
+  app.get("/api/gmail/messages/:msgId/full-body", requireAuth, async (req, res) => {
+    try {
+      const msgId = String(req.params.msgId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+      if (!msgId) return res.status(400).json({ error: "Invalid msgId" });
+      const userId = (req.session as any).userId as number;
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+
+      // Look up the message record
+      const msgRows = await db.execute(sql.raw(
+        `SELECT id, source_account_id, body_html, body_text, snippet
+         FROM email_messages
+         WHERE gmail_message_id = '${msgId.replace(/'/g, "''")}' LIMIT 1`
+      ));
+      const msgRow = ((msgRows as any).rows ?? msgRows)[0] as any;
+      if (!msgRow) return res.status(404).json({ error: "Message not found" });
+
+      const accountId = Number(msgRow.source_account_id);
+      // Auth check — same model as cid-image endpoint
+      const hasSharedAccess = mailTeamPerms[String(accountId)]?.view === true
+        || mailTeamPerms[String(accountId)]?.edit === true;
+      const ownerRows = await db.execute(sql.raw(
+        `SELECT user_id FROM email_accounts WHERE id = ${accountId} LIMIT 1`
+      ));
+      const ownerUserId = Number(((ownerRows as any).rows ?? ownerRows)[0]?.user_id ?? 0);
+      if (ownerUserId !== userId && !isAdmin && !hasSharedAccess) {
+        return res.status(403).json({ error: "Not allowed" });
+      }
+
+      // Fast path — body_html already in DB
+      if (msgRow.body_html) {
+        return res.json({
+          bodyHtml: msgRow.body_html,
+          bodyText: msgRow.body_text || "",
+          isHtml: true,
+          source: "db",
+          bodyHtmlLength: (msgRow.body_html as string).length,
+          bodyTextLength: (msgRow.body_text || "").length,
+        });
+      }
+
+      // Slow path — fetch from Gmail on-demand, cache in DB
+      try {
+        const { getGmailClient } = await import("./gmail-oauth");
+        const { parseGmailMessage } = await import("./services/email-parser");
+        const acctRows = await db.execute(sql.raw(
+          `SELECT email_address FROM email_accounts WHERE id = ${accountId} LIMIT 1`
+        ));
+        const emailAddr = String(((acctRows as any).rows ?? acctRows)[0]?.email_address || "");
+        const myDomain = (emailAddr.split("@")[1] || "voltsafe.com").toLowerCase();
+        const gmailUserId = ownerUserId || userId;
+        const gmail = await getGmailClient(gmailUserId, accountId);
+        const gmailMsg = await gmail.users.messages.get({ userId: "me", id: msgId, format: "full" });
+        const parsed = parseGmailMessage(gmailMsg.data as any, myDomain);
+
+        if (parsed.bodyHtml) {
+          await db.update(emailMessages)
+            .set({ bodyHtml: parsed.bodyHtml })
+            .where(eq(emailMessages.gmailMessageId, msgId));
+          console.log(`[full-body] Gmail live fetch OK msgId=${msgId} htmlLen=${parsed.bodyHtml.length}`);
+          return res.json({
+            bodyHtml: parsed.bodyHtml,
+            bodyText: parsed.bodyText || msgRow.body_text || "",
+            isHtml: true,
+            source: "gmail-live",
+            bodyHtmlLength: parsed.bodyHtml.length,
+            bodyTextLength: (parsed.bodyText || msgRow.body_text || "").length,
+          });
+        }
+        // Plain-text only email — no HTML part
+        const bt = parsed.bodyText || msgRow.body_text || "";
+        return res.json({
+          bodyHtml: "",
+          bodyText: bt,
+          isHtml: false,
+          source: "gmail-live-plaintext",
+          bodyHtmlLength: 0,
+          bodyTextLength: bt.length,
+        });
+      } catch (gmailErr: any) {
+        console.warn(`[full-body] Gmail fetch failed msgId=${msgId}:`, gmailErr.message?.slice(0, 120));
+        const bt = msgRow.body_text || msgRow.snippet || "";
+        return res.json({
+          bodyHtml: "",
+          bodyText: bt,
+          isHtml: false,
+          source: "db-fallback",
+          bodyHtmlLength: 0,
+          bodyTextLength: bt.length,
+        });
+      }
+    } catch (err: any) {
+      console.error("[full-body] error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/gmail/threads", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId;
     const rawAcc = req.query.asAccountId as string | undefined;
@@ -11945,9 +12048,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             // fetch from Gmail in parallel now, update the DB, and patch the response
             // so the user sees rich HTML on first open rather than plain text.
             // Subsequent opens are served instantly from the local cache.
-            // Cap at 10: long threads with many historical messages are handled
-            // by the scheduled HTML backfill workflow, not on-demand fetch.
-            const msgsLackingHtml = local.messages.filter((m: any) => !m.isHtml).slice(0, 10);
+            // Raised cap to 25: ensures most real threads have HTML on first open.
+            // Very long threads (25+) still rely on the scheduled backfill workflow.
+            const msgsLackingHtml = local.messages.filter((m: any) => !m.isHtml).slice(0, 25);
             if (msgsLackingHtml.length > 0) {
               try {
                 const { getGmailClient } = await import("./gmail-oauth");
@@ -15882,6 +15985,21 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // private /api/ routes, and old Replit host URLs that bloat the request body
       // and cause the production proxy to return a 403 HTML page.
       const cleanBody = applySignatureSendSanitizer(normalizeOutboundHtml(normalizedBody), baseUrl);
+      // ── FORWARD_REPLY_TRACE: server-side send pipeline lengths ───────────────
+      if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
+        const _hasSigStart = cleanBody.includes("<!--vs-sig-start-->");
+        const _hasGmailQuote = cleanBody.includes("gmail_quote") || cleanBody.includes("blockquote");
+        const _hasVsBodyDiv = cleanBody.includes("vs-body");
+        console.log("[FRT-SEND:pre-sig]", {
+          rawBodyLen: (body || "").length,
+          cleanBodyLen: cleanBody.length,
+          hasSigStart: _hasSigStart,
+          hasGmailQuote: _hasGmailQuote,
+          hasVsBodyDiv: _hasVsBodyDiv,
+          isForward: req.body?.isForward ?? false,
+          hasThreadId: !!(req.body?.threadId),
+        });
+      }
 
       // ── Server-side signature assembly ──────────────────────────────────────
       // Frontend sends selectedSignatureId instead of full signature HTML.
@@ -16006,6 +16124,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             const _cleanBodyNoStaleSig = cleanBody.replace(/<!--vs-sig-start-->[\s\S]*?<!--vs-sig-end-->/gi, "");
 
             bodyWithSig = _cleanBodyNoStaleSig + `<!--vs-sig-start-->${_sigSection}<!--vs-sig-end-->`;
+            if (process.env.FORWARD_REPLY_TRACE === "true" || process.env.NODE_ENV !== "production") {
+              console.log("[FRT-SEND:post-sig]", {
+                cleanBodyNoStaleSigLen: _cleanBodyNoStaleSig.length,
+                bodyWithSigLen: bodyWithSig.length,
+                hasQuotedContent: bodyWithSig.includes("gmail_quote") || bodyWithSig.includes("blockquote"),
+              });
+            }
 
             // ── Dedup guard: remove duplicate CTA images outside the sig section ────
             // Ensures exactly ONE instance of each sig image (Watch Demo, VoltSafe logo,
