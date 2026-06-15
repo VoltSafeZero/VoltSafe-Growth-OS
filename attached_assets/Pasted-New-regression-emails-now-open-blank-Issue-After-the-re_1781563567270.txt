@@ -1,0 +1,79 @@
+New regression: emails now open blank.
+
+Issue:
+After the reply/reply-all/forward truncation fixes, clicking newer emails in VoltSafe Mail opens a blank message pane. The list item shows the real sender/subject, but the message detail pane shows:
+- "(no subject)"
+- no email body/content
+- blank thread area
+
+This is happening across new emails, not just one message.
+
+Do a focused regression audit of the email open/thread-detail path.
+
+Likely cause:
+One of the recent body hydration / FRT / full-body endpoint changes broke the selected message → thread API → thread view mapping. The list view has metadata, but the thread detail payload or frontend selected-thread state is empty/null/wrong.
+
+Check these areas:
+
+1. Frontend selected email click flow
+- When clicking a message in the list, confirm the correct message id/thread id/account id is set.
+- Confirm selectedThreadId / selectedMessageId did not get overwritten by the new FRT or hydration logic.
+- Confirm the detail pane is not rendering a placeholder object with subject = null.
+
+2. Thread API request
+- Inspect the network request made when clicking a message.
+- Confirm the endpoint receives the correct:
+  - message id
+  - thread id
+  - account id / mailbox id
+- Confirm it returns actual messages, not [].
+- Confirm the returned thread subject/from/date/body fields are populated.
+
+3. getLocalThread / local-mailbox mapping
+- Verify getLocalThread still returns:
+  - subject
+  - from
+  - to
+  - date
+  - body
+  - isHtml
+  - body_html/body_text fallback
+- Make sure recent changes did not accidentally make getLocalThread return only FRT trace data or filter out messages.
+
+4. FRT instrumentation safety
+- Confirm all FRT logging is side-effect free.
+- It must never change returned API shape.
+- It must never throw if body/body_html/body_text is null.
+- Wrap trace calculations defensively:
+  - String(value || "")
+  - optional chaining everywhere
+  - no assumptions about message fields.
+
+5. Backend thread response
+- Search recent changes in server/routes.ts around thread-api logging.
+- Look for any accidental return/res.json change, destructuring error, map returning undefined, or variable shadowing.
+- Confirm logging did not replace the real response object.
+
+6. Frontend render guard
+- Confirm the message detail pane still uses the real threadQuery.data.
+- If threadQuery.data.messages is empty or fetch fails, show an explicit error/loading state, not a blank fake message with "(no subject)".
+- Surface the API error in the UI/console.
+
+Required debug:
+Add temporary logs for one clicked blank email:
+- clicked list message id
+- clicked list thread id
+- clicked account id
+- thread API URL
+- thread API HTTP status
+- thread API message count
+- first returned message subject
+- first returned message body length
+- frontend threadQuery.data shape
+- render selected subject/body length
+
+Acceptance criteria:
+- Clicking any new email opens the correct subject and full body again.
+- Existing reply/reply-all/forward truncation fixes remain intact.
+- FRT logs remain side-effect free and gated.
+- Add regression test: thread API logging must not alter the returned thread payload.
