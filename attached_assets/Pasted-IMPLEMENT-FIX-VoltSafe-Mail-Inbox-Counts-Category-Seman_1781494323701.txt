@@ -1,0 +1,93 @@
+IMPLEMENT FIX — VoltSafe Mail Inbox Counts + Category Semantics
+
+Audit confirmed:
+1. Categorized unread emails DO have INBOX.
+2. Inbox API DOES return them.
+3. Smart Inbox DOES render them inside the inbox.
+4. The user confusion is caused by:
+   - Inbox badge showing first-page client count instead of true inbox unread total
+   - Category sidebar badges counting huge historical/archive totals
+   - Forum badge showing total count when unread = 0
+   - Category sections looking like separate destination folders instead of tags/views
+
+Goal:
+Make VoltSafe Mail accurately communicate:
+- Inbox = all inbox-visible mail
+- Categories = tags/views only
+- Category badges should never imply emails live outside Inbox
+
+Implement the smallest safe fix.
+
+PART A — Inbox Badge
+Fix the Inbox unread badge so it always uses a true server-side unread inbox-visible count.
+
+Current bug:
+gmail-inbox.tsx uses:
+inboxMain.filter(isUnread).length
+from the first-page result when health query is empty or unresolved.
+
+Required:
+- Use server-side unread count from /api/gmail/accounts/health or a dedicated endpoint.
+- While loading, show no badge or a skeleton/ellipsis, not the wrong first-page count.
+- Never display first-page unread count as the Inbox badge.
+- Apply this to every Inbox badge location.
+
+PART B — Category Sidebar Badges
+Fix category badges.
+
+Current bug:
+Category counts include all historical messages with category labels, including archived/read.
+If unread = 0, UI falls back to total count, e.g. Forums shows 70 even though unread is 0.
+
+Required:
+- Category sidebar badges should show unread inbox-visible count only.
+- Do NOT fall back to total count.
+- If unread inbox-visible count is 0, show no badge.
+- Category count query should count only messages that:
+  - have the category label
+  - have INBOX or are otherwise inbox-visible
+  - are UNREAD
+  - are not SPAM/TRASH/SENT/DRAFT
+
+PART C — Category Labels / Views
+Keep Categories in sidebar, but treat them as filtered inbox views.
+
+Required:
+- Clicking Newsletters, Promotions, Social, Forums should filter the Inbox to that tag/category.
+- The header should make this clear, e.g. “Inbox · Promotions”
+- Emails shown in a category view are still inbox emails.
+- Do not treat Categories as folders.
+- Do not remove category labels.
+
+PART D — Smart Inbox Section Labels
+Rename Smart Inbox sections to reduce confusion:
+- “Newsletters” → “Inbox · Newsletters”
+- “Notifications” → “Inbox · Notifications”
+- “People” can stay “People”
+- “Priority” can stay “Priority”
+- “Seen” can stay “Seen”
+
+Optional but preferred:
+Add a tiny helper text near Categories:
+“Tags only — emails stay in Inbox.”
+
+PART E — Verification
+Run verification for trevor@voltsafe.com:
+
+1. Inbox unread badge equals server-side total unread inbox-visible count.
+2. Inbox badge no longer shows first-page count.
+3. Category badges show unread inbox-visible counts only.
+4. Forum badge disappears if unread = 0.
+5. Category badge totals no longer include archived/read historical emails.
+6. Clicking Promotions shows inbox messages tagged Promotions.
+7. Those same Promotions messages also appear in main Inbox.
+8. Spam/trash/sent/draft are excluded.
+9. Smart Inbox still renders.
+10. No regressions to compose, sent, drafts, spam, search, pinned, scheduled.
+
+Final output:
+- Files changed
+- Exact query/count logic changed
+- Before/after count comparison
+- Screenshot or browser verification summary
+- Test results

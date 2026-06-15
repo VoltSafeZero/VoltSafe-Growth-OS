@@ -7056,18 +7056,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
-  // Server-side total unread inbox count — reflects the full database, not just
-  // the first 50 messages loaded on the current page.  Used for all badge/counter
-  // displays so the user sees the true total even before scrolling.
-  // Falls back to the client-side count while the health query is loading.
+  // Returns 0 while health data is loading — no badge shown until the true server
+  // total arrives. Never falls back to inboxUnreadCount (first-page only).
   const serverInboxUnreadCount = useMemo(() => {
-    const accounts = accountsHealthQuery.data ?? [];
-    if (accounts.length === 0) return inboxUnreadCount;
+    const accounts = accountsHealthQuery.data;
+    if (!accounts || accounts.length === 0) return 0;
     if (activeAccountId === null) {
       return accounts.reduce((sum, a) => sum + (a.unreadCount ?? 0), 0);
     }
-    return accounts.find((a) => a.id === activeAccountId)?.unreadCount ?? inboxUnreadCount;
-  }, [accountsHealthQuery.data, activeAccountId, inboxUnreadCount]);
+    return accounts.find((a) => a.id === activeAccountId)?.unreadCount ?? 0;
+  }, [accountsHealthQuery.data, activeAccountId]);
 
   const pinnedMessages = useMemo(
     () => inboxMain.filter((m) => pinnedAPI.pinned.has(m.threadId)),
@@ -8010,9 +8008,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       </button>
                     )}
                     {/* ── Categories (Gmail hidden tabs visibility layer) ──────── */}
-                    <div className={`${densityClasses.sidebarSectionPt} pb-0.5 px-1`}>
+                    <div className={`${densityClasses.sidebarSectionPt} pb-0 px-1`}>
                       <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Categories</span>
                     </div>
+                    <p className="px-2 pb-1 text-[10px] text-muted-foreground/35 italic leading-tight">Tags only — emails stay in Inbox.</p>
                     {([
                       { key: "updates",    label: "Newsletters & Updates", Icon: Newspaper },
                       { key: "promotions", label: "Promotions",            Icon: Tag       },
@@ -8021,7 +8020,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     ] as const).map(({ key, label, Icon }) => {
                       const counts = categoryCountsQuery.data?.[key];
                       const isActive = tab === key;
-                      const badge = counts ? (counts.unread > 0 ? counts.unread : counts.total > 0 ? counts.total : 0) : 0;
+                      const badge = counts?.unread ?? 0;
                       return (
                         <button key={key}
                           onClick={() => { setTab(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
@@ -8911,6 +8910,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   );
                 })
               )
+            )}
+
+            {/* ── Category tab header — "Inbox · [Category]" ───────────────── */}
+            {isCategoryTab && (
+              <div className="px-3 py-2 border-b border-border/40 flex items-center gap-1.5 bg-muted/15 flex-shrink-0">
+                <InboxIcon className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" />
+                <span className="text-[11px] text-muted-foreground/55">Inbox</span>
+                <span className="text-[11px] text-muted-foreground/30">·</span>
+                <span className="text-[11px] font-medium text-foreground/70">
+                  {tab === "updates" ? "Newsletters & Updates"
+                    : tab === "promotions" ? "Promotions"
+                    : tab === "social" ? "Social"
+                    : "Forums & Communities"}
+                </span>
+                <span className="ml-auto text-[10px] italic text-muted-foreground/35">Inbox-tagged view</span>
+              </div>
             )}
 
             {/* ── Category tab rendering (Updates / Promotions / Social / Forums) ── */}

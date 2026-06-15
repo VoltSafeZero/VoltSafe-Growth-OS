@@ -319,11 +319,11 @@ export function groupSmartInbox<M extends GroupableMessage>(
   }
   // Newsletters before Notifications: bulk/marketing before automated-transactional.
   if (orderedNewsletters.length > 0) {
-    out.push({ kind: "header", id: "unread-newsletters", title: "Newsletters", glyph: "newsletters", count: orderedNewsletters.length, isSubsection: false });
+    out.push({ kind: "header", id: "unread-newsletters", title: "Inbox · Newsletters", glyph: "newsletters", count: orderedNewsletters.length, isSubsection: false });
     for (const m of orderedNewsletters) out.push({ kind: "msg", section: "unread-newsletters", msg: m });
   }
   if (orderedNotifs.length > 0) {
-    out.push({ kind: "header", id: "unread-notifications", title: "Notifications", glyph: "notifications", count: orderedNotifs.length, isSubsection: false });
+    out.push({ kind: "header", id: "unread-notifications", title: "Inbox · Notifications", glyph: "notifications", count: orderedNotifs.length, isSubsection: false });
     for (const m of orderedNotifs) out.push({ kind: "msg", section: "unread-notifications", msg: m });
   }
   // Seen: all read messages that are not in Priority, newest first.

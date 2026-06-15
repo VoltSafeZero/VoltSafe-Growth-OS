@@ -16355,29 +16355,30 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
       const rows = await db.execute(sql.raw(`
         SELECT
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%')::int         AS updates_total,
           COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%'
-                             AND label_ids ILIKE '%UNREAD%')::int                   AS updates_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%')::int      AS promotions_total,
+                             AND label_ids LIKE '%"INBOX"%'
+                             AND label_ids LIKE '%"UNREAD"%')::int    AS updates_unread,
           COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%'
-                             AND label_ids ILIKE '%UNREAD%')::int                   AS promotions_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%')::int          AS social_total,
+                             AND label_ids LIKE '%"INBOX"%'
+                             AND label_ids LIKE '%"UNREAD"%')::int    AS promotions_unread,
           COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%'
-                             AND label_ids ILIKE '%UNREAD%')::int                   AS social_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%')::int          AS forums_total,
+                             AND label_ids LIKE '%"INBOX"%'
+                             AND label_ids LIKE '%"UNREAD"%')::int    AS social_unread,
           COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'
-                             AND label_ids ILIKE '%UNREAD%')::int                   AS forums_unread
+                             AND label_ids LIKE '%"INBOX"%'
+                             AND label_ids LIKE '%"UNREAD"%')::int    AS forums_unread
         FROM email_messages
         WHERE source_account_id IN (${validIds.join(",")})
           AND label_ids NOT ILIKE '%"TRASH"%'
           AND label_ids NOT ILIKE '%"SPAM"%'
+          AND label_ids NOT ILIKE '%"DRAFT"%'
       `));
       const r = (((rows as any).rows ?? rows)[0] ?? {}) as Record<string, number>;
       res.json({
-        updates:    { total: r.updates_total    ?? 0, unread: r.updates_unread    ?? 0 },
-        promotions: { total: r.promotions_total ?? 0, unread: r.promotions_unread ?? 0 },
-        social:     { total: r.social_total     ?? 0, unread: r.social_unread     ?? 0 },
-        forums:     { total: r.forums_total     ?? 0, unread: r.forums_unread     ?? 0 },
+        updates:    { total: 0, unread: r.updates_unread    ?? 0 },
+        promotions: { total: 0, unread: r.promotions_unread ?? 0 },
+        social:     { total: 0, unread: r.social_unread     ?? 0 },
+        forums:     { total: 0, unread: r.forums_unread     ?? 0 },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

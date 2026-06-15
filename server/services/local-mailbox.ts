@@ -265,6 +265,13 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
       where.push(`label_ids NOT ILIKE '%"TRASH"%'`);
     } else {
       where.push(`(label_ids ILIKE '%"${safe(label)}"%' OR label_ids ILIKE '%${safe(label)}%')`);
+      // Category views are inbox-filtered: show only inbox-visible messages, not archived history.
+      if (["CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"].includes(label)) {
+        where.push(`label_ids LIKE '%"INBOX"%'`);
+        where.push(`label_ids NOT ILIKE '%"SPAM"%'`);
+        where.push(`label_ids NOT ILIKE '%"TRASH"%'`);
+        where.push(`label_ids NOT ILIKE '%"DRAFT"%'`);
+      }
     }
   }
 
