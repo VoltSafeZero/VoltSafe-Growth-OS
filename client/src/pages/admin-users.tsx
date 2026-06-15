@@ -59,17 +59,36 @@ type AdminUser = {
   suspendedReason: string | null;
 };
 
+// Static fallback (icons + colors) used by RoleBadge when API hasn't loaded yet
 const GLOBAL_ROLES = [
-  { value: "master_admin", label: "Master Admin", icon: Crown, color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/30" },
-  { value: "admin", label: "Admin", icon: ShieldCheck, color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/30" },
-  { value: "manager", label: "Manager", icon: UserCog, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/30" },
-  { value: "engineer", label: "Engineer", icon: Wrench, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/30" },
-  { value: "sales", label: "Sales", icon: Briefcase, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/30" },
-  { value: "customer_success", label: "Customer Success", icon: HeartHandshake, color: "text-pink-400", bg: "bg-pink-500/10", border: "border-pink-500/30" },
-  { value: "analyst", label: "Analyst", icon: Eye, color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/30" },
-  { value: "advisor", label: "Advisor", icon: GraduationCap, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/30" },
-  { value: "read_only", label: "Read Only", icon: Lock, color: "text-gray-400", bg: "bg-gray-500/10", border: "border-gray-500/30" },
+  { value: "master_admin",    label: "Master Admin",     icon: Crown,          color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/30" },
+  { value: "admin",           label: "Admin",            icon: ShieldCheck,    color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/30" },
+  { value: "manager",         label: "Manager",          icon: UserCog,        color: "text-blue-400",   bg: "bg-blue-500/10",   border: "border-blue-500/30"   },
+  { value: "engineer",        label: "Engineer",         icon: Wrench,         color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/30" },
+  { value: "sales",           label: "Sales",            icon: Briefcase,      color: "text-green-400",  bg: "bg-green-500/10",  border: "border-green-500/30"  },
+  { value: "customer_success",label: "Customer Success", icon: HeartHandshake, color: "text-pink-400",   bg: "bg-pink-500/10",   border: "border-pink-500/30"   },
+  { value: "analyst",         label: "Analyst",          icon: Eye,            color: "text-cyan-400",   bg: "bg-cyan-500/10",   border: "border-cyan-500/30"   },
+  { value: "advisor",         label: "Advisor",          icon: GraduationCap,  color: "text-amber-400",  bg: "bg-amber-500/10",  border: "border-amber-500/30"  },
+  { value: "read_only",       label: "Read Only",        icon: Lock,           color: "text-gray-400",   bg: "bg-gray-500/10",   border: "border-gray-500/30"   },
 ];
+
+// Color class map for dynamically loaded roles
+const ROLE_COLOR_MAP: Record<string, { color: string; bg: string; border: string }> = {
+  yellow: { color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/30" },
+  purple: { color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/30" },
+  blue:   { color: "text-blue-400",   bg: "bg-blue-500/10",   border: "border-blue-500/30"   },
+  orange: { color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/30" },
+  green:  { color: "text-green-400",  bg: "bg-green-500/10",  border: "border-green-500/30"  },
+  pink:   { color: "text-pink-400",   bg: "bg-pink-500/10",   border: "border-pink-500/30"   },
+  cyan:   { color: "text-cyan-400",   bg: "bg-cyan-500/10",   border: "border-cyan-500/30"   },
+  amber:  { color: "text-amber-400",  bg: "bg-amber-500/10",  border: "border-amber-500/30"  },
+  teal:   { color: "text-teal-400",   bg: "bg-teal-500/10",   border: "border-teal-500/30"   },
+  red:    { color: "text-red-400",    bg: "bg-red-500/10",    border: "border-red-500/30"    },
+  indigo: { color: "text-indigo-400", bg: "bg-indigo-500/10", border: "border-indigo-500/30" },
+  gray:   { color: "text-gray-400",   bg: "bg-gray-500/10",   border: "border-gray-500/30"   },
+};
+
+type RoleDefinition = { id: number; value: string; label: string; color: string; is_system: boolean; sort_order: number };
 
 const STATUS_CONFIG = {
   active: { label: "Active", color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/30", icon: CheckCircle2 },
@@ -91,11 +110,15 @@ const SECTION_DEFS = [
 ] as const;
 
 function RoleBadge({ role }: { role: string }) {
-  const cfg = GLOBAL_ROLES.find(r => r.value === role) ?? GLOBAL_ROLES[GLOBAL_ROLES.length - 1];
-  const Icon = cfg.icon;
+  const { data: roleDefs } = useQuery<RoleDefinition[]>({ queryKey: ["/api/admin/role-definitions"] });
+  const dynamic = roleDefs?.find(r => r.value === role);
+  const staticCfg = GLOBAL_ROLES.find(r => r.value === role) ?? GLOBAL_ROLES[GLOBAL_ROLES.length - 1];
+  const Icon = staticCfg.icon;
+  const label = dynamic?.label ?? staticCfg.label;
+  const c = dynamic ? (ROLE_COLOR_MAP[dynamic.color] ?? ROLE_COLOR_MAP.blue) : { color: staticCfg.color, bg: staticCfg.bg, border: staticCfg.border };
   return (
-    <Badge variant="outline" className={`text-xs ${cfg.color} ${cfg.bg} ${cfg.border} gap-1`}>
-      <Icon className="w-3 h-3" />{cfg.label}
+    <Badge variant="outline" className={`text-xs ${c.color} ${c.bg} ${c.border} gap-1`}>
+      <Icon className="w-3 h-3" />{label}
     </Badge>
   );
 }
@@ -326,6 +349,9 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
   const meQuery = useQuery<{ id: number }>({ queryKey: ["/api/auth/me"] });
   const currentUserId = meQuery.data?.id ?? 0;
 
+  const { data: roleDefs = [] } = useQuery<RoleDefinition[]>({ queryKey: ["/api/admin/role-definitions"] });
+  const roleList = roleDefs.length > 0 ? roleDefs : GLOBAL_ROLES;
+
   const filtered = allUsers.filter(u => {
     const matchSearch = !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()) || (u.department ?? "").toLowerCase().includes(search.toLowerCase());
     const matchRole = filterRole === "all" || u.globalRole === filterRole;
@@ -454,7 +480,7 @@ export default function AdminUsersPage({ currentUserGlobalRole }: { currentUserG
             <SelectTrigger className="w-36 h-9 bg-secondary/30 border-transparent" data-testid="select-filter-role"><SelectValue placeholder="All Roles" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Roles</SelectItem>
-              {GLOBAL_ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+              {roleList.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -553,7 +579,10 @@ function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate
   const [newPassword, setNewPassword] = useState("");
   const { toast } = useToast();
 
+  const { data: roleDefs = [] } = useQuery<RoleDefinition[]>({ queryKey: ["/api/admin/role-definitions"] });
+  const dynamicRoleList = roleDefs.length > 0 ? roleDefs : GLOBAL_ROLES;
   const roleCfg = GLOBAL_ROLES.find(r => r.value === user.globalRole) ?? GLOBAL_ROLES[GLOBAL_ROLES.length - 1];
+  const dynamicRoleCfg = roleDefs.find(r => r.value === user.globalRole);
   const statusCfg = STATUS_CONFIG[user.status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.active;
   const RoleIcon = roleCfg.icon;
   const StatusIcon = statusCfg.icon;
@@ -626,7 +655,7 @@ function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate
                   <div><Label className="text-xs">Role</Label>
                     <Select value={form.globalRole} onValueChange={v => setForm(f => ({ ...f, globalRole: v }))}>
                       <SelectTrigger className="mt-1.5 h-9" data-testid="select-edit-role"><SelectValue /></SelectTrigger>
-                      <SelectContent>{GLOBAL_ROLES.filter(r => isMasterAdmin || r.value !== "master_admin").map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
+                      <SelectContent>{dynamicRoleList.filter(r => isMasterAdmin || r.value !== "master_admin").map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <div><Label className="text-xs">User Type</Label>
@@ -727,6 +756,8 @@ function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate
 
 function CreateUserForm({ onSubmit, isPending, isMasterAdmin }: { onSubmit: (d: Record<string, unknown>) => void; isPending: boolean; isMasterAdmin: boolean }) {
   const [form, setForm] = useState({ name: "", email: "", globalRole: "sales", userType: "internal", department: "", jobTitle: "" });
+  const { data: roleDefs = [] } = useQuery<RoleDefinition[]>({ queryKey: ["/api/admin/role-definitions"] });
+  const dynamicRoleList = roleDefs.length > 0 ? roleDefs : GLOBAL_ROLES;
   return (
     <form onSubmit={e => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
@@ -735,7 +766,7 @@ function CreateUserForm({ onSubmit, isPending, isMasterAdmin }: { onSubmit: (d: 
         <div><Label>Role</Label>
           <Select value={form.globalRole} onValueChange={v => setForm(f => ({ ...f, globalRole: v }))}>
             <SelectTrigger className="mt-1.5" data-testid="select-new-user-role"><SelectValue /></SelectTrigger>
-            <SelectContent>{GLOBAL_ROLES.filter(r => isMasterAdmin || r.value !== "master_admin").map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
+            <SelectContent>{dynamicRoleList.filter(r => isMasterAdmin || r.value !== "master_admin").map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div><Label>User Type</Label>

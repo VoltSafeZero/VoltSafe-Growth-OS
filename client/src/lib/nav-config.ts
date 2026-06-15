@@ -203,6 +203,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "admin-task-access",  label: "Task Hub Access",                                route: "/admin/task-hub-access",   icon: CheckSquare, adminOnly: true },
       { id: "admin-integrations", label: "Integrations",                                   route: "/admin/integrations",      icon: Zap,         adminOnly: true },
       { id: "admin-user-signatures", label: "User Signatures",                             route: "/admin/signatures",        icon: PenSquare,   adminOnly: true },
+      { id: "admin-roles",          label: "Role Manager",                                  route: "/admin/roles",             icon: ShieldCheck, adminOnly: true },
       { id: "admin-mailboxes",    label: { desktop: "My Mailboxes", mobile: "Mailboxes" }, route: "/settings/mailbox",        icon: Mail,        adminOnly: true },
       { id: "admin-signatures",   label: "Email Signatures",                               route: "/settings/signatures",     icon: PenSquare,   adminOnly: false },
       { id: "admin-voice-profiles", label: "AI Voice Profiles",                              route: "/settings/voice-profiles", icon: Mic,         adminOnly: false },

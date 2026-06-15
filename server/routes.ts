@@ -7045,6 +7045,132 @@ export async function registerRoutes(
     }
   });
 
+  // ── Role Definitions — master-admin-only CRUD ──────────────────────────────
+  // Migration: create table and seed defaults once
+  await (async () => {
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS user_role_definitions (
+          id          SERIAL PRIMARY KEY,
+          value       TEXT    NOT NULL UNIQUE,
+          label       TEXT    NOT NULL,
+          color       TEXT    NOT NULL DEFAULT 'blue',
+          is_system   BOOLEAN NOT NULL DEFAULT false,
+          sort_order  INTEGER NOT NULL DEFAULT 100,
+          created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+      `));
+      await db.execute(sql.raw(`
+        INSERT INTO user_role_definitions (value, label, color, is_system, sort_order) VALUES
+          ('master_admin',     'Master Admin',     'yellow', true,  1),
+          ('admin',            'Admin',            'purple', true,  2),
+          ('manager',          'Manager',          'blue',   false, 3),
+          ('engineer',         'Engineer',         'orange', false, 4),
+          ('sales',            'Sales',            'green',  false, 5),
+          ('customer_success', 'Customer Success', 'pink',   false, 6),
+          ('analyst',          'Analyst',          'cyan',   false, 7),
+          ('advisor',          'Advisor',          'amber',  false, 8),
+          ('read_only',        'Read Only',        'gray',   false, 9)
+        ON CONFLICT (value) DO NOTHING
+      `));
+      console.log("[migration] user_role_definitions table ready.");
+    } catch (e) {
+      console.error("[migration] user_role_definitions error:", e);
+    }
+  })();
+
+  app.get("/api/admin/role-definitions", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(
+        `SELECT id, value, label, color, is_system, sort_order, created_at
+         FROM user_role_definitions
+         ORDER BY sort_order, id`
+      ));
+      res.json(rows.rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/role-definitions", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const sessionUser = await db.execute(sql.raw(`SELECT global_role FROM users WHERE id=${Number(req.session?.userId)}`));
+      if (sessionUser.rows[0]?.global_role !== "master_admin") {
+        return res.status(403).json({ message: "Only Master Admins can create roles" });
+      }
+      const { label, color = "blue" } = req.body;
+      if (!label || typeof label !== "string" || label.trim().length < 2) {
+        return res.status(400).json({ message: "Label must be at least 2 characters" });
+      }
+      const trimmed = label.trim();
+      const value = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+      if (!value) return res.status(400).json({ message: "Invalid label" });
+      const validColors = ["blue","purple","green","orange","pink","cyan","amber","gray","teal","red","yellow","indigo"];
+      const safeColor = validColors.includes(color) ? color : "blue";
+      const maxOrder = await db.execute(sql.raw(`SELECT COALESCE(MAX(sort_order),100) AS m FROM user_role_definitions`));
+      const nextOrder = Number((maxOrder.rows[0] as any).m) + 1;
+      const result = await db.execute(sql.raw(
+        `INSERT INTO user_role_definitions (value, label, color, is_system, sort_order)
+         VALUES ('${value.replace(/'/g,"''")}', '${trimmed.replace(/'/g,"''")}', '${safeColor}', false, ${nextOrder})
+         RETURNING id, value, label, color, is_system, sort_order, created_at`
+      ));
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      if (err.message?.includes("unique")) return res.status(409).json({ message: "A role with that name already exists" });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/role-definitions/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const sessionUser = await db.execute(sql.raw(`SELECT global_role FROM users WHERE id=${Number(req.session?.userId)}`));
+      if (sessionUser.rows[0]?.global_role !== "master_admin") {
+        return res.status(403).json({ message: "Only Master Admins can edit roles" });
+      }
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const { label, color } = req.body;
+      const updates: string[] = [];
+      if (label && typeof label === "string" && label.trim().length >= 2) {
+        updates.push(`label = '${label.trim().replace(/'/g,"''")}' `);
+      }
+      const validColors = ["blue","purple","green","orange","pink","cyan","amber","gray","teal","red","yellow","indigo"];
+      if (color && validColors.includes(color)) updates.push(`color = '${color}'`);
+      if (updates.length === 0) return res.status(400).json({ message: "Nothing to update" });
+      const result = await db.execute(sql.raw(
+        `UPDATE user_role_definitions SET ${updates.join(", ")} WHERE id=${id}
+         RETURNING id, value, label, color, is_system, sort_order, created_at`
+      ));
+      if (result.rows.length === 0) return res.status(404).json({ message: "Role not found" });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/role-definitions/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const sessionUser = await db.execute(sql.raw(`SELECT global_role FROM users WHERE id=${Number(req.session?.userId)}`));
+      if (sessionUser.rows[0]?.global_role !== "master_admin") {
+        return res.status(403).json({ message: "Only Master Admins can delete roles" });
+      }
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const roleRow = await db.execute(sql.raw(`SELECT value, is_system FROM user_role_definitions WHERE id=${id}`));
+      if (roleRow.rows.length === 0) return res.status(404).json({ message: "Role not found" });
+      const role = roleRow.rows[0] as any;
+      if (role.is_system) return res.status(400).json({ message: "System roles cannot be deleted" });
+      const userCount = await db.execute(sql.raw(`SELECT COUNT(*) AS c FROM users WHERE global_role='${role.value.replace(/'/g,"''")}'`));
+      if (Number((userCount.rows[0] as any).c) > 0) {
+        return res.status(400).json({ message: `Cannot delete — ${(userCount.rows[0] as any).c} user(s) still have this role. Reassign them first.` });
+      }
+      await db.execute(sql.raw(`DELETE FROM user_role_definitions WHERE id=${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const allUsers = await db.select({
       id: users.id,
