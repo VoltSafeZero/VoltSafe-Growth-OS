@@ -16389,13 +16389,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           a.sync_error_message,
           (SELECT count(*)::int FROM email_messages m
              WHERE m.source_account_id = a.id
-               AND (
-                 m.label_ids LIKE '%"INBOX"%'
-                 OR m.label_ids LIKE '%CATEGORY_UPDATES%'
-                 OR m.label_ids LIKE '%CATEGORY_PROMOTIONS%'
-                 OR m.label_ids LIKE '%CATEGORY_SOCIAL%'
-                 OR m.label_ids LIKE '%CATEGORY_FORUMS%'
-               )
+               AND m.label_ids LIKE '%"INBOX"%'
                AND m.label_ids NOT LIKE '%"DRAFT"%'
                AND m.label_ids NOT LIKE '%"SPAM"%'
                AND m.label_ids NOT LIKE '%"TRASH"%'
@@ -16404,13 +16398,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
              WHERE m.source_account_id = a.id) AS message_count,
           (SELECT count(*)::int FROM email_messages m
              WHERE m.source_account_id = a.id
-               AND (
-                 m.label_ids LIKE '%"INBOX"%'
-                 OR m.label_ids LIKE '%CATEGORY_UPDATES%'
-                 OR m.label_ids LIKE '%CATEGORY_PROMOTIONS%'
-                 OR m.label_ids LIKE '%CATEGORY_SOCIAL%'
-                 OR m.label_ids LIKE '%CATEGORY_FORUMS%'
-               )
+               AND m.label_ids LIKE '%"INBOX"%'
                AND m.label_ids NOT LIKE '%"DRAFT"%'
                AND m.label_ids NOT LIKE '%"SPAM"%'
                AND m.label_ids NOT LIKE '%"TRASH"%') AS inbox_count,
