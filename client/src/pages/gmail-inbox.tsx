@@ -7726,6 +7726,28 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, [isSmartView, tab, searchQuery, inboxNextToken, loadingMoreInbox,
       inboxUnreadCount, inboxCategoryServerUnread, allInboxMessages.length, inboxChainKey]);
 
+  // PART C — Unread stall safety-net refetch.
+  // If the server reports unread messages exist (serverInboxUnreadCount > 0) but the
+  // rendered list is empty after loading is done, fire ONE refetch per context key to
+  // break the stall.  This covers an edge case where the TanStack cache serves stale
+  // empty data before the new queryFn result arrives.  The ref guard prevents loops.
+  const _unreadStallRefetchRef = useRef<string>("");
+  useEffect(() => {
+    if (
+      tab !== "inbox" ||
+      crmFilter !== "unread" ||
+      isLoading ||
+      loadingMoreInbox ||
+      serverInboxUnreadCount <= 0 ||
+      (crmFilteredMessages?.length ?? 0) > 0
+    ) return;
+    const key = `${activeAccountId ?? "all"}-${crmFilter}`;
+    if (_unreadStallRefetchRef.current === key) return;   // already fired for this context
+    _unreadStallRefetchRef.current = key;
+    inboxQuery.refetch();
+  }, [tab, crmFilter, isLoading, loadingMoreInbox, serverInboxUnreadCount,
+      crmFilteredMessages?.length, activeAccountId]);
+
   // Strictly scope: only render the "more available" CTA when (a) we exhausted THIS chain key,
   // (b) we're on a tab where auto-chain even applies, and (c) hasMore is still true.
   const autoChainExhausted =
@@ -9067,7 +9089,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         whileTap={{ scale: 0.95 }}
                         whileHover={{ scale: 1.04 }}
                         transition={{ type: "spring", stiffness: 500, damping: 22 }}
-                        onClick={() => setCrmFilter(key)}
+                        onClick={() => { setCrmFilter(key); if (key === "unread") setInboxCategory("all"); }}
                         data-testid={`crm-filter-${key}`}
                         className={`flex items-center gap-1 ${densityClasses.chipPx} ${densityClasses.chipPy} rounded-full ${densityClasses.chipText} font-medium transition-all whitespace-nowrap ring-1 ring-inset ${
                           active ? activeColor : "bg-muted/30 text-muted-foreground/65 hover:bg-muted/55 hover:text-foreground/85 ring-transparent"
@@ -9977,6 +9999,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <Pin className="h-8 w-8 mx-auto mb-2 opacity-30" />
                   <p className="font-medium">No pinned conversations</p>
                   <p className="text-[11px] mt-1">Right-click any thread and choose Pin to keep it here.</p>
+                </div>
+              ) : crmFilter === "unread" && serverInboxUnreadCount > 0 ? (
+                // Safety guard: server says unread messages exist but none have rendered yet.
+                // This can happen on first load or after a context switch before the query
+                // settles. Show a loading state instead of the misleading "No messages found."
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  <Loader2 className="h-8 w-8 mx-auto mb-2 opacity-40 animate-spin" />
+                  <p className="font-medium">Unread messages are still loading…</p>
+                  <p className="text-[11px] mt-1 opacity-60">{serverInboxUnreadCount} unread email{serverInboxUnreadCount !== 1 ? "s" : ""} will appear shortly.</p>
                 </div>
               ) : (
                 <div className="p-6 text-center text-sm text-muted-foreground">

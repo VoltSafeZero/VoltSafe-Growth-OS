@@ -230,6 +230,94 @@ check(
   /return countSnapshot\.inbox/.test(inboxSrc)
 );
 
+// ─── 9. Unread pill resets inboxCategory to "all" ───────────────────────────
+//
+// When the user clicks the "Unread" CRM filter pill while a sub-tab like
+// "Priority" is active, inboxCategory must be reset to "all".  Without this
+// the categorizedInbox bypass (§8) is the only defence — if someone re-enables
+// the category filter for a different reason, the bug reappears.  Resetting to
+// "all" is cleaner: the Unread view is logically global (not sub-tab-scoped).
+
+console.log("\n── 9. Unread pill resets inboxCategory to 'all' on click ──");
+
+check(
+  'Unread pill onClick calls setInboxCategory("all")',
+  // Must contain: setCrmFilter(key) paired with setInboxCategory("all") inside the Unread button handler
+  /setCrmFilter\(key\).*setInboxCategory\("all"\)|setInboxCategory\("all"\).*setCrmFilter\(key\)/.test(inboxSrc) ||
+    /key === "unread"\s*\)\s*setInboxCategory\("all"\)/.test(inboxSrc)
+);
+
+check(
+  "Unread button handler calls both setCrmFilter and setInboxCategory in one onClick",
+  (() => {
+    // Find the crm-filter unread button and verify both calls appear in the same handler
+    const filterBtnIdx = inboxSrc.indexOf('crm-filter-${key}');
+    if (filterBtnIdx === -1) return false;
+    // Look 300 chars around the data-testid for both setters
+    const vicinity = inboxSrc.slice(Math.max(0, filterBtnIdx - 400), filterBtnIdx + 100);
+    return vicinity.includes('setCrmFilter') && vicinity.includes('setInboxCategory');
+  })()
+);
+
+// ─── 10. Visual guard: "still loading" replaces "No messages found" ─────────
+//
+// If the server reports N > 0 unread messages but crmFilteredMessages is empty
+// (edge case: stale TanStack cache or pre-fetch render), the UI must NOT show
+// the misleading "No messages found" empty state.  Instead it shows a spinner
+// and "Unread messages are still loading…" so the user knows to wait.
+
+console.log("\n── 10. Visual guard: loading state instead of 'No messages found' ──");
+
+check(
+  'Visual guard checks crmFilter === "unread" && serverInboxUnreadCount > 0',
+  /crmFilter === "unread"\s*&&\s*serverInboxUnreadCount\s*>\s*0/.test(inboxSrc)
+);
+
+check(
+  '"Unread messages are still loading" text present in source',
+  inboxSrc.includes("Unread messages are still loading")
+);
+
+check(
+  "Loading spinner (Loader2 animate-spin) used in unread stall state",
+  /Loader2.*animate-spin|animate-spin.*Loader2/.test(inboxSrc)
+);
+
+check(
+  "Guard appears immediately before the generic No-messages-found fallback (last occurrence) in source order",
+  (() => {
+    const guardIdx = inboxSrc.indexOf("Unread messages are still loading");
+    // Use lastIndexOf: the definitive "No messages found" fallback is the last occurrence
+    const noMsgIdx = inboxSrc.lastIndexOf("No messages found");
+    return guardIdx !== -1 && noMsgIdx !== -1 && guardIdx < noMsgIdx;
+  })()
+);
+
+// ─── 11. Stall safety-net refetch effect ────────────────────────────────────
+//
+// A useEffect fires ONE refetch when the stall state is detected (unread count
+// > 0, rendered list empty, not already loading).  A ref guard prevents loops.
+
+console.log("\n── 11. Stall safety-net refetch effect ──");
+
+check(
+  "Stall-refetch useEffect present in source",
+  inboxSrc.includes("inboxQuery.refetch()") &&
+    inboxSrc.includes("_unreadStallRefetchRef")
+);
+
+check(
+  "Stall-refetch effect guarded against crmFilter !== 'unread'",
+  // The guard is a multi-condition if-block; crmFilter check and inboxQuery.refetch()
+  // can be 600+ chars apart — use a wide window of 900 chars.
+  /crmFilter\s*!==\s*"unread"[\s\S]{0,900}inboxQuery\.refetch/.test(inboxSrc)
+);
+
+check(
+  "Stall-refetch ref prevents duplicate fires for same context key",
+  /_unreadStallRefetchRef\.current\s*===\s*key\s*\)\s*return/.test(inboxSrc)
+);
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 
 console.log(`\n${"─".repeat(64)}`);
