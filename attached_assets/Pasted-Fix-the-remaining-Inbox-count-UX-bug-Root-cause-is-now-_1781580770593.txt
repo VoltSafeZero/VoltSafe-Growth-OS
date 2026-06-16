@@ -1,0 +1,73 @@
+Fix the remaining Inbox count UX bug.
+
+Root cause is now identified:
+
+* Backend reconciliation is correct.
+* Live API currently reconciles: Inbox 426 = People 56 + Updates 172 + Promotions 187 + Social 11 + Forums 0.
+* The visible UI can still show nonsense because the Inbox badge, category badges, and Smart Inbox section headers can render from different freshness states.
+* Smart Inbox section headers currently fall back to item.count, which is only locally loaded page/thread count, not the server total.
+
+Please implement the smallest durable frontend fix.
+
+Tasks:
+
+1. Remove misleading fallback counts from Smart Inbox section headers.
+    Current behavior:
+    serverGroupCounts?.[item.id] ?? item.count
+    Problem:
+    item.count is only loaded-page count and creates false math.
+    Fix:
+    For server-backed sections, show:
+    * serverGroupCounts count when available
+    * loading skeleton / blank / “…” while loading
+    * never show item.count as if it is the total
+2. Make health and category-counts refresh together.
+    Current issue:
+    * accounts/health refetches every 30s
+    * category-counts refetches every 60s
+    Fix:
+    Use the same refetch interval or invalidate/refetch them together after mailbox mutations:
+    * mark read/unread
+    * mark all read
+    * archive
+    * delete
+    * category changes
+    * sync completion
+3. Ensure the Inbox badge and category badges come from the same freshness window.
+    If either health or category-counts is loading/refetching, avoid showing mixed old/new math.
+    Prefer:
+    * keep previous complete reconciled snapshot until both refreshed
+    * or show a subtle loading state for counts
+4. Add a single derived count snapshot object in the frontend:
+    {
+    inbox,
+    people,
+    updates,
+    promotions,
+    social,
+    forums,
+    categorySum,
+    gap,
+    isReconciled,
+    sourceTimestamp
+    }
+    Use this object for visible badges and debug logging.
+5. Keep the diagnostic console logging for now, but gate it behind development/admin/debug mode so normal users do not see noisy logs.
+6. Add a UI test for the race condition:
+    * health returns new Inbox count
+    * category-counts is still loading old data
+    * assert the UI does not display mismatched counts
+    * assert Smart Inbox headers do not fall back to local item.count totals
+7. Verify in browser:
+    * Inbox badge equals category sum
+    * People/Updates/Promotions/Social/Forums badges equal Smart Inbox section headers
+    * No temporary “gap” appears during refresh
+    * No 99+ cap
+    * Priority remains clearly labelled as overlay / non-additive
+
+Return:
+
+* files changed
+* before/after explanation
+* test results
+* screenshot or console proof that live UI now reconciles during refresh

@@ -10,12 +10,15 @@
  * Checks verified here (no server needed):
  *
  *  G1. No 99+ cap — badges render the raw number from the API.
- *  G2. Inbox badge reads serverInboxUnreadCount ← accountsHealthQuery.unreadCount
+ *  G2. Inbox badge reads serverInboxUnreadCount ← _rawServerInboxUnread ← accountsHealthQuery.data
  *        (threads, via count(distinct) in the health endpoint).
- *  G3. Sidebar category badges read sidebarCategoryBadges ← categoryCountsQuery.data
+ *        NOTE: After countSnapshot refactor, serverInboxUnreadCount = countSnapshot.inbox,
+ *        and _rawServerInboxUnread is the private variable that reads accountsHealthQuery.data.
+ *  G3. Sidebar category badges read sidebarCategoryBadges ← countSnapshot ← _candidateSnapshot
+ *        which reads from categoryCountsQuery.data
  *        (threads, via COUNT(DISTINCT gmail_thread_id) in the category-counts endpoint).
- *  G4. People badge is NOT derived from local inboxMain message arrays when
- *        the API field cc.people?.unread is available.
+ *  G4. People badge is NOT derived from local inboxMain message arrays —
+ *        cc.people?.unread API field is checked first in _candidateSnapshot.
  *  G5. The People fallback (when API field is absent) subtracts thread values
  *        from a thread total — never mixes message and thread arithmetic.
  *  G6. category-counts queryKey includes activeAccountId so per-account
@@ -23,12 +26,13 @@
  *  G7. accounts/health queryKey does NOT include activeAccountId (health
  *        returns all accounts at once and filters client-side).
  *  G8. bulkMarkReadMutation.onSuccess invalidates BOTH badge queries so
- *        sidebar numbers update immediately (not just on the next 30-60s poll).
+ *        sidebar numbers update immediately (not just on the next 30s poll).
  *  G9. markAllInboxReadMutation.onSuccess invalidates BOTH badge queries.
  * G10. markUnreadSingleMutation.onSuccess invalidates BOTH badge queries.
  * G11. Priority section is annotated as a non-additive overlay in the UI.
- * G12. serverGroupCounts (section headers) is derived from categoryCountsQuery,
- *        never from the local inboxMain message array directly.
+ * G12. serverGroupCounts (section headers) derives from countSnapshot (which
+ *        is itself derived from categoryCountsQuery.data), never from the
+ *        local inboxMain message array directly.
  */
 
 "use strict";
@@ -71,23 +75,31 @@ assert(!src.includes("Math.min(99"),    "no Math.min(99, ...) cap on badge value
 
 console.log("\n── G2. Inbox badge derives from accountsHealthQuery (thread count) ──");
 
-// serverInboxUnreadCount must sum a.unreadCount from accountsHealthQuery.data
-const serverUnreadIdx = src.indexOf("const serverInboxUnreadCount = useMemo");
-const serverUnreadBlock = serverUnreadIdx !== -1
-  ? src.slice(serverUnreadIdx, serverUnreadIdx + 600)
+// After the countSnapshot refactor, the chain is:
+//   accountsHealthQuery.data → _rawServerInboxUnread → _candidateSnapshot → countSnapshot → serverInboxUnreadCount
+// Check the private raw variable reads from accountsHealthQuery.data:
+const rawUnreadIdx = src.indexOf("const _rawServerInboxUnread = useMemo");
+const rawUnreadBlock = rawUnreadIdx !== -1
+  ? src.slice(rawUnreadIdx, rawUnreadIdx + 600)
   : "";
 
 assert(
-  serverUnreadBlock.includes("accountsHealthQuery.data"),
-  "serverInboxUnreadCount reads from accountsHealthQuery.data"
+  rawUnreadBlock.includes("accountsHealthQuery.data"),
+  "_rawServerInboxUnread reads from accountsHealthQuery.data"
 );
 assert(
-  serverUnreadBlock.includes("unreadCount"),
-  "serverInboxUnreadCount sums .unreadCount from health data"
+  rawUnreadBlock.includes("unreadCount"),
+  "_rawServerInboxUnread sums .unreadCount from health data"
 );
 assert(
-  !serverUnreadBlock.includes("inboxMain.filter"),
-  "serverInboxUnreadCount does NOT derive from local inboxMain array"
+  !rawUnreadBlock.includes("inboxMain.filter"),
+  "_rawServerInboxUnread does NOT derive from local inboxMain array"
+);
+
+// serverInboxUnreadCount must be an alias for countSnapshot.inbox (not a standalone useMemo):
+assert(
+  src.includes("const serverInboxUnreadCount = countSnapshot.inbox"),
+  "serverInboxUnreadCount is an alias for countSnapshot.inbox (atomic snapshot)"
 );
 
 // The health endpoint returns thread counts
@@ -96,40 +108,39 @@ assert(
   "accounts/health endpoint uses count(distinct) for unread_count"
 );
 
-// ── G3: Category badges read from categoryCountsQuery ────────────────────────
+// ── G3: Category badges read from categoryCountsQuery (via countSnapshot) ────
 
 console.log("\n── G3. Category badges derive from categoryCountsQuery (thread count) ──");
 
-const sidebarBadgesIdx = src.indexOf("const sidebarCategoryBadges = useMemo");
-const sidebarBadgesBlock = sidebarBadgesIdx !== -1
-  ? src.slice(sidebarBadgesIdx, sidebarBadgesIdx + 500)
+// The _candidateSnapshot useMemo is the actual consumer of categoryCountsQuery.data.
+// sidebarCategoryBadges now reads from countSnapshot (stabilised version).
+const candidateIdx = src.indexOf("const _candidateSnapshot = useMemo");
+const candidateBlock = candidateIdx !== -1
+  ? src.slice(candidateIdx, candidateIdx + 800)
   : "";
 
 assert(
-  sidebarBadgesBlock.includes("categoryCountsQuery.data"),
-  "sidebarCategoryBadges reads from categoryCountsQuery.data"
+  candidateBlock.includes("categoryCountsQuery.data"),
+  "_candidateSnapshot reads from categoryCountsQuery.data (actual API consumer)"
 );
 assert(
-  sidebarBadgesBlock.includes("cc?.updates?.unread"),
-  "updates badge reads cc?.updates?.unread from API"
+  candidateBlock.includes("cc?.updates?.unread"),
+  "updates badge reads cc?.updates?.unread from API (via _candidateSnapshot)"
 );
 assert(
-  sidebarBadgesBlock.includes("cc?.promotions?.unread"),
-  "promotions badge reads cc?.promotions?.unread from API"
+  candidateBlock.includes("cc?.promotions?.unread"),
+  "promotions badge reads cc?.promotions?.unread from API (via _candidateSnapshot)"
 );
 assert(
-  sidebarBadgesBlock.includes("cc?.social?.unread"),
-  "social badge reads cc?.social?.unread from API"
+  candidateBlock.includes("cc?.social?.unread"),
+  "social badge reads cc?.social?.unread from API (via _candidateSnapshot)"
 );
 assert(
-  sidebarBadgesBlock.includes("cc?.forums?.unread"),
-  "forums badge reads cc?.forums?.unread from API"
+  candidateBlock.includes("cc?.forums?.unread"),
+  "forums badge reads cc?.forums?.unread from API (via _candidateSnapshot)"
 );
 
 // The category-counts endpoint returns thread counts.
-// Scope the check to the endpoint block only — the inbox-debug endpoint still has
-// COUNT(*) for its message-count reference column, so checking the whole file would
-// produce a false positive.
 const catEndpointIdx = routesSrc.indexOf('"/api/gmail/category-counts"');
 const catEndpointBlock = catEndpointIdx !== -1
   ? routesSrc.slice(catEndpointIdx, catEndpointIdx + 4000)
@@ -147,12 +158,16 @@ assert(
 
 console.log("\n── G4. People badge is NOT derived from local message arrays ──");
 
-// sidebarCategoryBadges.people must check cc?.people?.unread FIRST.
-// The fallback (Math.max) is only reached when the API field is absent.
+// cc?.people?.unread API field is checked first inside _candidateSnapshot.
 assert(
-  sidebarBadgesBlock.includes("cc?.people?.unread"),
-  "People badge checks cc?.people?.unread (API field) first"
+  candidateBlock.includes("cc?.people?.unread"),
+  "People badge checks cc?.people?.unread (API field) first, via _candidateSnapshot"
 );
+
+const sidebarBadgesIdx = src.indexOf("const sidebarCategoryBadges");
+const sidebarBadgesBlock = sidebarBadgesIdx !== -1
+  ? src.slice(sidebarBadgesIdx, sidebarBadgesIdx + 300)
+  : "";
 assert(
   !sidebarBadgesBlock.includes("inboxMain.filter"),
   "sidebarCategoryBadges does NOT filter inboxMain for People count"
@@ -166,32 +181,17 @@ assert(
 
 console.log("\n── G5. People fallback uses thread-unit arithmetic ──");
 
-// The fallback subtracts thread values (updates+promotions+social+forums) from
-// serverInboxUnreadCount (also threads). All operands are the same unit.
-// There are two Math.max occurrences; the sidebarCategoryBadges one (with
-// updates/promotions) is the SECOND occurrence — skip the first one which
-// belongs to serverGroupCounts and uses newsletters/notifications.
-const firstFallbackIdx = src.indexOf("Math.max(0, serverInboxUnreadCount -");
-const fallbackIdx = firstFallbackIdx !== -1
-  ? src.indexOf("Math.max(0, serverInboxUnreadCount -", firstFallbackIdx + 1)
-  : -1;
-// 160 chars captures the fallback line + return + closing deps array but stops
-// before the next useMemo (pinnedMessages) which references inboxMain unrelated.
-const fallbackBlock = fallbackIdx !== -1
-  ? src.slice(fallbackIdx, fallbackIdx + 160)
-  : "";
-
+// After countSnapshot refactor, the fallback lives inside _candidateSnapshot as:
+//   ?? Math.max(0, inbox - updates - promotions - social - forums)
+// where `inbox` comes from _rawServerInboxUnread (thread total from health API).
+const fallbackInCandidate = candidateBlock.includes("Math.max(0, inbox -") &&
+  candidateBlock.includes("updates") && candidateBlock.includes("promotions");
 assert(
-  fallbackIdx !== -1,
-  "People fallback pattern Math.max(0, serverInboxUnreadCount - ...) exists"
+  fallbackInCandidate,
+  "People fallback pattern Math.max(0, inbox - ...) exists in _candidateSnapshot"
 );
 assert(
-  // The fallback subtracts updates+promotions+social+forums (all thread values)
-  fallbackBlock.includes("updates") && fallbackBlock.includes("promotions"),
-  "People fallback subtracts category thread values from serverInboxUnreadCount"
-);
-assert(
-  !fallbackBlock.includes("inboxMain"),
+  !candidateBlock.includes("inboxMain"),
   "People fallback does NOT touch local inboxMain array"
 );
 
@@ -213,8 +213,6 @@ assert(
   healthQueryIdx !== -1,
   'accounts/health queryKey = ["/api/gmail/accounts", "health"]'
 );
-// The health endpoint returns ALL accounts; client filters locally by activeAccountId.
-// The key must NOT include activeAccountId (would cause redundant fetches per account).
 const healthKeyLine = src.slice(healthQueryIdx, healthQueryIdx + 60);
 assert(
   !healthKeyLine.includes("activeAccountId"),
@@ -226,7 +224,6 @@ assert(
 console.log("\n── G8. bulkMarkReadMutation invalidates badge queries on success ──");
 
 const bulkMutIdx = src.indexOf("const bulkMarkReadMutation = useMutation");
-// The invalidations land ~1570 chars into the block; use 1800 to be safe.
 const bulkMutBlock = bulkMutIdx !== -1
   ? src.slice(bulkMutIdx, bulkMutIdx + 1800)
   : "";
@@ -294,10 +291,7 @@ assert(
   'Priority section shows "overlay" or "also in" annotation (non-additive)'
 );
 
-// Priority is NOT included in the serverGroupCounts that feed the section
-// header additive math (only people, notifications, newsletters are included).
 const serverGroupIdx = src.indexOf("const serverGroupCounts = useMemo");
-// "unread-people" key is ~625 chars into the block; use 900 to be safe.
 const serverGroupBlock = serverGroupIdx !== -1
   ? src.slice(serverGroupIdx, serverGroupIdx + 900)
   : "";
@@ -311,13 +305,20 @@ assert(
   'serverGroupCounts contains the three additive section keys'
 );
 
-// ── G12: serverGroupCounts derives from categoryCountsQuery, not inboxMain ───
+// ── G12: serverGroupCounts derives from countSnapshot (→ categoryCountsQuery) ─
 
 console.log("\n── G12. serverGroupCounts derives from categoryCountsQuery (not local arrays) ──");
 
+// After countSnapshot refactor: serverGroupCounts reads countSnapshot.*
+// which is derived from _candidateSnapshot which reads categoryCountsQuery.data.
+// Verify the intermediate link: serverGroupCounts uses countSnapshot, NOT categoryCountsQuery.data directly.
 assert(
-  serverGroupBlock.includes("categoryCountsQuery.data"),
-  "serverGroupCounts reads from categoryCountsQuery.data"
+  serverGroupBlock.includes("countSnapshot"),
+  "serverGroupCounts derives from countSnapshot (which wraps categoryCountsQuery.data)"
+);
+assert(
+  !serverGroupBlock.includes("categoryCountsQuery.data"),
+  "serverGroupCounts does NOT read categoryCountsQuery.data directly (goes through countSnapshot)"
 );
 assert(
   !serverGroupBlock.includes("inboxMain.filter"),

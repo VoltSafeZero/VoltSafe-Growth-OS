@@ -5671,7 +5671,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             // Always refresh health data so the staleness-gate timestamps
             // stay accurate (without this, a zero-change sync leaves
             // healthDataRef stale and the next tick fires at the wrong cadence).
-            queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+            invalidateBadgeQueries();
             if (r && (r.added > 0 || r.deleted > 0 || r.labelsChanged > 0)) {
               queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
               queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
@@ -5712,7 +5712,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
         queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+        invalidateBadgeQueries();
       }
     } catch { /* swallow */ }
     finally {
@@ -5759,7 +5759,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     finally {
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/threads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+      invalidateBadgeQueries();
       queryClient.invalidateQueries({ queryKey: ["/api/inbox/triage-summary"] });
       setRefreshingInbox(false);
     }
@@ -5784,6 +5784,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     } else {
       params.set("asAccountId", String(activeAccountId));
     }
+  };
+
+  // Invalidates both badge-count queries together so they always re-fetch as a pair.
+  // Call this after any mailbox mutation that can change unread counts (archive, trash,
+  // mark-read, sync). Using a single helper ensures no mutation accidentally refreshes
+  // only one of the two queries and creates a mixed-freshness display.
+  const invalidateBadgeQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/gmail/category-counts"] });
   };
 
   // canSend: account must be active AND user must have edit permission for shared inboxes.
@@ -6170,7 +6179,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (!res.ok) return { updates: { total: 0, unread: 0 }, promotions: { total: 0, unread: 0 }, social: { total: 0, unread: 0 }, forums: { total: 0, unread: 0 } };
       return res.json();
     },
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,   // aligned with accounts/health — both 30 s so they refresh together
     refetchIntervalInBackground: false,
   });
 
@@ -6798,6 +6807,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         setSelectedMessageId(null);
       }
       setSelectedInboxIds(new Set());
+      invalidateBadgeQueries();
       toast({ title: `Archived ${threadIds.length} thread${threadIds.length !== 1 ? "s" : ""}` });
     },
     onError: (err: any) => toast({ title: "Archive failed", description: err.message, variant: "destructive" }),
@@ -6844,6 +6854,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       }
       setSelectedInboxIds(new Set());
       setConfirmDeleteAll(false);
+      invalidateBadgeQueries();
       toast({ title: `Moved ${threadIds.length} thread${threadIds.length !== 1 ? "s" : ""} to Trash` });
     },
     onError: (err: any) => { toast({ title: "Delete failed", description: err.message, variant: "destructive" }); setConfirmDeleteAll(false); },
@@ -6882,6 +6893,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeArchived);
       setInboxExtra(prev => prev.filter(m => m.threadId !== threadId));
       if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
+      invalidateBadgeQueries();
       toast({ title: "Thread archived" });
     },
     onError: (err: any) => toast({ title: "Archive failed", description: err.message, variant: "destructive" }),
@@ -6907,6 +6919,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeTrashed);
       setInboxExtra(prev => prev.filter(m => m.threadId !== threadId));
       if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
+      invalidateBadgeQueries();
       toast({ title: "Moved to Trash" });
     },
     onError: (err: any) => toast({ title: "Trash failed", description: err.message, variant: "destructive" }),
@@ -7207,9 +7220,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
-  // Returns 0 while health data is loading — no badge shown until the true server
-  // total arrives. Never falls back to inboxUnreadCount (first-page only).
-  const serverInboxUnreadCount = useMemo(() => {
+  // ── Raw inbox count from health API (private — feeds countSnapshot below) ───────────
+  // Returns 0 while health data is loading. Never falls back to inboxUnreadCount
+  // (first-page only). Kept private so all badge rendering goes through countSnapshot.
+  const _rawServerInboxUnread = useMemo(() => {
     const accounts = accountsHealthQuery.data;
     if (!accounts || accounts.length === 0) return 0;
     // null = personal/unified (no account filter) and "all" = explicit All Inboxes —
@@ -7220,64 +7234,90 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return accounts.find((a) => a.id === activeAccountId)?.unreadCount ?? 0;
   }, [accountsHealthQuery.data, activeAccountId]);
 
+  // ── Atomic count snapshot ─────────────────────────────────────────────────────────────
+  // Single source of truth for every visible badge and section-header count.
+  // A stable ref copy is kept and only updated when NEITHER badge query is mid-refetch,
+  // so badges never show mixed-freshness values (e.g. health refreshed, category-counts
+  // hasn't yet). Both queries now use the same 30 s interval and share invalidateBadgeQueries,
+  // so in practice they refetch and settle together; the stable ref is a safety net for
+  // the small window where one query settles a frame or two before the other.
+  const _candidateSnapshot = useMemo(() => {
+    const cc         = categoryCountsQuery.data;
+    const inbox      = _rawServerInboxUnread;
+    const updates    = cc?.updates?.unread    ?? 0;
+    const promotions = cc?.promotions?.unread ?? 0;
+    const social     = cc?.social?.unread     ?? 0;
+    const forums     = cc?.forums?.unread     ?? 0;
+    const people     = cc?.people?.unread
+                     ?? Math.max(0, inbox - updates - promotions - social - forums);
+    const categorySum = people + updates + promotions + social + forums;
+    return {
+      inbox, people, updates, promotions, social, forums,
+      categorySum, gap: inbox - categorySum, isReconciled: inbox === categorySum,
+      sourceTimestamp: Date.now(),
+    };
+  }, [_rawServerInboxUnread, categoryCountsQuery.data]);
+
+  const _stableSnapshotRef = useRef<typeof _candidateSnapshot | null>(null);
+  useEffect(() => {
+    if (!accountsHealthQuery.isFetching && !categoryCountsQuery.isFetching) {
+      _stableSnapshotRef.current = _candidateSnapshot;
+    }
+  }, [_candidateSnapshot, accountsHealthQuery.isFetching, categoryCountsQuery.isFetching]);
+  // Use stable snapshot while either query is mid-refetch; fall back to candidate on
+  // first render (before the effect has had a chance to populate the ref).
+  const countSnapshot = _stableSnapshotRef.current ?? _candidateSnapshot;
+
+  // Convenience alias — all existing render spots continue to work unchanged.
+  const serverInboxUnreadCount = countSnapshot.inbox;
+
   // Category-specific server unread target for the smart unread loader + status banner.
   // When the user is in a sub-category view (People, Updates, etc.) we compare loaded
   // unread ONLY for that category, not the global inbox total.  Without this, the loader
   // would never converge because a People-filtered query returns far fewer messages than
   // the full inbox, so inboxUnreadCount < serverInboxUnreadCount always.
   const inboxCategoryServerUnread = useMemo(() => {
-    const cc = categoryCountsQuery.data;
-    if (inboxCategory === "people")     return cc?.people?.unread     ?? serverInboxUnreadCount;
-    if (inboxCategory === "updates")    return cc?.updates?.unread    ?? 0;
-    if (inboxCategory === "promotions") return cc?.promotions?.unread ?? 0;
-    if (inboxCategory === "social")     return cc?.social?.unread     ?? 0;
-    if (inboxCategory === "forums")     return cc?.forums?.unread     ?? 0;
-    return serverInboxUnreadCount;
-  }, [inboxCategory, categoryCountsQuery.data, serverInboxUnreadCount]);
+    if (inboxCategory === "people")     return countSnapshot.people;
+    if (inboxCategory === "updates")    return countSnapshot.updates;
+    if (inboxCategory === "promotions") return countSnapshot.promotions;
+    if (inboxCategory === "social")     return countSnapshot.social;
+    if (inboxCategory === "forums")     return countSnapshot.forums;
+    return countSnapshot.inbox;
+  }, [inboxCategory, countSnapshot]);
 
   // PART A — Server-side group counts for Smart Inbox section headers.
-  // Newsletters = PROMOTIONS + FORUMS unread (inbox-visible, from category-counts API).
-  // Notifications = UPDATES + SOCIAL unread (inbox-visible, from category-counts API).
-  // People = direct count from category-counts API (INBOX + UNREAD + no CATEGORY_* labels).
-  //          Falls back to derivation (serverInboxUnreadCount − Newsletters − Notifications)
-  //          for backwards-compat if the API hasn't returned the new field yet.
-  // Priority is a highlight layer only — starred messages are counted inside their
-  // category group (not subtracted), so totals always reconcile to the badge.
+  // All values sourced from countSnapshot (stabilised joint freshness).
+  // Newsletters = PROMOTIONS + FORUMS; Notifications = UPDATES + SOCIAL.
+  // Priority is a highlight layer only — counted inside its category group.
   const serverGroupCounts = useMemo(() => {
-    if (!categoryCountsQuery.data) return null;
-    const newsletters  = (categoryCountsQuery.data.promotions?.unread ?? 0)
-                       + (categoryCountsQuery.data.forums?.unread     ?? 0);
-    const notifications = (categoryCountsQuery.data.updates?.unread  ?? 0)
-                        + (categoryCountsQuery.data.social?.unread    ?? 0);
-    const people = categoryCountsQuery.data.people?.unread
-                 ?? Math.max(0, serverInboxUnreadCount - newsletters - notifications);
+    const { people, updates, promotions, social, forums } = countSnapshot;
+    const newsletters   = promotions + forums;
+    const notifications = updates    + social;
     if (people + newsletters + notifications === 0) return null;
     return {
       "unread-people":        people,
       "unread-newsletters":   newsletters,
       "unread-notifications": notifications,
     } as const;
-  }, [categoryCountsQuery.data, serverInboxUnreadCount]);
+  }, [countSnapshot]);
 
   // Per-category unread badge counts for the Inbox subcategory sidebar items.
-  // "updates" = CATEGORY_UPDATES (Gmail Updates tab: receipts, account notifications, etc.)
-  // "people"  = direct count from API: INBOX + UNREAD + no CATEGORY_* labels.
-  const sidebarCategoryBadges = useMemo(() => {
-    const cc = categoryCountsQuery.data;
-    const updates    = cc?.updates?.unread    ?? 0;
-    const promotions = cc?.promotions?.unread ?? 0;
-    const social     = cc?.social?.unread     ?? 0;
-    const forums     = cc?.forums?.unread     ?? 0;
-    const people     = cc?.people?.unread
-                     ?? Math.max(0, serverInboxUnreadCount - updates - promotions - social - forums);
-    return { people, updates, promotions, social, forums };
-  }, [categoryCountsQuery.data, serverInboxUnreadCount]);
+  // All values sourced from countSnapshot (stabilised joint freshness).
+  const sidebarCategoryBadges = useMemo(() => ({
+    people:     countSnapshot.people,
+    updates:    countSnapshot.updates,
+    promotions: countSnapshot.promotions,
+    social:     countSnapshot.social,
+    forums:     countSnapshot.forums,
+  }), [countSnapshot]);
 
   // ── LIVE BADGE COUNT DIAGNOSTIC ──────────────────────────────────────────
   // Logs every count being rendered so scope/cache mismatches are immediately
-  // visible in the browser DevTools console.  Remove when the reconciliation
-  // bug is confirmed fixed.
+  // visible in the browser DevTools console.
+  // Gated: only fires in development builds OR for admin users — never logs
+  // to the console for regular production users.
   useEffect(() => {
+    if (!import.meta.env.DEV && !isAdmin) return;
     const cc = categoryCountsQuery.data;
     const health = accountsHealthQuery.data ?? [];
 
@@ -9955,8 +9995,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <span className={`text-[11px] font-semibold uppercase tracking-[0.07em] ${sStyle.tone}`}>
                       {item.title}
                     </span>
-                    <span className="text-[10px] tabular-nums text-muted-foreground/40 ml-0.5">
-                      {serverGroupCounts?.[item.id as keyof typeof serverGroupCounts] ?? item.count}
+                    <span className="text-[10px] tabular-nums text-muted-foreground/40 ml-0.5" data-testid={`section-header-count-${item.id}`}>
+                      {item.id === "unread-people" || item.id === "unread-notifications" || item.id === "unread-newsletters"
+                        ? serverGroupCounts !== null
+                          ? serverGroupCounts[item.id as keyof typeof serverGroupCounts] ?? 0
+                          : <span className="opacity-50">…</span>
+                        : item.count}
                     </span>
                     {isPriority && (
                       <span className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium normal-case tracking-normal bg-amber-400/[0.10] text-amber-400/60 border border-amber-400/[0.15]">
