@@ -5828,11 +5828,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, [searchQuery, inboxCategory]);
 
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
-    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId, inboxCategory],
+    // Include crmFilter in the key when it's "unread" so the cache is partitioned separately
+    // from the normal inbox — they fetch different data (unread-only vs all messages).
+    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId, inboxCategory, crmFilter === "unread" ? "unread" : "all"],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      params.set("q", inboxCategoryQ);
+      // When the Unread filter is active, push "is:unread" to the backend so it only returns
+      // unread messages.  Without this the server returns 50 newest messages sorted by date
+      // (99% read for a typical busy inbox), the client-side filter hides most of them, and
+      // the user sees only a handful of unread rows even though hundreds exist in the DB.
+      params.set("q", crmFilter === "unread" ? `${inboxCategoryQ} is:unread` : inboxCategoryQ);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
@@ -6200,7 +6206,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   useEffect(() => {
     setInboxExtra([]);
     setInboxNextToken(null);
-  }, [searchQuery, activeAccountId]);
+    // crmFilter is included so switching to/from the Unread pill resets pagination:
+    // the base query changes (unread-only vs all), and stale extra pages from the
+    // previous filter must not bleed into the new view.
+  }, [searchQuery, activeAccountId, crmFilter]);
   useEffect(() => {
     setInboxNextToken((prev) => prev ?? inboxBaseToken);
   }, [inboxBaseToken]);
@@ -6247,7 +6256,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     try {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      params.set("q", searchQuery ? searchQuery : "in:inbox");
+      // Mirror the base query's unread filter so pagination stays in the same data partition.
+      // Without this, page 2+ would fetch all inbox messages (most of which are read) while
+      // page 1 fetched only unread — mixing data and losing pagination coherence.
+      const baseQ = searchQuery || "in:inbox";
+      params.set("q", crmFilter === "unread" ? `${baseQ} is:unread` : baseQ);
       params.set("pageToken", inboxNextToken);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });

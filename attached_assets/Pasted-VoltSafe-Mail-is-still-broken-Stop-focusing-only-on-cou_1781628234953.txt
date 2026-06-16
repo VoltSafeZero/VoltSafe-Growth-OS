@@ -1,0 +1,107 @@
+VoltSafe Mail is still broken. Stop focusing only on count reconciliation.
+
+Current visible issue:
+
+* Inbox badge shows 232 unread.
+* Unread filter shows 232.
+* Category badges show People 20, Updates 51, Promotions 14, Social 8.
+* But the message list only loads 5 unread messages.
+* UI says “You’re all caught up · 5 messages loaded.”
+* It also says “Load older messages.”
+* This is wrong: if 232 unread threads exist, the unread inbox must visibly load far more than 5.
+
+This is now a message loading/query/pagination issue, not just a count issue.
+
+Audit and fix the actual unread message loading path.
+
+Tasks:
+
+1. Trace the exact frontend query used when:
+    * Inbox is selected
+    * Unread filter is active
+    * Account = trevor@voltsafe.com
+    * Simple List mode is active
+
+Return:
+
+* React query key
+* API endpoint
+* q/filter params
+* limit/page params
+* account scope
+* unreadOnly value
+* category value
+
+2. Trace the backend handler for that message list request.
+    Confirm:
+
+* Does it fetch unread threads or unread messages?
+* Does it filter by INBOX?
+* Does it filter by selected account?
+* Does it accidentally stop at 5?
+* Does dedupByThread reduce a larger message response down to only 5 visible rows?
+* Does pagination think it is exhausted too early?
+
+3. Compare count source vs list source.
+    For the exact same account/filter:
+
+* count API says unread threads = 232
+* list API returns visible unread threads = 5
+
+Find the divergence.
+
+4. Run a direct DB query:
+    For trevor@voltsafe.com:
+
+* unread + INBOX thread count
+* unread + INBOX message count
+* newest 50 unread inbox threads
+* category breakdown for those unread inbox threads
+
+5. Run the exact API request the browser is making.
+    Show:
+
+* request URL
+* response message count
+* response thread count after dedup
+* hasMore / nextPage / cursor value
+* oldest/newest timestamps returned
+
+6. Fix the loader so unread inbox loads all unread threads progressively.
+    Requirements:
+
+* First page should load a reasonable batch, not only 5.
+* If unread count is 232, the list must not say “all caught up” after 5.
+* “Load older messages” should continue fetching until unread visible list matches unread count or pagination is truly exhausted.
+* The loading banner must reflect actual remaining unread threads.
+
+7. Check for bad interaction between:
+
+* Simple List mode
+* smart inbox grouping
+* unread filter
+* selected account
+* dedupByThread
+* pagination cursor
+* local cache
+
+8. Add regression test:
+    Mock unread count = 232.
+    Mock first API page returns 50 unread threads with hasMore=true.
+    Assert:
+
+* UI shows loaded unread rows
+* does not show “all caught up” after 5
+* Load older messages remains available
+* visible unread count progresses correctly
+
+9. Return:
+
+* root cause
+* exact file/function responsible
+* before/after API response evidence
+* screenshot proof that unread inbox now loads more than 5 messages
+* test results
+
+Important:
+Do not claim the inbox is fixed because the badge math reconciles. The visible mailbox is still broken because unread threads are not loading.

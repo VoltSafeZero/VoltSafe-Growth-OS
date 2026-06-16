@@ -324,6 +324,19 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
     }
   }
 
+  // is:unread — server-side unread filter.
+  // When the frontend sends "is:unread" (e.g. when the Unread filter pill is active),
+  // restrict results to messages that still carry the UNREAD label in the local mirror.
+  // This prevents the client from having to page through thousands of read messages to
+  // surface the relatively small set of unread threads.
+  const isUnreadMatch = rest.match(/\bis:unread\b/i);
+  if (isUnreadMatch) {
+    rest = rest.replace(isUnreadMatch[0], "").trim();
+    // Label_ids is stored as a JSON array string, e.g. '["UNREAD","INBOX"]'.
+    // ILIKE with the double-quoted label name matches reliably against both formats.
+    where.push(`label_ids ILIKE '%"UNREAD"%'`);
+  }
+
   // after:YYYY-MM-DD  /  before:YYYY-MM-DD
   const afterMatch = rest.match(/\bafter:(\d{4}-\d{2}-\d{2})/i);
   if (afterMatch) {
