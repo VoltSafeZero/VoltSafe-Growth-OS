@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Mail, RefreshCw, ExternalLink, Link, Shield, AlertTriangle,
-  Loader2, Eye, MousePointerClick, Clock, Flame, Zap, BarChart2,
+  Mail, RefreshCw, Link, Shield, AlertTriangle,
+  Loader2, Eye, MousePointerClick, Clock, Flame, Zap, BarChart2, Inbox,
 } from "lucide-react";
-import { Link as WouterLink } from "wouter";
+import { Link as WouterLink, useLocation } from "wouter";
+import { sanitizeRichText } from "@/lib/sanitize-html";
 import { FollowUpInsightCard } from "@/components/follow-up-insight-card";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ type EmailWithAssociation = {
   id: number;
   gmailMessageId: string;
   gmailThreadId: string;
+  sourceAccountId: number | null;
   subject: string | null;
   fromEmail: string | null;
   fromName: string | null;
@@ -300,10 +302,75 @@ function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
   );
 }
 
+// ── FullBodyViewer ─────────────────────────────────────────────────────────────
+
+type FullBodyData = {
+  bodyHtml: string;
+  bodyText: string;
+  isHtml: boolean;
+  source: string;
+};
+
+function FullBodyViewer({ gmailMessageId, snippet }: { gmailMessageId: string; snippet: string | null }) {
+  const bodyQuery = useQuery<FullBodyData>({
+    queryKey: ["/api/gmail/messages/full-body", gmailMessageId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/gmail/messages/${encodeURIComponent(gmailMessageId)}/full-body`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("Failed to load body");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (bodyQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground py-2" data-testid="email-body-loading">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading full email…
+      </div>
+    );
+  }
+
+  const data = bodyQuery.data;
+
+  if (data?.bodyHtml) {
+    const safe = sanitizeRichText(data.bodyHtml);
+    return (
+      <div
+        className="max-h-96 overflow-y-auto rounded border border-border/30 bg-background/50 p-3 text-sm leading-relaxed"
+        dangerouslySetInnerHTML={{ __html: safe }}
+        data-testid="email-full-body-html"
+      />
+    );
+  }
+
+  if (data?.bodyText) {
+    return (
+      <pre
+        className="max-h-96 overflow-y-auto text-xs text-foreground/80 whitespace-pre-wrap font-sans leading-relaxed"
+        data-testid="email-full-body-text"
+      >
+        {data.bodyText}
+      </pre>
+    );
+  }
+
+  if (snippet) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="email-full-body-snippet">{snippet}</p>
+    );
+  }
+
+  return null;
+}
+
 // ── EmailsTab ──────────────────────────────────────────────────────────────────
 
 export function EmailsTab({ objectType, objectId }: { objectType: string; objectId: number }) {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const emailsQuery = useQuery<EmailWithAssociation[]>({
@@ -483,9 +550,7 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
 
             {isExpanded && (
               <div className="border-t border-border/30 px-4 py-3 bg-muted/20 space-y-3">
-                {email.snippet && (
-                  <p className="text-sm text-muted-foreground">{email.snippet}</p>
-                )}
+                <FullBodyViewer gmailMessageId={email.gmailMessageId} snippet={email.snippet} />
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                   <span>
                     From: <span className="text-foreground">
@@ -524,15 +589,17 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
                 )}
 
                 <div className="flex gap-2 flex-wrap">
-                  <a
-                    href={`https://mail.google.com/mail/u/0/#inbox/${email.gmailThreadId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={() => {
+                      const params = new URLSearchParams({ thread: email.gmailThreadId });
+                      if (email.sourceAccountId) params.set("account", String(email.sourceAccountId));
+                      setLocation(`/gmail?${params.toString()}`);
+                    }}
                     className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                    data-testid={`link-open-gmail-${email.id}`}
+                    data-testid={`button-open-vsmail-${email.id}`}
                   >
-                    <ExternalLink className="h-3 w-3" /> Open in Gmail
-                  </a>
+                    <Inbox className="h-3 w-3" /> Open in VS Mail
+                  </button>
                   {email.association && !email.association.isUserConfirmed && (
                     <Button
                       size="sm"

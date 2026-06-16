@@ -5312,7 +5312,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Multi-mailbox Phase 1: when a message is opened from "All Inboxes", remember its source
   // account id so per-thread reads/mutations target the right mailbox (instead of sending the
   // literal "all" sentinel, which numeric-only routes coerce to NaN).
-  const [currentThreadAccountId, setCurrentThreadAccountId] = useState<number | null>(null);
+  const [currentThreadAccountId, setCurrentThreadAccountId] = useState<number | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const acct = params.get("account");
+    return acct && !isNaN(Number(acct)) ? Number(acct) : null;
+  });
 
   // When the user is viewing a specific mailbox (not null/"all"), scope the
   // triage counts/IDs to that account so the badges match what they actually see.
