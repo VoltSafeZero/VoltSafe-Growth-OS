@@ -1016,4 +1016,4 @@ Each user has a **global role** (admin, sales, operations) plus **module-level p
 - Check win/loss rate — learn from lost deals
 
 <!-- voltsafe:help-center-revised -->
-*Last revised: 2026-06-14 — auto-refreshed end-of-day after the most recent production republish.*
+*Last revised: 2026-06-15 — auto-refreshed end-of-day after the most recent production republish.*
