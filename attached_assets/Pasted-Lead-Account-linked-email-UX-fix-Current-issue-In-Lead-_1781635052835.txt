@@ -1,0 +1,76 @@
+Lead/Account linked email UX fix.
+
+Current issue:
+In Lead/Account views, linked emails show a preview, but users cannot read the full email body there. Also, the current “Open in Gmail” button launches external Gmail, which we do not want.
+
+Required behavior:
+
+1. Full email body inside Lead/Account view
+
+* When a user clicks a linked email card, expand it to show the full email body.
+* Preserve formatting as much as possible.
+* Show sender, recipients, date/time, subject, and body.
+* Support long emails with a contained scroll area if needed.
+* Do not truncate the expanded body.
+
+2. Replace “Open in Gmail”
+    Remove:
+
+* “Open in Gmail”
+
+Replace with:
+
+* “Open in VS Mail”
+
+Behavior:
+
+* Clicking “Open in VS Mail” routes the user inside our app to VoltSafe Mail.
+* It should open the exact selected email/thread automatically.
+* Do not open external Gmail.
+* Do not open a new browser tab unless absolutely required.
+
+3. Deep-linking requirement
+    Implement or reuse an internal route/deep link like:
+
+* /gmail?threadId=<gmail_thread_id>
+    or
+* /mail?threadId=<gmail_thread_id>
+
+The route must:
+
+* open VoltSafe Mail
+* select the matching thread/email
+* load the thread body automatically
+* work even if that email is not currently visible in the loaded inbox list
+
+4. Backend/API requirements
+    Audit what fields the linked email card currently receives.
+    If full body is not included:
+
+* fetch full email/thread details on expand
+* do not rely only on preview/snippet
+* include sanitized HTML body and/or plain text fallback
+* include attachments if already supported by VS Mail thread view
+
+5. Security
+
+* Sanitize HTML before rendering.
+* Do not render unsafe scripts/styles.
+* Reuse the same email body sanitizer used by VoltSafe Mail if available.
+
+6. Tests
+    Add regression coverage:
+
+* linked email expands and shows full body, not just snippet
+* “Open in VS Mail” replaces “Open in Gmail”
+* clicking “Open in VS Mail” navigates internally
+* target thread opens automatically in VoltSafe Mail
+* no external Gmail URL is opened
+
+7. Return:
+
+* files changed
+* route/deep-link format used
+* before/after behavior
+* test results
+* screenshot proof

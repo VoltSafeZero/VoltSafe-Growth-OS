@@ -5828,9 +5828,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, [searchQuery, inboxCategory]);
 
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
-    // Include crmFilter in the key when it's "unread" so the cache is partitioned separately
-    // from the normal inbox — they fetch different data (unread-only vs all messages).
-    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId, inboxCategory, crmFilter === "unread" ? "unread" : "all"],
+    // When crmFilter==="unread" the query is always "in:inbox is:unread" regardless of which
+    // category sub-tab is selected — category filtering is done client-side via categorizedInbox.
+    // Using "all" as the inboxCategory key segment means every category tab shares the same
+    // cached page, avoiding duplicate fetches and cursor mismatches between page 1 and page 2+.
+    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId, crmFilter === "unread" ? "all" : inboxCategory, crmFilter === "unread" ? "unread" : "all"],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
@@ -5838,7 +5840,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       // unread messages.  Without this the server returns 50 newest messages sorted by date
       // (99% read for a typical busy inbox), the client-side filter hides most of them, and
       // the user sees only a handful of unread rows even though hundreds exist in the DB.
-      params.set("q", crmFilter === "unread" ? `${inboxCategoryQ} is:unread` : inboxCategoryQ);
+      //
+      // IMPORTANT: when unread mode is active we always send "in:inbox is:unread" — NOT the
+      // category-specific inboxCategoryQ (e.g. "in:inbox in:people is:unread"). buildQClauses
+      // only knows how to handle "in:<label>" prefixes that it explicitly recognises; anything
+      // else falls through as freetext and gets treated as a full-text search. "in:people" as
+      // freetext causes the SQL to add a plainto_tsquery("people") condition, which silently
+      // restricts the first page to messages mentioning the word "people", while loadMoreInbox
+      // (which sends plain "in:inbox is:unread") fetches a completely different data set — the
+      // cursor from page 1 then misaligns against page 2+. By sending the same plain query from
+      // both inboxQuery and loadMoreInbox, the pagination stays coherent and category filtering
+      // is handled entirely client-side via categorizedInbox / getEmailCategory.
+      if (crmFilter === "unread") {
+        params.set("q", searchQuery ? `${searchQuery} is:unread` : "in:inbox is:unread");
+      } else {
+        params.set("q", inboxCategoryQ);
+      }
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);

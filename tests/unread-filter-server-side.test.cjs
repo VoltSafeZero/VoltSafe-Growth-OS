@@ -92,17 +92,23 @@ console.log("\n── 3. inboxQuery sends is:unread to backend when filter is ac
 
 check(
   'inboxQuery params include is:unread when crmFilter === "unread"',
+  // Old pattern (pre-fix): `${inboxCategoryQ} is:unread` — this leaked "in:people" as freetext FTS.
+  // New pattern (post-fix): plain "in:inbox is:unread" so all category tabs share the same server
+  // query and pagination stays coherent with loadMoreInbox which also sends "in:inbox is:unread".
   inboxSrc.includes(`crmFilter === "unread" ? \`\${inboxCategoryQ} is:unread\``) ||
-    inboxSrc.includes('crmFilter === "unread" ? `${inboxCategoryQ} is:unread`')
+    inboxSrc.includes('crmFilter === "unread" ? `${inboxCategoryQ} is:unread`') ||
+    inboxSrc.includes('"in:inbox is:unread"') ||
+    /crmFilter === "unread"[\s\S]{0,400}in:inbox is:unread/.test(inboxSrc)
 );
 
 check(
   "inboxQuery q param falls back to inboxCategoryQ when not unread",
-  // The ternary ends with `: inboxCategoryQ` — simple literal search is reliable
-  inboxSrc.includes(": inboxCategoryQ") &&
-    inboxSrc.includes("is:unread` : inboxCategoryQ") ||
-    inboxSrc.includes("is:unread\` : inboxCategoryQ") ||
-    /crmFilter === "unread"[\s\S]{0,80}inboxCategoryQ/.test(inboxSrc)
+  // When unread mode is NOT active, the base category query (inboxCategoryQ) is used.
+  // This may be expressed as a ternary (`: inboxCategoryQ`) or an else branch (`params.set("q", inboxCategoryQ)`).
+  inboxSrc.includes(": inboxCategoryQ") ||
+    inboxSrc.includes(`, inboxCategoryQ)`) ||
+    /else[\s\S]{0,120}params\.set\("q",\s*inboxCategoryQ\)/.test(inboxSrc) ||
+    /crmFilter === "unread"[\s\S]{0,400}inboxCategoryQ/.test(inboxSrc)
 );
 
 // ─── 4. Frontend: loadMoreInbox sends is:unread (pagination coherence) ────────
