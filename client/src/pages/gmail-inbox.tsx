@@ -7273,6 +7273,106 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return { people, updates, promotions, social, forums };
   }, [categoryCountsQuery.data, serverInboxUnreadCount]);
 
+  // ── LIVE BADGE COUNT DIAGNOSTIC ──────────────────────────────────────────
+  // Logs every count being rendered so scope/cache mismatches are immediately
+  // visible in the browser DevTools console.  Remove when the reconciliation
+  // bug is confirmed fixed.
+  useEffect(() => {
+    const cc = categoryCountsQuery.data;
+    const health = accountsHealthQuery.data ?? [];
+
+    // Raw per-account health values
+    const healthRows = health.map(a => ({
+      id: a.id, email: a.emailAddress, unreadCount: a.unreadCount,
+    }));
+
+    // What the sidebar badge for each category actually renders
+    const rendered = {
+      inboxBadge:      serverInboxUnreadCount,
+      peopleBadge:     sidebarCategoryBadges.people,
+      updatesBadge:    sidebarCategoryBadges.updates,
+      promotionsBadge: sidebarCategoryBadges.promotions,
+      socialBadge:     sidebarCategoryBadges.social,
+      forumsBadge:     sidebarCategoryBadges.forums,
+      priorityCount:   serverGroupCounts?.["unread-people"] ?? null,
+      seenCount:       null, // "Seen" section has no server count — local page only
+    };
+
+    const catSum = rendered.peopleBadge + rendered.updatesBadge +
+                   rendered.promotionsBadge + rendered.socialBadge + rendered.forumsBadge;
+    const gap = rendered.inboxBadge - catSum;
+
+    console.group("%c🔢 VoltSafe Inbox Count Debug", "font-weight:bold;color:#22d3ee");
+
+    console.log("activeAccountId:", activeAccountId,
+      "(null = unified/All, number = single account, 'all' = explicit All Inboxes)");
+
+    console.group("📡 Raw API Responses");
+    console.log("GET /api/gmail/accounts/health  →  queryKey: [\"/api/gmail/accounts\",\"health\"]");
+    console.table(healthRows);
+    console.log("Health sum (all accounts):", health.reduce((s,a)=>s+(a.unreadCount??0), 0));
+    console.log("GET /api/gmail/category-counts?asAccountId=<" + (activeAccountId ?? "all") + ">  →  queryKey: [\"/api/gmail/category-counts\", activeAccountId]");
+    console.log("  people   :", cc?.people?.unread    ?? "(missing — using fallback arithmetic)");
+    console.log("  updates  :", cc?.updates?.unread   ?? 0);
+    console.log("  promotions:", cc?.promotions?.unread ?? 0);
+    console.log("  social   :", cc?.social?.unread    ?? 0);
+    console.log("  forums   :", cc?.forums?.unread    ?? 0);
+    console.groupEnd();
+
+    console.group("🧮 Derived React Variables → Rendered Values");
+    console.log("serverInboxUnreadCount  (variable) → Inbox badge     =", rendered.inboxBadge,
+      "\n  source: accountsHealthQuery.data → " +
+      (activeAccountId === null || activeAccountId === "all"
+        ? "SUM of all accounts (" + health.map(a=>a.unreadCount).join("+") + ")"
+        : "accounts.find(a => a.id === " + activeAccountId + ")?.unreadCount"));
+    console.log("sidebarCategoryBadges.people        → People badge    =", rendered.peopleBadge,
+      "\n  source: cc?.people?.unread ?? Math.max(0, serverInboxUnreadCount - updates - promotions - social - forums)");
+    console.log("sidebarCategoryBadges.updates       → Updates badge   =", rendered.updatesBadge,
+      "\n  source: cc?.updates?.unread ?? 0");
+    console.log("sidebarCategoryBadges.promotions    → Promotions badge=", rendered.promotionsBadge,
+      "\n  source: cc?.promotions?.unread ?? 0");
+    console.log("sidebarCategoryBadges.social        → Social badge    =", rendered.socialBadge,
+      "\n  source: cc?.social?.unread ?? 0");
+    console.log("sidebarCategoryBadges.forums        → Forums badge    =", rendered.forumsBadge,
+      "\n  source: cc?.forums?.unread ?? 0");
+    console.log("serverGroupCounts (Smart Inbox section headers):", serverGroupCounts,
+      "\n  NOTE: section headers use serverGroupCounts ?? item.count where item.count = locally-loaded threads only");
+    console.groupEnd();
+
+    console.group("🔍 Reconciliation Table");
+    console.table({
+      "Inbox badge":  { displayed: rendered.inboxBadge,      sourceVar: "serverInboxUnreadCount",             queryKey: '"/api/gmail/accounts","health"',    endpoint: "GET /api/gmail/accounts/health",    rawAPIValue: health.reduce((s,a)=>s+(a.unreadCount??0),0) },
+      "People":       { displayed: rendered.peopleBadge,     sourceVar: "sidebarCategoryBadges.people",        queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.people?.unread    ?? "(fallback)" },
+      "Updates":      { displayed: rendered.updatesBadge,    sourceVar: "sidebarCategoryBadges.updates",       queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.updates?.unread   ?? 0 },
+      "Promotions":   { displayed: rendered.promotionsBadge, sourceVar: "sidebarCategoryBadges.promotions",    queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.promotions?.unread ?? 0 },
+      "Social":       { displayed: rendered.socialBadge,     sourceVar: "sidebarCategoryBadges.social",        queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.social?.unread    ?? 0 },
+      "Forums":       { displayed: rendered.forumsBadge,     sourceVar: "sidebarCategoryBadges.forums",        queryKey: '"/api/gmail/category-counts",acctId', endpoint: "GET /api/gmail/category-counts",    rawAPIValue: cc?.forums?.unread    ?? 0 },
+    });
+    console.log("Category sum (People+Updates+Promotions+Social+Forums):", catSum);
+    console.log("Inbox badge:", rendered.inboxBadge, "   Gap:", gap,
+      gap === 0 ? "✅ RECONCILES" : "❌ GAP = " + gap + " — see explanation below");
+    if (gap !== 0) {
+      console.warn(
+        "Gap explanation:\n" +
+        "  health endpoint counts: INBOX-OR-CATEGORY_* (OR logic) — each account returns a single number.\n" +
+        "  category-counts endpoint counts per-label independently (INBOX AND CATEGORY_X per bucket).\n" +
+        "  Possible sources of gap:\n" +
+        "  1. STALE CACHE — one query has a fresher response than the other (health refetches every 30s, category-counts every 60s).\n" +
+        "     Fix: hard refresh the page (Ctrl+Shift+R) to clear React Query cache.\n" +
+        "  2. ACCOUNT SCOPE MISMATCH — health sums ALL accounts; category-counts is scoped to activeAccountId='" + activeAccountId + "'.\n" +
+        "     If activeAccountId is a specific account, compare health.find(id).unreadCount vs category-counts sum.\n" +
+        "  3. LOADED-THREADS CONFUSION — Smart Inbox section headers fall back to item.count (loaded-page threads)\n" +
+        "     when serverGroupCounts is null.  These are NOT the server totals.\n" +
+        "     serverGroupCounts = " + JSON.stringify(serverGroupCounts)
+      );
+    }
+    console.groupEnd();
+
+    console.groupEnd();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAccountId, serverInboxUnreadCount, sidebarCategoryBadges, serverGroupCounts,
+      accountsHealthQuery.data, categoryCountsQuery.data]);
+
   const pinnedMessages = useMemo(
     () => inboxMain.filter((m) => pinnedAPI.pinned.has(m.threadId)),
     [inboxMain, pinnedAPI.pinned],
