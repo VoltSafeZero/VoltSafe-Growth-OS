@@ -16728,7 +16728,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           a.last_incremental_sync_at,
           a.incremental_event_count,
           a.sync_error_message,
-          (SELECT count(*)::int FROM email_messages m
+          (SELECT count(distinct m.gmail_thread_id)::int FROM email_messages m
              WHERE m.source_account_id = a.id
                AND (m.label_ids LIKE '%"INBOX"%'
                  OR m.label_ids LIKE '%CATEGORY_UPDATES%'
@@ -16799,9 +16799,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   // ── Category-folder counts ─────────────────────────────────────────────────
   // GET /api/gmail/category-counts?asAccountId=<id|all>
-  // Returns total + unread counts for each of the four Gmail category labels
+  // Returns unread counts for each of the four Gmail category labels
   // (CATEGORY_UPDATES, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, CATEGORY_FORUMS).
   // Used by the sidebar category folder badges.
+  //
+  // CANONICAL UNIT: unread THREADS (COUNT DISTINCT gmail_thread_id).
+  // Badges must count threads because the inbox list shows one row per thread
+  // (via dedupByThread). Counting messages would inflate badges vs visible rows.
   app.get("/api/gmail/category-counts", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId;
@@ -16818,19 +16822,19 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
       const rows = await db.execute(sql.raw(`
         SELECT
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%'
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%'
                              AND label_ids LIKE '%"INBOX"%'
                              AND label_ids LIKE '%"UNREAD"%')::int    AS updates_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%'
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%'
                              AND label_ids LIKE '%"INBOX"%'
                              AND label_ids LIKE '%"UNREAD"%')::int    AS promotions_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%'
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%'
                              AND label_ids LIKE '%"INBOX"%'
                              AND label_ids LIKE '%"UNREAD"%')::int    AS social_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'
                              AND label_ids LIKE '%"INBOX"%'
                              AND label_ids LIKE '%"UNREAD"%')::int    AS forums_unread,
-          COUNT(*) FILTER (WHERE label_ids LIKE '%"INBOX"%'
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids LIKE '%"INBOX"%'
                              AND label_ids LIKE '%"UNREAD"%'
                              AND label_ids NOT ILIKE '%CATEGORY_UPDATES%'
                              AND label_ids NOT ILIKE '%CATEGORY_PROMOTIONS%'

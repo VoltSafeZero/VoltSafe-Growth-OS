@@ -3,13 +3,20 @@
  *
  * Invariant tests for inbox category count integrity.
  *
+ * CANONICAL UNIT: unread THREADS (COUNT DISTINCT gmail_thread_id).
+ * The inbox list shows one row per thread (dedupByThread). Badges must count
+ * threads so the badge number matches the visible row count.
+ *
  * Part A — source-grep: structural checks (no server needed).
  *   Verifies the reconciliation endpoint is registered, gated, and returns
  *   the right shape including delta and drift fields.
+ *   Also verifies category-counts uses COUNT(DISTINCT) not COUNT(*).
  *
  * Part B — live API: calls GET /api/gmail/inbox-debug and asserts:
+ *   • threads.delta === 0
+ *       (People + Updates + Promotions + Social + Forums === Inbox unread threads)
  *   • messages.delta === 0
- *       (People + Updates + Promotions + Social + Forums === Inbox unread)
+ *       (same check at message level — must also reconcile)
  *   • drift.missing_inbox_unread === 0
  *       (no unread CATEGORY_* messages are silently missing INBOX label)
  *   • drift.multi_category === 0
@@ -105,6 +112,28 @@ assert(
   routesSrc.includes("CATEGORY_UPDATES%") && routesSrc.includes("CATEGORY_PROMOTIONS%") &&
   routesSrc.includes("CATEGORY_SOCIAL%")  && routesSrc.includes("CATEGORY_FORUMS%"),
   "routes.ts contains all four CATEGORY_* ILIKE patterns"
+);
+
+// Canonical unit check: category-counts must use COUNT(DISTINCT ...) not COUNT(*)
+// for the unread badge counts. Threads are the canonical unit because the inbox
+// list shows one row per thread (dedupByThread).
+const catCountsIdx = routesSrc.indexOf('"/api/gmail/category-counts"');
+const catCountsBlock = catCountsIdx !== -1 ? routesSrc.slice(catCountsIdx, catCountsIdx + 4000) : "";
+assert(
+  catCountsBlock.includes("COUNT(DISTINCT gmail_thread_id)"),
+  "category-counts endpoint uses COUNT(DISTINCT gmail_thread_id) — canonical thread unit"
+);
+assert(
+  !catCountsBlock.includes("COUNT(*) FILTER"),
+  "category-counts endpoint does NOT use COUNT(*) for unread badges"
+);
+
+// Health endpoint unread_count must also use DISTINCT threads
+const healthIdx = routesSrc.indexOf('"/api/gmail/accounts/health"');
+const healthBlock = healthIdx !== -1 ? routesSrc.slice(healthIdx, healthIdx + 3000) : "";
+assert(
+  healthBlock.includes("count(distinct m.gmail_thread_id)"),
+  "accounts/health endpoint uses count(distinct) for unread_count badge"
 );
 
 // people_unread definition: INBOX + UNREAD + NOT CATEGORY_*
@@ -227,37 +256,54 @@ async function runLiveTests() {
   const d = debugRes.body;
 
   // Print count table
+  // CANONICAL UNIT: threads (badges count threads to match the list which shows
+  // one row per thread). Message counts are shown for reference only.
+  const threadBucketSum = (d.threads?.people ?? 0) + (d.threads?.updates ?? 0)
+    + (d.threads?.promotions ?? 0) + (d.threads?.social ?? 0) + (d.threads?.forums ?? 0);
+  const threadsDelta = (d.threads?.inbox_unread ?? -1) - threadBucketSum;
   console.log("");
-  console.log("  === LIVE COUNT TABLE (messages) ===");
-  console.log(`  inbox_unread:        ${d.messages?.inbox_unread}`);
-  console.log(`    people:            ${d.messages?.buckets?.people}`);
-  console.log(`    updates:           ${d.messages?.buckets?.updates}`);
-  console.log(`    promotions:        ${d.messages?.buckets?.promotions}`);
-  console.log(`    social:            ${d.messages?.buckets?.social}`);
-  console.log(`    forums:            ${d.messages?.buckets?.forums}`);
-  console.log(`    bucket_sum:        ${d.messages?.bucket_sum}`);
-  console.log(`    delta:             ${d.messages?.delta}  ← must be 0`);
-  console.log(`    priority_unread:   ${d.messages?.priority_unread}  (overlay, not additive)`);
-  console.log(`  === THREAD COUNTS (reference) ===`);
-  console.log(`  inbox_threads:       ${d.threads?.inbox_unread}`);
-  console.log(`    people_threads:    ${d.threads?.people}`);
-  console.log(`    updates_threads:   ${d.threads?.updates}`);
-  console.log(`    promos_threads:    ${d.threads?.promotions}`);
-  console.log(`    social_threads:    ${d.threads?.social}`);
-  console.log(`    forums_threads:    ${d.threads?.forums}`);
+  console.log("  === LIVE COUNT TABLE (CANONICAL: threads) ===");
+  console.log(`  inbox_unread_threads:  ${d.threads?.inbox_unread}  ← what badge shows`);
+  console.log(`    people_threads:      ${d.threads?.people}`);
+  console.log(`    updates_threads:     ${d.threads?.updates}`);
+  console.log(`    promotions_threads:  ${d.threads?.promotions}`);
+  console.log(`    social_threads:      ${d.threads?.social}`);
+  console.log(`    forums_threads:      ${d.threads?.forums}`);
+  console.log(`    thread_bucket_sum:   ${threadBucketSum}`);
+  console.log(`    threads_delta:       ${threadsDelta}  ← must be 0`);
+  console.log(`  === MESSAGE COUNTS (reference only) ===`);
+  console.log(`  inbox_unread_msgs:     ${d.messages?.inbox_unread}`);
+  console.log(`    people_msgs:         ${d.messages?.buckets?.people}`);
+  console.log(`    updates_msgs:        ${d.messages?.buckets?.updates}`);
+  console.log(`    promotions_msgs:     ${d.messages?.buckets?.promotions}`);
+  console.log(`    social_msgs:         ${d.messages?.buckets?.social}`);
+  console.log(`    forums_msgs:         ${d.messages?.buckets?.forums}`);
+  console.log(`    msg_bucket_sum:      ${d.messages?.bucket_sum}`);
+  console.log(`    messages_delta:      ${d.messages?.delta}  ← must be 0`);
+  console.log(`    priority_unread:     ${d.messages?.priority_unread}  (overlay, not additive)`);
   console.log(`  === DRIFT ===`);
-  console.log(`  missing_inbox:       ${d.drift?.missing_inbox_unread}  ← must be 0`);
-  console.log(`  multi_category:      ${d.drift?.multi_category}  ← must be 0`);
+  console.log(`  missing_inbox:         ${d.drift?.missing_inbox_unread}  ← must be 0`);
+  console.log(`  multi_category:        ${d.drift?.multi_category}  ← must be 0`);
   console.log("");
 
-  // Invariant checks
+  // Invariant checks — CANONICAL UNIT: threads
+  assert(
+    typeof d.threads?.inbox_unread === "number",
+    "response includes threads.inbox_unread (canonical thread count)"
+  );
+  assert(
+    threadsDelta === 0,
+    `[THREADS] People+Updates+Promotions+Social+Forums === Inbox unread threads (delta=${threadsDelta})`
+  );
+
+  // Message-level reconciliation must also hold (internal consistency)
   assert(
     typeof d.messages?.delta === "number",
     "response includes messages.delta (number)"
   );
   assert(
     d.messages?.delta === 0,
-    `People+Updates+Promotions+Social+Forums === Inbox unread (delta=${d.messages?.delta})`
+    `[MSGS] People+Updates+Promotions+Social+Forums === Inbox unread messages (delta=${d.messages?.delta})`
   );
   assert(
     d.drift?.missing_inbox_unread === 0,
@@ -270,10 +316,6 @@ async function runLiveTests() {
   assert(
     typeof d.messages?.priority_unread === "number",
     "response exposes priority_unread count for the starred overlay"
-  );
-  assert(
-    typeof d.threads?.inbox_unread === "number",
-    "response includes thread counts alongside message counts"
   );
   assert(
     d.ok === true,
