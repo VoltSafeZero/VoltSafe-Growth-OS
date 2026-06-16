@@ -1,0 +1,95 @@
+Critical VoltSafe Mail unread loader bug.
+
+Current production behavior:
+
+* Inbox badge shows 229 unread.
+* Unread tab shows 229.
+* But clicking Inbox / Unread only loads 13 messages.
+* UI says “You’re all caught up · 13 messages loaded.”
+* Clicking “Load older messages” makes it worse / shows only 4.
+* This is wrong. If 229 unread threads exist, the unread list must not declare all caught up after 13.
+
+This is not a count reconciliation problem anymore. This is a message-list loading / pagination / filtering bug.
+
+Please investigate and fix the actual loader.
+
+Tasks:
+
+1. Trace the exact request fired when I click:
+
+* trevor@voltsafe.com
+* Inbox
+* Unread tab
+* Simple List mode
+
+Return:
+
+* frontend query key
+* endpoint URL
+* q parameter
+* unreadOnly parameter
+* accountId / asAccountId
+* limit
+* cursor / page token
+* response message count
+* response thread count after dedup
+* hasMore / nextCursor
+
+2. Compare the exact count query vs exact list query.
+
+For the same account and same filter:
+
+* Count says unread inbox = 229
+* List returns only 13
+
+Find exactly why.
+
+3. Run direct DB queries for trevor@voltsafe.com:
+
+* unread + INBOX thread count
+* unread + INBOX message count
+* newest 100 unread inbox threads
+* oldest/newest timestamps
+* labels on the 229 unread threads
+
+4. Audit pagination:
+
+* Is the backend returning hasMore=false too early?
+* Is the frontend stopping because one page has too few visible rows after dedup?
+* Is dedupByThread collapsing many rows?
+* Is the cursor advancing incorrectly?
+* Is “Load older messages” replacing the list instead of appending?
+* Is Simple List using a different loader than Smart Inbox?
+
+5. Fix requirements:
+
+* First unread page should load a reasonable batch, e.g. 50 unread threads.
+* If unread count is 229, the UI must never say “all caught up” after 13.
+* “Load older messages” must append, not replace.
+* Pagination must continue until visible unread threads match the unread count or the backend proves no more exist.
+* Loading text must show real progress, e.g. “13 of 229 unread threads loaded.”
+
+6. Add regression test:
+    Mock:
+
+* unread count = 229
+* first page returns 50 unread threads
+* hasMore = true
+
+Assert:
+
+* UI does not say “all caught up” after 13 or 50
+* Load older messages remains available
+* next page appends results
+* visible count progresses toward 229
+
+7. Return:
+
+* root cause
+* exact file/function responsible
+* before/after API evidence
+* screenshot proof
+* test results
+
+Important:
+Do not mark this fixed by saying the counts reconcile. The visible unread mailbox is broken because the loader only shows 13 of 229 unread messages and falsely says all caught up.
