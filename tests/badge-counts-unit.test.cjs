@@ -126,13 +126,20 @@ assert(
   "forums badge reads cc?.forums?.unread from API"
 );
 
-// The category-counts endpoint returns thread counts
+// The category-counts endpoint returns thread counts.
+// Scope the check to the endpoint block only — the inbox-debug endpoint still has
+// COUNT(*) for its message-count reference column, so checking the whole file would
+// produce a false positive.
+const catEndpointIdx = routesSrc.indexOf('"/api/gmail/category-counts"');
+const catEndpointBlock = catEndpointIdx !== -1
+  ? routesSrc.slice(catEndpointIdx, catEndpointIdx + 4000)
+  : "";
 assert(
-  routesSrc.includes("COUNT(DISTINCT gmail_thread_id) FILTER"),
+  catEndpointBlock.includes("COUNT(DISTINCT gmail_thread_id) FILTER"),
   "category-counts endpoint uses COUNT(DISTINCT gmail_thread_id) — canonical thread unit"
 );
 assert(
-  !routesSrc.includes("COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES"),
+  !catEndpointBlock.includes("COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES"),
   "category-counts endpoint does NOT use COUNT(*) for CATEGORY_UPDATES (message count gone)"
 );
 
@@ -161,9 +168,17 @@ console.log("\n── G5. People fallback uses thread-unit arithmetic ──");
 
 // The fallback subtracts thread values (updates+promotions+social+forums) from
 // serverInboxUnreadCount (also threads). All operands are the same unit.
-const fallbackIdx = src.indexOf("Math.max(0, serverInboxUnreadCount -");
+// There are two Math.max occurrences; the sidebarCategoryBadges one (with
+// updates/promotions) is the SECOND occurrence — skip the first one which
+// belongs to serverGroupCounts and uses newsletters/notifications.
+const firstFallbackIdx = src.indexOf("Math.max(0, serverInboxUnreadCount -");
+const fallbackIdx = firstFallbackIdx !== -1
+  ? src.indexOf("Math.max(0, serverInboxUnreadCount -", firstFallbackIdx + 1)
+  : -1;
+// 160 chars captures the fallback line + return + closing deps array but stops
+// before the next useMemo (pinnedMessages) which references inboxMain unrelated.
 const fallbackBlock = fallbackIdx !== -1
-  ? src.slice(fallbackIdx, fallbackIdx + 300)
+  ? src.slice(fallbackIdx, fallbackIdx + 160)
   : "";
 
 assert(
@@ -211,8 +226,9 @@ assert(
 console.log("\n── G8. bulkMarkReadMutation invalidates badge queries on success ──");
 
 const bulkMutIdx = src.indexOf("const bulkMarkReadMutation = useMutation");
+// The invalidations land ~1570 chars into the block; use 1800 to be safe.
 const bulkMutBlock = bulkMutIdx !== -1
-  ? src.slice(bulkMutIdx, bulkMutIdx + 1500)
+  ? src.slice(bulkMutIdx, bulkMutIdx + 1800)
   : "";
 
 assert(
@@ -281,8 +297,9 @@ assert(
 // Priority is NOT included in the serverGroupCounts that feed the section
 // header additive math (only people, notifications, newsletters are included).
 const serverGroupIdx = src.indexOf("const serverGroupCounts = useMemo");
+// "unread-people" key is ~625 chars into the block; use 900 to be safe.
 const serverGroupBlock = serverGroupIdx !== -1
-  ? src.slice(serverGroupIdx, serverGroupIdx + 600)
+  ? src.slice(serverGroupIdx, serverGroupIdx + 900)
   : "";
 
 assert(
