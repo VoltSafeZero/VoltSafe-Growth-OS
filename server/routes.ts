@@ -16829,7 +16829,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                              AND label_ids LIKE '%"UNREAD"%')::int    AS social_unread,
           COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'
                              AND label_ids LIKE '%"INBOX"%'
-                             AND label_ids LIKE '%"UNREAD"%')::int    AS forums_unread
+                             AND label_ids LIKE '%"UNREAD"%')::int    AS forums_unread,
+          COUNT(*) FILTER (WHERE label_ids LIKE '%"INBOX"%'
+                             AND label_ids LIKE '%"UNREAD"%'
+                             AND label_ids NOT ILIKE '%CATEGORY_UPDATES%'
+                             AND label_ids NOT ILIKE '%CATEGORY_PROMOTIONS%'
+                             AND label_ids NOT ILIKE '%CATEGORY_SOCIAL%'
+                             AND label_ids NOT ILIKE '%CATEGORY_FORUMS%')::int AS people_unread
         FROM email_messages
         WHERE source_account_id IN (${validIds.join(",")})
           AND label_ids NOT ILIKE '%"TRASH"%'
@@ -16842,6 +16848,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         promotions: { total: 0, unread: r.promotions_unread ?? 0 },
         social:     { total: 0, unread: r.social_unread     ?? 0 },
         forums:     { total: 0, unread: r.forums_unread     ?? 0 },
+        people:     { total: 0, unread: r.people_unread     ?? 0 },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

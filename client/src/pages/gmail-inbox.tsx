@@ -211,7 +211,7 @@ function parseSenderDomain(from: string): string {
 }
 
 type EmailFilter = { id: number; domain: string; createdAt: string };
-type InboxCategory = "all" | "people" | "newsletters" | "promotions" | "social" | "forums" | "priority";
+type InboxCategory = "all" | "people" | "updates" | "promotions" | "social" | "forums" | "priority";
 type CrmInboxFilter = "all" | "unread" | "starred" | "follow-up" | "needs-reply" | "awaiting-reply" | "hot" | "unlinked";
 
 type MailFolderDomain = { id: number; folderId: number; domain: string; matchType: string };
@@ -438,8 +438,8 @@ function isStarred(labelIds: string[]) {
   return labelIds.includes("STARRED");
 }
 
-function getEmailCategory(labelIds: string[]): "people" | "newsletters" | "promotions" | "social" | "forums" {
-  if (labelIds.includes("CATEGORY_UPDATES"))    return "newsletters";
+function getEmailCategory(labelIds: string[]): "people" | "updates" | "promotions" | "social" | "forums" {
+  if (labelIds.includes("CATEGORY_UPDATES"))    return "updates";
   if (labelIds.includes("CATEGORY_PROMOTIONS")) return "promotions";
   if (labelIds.includes("CATEGORY_SOCIAL"))     return "social";
   if (labelIds.includes("CATEGORY_FORUMS"))     return "forums";
@@ -5801,15 +5801,29 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return true;
   })();
 
+  // Build the server-side query filter for the current inbox category.
+  // Category sub-inbox views fetch ONLY relevant messages from the server so
+  // the first page already contains useful data — prevents the "People spins"
+  // issue where the loader had to page through thousands of mixed-category messages.
+  // "in:people" uses the custom filter added to buildQClauses in local-mailbox.ts
+  // (INBOX + no CATEGORY_* labels). All other category queries use Gmail's own
+  // "in:<category>" syntax which buildQClauses already maps to CATEGORY_* labels.
+  const inboxCategoryQ = useMemo(() => {
+    if (searchQuery) return searchQuery;
+    if (inboxCategory === "people")     return "in:inbox in:people";
+    if (inboxCategory === "updates")    return "in:updates";
+    if (inboxCategory === "promotions") return "in:promotions";
+    if (inboxCategory === "social")     return "in:social";
+    if (inboxCategory === "forums")     return "in:forums";
+    return "in:inbox";
+  }, [searchQuery, inboxCategory]);
+
   const inboxQuery = useQuery<{ messages: MessageSummary[]; nextPageToken: string | null }>({
-    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId],
+    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId, inboxCategory],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      // When searching, drop the folder restriction so results span all mail
-      // (inbox + sent + archived). This matches Gmail's own search behaviour
-      // and ensures contacts known only from sent emails are still findable.
-      params.set("q", searchQuery ? searchQuery : "in:inbox");
+      params.set("q", inboxCategoryQ);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
@@ -6146,6 +6160,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     promotions: { total: number; unread: number };
     social:     { total: number; unread: number };
     forums:     { total: number; unread: number };
+    people?:    { total: number; unread: number };
   }>({
     queryKey: ["/api/gmail/category-counts", activeAccountId],
     queryFn: async () => {
@@ -7180,8 +7195,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   const priorityCount    = inboxMain.filter((m) => isStarred(m.labelIds)).length;
   const peopleCount      = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "people").length;
-  const newslettersCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "newsletters").length;
-  const updatesCount     = newslettersCount;
+  const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
   // Returns 0 while health data is loading — no badge shown until the true server
@@ -7197,19 +7211,38 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return accounts.find((a) => a.id === activeAccountId)?.unreadCount ?? 0;
   }, [accountsHealthQuery.data, activeAccountId]);
 
+  // Category-specific server unread target for the smart unread loader + status banner.
+  // When the user is in a sub-category view (People, Updates, etc.) we compare loaded
+  // unread ONLY for that category, not the global inbox total.  Without this, the loader
+  // would never converge because a People-filtered query returns far fewer messages than
+  // the full inbox, so inboxUnreadCount < serverInboxUnreadCount always.
+  const inboxCategoryServerUnread = useMemo(() => {
+    const cc = categoryCountsQuery.data;
+    if (inboxCategory === "people")     return cc?.people?.unread     ?? serverInboxUnreadCount;
+    if (inboxCategory === "updates")    return cc?.updates?.unread    ?? 0;
+    if (inboxCategory === "promotions") return cc?.promotions?.unread ?? 0;
+    if (inboxCategory === "social")     return cc?.social?.unread     ?? 0;
+    if (inboxCategory === "forums")     return cc?.forums?.unread     ?? 0;
+    return serverInboxUnreadCount;
+  }, [inboxCategory, categoryCountsQuery.data, serverInboxUnreadCount]);
+
   // PART A — Server-side group counts for Smart Inbox section headers.
   // Newsletters = PROMOTIONS + FORUMS unread (inbox-visible, from category-counts API).
   // Notifications = UPDATES + SOCIAL unread (inbox-visible, from category-counts API).
-  // People = serverInboxUnreadCount − Newsletters − Notifications.
+  // People = direct count from category-counts API (INBOX + UNREAD + no CATEGORY_* labels).
+  //          Falls back to derivation (serverInboxUnreadCount − Newsletters − Notifications)
+  //          for backwards-compat if the API hasn't returned the new field yet.
   // Priority is a highlight layer only — starred messages are counted inside their
   // category group (not subtracted), so totals always reconcile to the badge.
   const serverGroupCounts = useMemo(() => {
-    if (!categoryCountsQuery.data || serverInboxUnreadCount === 0) return null;
+    if (!categoryCountsQuery.data) return null;
     const newsletters  = (categoryCountsQuery.data.promotions?.unread ?? 0)
                        + (categoryCountsQuery.data.forums?.unread     ?? 0);
     const notifications = (categoryCountsQuery.data.updates?.unread  ?? 0)
                         + (categoryCountsQuery.data.social?.unread    ?? 0);
-    const people = Math.max(0, serverInboxUnreadCount - newsletters - notifications);
+    const people = categoryCountsQuery.data.people?.unread
+                 ?? Math.max(0, serverInboxUnreadCount - newsletters - notifications);
+    if (people + newsletters + notifications === 0) return null;
     return {
       "unread-people":        people,
       "unread-newsletters":   newsletters,
@@ -7218,14 +7251,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   }, [categoryCountsQuery.data, serverInboxUnreadCount]);
 
   // Per-category unread badge counts for the Inbox subcategory sidebar items.
+  // "updates" = CATEGORY_UPDATES (Gmail Updates tab: receipts, account notifications, etc.)
+  // "people"  = direct count from API: INBOX + UNREAD + no CATEGORY_* labels.
   const sidebarCategoryBadges = useMemo(() => {
     const cc = categoryCountsQuery.data;
-    const newsletters  = cc?.updates?.unread    ?? 0;
-    const promotions   = cc?.promotions?.unread ?? 0;
-    const social       = cc?.social?.unread     ?? 0;
-    const forums       = cc?.forums?.unread     ?? 0;
-    const people       = Math.max(0, serverInboxUnreadCount - newsletters - promotions - social - forums);
-    return { people, newsletters, promotions, social, forums };
+    const updates    = cc?.updates?.unread    ?? 0;
+    const promotions = cc?.promotions?.unread ?? 0;
+    const social     = cc?.social?.unread     ?? 0;
+    const forums     = cc?.forums?.unread     ?? 0;
+    const people     = cc?.people?.unread
+                     ?? Math.max(0, serverInboxUnreadCount - updates - promotions - social - forums);
+    return { people, updates, promotions, social, forums };
   }, [categoryCountsQuery.data, serverInboxUnreadCount]);
 
   const pinnedMessages = useMemo(
@@ -7479,22 +7515,24 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     if (!isSmartView || tab !== "inbox" || searchQuery) return;
     // Need a next page and must not already be loading.
     if (!inboxNextToken || loadingMoreInbox) return;
-    // Stop when server count is unknown (health query still loading).
-    if (serverInboxUnreadCount === 0) return;
-    // Stop when all unread messages are already loaded.
-    if (inboxUnreadCount >= serverInboxUnreadCount) return;
-    // Hard cap: don't load more than 500 total messages via this path.
-    if (allInboxMessages.length >= 500) return;
-    // Per-context cycle cap of 10 auto-loads.
+    // Stop when server count is unknown (health/category query still loading).
+    if (inboxCategoryServerUnread === 0) return;
+    // Stop when all relevant unread messages are already loaded.
+    // Uses category-specific count when in sub-category view so the loader
+    // converges on the right target instead of the full inbox total.
+    if (inboxUnreadCount >= inboxCategoryServerUnread) return;
+    // Hard cap: don't load more than 2500 total messages via this path.
+    if (allInboxMessages.length >= 2500) return;
+    // Per-context cycle cap of 50 auto-loads.
     const loaderKey = inboxChainKey;
     if (smartUnreadLoaderRef.current.key !== loaderKey) {
       smartUnreadLoaderRef.current = { key: loaderKey, cycles: 0 };
     }
-    if (smartUnreadLoaderRef.current.cycles >= 10) return;
+    if (smartUnreadLoaderRef.current.cycles >= 50) return;
     smartUnreadLoaderRef.current.cycles += 1;
     loadMoreRef.current();
   }, [isSmartView, tab, searchQuery, inboxNextToken, loadingMoreInbox,
-      inboxUnreadCount, serverInboxUnreadCount, allInboxMessages.length, inboxChainKey]);
+      inboxUnreadCount, inboxCategoryServerUnread, allInboxMessages.length, inboxChainKey]);
 
   // Strictly scope: only render the "more available" CTA when (a) we exhausted THIS chain key,
   // (b) we're on a tab where auto-chain even applies, and (c) hasMore is still true.
@@ -8464,7 +8502,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         {([
                           { key: "all" as const,         label: "All",                   Icon: Inbox,     badge: 0 },
                           { key: "people" as const,      label: "People",                Icon: User,      badge: sidebarCategoryBadges.people },
-                          { key: "newsletters" as const, label: "Newsletters & Updates", Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
+                          { key: "updates" as const, label: "Updates", Icon: Newspaper, badge: sidebarCategoryBadges.updates },
                           { key: "promotions" as const,  label: "Promotions",            Icon: Tag,       badge: sidebarCategoryBadges.promotions },
                           { key: "social" as const,      label: "Social",                Icon: Users,     badge: sidebarCategoryBadges.social },
                           { key: "forums" as const,      label: "Forums & Communities",  Icon: Hash,      badge: sidebarCategoryBadges.forums },
@@ -8477,7 +8515,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                               className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
                               <Icon className="h-3 w-3 flex-shrink-0" />
                               <span className="flex-1 text-left truncate">{label}</span>
-                              {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge > 99 ? "99+" : badge}</span>}
+                              {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge}</span>}
                             </button>
                           );
                         })}
@@ -8613,7 +8651,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                               {([
                                 { key: "all" as const,         label: "All",                   Icon: Inbox,     badge: 0 },
                                 { key: "people" as const,      label: "People",                Icon: User,      badge: sidebarCategoryBadges.people },
-                                { key: "newsletters" as const, label: "Newsletters & Updates", Icon: Newspaper, badge: sidebarCategoryBadges.newsletters },
+                                { key: "updates" as const, label: "Updates", Icon: Newspaper, badge: sidebarCategoryBadges.updates },
                                 { key: "promotions" as const,  label: "Promotions",            Icon: Tag,       badge: sidebarCategoryBadges.promotions },
                                 { key: "social" as const,      label: "Social",                Icon: Users,     badge: sidebarCategoryBadges.social },
                                 { key: "forums" as const,      label: "Forums & Communities",  Icon: Hash,      badge: sidebarCategoryBadges.forums },
@@ -8626,7 +8664,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                                     className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
                                     <Icon className="h-3 w-3 flex-shrink-0" />
                                     <span className="flex-1 text-left truncate">{label}</span>
-                                    {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge > 99 ? "99+" : badge}</span>}
+                                    {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge}</span>}
                                   </button>
                                 );
                               })}
@@ -9430,7 +9468,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 <span className="text-[11px] text-muted-foreground/30">·</span>
                 <span className="text-[11px] font-medium text-foreground/70">
                   {inboxCategory === "people"      ? "People"
-                    : inboxCategory === "newsletters" ? "Newsletters & Updates"
+                    : inboxCategory === "updates" ? "Updates"
                     : inboxCategory === "promotions"  ? "Promotions"
                     : inboxCategory === "social"       ? "Social"
                     : inboxCategory === "forums"       ? "Forums & Communities"
@@ -9765,7 +9803,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {/* PART C — Smart Inbox status strip */}
             {isSmartView && (
               <div className="px-3 py-1.5 flex items-center gap-1.5 border-b border-border/20">
-                {loadingMoreInbox || (!!inboxNextToken && inboxUnreadCount < serverInboxUnreadCount && serverInboxUnreadCount > 0) ? (
+                {loadingMoreInbox || (!!inboxNextToken && inboxUnreadCount < inboxCategoryServerUnread && inboxCategoryServerUnread > 0) ? (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/35 flex-shrink-0" />
                     <span className="text-[10px] text-muted-foreground/45 italic">Loading remaining unread emails…</span>
@@ -9793,7 +9831,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 const HeaderIcon =
                   item.glyph === "priority"      ? Zap        :
                   item.glyph === "people"        ? Users      :
-                  item.glyph === "newsletters"   ? Newspaper  :
+                  item.glyph === "updates"        ? Newspaper  :
                   item.glyph === "notifications" ? Bell       :
                   item.glyph === "pinned"        ? Pin        :
                   /* "seen" */                     MailOpen;

@@ -243,7 +243,18 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
       FORUMS: "CATEGORY_FORUMS",
     };
     const label = CATEGORY_LABEL_MAP[rawLabel] ?? rawLabel;
-    if (label === "INBOX") {
+    if (rawLabel === "PEOPLE") {
+      // "in:people" = INBOX messages with no Gmail category labels
+      // (person-to-person mail, the "People" smart inbox bucket)
+      where.push(`(label_ids ILIKE '%"INBOX"%' OR label_ids ILIKE '%INBOX%')`);
+      where.push(`label_ids NOT ILIKE '%CATEGORY_UPDATES%'`);
+      where.push(`label_ids NOT ILIKE '%CATEGORY_PROMOTIONS%'`);
+      where.push(`label_ids NOT ILIKE '%CATEGORY_SOCIAL%'`);
+      where.push(`label_ids NOT ILIKE '%CATEGORY_FORUMS%'`);
+      where.push(`label_ids NOT ILIKE '%"DRAFT"%'`);
+      where.push(`label_ids NOT ILIKE '%"SPAM"%'`);
+      where.push(`label_ids NOT ILIKE '%"TRASH"%'`);
+    } else if (label === "INBOX") {
       // The Inbox view shows INBOX-labeled messages AND all category-tagged messages
       // (CATEGORY_UPDATES, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, CATEGORY_FORUMS).
       // Gmail routes many real emails through category labels without also stamping
