@@ -164,11 +164,30 @@ test("threadQuery has multi-condition enabled prop", () => {
   hasSrc(INBOX_SRC, /enabled:\s*!!selectedThreadId\s*&&\s*\(/, "threadQuery enabled must be a compound condition");
 });
 
-test("threadQuery enabled guards against all-mode with null currentThreadAccountId", () => {
+test("isUnifiedInboxMode variable treats both 'all' and null as unified mode", () => {
+  // Both "all" and null must be recognised as unified mode so thread queries
+  // route to the correct per-message sourceAccountId rather than defaulting
+  // to the primary account (which 404s for secondary-mailbox messages).
   hasSrc(
     INBOX_SRC,
-    /activeAccountId\s*!==\s*["']all["']\s*\|\|\s*currentThreadAccountId\s*!==\s*null/,
-    "enabled must gate on (activeAccountId !== \"all\" || currentThreadAccountId !== null)"
+    /isUnifiedInboxMode\s*=\s*activeAccountId\s*===\s*["']all["']\s*\|\|\s*activeAccountId\s*===\s*null/,
+    "isUnifiedInboxMode must treat both \"all\" and null as unified inbox mode"
+  );
+});
+
+test("threadAccountId uses isUnifiedInboxMode to decide resolution strategy", () => {
+  hasSrc(
+    INBOX_SRC,
+    /isUnifiedInboxMode[\s\S]{0,40}currentThreadAccountId/,
+    "threadAccountId must branch on isUnifiedInboxMode and use currentThreadAccountId in unified mode"
+  );
+});
+
+test("threadQuery enabled guards against unified mode with null currentThreadAccountId", () => {
+  hasSrc(
+    INBOX_SRC,
+    /!isUnifiedInboxMode\s*\|\|\s*currentThreadAccountId\s*!==\s*null/,
+    "enabled must gate on (!isUnifiedInboxMode || currentThreadAccountId !== null)"
   );
 });
 
@@ -186,6 +205,30 @@ test("currentThreadAccountId state is initialized to null", () => {
 
 test("handleSelectMessage sets currentThreadAccountId from msg.sourceAccountId", () => {
   hasSrc(INBOX_SRC, "setCurrentThreadAccountId(msg.sourceAccountId ?? null)");
+});
+
+test("threadQuery error branch renders Retry button not silent blank", () => {
+  hasSrc(
+    INBOX_SRC,
+    /threadQuery\.isError/,
+    "pane must check threadQuery.isError so errors surface instead of rendering blank"
+  );
+});
+
+test("thread-api logs 404 with threadId and resolvedAccountId", () => {
+  hasSrc(
+    ROUTES_SRC,
+    /\[thread-api\] 404/,
+    "thread API must log a 404 warning with threadId and resolvedAccountId for diagnostics"
+  );
+});
+
+test("thread-api logs incoming request params", () => {
+  hasSrc(
+    ROUTES_SRC,
+    /\[thread-api\] req/,
+    "thread API must log incoming threadId, userId, asAccountId, and resolved account for diagnostics"
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

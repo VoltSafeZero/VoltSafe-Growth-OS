@@ -6305,13 +6305,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     }
   };
 
-  // Multi-mailbox Phase 1: thread-scoped account id. In "All Inboxes" we resolve to the
-  // specific source account of the open message (avoids "all" → NaN coercion on routes that
-  // still parse asAccountId as a plain Number).
-  const threadAccountId: number | null =
-    activeAccountId === "all"
-      ? currentThreadAccountId
-      : (typeof activeAccountId === "number" ? activeAccountId : null);
+  // Multi-mailbox Phase 1: thread-scoped account id. In unified mode ("all" sentinel OR the
+  // null initial state — both map to asAccountId=all in the list query) we resolve to the
+  // specific source account of the open message so we avoid the "all" → NaN coercion on
+  // routes that still parse asAccountId as a plain Number.
+  // IMPORTANT: null and "all" are both "unified inbox" modes (appendAccountId sends
+  // asAccountId=all for both).  Previously only "all" was treated as unified here, leaving
+  // null acting like a specific account with no ID — causing cross-account 404s.
+  const isUnifiedInboxMode = activeAccountId === "all" || activeAccountId === null;
+  const threadAccountId: number | null = isUnifiedInboxMode
+    ? currentThreadAccountId
+    : (typeof activeAccountId === "number" ? activeAccountId : null);
 
   const threadQuery = useQuery<Thread>({
     queryKey: ["/api/gmail/threads", selectedThreadId, threadAccountId],
@@ -6320,14 +6324,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       if (threadAccountId) params.set("asAccountId", String(threadAccountId));
       const qs = params.toString() ? `?${params}` : "";
       const res = await fetch(`/api/gmail/threads/${selectedThreadId}${qs}`, { credentials: "include" });
-      if (!res.ok) throw new Error((await res.json()).message);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({ message: `HTTP ${res.status}` }))).message);
       return res.json();
     },
-    // In "all inboxes" mode the correct asAccountId comes from currentThreadAccountId which
-    // is set in the same handleSelectMessage batch as selectedThreadId.  Holding the query
-    // until that value is populated prevents a spurious first-fire with no asAccountId that
-    // resolves to the primary account and returns 404 for messages owned by secondary accounts.
-    enabled: !!selectedThreadId && (activeAccountId !== "all" || currentThreadAccountId !== null),
+    // In unified mode (activeAccountId is "all" OR null) the correct asAccountId comes from
+    // currentThreadAccountId which is set in the same handleSelectMessage batch as
+    // selectedThreadId. Holding the query until that value is populated prevents a spurious
+    // first-fire with no asAccountId that resolves to the primary account and returns 404 for
+    // messages owned by secondary accounts.
+    enabled: !!selectedThreadId && (!isUnifiedInboxMode || currentThreadAccountId !== null),
   });
 
   const profileQuery = useQuery({
@@ -10338,6 +10343,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <div className="space-y-2">
                       <Skeleton className="h-6 w-2/3" />
                       <Skeleton className="h-3 w-32" />
+                    </div>
+                  ) : threadQuery.isError ? (
+                    <div className="flex items-center gap-2" data-testid="thread-load-error">
+                      <span className="text-[13px] text-destructive/80 font-medium">
+                        {(threadQuery.error as any)?.message || "Could not load message"}
+                      </span>
+                      <button
+                        onClick={() => threadQuery.refetch()}
+                        className="text-[12px] text-primary/70 hover:text-primary underline underline-offset-2 transition-colors"
+                        data-testid="button-retry-thread"
+                      >
+                        Retry
+                      </button>
                     </div>
                   ) : (
                     <>

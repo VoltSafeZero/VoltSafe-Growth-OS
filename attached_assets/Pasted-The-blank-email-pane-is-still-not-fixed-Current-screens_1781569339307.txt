@@ -1,0 +1,94 @@
+The blank email pane is still not fixed.
+
+Current screenshot proof:
+- In the message list, the selected email shows real metadata:
+  sender: Shivangi Jaiswal
+  subject/snippet: Custom Mobile App Development...
+- But the detail pane renders:
+  "(no subject)"
+  blank body
+- CRM/contact side panels still populate, so the click event is partially working.
+- This means selected contact/message context is set, but the thread/detail message data is missing, rejected, or not rendered.
+
+Do not assume the previous cross-account fix solved it. It did not.
+
+Run a focused live trace on the exact selected message in the screenshot.
+
+Add/inspect logs for this clicked message:
+
+Frontend click:
+- selected list item id
+- selected gmailMessageId
+- selected threadId
+- selected sourceAccountId
+- selected gmailAccountId
+- currentThreadAccountId immediately before setState
+- currentThreadAccountId immediately after setState/effect
+- activeAccountId
+- selectedThreadId
+
+Thread query:
+- queryKey
+- enabled true/false
+- URL called
+- asAccountId included?
+- HTTP status
+- returned JSON shape
+- returned messages.length
+- first message subject
+- first message body length
+- error object if failed
+
+Render layer:
+- threadQuery.isLoading
+- threadQuery.isError
+- threadQuery.error
+- threadQuery.data
+- displayMessages.length
+- activeMessage subject
+- activeMessage body length
+- why "(no subject)" fallback is being used
+
+Backend:
+- Log the incoming thread API params:
+  - message id/thread id
+  - authenticated user id
+  - asAccountId
+  - resolved gmail account id
+- Log whether getLocalThread returns:
+  - null/404
+  - empty messages
+  - populated messages
+- Log first returned message:
+  - id
+  - gmail_message_id
+  - thread_id
+  - subject
+  - body_html length
+  - body_text length
+  - final mapped body length
+
+Critical:
+The previous fix only gated threadQuery until currentThreadAccountId !== null in All Inboxes mode. But the screenshot appears to be inside trevor@voltsafe.com Inbox, not All Inboxes. So the remaining bug may be different.
+
+Likely causes to inspect now:
+1. The selected list item has a frontend id that is not accepted by the thread API.
+2. The list item uses one account id field, but the detail query uses another.
+3. activeAccountId is trevor@voltsafe.com but the message actually belongs to a different source account.
+4. The thread API returns 200 but frontend render expects a different response shape.
+5. threadQuery is disabled incorrectly outside All Inboxes.
+6. The query cache still contains the prior 404/empty response and is not invalidated when account id changes.
+7. displayMessages is being filtered down to zero after the API succeeds.
+8. The detail pane fallback object is rendered before/after the real query response and never replaced.
+
+Required immediate fix:
+- If thread API fails, show the actual error in the pane, not "(no subject)".
+- Do not render a fake blank message when threadQuery has no valid messages.
+- Fix the first stage where the real selected message id/account id/thread payload disappears.
+
+Acceptance criteria:
+- Click the exact Shivangi Jaiswal email shown in the screenshot.
+- Detail pane shows the real subject and body.
+- Click emails from Priority Highlights, People, Newsletters, Notifications, and Seen.
+- Each opens with correct subject/body.
+- Reply/reply-all/forward truncation fixes remain intact.

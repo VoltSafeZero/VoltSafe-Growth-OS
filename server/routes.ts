@@ -12079,7 +12079,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
     const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
-    if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
+    if (!resolved) {
+      console.warn(`[thread-api] 403 threadId=${req.params.id} userId=${userId} asAccountId=${asAccountId} — no account resolved`);
+      return res.status(403).json({ message: "No Gmail account connected" });
+    }
+    console.log(`[thread-api] req threadId=${req.params.id} userId=${userId} asAccountId=${asAccountId} resolvedAccountId=${resolved.accountId} resolvedAccountIds=${JSON.stringify((resolved as any).accountIds ?? null)}`);
     // Commit 4.1: default to "local" — same regression as /api/gmail/messages.
     // Single-thread fetch matters here too: clicking a thread on a shared
     // mailbox post-Commit-4 would round-trip to Gmail per click instead of
@@ -12181,7 +12185,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           }
           console.warn(`[mail-source=auto] local thread ${req.params.id} has empty bodies — falling back to Gmail`);
         }
-        if (source === "local") return res.status(404).json({ message: "Thread not in local index" });
+        if (source === "local") {
+          console.warn(`[thread-api] 404 threadId=${req.params.id} userId=${userId} asAccountId=${asAccountId} resolvedAccountId=${resolved.accountId} — not in local index (getLocalThread returned null)`);
+          return res.status(404).json({ message: "Thread not in local index" });
+        }
         // auto + miss → fall through to Gmail
       } catch (err: any) {
         if (source === "local") return res.status(500).json({ message: "Local thread fetch failed", error: err.message });
