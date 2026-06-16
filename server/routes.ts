@@ -16855,6 +16855,130 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // ── Inbox count reconciliation (admin-only debug) ────────────────────────
+  // GET /api/gmail/inbox-debug?asAccountId=<id|all>
+  // Returns per-bucket message counts, thread counts, bucket_sum === inbox_unread
+  // invariant check, and drift diagnostics (multi-category, missing INBOX).
+  // "Priority" (starred) is an OVERLAY — those messages are also inside
+  // People/Updates/etc and must NOT be added to the bucket sum.
+  // "CRM Review" is a UI-only tab (unconfirmed auto-associations); its messages
+  // are fully counted inside People/Updates/etc and have no separate label.
+  app.get("/api/gmail/inbox-debug", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+      const rawAcc = req.query.asAccountId as string | undefined;
+      const asAccountId = rawAcc === "all" ? "all" : rawAcc ? Number(rawAcc) : "all";
+      const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
+      const accountIds: number[] = resolved
+        ? ((resolved as any).accountIds ?? [Number((resolved as any).accountId)])
+        : [];
+      const validIds = accountIds.filter(Boolean);
+      const scopeClause = validIds.length > 0
+        ? `source_account_id IN (${validIds.join(",")}) AND`
+        : "";
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int               AS inbox_unread,
+          COUNT(*) FILTER (WHERE label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%'
+                             AND label_ids NOT ILIKE '%CATEGORY_UPDATES%'
+                             AND label_ids NOT ILIKE '%CATEGORY_PROMOTIONS%'
+                             AND label_ids NOT ILIKE '%CATEGORY_SOCIAL%'
+                             AND label_ids NOT ILIKE '%CATEGORY_FORUMS%')::int                                  AS people_unread,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%'    AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS updates_unread,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%' AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS promotions_unread,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%'     AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS social_unread,
+          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'     AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS forums_unread,
+          COUNT(*) FILTER (WHERE label_ids LIKE '%"STARRED"%' AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int            AS priority_unread,
+          COUNT(*) FILTER (WHERE label_ids LIKE '%"UNREAD"%'
+                             AND label_ids NOT LIKE '%"INBOX"%'
+                             AND label_ids NOT LIKE '%"SENT"%'
+                             AND label_ids NOT LIKE '%"DRAFT"%'
+                             AND label_ids NOT ILIKE '%SPAM%'
+                             AND label_ids NOT ILIKE '%TRASH%'
+                             AND (label_ids ILIKE '%CATEGORY_UPDATES%'
+                               OR label_ids ILIKE '%CATEGORY_PROMOTIONS%'
+                               OR label_ids ILIKE '%CATEGORY_SOCIAL%'
+                               OR label_ids ILIKE '%CATEGORY_FORUMS%'))::int                                   AS missing_inbox_unread,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS inbox_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%'
+                             AND label_ids NOT ILIKE '%CATEGORY_UPDATES%'
+                             AND label_ids NOT ILIKE '%CATEGORY_PROMOTIONS%'
+                             AND label_ids NOT ILIKE '%CATEGORY_SOCIAL%'
+                             AND label_ids NOT ILIKE '%CATEGORY_FORUMS%')::int                                  AS people_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%'    AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS updates_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%' AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS promotions_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%'     AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS social_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'     AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS forums_unread_threads
+        FROM email_messages
+        WHERE ${scopeClause}
+          label_ids NOT ILIKE '%TRASH%'
+          AND label_ids NOT ILIKE '%SPAM%'
+          AND label_ids NOT ILIKE '%DRAFT%'
+      `));
+
+      const driftRows = await db.execute(sql.raw(`
+        SELECT COUNT(*)::int AS multi_category
+        FROM email_messages
+        WHERE ${scopeClause}
+          label_ids NOT ILIKE '%TRASH%'
+          AND label_ids NOT ILIKE '%SPAM%'
+          AND (
+            (CASE WHEN label_ids ILIKE '%CATEGORY_UPDATES%'    THEN 1 ELSE 0 END) +
+            (CASE WHEN label_ids ILIKE '%CATEGORY_PROMOTIONS%' THEN 1 ELSE 0 END) +
+            (CASE WHEN label_ids ILIKE '%CATEGORY_SOCIAL%'     THEN 1 ELSE 0 END) +
+            (CASE WHEN label_ids ILIKE '%CATEGORY_FORUMS%'     THEN 1 ELSE 0 END)
+          ) > 1
+      `));
+
+      const r  = (((rows      as any).rows ?? rows     )[0] ?? {}) as Record<string, number>;
+      const rd = (((driftRows as any).rows ?? driftRows)[0] ?? {}) as Record<string, number>;
+
+      const bucketSum = (r.people_unread ?? 0) + (r.updates_unread ?? 0) +
+                        (r.promotions_unread ?? 0) + (r.social_unread ?? 0) + (r.forums_unread ?? 0);
+      const delta = (r.inbox_unread ?? 0) - bucketSum;
+
+      res.json({
+        unit: "messages",
+        note: [
+          "All primary counts are raw messages (not threads).",
+          "Thread counts are supplementary — a thread is counted if ≥1 message in it is INBOX+UNREAD.",
+          "Priority (starred) is an overlay: starred messages are ALSO inside People/Updates/etc. Do NOT add priority to the bucket sum.",
+          "CRM Review is a UI-only tab (unconfirmed auto-associations). Its messages are already counted inside People/Updates/etc.",
+        ].join(" "),
+        messages: {
+          inbox_unread:    r.inbox_unread    ?? 0,
+          buckets: {
+            people:        r.people_unread     ?? 0,
+            updates:       r.updates_unread    ?? 0,
+            promotions:    r.promotions_unread ?? 0,
+            social:        r.social_unread     ?? 0,
+            forums:        r.forums_unread     ?? 0,
+          },
+          bucket_sum:      bucketSum,
+          delta,
+          priority_unread: r.priority_unread  ?? 0,
+        },
+        threads: {
+          inbox_unread:    r.inbox_unread_threads       ?? 0,
+          people:          r.people_unread_threads      ?? 0,
+          updates:         r.updates_unread_threads     ?? 0,
+          promotions:      r.promotions_unread_threads  ?? 0,
+          social:          r.social_unread_threads      ?? 0,
+          forums:          r.forums_unread_threads      ?? 0,
+        },
+        drift: {
+          missing_inbox_unread: r.missing_inbox_unread ?? 0,
+          multi_category:       rd.multi_category      ?? 0,
+        },
+        ok: delta === 0 && (r.missing_inbox_unread ?? 0) === 0 && (rd.multi_category ?? 0) === 0,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Toggle shared mailbox (master_admin only) ─────────────────────────────
   // PATCH /api/gmail/accounts/:id/share { isShared: boolean }
   app.patch("/api/gmail/accounts/:id/share", requireAuth, async (req, res) => {

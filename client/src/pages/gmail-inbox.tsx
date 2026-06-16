@@ -9850,8 +9850,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       {serverGroupCounts?.[item.id as keyof typeof serverGroupCounts] ?? item.count}
                     </span>
                     {isPriority && (
-                      <span className="ml-auto text-[9px] text-muted-foreground/35 italic font-normal normal-case tracking-normal">
-                        also counted below
+                      <span className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium normal-case tracking-normal bg-amber-400/[0.10] text-amber-400/60 border border-amber-400/[0.15]">
+                        overlay · also in People/Updates
                       </span>
                     )}
                   </div>
