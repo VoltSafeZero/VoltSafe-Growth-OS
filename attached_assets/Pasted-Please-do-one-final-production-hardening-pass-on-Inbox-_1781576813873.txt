@@ -1,0 +1,64 @@
+Please do one final production hardening pass on Inbox count integrity.
+
+The recent fix made People a direct SQL count of INBOX messages with none of:
+
+* CATEGORY_UPDATES
+* CATEGORY_PROMOTIONS
+* CATEGORY_SOCIAL
+* CATEGORY_FORUMS
+
+That is directionally correct, but we need to guarantee the math remains trustworthy over time.
+
+Tasks:
+
+1. Add a mailbox count reconciliation endpoint or admin-only debug output showing:
+
+* Inbox unread total
+* Priority unread total
+* People unread total
+* Updates unread total
+* Promotions unread total
+* Social unread total
+* Forums unread total
+* CRM Review unread total
+* Uncategorized INBOX unread count
+* Threads vs messages count for each bucket
+
+2. Confirm every count uses the same canonical object:
+
+* preferably unread threads, not raw messages
+* or explicitly document if the UI intentionally counts raw messages
+
+3. Fix or run the backfill for the 26 messages missing the INBOX label.
+
+* Confirm whether those messages should be in Inbox.
+* Apply the safest repair.
+* Add a test to prevent future Gmail-synced inbox messages from missing INBOX.
+
+4. Add an invariant test:
+    For mutually exclusive inbox categories:
+    People + Updates + Promotions + Social + Forums + Uncategorized should reconcile to Inbox unread, excluding overlapping special sections like Priority Highlights and CRM Review.
+5. Make Priority Highlights clearly non-additive.
+
+* It should be labelled or treated as an overlay, because those emails are also counted inside People/Updates/etc.
+* Avoid making users think Priority + People + Updates should equal Inbox.
+
+6. Check for category drift:
+
+* Any message with multiple CATEGORY_* labels should be flagged.
+* Any INBOX unread message with zero CATEGORY_* labels should either be People or explicitly Uncategorized.
+* Any unread message shown in a category section must match the sidebar count for that same category.
+
+7. Run verification:
+
+* inbox-category-badge tests
+* inbox-category-visibility tests
+* reconciliation test
+* a production DB reconciliation query
+
+Return:
+
+* final count table from production
+* whether counts are threads or messages
+* how many orphan/missing-label records were repaired
+* confirmation sidebar and section headers now match exactly
