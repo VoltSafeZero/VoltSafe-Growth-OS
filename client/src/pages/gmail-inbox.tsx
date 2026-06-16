@@ -6737,6 +6737,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           ? { ...m, labelIds: isRead ? m.labelIds.filter(l => l !== "UNREAD") : [...m.labelIds.filter(l => l !== "UNREAD"), "UNREAD"] }
           : m
       ));
+      // Refresh badge counts immediately so sidebar numbers drop/rise to match.
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/category-counts"] });
       setSelectedInboxIds(new Set());
       toast({ title: `Marked ${messageIds.length} email${messageIds.length !== 1 ? "s" : ""} as ${markAs}` });
     },
@@ -6767,6 +6770,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         ...m,
         labelIds: m.labelIds.filter(l => l !== "UNREAD"),
       })));
+      // Refresh badge counts immediately so inbox badge drops to 0.
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/category-counts"] });
       toast({ title: `Marked ${success} message${success !== 1 ? "s" : ""} as read` });
     },
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
@@ -7065,6 +7071,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           ? { ...m, labelIds: [...m.labelIds.filter(l => l !== "UNREAD"), "UNREAD"] }
           : m
       ));
+      // Refresh badge counts immediately so the unread thread count rises to reflect this.
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/category-counts"] });
       toast({ title: "Marked as unread" });
     },
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
