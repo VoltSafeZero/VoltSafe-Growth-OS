@@ -7244,10 +7244,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const inboxOtherVisible = inboxOther.filter((m) => !rescuedFromSpam.has(m.threadId));
   const allSpamMessages = [...(spamQuery.data?.messages || []), ...inboxOtherVisible];
 
-  const categorizedInbox =
-    inboxCategory === "priority"    ? inboxMain.filter((m) => isStarred(m.labelIds)) :
-    inboxCategory === "all"         ? inboxMain :
-    inboxMain.filter((m) => getEmailCategory(m.labelIds) === inboxCategory);
+  // When the Unread filter pill is active, bypass the category sub-tab filter entirely.
+  // The Unread view is meant to show ALL unread inbox messages — the badge ("Unread 223")
+  // counts the full inbox, not just a single sub-category. The inboxQuery already sends
+  // "in:inbox is:unread" (fetching all unread, not category-specific) so we must NOT
+  // then apply a second client-side category filter that would silently eliminate valid
+  // unread messages. The bug: if inboxCategory was "priority" (starred) before the user
+  // clicked Unread, this filter reduces the list to zero starred-unread messages while
+  // 200+ unread messages exist, producing "No messages found" and the auto-loader spin loop.
+  const categorizedInbox = crmFilter === "unread"
+    ? inboxMain
+    : inboxCategory === "priority"    ? inboxMain.filter((m) => isStarred(m.labelIds)) :
+      inboxCategory === "all"         ? inboxMain :
+      inboxMain.filter((m) => getEmailCategory(m.labelIds) === inboxCategory);
 
   const priorityCount    = inboxMain.filter((m) => isStarred(m.labelIds)).length;
   const peopleCount      = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "people").length;

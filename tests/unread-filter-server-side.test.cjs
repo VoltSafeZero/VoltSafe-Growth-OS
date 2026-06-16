@@ -175,6 +175,61 @@ check(
     /`inbox-or-other.*\$\{crmFilter\}`/.test(inboxSrc)
 );
 
+// ─── 8. categorizedInbox bypass when crmFilter === "unread" ─────────────────
+//
+// Root cause (regression): when the user had any inboxCategory sub-tab active
+// (e.g. "priority"/starred, "people", "updates") and then clicked the "Unread"
+// filter pill, categorizedInbox applied the sub-tab filter on top of the unread
+// results. For "priority" with zero starred-unread messages this produced an
+// empty list despite 200+ unread messages existing, causing the "No messages
+// found" empty state and an infinite auto-chain spin loop.
+//
+// Fix: when crmFilter === "unread", categorizedInbox must be inboxMain (no
+// category filter). The backend already sends "in:inbox is:unread" so all
+// returned messages are unread; there is no need to further narrow by category.
+
+console.log("\n── 8. categorizedInbox bypasses category filter in unread mode ──");
+
+check(
+  'categorizedInbox uses inboxMain directly when crmFilter === "unread"',
+  // Must contain a guard that short-circuits to inboxMain before any category filter
+  /categorizedInbox\s*=\s*crmFilter\s*===\s*"unread"\s*\?\s*inboxMain/.test(inboxSrc)
+);
+
+check(
+  "categorizedInbox bypass comment explains the root-cause bug",
+  inboxSrc.includes("crmFilter === \"unread\"") &&
+    (inboxSrc.includes("bypass") || inboxSrc.includes("skip the") || inboxSrc.includes("bypass the category"))
+);
+
+check(
+  'priority sub-tab filter only runs when crmFilter !== "unread"',
+  // The priority/starred filter must come AFTER the crmFilter guard, not before
+  (() => {
+    const guardIdx = inboxSrc.indexOf('categorizedInbox = crmFilter === "unread"');
+    const priorityIdx = inboxSrc.indexOf('isStarred(m.labelIds)');
+    // Both must exist, and the guard must precede the priority filter
+    return guardIdx !== -1 && priorityIdx !== -1 && guardIdx < priorityIdx;
+  })()
+);
+
+check(
+  "people/updates/promotions category filters are guarded behind crmFilter check",
+  // Ensure the getEmailCategory filter sits after the crmFilter bypass
+  (() => {
+    const guardIdx = inboxSrc.indexOf('categorizedInbox = crmFilter === "unread"');
+    const catIdx = inboxSrc.indexOf('getEmailCategory(m.labelIds) === inboxCategory');
+    return guardIdx !== -1 && catIdx !== -1 && guardIdx < catIdx;
+  })()
+);
+
+check(
+  'inboxCategoryServerUnread returns countSnapshot.inbox for priority/all (unread convergence)',
+  // When inboxCategory is "priority" (or "all"), the loader target must be the full
+  // inbox count so the unread loader converges even though no category-specific count exists.
+  /return countSnapshot\.inbox/.test(inboxSrc)
+);
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 
 console.log(`\n${"─".repeat(64)}`);

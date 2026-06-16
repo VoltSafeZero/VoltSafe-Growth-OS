@@ -1,0 +1,113 @@
+Critical VoltSafe Mail bug: unread counts exist but message list shows zero.
+
+Current production screenshot:
+
+* Inbox badge = 223
+* Unread tab = 223
+* People = 12
+* Updates = 48
+* Promotions = 14
+* Social = 8
+* Main message list says “No messages found”
+* Text says “Showing grouped unread inbox mail. Older unread emails load automatically.”
+
+This is not a count reconciliation problem. The count APIs see unread inbox threads, but the message-list loader returns no rows.
+
+Please stop working on count math and debug the message-list fetch path.
+
+Tasks:
+
+1. Capture the exact browser request used to load the visible message list when:
+
+* account = trevor@voltsafe.com
+* folder = Inbox
+* filter = Unread
+* view = Smart Inbox
+* search query = empty
+
+Return:
+
+* request URL
+* query params
+* account param
+* q param
+* unread param
+* category param
+* limit
+* cursor
+* response status
+* returned message count
+* hasMore / nextCursor
+
+2. Compare against the count APIs for the exact same scope:
+
+* /api/gmail/accounts/health
+* /api/gmail/category-counts
+* /api/gmail/inbox-debug
+
+Return the raw JSON for all three.
+
+3. Run direct DB query for the exact same scope:
+    trevor@voltsafe.com + INBOX + unread
+
+Return:
+
+* unread thread count
+* unread message count
+* newest 25 unread threads
+* their labels
+* their gmail_thread_id
+* their received_at
+* their account_id
+
+4. Find why message-list returns zero.
+    Specifically check:
+
+* Is the frontend sending an incorrect q param?
+* Is it sending category=all but backend treats it incorrectly?
+* Is Smart Inbox mode using a different loader than Simple List?
+* Is unread filter adding a Gmail-style query that local parser does not support?
+* Is account_id vs asAccountId mismatched?
+* Is pagination cursor excluding all current messages?
+* Is dedupByThread accidentally dropping all rows?
+* Is “Other” filtering excluding all unread messages?
+* Is category grouping rejecting all rows before render?
+* Is the loader waiting for older pages but never appending?
+
+5. Fix requirements:
+
+* If Inbox unread count is 223, the unread message list must show unread threads.
+* First page should load at least 25–50 unread threads unless fewer actually exist.
+* Smart Inbox must not show “No messages found” while unread count > 0.
+* If a filter produces zero rows but count > 0, show a debug-safe fallback and trigger refetch, not an empty inbox.
+* Load older messages must append, not replace or shrink the list.
+
+6. Add regression test:
+    Mock:
+
+* unread count = 223
+* message-list API returns 50 unread threads
+    Assert:
+* message list renders rows
+* “No messages found” is not shown
+* “all caught up” is not shown after zero/low rows
+* category counts and rendered rows are compatible
+
+Also add a failure-mode test:
+
+* count says 223
+* first list request returns 0
+    Assert:
+* UI does not claim inbox is empty
+* UI shows “Refreshing unread messages…” or retry/fallback state
+
+7. Return:
+
+* root cause
+* exact file/function responsible
+* before/after request URL and response
+* screenshot proof that unread threads load
+* test results
+
+Important:
+The visible mailbox is broken. Do not mark this fixed by saying counts reconcile. The list loader is returning zero while the count APIs show 223 unread threads.
