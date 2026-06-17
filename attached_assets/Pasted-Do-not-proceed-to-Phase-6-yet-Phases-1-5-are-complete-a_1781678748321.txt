@@ -1,0 +1,72 @@
+Do not proceed to Phase 6 yet.
+
+Phases 1–5 are complete and tests pass. Before any frontend cleanup/client-thinning, run a production soak and final verification pass.
+
+Scope: verification only. No code changes unless a real regression is found.
+
+Tasks:
+
+1. Production deploy/restart confirmation
+
+* Confirm the latest Phases 1–5 code is deployed.
+* Confirm only one app/server instance is running.
+* Confirm no duplicate Gmail sync loops.
+* Confirm derived-column migrations exist in production.
+* Confirm all email_messages rows have non-null derived fields.
+
+2. Production count/list parity
+    For trevor@voltsafe.com and unified/all accounts, confirm:
+
+* inbox unread thread count
+* category unread thread counts
+* category sum = inbox unread
+* q=in:inbox is:unread list count matches inbox count through pagination
+* q=in:people is:unread list count matches People badge
+* q=in:updates is:unread list count matches Updates badge
+* q=in:promotions is:unread list count matches Promotions badge
+* q=in:social is:unread list count matches Social badge
+* q=in:forums is:unread list count matches Forums badge
+
+3. Browser UX verification
+    In production browser:
+
+* Inbox loads actual unread messages.
+* Unread filter loads actual unread messages.
+* No “No messages found” while unread > 0.
+* No premature “all caught up.”
+* Switching Priority → Unread shows all unread.
+* People includes normal People mail and CATEGORY_PERSONAL-derived mail.
+* Updates/Promotions/Social/Forums render correctly.
+* Scroll pagination appends instead of replacing.
+* Category badges match visible category views.
+
+4. Regression smoke test do-not-touch systems:
+    Verify quickly:
+
+* open email body
+* reply
+* reply-all
+* forward
+* signature appears correctly
+* CTA/CID images still render
+* tracked link/pixel route still responds
+* CRM-linked email still opens
+* account scoping/impersonation still works
+* permissions still enforced
+
+5. Run tests:
+
+* all 6 inbox suites
+* any existing reply/forward/signature/CID/tracking/CRM tests that are available
+* full test:grep if reasonable
+
+6. Report:
+
+* production counts
+* parity results
+* browser screenshot proof
+* test results
+* any regressions found
+* recommendation on whether Phase 6 is still needed
+
+Do not perform frontend cleanup/client-thinning until this soak passes.
