@@ -1,0 +1,118 @@
+New production bug investigation. Do NOT implement fixes yet. Audit first.
+
+Evidence:
+
+In production, Inbox > All is showing only 2 messages.
+
+Screenshot observations:
+
+* Inbox badge = 2
+* Unread badge = 2
+* People = 1
+* Promotions = 1
+* List shows exactly 2 threads
+* Footer says:
+    “You’re all caught up • 2 messages loaded”
+* Historical inbox messages are missing.
+
+This is NOT the old count reconciliation issue.
+
+We need to determine whether Inbox > All is incorrectly behaving like Inbox > Unread.
+
+Investigation requirements:
+
+1. Trace the exact request path for:
+    * Inbox > All
+    * Inbox > Unread
+    * Inbox > People
+    * Inbox > Promotions
+
+For each view report:
+
+* frontend state values
+* active React variables
+* query key
+* URL sent to backend
+* backend route hit
+* final SQL generated
+* row count returned
+
+2. Add temporary logging (no behavior changes) showing:
+
+FRONTEND
+
+* crmFilter
+* inboxCategory
+* active view
+* query params sent
+
+BACKEND
+
+* received query params
+* buildQClauses output
+* final SQL WHERE clauses
+* rows returned
+* nextCursor / nextPageToken
+
+3. Compare Inbox > All vs Inbox > Unread.
+
+Answer:
+
+* Are both generating identical backend queries?
+* Is unread filtering still being applied somewhere?
+* Is the backend returning only unread rows?
+* Is the frontend discarding read rows?
+
+4. Pagination audit
+
+When “Load older messages” is clicked:
+
+Log:
+
+* request fired?
+* cursor/token sent?
+* SQL executed?
+* rows returned?
+* rows appended?
+* rows discarded?
+
+Need exact counts at each stage.
+
+5. Direct production DB verification
+
+For trevor@voltsafe.com report:
+
+A)
+Total inbox threads
+
+B)
+Unread inbox threads
+
+C)
+First 50 rows returned by canonical Inbox > All query
+
+D)
+First 50 rows returned by canonical Inbox > Unread query
+
+Show thread counts and sample thread IDs.
+
+6. Verify whether Inbox > All is accidentally inheriting state from Unread.
+
+Specifically audit:
+
+* crmFilter
+* inboxCategory
+* activeMessages
+* categorizedInbox
+* inboxMain
+* any remaining client-side filtering
+
+7. Deliver root cause report BEFORE making code changes.
+
+Do not patch.
+
+Do not refactor.
+
+Do not proceed to Phase 6.
+
+First explain why a mailbox with years of history shows exactly the same number of rows as the unread count.
