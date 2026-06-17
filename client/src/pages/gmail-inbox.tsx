@@ -5309,6 +5309,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const inboxViewPickerBtnRef = useRef<HTMLButtonElement>(null);
   const [inboxViewPickerAnchor, setInboxViewPickerAnchor] = useState<{ top: number; left: number } | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<SmartSectionId>>(new Set());
+  const [sectionLoadingIds, setSectionLoadingIds] = useState<Set<SmartSectionId>>(new Set());
+  const [sectionFetchDoneIds, setSectionFetchDoneIds] = useState<Set<SmartSectionId>>(new Set());
   // Multi-mailbox Phase 1: when a message is opened from "All Inboxes", remember its source
   // account id so per-thread reads/mutations target the right mailbox (instead of sending the
   // literal "all" sentinel, which numeric-only routes coerce to NaN).
@@ -6227,6 +6229,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   useEffect(() => {
     setInboxExtra([]);
     setInboxNextToken(null);
+    setSectionLoadingIds(new Set());
+    setSectionFetchDoneIds(new Set());
     // crmFilter is included so switching to/from the Unread pill resets pagination:
     // the base query changes (unread-only vs all), and stale extra pages from the
     // previous filter must not bleed into the new view.
@@ -6360,6 +6364,68 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       toast({ title: "Failed to load more — tap Load more to retry", variant: "destructive" });
     } finally {
       setLoadingMoreSent(false);
+    }
+  };
+
+  // ── Per-section "load all" for Smart Inbox ─────────────────────────────────
+  // When the user clicks "Show loaded (N of M)" on a Smart Inbox section header
+  // and M > N, this fetches all remaining pages of the category-specific query
+  // (e.g. "in:people is:unread" for the People section) and appends them to
+  // inboxExtra, which flows into inboxMain → viewItems.  After fetching, the
+  // section is auto-expanded to show all messages without a second click.
+  // Sections that map to multiple categories (newsletters = promotions+forums,
+  // notifications = updates+social) fetch each sub-category in sequence.
+  const SECTION_FETCH_QUERIES: Partial<Record<SmartSectionId, string[]>> = {
+    "unread-people":        ["in:people is:unread"],
+    "unread-newsletters":   ["in:promotions is:unread", "in:forums is:unread"],
+    "unread-notifications": ["in:updates is:unread", "in:social is:unread"],
+  };
+  const SECTION_DISPLAY_NAMES: Partial<Record<SmartSectionId, string>> = {
+    "unread-people":        "People",
+    "unread-newsletters":   "newsletter",
+    "unread-notifications": "notification",
+  };
+
+  const loadAllForSection = async (sectionId: SmartSectionId) => {
+    if (sectionLoadingIds.has(sectionId) || sectionFetchDoneIds.has(sectionId)) return;
+    const queries = SECTION_FETCH_QUERIES[sectionId];
+    if (!queries || queries.length === 0) {
+      setExpandedSections(prev => { const s = new Set(prev); s.add(sectionId); return s; });
+      return;
+    }
+    setSectionLoadingIds(prev => new Set([...prev, sectionId]));
+    try {
+      for (const q of queries) {
+        let pageToken: string | null = null;
+        let safetyPages = 0;
+        while (safetyPages < 20) {
+          const params = new URLSearchParams();
+          params.set("limit", "50");
+          params.set("q", q);
+          if (pageToken) params.set("pageToken", pageToken);
+          appendAccountId(params);
+          const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
+          if (!res.ok) throw new Error("fetch failed");
+          const data: { messages: MessageSummary[]; nextPageToken: string | null } = await res.json();
+          setInboxExtra(prev => {
+            const known = new Set<string>([
+              ...(inboxQuery.data?.messages || []).map(m => m.id),
+              ...prev.map(m => m.id),
+            ]);
+            const fresh = data.messages.filter(m => !known.has(m.id));
+            return fresh.length > 0 ? [...prev, ...fresh] : prev;
+          });
+          if (!data.nextPageToken) break;
+          pageToken = data.nextPageToken;
+          safetyPages++;
+        }
+      }
+      setSectionFetchDoneIds(prev => new Set([...prev, sectionId]));
+    } catch {
+      toast({ title: "Failed to load — please try again", variant: "destructive" });
+    } finally {
+      setSectionLoadingIds(prev => { const s = new Set(prev); s.delete(sectionId); return s; });
+      setExpandedSections(prev => { const s = new Set(prev); s.add(sectionId); return s; });
     }
   };
 
@@ -10088,17 +10154,39 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               // ── Show-all sentinel (below last visible email) ────────────────
               if (item.kind === "show-all") {
                 const { sectionId, total } = item as { kind: "show-all"; sectionId: SmartSectionId; total: number };
-                // When server group counts are available and exceed what's loaded,
-                // show "Show loaded (N of TOTAL)" so users understand more exist server-side.
                 const serverTotal = serverGroupCounts?.[sectionId as keyof typeof serverGroupCounts];
-                const label = serverTotal && serverTotal > total
+                const needsServerFetch = !!(serverTotal && serverTotal > total && !sectionFetchDoneIds.has(sectionId));
+                const isLoadingSection = sectionLoadingIds.has(sectionId);
+                const sectionName = SECTION_DISPLAY_NAMES[sectionId] ?? "email";
+
+                if (isLoadingSection) {
+                  return (
+                    <div
+                      key={`show-all-${sectionId}`}
+                      data-testid={`show-all-loading-${sectionId}`}
+                      className={`w-full flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium rounded-b-md mx-2 ${sStyle.rowBg} text-primary/50 border-t border-white/[0.04]`}
+                    >
+                      <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                      Loading remaining {sectionName} emails…
+                    </div>
+                  );
+                }
+
+                const label = needsServerFetch
                   ? `Show loaded (${total} of ${serverTotal})`
                   : `Show all (${total})`;
+
                 return (
                   <button
                     key={`show-all-${sectionId}`}
                     data-testid={`show-all-${sectionId}`}
-                    onClick={() => setExpandedSections(prev => { const s = new Set(prev); s.add(sectionId); return s; })}
+                    onClick={() => {
+                      if (needsServerFetch) {
+                        loadAllForSection(sectionId);
+                      } else {
+                        setExpandedSections(prev => { const s = new Set(prev); s.add(sectionId); return s; });
+                      }
+                    }}
                     className={`w-full flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium cursor-pointer rounded-b-md mx-2 ${sStyle.rowBg} text-primary/60 hover:text-primary border-t border-white/[0.04] transition-colors`}
                   >
                     <ChevronDown className="h-3 w-3" aria-hidden="true" />

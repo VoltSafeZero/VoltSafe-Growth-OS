@@ -1,0 +1,87 @@
+VoltSafe Mail category “Show loaded X of Y” behavior fix.
+
+Desired behavior:
+When a user clicks “Show loaded 7 of 46” at the bottom of a Smart Inbox category section, it should load and display all remaining unread emails for that category.
+
+Example:
+People section shows:
+“Show loaded 7 of 46”
+
+When clicked:
+
+* it should fetch/load the remaining 39 People unread threads
+* then display all 46 People unread threads
+* label should update to “Showing all 46” or disappear/collapse appropriately
+
+Audit first, then fix.
+
+Tasks:
+
+1. Find the click handler for:
+
+* “Show loaded X of Y”
+* Smart Inbox category footer
+* People / Updates / Promotions / Social / Forums section footer
+
+2. Determine current behavior:
+
+* Does it only expand already-loaded local rows?
+* Does it trigger a fetch?
+* Does it use the correct category query?
+* Does it paginate until total server count is reached?
+
+3. Fix behavior:
+    When clicked, for the selected section/category:
+
+* use the server-side category query, e.g. q=in:people is:unread
+* keep fetching pages until loaded count equals server category count or backend returns no more pages
+* append results, do not replace
+* dedupe by gmail_thread_id
+* show loading state while fetching
+* prevent duplicate concurrent fetches
+
+4. Apply to all Smart Inbox sections:
+
+* People
+* Updates
+* Promotions
+* Social
+* Forums
+* Priority if applicable, but remember Priority is an overlay and non-additive
+
+5. UI behavior:
+    Before click:
+    “Show loaded 7 of 46”
+
+During load:
+“Loading remaining People emails…”
+
+After complete:
+Either:
+“Showing all 46”
+or hide the footer if all are visible.
+
+6. Edge cases:
+
+* If backend returns fewer than expected, show “Loaded X of Y — Load more” rather than “all caught up.”
+* If fetch fails, show retry option.
+* Do not affect Inbox > All or normal pagination.
+* Do not reintroduce client-side filtering over a recency window.
+
+7. Tests:
+    Add regression test:
+
+* server count People = 46
+* initial loaded People = 7
+* clicking footer fetches remaining pages
+* final rendered People count = 46
+* no duplicate rows
+* Updates/Promotions still work
+
+8. Return:
+
+* root cause
+* files changed
+* before/after behavior
+* test results
+* screenshot proof
