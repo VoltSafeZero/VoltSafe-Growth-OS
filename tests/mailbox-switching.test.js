@@ -68,23 +68,30 @@ async function setup(client) {
   const teamAccountId = ins.rows[0].id;
 
   // 2) Insert one personal-account message and one team-account message.
+  // Phase 3: buildQClauses now uses is_inbox=true (derived column) instead of
+  // label_ids ILIKE '%"INBOX"%'. Fixtures must set is_inbox=true so they
+  // appear in q=in:inbox queries, which is what fetchLocalMessages uses.
   await client.query(
     `INSERT INTO email_messages
        (gmail_message_id, gmail_thread_id, subject, from_email, sent_at,
-        snippet, owner_user_id, source_account_id, direction, label_ids)
+        snippet, owner_user_id, source_account_id, direction, label_ids,
+        is_inbox, is_unread, is_starred, is_spam, is_trash, is_draft, is_sent, smart_category)
      VALUES
        ($1, $2, $3, 'someone@personal.example.com', NOW(),
-        'personal mailbox sentinel', $4, $5, 'inbound', '["INBOX"]')`,
+        'personal mailbox sentinel', $4, $5, 'inbound', '["INBOX"]',
+        true, false, false, false, false, false, false, 'people')`,
     [`${FIXTURE_TAG}-personal-msg`, `${FIXTURE_TAG}-personal-thr`,
      `MBSWITCH PERSONAL ${FIXTURE_TAG}`, ADMIN_USER_ID, PERSONAL_ACCOUNT_ID]
   );
   await client.query(
     `INSERT INTO email_messages
        (gmail_message_id, gmail_thread_id, subject, from_email, sent_at,
-        snippet, owner_user_id, source_account_id, direction, label_ids)
+        snippet, owner_user_id, source_account_id, direction, label_ids,
+        is_inbox, is_unread, is_starred, is_spam, is_trash, is_draft, is_sent, smart_category)
      VALUES
        ($1, $2, $3, 'someone@team.example.com', NOW(),
-        'team mailbox sentinel', $4, $5, 'inbound', '["INBOX"]')`,
+        'team mailbox sentinel', $4, $5, 'inbound', '["INBOX"]',
+        true, false, false, false, false, false, false, 'people')`,
     [`${FIXTURE_TAG}-team-msg`, `${FIXTURE_TAG}-team-thr`,
      `MBSWITCH TEAM ${FIXTURE_TAG}`, ADMIN_USER_ID, teamAccountId]
   );

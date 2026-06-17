@@ -83,18 +83,18 @@ check(
 
 check(
   "Both badge queries still exclude DRAFT, SPAM, TRASH",
+  // Phase 4: DRAFT/SPAM/TRASH are excluded implicitly via `is_inbox = true`
+  // (derived column already encodes NOT SPAM AND NOT TRASH AND NOT DRAFT).
+  // The old explicit NOT LIKE patterns were replaced by the derived column predicate.
   (() => {
     const uIdx = routesTs.indexOf("AS unread_count,");
     const uBlock = routesTs.slice(Math.max(0, uIdx - 600), uIdx);
     const iIdx = routesTs.indexOf("AS inbox_count,");
     const iBlock = routesTs.slice(Math.max(0, iIdx - 600), iIdx);
+    // Phase 4 uses is_inbox=true (which encodes NOT DRAFT/SPAM/TRASH) for both badge queries.
     return (
-      uBlock.includes("NOT LIKE '%\"DRAFT\"%'") &&
-      uBlock.includes("NOT LIKE '%\"SPAM\"%'") &&
-      uBlock.includes("NOT LIKE '%\"TRASH\"%'") &&
-      iBlock.includes("NOT LIKE '%\"DRAFT\"%'") &&
-      iBlock.includes("NOT LIKE '%\"SPAM\"%'") &&
-      iBlock.includes("NOT LIKE '%\"TRASH\"%'")
+      uBlock.includes("is_inbox = true") &&
+      iBlock.includes("is_inbox = true")
     );
   })()
 );
@@ -114,7 +114,9 @@ check(
 
 check(
   "listLocalMessages comment explicitly says do not exclude SENT",
-  mailboxTs.includes("Do NOT exclude SENT here")
+  // Phase 3: comment updated to reflect derivation; SENT+INBOX messages remain visible
+  // because is_inbox=true includes messages with both INBOX and SENT labels (self-sent threads).
+  mailboxTs.includes("SENT+INBOX messages remain visible")
 );
 
 check(
