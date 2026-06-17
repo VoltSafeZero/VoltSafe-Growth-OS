@@ -1,0 +1,107 @@
+Audit-only first: Social category count says 9 but list shows no unread Social messages.
+
+Production screenshot:
+
+* Social badge = 9
+* Social tab selected
+* List shows only “SEEN 1”
+* One Facebook message appears from May 11
+* No unread Social messages are visible
+* Footer says “You’re all caught up · 1 message loaded”
+
+This means Social badge and Social list are not using the same view/filter.
+
+Do not patch yet. Audit first.
+
+Tasks:
+
+1. Trace the exact frontend request when user clicks:
+    Inbox > Social
+
+Return:
+
+* crmFilter
+* inboxCategory
+* inboxCategoryQ
+* q param
+* unread/isUnread param if any
+* React query key
+* endpoint URL
+
+2. Trace backend for that exact request:
+
+* buildQClauses output
+* final SQL WHERE clauses
+* rows returned
+* unread/read breakdown of returned rows
+* nextPageToken / cursor
+
+3. Compare Social badge query vs Social list query.
+
+Badge likely counts:
+is_inbox = true
+AND is_unread = true
+AND smart_category = ‘social’
+
+List may be using:
+is_inbox = true
+AND smart_category = ‘social’
+without is_unread = true
+
+Confirm.
+
+4. Product decision:
+    In Smart Inbox category sections, category badge counts are unread counts.
+    Therefore when clicking a sidebar category from Inbox, the default list should show unread items for that category first, not read/seen items.
+
+Confirm whether current intended behavior is:
+A) category tab shows all category mail, read + unread
+or
+B) category tab shows unread category mail matching the badge
+
+Given the UI badge is unread-only, implement B unless told otherwise.
+
+5. Direct DB verification for trevor@voltsafe.com / active account scope:
+    Return:
+
+* Social unread thread count
+* Social total thread count
+* newest 20 Social unread threads
+* newest 20 Social total threads
+* labels/is_unread/smart_category/source_account_id for each
+
+6. Explain why the list shows one SEEN Facebook email while badge says Social=9.
+7. After audit, if confirmed:
+    Fix category sidebar clicks so People/Updates/Promotions/Social/Forums default to unread category view when the badge count is unread.
+
+For Social, query should be:
+q=in:social is:unread
+
+For People:
+q=in:people is:unread
+
+For Updates:
+q=in:updates is:unread
+
+For Promotions:
+q=in:promotions is:unread
+
+For Forums:
+q=in:forums is:unread
+
+But do not apply until audit confirms.
+
+8. Regression tests:
+
+* Social badge = 9 and Social click sends q=in:social is:unread
+* Social list renders unread Social rows, not read/seen rows
+* People/Updates/Promotions categories follow the same rule
+* All category list counts match their sidebar badges
+
+Return:
+
+* root cause
+* exact files/functions
+* before/after query
+* tests
+* screenshot proof

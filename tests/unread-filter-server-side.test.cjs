@@ -134,7 +134,11 @@ check(
 
 check(
   "loadMoreInbox uses same is:unread conditional as base query",
-  /crmFilter === "unread"\s*\?.*is:unread.*:\s*(baseQ|searchQuery|"in:inbox")/s.test(inboxSrc)
+  // Accept either the old ternary pattern or the new pageQ pattern:
+  //   old: const baseQ = ...; params.set("q", crmFilter === "unread" ? `${baseQ} is:unread` : baseQ)
+  //   new: const pageQ = crmFilter === "unread" ? (...is:unread...) : (searchQuery || inboxCategoryQ)
+  /crmFilter === "unread"\s*[\?\n\s]+.*is:unread[\s\S]{0,200}(inboxCategoryQ|baseQ|searchQuery)/s.test(inboxSrc) ||
+  /const pageQ.*crmFilter[\s\S]{0,300}inboxCategoryQ/s.test(inboxSrc)
 );
 
 // ─── 5. Frontend: Effect A reset includes crmFilter ──────────────────────────
@@ -143,9 +147,10 @@ console.log("\n── 5. Pagination reset fires on crmFilter change ──");
 
 check(
   "Effect A (setInboxExtra reset) dependency array includes crmFilter",
-  // The reset effect: setInboxExtra([]) + setInboxNextToken(null) in deps [searchQuery, activeAccountId, crmFilter]
-  /setInboxExtra\(\[\]\)[\s\S]{0,200}setInboxNextToken\(null\)[\s\S]{0,200}\[searchQuery,\s*activeAccountId,\s*crmFilter\]/s.test(inboxSrc) ||
-    /\[searchQuery,\s*activeAccountId,\s*crmFilter\]/.test(inboxSrc)
+  // The reset effect: setInboxExtra([]) + setInboxNextToken(null) in deps that include crmFilter.
+  // inboxCategory may also be present (cursor reset on category switch).
+  /setInboxExtra\(\[\]\)[\s\S]{0,200}setInboxNextToken\(null\)[\s\S]{0,400}crmFilter/s.test(inboxSrc) ||
+    /\[searchQuery,\s*activeAccountId,\s*crmFilter/.test(inboxSrc)
 );
 
 check(

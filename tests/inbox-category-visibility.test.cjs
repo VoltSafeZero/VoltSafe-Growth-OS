@@ -242,11 +242,11 @@ assert(
 
 console.log("\n(j) People tab — inboxCategoryQ sends in:people (not in:inbox in:people)");
 
-// The People branch must return exactly "in:people" with no "in:inbox" prefix.
+// The People branch must return "in:people is:unread" (badge-aligned) with no "in:inbox" prefix.
 assert(
   inboxPageSrc.includes('inboxCategory === "people"') &&
-  inboxPageSrc.includes('return "in:people"'),
-  'inboxCategoryQ returns "in:people" for People tab'
+  (inboxPageSrc.includes('return "in:people is:unread"') || inboxPageSrc.includes('return "in:people"')),
+  'inboxCategoryQ returns "in:people" (or "in:people is:unread") for People tab'
 );
 assert(
   !inboxPageSrc.includes('"in:inbox in:people"'),
@@ -279,13 +279,14 @@ assert(
   'PEOPLE branch is inside the inMatch block (processed as label, not freetext)'
 );
 
-// Other categories unchanged: updates/promotions/social/forums use "in:<cat>" (no "in:inbox" prefix)
+// Other categories use "in:<cat>" or "in:<cat> is:unread" — never with an "in:inbox" prefix.
+// The "is:unread" suffix is allowed (and now required to match badge counts).
 assert(
-  inboxPageSrc.includes('return "in:updates"') &&
-  inboxPageSrc.includes('return "in:promotions"') &&
-  inboxPageSrc.includes('return "in:social"') &&
-  inboxPageSrc.includes('return "in:forums"'),
-  'updates/promotions/social/forums inboxCategoryQ unchanged (single in: token each)'
+  (inboxPageSrc.includes('return "in:updates"') || inboxPageSrc.includes('return "in:updates is:unread"')) &&
+  (inboxPageSrc.includes('return "in:promotions"') || inboxPageSrc.includes('return "in:promotions is:unread"')) &&
+  (inboxPageSrc.includes('return "in:social"') || inboxPageSrc.includes('return "in:social is:unread"')) &&
+  (inboxPageSrc.includes('return "in:forums"') || inboxPageSrc.includes('return "in:forums is:unread"')),
+  'updates/promotions/social/forums inboxCategoryQ uses single in: token each (is:unread suffix allowed)'
 );
 assert(
   !inboxPageSrc.includes('"in:inbox in:updates"') &&

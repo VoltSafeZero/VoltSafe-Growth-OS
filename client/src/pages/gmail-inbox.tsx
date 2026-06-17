@@ -5825,11 +5825,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // "in:<category>" syntax which buildQClauses already maps to CATEGORY_* labels.
   const inboxCategoryQ = useMemo(() => {
     if (searchQuery) return searchQuery;
-    if (inboxCategory === "people")     return "in:people";
-    if (inboxCategory === "updates")    return "in:updates";
-    if (inboxCategory === "promotions") return "in:promotions";
-    if (inboxCategory === "social")     return "in:social";
-    if (inboxCategory === "forums")     return "in:forums";
+    if (inboxCategory === "people")     return "in:people is:unread";
+    if (inboxCategory === "updates")    return "in:updates is:unread";
+    if (inboxCategory === "promotions") return "in:promotions is:unread";
+    if (inboxCategory === "social")     return "in:social is:unread";
+    if (inboxCategory === "forums")     return "in:forums is:unread";
     return "in:inbox";
   }, [searchQuery, inboxCategory]);
 
@@ -6231,10 +6231,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     setInboxNextToken(null);
     setSectionLoadingIds(new Set());
     setSectionFetchDoneIds(new Set());
+    // inboxCategory is included because each category tab now sends its own specific
+    // query ("in:social is:unread", "in:people is:unread", …).  Without this, the
+    // cursor from a previous category view would persist when switching tabs — Effect B
+    // would not adopt the new category cursor (prev !== null) and page 2+ would fetch
+    // the wrong partition.
     // crmFilter is included so switching to/from the Unread pill resets pagination:
     // the base query changes (unread-only vs all), and stale extra pages from the
     // previous filter must not bleed into the new view.
-  }, [searchQuery, activeAccountId, crmFilter]);
+  }, [searchQuery, activeAccountId, crmFilter, inboxCategory]);
   useEffect(() => {
     setInboxNextToken((prev) => prev ?? inboxBaseToken);
   }, [inboxBaseToken]);
@@ -6281,11 +6286,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     try {
       const params = new URLSearchParams();
       params.set("limit", "50");
-      // Mirror the base query's unread filter so pagination stays in the same data partition.
-      // Without this, page 2+ would fetch all inbox messages (most of which are read) while
-      // page 1 fetched only unread — mixing data and losing pagination coherence.
-      const baseQ = searchQuery || "in:inbox";
-      params.set("q", crmFilter === "unread" ? `${baseQ} is:unread` : baseQ);
+      // Mirror the exact base query used by inboxQuery (page 1) so page 2+ stays in the
+      // same data partition.  Category tabs now send "in:<cat> is:unread" so loadMore must
+      // use the same query — previously it hard-coded "in:inbox", which would mix all-inbox
+      // messages into a category-specific view and misalign the cursor.
+      // When the Unread pill (crmFilter="unread") is active the base is always "in:inbox is:unread"
+      // regardless of category, matching the wide partition inboxQuery uses in that mode.
+      const pageQ = crmFilter === "unread"
+        ? (searchQuery ? `${searchQuery} is:unread` : "in:inbox is:unread")
+        : (searchQuery || inboxCategoryQ);
+      params.set("q", pageQ);
       params.set("pageToken", inboxNextToken);
       appendAccountId(params);
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
