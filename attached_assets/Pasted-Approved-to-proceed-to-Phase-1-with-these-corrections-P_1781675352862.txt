@@ -1,0 +1,82 @@
+Approved to proceed to Phase 1 with these corrections.
+
+Phase 0 confirms the root diagnosis:
+
+* inbox truth exists in multiple places
+* health and category-counts use different predicates
+* CATEGORY_PERSONAL is missing everywhere
+* category-only messages are inconsistently counted/rendered
+* label_ids mutation/backfill is part of the drift problem
+
+Proceed to Phase 1 only.
+
+Corrections before coding:
+
+1. Derived fields count
+    There are 8 derived fields, not 7:
+
+* is_inbox
+* is_unread
+* is_starred
+* is_spam
+* is_trash
+* is_draft
+* is_sent
+* smart_category
+
+2. CATEGORY_PERSONAL behavior
+    CATEGORY_PERSONAL must be included in VoltSafe Inbox membership.
+
+Mapping:
+
+* CATEGORY_PERSONAL → people
+* no CATEGORY_* → people
+* CATEGORY_UPDATES → updates
+* CATEGORY_PROMOTIONS → promotions
+* CATEGORY_SOCIAL → social
+* CATEGORY_FORUMS → forums
+
+Do not create a separate CATEGORY_PERSONAL sidebar/category.
+
+3. VoltSafe policy
+    Set:
+
+INBOX_INCLUDES_CATEGORY_SKIP = true
+
+VoltSafe Inbox membership later becomes:
+(INBOX OR CATEGORY_PERSONAL OR CATEGORY_UPDATES OR CATEGORY_PROMOTIONS OR CATEGORY_SOCIAL OR CATEGORY_FORUMS)
+AND NOT SPAM
+AND NOT TRASH
+AND NOT DRAFT
+AND NOT SENT
+
+But in Phase 1, only add/populate derived columns. Do not yet rewire endpoints.
+
+4. Phase 1 scope
+    Allowed:
+
+* Add nullable derived columns
+* Create pure label derivation function
+* Backfill derived columns only
+* Add safe indexes
+* Add derivation tests if helpful
+
+Not allowed:
+
+* Do not change count endpoints yet
+* Do not change list endpoints yet
+* Do not remove ensureInboxForCategoryLabels yet
+* Do not mutate label_ids
+* Do not touch reply/forward/signature/tracking/CID/CRM/thread body code
+
+5. Phase 1 verification required before stopping:
+
+* count of rows where any derived field is NULL
+* distribution of smart_category
+* comparison of derived-column counts versus current old-label matching counts
+* confirmation CATEGORY_PERSONAL maps to people
+* confirmation label_ids was not mutated
+* files changed
+* tests run
+
+Stop after Phase 1 report. Do not continue to Phase 2 without approval.

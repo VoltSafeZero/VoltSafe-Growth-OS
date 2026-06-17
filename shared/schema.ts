@@ -1082,6 +1082,17 @@ export const emailMessages = pgTable("email_messages", {
   snippet: text("snippet"),
   ownerUserId: integer("owner_user_id"),
   sourceAccountId: integer("source_account_id"),
+  // Phase 1 derived label columns — projections only, label_ids is never mutated.
+  // Populated by migrations/0016_derived_label_columns.sql and kept in sync by
+  // server/services/inbox-policy.ts::deriveEmailLabels() on every write.
+  isInbox:       boolean("is_inbox"),
+  isUnread:      boolean("is_unread"),
+  isStarred:     boolean("is_starred"),
+  isSpam:        boolean("is_spam"),
+  isTrash:       boolean("is_trash"),
+  isDraft:       boolean("is_draft"),
+  isSent:        boolean("is_sent"),
+  smartCategory: text("smart_category"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
