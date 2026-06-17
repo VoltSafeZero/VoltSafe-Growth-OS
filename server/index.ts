@@ -219,7 +219,7 @@ app.use((req, res, next) => {
 (async () => {
   // Run schema migrations FIRST before any route setup queries the DB
   try {
-    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, migrateCrmAiSummarySchema, migrateScheduledEmailColumns, migrateShorePowerColumn, migrateLeadWebsiteColumn, migrateSpamTrustedSenders, migrateCleanInternalAutoLinkRules, migrateTaskContactId, migrateEmailSignaturesSchema, migrateSignatureCtaSchema, migrateEmailRecipientsSchema, migrateInternalEngagementSchema, migrateSignatureCtaAssetColumns, migrateCtaFileData, migrateCtaOriginalName } = await import("./seed-production");
+    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, migrateCrmAiSummarySchema, migrateScheduledEmailColumns, migrateShorePowerColumn, migrateLeadWebsiteColumn, migrateSpamTrustedSenders, migrateCleanInternalAutoLinkRules, migrateTaskContactId, migrateEmailSignaturesSchema, migrateSignatureCtaSchema, migrateEmailRecipientsSchema, migrateInternalEngagementSchema, migrateSignatureCtaAssetColumns, migrateCtaFileData, migrateCtaOriginalName, migrateDerivedLabelColumns } = await import("./seed-production");
     await migrateUserSchema();
     await migrateEmailSchema();
     await migrateCalendarSchema();
@@ -253,6 +253,11 @@ app.use((req, res, next) => {
     await migrateSignatureCtaAssetColumns();
     await migrateCtaFileData();
     await migrateCtaOriginalName();
+    // Derived label guard: fills is_inbox/is_unread/smart_category for any rows
+    // where the backfill DML from migration 0016 did not run (e.g. production
+    // deployments where Drizzle schema-diff applies DDL but skips DML).
+    // Must run AFTER migrateEmailSchema (which creates email_messages).
+    await migrateDerivedLabelColumns();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

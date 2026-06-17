@@ -1,0 +1,127 @@
+Critical production fix: derived label columns were created but production backfill did not run.
+
+Root cause confirmed:
+
+* Production has the new derived columns.
+* But 35,636 / 35,648 production email_messages rows still have is_inbox = NULL, is_unread = NULL, smart_category = NULL.
+* Phase 3/4 code now queries WHERE is_inbox = true.
+* Therefore historical mail is invisible.
+* Only newly synced rows after deployment have derived columns populated.
+
+Do not refactor.
+Do not proceed to Phase 6.
+Do not change frontend.
+
+Fix production data safely.
+
+Tasks:
+
+1. Create a production-safe idempotent backfill script:
+    scripts/production-derived-label-backfill.ts
+
+Requirements:
+
+* Batch update email_messages rows where any derived field is NULL.
+* Use the same canonical deriveEmailLabels / parseLabelArray logic from inbox-policy.ts.
+* Do NOT mutate label_ids.
+* Only write:
+    * is_inbox
+    * is_unread
+    * is_starred
+    * is_spam
+    * is_trash
+    * is_draft
+    * is_sent
+    * smart_category
+* Process in small batches, e.g. 500 or 1000 rows.
+* Log progress:
+    * total rows needing backfill
+    * batch number
+    * rows updated
+    * remaining
+    * elapsed time
+* Safe to re-run.
+* Stop cleanly on error.
+
+2. Run the script against production.
+3. Verify production DB after backfill:
+    Return:
+
+SELECT
+COUNT() AS total,
+COUNT() FILTER (WHERE is_inbox IS NULL) AS null_is_inbox,
+COUNT() FILTER (WHERE is_unread IS NULL) AS null_is_unread,
+COUNT() FILTER (WHERE smart_category IS NULL) AS null_smart_category
+FROM email_messages;
+
+Expected:
+
+* all NULL counts = 0
+
+4. Verify production inbox visibility:
+    For trevor@voltsafe.com:
+
+Return:
+
+* total inbox threads using is_inbox = true
+* unread inbox threads using is_inbox = true AND is_unread = true
+* people unread threads
+* updates unread threads
+* promotions unread threads
+* social unread threads
+* forums unread threads
+* category sum
+* delta
+
+5. Verify browser behavior:
+    In production /gmail:
+
+* Inbox > All shows historical inbox messages, not only 2 new messages.
+* Inbox > Unread shows unread messages.
+* People / Updates / Promotions / Social / Forums render correctly.
+* No “No messages found” while unread exists.
+* Scroll/load older works.
+
+6. Add a startup guard so this never happens again:
+    On server startup, before serving mail routes, check:
+
+SELECT COUNT(*) FROM email_messages
+WHERE is_inbox IS NULL
+OR is_unread IS NULL
+OR smart_category IS NULL;
+
+If count > 0:
+
+* log a clear warning
+* run the backfill automatically OR fail-safe the mail UI/API with a clear maintenance message
+* do not silently serve a broken inbox
+
+Preferred: run the idempotent backfill automatically in controlled batches during startup, or register it as an explicit startup migration function.
+
+7. Add regression test:
+
+* Simulate rows with NULL derived fields.
+* Confirm the production backfill fills them.
+* Confirm label_ids remains unchanged.
+* Confirm q=in:inbox returns historical rows after backfill.
+
+8. Run tests:
+
+* inbox-policy.test.cjs
+* inbox-visibility.test.cjs
+* inbox-category-badge.test.cjs
+* inbox-category-visibility.test.cjs
+* unread-filter-server-side.test.cjs
+* inbox-count-reconciliation.test.cjs
+* inbox-completeness.test.cjs
+
+Return:
+
+* files changed
+* production backfill logs
+* before/after DB counts
+* browser screenshot proof
+* test results
+
+Important:
+This is not a logic bug now. It is a failed production data migration. The fix is to backfill production derived columns and add a startup guard so derived-column migrations can never partially deploy again.

@@ -1643,3 +1643,136 @@ export async function migrateInternalEngagementSchema(): Promise<void> {
     console.error("[migration] internal engagement migration error (non-fatal):", err);
   }
 }
+
+/**
+ * Startup guard: ensure derived email label columns are populated.
+ *
+ * Migration 0016 adds the columns (DDL) via Drizzle schema diff on publish, but
+ * the DML backfill (UPDATE … SET is_inbox = …) is not part of the schema diff and
+ * therefore never runs in production automatically. This guard runs on every startup
+ * and fills any rows that still have NULL derived columns using the canonical formula
+ * from inbox-policy.ts. It is idempotent — already-filled rows are not touched.
+ *
+ * WHY THIS IS A STARTUP MIGRATION NOT A SCRIPT:
+ *   Serving the inbox with is_inbox = NULL rows silently hides all historical mail.
+ *   The guard ensures the invariant is satisfied before routes are registered.
+ */
+export async function migrateDerivedLabelColumns(): Promise<void> {
+  try {
+    // 1. Ensure the columns exist (idempotent DDL — safe if already present).
+    await db.execute(sql`
+      ALTER TABLE email_messages
+        ADD COLUMN IF NOT EXISTS is_inbox       boolean,
+        ADD COLUMN IF NOT EXISTS is_unread      boolean,
+        ADD COLUMN IF NOT EXISTS is_starred     boolean,
+        ADD COLUMN IF NOT EXISTS is_spam        boolean,
+        ADD COLUMN IF NOT EXISTS is_trash       boolean,
+        ADD COLUMN IF NOT EXISTS is_draft       boolean,
+        ADD COLUMN IF NOT EXISTS is_sent        boolean,
+        ADD COLUMN IF NOT EXISTS smart_category text
+    `);
+
+    // 2. Check how many rows still need filling.
+    const countR = await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM email_messages
+      WHERE is_inbox IS NULL OR is_unread IS NULL OR smart_category IS NULL
+    `);
+    const nullCount = Number((countR as any).rows?.[0]?.n ?? 0);
+
+    if (nullCount === 0) {
+      console.log("[migration] derived label columns: all rows populated — no backfill needed.");
+      return;
+    }
+
+    console.warn(
+      `[migration] derived label columns: ${nullCount} row(s) with NULL derived fields detected — running backfill now. Mail routes will be ready after this completes.`
+    );
+
+    // 3. Backfill in batches of 2 000 rows using the canonical formula.
+    //    Cursor-based so it is safe to interrupt and re-run.
+    const BATCH = 2_000;
+    let totalUpdated = 0;
+    let cursorId = 0;
+    let batchNum = 0;
+
+    while (true) {
+      const r = await db.execute(sql`
+        WITH batch AS (
+          SELECT id FROM email_messages
+          WHERE (is_inbox IS NULL OR is_unread IS NULL OR smart_category IS NULL)
+            AND id > ${cursorId}
+          ORDER BY id
+          LIMIT ${BATCH}
+        )
+        UPDATE email_messages SET
+          is_unread      = (label_ids LIKE '%"UNREAD"%'),
+          is_starred     = (label_ids LIKE '%"STARRED"%'),
+          is_spam        = (label_ids LIKE '%"SPAM"%'),
+          is_trash       = (label_ids LIKE '%"TRASH"%'),
+          is_draft       = (label_ids LIKE '%"DRAFT"%'),
+          is_sent        = (label_ids LIKE '%"SENT"%'),
+          is_inbox       = (
+            (   label_ids LIKE '%"INBOX"%'
+             OR label_ids ILIKE '%CATEGORY_PERSONAL%'
+             OR label_ids ILIKE '%CATEGORY_UPDATES%'
+             OR label_ids ILIKE '%CATEGORY_PROMOTIONS%'
+             OR label_ids ILIKE '%CATEGORY_SOCIAL%'
+             OR label_ids ILIKE '%CATEGORY_FORUMS%')
+            AND label_ids NOT LIKE '%"SPAM"%'
+            AND label_ids NOT LIKE '%"TRASH"%'
+            AND label_ids NOT LIKE '%"DRAFT"%'
+          ),
+          smart_category = CASE
+            WHEN label_ids ILIKE '%CATEGORY_UPDATES%'    THEN 'updates'
+            WHEN label_ids ILIKE '%CATEGORY_PROMOTIONS%' THEN 'promotions'
+            WHEN label_ids ILIKE '%CATEGORY_SOCIAL%'     THEN 'social'
+            WHEN label_ids ILIKE '%CATEGORY_FORUMS%'     THEN 'forums'
+            ELSE 'people'
+          END
+        FROM batch
+        WHERE email_messages.id = batch.id
+        RETURNING email_messages.id
+      `);
+
+      const rows = (r as any).rows as Array<{ id: number }>;
+      if (rows.length === 0) break;
+
+      totalUpdated += rows.length;
+      cursorId = Math.max(...rows.map((rr: { id: number }) => rr.id));
+      batchNum++;
+      console.log(`[migration] derived label columns: batch ${batchNum} — updated ${rows.length} rows (total ${totalUpdated})`);
+    }
+
+    // 4. Final verification.
+    const afterR = await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM email_messages
+      WHERE is_inbox IS NULL OR is_unread IS NULL OR smart_category IS NULL
+    `);
+    const remaining = Number((afterR as any).rows?.[0]?.n ?? 0);
+
+    if (remaining === 0) {
+      console.log(`[migration] derived label columns: backfill complete — ${totalUpdated} row(s) updated, 0 NULLs remaining.`);
+    } else {
+      console.error(`[migration] derived label columns: backfill finished but ${remaining} row(s) still have NULLs — will retry on next startup.`);
+    }
+
+    // 5. Ensure partial indexes exist (idempotent).
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_email_is_inbox
+        ON email_messages (source_account_id, sent_at DESC)
+        WHERE is_inbox = true
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_email_is_inbox_unread
+        ON email_messages (source_account_id, sent_at DESC)
+        WHERE is_inbox = true AND is_unread = true
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_email_smart_category
+        ON email_messages (smart_category, source_account_id, sent_at DESC)
+        WHERE is_inbox = true
+    `);
+  } catch (err) {
+    console.error("[migration] derived label columns error (non-fatal):", err);
+  }
+}
