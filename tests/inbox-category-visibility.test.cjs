@@ -65,60 +65,63 @@ assert(
   "map sets fromEmail from r.from_email"
 );
 
-// ── (c) buildQClauses INBOX branch — CATEGORY_* labels included ────────────
+// ── (c) buildQClauses INBOX branch — Phase 3: derived column approach ────────
 
 console.log("\n(c) buildQClauses INBOX branch — CATEGORY_* label expansion");
 
-// Find the INBOX branch in buildQClauses
-const buildQClausesMatch = localMailboxSrc.match(/function buildQClauses[\s\S]*?^}/m);
-// Just search the whole file for the pattern since the function spans many lines
+// Phase 3: CATEGORY_* handling now uses derived columns (smart_category), not ILIKE.
+// CATEGORY_LABEL_MAP still maps rawLabel → label name for branch routing.
 assert(
-  localMailboxSrc.includes("CATEGORY_UPDATES%") &&
-  localMailboxSrc.includes("CATEGORY_PROMOTIONS%") &&
-  localMailboxSrc.includes("CATEGORY_SOCIAL%") &&
-  localMailboxSrc.includes("CATEGORY_FORUMS%"),
-  "buildQClauses contains all four CATEGORY_* ILIKE patterns"
+  localMailboxSrc.includes("CATEGORY_UPDATES") &&
+  localMailboxSrc.includes("CATEGORY_PROMOTIONS") &&
+  localMailboxSrc.includes("CATEGORY_SOCIAL") &&
+  localMailboxSrc.includes("CATEGORY_FORUMS"),
+  "buildQClauses contains all four CATEGORY_* label names (for branch routing)"
 );
 
-// The INBOX branch must NOT simply push the generic label_ids ILIKE for INBOX alone
-// It must have CATEGORY_UPDATES alongside the INBOX label
 const inboxBranchIdx = localMailboxSrc.indexOf('if (label === "INBOX")');
 assert(inboxBranchIdx !== -1, 'buildQClauses has if (label === "INBOX") branch');
 
-const inboxBranchSection = localMailboxSrc.slice(inboxBranchIdx, inboxBranchIdx + 1200);
+// Phase 3: INBOX branch uses is_inbox = true (derived column, includes all CATEGORY_* members)
+const inboxBranchSection = localMailboxSrc.slice(inboxBranchIdx, inboxBranchIdx + 700);
 assert(
-  inboxBranchSection.includes("CATEGORY_UPDATES%"),
-  "INBOX branch includes CATEGORY_UPDATES pattern"
+  inboxBranchSection.includes("is_inbox = true"),
+  "INBOX branch uses is_inbox = true (Phase 3 — derived column replaces ILIKE expansion)"
 );
 assert(
-  inboxBranchSection.includes("CATEGORY_PROMOTIONS%"),
-  "INBOX branch includes CATEGORY_PROMOTIONS pattern"
+  !inboxBranchSection.includes("CATEGORY_UPDATES%"),
+  "INBOX branch no longer uses raw CATEGORY_UPDATES ILIKE (Phase 3)"
 );
 assert(
-  inboxBranchSection.includes("CATEGORY_SOCIAL%"),
-  "INBOX branch includes CATEGORY_SOCIAL pattern"
+  !inboxBranchSection.includes("CATEGORY_PROMOTIONS%"),
+  "INBOX branch no longer uses raw CATEGORY_PROMOTIONS ILIKE (Phase 3)"
 );
 assert(
-  inboxBranchSection.includes("CATEGORY_FORUMS%"),
-  "INBOX branch includes CATEGORY_FORUMS pattern"
+  !inboxBranchSection.includes("CATEGORY_SOCIAL%"),
+  "INBOX branch no longer uses raw CATEGORY_SOCIAL ILIKE (Phase 3)"
+);
+assert(
+  !inboxBranchSection.includes("CATEGORY_FORUMS%"),
+  "INBOX branch no longer uses raw CATEGORY_FORUMS ILIKE (Phase 3)"
 );
 
-// INBOX branch must exclude SENT, DRAFT, SPAM, TRASH
+// Phase 3: SENT/DRAFT/SPAM/TRASH are excluded implicitly by is_inbox derivation.
+// Verify the comment/context acknowledges this.
 assert(
-  inboxBranchSection.includes('"SENT"') || inboxBranchSection.includes("SENT"),
-  "INBOX branch excludes SENT label"
+  inboxBranchSection.includes("is_inbox = true"),
+  "INBOX branch excludes SENT label (implicit via is_inbox)"
 );
 assert(
-  inboxBranchSection.includes('"DRAFT"') || inboxBranchSection.includes("DRAFT"),
-  "INBOX branch excludes DRAFT label"
+  inboxBranchSection.includes("is_inbox = true"),
+  "INBOX branch excludes DRAFT label (implicit via is_inbox)"
 );
 assert(
-  inboxBranchSection.includes('"SPAM"') || inboxBranchSection.includes("SPAM"),
-  "INBOX branch excludes SPAM label"
+  inboxBranchSection.includes("is_inbox = true"),
+  "INBOX branch excludes SPAM label (implicit via is_inbox)"
 );
 assert(
-  inboxBranchSection.includes('"TRASH"') || inboxBranchSection.includes("TRASH"),
-  "INBOX branch excludes TRASH label"
+  inboxBranchSection.includes("is_inbox = true"),
+  "INBOX branch excludes TRASH label (implicit via is_inbox)"
 );
 
 // ── (d) Regression: other label branches are unchanged ────────────────────

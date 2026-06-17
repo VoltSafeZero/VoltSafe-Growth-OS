@@ -244,45 +244,32 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
     };
     const label = CATEGORY_LABEL_MAP[rawLabel] ?? rawLabel;
     if (rawLabel === "PEOPLE") {
-      // "in:people" = INBOX messages with no Gmail category labels
-      // (person-to-person mail, the "People" smart inbox bucket)
-      where.push(`(label_ids ILIKE '%"INBOX"%' OR label_ids ILIKE '%INBOX%')`);
-      where.push(`label_ids NOT ILIKE '%CATEGORY_UPDATES%'`);
-      where.push(`label_ids NOT ILIKE '%CATEGORY_PROMOTIONS%'`);
-      where.push(`label_ids NOT ILIKE '%CATEGORY_SOCIAL%'`);
-      where.push(`label_ids NOT ILIKE '%CATEGORY_FORUMS%'`);
-      where.push(`label_ids NOT ILIKE '%"DRAFT"%'`);
-      where.push(`label_ids NOT ILIKE '%"SPAM"%'`);
-      where.push(`label_ids NOT ILIKE '%"TRASH"%'`);
+      // Phase 3: use derived columns — includes CATEGORY_PERSONAL (maps to smart_category='people').
+      where.push(`is_inbox = true`);
+      where.push(`smart_category = 'people'`);
     } else if (label === "INBOX") {
-      // The Inbox view shows INBOX-labeled messages AND all category-tagged messages
-      // (CATEGORY_UPDATES, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, CATEGORY_FORUMS).
-      // Gmail routes many real emails through category labels without also stamping
-      // them INBOX, so restricting to the INBOX label alone silently hides them.
-      // We exclude SENT, DRAFT, SPAM, TRASH to match Gmail's inbox behaviour.
-      where.push(`(
-        label_ids ILIKE '%"INBOX"%' OR label_ids ILIKE '%INBOX%'
-        OR label_ids ILIKE '%CATEGORY_UPDATES%'
-        OR label_ids ILIKE '%CATEGORY_PROMOTIONS%'
-        OR label_ids ILIKE '%CATEGORY_SOCIAL%'
-        OR label_ids ILIKE '%CATEGORY_FORUMS%'
-      )`);
-      // Do NOT exclude SENT here: self-addressed emails arrive with BOTH SENT and
-      // INBOX labels. Excluding by SENT would silently hide those from the inbox.
-      // Pure outbound messages are already excluded because they lack INBOX/CATEGORY
-      // labels and therefore don't match the condition above.
-      where.push(`label_ids NOT ILIKE '%"DRAFT"%'`);
-      where.push(`label_ids NOT ILIKE '%"SPAM"%'`);
-      where.push(`label_ids NOT ILIKE '%"TRASH"%'`);
+      // Phase 3: is_inbox is the canonical VoltSafe inbox predicate. It covers:
+      //   (INBOX OR CATEGORY_PERSONAL OR CATEGORY_UPDATES OR CATEGORY_PROMOTIONS
+      //    OR CATEGORY_SOCIAL OR CATEGORY_FORUMS) AND NOT SPAM AND NOT TRASH AND NOT DRAFT.
+      // SENT+INBOX messages remain visible (is_inbox=true for self-sent/BCC'd threads).
+      where.push(`is_inbox = true`);
+    } else if (label === "CATEGORY_UPDATES") {
+      // Phase 3: derived smart_category column replaces label_ids ILIKE pattern.
+      where.push(`is_inbox = true`);
+      where.push(`smart_category = 'updates'`);
+    } else if (label === "CATEGORY_PROMOTIONS") {
+      where.push(`is_inbox = true`);
+      where.push(`smart_category = 'promotions'`);
+    } else if (label === "CATEGORY_SOCIAL") {
+      where.push(`is_inbox = true`);
+      where.push(`smart_category = 'social'`);
+    } else if (label === "CATEGORY_FORUMS") {
+      where.push(`is_inbox = true`);
+      where.push(`smart_category = 'forums'`);
     } else {
+      // All other in: labels (SENT, TRASH, SPAM, DRAFT, custom labels, …) still use
+      // label_ids matching — they are outside Phase 3 scope.
       where.push(`(label_ids ILIKE '%"${safe(label)}"%' OR label_ids ILIKE '%${safe(label)}%')`);
-      // Category views are inbox-filtered: show only inbox-visible messages, not archived history.
-      if (["CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"].includes(label)) {
-        where.push(`label_ids LIKE '%"INBOX"%'`);
-        where.push(`label_ids NOT ILIKE '%"SPAM"%'`);
-        where.push(`label_ids NOT ILIKE '%"TRASH"%'`);
-        where.push(`label_ids NOT ILIKE '%"DRAFT"%'`);
-      }
     }
   }
 
@@ -324,17 +311,18 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
     }
   }
 
-  // is:unread — server-side unread filter.
-  // When the frontend sends "is:unread" (e.g. when the Unread filter pill is active),
-  // restrict results to messages that still carry the UNREAD label in the local mirror.
-  // This prevents the client from having to page through thousands of read messages to
-  // surface the relatively small set of unread threads.
+  // is:unread — Phase 3: use derived is_unread column instead of label_ids ILIKE.
   const isUnreadMatch = rest.match(/\bis:unread\b/i);
   if (isUnreadMatch) {
     rest = rest.replace(isUnreadMatch[0], "").trim();
-    // Label_ids is stored as a JSON array string, e.g. '["UNREAD","INBOX"]'.
-    // ILIKE with the double-quoted label name matches reliably against both formats.
-    where.push(`label_ids ILIKE '%"UNREAD"%'`);
+    where.push(`is_unread = true`);
+  }
+
+  // is:starred — Phase 3: use derived is_starred column.
+  const isStarredMatch = rest.match(/\bis:starred\b/i);
+  if (isStarredMatch) {
+    rest = rest.replace(isStarredMatch[0], "").trim();
+    where.push(`is_starred = true`);
   }
 
   // after:YYYY-MM-DD  /  before:YYYY-MM-DD

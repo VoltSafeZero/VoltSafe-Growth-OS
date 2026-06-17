@@ -1,0 +1,97 @@
+Approved to proceed to Phase 3 with strict scope.
+
+Confirmed decision:
+CATEGORY_PERSONAL should map to People.
+
+So:
+
+* CATEGORY_PERSONAL messages appear in VoltSafe Inbox
+* CATEGORY_PERSONAL messages appear under People
+* no CATEGORY_* messages also appear under People
+* no separate CATEGORY_PERSONAL sidebar/category
+
+Phase 3 scope:
+Only update the list/query layer in server/services/local-mailbox.ts.
+
+Allowed changes:
+
+1. buildQClauses(“in:inbox”)
+    Use:
+    is_inbox = true
+2. buildQClauses(“is:unread”)
+    Use:
+    is_unread = true
+3. buildQClauses(“is:starred”)
+    Use:
+    is_starred = true
+4. buildQClauses(“in:people”)
+    Use:
+    is_inbox = true
+    AND smart_category = ‘people’
+5. buildQClauses(“in:updates”)
+    Use:
+    is_inbox = true
+    AND smart_category = ‘updates’
+6. buildQClauses(“in:promotions”)
+    Use:
+    is_inbox = true
+    AND smart_category = ‘promotions’
+7. buildQClauses(“in:social”)
+    Use:
+    is_inbox = true
+    AND smart_category = ‘social’
+8. buildQClauses(“in:forums”)
+    Use:
+    is_inbox = true
+    AND smart_category = ‘forums’
+
+Do not change:
+
+* count endpoints
+* accounts/health
+* category-counts
+* inbox-debug
+* frontend
+* schema
+* sync
+* reply/forward/signature/tracking/CID/CRM/thread-body code
+
+Phase 3 verification required:
+
+1. Direct API/list checks:
+
+* q=in:inbox is:unread returns unread inbox rows
+* q=in:people is:unread returns People unread rows, including CATEGORY_PERSONAL
+* q=in:updates is:unread returns Updates unread rows
+* q=in:promotions is:unread returns Promotions unread rows
+* q=in:social is:unread returns Social unread rows
+* q=in:forums is:unread returns Forums unread rows
+
+2. Confirm list no longer uses label_ids ILIKE for:
+
+* in:inbox
+* in:people
+* in:updates
+* in:promotions
+* in:social
+* in:forums
+* is:unread
+* is:starred
+
+3. Confirm buildQClauses still supports any other needed Gmail-style q terms and does not break search.
+4. Compare old vs new list counts:
+
+* inbox unread count should now include CATEGORY_PERSONAL
+* People unread should now include CATEGORY_PERSONAL
+* category-only messages should appear in list results if is_inbox=true
+
+5. Run tests:
+
+* inbox-policy.test.cjs
+* inbox-visibility.test.cjs
+* inbox-category-badge.test.cjs
+* inbox-category-visibility.test.cjs
+* unread-filter-server-side.test.cjs
+* any local-mailbox/list query tests available
+
+Stop after Phase 3 report. Do not proceed to Phase 4 without approval.

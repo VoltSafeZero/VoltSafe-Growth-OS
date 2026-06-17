@@ -59,8 +59,8 @@ check(
 );
 
 check(
-  'UNREAD label SQL filter uses ILIKE with quoted label (%"UNREAD"%)',
-  localMailbox.includes(`label_ids ILIKE '%"UNREAD"%'`)
+  "is:unread filter uses is_unread = true (Phase 3 — derived column replaces ILIKE)",
+  localMailbox.includes(`is_unread = true`)
 );
 
 check(

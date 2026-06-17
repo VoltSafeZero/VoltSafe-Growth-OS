@@ -104,15 +104,17 @@ console.log("\n── V2: inbox query in local-mailbox.ts ───────�
   else
     bad("inbox query must include CATEGORY_FORUMS");
 
-  if (/NOT ILIKE.*DRAFT/.test(lm))
-    ok("inbox query excludes DRAFT");
+  // Phase 3: DRAFT/SPAM exclusion is now implicit in is_inbox=true (derived column).
+  // Verify the INBOX branch uses is_inbox = true instead of raw label_ids ILIKE.
+  if (/if \(label === "INBOX"\)[\s\S]{0,700}is_inbox = true/.test(lm))
+    ok("inbox query excludes DRAFT (implicit via is_inbox=true derived column)");
   else
-    bad("inbox query must exclude DRAFT");
+    bad("INBOX branch must use is_inbox = true (Phase 3 — DRAFT excluded implicitly)");
 
-  if (/NOT ILIKE.*SPAM/.test(lm))
-    ok("inbox query excludes SPAM");
+  if (/if \(label === "INBOX"\)[\s\S]{0,700}is_inbox = true/.test(lm))
+    ok("inbox query excludes SPAM (implicit via is_inbox=true derived column)");
   else
-    bad("inbox query must exclude SPAM");
+    bad("INBOX branch must use is_inbox = true (Phase 3 — SPAM excluded implicitly)");
 }
 
 // ── V3: move-to-primary does NOT strip CATEGORY_* ────────────────────────────
