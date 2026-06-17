@@ -1,0 +1,74 @@
+Approved to proceed to Phase 2, with one policy correction before continuing.
+
+Important correction: do NOT exclude messages/threads simply because they have SENT if they also have INBOX or CATEGORY_*.
+
+The Phase 1 report found:
+
+* 2,322 messages / 1,265 threads carry both INBOX and SENT.
+* Excluding all SENT would hide active inbox conversations.
+* That is not acceptable.
+
+Updated VoltSafe Inbox policy:
+
+A message belongs to VoltSafe Inbox if:
+
+(
+INBOX
+OR CATEGORY_PERSONAL
+OR CATEGORY_UPDATES
+OR CATEGORY_PROMOTIONS
+OR CATEGORY_SOCIAL
+OR CATEGORY_FORUMS
+)
+
+AND NOT:
+
+* SPAM
+* TRASH
+* DRAFT
+
+Do NOT use:
+AND NOT SENT
+
+SENT-only mail should not appear in Inbox, but SENT+INBOX or SENT+CATEGORY_* must remain visible.
+
+So:
+
+* SENT-only = not inbox
+* SENT + INBOX = inbox
+* SENT + CATEGORY_* = inbox if not spam/trash/draft
+
+Phase 2 scope remains:
+
+* Wire deriveEmailLabels() into every email_messages write path
+* gmail-incremental.ts
+* gmail-sync.ts
+* local-mailbox.ts if it writes label state
+* Remove ensureInboxForCategoryLabels and all call sites
+* Do not mutate label_ids except when mirroring an actual Gmail/user label action
+* Recompute derived columns whenever label_ids changes
+
+Phase 2 must not change:
+
+* count endpoints
+* list endpoints
+* frontend
+* reply/forward/signature/tracking/CID/CRM/thread-body code
+
+Phase 2 verification required:
+
+1. New synced/updated messages populate all derived fields.
+2. Gmail incremental updates recompute derived fields.
+3. Full sync recomputes derived fields.
+4. ensureInboxForCategoryLabels is removed and not called.
+5. No artificial INBOX backfill remains.
+6. label_ids are not rewritten to add INBOX for category messages.
+7. Derived field NULL count remains 0.
+8. Run tests:
+    * inbox-policy.test.cjs
+    * inbox-category-badge.test.cjs
+    * inbox-category-visibility.test.cjs
+    * unread-filter-server-side.test.cjs
+    * relevant sync/local-mailbox tests if available
+
+Stop after Phase 2 report. Do not continue to Phase 3 without approval.

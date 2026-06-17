@@ -36,7 +36,13 @@ check("CATEGORY_FORUMS is in member list",    src.includes('"CATEGORY_FORUMS"'))
 check("SPAM is in exclude list",              src.includes('"SPAM"'));
 check("TRASH is in exclude list",             src.includes('"TRASH"'));
 check("DRAFT is in exclude list",             src.includes('"DRAFT"'));
-check("SENT is in exclude list",              src.includes('"SENT"'));
+check("SENT is NOT in VOLTSAFE_INBOX_EXCLUDE_LABELS (SENT+INBOX stays visible)",
+  !src.includes('"SENT"') ||
+  // SENT appears in the file for other reasons (is_sent field, label parsing)
+  // but must NOT be in the VOLTSAFE_INBOX_EXCLUDE_LABELS array
+  !src.includes('VOLTSAFE_INBOX_EXCLUDE_LABELS') ||
+  !/VOLTSAFE_INBOX_EXCLUDE_LABELS[\s\S]{0,300}"SENT"/.test(src)
+);
 
 // ── 3. DerivedEmailLabels type has all 8 fields ──────────────────────────────
 console.log("\n── 3. DerivedEmailLabels type — 8 fields ──");
@@ -57,8 +63,8 @@ check("parseLabelArray is exported",
   src.includes("export function parseLabelArray"));
 check("is_inbox derived from membership check",
   src.includes("hasInboxMember") && src.includes("is_inbox = hasInboxMember"));
-check("SENT excluded from is_inbox",
-  /is_inbox\s*=\s*hasInboxMember.*!is_sent/.test(src.replace(/\n/g," "))
+check("SENT NOT excluded from is_inbox (INBOX+SENT must be visible)",
+  !/is_inbox\s*=\s*hasInboxMember.*!is_sent/.test(src.replace(/\n/g," "))
 );
 check("SPAM excluded from is_inbox",
   /is_inbox\s*=\s*hasInboxMember.*!is_spam/.test(src.replace(/\n/g," "))

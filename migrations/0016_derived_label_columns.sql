@@ -19,7 +19,10 @@ ALTER TABLE email_messages
 -- VoltSafe Canonical Inbox Membership (INBOX_INCLUDES_CATEGORY_SKIP = true):
 --   (INBOX OR CATEGORY_PERSONAL OR CATEGORY_UPDATES OR CATEGORY_PROMOTIONS
 --    OR CATEGORY_SOCIAL OR CATEGORY_FORUMS)
---   AND NOT SPAM AND NOT TRASH AND NOT DRAFT AND NOT SENT
+--   AND NOT SPAM AND NOT TRASH AND NOT DRAFT
+--   NOTE: AND NOT SENT is intentionally absent — SENT+INBOX and SENT+CATEGORY_*
+--   messages must remain inbox-visible (they are self-sent or BCC'd threads).
+--   SENT-only messages are excluded naturally by lacking any inbox-member label.
 --
 -- smart_category mapping:
 --   CATEGORY_UPDATES    → 'updates'
@@ -46,7 +49,7 @@ UPDATE email_messages SET
     AND label_ids NOT LIKE '%"SPAM"%'
     AND label_ids NOT LIKE '%"TRASH"%'
     AND label_ids NOT LIKE '%"DRAFT"%'
-    AND label_ids NOT LIKE '%"SENT"%'
+    -- NOTE: AND NOT SENT intentionally absent — SENT+INBOX must remain visible
   ),
   smart_category = CASE
     WHEN label_ids ILIKE '%CATEGORY_UPDATES%'    THEN 'updates'

@@ -1,5 +1,5 @@
 /**
- * VoltSafe Canonical Inbox Policy — Phase 1
+ * VoltSafe Canonical Inbox Policy — Phase 1 (policy corrected in Phase 2)
  *
  * Single source of truth for inbox membership and label derivation.
  * Subsequent phases will wire count endpoints, list queries, and the
@@ -9,6 +9,13 @@
  *   - This module NEVER mutates label_ids.
  *   - All output is derived read-time projections only.
  *   - Do not add business logic here (routing, backfill, sync). Labels only.
+ *
+ * SENT policy (Phase 2 correction):
+ *   SENT-only messages are excluded from inbox because they carry no
+ *   inbox-member label (INBOX / CATEGORY_*).  But SENT+INBOX and
+ *   SENT+CATEGORY_* are inbox-visible — those are self-sent or BCC'd
+ *   messages that Gmail stamped with both labels.  We do NOT add
+ *   AND NOT SENT to the is_inbox predicate.
  */
 
 // ── Canonical policy flag ─────────────────────────────────────────────────────
@@ -29,11 +36,13 @@ export const VOLTSAFE_INBOX_CATEGORY_LABELS = [
   "CATEGORY_FORUMS",
 ] as const;
 
+// Labels that always exclude a message from inbox, regardless of category tags.
+// NOTE: SENT is intentionally absent. SENT-only messages are excluded naturally
+// (they lack any inbox-member label). SENT+INBOX and SENT+CATEGORY_* stay visible.
 export const VOLTSAFE_INBOX_EXCLUDE_LABELS = [
   "SPAM",
   "TRASH",
   "DRAFT",
-  "SENT",
 ] as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -48,6 +57,18 @@ export type DerivedEmailLabels = {
   is_draft:       boolean;
   is_sent:        boolean;
   smart_category: SmartCategory;
+};
+
+// ── Drizzle-compatible shape (camelCase field names matching the ORM schema) ──
+export type DrizzleEmailLabels = {
+  isInbox:       boolean;
+  isUnread:      boolean;
+  isStarred:     boolean;
+  isSpam:        boolean;
+  isTrash:       boolean;
+  isDraft:       boolean;
+  isSent:        boolean;
+  smartCategory: SmartCategory;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -79,6 +100,12 @@ export function parseLabelArray(labelIdsJson: string | null | undefined): string
  *
  * Does NOT modify label_ids. Returns derived values only.
  *
+ * is_inbox logic:
+ *   true  iff (INBOX OR CATEGORY_PERSONAL OR CATEGORY_UPDATES OR
+ *              CATEGORY_PROMOTIONS OR CATEGORY_SOCIAL OR CATEGORY_FORUMS)
+ *             AND NOT SPAM AND NOT TRASH AND NOT DRAFT
+ *   SENT is intentionally excluded from the deny-list — see module header.
+ *
  * smart_category mapping:
  *   CATEGORY_UPDATES    → "updates"
  *   CATEGORY_PROMOTIONS → "promotions"
@@ -86,14 +113,6 @@ export function parseLabelArray(labelIdsJson: string | null | undefined): string
  *   CATEGORY_FORUMS     → "forums"
  *   CATEGORY_PERSONAL   → "people"   (falls to else)
  *   (no CATEGORY_*)     → "people"   (falls to else)
- *
- * NOTE on SENT exclusion from is_inbox:
- *   Self-addressed emails arrive with both INBOX and SENT labels.
- *   The spec mandates AND NOT SENT for is_inbox. Those messages will have
- *   is_inbox=false in the derived column. Phase 3 (endpoint rewire) must
- *   decide whether to use is_inbox directly or add a self-sent carve-out.
- *   The existing buildQClauses("in:inbox") does NOT exclude SENT — that
- *   behavioural difference must be reconciled before Phase 3 goes live.
  */
 export function deriveEmailLabels(labelIdsJson: string | null | undefined): DerivedEmailLabels {
   const labels = parseLabelArray(labelIdsJson);
@@ -115,7 +134,8 @@ export function deriveEmailLabels(labelIdsJson: string | null | undefined): Deri
     has("CATEGORY_SOCIAL") ||
     has("CATEGORY_FORUMS");
 
-  const is_inbox = hasInboxMember && !is_spam && !is_trash && !is_draft && !is_sent;
+  // SENT is NOT in the deny-list — SENT+INBOX and SENT+CATEGORY_* are inbox-visible.
+  const is_inbox = hasInboxMember && !is_spam && !is_trash && !is_draft;
 
   let smart_category: SmartCategory = "people";
   if      (has("CATEGORY_UPDATES"))    smart_category = "updates";
@@ -124,6 +144,29 @@ export function deriveEmailLabels(labelIdsJson: string | null | undefined): Deri
   else if (has("CATEGORY_FORUMS"))     smart_category = "forums";
 
   return { is_inbox, is_unread, is_starred, is_spam, is_trash, is_draft, is_sent, smart_category };
+}
+
+/**
+ * Convert snake_case DerivedEmailLabels to the camelCase shape that Drizzle's
+ * .values() / .set() accept for the email_messages table.
+ *
+ * Use at every write path that touches label_ids so derived columns stay in sync.
+ *
+ * @example
+ *   await db.update(emailMessages)
+ *     .set({ labelIds: newJson, updatedAt: new Date(), ...toDrizzleLabels(deriveEmailLabels(newJson)) })
+ */
+export function toDrizzleLabels(d: DerivedEmailLabels): DrizzleEmailLabels {
+  return {
+    isInbox:       d.is_inbox,
+    isUnread:      d.is_unread,
+    isStarred:     d.is_starred,
+    isSpam:        d.is_spam,
+    isTrash:       d.is_trash,
+    isDraft:       d.is_draft,
+    isSent:        d.is_sent,
+    smartCategory: d.smart_category,
+  };
 }
 
 // ── SQL predicate builders (for Phase 3 use) ──────────────────────────────────

@@ -9,6 +9,7 @@ import { routeEmailToFolders } from "./email-folder-router";
 import { runAutoConfirmSweep, AUTO_CONFIRM_DRY_RUN } from "./auto-confirm";
 import { log } from "../index";
 import { applyTrustedSenderOverride } from "./gmail-incremental";
+import { deriveEmailLabels, toDrizzleLabels } from "./inbox-policy";
 
 // Multi-user note: this module is fully account-scoped. Each call to
 // syncEmailAccount() resolves credentials via the account's owner
@@ -129,9 +130,10 @@ export async function syncEmailAccount(
         // even during a full page-by-page sync.
         const override = await applyTrustedSenderOverride(emailDataRaw, gmailClient);
         const emailData = { ...emailDataRaw, ...override };
+        const derived = toDrizzleLabels(deriveEmailLabels(emailData.labelIds));
         const [inserted] = await db
           .insert(emailMessages)
-          .values({ ...emailData, ownerUserId, sourceAccountId: account.id })
+          .values({ ...emailData, ownerUserId, sourceAccountId: account.id, ...derived })
           .onConflictDoNothing()
           .returning();
 
@@ -176,16 +178,19 @@ export async function syncEmailAccount(
           const newLabels: string[] = meta.data.labelIds || [];
           const newLabelsJson = JSON.stringify(newLabels);
           if (newLabelsJson !== (row.labelIds || "")) {
+            const derived = toDrizzleLabels(deriveEmailLabels(newLabelsJson));
             await db.update(emailMessages)
-              .set({ labelIds: newLabelsJson, updatedAt: new Date() })
+              .set({ labelIds: newLabelsJson, updatedAt: new Date(), ...derived })
               .where(eq(emailMessages.id, row.id));
             labelsRefreshed++;
           }
         } catch (e: any) {
           // 404 → message deleted in Gmail; mark as TRASH locally so it disappears from UNREAD
           if (e?.code === 404 || /Not Found/i.test(e?.message || "")) {
+            const trashJson = JSON.stringify(["TRASH"]);
+            const derived = toDrizzleLabels(deriveEmailLabels(trashJson));
             await db.update(emailMessages)
-              .set({ labelIds: JSON.stringify(["TRASH"]), updatedAt: new Date() })
+              .set({ labelIds: trashJson, updatedAt: new Date(), ...derived })
               .where(eq(emailMessages.id, row.id));
             labelsRefreshed++;
           }

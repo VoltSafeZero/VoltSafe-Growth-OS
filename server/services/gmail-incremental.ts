@@ -11,33 +11,7 @@ import { runAssociationEngine } from "./association-engine";
 import { routeEmailToFolders } from "./email-folder-router";
 import { log } from "../index";
 import { syncEmailAccount } from "./gmail-sync";
-
-// ─── Inbox-visibility guard for category-tagged messages ─────────────────────
-// Gmail can deliver inbound messages directly to a CATEGORY_* tab (Promotions,
-// Updates, Social, Forums) WITHOUT the INBOX label when the user has configured
-// that category to "skip inbox."  In VoltSafe, categories are metadata tags —
-// not destination folders — so every inbound message must remain inbox-visible.
-//
-// The guard is applied:
-//   1. On new message insertions (messagesAdded) — unconditionally for inbound.
-//   2. On label-change events — only when the message is still UNREAD, to avoid
-//      re-adding INBOX to messages the user has explicitly archived (archiving
-//      removes both INBOX and UNREAD; an archived-but-unread pattern is rare and
-//      we accept the small false-positive rather than permanently hiding mail).
-//
-// Exported so tests can verify the function directly.
-
-const CATEGORY_LABEL_SET = ["CATEGORY_UPDATES", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"];
-const SKIP_INBOX_LABELS  = ["SENT", "DRAFT", "SPAM", "TRASH"];
-
-export function ensureInboxForCategoryLabels(labels: string[], requireUnread = false): string[] {
-  const upper = labels.map(l => l.toUpperCase());
-  if (upper.includes("INBOX")) return labels;                              // already fine
-  if (!upper.some(l => CATEGORY_LABEL_SET.includes(l))) return labels;    // no category tag
-  if (SKIP_INBOX_LABELS.some(l => upper.includes(l))) return labels;      // sent/draft/spam/trash
-  if (requireUnread && !upper.includes("UNREAD")) return labels;           // read+archived path
-  return [...labels, "INBOX"];
-}
+import { deriveEmailLabels, toDrizzleLabels } from "./inbox-policy";
 
 // ─── Trusted-sender override ─────────────────────────────────────────────────
 // Exported so gmail-sync.ts (full page sync) can reuse the exact same guard.
@@ -166,21 +140,15 @@ export async function upsertMessageById(
     const { attachments, ...emailDataRaw } = parsed;
     // Apply trusted-sender guard before writing any labels to the DB.
     const override = await applyTrustedSenderOverride(emailDataRaw, gmailClient);
-    const emailDataBase = { ...emailDataRaw, ...override };
-
-    // Inbox-visibility guard: new inbound messages that arrive with only CATEGORY_*
-    // labels (no INBOX) must still appear in the inbox.  Apply unconditionally on
-    // insertion — no requireUnread because the message is brand-new.
-    const insertLabels: string[] = (() => { try { return JSON.parse(emailDataBase.labelIds || "[]"); } catch { return []; } })();
-    const fixedInsertLabels = ensureInboxForCategoryLabels(insertLabels, false);
-    const emailData = fixedInsertLabels !== insertLabels
-      ? { ...emailDataBase, labelIds: JSON.stringify(fixedInsertLabels) }
-      : emailDataBase;
+    const emailData = { ...emailDataRaw, ...override };
 
     if (!existing) {
+      // Derive and persist label booleans alongside the raw label_ids so the
+      // derived columns are always populated for new rows from first insert.
+      const derived = toDrizzleLabels(deriveEmailLabels(emailData.labelIds));
       const [inserted] = await db
         .insert(emailMessages)
-        .values({ ...emailData, ownerUserId, sourceAccountId: accountId })
+        .values({ ...emailData, ownerUserId, sourceAccountId: accountId, ...derived })
         .onConflictDoNothing()
         .returning();
       if (inserted) {
@@ -192,24 +160,12 @@ export async function upsertMessageById(
       return { inserted: false, updatedLabels: false };
     }
 
-    // Update label_ids if they changed — apply inbox-visibility guard before writing.
-    // This is the critical path that was silently stripping INBOX from categorized
-    // messages: upsertMessageById receives a full message.get() response from Gmail,
-    // and Gmail does not include INBOX for messages it delivers to CATEGORY_* tabs.
-    // We apply the same ensureInboxForCategoryLabels guard used in the label-change
-    // path so the sync layer never overwrites local inbox visibility for unread mail.
-    // requireUnread=true: archived messages have UNREAD removed by Gmail at archive
-    // time, so we will not re-add INBOX to messages the user deliberately archived.
+    // Update label_ids if they changed — recompute derived columns atomically.
     if (parsed.labelIds && parsed.labelIds !== existing.labelIds) {
-      const parsedLabels: string[] = (() => {
-        try { return JSON.parse(parsed.labelIds); } catch { return []; }
-      })();
-      const guardedLabels = ensureInboxForCategoryLabels(parsedLabels, true /* requireUnread */);
-      const labelIdsToWrite = guardedLabels !== parsedLabels
-        ? JSON.stringify(guardedLabels)
-        : parsed.labelIds;
+      const labelIdsToWrite = parsed.labelIds;
+      const derived = toDrizzleLabels(deriveEmailLabels(labelIdsToWrite));
       await db.update(emailMessages)
-        .set({ labelIds: labelIdsToWrite, updatedAt: new Date() })
+        .set({ labelIds: labelIdsToWrite, updatedAt: new Date(), ...derived })
         .where(eq(emailMessages.id, existing.id));
       return { inserted: false, updatedLabels: true };
     }
@@ -218,8 +174,10 @@ export async function upsertMessageById(
     // 404 → message deleted server-side, mark TRASH locally
     if (e?.code === 404 || /Not Found/i.test(e?.message || "")) {
       if (existing) {
+        const trashJson = JSON.stringify(["TRASH"]);
+        const derived = toDrizzleLabels(deriveEmailLabels(trashJson));
         await db.update(emailMessages)
-          .set({ labelIds: JSON.stringify(["TRASH"]), updatedAt: new Date() })
+          .set({ labelIds: trashJson, updatedAt: new Date(), ...derived })
           .where(eq(emailMessages.id, existing.id));
         return { inserted: false, updatedLabels: true };
       }
@@ -299,8 +257,10 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
           const id = md?.message?.id;
           if (!id) continue;
           events++;
+          const trashJson = JSON.stringify(["TRASH"]);
+          const derived = toDrizzleLabels(deriveEmailLabels(trashJson));
           await db.update(emailMessages)
-            .set({ labelIds: JSON.stringify(["TRASH"]), updatedAt: new Date() })
+            .set({ labelIds: trashJson, updatedAt: new Date(), ...derived })
             .where(eq(emailMessages.gmailMessageId, id));
           deleted++;
         }
@@ -344,13 +304,6 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
               newLabels = meta.data.labelIds || [];
             }
 
-            // Inbox-visibility guard (label-change path): if Gmail removes INBOX
-            // from an inbound message that still has a CATEGORY_* label and is
-            // still UNREAD, restore INBOX locally.  Requiring UNREAD prevents
-            // re-adding INBOX to messages the user has already read and archived
-            // (archiving removes both INBOX and UNREAD in one operation).
-            newLabels = ensureInboxForCategoryLabels(newLabels, true /* requireUnread */);
-
             // Trusted-sender guard: if Gmail is adding SPAM to a message from
             // a sender the user has explicitly trusted (via "Not Spam"), override
             // the labels locally and instruct Gmail to remove SPAM + add INBOX.
@@ -388,15 +341,18 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
             }
 
             const newLabelsJson = JSON.stringify(newLabels);
+            const derived = toDrizzleLabels(deriveEmailLabels(newLabelsJson));
             const upd = await db.update(emailMessages)
-              .set({ labelIds: newLabelsJson, updatedAt: new Date() })
+              .set({ labelIds: newLabelsJson, updatedAt: new Date(), ...derived })
               .where(eq(emailMessages.gmailMessageId, id))
               .returning({ id: emailMessages.id });
             if (upd.length) labelsChanged++;
           } catch (e: any) {
             if (e?.code === 404) {
+              const trashJson = JSON.stringify(["TRASH"]);
+              const derived = toDrizzleLabels(deriveEmailLabels(trashJson));
               await db.update(emailMessages)
-                .set({ labelIds: JSON.stringify(["TRASH"]), updatedAt: new Date() })
+                .set({ labelIds: trashJson, updatedAt: new Date(), ...derived })
                 .where(eq(emailMessages.gmailMessageId, id));
               labelsChanged++;
             }
