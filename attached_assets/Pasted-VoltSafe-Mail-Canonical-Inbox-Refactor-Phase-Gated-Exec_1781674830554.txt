@@ -1,0 +1,370 @@
+VoltSafe Mail — Canonical Inbox Refactor (Phase-Gated Execution Spec)
+
+Mission
+
+We have spent multiple days fixing symptoms:
+
+* Inbox counts don’t match visible messages
+* Unread count says 223 but only 13 load
+* “No messages found” while unread count > 0
+* Smart Inbox counts disagree with badges
+* Priority / Unread collisions
+* Missing INBOX drift
+* Repeated backfills
+
+The diagnosis is that inbox truth is currently computed in multiple places using multiple definitions.
+
+This refactor is intended to create:
+
+* One inbox definition
+* One canonical query layer
+* One source of truth for counts and rows
+* Server-side filtering before pagination
+* Thin frontend renderer
+
+IMPORTANT:
+
+This is NOT permission to rewrite VoltSafe Mail.
+
+Do not touch:
+
+* Gmail sync correctness
+* Reply / Reply-all
+* Forwarding
+* Tracking
+* Signatures
+* CTA injection
+* CID rendering
+* CRM linking
+* Thread rendering
+* Account impersonation
+* Permissions
+* Existing email-body functionality
+
+The goal is to replace inbox truth computation, not rebuild the mail system.
+
+⸻
+
+CRITICAL VOLTSAFE PRODUCT DECISION
+
+Claude’s draft defaulted to Gmail-only Inbox membership.
+
+That is NOT the VoltSafe Mail product decision.
+
+VoltSafe Mail is a CRM / command center, not a Gmail clone.
+
+We intentionally want category mail visible in VoltSafe Inbox.
+
+Therefore:
+
+Canonical VoltSafe Inbox Membership
+
+A message belongs to VoltSafe Inbox if:
+
+* INBOX
+    OR
+* CATEGORY_PERSONAL
+    OR
+* CATEGORY_UPDATES
+    OR
+* CATEGORY_PROMOTIONS
+    OR
+* CATEGORY_SOCIAL
+    OR
+* CATEGORY_FORUMS
+
+AND NOT:
+
+* SPAM
+* TRASH
+* DRAFT
+* SENT
+
+This policy must exist in exactly one place.
+
+Do NOT rewrite Gmail labels.
+
+Do NOT backfill INBOX labels.
+
+Do NOT mutate Gmail truth.
+
+Gmail label_ids remain authoritative.
+
+VoltSafe Inbox membership is a read-time product decision.
+
+Set:
+
+INBOX_INCLUDES_CATEGORY_SKIP = true
+
+The canonical predicate becomes:
+
+VoltSafe Inbox =
+(INBOX OR CATEGORY_*)
+AND NOT spam/trash/draft/sent
+
+All counts, rows, categories, Smart Inbox groups, unread filtering, and pagination must derive from that one predicate.
+
+⸻
+
+EXECUTION RULES
+
+You MUST follow phases.
+
+You MUST stop at every gate.
+
+You MUST NOT batch phases.
+
+You MUST NOT modify code before completing Phase 0.
+
+If Phase 0 reveals surprises, stop and report before touching code.
+
+If any phase touches reply/forward/body/signature/tracking/CID functionality:
+
+STOP and ask.
+
+⸻
+
+PHASE 0 — AUDIT ONLY
+
+NO CODE CHANGES.
+
+Inventory:
+
+1. Every inbox count source
+2. Every client-side filter/group/count derivation
+3. Every label_ids mutation
+4. email_messages schema
+5. label_ids storage formats
+6. category distribution
+7. all inbox membership definitions
+8. all list query definitions
+9. all count query definitions
+
+Produce a report.
+
+STOP.
+
+WAIT.
+
+No code changes allowed before approval.
+
+⸻
+
+PHASE 1 — DERIVED LABEL COLUMNS
+
+Follow Claude’s Phase 1 exactly except:
+
+Derived columns are projections only.
+
+Never modify label_ids.
+
+Add:
+
+* is_inbox
+* is_unread
+* is_starred
+* is_spam
+* is_trash
+* is_draft
+* is_sent
+* smart_category
+
+Populate via a single derivation function.
+
+Backfill derived columns only.
+
+STOP.
+
+REPORT.
+
+WAIT.
+
+⸻
+
+PHASE 2 — REMOVE LABEL MUTATION
+
+Delete:
+
+ensureInboxForCategoryLabels
+
+Remove all automatic INBOX backfills.
+
+Remove all logic that rewrites Gmail category mail into Inbox mail.
+
+The Gmail label set must remain Gmail truth.
+
+Derived columns update.
+
+Label mutations do not.
+
+STOP.
+
+REPORT.
+
+WAIT.
+
+⸻
+
+PHASE 3 — CANONICAL QUERY LAYER
+
+Create:
+
+server/services/inbox-query.ts
+
+One canonical predicate.
+
+One canonical thread query builder.
+
+Everything uses it.
+
+IMPORTANT:
+
+Use VoltSafe Inbox policy:
+
+(INBOX OR CATEGORY_*)
+AND NOT spam/trash/draft/sent
+
+NOT Gmail-only INBOX.
+
+Filtering occurs before pagination.
+
+Counts and rows come from the same query.
+
+STOP.
+
+REPORT.
+
+WAIT.
+
+⸻
+
+PHASE 4 — MOVE COUNT ENDPOINTS
+
+Move:
+
+* accounts/health
+* category-counts
+* inbox-debug
+
+onto the canonical query layer.
+
+No inline inbox SQL allowed.
+
+No duplicate inbox definitions allowed.
+
+STOP.
+
+REPORT.
+
+WAIT.
+
+⸻
+
+PHASE 5 — MOVE LIST ENDPOINTS
+
+List rows must come from the same canonical query layer.
+
+Filtering:
+
+* unread
+* category
+* account
+
+must occur server-side before pagination.
+
+No recency-window filtering in the browser.
+
+No loading 10,000 messages to reconcile counts.
+
+No smart unread loader hacks.
+
+Pagination must operate inside the filtered result set.
+
+STOP.
+
+REPORT.
+
+WAIT.
+
+⸻
+
+PHASE 6 — THIN CLIENT
+
+Delete client-side inbox truth.
+
+Client should not determine:
+
+* inbox membership
+* unread membership
+* category membership
+* Smart Inbox grouping
+* counts
+
+Client renders server output.
+
+Keep UI only.
+
+STOP.
+
+REPORT.
+
+WAIT.
+
+⸻
+
+PHASE 7 — CONTRACT TESTS
+
+Add tests for:
+
+1. Single inbox predicate
+2. Counts and rows derived from same query
+3. Category totals reconcile
+4. Rows match counts through pagination
+5. No label mutation
+6. Derived label correctness
+7. Existing mail functionality remains intact
+
+Run full verification.
+
+⸻
+
+HARD REQUIREMENTS
+
+Do not touch:
+
+* reply
+* reply-all
+* forward
+* signatures
+* CTA images
+* CID rendering
+* tracking
+* CRM-linked emails
+* Open in VS Mail functionality
+* permissions
+* impersonation
+* email-body rendering
+
+If any proposed change intersects those systems:
+
+STOP and ask.
+
+⸻
+
+SUCCESS CRITERIA
+
+A user with:
+
+* 223 unread inbox threads
+
+must see:
+
+* Inbox badge = 223
+* Unread = 223
+* Category totals reconcile
+* Unread list actually loads unread threads
+* Load older continues loading unread threads
+* No “all caught up” while unread remains
+* No “No messages found” while unread remains
+
+And all of that must happen because counts and rows come from the same canonical query layer — not because of reconciliation hacks, backfills, auto-loaders, or client-side filtering.
