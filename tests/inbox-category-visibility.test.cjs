@@ -144,47 +144,47 @@ assert(
   "CATEGORY_LABEL_MAP maps PROMOTIONS → CATEGORY_PROMOTIONS"
 );
 
-// ── (e) routes.ts mailbox stats subqueries include CATEGORY_* labels ───────
+// ── (e) routes.ts mailbox stats — Phase 4: derived columns ────────────────
 
 console.log("\n(e) routes.ts mailbox stats — CATEGORY_* in unread_count and inbox_count");
 
-// Find the account status endpoint section
-const statusSectionIdx = routesSrc.indexOf("unread_count,");
-assert(statusSectionIdx !== -1, "routes.ts has unread_count subquery");
+// Phase 4: accounts/health now uses is_inbox=true and is_unread=true (derived columns).
+const healthAccountsIdx = routesSrc.indexOf('"/api/gmail/accounts/health"');
+assert(healthAccountsIdx !== -1, "routes.ts has unread_count subquery");
 
-const statusSection = routesSrc.slice(statusSectionIdx - 500, statusSectionIdx + 1500);
+const healthAccountsBlock = healthAccountsIdx !== -1
+  ? routesSrc.slice(healthAccountsIdx, healthAccountsIdx + 2000) : "";
 
 assert(
-  statusSection.includes("CATEGORY_UPDATES%"),
-  "unread_count/inbox_count section includes CATEGORY_UPDATES"
+  healthAccountsBlock.includes("is_inbox = true") &&
+  healthAccountsBlock.includes("is_unread = true"),
+  "unread_count/inbox_count section uses is_inbox/is_unread derived columns (Phase 4)"
 );
 assert(
-  statusSection.includes("CATEGORY_PROMOTIONS%"),
-  "unread_count/inbox_count section includes CATEGORY_PROMOTIONS"
+  !healthAccountsBlock.includes("label_ids LIKE '%CATEGORY_UPDATES%'"),
+  "unread_count/inbox_count no longer uses CATEGORY_UPDATES ILIKE (Phase 4)"
 );
 assert(
-  statusSection.includes("CATEGORY_SOCIAL%"),
-  "unread_count/inbox_count section includes CATEGORY_SOCIAL"
+  !healthAccountsBlock.includes("label_ids LIKE '%CATEGORY_PROMOTIONS%'"),
+  "unread_count/inbox_count no longer uses CATEGORY_PROMOTIONS ILIKE (Phase 4)"
 );
 assert(
-  statusSection.includes("CATEGORY_FORUMS%"),
-  "unread_count/inbox_count section includes CATEGORY_FORUMS"
+  !healthAccountsBlock.includes("label_ids LIKE '%CATEGORY_SOCIAL%'"),
+  "unread_count/inbox_count no longer uses CATEGORY_SOCIAL ILIKE (Phase 4)"
 );
 
-// Badge counter must exclude junk labels but NOT SENT (INBOX+SENT messages must show)
+// Phase 4: inbox_count uses is_inbox=true which implicitly excludes TRASH/SPAM/DRAFT.
 const inboxCountIdx = routesSrc.indexOf("inbox_count,");
 assert(inboxCountIdx !== -1, "routes.ts has inbox_count subquery");
 const inboxCountSection = routesSrc.slice(inboxCountIdx - 500, inboxCountIdx + 600);
-// Fix: SENT exclusion was removed — self-CC/self-forwarded emails carry INBOX+SENT
-// and must still appear in the badge count.
 assert(
   !inboxCountSection.includes("NOT LIKE '%\"SENT\"%'") &&
   !inboxCountSection.includes("NOT LIKE '%SENT%'"),
   "inbox_count subquery does NOT exclude SENT (INBOX+SENT messages must count)"
 );
 assert(
-  inboxCountSection.includes('"TRASH"') || inboxCountSection.includes("TRASH"),
-  "inbox_count subquery excludes TRASH"
+  inboxCountSection.includes("is_inbox = true"),
+  "inbox_count subquery uses is_inbox=true (TRASH excluded implicitly — Phase 4)"
 );
 
 // ── (f) Frontend MessageSummary type has fromName/fromEmail ───────────────

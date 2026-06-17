@@ -6,6 +6,7 @@ import { parseGmailMessage } from "./email-parser";
 import { insertAttachmentsForMessage } from "./email-attachments";
 import { runAssociationEngine } from "./association-engine";
 import { routeEmailToFolders } from "./email-folder-router";
+import { deriveEmailLabels, toDrizzleLabels, parseLabelArray } from "./inbox-policy";
 // Local logger. Avoids importing from ../index (which boots the entire express
 // server) so this service can be used from one-shot tsx scripts as well as
 // from within the running app. Output format mirrors the express log() helper
@@ -175,9 +176,11 @@ export async function runBackfillJob(opts: BackfillOptions): Promise<void> {
           });
           const parsed = parseGmailMessage(msgRes.data as any, myEmail);
           const { attachments, ...emailData } = parsed;
+          // Phase 2 wiring: populate all 8 derived label columns at insert time.
+          const derivedLabels = toDrizzleLabels(deriveEmailLabels(parseLabelArray(emailData.labelIds)));
           const [inserted] = await db
             .insert(emailMessages)
-            .values({ ...emailData, ownerUserId: userId, sourceAccountId: accountId })
+            .values({ ...emailData, ...derivedLabels, ownerUserId: userId, sourceAccountId: accountId })
             .onConflictDoNothing()
             .returning();
 

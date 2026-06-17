@@ -106,12 +106,15 @@ assert(
 
 console.log("\n── A2. Category-counts uses same definitions as reconciliation ──");
 
-// Both the category-counts endpoint and the inbox-debug endpoint must use the
-// same ILIKE patterns so their numbers stay in sync.
+// Phase 4: category-counts and inbox-debug both use derived columns (smart_category,
+// is_inbox, is_unread) instead of label_ids ILIKE patterns. Numbers stay in sync
+// because both endpoints use the identical predicates.
 assert(
-  routesSrc.includes("CATEGORY_UPDATES%") && routesSrc.includes("CATEGORY_PROMOTIONS%") &&
-  routesSrc.includes("CATEGORY_SOCIAL%")  && routesSrc.includes("CATEGORY_FORUMS%"),
-  "routes.ts contains all four CATEGORY_* ILIKE patterns"
+  routesSrc.includes("smart_category = 'updates'") &&
+  routesSrc.includes("smart_category = 'promotions'") &&
+  routesSrc.includes("smart_category = 'social'") &&
+  routesSrc.includes("smart_category = 'forums'"),
+  "routes.ts uses smart_category derived column for all four categories (Phase 4)"
 );
 
 // Canonical unit check: category-counts must use COUNT(DISTINCT ...) not COUNT(*)
@@ -136,32 +139,27 @@ assert(
   "accounts/health endpoint uses count(distinct) for unread_count badge"
 );
 
-// people_unread definition: INBOX + UNREAD + NOT CATEGORY_*
-// The SQL alias `AS people_unread` appears AFTER the NOT ILIKE clauses, so look
-// at the window [pos-700, pos+200] to capture both the clause and the alias.
+// Phase 4: people_unread definition uses smart_category = 'people' (includes CATEGORY_PERSONAL).
+// Old definition was INBOX + UNREAD + NOT CATEGORY_* (excluded CATEGORY_PERSONAL).
 const peopleDefInDebug = bigBlock.indexOf("AS people_unread");
 const peopleSnippet = peopleDefInDebug !== -1
-  ? bigBlock.slice(Math.max(0, peopleDefInDebug - 700), peopleDefInDebug + 200)
+  ? bigBlock.slice(Math.max(0, peopleDefInDebug - 200), peopleDefInDebug + 50)
   : "";
 assert(
-  peopleSnippet.includes("NOT ILIKE '%CATEGORY_UPDATES") ||
-  peopleSnippet.includes("NOT ILIKE '%CATEGORY_UPDATES%'"),
-  "people_unread SQL definition excludes CATEGORY_UPDATES"
+  peopleSnippet.includes("smart_category = 'people'"),
+  "people_unread SQL uses smart_category = 'people' (Phase 4 — includes CATEGORY_PERSONAL)"
 );
 assert(
-  peopleSnippet.includes("NOT ILIKE '%CATEGORY_PROMOTIONS") ||
-  peopleSnippet.includes("NOT ILIKE '%CATEGORY_PROMOTIONS%'"),
-  "people_unread SQL definition excludes CATEGORY_PROMOTIONS"
+  peopleSnippet.includes("is_inbox = true"),
+  "people_unread SQL uses is_inbox = true (Phase 4 — derived column)"
 );
 assert(
-  peopleSnippet.includes("NOT ILIKE '%CATEGORY_SOCIAL") ||
-  peopleSnippet.includes("NOT ILIKE '%CATEGORY_SOCIAL%'"),
-  "people_unread SQL definition excludes CATEGORY_SOCIAL"
+  peopleSnippet.includes("is_unread = true"),
+  "people_unread SQL uses is_unread = true (Phase 4 — derived column)"
 );
 assert(
-  peopleSnippet.includes("NOT ILIKE '%CATEGORY_FORUMS") ||
-  peopleSnippet.includes("NOT ILIKE '%CATEGORY_FORUMS%'"),
-  "people_unread SQL definition excludes CATEGORY_FORUMS"
+  !peopleSnippet.includes("NOT ILIKE '%CATEGORY_UPDATES"),
+  "people_unread no longer uses NOT ILIKE CATEGORY_UPDATES exclusion (Phase 4)"
 );
 
 console.log("\n── A3. Priority section labelled as non-additive overlay ──");

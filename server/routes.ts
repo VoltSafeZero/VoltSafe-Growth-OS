@@ -16728,29 +16728,18 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           a.last_incremental_sync_at,
           a.incremental_event_count,
           a.sync_error_message,
+          -- Phase 4: derived columns replace label_ids ILIKE patterns.
+          -- unread_count = distinct INBOX unread THREADS (badge unit).
           (SELECT count(distinct m.gmail_thread_id)::int FROM email_messages m
              WHERE m.source_account_id = a.id
-               AND (m.label_ids LIKE '%"INBOX"%'
-                 OR m.label_ids LIKE '%CATEGORY_UPDATES%'
-                 OR m.label_ids LIKE '%CATEGORY_PROMOTIONS%'
-                 OR m.label_ids LIKE '%CATEGORY_SOCIAL%'
-                 OR m.label_ids LIKE '%CATEGORY_FORUMS%')
-               AND m.label_ids NOT LIKE '%"DRAFT"%'
-               AND m.label_ids NOT LIKE '%"SPAM"%'
-               AND m.label_ids NOT LIKE '%"TRASH"%'
-               AND m.label_ids LIKE '%"UNREAD"%') AS unread_count,
+               AND m.is_inbox = true
+               AND m.is_unread = true) AS unread_count,
           (SELECT count(*)::int FROM email_messages m
              WHERE m.source_account_id = a.id) AS message_count,
+          -- inbox_count = raw inbox messages (displayed as message count, not badge).
           (SELECT count(*)::int FROM email_messages m
              WHERE m.source_account_id = a.id
-               AND (m.label_ids LIKE '%"INBOX"%'
-                 OR m.label_ids LIKE '%CATEGORY_UPDATES%'
-                 OR m.label_ids LIKE '%CATEGORY_PROMOTIONS%'
-                 OR m.label_ids LIKE '%CATEGORY_SOCIAL%'
-                 OR m.label_ids LIKE '%CATEGORY_FORUMS%')
-               AND m.label_ids NOT LIKE '%"DRAFT"%'
-               AND m.label_ids NOT LIKE '%"SPAM"%'
-               AND m.label_ids NOT LIKE '%"TRASH"%') AS inbox_count,
+               AND m.is_inbox = true) AS inbox_count,
           (SELECT max(sent_at) FROM email_messages m
              WHERE m.source_account_id = a.id) AS last_message_at
         FROM email_accounts a
@@ -16820,31 +16809,24 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const validIds = accountIds.filter(Boolean);
       if (validIds.length === 0) return res.json(empty);
 
+      // Phase 4: derived columns replace label_ids ILIKE.
+      // Canonical unit: unread THREADS (COUNT DISTINCT gmail_thread_id).
+      // people includes CATEGORY_PERSONAL + uncategorized INBOX (smart_category='people').
+      // is_inbox=true already excludes TRASH/SPAM/DRAFT — no outer filter needed.
       const rows = await db.execute(sql.raw(`
         SELECT
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%'
-                             AND label_ids LIKE '%"INBOX"%'
-                             AND label_ids LIKE '%"UNREAD"%')::int    AS updates_unread,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%'
-                             AND label_ids LIKE '%"INBOX"%'
-                             AND label_ids LIKE '%"UNREAD"%')::int    AS promotions_unread,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%'
-                             AND label_ids LIKE '%"INBOX"%'
-                             AND label_ids LIKE '%"UNREAD"%')::int    AS social_unread,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'
-                             AND label_ids LIKE '%"INBOX"%'
-                             AND label_ids LIKE '%"UNREAD"%')::int    AS forums_unread,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids LIKE '%"INBOX"%'
-                             AND label_ids LIKE '%"UNREAD"%'
-                             AND label_ids NOT ILIKE '%CATEGORY_UPDATES%'
-                             AND label_ids NOT ILIKE '%CATEGORY_PROMOTIONS%'
-                             AND label_ids NOT ILIKE '%CATEGORY_SOCIAL%'
-                             AND label_ids NOT ILIKE '%CATEGORY_FORUMS%')::int AS people_unread
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true
+                             AND smart_category = 'updates')::int    AS updates_unread,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true
+                             AND smart_category = 'promotions')::int AS promotions_unread,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true
+                             AND smart_category = 'social')::int     AS social_unread,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true
+                             AND smart_category = 'forums')::int     AS forums_unread,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true
+                             AND smart_category = 'people')::int     AS people_unread
         FROM email_messages
         WHERE source_account_id IN (${validIds.join(",")})
-          AND label_ids NOT ILIKE '%"TRASH"%'
-          AND label_ids NOT ILIKE '%"SPAM"%'
-          AND label_ids NOT ILIKE '%"DRAFT"%'
       `));
       const r = (((rows as any).rows ?? rows)[0] ?? {}) as Record<string, number>;
       res.json({
@@ -16882,58 +16864,39 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         ? `source_account_id IN (${validIds.join(",")}) AND`
         : "";
 
+      // Phase 4: derived columns replace all label_ids ILIKE patterns.
+      // smart_category is mutually exclusive (single value per message) so bucket sums
+      // are exact and no multi-category drift is possible.
+      // missing_inbox_unread repurposed: detects unread messages where is_inbox IS NULL
+      // (backfill gap — should always be 0 after Phase 1 backfill).
       const rows = await db.execute(sql.raw(`
         SELECT
-          COUNT(*) FILTER (WHERE label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int               AS inbox_unread,
-          COUNT(*) FILTER (WHERE label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%'
-                             AND label_ids NOT ILIKE '%CATEGORY_UPDATES%'
-                             AND label_ids NOT ILIKE '%CATEGORY_PROMOTIONS%'
-                             AND label_ids NOT ILIKE '%CATEGORY_SOCIAL%'
-                             AND label_ids NOT ILIKE '%CATEGORY_FORUMS%')::int                                  AS people_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%'    AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS updates_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%' AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS promotions_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%'     AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS social_unread,
-          COUNT(*) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'     AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS forums_unread,
-          COUNT(*) FILTER (WHERE label_ids LIKE '%"STARRED"%' AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int            AS priority_unread,
-          COUNT(*) FILTER (WHERE label_ids LIKE '%"UNREAD"%'
-                             AND label_ids NOT LIKE '%"INBOX"%'
-                             AND label_ids NOT LIKE '%"SENT"%'
-                             AND label_ids NOT LIKE '%"DRAFT"%'
-                             AND label_ids NOT ILIKE '%SPAM%'
-                             AND label_ids NOT ILIKE '%TRASH%'
-                             AND (label_ids ILIKE '%CATEGORY_UPDATES%'
-                               OR label_ids ILIKE '%CATEGORY_PROMOTIONS%'
-                               OR label_ids ILIKE '%CATEGORY_SOCIAL%'
-                               OR label_ids ILIKE '%CATEGORY_FORUMS%'))::int                                   AS missing_inbox_unread,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS inbox_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%'
-                             AND label_ids NOT ILIKE '%CATEGORY_UPDATES%'
-                             AND label_ids NOT ILIKE '%CATEGORY_PROMOTIONS%'
-                             AND label_ids NOT ILIKE '%CATEGORY_SOCIAL%'
-                             AND label_ids NOT ILIKE '%CATEGORY_FORUMS%')::int                                  AS people_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_UPDATES%'    AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS updates_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_PROMOTIONS%' AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS promotions_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_SOCIAL%'     AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS social_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE label_ids ILIKE '%CATEGORY_FORUMS%'     AND label_ids LIKE '%"INBOX"%' AND label_ids LIKE '%"UNREAD"%')::int AS forums_unread_threads
+          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true)::int                          AS inbox_unread,
+          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'people')::int      AS people_unread,
+          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'updates')::int     AS updates_unread,
+          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'promotions')::int  AS promotions_unread,
+          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'social')::int      AS social_unread,
+          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'forums')::int      AS forums_unread,
+          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND is_starred = true)::int              AS priority_unread,
+          COUNT(*) FILTER (WHERE is_unread = true AND is_inbox IS NULL)::int                                   AS missing_inbox_unread,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true)::int             AS inbox_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'people')::int     AS people_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'updates')::int    AS updates_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'promotions')::int AS promotions_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'social')::int     AS social_unread_threads,
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'forums')::int     AS forums_unread_threads
         FROM email_messages
-        WHERE ${scopeClause}
-          label_ids NOT ILIKE '%TRASH%'
-          AND label_ids NOT ILIKE '%SPAM%'
-          AND label_ids NOT ILIKE '%DRAFT%'
+        WHERE ${scopeClause} (is_inbox = true OR is_unread = true)
       `));
 
+      // Drift check: inbox-visible messages with no smart_category (backfill gap indicator).
+      // With derived columns, smart_category is always set for inbox rows — this should be 0.
       const driftRows = await db.execute(sql.raw(`
         SELECT COUNT(*)::int AS multi_category
         FROM email_messages
         WHERE ${scopeClause}
-          label_ids NOT ILIKE '%TRASH%'
-          AND label_ids NOT ILIKE '%SPAM%'
-          AND (
-            (CASE WHEN label_ids ILIKE '%CATEGORY_UPDATES%'    THEN 1 ELSE 0 END) +
-            (CASE WHEN label_ids ILIKE '%CATEGORY_PROMOTIONS%' THEN 1 ELSE 0 END) +
-            (CASE WHEN label_ids ILIKE '%CATEGORY_SOCIAL%'     THEN 1 ELSE 0 END) +
-            (CASE WHEN label_ids ILIKE '%CATEGORY_FORUMS%'     THEN 1 ELSE 0 END)
-          ) > 1
+          is_inbox = true
+          AND smart_category IS NULL
       `));
 
       const r  = (((rows      as any).rows ?? rows     )[0] ?? {}) as Record<string, number>;
