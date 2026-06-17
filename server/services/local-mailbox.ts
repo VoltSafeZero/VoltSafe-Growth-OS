@@ -266,9 +266,15 @@ function buildQClauses(q: string): { where: string[]; freeText: string; hasLabel
     } else if (label === "CATEGORY_FORUMS") {
       where.push(`is_inbox = true`);
       where.push(`smart_category = 'forums'`);
+    } else if (rawLabel === "SPAM") {
+      // Phase 5: use derived column — avoids label_ids ILIKE for system folders.
+      where.push(`is_spam = true`);
+    } else if (rawLabel === "TRASH") {
+      where.push(`is_trash = true`);
+    } else if (rawLabel === "DRAFT") {
+      where.push(`is_draft = true`);
     } else {
-      // All other in: labels (SENT, TRASH, SPAM, DRAFT, custom labels, …) still use
-      // label_ids matching — they are outside Phase 3 scope.
+      // All other in: labels (SENT, custom labels, …) still use label_ids matching.
       where.push(`(label_ids ILIKE '%"${safe(label)}"%' OR label_ids ILIKE '%${safe(label)}%')`);
     }
   }
