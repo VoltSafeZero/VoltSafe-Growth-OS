@@ -256,8 +256,11 @@ app.use((req, res, next) => {
     // Derived label guard: fills is_inbox/is_unread/smart_category for any rows
     // where the backfill DML from migration 0016 did not run (e.g. production
     // deployments where Drizzle schema-diff applies DDL but skips DML).
-    // Must run AFTER migrateEmailSchema (which creates email_messages).
-    await migrateDerivedLabelColumns();
+    // Fire-and-forget: routes register immediately; backfill runs in background.
+    // The guard is idempotent and safe to run concurrently with route serving.
+    migrateDerivedLabelColumns().catch(err =>
+      console.error("[startup] derived label backfill background error:", err)
+    );
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

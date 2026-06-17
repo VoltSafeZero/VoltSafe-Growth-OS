@@ -148,10 +148,10 @@ async function main() {
     !seedTs.includes("label_ids =") || seedTs.includes("label_ids LIKE") || seedTs.includes("label_ids ILIKE"));
   check("migrateDerivedLabelColumns creates partial indexes",
     seedTs.includes("idx_email_is_inbox") && seedTs.includes("idx_email_is_inbox_unread"));
-  check("migrateDerivedLabelColumns imported and awaited in server/index.ts",
-    indexTs.includes("migrateDerivedLabelColumns") && indexTs.includes("await migrateDerivedLabelColumns()"));
+  check("migrateDerivedLabelColumns imported and called in server/index.ts (fire-and-forget)",
+    indexTs.includes("migrateDerivedLabelColumns") && indexTs.includes("migrateDerivedLabelColumns()"));
   check("startup guard placed after migrateEmailSchema (which creates the table)",
-    indexTs.indexOf("await migrateDerivedLabelColumns()") > indexTs.indexOf("await migrateEmailSchema()"));
+    indexTs.indexOf("migrateDerivedLabelColumns()") > indexTs.indexOf("await migrateEmailSchema()"));
   check("backfill script exists at scripts/production-derived-label-backfill.ts",
     fs.existsSync(path.join(__dirname, "../scripts/production-derived-label-backfill.ts")));
   check("backfill script uses cursor-based batch (id > cursorId)",
