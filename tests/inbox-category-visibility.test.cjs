@@ -233,6 +233,66 @@ assert(
   "SQL SELECT in listLocalMessages includes from_email and from_name columns"
 );
 
+// ── (j) People tab inboxCategoryQ fix — sends "in:people" not "in:inbox in:people" ──
+//
+// Root cause (now fixed): inboxCategoryQ for People was "in:inbox in:people".
+// buildQClauses uses a non-global regex and consumed "in:inbox" first, leaving
+// "in:people" as free-text FTS — only messages containing the word "people" matched.
+// Fix: return "in:people" only; buildQClauses("in:people") already adds is_inbox=true.
+
+console.log("\n(j) People tab — inboxCategoryQ sends in:people (not in:inbox in:people)");
+
+// The People branch must return exactly "in:people" with no "in:inbox" prefix.
+assert(
+  inboxPageSrc.includes('inboxCategory === "people"') &&
+  inboxPageSrc.includes('return "in:people"'),
+  'inboxCategoryQ returns "in:people" for People tab'
+);
+assert(
+  !inboxPageSrc.includes('"in:inbox in:people"'),
+  'inboxCategoryQ does NOT return "in:inbox in:people" (the FTS-leaking form)'
+);
+
+// buildQClauses must have the PEOPLE branch that adds is_inbox=true + smart_category='people'.
+// This confirms "in:people" is handled as a label filter, not free-text.
+const peopleBranchIdx = localMailboxSrc.indexOf('rawLabel === "PEOPLE"');
+assert(peopleBranchIdx !== -1, 'buildQClauses has if (rawLabel === "PEOPLE") branch');
+const peopleBranchSnippet = localMailboxSrc.slice(peopleBranchIdx, peopleBranchIdx + 300);
+assert(
+  peopleBranchSnippet.includes("is_inbox = true"),
+  'buildQClauses PEOPLE branch pushes is_inbox = true'
+);
+assert(
+  peopleBranchSnippet.includes("smart_category = 'people'"),
+  "buildQClauses PEOPLE branch pushes smart_category = 'people'"
+);
+
+// Confirm that the freeText path for "in:people" is NOT triggered:
+// When "in:people" is the q string, the regex should match "in:people" as rawLabel=PEOPLE,
+// not fall through. Verify by confirming the regex pattern /\bin:(\w+)/i would match "people"
+// from "in:people" — i.e. the PEOPLE branch is reachable from "in:people" alone.
+// (Structural: the PEOPLE branch must come before any else/fallthrough clause.)
+const inMatchIdx = localMailboxSrc.indexOf('const inMatch = rest.match(/\\bin:(\\w+)/i)');
+assert(inMatchIdx !== -1, 'buildQClauses uses /\\bin:(\\w+)/i regex (single in: per call)');
+assert(
+  peopleBranchIdx > inMatchIdx,
+  'PEOPLE branch is inside the inMatch block (processed as label, not freetext)'
+);
+
+// Other categories unchanged: updates/promotions/social/forums use "in:<cat>" (no "in:inbox" prefix)
+assert(
+  inboxPageSrc.includes('return "in:updates"') &&
+  inboxPageSrc.includes('return "in:promotions"') &&
+  inboxPageSrc.includes('return "in:social"') &&
+  inboxPageSrc.includes('return "in:forums"'),
+  'updates/promotions/social/forums inboxCategoryQ unchanged (single in: token each)'
+);
+assert(
+  !inboxPageSrc.includes('"in:inbox in:updates"') &&
+  !inboxPageSrc.includes('"in:inbox in:promotions"'),
+  'no other category has the in:inbox prefix bug'
+);
+
 // ── Summary ───────────────────────────────────────────────────────────────
 
 console.log(`\n${"─".repeat(55)}`);

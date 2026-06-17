@@ -5823,7 +5823,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // "in:<category>" syntax which buildQClauses already maps to CATEGORY_* labels.
   const inboxCategoryQ = useMemo(() => {
     if (searchQuery) return searchQuery;
-    if (inboxCategory === "people")     return "in:inbox in:people";
+    if (inboxCategory === "people")     return "in:people";
     if (inboxCategory === "updates")    return "in:updates";
     if (inboxCategory === "promotions") return "in:promotions";
     if (inboxCategory === "social")     return "in:social";
