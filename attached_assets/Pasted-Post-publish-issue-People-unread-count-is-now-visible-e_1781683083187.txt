@@ -1,0 +1,59 @@
+Post-publish issue: People unread count is now visible, emails open, but the People unread message list is incomplete.
+
+Screenshot evidence:
+- Inbox unread count shows 251
+- People category count shows 39
+- Updates 75
+- Promotions 128
+- Social 9
+- But Inbox > People only renders 1 message:
+  “Fredj Rubenstein — Fwd: Tiger Capital | Voltsafe”
+- UI then says:
+  “You’re all caught up · 1 message loaded”
+- This is incorrect because People shows 39.
+
+This is not the old total-invisibility bug anymore. The reader pane works and at least one message loads. The new issue is count/list mismatch.
+
+Audit only first. Do not make blind fixes.
+
+Please verify and report exact evidence:
+
+1. Confirm production backfill completed:
+   - startup log lines
+   - final NULL counts for is_inbox, is_unread, smart_category
+
+2. Compare the exact SQL/query logic for:
+   - sidebar People unread count
+   - Inbox > People unread message list
+   - grouped unread inbox loader
+   - loadMoreInbox path, if used
+
+3. Run production DB queries for Trevor:
+   - count of unread inbox People threads
+   - first 50 unread inbox People threads by newest date
+   - whether those rows have gmail_thread_id, subject, sender, received_at/date fields populated
+   - whether they are excluded by any extra condition used only by the list query
+
+4. Inspect the actual API request fired by the UI for Inbox > People:
+   - endpoint
+   - query params
+   - response status
+   - response body count
+   - nextCursor / hasMore / pagination fields
+
+5. Determine whether the backend returns only 1 row or the frontend receives more rows but renders only 1.
+
+6. Specifically check for these likely causes:
+   - list query has LIMIT/cursor bug
+   - list query requires a field that older backfilled rows lack
+   - grouped unread mode groups by something incorrectly
+   - activeMessages / categorizedInbox derivation drops older unread People emails
+   - “older unread emails load automatically” path is not firing
+   - hasMore/nextCursor says false after first row
+   - thread grouping collapses multiple threads incorrectly
+   - smart_category count uses message-level count while list uses distinct thread-level count incorrectly
+
+7. Report the exact root cause before changing code.
+
+Expected correct behavior:
+If People unread count says 39, Inbox > People should render/load 39 People unread threads, either immediately or through automatic pagination/load-more. It must not stop at 1 and say “all caught up.”
