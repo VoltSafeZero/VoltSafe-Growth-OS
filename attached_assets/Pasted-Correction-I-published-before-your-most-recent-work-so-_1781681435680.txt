@@ -1,0 +1,56 @@
+Correction: I published before your most recent work, so the latest backfill/startup-guard changes are NOT live in production yet.
+
+Before I publish again, do pre-publish verification only. Do not make new feature changes.
+
+Verify and report:
+
+1. The latest changes are saved and included in the deployable app:
+   - scripts/production-derived-label-backfill.ts
+   - server/seed-production.ts migrateDerivedLabelColumns()
+   - server/index.ts startup wiring
+   - tests/derived-label-backfill.test.cjs
+
+2. Exact files changed and what each change does.
+
+3. Full test results:
+   - inbox-policy.test.cjs
+   - inbox-visibility.test.cjs
+   - inbox-category-badge.test.cjs
+   - inbox-category-visibility.test.cjs
+   - unread-filter-server-side.test.cjs
+   - inbox-count-reconciliation.test.cjs
+   - inbox-completeness.test.cjs
+   - derived-label-backfill.test.cjs
+
+4. Confirm the startup guard is idempotent:
+   - safe to run more than once
+   - does not mutate already-correct rows
+   - exits cleanly when no NULL derived label fields remain
+
+5. Confirm the production backfill behavior:
+   - expected number of NULL rows before publish
+   - expected batch size
+   - expected log lines
+   - expected final NULL count after completion
+
+6. Confirm production startup safety:
+   - whether the guard blocks routes while running
+   - whether it can timeout, hang, or lock the DB
+   - what happens if the process restarts mid-backfill
+   - whether it resumes safely
+
+7. Provide a clear rollback / disable plan:
+   - if production startup hangs, exactly what file/line should be changed to disable migrateDerivedLabelColumns()
+   - whether redeploying with that line removed restores service immediately
+   - whether partially backfilled rows remain safe
+
+8. After I publish, perform post-publish verification only:
+   - production health
+   - startup logs
+   - derived label NULL counts
+   - inbox/thread counts
+   - category tab visibility
+   - unread/seen filter behavior
+   - exact log lines and DB counts
+
+Do not make code changes unless production is down. Report exact evidence, not assumptions.
