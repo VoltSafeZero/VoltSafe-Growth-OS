@@ -1,0 +1,20 @@
+URGENT LIVE REGRESSION — AUDIT ONLY. DO NOT MODIFY CODE, SCHEMA, OR DATABASE THIS TURN.
+Symptom: The Inbox sidebar badge shows 196 unread, but the inbox list does not display the 196 unread emails. The view shows PRIORITY HIGHLIGHTS (6) and SEEN (990), with a banner reading "Loading remaining unread emails…" that appears stuck and never resolves into the unread messages. Account: trevor@voltsafe.com, Inbox > All view.
+This is the third recurrence of a "count says N, list shows ~0" bug class (previously: People-tab FTS bug, Social-tab is:unread bug, Updates-tab stale-bundle bug). I want the root cause pinned precisely before any fix, and I want to know whether this instance shares a root cause with the prior three or is new.
+Audit tasks — report only, change nothing:
+
+The stuck loader. Find the "Loading remaining unread emails…" banner and the loadAllForSection / load-all-unread code path it belongs to. Trace exactly what it does when triggered: what query string it sends, what endpoint, what it expects back, and where it sets/clears the loading state. Determine why it would get stuck — is the fetch failing, looping, returning empty, returning data that fails a client-side filter, or never clearing its loading flag? Report the exact mechanism.
+Count vs list query divergence. For the current Inbox > All view with 196 unread:
+
+What exact query string does the list send to the backend? (q= value)
+What WHERE clause does buildQClauses produce from it?
+What exact SQL does the unread badge count (196) come from?
+Do these two resolve to the same set of rows? If not, where do they diverge?
+
+
+Production DB ground truth. Query the production DB directly for trevor's account: how many threads actually satisfy is_inbox = true AND is_unread = true? Does that number match the badge (196)? Does it match what the list query would return? Report all three numbers side by side.
+The PRIORITY HIGHLIGHTS / SEEN split. The list is grouped into "Priority Highlights (6)" and "Seen (990)." Explain how messages are assigned to these groups. If there are 196 unread, why are only 6 in a highlighted group and the rest under "Seen"? Is "Seen" showing read mail while the 196 unread are simply not being fetched/rendered? Trace where the 196 unread rows are supposed to appear in this grouped view and why they don't.
+Sync-state timestamp mismatch. The UI shows "Connected to Gmail · 2 minutes ago" (top) and "synced in about 7 hours" (bottom-left) simultaneously. Report what each timestamp reads from. Determine whether the unread list query depends on a sync-state value that is stale, and whether that staleness could cause the list to omit recently-synced unread messages.
+Shared root cause check. Compare this instance's root cause to the three prior recurrences (People FTS, Social is:unread, Updates stale-bundle). Is this the same root cause resurfaced, a fourth variant of the same class, or genuinely new? State which, with evidence.
+
+Output format:
