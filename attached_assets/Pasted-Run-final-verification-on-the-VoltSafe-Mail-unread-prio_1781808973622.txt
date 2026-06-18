@@ -1,0 +1,116 @@
+Run final verification on the VoltSafe Mail unread/priority/pin/block/trust patch. Do not write new features unless a verification item fails.
+
+Verify with code, tests, and live/manual checks:
+
+1. Mark-as-read persistence
+Confirm this is true end-to-end:
+- opening unread email removes unread state in UI
+- unread count decrements exactly once
+- refresh keeps email read
+- local DB no longer marks it unread
+- Gmail UNREAD label is removed
+- opening already-read email does not decrement count again
+
+If any part fails, patch it.
+
+2. Query cache updates
+Audit all related cache updates:
+- mark read
+- mark unread
+- priority/star
+- pin/unpin
+- spam
+- trust/not spam
+- block sender
+- archive/delete if they affect the same message lists
+
+Make sure they update all active query variants, not just one partial key. Use setQueriesData/invalidateQueries where needed.
+
+3. Block sender exact-email behavior
+Confirm:
+- Block sender stores exact sender email only.
+- Current email/thread moves to Spam.
+- It is removed from Inbox immediately.
+- Future inbound from exact sender routes to Spam.
+- Future inbound from same domain but different address does NOT route to Spam unless domain block was explicitly used.
+- Broad consumer domains cannot be domain-blocked.
+
+If the current code only archives after block or does not move to Spam, patch it.
+
+4. Trust sender behavior
+Confirm:
+- Trust sender appears when viewing Spam or when sender is blocked.
+- Trust sender removes exact-email block.
+- Trust sender moves current email/thread to Inbox.
+- Trust sender prevents future rule-based spam sorting for that sender.
+- Trust sender refreshes all visible mailbox counts/lists.
+
+If allowlist/trusted state is not persisted, add/fix it.
+
+5. UI icon consistency
+Confirm no duplicate/conflicting meanings:
+- Star = Priority everywhere.
+- Pin/PinOff = Pin everywhere.
+- Shield/check = Trust/unblock sender.
+- Ban/shield-off = Block sender.
+- Clock = Snooze/Later.
+- No Zap/Lightning icon still means Priority.
+- No Flame icon still means Pin.
+
+Search source for Zap, Flame, priority, pinned, starred and confirm no bad mappings remain.
+
+6. Row action click behavior
+Confirm every row quick action uses stopPropagation/preventDefault as needed:
+- priority
+- pin
+- snooze
+- block
+- trust
+- spam
+Clicking these must not open/select the email row accidentally.
+
+7. Toolbar action behavior
+Confirm opened-email toolbar actions:
+- update selected email state
+- update row list state
+- update counts
+- persist backend/Gmail
+- show correct toast
+- do not conflict with existing archive/delete/reply/forward actions
+
+8. Spam folder behavior
+Open Spam folder and verify:
+- blocked email appears there after Block sender
+- Trust sender action is visible
+- clicking Trust sender moves it back to Inbox
+- email no longer appears in Spam after refresh
+- future emails from trusted sender do not get rule-spammed
+
+9. Database migration safety
+Confirm blocked_senders migration is:
+- idempotent
+- safe if table already exists
+- indexed on user/account/sender_email as appropriate
+- does not duplicate rows for same sender
+- does not break startup on production
+
+10. Tests
+Run all relevant test suites, not only grep/source checks:
+- block sender tests
+- inbox/mail tests
+- Gmail send/sync tests if impacted
+- frontend/unit tests around gmail-inbox/email-actions-toolbar if available
+- full available regression suite if runtime permits
+
+If current 50/50 tests are source-grep only, add at least one real behavioral/API test for:
+- POST block sender creates exact email block
+- mark-spam moves thread out of Inbox into Spam
+- not-spam removes block and restores Inbox
+- duplicate block does not duplicate rows
+
+Deliverable:
+- Verification results by item number
+- Any fixes made
+- Files changed
+- Tests run with pass/fail count
+- Remaining risks, if any

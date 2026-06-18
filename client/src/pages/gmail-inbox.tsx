@@ -6920,7 +6920,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               : m
           )
         } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], updateMsgs);
+      // setQueriesData with a 2-part prefix matches ALL inbox query variants
+      // (the actual inboxQuery key has 6 parts: /messages, "inbox", searchQuery, activeAccountId, inboxCategory, crmFilter)
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, updateMsgs);
       setInboxExtra(prev => prev.map(m =>
         messageIds.includes(m.id)
           ? { ...m, labelIds: isRead ? m.labelIds.filter(l => l !== "UNREAD") : [...m.labelIds.filter(l => l !== "UNREAD"), "UNREAD"] }
@@ -6944,8 +6946,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       return res.json() as Promise<{ success: number; failed: number; total: number }>;
     },
     onSuccess: ({ success }) => {
-      queryClient.setQueryData(
-        ["/api/gmail/messages", "inbox", searchQuery, activeAccountId],
+      queryClient.setQueriesData(
+        { queryKey: ["/api/gmail/messages", "inbox"] },
         (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
           old ? {
             ...old,
@@ -7070,7 +7072,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadId }) => {
       const removeArchived = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeArchived);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeArchived);
       setInboxExtra(prev => prev.filter(m => m.threadId !== threadId));
       if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
       invalidateBadgeQueries();
@@ -7096,7 +7098,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadId }) => {
       const removeTrashed = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeTrashed);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeTrashed);
       setInboxExtra(prev => prev.filter(m => m.threadId !== threadId));
       if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
       invalidateBadgeQueries();
@@ -7262,7 +7264,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               : m
           )
         } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], updateMsgs);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, updateMsgs);
       setInboxExtra(prev => prev.map(m =>
         m.id === messageId
           ? { ...m, labelIds: [...m.labelIds.filter(l => l !== "UNREAD"), "UNREAD"] }
