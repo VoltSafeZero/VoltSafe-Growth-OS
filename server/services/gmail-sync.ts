@@ -68,8 +68,8 @@ export async function syncEmailAccount(
     log(`[gmail-sync] account ${accountId} not found or sync disabled — skipping`);
     return empty;
   }
-  if (account.authStatus === "revoked" || account.authStatus === "error") {
-    log(`[gmail-sync] account ${accountId} (${account.emailAddress}) auth_status=${account.authStatus} — skipping`);
+  if (account.authStatus === "revoked" || account.authStatus === "error" || account.authStatus === "expired") {
+    log(`[gmail-sync] account ${accountId} (${account.emailAddress}) auth_status=${account.authStatus} — skipping (reconnect required)`);
     return empty;
   }
 

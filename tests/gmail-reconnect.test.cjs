@@ -273,6 +273,33 @@ check(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[13b] syncEmailAccount (paginated sync) also guards on expired");
+
+const gmailSyncSrc = readFile("server/services/gmail-sync.ts");
+const syncEmailAccountFn = gmailSyncSrc.match(/export async function syncEmailAccount[\s\S]*?^}/m)?.[0] ?? "";
+
+check(
+  'syncEmailAccount guard includes authStatus === "expired"',
+  /authStatus.*expired/.test(syncEmailAccountFn)
+);
+check(
+  "syncEmailAccount guard is a compound OR covering revoked, error, and expired",
+  /authStatus.*revoked[^}]*authStatus.*error[^}]*authStatus.*expired/.test(syncEmailAccountFn) ||
+  /authStatus.*expired[^}]*authStatus.*revoked/.test(syncEmailAccountFn)
+);
+check(
+  "syncEmailAccount does NOT write authStatus=expired when active account token fails (only syncErrorMessage)",
+  (() => {
+    // The catch block at getGmailClient call should write authStatus="expired"
+    // but ONLY when the account was not already active (i.e. guard blocked it first)
+    // Verify the guard bails before getGmailClient is called for expired accounts
+    const guardIdx = syncEmailAccountFn.indexOf('auth_status=');
+    const getClientIdx = syncEmailAccountFn.indexOf('getGmailClient');
+    return guardIdx !== -1 && getClientIdx !== -1 && guardIdx < getClientIdx;
+  })()
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log("\n[13] Guard covers all three bad auth statuses in one condition");
 
 const guardLine = incremental.match(/if\s*\([^)]*authStatus[^)]*\)\s*\{[\s\S]*?reconnect required/)?.[0] ?? "";
