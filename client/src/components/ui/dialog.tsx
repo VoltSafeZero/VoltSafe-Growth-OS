@@ -124,11 +124,13 @@ const DialogContent = React.forwardRef<
 
         {children}
 
-        {/* Fullscreen toggle button */}
+        {/* Fullscreen toggle button — z-[11] places it above the z-10 drag handle */}
         <button
           type="button"
+          data-no-drag
           onClick={() => { setExpanded(v => !v); setDragPos(null) }}
-          className="absolute right-12 top-3 flex items-center justify-center h-8 w-8 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          onMouseDown={(e) => e.stopPropagation()}
+          className="absolute right-12 top-3 z-[11] flex items-center justify-center h-8 w-8 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
           data-testid="button-toggle-fullscreen"
           title={expanded ? "Restore" : "Expand to full screen"}
         >
@@ -136,8 +138,12 @@ const DialogContent = React.forwardRef<
           <span className="sr-only">{expanded ? "Restore" : "Expand"}</span>
         </button>
 
-        {/* Close button */}
-        <DialogPrimitive.Close className="absolute right-3 top-3 flex items-center justify-center w-8 h-8 min-w-[44px] min-h-[44px] -mr-2 -mt-2 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+        {/* Close button — z-[11] places it above the z-10 drag handle */}
+        <DialogPrimitive.Close
+          data-no-drag
+          onMouseDown={(e) => e.stopPropagation()}
+          className="absolute right-3 top-3 z-[11] flex items-center justify-center w-8 h-8 min-w-[44px] min-h-[44px] -mr-2 -mt-2 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground cursor-pointer"
+        >
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>

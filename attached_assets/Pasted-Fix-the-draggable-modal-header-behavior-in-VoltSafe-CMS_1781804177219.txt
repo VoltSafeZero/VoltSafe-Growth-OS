@@ -1,0 +1,98 @@
+Fix the draggable modal header behavior in VoltSafe CMS.
+
+Problem:
+Our modals/popups can now be dragged, which is good. But the draggable hit area currently includes the top-right close “X” button. When the user clicks/presses the X area, it triggers drag behavior instead of reliably closing the popup.
+
+Required fix:
+1. Keep modal dragging enabled from the header/top drag area.
+2. Exclude all interactive controls from drag behavior, especially:
+   - top-right close X button
+   - expand/maximize button
+   - cancel/save buttons
+   - tabs/buttons/inputs/selects/textareas/links inside the modal
+3. The close X must always remain clickable and must close the modal.
+4. Do not let pointer/mouse/touch events from the close button bubble into the drag handler.
+5. Add cursor styling so:
+   - draggable header area shows move/grab cursor
+   - close/expand buttons show normal pointer cursor
+6. Preserve existing drag-and-move functionality everywhere else.
+
+Implementation guidance:
+Find the shared draggable modal/dialog component or the drag handler recently added for popup movement.
+
+Patch the drag-start handler so it immediately returns when the event target is inside an interactive element.
+
+Use a helper like:
+
+function isInteractiveDragBlocker(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+
+  return Boolean(
+    target.closest(
+      [
+        'button',
+        'a',
+        'input',
+        'textarea',
+        'select',
+        '[role="button"]',
+        '[data-no-drag]',
+        '.no-drag',
+        '.modal-close',
+        '.dialog-close',
+        '.modal-action',
+        '.dialog-action'
+      ].join(',')
+    )
+  );
+}
+
+Then in the drag start handler:
+
+const handlePointerDown = (event: React.PointerEvent<HTMLElement>) => {
+  if (isInteractiveDragBlocker(event.target)) {
+    return;
+  }
+
+  // existing drag start logic continues here
+};
+
+Also add data-no-drag to the top-right close X and expand/maximize buttons, for example:
+
+<button
+  type="button"
+  data-no-drag
+  onPointerDown={(e) => e.stopPropagation()}
+  onMouseDown={(e) => e.stopPropagation()}
+  onClick={onClose}
+>
+  ×
+</button>
+
+For the expand/maximize button too:
+
+<button
+  type="button"
+  data-no-drag
+  onPointerDown={(e) => e.stopPropagation()}
+  onMouseDown={(e) => e.stopPropagation()}
+  onClick={onToggleExpand}
+>
+  ...
+</button>
+
+Important:
+Do not remove draggable modal support.
+Do not make the whole modal body draggable.
+Do not break resizing.
+Do not break the existing Save Signature / Cancel / tab behavior.
+
+Verification:
+- Open Edit Signature modal.
+- Dragging from the empty top header area moves the modal.
+- Clicking X closes the modal immediately.
+- Clicking expand/maximize works and does not drag.
+- Clicking Builder / Preview / Edit HTML tabs works and does not drag.
+- Editing HTML textarea works normally.
+- Save Signature and Cancel still work.
+- Repeat with at least one other draggable modal to confirm the shared fix did not regress anything.
