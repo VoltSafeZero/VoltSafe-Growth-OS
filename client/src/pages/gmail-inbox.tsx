@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { EmailTokenInput } from "@/components/email/email-autocomplete";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { inboxQueryKey, INBOX_QK_PREFIX } from "@/lib/inbox-query-key";
 
 // C3: Returns a user-scoped localStorage key to prevent state bleed between users on shared browsers.
 // queryClient already has /api/auth/me cached by the time GmailInboxPage mounts (auth gate in App.tsx).
@@ -5908,7 +5909,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // category sub-tab is selected — category filtering is done client-side via categorizedInbox.
     // Using "all" as the inboxCategory key segment means every category tab shares the same
     // cached page, avoiding duplicate fetches and cursor mismatches between page 1 and page 2+.
-    queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId, crmFilter === "unread" ? "all" : inboxCategory, crmFilter === "unread" ? "unread" : "all"],
+    queryKey: inboxQueryKey(searchQuery, activeAccountId, inboxCategory, crmFilter),
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", "50");
@@ -10666,7 +10667,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         onClick={() => {
                           setInboxExtra([]);
                           setInboxNextToken(null);
-                          queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "inbox", searchQuery, activeAccountId] });
+                          queryClient.invalidateQueries({ queryKey: INBOX_QK_PREFIX });
                         }}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-muted/30 transition-colors"
                       >

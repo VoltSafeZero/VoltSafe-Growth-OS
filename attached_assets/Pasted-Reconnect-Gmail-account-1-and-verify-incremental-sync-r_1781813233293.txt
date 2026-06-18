@@ -1,0 +1,119 @@
+Reconnect Gmail account 1 and verify incremental sync recovery.
+
+Known issue:
+Account 1 has auth_status=expired / invalid_grant. It is still receiving Gmail webhooks, but incremental sync fails because the Gmail OAuth refresh token is dead. This causes timestamp/count/list mismatches and may be contributing to stuck unread views.
+
+Goal:
+Reconnect Gmail account 1 cleanly, clear expired auth state, resume incremental sync, and verify unread rows load.
+
+Tasks:
+
+1. Confirm account 1 state before reconnect
+Inspect account 1 in DB:
+- id
+- email
+- provider
+- auth_status
+- needs_reauth / reconnect flag if present
+- token expiry
+- last_history_id
+- last_sync_at
+- last_webhook_at / watch timestamp if present
+- sync error fields
+
+Do not log raw tokens.
+
+2. Use the existing Gmail reconnect flow
+Start the Gmail reconnect flow for account 1 from the UI or backend route:
+- account should go through OAuth consent
+- use access_type=offline
+- use prompt=consent if needed to force a new refresh_token
+- ensure scopes include Gmail read/modify/send as required by VoltSafe Mail
+
+After callback:
+- save new refresh_token if Google returns one
+- save access_token
+- save expiry_date
+- clear auth_status=expired
+- clear needs_reauth/disconnected flags
+- preserve account id/email identity
+- do not create a duplicate Gmail account for the same email
+
+3. Guard against duplicate account creation
+If reconnect currently creates a second account instead of updating account 1, fix it.
+
+Reconnect should match by:
+- existing account id when reconnect is initiated from account 1
+- or provider + email fallback
+
+Expected result:
+- account 1 remains account 1
+- no duplicate trevor@voltsafe.com Gmail account is created
+- existing mail/thread data remains linked to account 1
+
+4. Force incremental sync after reconnect
+After reconnect succeeds:
+- run an immediate incremental sync for account 1
+- if last_history_id is valid, use Gmail history sync
+- if Gmail says historyId is too old/invalid, fall back to bounded full resync/backfill
+- update last_sync_at
+- update auth_status/sync status fields
+- log clear summary:
+  account id, messages changed, labels changed, threads updated, errors
+
+5. Refresh Gmail watch/webhook if needed
+Because webhooks were still arriving but sync was failing:
+- verify Gmail watch is valid
+- renew watch if expired/near expiry
+- store new expiration/history id if applicable
+- do not rely on old watch if reconnect changed credentials
+
+6. Fix UI account status
+After reconnect:
+- left sidebar should show Connected to Gmail
+- remove reconnect required banner/badge
+- sync timestamp should update after successful sync
+- no stale “auth expired” warnings should remain
+
+7. Verify unread inbox after reconnect
+Now retest the actual broken UI path:
+- Inbox > Unread > All
+- Inbox > Unread > People
+- Inbox > Unread > Updates
+- Inbox > Unread > Promotions
+
+For each:
+- rows must render
+- no infinite “Unread messages are still loading…”
+- counts should match available unread rows/page
+- refresh page and confirm rows still render
+
+8. Add reconnect regression tests
+Add/confirm tests for:
+- invalid_grant sets account auth_status=expired / needs_reauth
+- reconnect updates existing account instead of creating duplicate
+- reconnect clears expired state
+- reconnect stores refresh_token/access_token/expiry safely
+- reconnect triggers or allows incremental sync
+- expired account with webhook does not falsely report healthy sync
+- UI shows reconnect required only while expired
+
+9. Add sync health guard
+If account has auth_status=expired:
+- do not keep attempting incremental sync in a tight loop
+- surface reconnect required
+- webhooks should mark “pending sync blocked by auth” rather than pretending sync succeeded
+
+10. Deliverable
+Report:
+- account 1 before/after auth state
+- whether duplicate account was avoided
+- sync result after reconnect
+- Gmail watch renewal status
+- unread All/People/Updates/Promotions browser verification
+- tests run
+- any remaining blocker
+
+Important:
+Do not mark this fixed just because OAuth succeeds.
+It is fixed only when account 1 incremental sync succeeds and unread message rows render in the UI.

@@ -1,0 +1,20 @@
+Two stabilization commits, sequential. Commit A is approved as specified. Commit B is a scoped fix — implement, then stop for my verification before anything else.
+COMMIT A — Query-key centralization (approved as audited):
+
+Create client/src/lib/inbox-query-key.ts with the inboxQueryKey(...) helper and INBOX_QK_PREFIX const exactly as you specified in the audit.
+Line 5911: replace the inline 6-part array with inboxQueryKey(searchQuery, activeAccountId, inboxCategory, crmFilter).
+Line 10669: replace the 4-part key with { queryKey: INBOX_QK_PREFIX }.
+Add a behavioral or source test asserting the helper output matches the previous inline array for both crmFilter="unread" and crmFilter="all" cases.
+Run all inbox test suites. Report. Checkpoint. Stop for my .dev verification before Commit B.
+
+COMMIT B — Fix unread surfacing the correct way (NOT the cycle-cap fallback):
+Do not implement the "fire loadAllForSection on cycle-cap exhaustion" approach from the audit. That adds a fifth fallback path to a system already failing from too many. Instead:
+Audit first, then propose before coding:
+
+Identify every view that needs to show unread mail (Smart-All unread sections, the Unread pill, category tabs) and confirm whether each currently sends is:unread to the server or relies on client-side filtering of a broad fetch.
+Propose making each unread-needing view query the server with is:unread directly — so the DB returns unread threads (O(unread count)) rather than the client paging newest-first through 34,000 threads hoping to find them.
+Identify what client-side machinery becomes DEAD CODE if the server returns correctly-filtered data — specifically the Part B auto-loader cycle cap, the 2,500 hard cap, and the stuck banner. Propose deleting what's no longer needed rather than adding around it.
+Report whether this is achievable without backend changes (the audit says buildQClauses already supports is:unread — confirm).
+
+Output the plan. Do not write Commit B code until I approve it. The goal is LESS code surfacing unread mail correctly, not more code patching the broken strategy.
+Constraints: No schema changes, no db:push. No backend changes in Commit A. Commit B may touch the query strings the frontend sends but should not change buildQClauses SQL semantics. Stop after the Commit B plan for my review.
