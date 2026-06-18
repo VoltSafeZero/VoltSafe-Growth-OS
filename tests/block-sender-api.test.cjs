@@ -13,7 +13,7 @@
  *
  * Run: node tests/block-sender-api.test.cjs
  */
-import pg from "pg";
+const pg = require("pg");
 
 const BASE        = "http://localhost:5000";
 const ADMIN_EMAIL = "trevor@voltsafe.com";
@@ -212,10 +212,10 @@ async function main() {
         bad("A4: blocked_senders row removed after not-spam", `still has ${blockAfter.length} row(s)`);
       }
 
-      // Verify spam_trusted_senders has the email (or from domain)
+      // Verify spam_trusted_senders has the email
       const { rows: trusted } = await pool.query(
-        `SELECT id FROM spam_trusted_senders WHERE (email=$1 OR domain=$2) LIMIT 1`,
-        [testEmail, "test-domain.example.com"]);
+        `SELECT id FROM spam_trusted_senders WHERE email=$1 LIMIT 1`,
+        [testEmail]);
       if (trusted.length >= 1) ok("A4: sender in spam_trusted_senders after not-spam");
       else bad("A4: sender in spam_trusted_senders", "no matching row found");
     }

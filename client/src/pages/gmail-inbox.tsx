@@ -6982,7 +6982,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadIds }) => {
       const removeArchived = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => !threadIds.includes(m.threadId)) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeArchived);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeArchived);
       setInboxExtra(prev => prev.filter(m => !threadIds.includes(m.threadId)));
       if (selectedThreadId && threadIds.includes(selectedThreadId)) {
         setSelectedThreadId(null);
@@ -7025,9 +7025,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: ({ threadIds }) => {
       const removeDeleted = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.filter(m => !threadIds.includes(m.threadId)) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeDeleted);
-      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery, activeAccountId], removeDeleted);
-      queryClient.setQueryData(["/api/gmail/messages", "spam", searchQuery, activeAccountId], removeDeleted);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeDeleted);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "sent"] }, removeDeleted);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "spam"] }, removeDeleted);
       setInboxExtra(prev => prev.filter(m => !threadIds.includes(m.threadId)));
       queryClient.invalidateQueries({ queryKey: ["/api/mail-folders", selectedFolderId, "emails"] });
       if (selectedThreadId && threadIds.includes(selectedThreadId)) {

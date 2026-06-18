@@ -277,8 +277,35 @@ check(
   toolbar.includes('data-testid="more-block-domain"')
 );
 
-// ── 11. Icon consistency ─────────────────────────────────────────────────────
-console.log("\n[11] Icon consistency");
+// ── 11. Query cache key fixes (setQueriesData prefix, not specific 4/6-part key) ───
+console.log("\n[11] Query cache key correctness — setQueriesData 2-part prefix");
+check(
+  "bulkMarkReadMutation uses setQueriesData (2-part prefix, not 4-part setQueryData)",
+  inbox.includes('queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, updateMsgs)')
+);
+check(
+  "markAllInboxReadMutation uses setQueriesData (not setQueryData)",
+  (inbox.match(/setQueriesData\(\s*\{\s*queryKey:\s*\[["']\/api\/gmail\/messages["'],\s*["']inbox["']\]/g) || []).length >= 5
+);
+check(
+  "archiveThreadMutation uses setQueriesData not setQueryData",
+  inbox.includes('queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeArchived)')
+);
+check(
+  "trashThreadMutation uses setQueriesData not setQueryData",
+  inbox.includes('queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeTrashed)')
+);
+check(
+  "markUnreadSingleMutation uses setQueriesData not setQueryData",
+  inbox.includes('queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, updateMsgs)')
+);
+check(
+  "No stale 4-part setQueryData calls for inbox messages in bulk mutations",
+  !inbox.includes('setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId]')
+);
+
+// ── 12. Icon consistency ─────────────────────────────────────────────────────
+console.log("\n[12] Icon consistency");
 check(
   "Toolbar does NOT use Zap for priority (replaced with Star)",
   !toolbar.includes("onTogglePriority.*Zap") &&
