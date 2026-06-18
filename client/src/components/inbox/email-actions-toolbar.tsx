@@ -49,6 +49,7 @@ import {
   PinOff,
   CheckCircle2,
   ShieldCheck,
+  Star,
 } from "lucide-react";
 import {
   Tooltip,
@@ -535,8 +536,8 @@ function EmailActionsToolbarImpl({
                       : "text-muted-foreground/70 hover:text-amber-400 hover:bg-amber-500/10"
                   }`}
                 >
-                  <Zap
-                    className={`h-3.5 w-3.5 ${isPriority ? "fill-amber-400" : ""}`}
+                  <Star
+                    className={`h-3.5 w-3.5 ${isPriority ? "fill-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.45)]" : ""}`}
                     aria-hidden="true"
                   />
                 </button>
@@ -580,9 +581,9 @@ function EmailActionsToolbarImpl({
                   }`}
                 >
                   {isPinned ? (
-                    <Flame className="h-3.5 w-3.5 fill-orange-500" aria-hidden="true" />
+                    <PinOff className="h-3.5 w-3.5" aria-hidden="true" />
                   ) : (
-                    <Flame className="h-3.5 w-3.5" aria-hidden="true" />
+                    <Pin className="h-3.5 w-3.5" aria-hidden="true" />
                   )}
                 </button>
               </TooltipTrigger>

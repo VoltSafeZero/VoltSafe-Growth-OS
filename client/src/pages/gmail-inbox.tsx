@@ -5531,7 +5531,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
             : m.labelIds.filter(l => l !== "STARRED") } : m
         ) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], update);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, update);
       setInboxExtra((prev) => prev.map((m) => m.id === msgId ? { ...m, labelIds: data.starred
         ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
         : m.labelIds.filter(l => l !== "STARRED") } : m));
@@ -7915,12 +7915,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       // row loses its bold/dot styling right away, while the smart-inbox
       // grouper keeps the thread in its current section until the user moves
       // to a different thread (see openThreadId passed to groupSmartInbox).
+      // NOTE: setQueriesData with a partial prefix key matches ALL inbox queries
+      // regardless of the inboxCategory / crmFilter key segments — this is
+      // required because the 6-part inboxQuery key would not match a 4-part setQueryData call.
       const removeUnread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
         old ? { ...old, messages: old.messages.map((m) =>
           m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m
         ) } : old;
-      queryClient.setQueryData(["/api/gmail/messages", "inbox", searchQuery, activeAccountId], removeUnread);
-      queryClient.setQueryData(["/api/gmail/messages", "sent", searchQuery, activeAccountId], removeUnread);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeUnread);
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "sent"] }, removeUnread);
       // Also update the locally-stored extra pages
       setInboxExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
       setSentExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
@@ -10663,7 +10666,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     onReply: () => handleReply(focusedMsg),
                     onMove: () => archiveThreadMutation.mutate(selectedThreadId),
                     onMarkSpam: () => archiveThreadMutation.mutate(selectedThreadId),
-                    onBlock: () => archiveThreadMutation.mutate(selectedThreadId),
+                    onBlock: () => {
+                      const _domain = parseSenderDomain(focusedMsg.from || focusedMsg.fromEmail || "");
+                      if (_domain) flagMutation.mutate(_domain);
+                      archiveThreadMutation.mutate(selectedThreadId);
+                    },
                     onNotSpam: () => notSpamMutation.mutate(selectedThreadId),
                   }}
                   onAssignChanged={() => {
@@ -10708,7 +10715,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       onReply: () => handleReply(focusedMsg),
                       onMove: () => archiveThreadMutation.mutate(selectedThreadId),
                       onMarkSpam: () => archiveThreadMutation.mutate(selectedThreadId),
-                      onBlock: () => archiveThreadMutation.mutate(selectedThreadId),
+                      onBlock: () => {
+                        const _domain = parseSenderDomain(focusedMsg.from || focusedMsg.fromEmail || "");
+                        if (_domain) flagMutation.mutate(_domain);
+                        archiveThreadMutation.mutate(selectedThreadId);
+                      },
                       onNotSpam: () => notSpamMutation.mutate(selectedThreadId),
                     }}
                     onAssignChanged={() => {
