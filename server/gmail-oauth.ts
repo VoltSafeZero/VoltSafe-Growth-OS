@@ -166,7 +166,7 @@ export async function exchangeCodeForTokens(
   code: string,
   userId: number,
   isShared = false
-): Promise<{ emailAddress: string }> {
+): Promise<{ emailAddress: string; accountId: number | null; isNewAccount: boolean }> {
   const oauth2Client = getOAuth2Client();
   const { tokens } = await oauth2Client.getToken(code);
 
@@ -184,6 +184,12 @@ export async function exchangeCodeForTokens(
   } catch {}
 
   const displayName = emailAddress; // for shared accounts, use email as display name
+
+  // Track which account row was upserted and whether it's brand-new.
+  // Returned to the callback so it can trigger post-reconnect tasks
+  // (incremental sync + watch renewal) for reconnects vs backfill for new accounts.
+  let resultAccountId: number | null = null;
+  let isNewAccount = false;
 
   if (isShared) {
     // Shared workspace inbox: upsert by emailAddress so the admin can connect
@@ -207,6 +213,7 @@ export async function exchangeCodeForTokens(
           updatedAt: new Date(),
         })
         .where(eq(emailAccounts.id, existing.id));
+      resultAccountId = existing.id;
     } else {
       const [inserted] = await db.insert(emailAccounts).values({
         workspaceId: 1,
@@ -222,6 +229,8 @@ export async function exchangeCodeForTokens(
         syncEnabled: true,
       }).returning({ id: emailAccounts.id });
       if (inserted?.id) {
+        resultAccountId = inserted.id;
+        isNewAccount = true;
         await autoEnqueueBackfillForNewAccount({
           accountId: inserted.id,
           userId,
@@ -269,6 +278,7 @@ export async function exchangeCodeForTokens(
           updatedAt: new Date(),
         })
         .where(eq(emailAccounts.id, existing.id));
+      resultAccountId = existing.id;
     } else {
       const inserted = await db.insert(emailAccounts)
         .values({
@@ -288,6 +298,8 @@ export async function exchangeCodeForTokens(
         .returning({ id: emailAccounts.id });
       const newId = inserted?.[0]?.id;
       if (newId) {
+        resultAccountId = newId;
+        isNewAccount = true;
         await autoEnqueueBackfillForNewAccount({
           accountId: newId,
           userId,
@@ -316,7 +328,7 @@ export async function exchangeCodeForTokens(
     }
   }
 
-  return { emailAddress };
+  return { emailAddress, accountId: resultAccountId, isNewAccount };
 }
 
 // getGmailClient resolves a Gmail API client for either a userId or a specific accountId.

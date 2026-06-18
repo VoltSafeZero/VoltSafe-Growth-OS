@@ -17479,7 +17479,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     // ── Gmail OAuth callback (personal + shared) ──────────────────────────
     const isShared = state === "shared";
     try {
-      const { emailAddress } = await exchangeCodeForTokens(code, userId, isShared);
+      const { emailAddress, accountId: reconnectedAccountId, isNewAccount } = await exchangeCodeForTokens(code, userId, isShared);
       const label = isShared ? "Team inbox" : "personal Gmail account";
       const returnPath = state === "personal" ? "/settings/mailbox" : "/gmail";
       res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
@@ -17491,6 +17491,29 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           <a href="${returnPath}" style="color:#14b8a6">← Continue</a>
         </div>
       </body></html>`);
+
+      // Post-reconnect tasks (fire-and-forget, do not block the HTTP response).
+      // For reconnects (existing account with refreshed credentials): kick off an
+      // immediate incremental sync to catch up on any events missed while the token
+      // was expired, then renew the Gmail watch with the fresh credentials.
+      // New accounts get autoEnqueueBackfillForNewAccount instead (already handled
+      // inside exchangeCodeForTokens).
+      if (reconnectedAccountId && !isNewAccount) {
+        import("./services/gmail-incremental").then(({ syncIncremental }) => {
+          syncIncremental(reconnectedAccountId).then((r) => {
+            log(`[gmail-reconnect] post-reconnect sync account=${reconnectedAccountId} added=${r.added} labelsChanged=${r.labelsChanged} ok=${r.ok}`);
+          }).catch((e: any) => {
+            log(`[gmail-reconnect] post-reconnect sync error account=${reconnectedAccountId}: ${e?.message}`);
+          });
+        });
+        import("./services/gmail-watch").then(({ startWatch }) => {
+          startWatch(reconnectedAccountId).then((r) => {
+            log(`[gmail-reconnect] watch renewal account=${reconnectedAccountId} ok=${r.ok}${r.reason ? ` reason=${r.reason}` : ""}`);
+          }).catch((e: any) => {
+            log(`[gmail-reconnect] watch renewal error account=${reconnectedAccountId}: ${e?.message}`);
+          });
+        });
+      }
     } catch (err: any) {
       res.status(500).send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="text-align:center">

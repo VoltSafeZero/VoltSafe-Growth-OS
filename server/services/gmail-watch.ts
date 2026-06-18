@@ -6,7 +6,7 @@
 // If unset, watch is skipped and the system falls back to historyId polling.
 import { db } from "../db";
 import { emailAccounts } from "../../shared/schema";
-import { eq, and, isNotNull, lte } from "drizzle-orm";
+import { eq, and, isNotNull, lte, ne } from "drizzle-orm";
 import { log } from "../index";
 
 export type WatchStartResult = {
@@ -109,6 +109,8 @@ export async function renewExpiringWatches(): Promise<number> {
     .where(and(
       eq(emailAccounts.isActive, true),
       eq(emailAccounts.syncEnabled, true),
+      ne(emailAccounts.authStatus, "expired"),
+      ne(emailAccounts.authStatus, "revoked"),
       isNotNull(emailAccounts.watchExpirationAt),
       lte(emailAccounts.watchExpirationAt, cutoff),
     ));
@@ -130,7 +132,12 @@ export async function ensureWatchesOnBoot(): Promise<void> {
   const accounts = await db
     .select()
     .from(emailAccounts)
-    .where(and(eq(emailAccounts.isActive, true), eq(emailAccounts.syncEnabled, true)));
+    .where(and(
+      eq(emailAccounts.isActive, true),
+      eq(emailAccounts.syncEnabled, true),
+      ne(emailAccounts.authStatus, "expired"),
+      ne(emailAccounts.authStatus, "revoked"),
+    ));
   for (const a of accounts) {
     const needsStart = !a.watchExpirationAt || a.watchExpirationAt.getTime() < Date.now() + 24 * 60 * 60 * 1000;
     if (needsStart) {

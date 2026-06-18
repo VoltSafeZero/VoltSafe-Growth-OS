@@ -190,7 +190,8 @@ export async function upsertMessageById(
 export async function syncIncremental(accountId: number): Promise<IncrementalResult> {
   const [account] = await db.select().from(emailAccounts).where(eq(emailAccounts.id, accountId)).limit(1);
   if (!account) return { ...EMPTY, reason: "account not found" };
-  if (account.authStatus === "revoked" || account.authStatus === "error") {
+  if (account.authStatus === "revoked" || account.authStatus === "error" || account.authStatus === "expired") {
+    log(`[gmail-incr] account=${accountId} skipped — auth_status=${account.authStatus} (reconnect required)`);
     return { ...EMPTY, reason: `auth_status=${account.authStatus}` };
   }
 
