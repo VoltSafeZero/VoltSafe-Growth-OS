@@ -1,0 +1,102 @@
+URGENT: VoltSafe Mail send is failing for all emails with toast error:
+
+Failed to send
+invalid_grant
+
+This happens whether or not an email signature is used, so do NOT focus on signature HTML/CTA first. This is almost certainly Gmail OAuth token failure: expired/revoked refresh token, bad client credentials, wrong redirect/client after deploy, or our send path is not handling re-auth cleanly.
+
+Goal:
+Restore email sending and add a proper user-facing re-auth flow instead of generic failed toast.
+
+Tasks:
+
+1. Trace the send pipeline
+Find the frontend send action and backend send route/function:
+- composer send handler
+- API route used to send
+- server Gmail send function
+- token refresh/OAuth helper
+- DB table/model where Gmail tokens are stored
+
+Search for:
+- "invalid_grant"
+- "refresh_token"
+- "oauth2"
+- "gmail"
+- "sendEmail"
+- "Failed to send"
+
+2. Confirm root cause in logs
+Add/inspect backend logs around Gmail token refresh and send:
+- user id/email
+- whether access token exists
+- whether refresh token exists
+- token expiry
+- exact OAuth error code/message
+- DO NOT log raw tokens
+
+3. Fix invalid_grant handling
+When Gmail API/token refresh returns invalid_grant:
+- Mark the user’s Gmail connection as disconnected / needs_reauth in DB
+- Clear invalid access token expiry state if needed
+- Preserve account/email identity
+- Return a structured API error to frontend, example:
+
+{
+  "error": "gmail_reauth_required",
+  "message": "Your Gmail connection expired. Please reconnect Gmail to send mail."
+}
+
+Do not keep retrying forever with the same dead refresh token.
+
+4. Frontend UX fix
+When send API returns gmail_reauth_required:
+- Show a clear toast/modal:
+  "Gmail connection expired. Reconnect Gmail to send emails."
+- Provide a “Reconnect Gmail” button/link that starts the existing Gmail OAuth connection flow.
+- Do not show only "Failed to send invalid_grant".
+
+5. Verify OAuth config
+Check production/dev env vars:
+- GOOGLE_CLIENT_ID
+- GOOGLE_CLIENT_SECRET
+- GOOGLE_REDIRECT_URI / callback URL
+- any Gmail OAuth callback route
+- scopes include gmail.send and any required mail scopes
+
+Confirm the callback URL in code exactly matches the Google Cloud OAuth authorized redirect URI for the current environment.
+
+6. Check token persistence
+After reconnecting Gmail:
+- confirm refresh_token is saved
+- confirm access_token is saved/refreshed
+- confirm expiry_date is saved
+- confirm future sends use refreshed token correctly
+
+Important Gmail OAuth rule:
+Google often only returns a refresh_token on first consent unless prompt=consent/access_type=offline is used properly. Make sure reconnect flow can obtain and store a new refresh token when needed.
+
+7. Regression protection
+Add or update tests for:
+- successful send with valid token
+- expired access token refresh success
+- invalid_grant refresh failure returns gmail_reauth_required
+- frontend maps gmail_reauth_required to reconnect Gmail UX
+- no signature send still works
+- signature send still works
+
+8. Manual verification
+Run this checklist:
+- send plain email with no signature
+- send email with existing signature
+- send email with CTA signature
+- send scheduled email if same Gmail send path is used
+- disconnect/revoke Gmail token locally or simulate invalid_grant and confirm reconnect UX appears
+- reconnect Gmail and confirm send works again
+
+Deliverable:
+- Fix the send failure
+- Explain root cause
+- List files changed
+- Confirm tests run
+- Confirm production/dev OAuth env assumptions

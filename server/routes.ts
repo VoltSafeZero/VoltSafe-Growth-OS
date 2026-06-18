@@ -16625,6 +16625,25 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         recipients:      sentResults,
       });
     } catch (err: any) {
+      // Detect Gmail OAuth reauth required (invalid_grant / expired refresh token).
+      const isReauthRequired = (err as any).code === "gmail_reauth_required" ||
+        (typeof err?.message === "string" && err.message.toLowerCase().includes("invalid_grant"));
+      if (isReauthRequired) {
+        console.error(`[gmail-send] REAUTH_REQUIRED userId=${userId}: ${err.message}`);
+        try {
+          await db.update(emailAccounts)
+            .set({ isActive: false, updatedAt: new Date() })
+            .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)));
+          console.log(`[gmail-send] marked account inactive for userId=${userId}`);
+        } catch (markErr: any) {
+          console.warn("[gmail-send] mark-inactive non-fatal:", markErr.message);
+        }
+        return res.status(401).json({
+          error: "gmail_reauth_required",
+          message: "Your Gmail connection has expired. Please reconnect Gmail to continue sending mail.",
+        });
+      }
+
       // Detect gate errors so we can return the exact failure reason to the frontend.
       const isCidGateError = typeof err.message === "string" &&
         err.message.startsWith("CID conversion failed before Gmail send");

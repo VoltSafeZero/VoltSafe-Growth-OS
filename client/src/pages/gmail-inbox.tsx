@@ -34,6 +34,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Calendar, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
@@ -1194,6 +1195,11 @@ function ComposeDialog({
         throw new Error(`Send failed: server returned invalid JSON (${res.status})`);
       }
       if (!res.ok) {
+        if (data.error === "gmail_reauth_required") {
+          const e = new Error(data.message || "Gmail connection expired") as any;
+          e.isReauthRequired = true;
+          throw e;
+        }
         const err = new Error(data.message || "Send failed") as any;
         err.draftId      = data.draftId      ?? null;
         err.draftSaved   = data.draftSaved   ?? false;
@@ -1224,6 +1230,20 @@ function ComposeDialog({
       onClose();
     },
     onError: (err: any) => {
+      if (err.isReauthRequired) {
+        onTrustEvent?.({ type: "send-failed", at: Date.now() });
+        toast({
+          title: "Gmail connection expired",
+          description: "Your Gmail session has expired. Reconnect to continue sending mail.",
+          variant: "destructive",
+          action: (
+            <ToastAction altText="Reconnect Gmail" onClick={() => { window.location.href = "/api/auth/gmail/connect"; }}>
+              Reconnect Gmail
+            </ToastAction>
+          ),
+        });
+        return;
+      }
       // Use the exact gate error text when available; otherwise fall back to message.
       const errorDetail: string | null = err.detail || null;
       if (err.draftSaved && err.draftId) {

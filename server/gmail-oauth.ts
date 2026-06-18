@@ -389,7 +389,23 @@ export async function getGmailClient(userId: number, accountId?: number) {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ refresh_token: refreshToken });
 
-  const { credentials } = await oauth2Client.refreshAccessToken();
+  let credentials: any;
+  try {
+    const result = await oauth2Client.refreshAccessToken();
+    credentials = result.credentials;
+  } catch (err: any) {
+    const msg = (err?.message || "").toLowerCase();
+    if (
+      msg.includes("invalid_grant") ||
+      msg.includes("token has been expired") ||
+      msg.includes("token has been revoked")
+    ) {
+      const e = new Error("Gmail connection expired — please reconnect Gmail to continue sending mail.");
+      (e as any).code = "gmail_reauth_required";
+      throw e;
+    }
+    throw err;
+  }
   oauth2Client.setCredentials(credentials);
 
   return google.gmail({ version: "v1", auth: oauth2Client });
