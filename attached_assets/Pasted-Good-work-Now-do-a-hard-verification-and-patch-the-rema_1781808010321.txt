@@ -1,0 +1,101 @@
+Good work. Now do a hard verification and patch the remaining risks.
+
+1. Verify mark-as-read persistence
+The cache-key fix explains the UI bug, but confirm the read state actually persists.
+
+Test this exact flow:
+- Open an unread email.
+- Confirm unread dot disappears immediately.
+- Confirm unread count decrements.
+- Refresh browser.
+- Confirm email is still read.
+- Confirm backend DB no longer marks it unread.
+- Confirm Gmail UNREAD label is removed if Gmail sync is active.
+
+If persistence is missing or unreliable, fix the backend mark-read call so opening an email:
+- updates local DB
+- removes Gmail UNREAD label
+- updates folder/category unread counts
+- survives reload
+
+2. Fix Block Sender behavior
+Current implementation says it adds the sender’s DOMAIN to filters. That is too dangerous.
+
+Default behavior must be:
+- Block exact sender email address, not domain.
+- Move current email/thread to Spam, not just archive.
+- Future emails from that exact sender go to Spam.
+
+Example:
+- block sender: promo@nespresso.com
+- do NOT automatically block all @nespresso.com unless user explicitly chooses “Block domain.”
+
+Add separate optional action only in More menu:
+- “Block domain”
+- Tooltip/confirmation must clearly say this blocks all emails from that domain.
+
+Never block broad consumer/provider domains by default:
+gmail.com, outlook.com, hotmail.com, icloud.com, yahoo.com, proton.me, etc.
+
+3. Replace archive-on-block with spam move
+The summary says onBlock “archives the thread.” That is not correct for Block Sender.
+
+Patch so Block Sender does:
+- create/update blocked sender rule for exact email
+- move selected email/thread to Spam
+- remove from Inbox
+- update local UI counts
+- persist to Gmail spam/labels if available
+- toast: “Blocked sender and moved email to Spam.”
+
+4. Add Trust Sender / Unblock behavior
+When email is in Spam or sender is blocked, show Trust Sender action.
+
+Trust Sender must:
+- remove sender from blocked rules
+- add sender to trusted/allowlist rules if available
+- move current email/thread to Inbox
+- prevent future VoltSafe Mail rules from sorting that sender into Spam
+- toast: “Trusted sender and moved email to Inbox.”
+
+5. Verify priority icon consistency
+Confirm Star appears everywhere:
+- row hover action
+- opened email toolbar
+- More actions menu if listed there
+- tooltip says Mark as priority / Remove priority
+No lightning bolt should still mean priority anywhere.
+
+6. Verify pin consistency
+Confirm Pin/PinOff appears everywhere:
+- row hover action
+- opened email toolbar
+- tooltip says Pin / Unpin
+No flame icon should still mean pin anywhere.
+
+7. Add tests
+Add or update tests for:
+- opening unread email persists read state after refresh
+- Gmail UNREAD label removal is called when applicable
+- block sender blocks exact sender email only
+- block sender moves email/thread to Spam, not archive only
+- block domain is separate and requires explicit action
+- broad email domains are not blocked by default
+- trust sender moves from Spam to Inbox and removes block
+- priority uses star consistently
+- pin uses pin consistently
+
+8. Manual verification
+Run:
+- open unread email, refresh, confirm still read
+- block sender from Inbox, confirm it leaves Inbox and appears in Spam
+- confirm blocked rule is exact sender email
+- trust sender from Spam, confirm it returns to Inbox
+- confirm star and pin icons are consistent in row and toolbar
+
+Deliverable:
+- Confirm whether read/unread was only cache bug or also backend persistence bug
+- Confirm exact sender vs domain blocking behavior
+- Files changed
+- Tests run
+- Manual verification results
