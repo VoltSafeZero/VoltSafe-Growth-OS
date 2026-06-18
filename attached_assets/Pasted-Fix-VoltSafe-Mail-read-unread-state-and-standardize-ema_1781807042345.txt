@@ -1,0 +1,202 @@
+Fix VoltSafe Mail read/unread state and standardize email quick actions.
+
+Context:
+When I click/open a new email in VoltSafe Mail, it stays unread. The unread dot/count remains and the email is not marked as read. Also the quick actions are inconsistent: the inbox row shows a star tooltip as “Mark as priority,” but the opened email toolbar uses a lightning bolt icon for priority. We need consistent actions in both the email list row and the opened email view.
+
+Problems to fix:
+1. Opening/clicking an unread email does not mark it as read.
+2. Inbox row quick action currently shows only a star for priority.
+3. Open email toolbar shows a lightning bolt for priority instead of matching the row icon/meaning.
+4. We need quick actions for:
+   - Priority
+   - Pin
+   - Block sender
+   - Move to spam + block future emails from sender
+   - Snooze / Later
+   - Trust / unblock sender from Spam so future emails go to Inbox
+
+Required behavior:
+
+A) Mark unread email as read when opened
+When a user opens/selects an unread email:
+- Immediately optimistically mark it as read in frontend state.
+- Remove unread dot/bold styling from the row.
+- Decrement unread count for the current mailbox/category.
+- Persist the read state to backend/database.
+- Also sync read state to Gmail if Gmail is the source of truth.
+- If backend update fails, revert optimistic state and show a small error toast.
+
+Implementation notes:
+Find the email selection/open handler. It likely loads the thread/body. After selecting the message, call existing mark-read endpoint if available, or create one.
+
+Expected API shape if needed:
+
+PATCH /api/mail/messages/:messageId/read
+body: { read: true }
+
+Backend should:
+- Update local DB labels/status, removing UNREAD or setting is_read=true.
+- If Gmail-backed, call Gmail modify API to remove UNREAD label.
+- Return updated message/thread state.
+
+Frontend should update:
+- selected email
+- list item
+- folder unread counts
+- category unread counts where applicable
+
+Do not require the user to click “Mark all read” for this. Opening an email should mark it read. That is table-stakes email behavior.
+
+B) Standardize Priority action
+Use ONE consistent priority concept everywhere.
+
+Preferred:
+- Use star icon for Priority everywhere, because the list row already uses a star and users understand it.
+- Tooltip: “Mark as priority” / “Remove priority”
+- If email is priority, star should be filled/active.
+- Remove or repurpose the lightning bolt if it currently duplicates priority.
+- Do not have both star and lightning mean the same thing.
+
+If lightning bolt is already used internally for “priority,” migrate UI label/icon mapping so priority renders as star consistently in:
+- email list row hover actions
+- opened email toolbar
+- any action menu
+- tooltip text
+- keyboard/action labels
+
+C) Add quick action buttons on opened email toolbar
+When an email is open, the toolbar should include these actions with clear icons/tooltips:
+
+1. Close/back to list
+2. Mark read/unread toggle
+3. Delete/archive existing actions
+4. Priority/star
+5. Pin
+6. Snooze / Later
+7. Move to spam
+8. Block sender
+9. Trust/unblock sender — only show prominently when email is in Spam or sender is blocked
+10. More actions menu
+
+D) Add row hover quick actions in inbox list
+On each email row hover, show compact quick actions:
+- Priority/star
+- Pin
+- Snooze/Later
+- Spam/block shortcut if appropriate
+- Trust/unblock if in Spam
+
+Make sure these buttons:
+- do not accidentally open the email row when clicked
+- call event.stopPropagation()
+- show correct tooltip
+- update local state immediately
+- persist to backend
+
+E) Block sender behavior
+Add/confirm backend support for blocking a sender.
+
+When user clicks “Block sender”:
+- Add sender email/domain rule to blocked senders table/rules.
+- Move current email to Spam.
+- Future inbound emails from that sender should automatically sort into Spam.
+- Show confirmation toast:
+  “Blocked sender and moved email to Spam.”
+
+Use sender email, not display name.
+
+F) Move to Spam + block behavior
+For action “Move to spam and block future emails”:
+- Move selected email/thread to Spam.
+- Add sender to blocked list.
+- Remove from Inbox.
+- Update local folder counts.
+- Persist to Gmail if applicable by adding SPAM label/removing INBOX, or using Gmail spam behavior if supported.
+
+G) Trust / unblock sender behavior
+This is needed because emails sometimes get incorrectly sorted into Spam.
+
+When viewing an email in Spam or from a blocked sender:
+Show a “Trust sender” or shield/check action.
+
+When clicked:
+- Remove sender from blocked sender rules.
+- Move current email/thread to Inbox.
+- Mark sender as trusted/allowlisted.
+- Future inbound emails from this sender should not be sorted into Spam by VoltSafe Mail rules.
+- Show toast:
+  “Trusted sender and moved email to Inbox.”
+
+Backend should support trusted_senders / allowlist or equivalent rule priority:
+trusted sender beats spam/block/category automation.
+
+H) Snooze / Later behavior
+Add/confirm Snooze/Later action:
+- Email can be moved out of Inbox into Later/Snoozed.
+- It should still be findable in All.
+- It should be treated as “needs reply later,” not archived forever.
+- Minimal first version can offer:
+  - Later today
+  - Tomorrow
+  - Next week
+  - Pick date/time if existing date picker exists
+- Add labels/status:
+  snoozed_until or later=true
+- At snooze time, return email to Inbox / Needs Reply / Later queue depending existing architecture.
+
+I) Data model/rules
+Audit existing DB schema before adding anything. Reuse existing columns/tables where possible.
+
+Likely needed concepts:
+- is_read or Gmail UNREAD label mapping
+- is_priority
+- is_pinned
+- is_blocked_sender or blocked_senders table
+- trusted_senders / allowlist table
+- is_spam / folder label
+- snoozed_until
+
+If tables are missing, add safe migrations.
+
+J) UX consistency requirements
+- Star = Priority everywhere.
+- Pin = Pin everywhere.
+- Shield/check = Trust sender / unblock.
+- Ban icon = Block sender.
+- Clock = Snooze/Later.
+- Flame/trash/spam icon can be spam depending existing icon set, but tooltip must be explicit.
+- Buttons inside row must not trigger row open.
+- Buttons in toolbar must not conflict with drag/modal handlers.
+- Tooltips must match actual action.
+
+K) Tests / verification
+Add or update tests for:
+1. Opening unread email marks it read locally and backend.
+2. Unread count decreases after opening unread email.
+3. Opening already-read email does not double-decrement unread count.
+4. Mark unread toggle still works.
+5. Priority action uses star icon/label in row and toolbar.
+6. Clicking row quick action does not open email.
+7. Pin toggles in row and toolbar.
+8. Block sender moves email to Spam and blocks future sender sorting.
+9. Trust sender removes block/allowlists sender and moves email to Inbox.
+10. Snooze/Later removes email from Inbox and keeps it accessible in All/Later.
+11. Gmail sync path removes UNREAD when email opened.
+12. Spam/trust rules survive refresh and reload.
+
+Manual verification:
+- Open a new unread inbox email. It should immediately become read.
+- Confirm unread count drops from 202 to 201 or correct value.
+- Refresh page. Email should still be read.
+- Click star in row. Same priority state should show in opened toolbar.
+- Open email. Toolbar should show star priority, pin, snooze, block/spam actions.
+- Click row star/pin/snooze. Email should not open unless row body is clicked.
+- Move a sender to spam + block. Future messages from sender route to Spam.
+- In Spam, click Trust sender. Email moves to Inbox and sender stops being spammed.
+
+Deliverable:
+- Root cause of unread not changing
+- Files changed
+- DB migration notes if any
+- Tests run
+- Manual verification checklist results
