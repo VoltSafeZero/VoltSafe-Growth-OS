@@ -1,0 +1,114 @@
+Critical production bug: category badge count exists but category list returns zero.
+
+Current screenshot:
+
+* trevor@voltsafe.com
+* Inbox = 185
+* Updates badge = 29
+* Updates tab selected
+* Main list says “No messages found”
+* Breadcrumb says Inbox > Updates
+* This is after successful republish.
+
+This means the Updates count endpoint sees 29 unread Updates threads, but the Updates list query returns 0.
+
+Audit first, then fix only the proven root cause.
+
+Tasks:
+
+1. Capture the exact network request when clicking Updates.
+    Return:
+
+* URL
+* q param
+* account/asAccountId param
+* crmFilter
+* inboxCategory
+* React query key
+* response status
+* returned message count
+* nextPageToken
+
+Expected query should likely be:
+q=in:updates is:unread
+
+2. Capture the backend SQL for that exact request.
+    Return:
+
+* buildQClauses output
+* final WHERE clause
+* source_account_id scope
+* row count before pagination
+* row count after pagination
+
+3. Compare directly against the badge query.
+    For the exact same account scope, run:
+
+A. Count endpoint logic:
+is_inbox = true
+AND is_unread = true
+AND smart_category = ‘updates’
+
+B. List endpoint logic:
+whatever q=in:updates is:unread generates
+
+Return both counts. They must match. If not, explain the exact divergence.
+
+4. Check the production deployed bundle.
+    Confirm the production frontend actually contains the recent fix:
+
+* Updates query should include is:unread
+* People query should be in:people, not in:inbox in:people
+* loadMoreInbox should use inboxCategoryQ, not hardcoded in:inbox
+* category switch reset effect should depend on inboxCategory
+
+This may be a stale frontend bundle / failed deploy issue.
+
+5. Check backend production code path.
+    Confirm production buildQClauses has:
+
+* in:updates → is_inbox = true AND smart_category = ‘updates’
+* is:unread → is_unread = true
+
+6. Check account scope.
+    The badge and list must use the same source_account_id set.
+    Return:
+
+* resolved account IDs for category-counts
+* resolved account IDs for /api/gmail/messages
+
+7. Fix only the proven issue.
+
+Likely causes:
+
+* production frontend did not include the latest category query fix
+* q param is wrong
+* buildQClauses is parsing only one token again
+* account scope mismatch
+* stale React Query cache
+* backend list route is not using the same deployed code as count route
+
+8. Verification:
+
+* Updates badge 29 → Updates list loads unread Updates threads
+* People loads matching unread People threads
+* Promotions loads matching unread Promotions threads
+* Social loads matching unread Social threads
+* Inbox > All still loads historical messages
+* Unread still works
+
+9. Run:
+
+* inbox-category-unread-filter.test.cjs
+* inbox-category-visibility.test.cjs
+* inbox-count-reconciliation.test.cjs
+* inbox-completeness.test.cjs
+* full relevant mail tests
+
+Return:
+
+* root cause
+* exact request URL before/after
+* exact SQL before/after
+* production screenshot proof
+* test results
