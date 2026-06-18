@@ -1776,3 +1776,24 @@ export async function migrateDerivedLabelColumns(): Promise<void> {
     console.error("[migration] derived label columns error (non-fatal):", err);
   }
 }
+
+// Creates the blocked_senders table for exact-email sender blocks.
+// Separate from email_filters (which stores domain-level blocks).
+// Exact-email blocks are the primary "Block sender" action — they block
+// a specific address without affecting other users of the same domain
+// (which is important for large consumer domains like gmail.com).
+export async function migrateBlockedSenders(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS blocked_senders (
+        id SERIAL PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        added_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[migration] blocked_senders table ready.");
+  } catch (err) {
+    console.error("[migration] migrateBlockedSenders error (non-fatal):", err);
+  }
+}

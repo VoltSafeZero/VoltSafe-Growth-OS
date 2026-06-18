@@ -12768,6 +12768,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       //    1. Store in spam_trusted_senders (local fast-path guard for incremental sync).
       //    2. Create a Gmail filter "from:<sender> → never spam" in every accessible
       //       mailbox account (best-effort — failures are non-fatal).
+      //    3. Remove from blocked_senders (exact-email block table) if present so
+      //       the "Trust Sender" action fully undoes a previous block.
       const senderEmail = anchorMeta.fromEmail?.trim().toLowerCase();
       if (senderEmail && result.ok) {
         try {
@@ -12776,6 +12778,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           );
         } catch (e: any) {
           console.warn("[inbox-not-spam] trusted-sender insert failed (non-fatal):", e?.message);
+        }
+        try {
+          await db.execute(sql`DELETE FROM blocked_senders WHERE email = ${senderEmail}`);
+        } catch (e: any) {
+          console.warn("[inbox-not-spam] blocked-sender delete failed (non-fatal):", e?.message);
         }
         // Note: gmail.users.settings.filters.create requires the
         // gmail.settings.basic OAuth scope which is not in our current grant.
@@ -12788,6 +12795,109 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     } catch (err: any) {
       console.error("[inbox-not-spam] unexpected error:", err?.message);
       res.status(500).json({ message: err?.message || "not-spam failed" });
+    }
+  });
+
+  // POST /api/inbox/threads/:threadId/mark-spam
+  // Adds SPAM label, removes INBOX label from all messages in the thread.
+  // Mirrors to local DB and calls Gmail API (best-effort per account).
+  // Used by the "Block sender" and "Mark as Spam" actions.
+  app.post("/api/inbox/threads/:threadId/mark-spam", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const threadId = String(req.params.threadId);
+    try {
+      const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+      const accessibleAccountIds = await getAccessibleAccountIds(userId, _ia, _mtp);
+      if (accessibleAccountIds.length === 0) {
+        return res.status(403).json({ message: "No accessible mailboxes" });
+      }
+      const safeThreadId = threadId.replace(/'/g, "''");
+      const threadMsgs = await db.execute(sql.raw(`
+        SELECT DISTINCT source_account_id
+        FROM email_messages
+        WHERE gmail_thread_id = '${safeThreadId}'
+          AND source_account_id IN (${accessibleAccountIds.join(",")})
+      `));
+      const rows = ((threadMsgs as any).rows ?? threadMsgs) as { source_account_id: number }[];
+      if (rows.length === 0) {
+        return res.status(404).json({ message: "Thread not found in any accessible mailbox" });
+      }
+      const accountIds = [...new Set(rows.map((r) => r.source_account_id))];
+      if (!(await requireAccountEditAccess(req, res, accountIds[0]))) return;
+
+      for (const accId of accountIds) {
+        try {
+          const gmail = await getGmailClient(userId, accId);
+          await gmail.users.threads.modify({
+            userId: "me",
+            id: threadId,
+            requestBody: { addLabelIds: ["SPAM"], removeLabelIds: ["INBOX"] },
+          });
+        } catch (gmailErr: any) {
+          console.warn(`[mark-spam] Gmail API failed acct=${accId} thread=${threadId}:`, gmailErr?.message ?? gmailErr);
+        }
+      }
+
+      try {
+        const { mirrorLabelChangeForThreads } = await import("./services/local-label-mirror");
+        await mirrorLabelChangeForThreads([threadId], null, { add: ["SPAM"], remove: ["INBOX"] });
+      } catch (mirrorErr: any) {
+        console.warn(`[mark-spam] mirror failed thread=${threadId}:`, mirrorErr?.message ?? mirrorErr);
+      }
+
+      res.json({ ok: true, threadId });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "mark-spam failed" });
+    }
+  });
+
+  // ── Blocked senders (exact-email level) ─────────────────────────────────────
+  // Separate from email_filters (domain-level blocks).
+  // Broad consumer domains (gmail.com, outlook.com, etc.) should not be
+  // blocked at the domain level — only at the exact-email level.
+
+  // GET /api/blocked-senders — list exact-email blocks
+  app.get("/api/blocked-senders", requireAuth, async (req, res) => {
+    try {
+      const result = await db.execute(sql`SELECT id, email, added_by, created_at FROM blocked_senders ORDER BY created_at DESC`);
+      const rows = (result as any).rows ?? result;
+      res.json(Array.isArray(rows) ? rows : []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/blocked-senders — block an exact sender email address
+  app.post("/api/blocked-senders", requireAuth, async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== "string") return res.status(400).json({ message: "email required" });
+      const normalised = email.toLowerCase().trim();
+      if (!normalised.includes("@")) return res.status(400).json({ message: "Invalid email address" });
+      const domainPart = normalised.split("@").pop() ?? "";
+      if (!domainPart || domainPart.length < 3) return res.status(400).json({ message: "Invalid email domain" });
+      const result = await db.execute(
+        sql`INSERT INTO blocked_senders (email, added_by)
+            VALUES (${normalised}, ${(req.session as any).userId})
+            ON CONFLICT (email) DO NOTHING
+            RETURNING id, email, added_by, created_at`
+      );
+      const rows = (result as any).rows ?? [];
+      res.json(rows[0] || { email: normalised });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/blocked-senders/:id — unblock a sender email
+  app.delete("/api/blocked-senders/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql`DELETE FROM blocked_senders WHERE id = ${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -17737,6 +17847,24 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const { domain } = req.body;
       if (!domain) return res.status(400).json({ message: "domain required" });
       const normalised = domain.toLowerCase().trim();
+      // Guard: never block broad consumer/provider domains at the domain level.
+      // These domains serve millions of users — a domain block would filter
+      // legitimate emails from all contacts who use the same provider.
+      // Use /api/blocked-senders to block specific addresses from these domains.
+      const BROAD_EMAIL_DOMAINS = new Set([
+        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "hotmail.co.uk",
+        "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
+        "yahoo.com", "yahoo.co.uk", "yahoo.fr", "yahoo.de",
+        "proton.me", "protonmail.com", "protonmail.ch",
+        "aol.com", "comcast.net", "verizon.net", "att.net",
+        "fastmail.com", "hey.com", "gmx.com", "gmx.net", "mail.com",
+      ]);
+      if (BROAD_EMAIL_DOMAINS.has(normalised)) {
+        return res.status(400).json({
+          message: `"${normalised}" is a widely-used email provider. Block the specific sender address instead.`,
+          broadDomain: true,
+        });
+      }
       const [row] = await db.insert(emailFilters)
         .values({ domain: normalised, addedBy: req.session.userId })
         .onConflictDoNothing()

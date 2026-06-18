@@ -104,7 +104,12 @@ export interface ActionsToolbarHandlers {
   onReply: () => void;
   onMove: () => void;
   onMarkSpam: () => void;
+  /** Block exact sender email address + move to spam. */
   onBlock: () => void;
+  /** Block the sender's entire domain + move to spam. Separate from onBlock. */
+  onBlockDomain?: () => void;
+  /** Trust this sender — move to inbox and whitelist them. Visible when isSpamView or isBlocked. */
+  onTrustSender?: () => void;
   /** Remove SPAM label and move to Inbox. Only called when isSpamView=true. */
   onNotSpam?: () => void;
 }
@@ -132,6 +137,10 @@ export interface EmailActionsToolbarProps {
   canReply: boolean;
   /** When true, shows "Not Spam" as a prominent action and hides irrelevant Inbox actions. */
   isSpamView?: boolean;
+  /** The sender's email address — used to label the "Block sender" action. */
+  senderEmail?: string;
+  /** True when this sender is already in the blocked_senders list. */
+  isBlocked?: boolean;
   handlers: ActionsToolbarHandlers;
   /** Optional callback fired AFTER assignedUserId is mutated successfully so the parent can refresh queries. */
   onAssignChanged?: (userId: number | null) => void;
@@ -234,6 +243,8 @@ function EmailActionsToolbarImpl({
   readOnly = false,
   canReply,
   isSpamView = false,
+  senderEmail = "",
+  isBlocked = false,
   handlers,
   onAssignChanged,
 }: EmailActionsToolbarProps) {
@@ -830,9 +841,20 @@ function EmailActionsToolbarImpl({
                   <Send className="h-3.5 w-3.5 mr-2" /> Send again
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                {(isBlocked || isSpamView) && handlers.onTrustSender && (
+                  <DropdownMenuItem onClick={handlers.onTrustSender} data-testid="more-trust-sender" className="text-emerald-400 focus:text-emerald-400">
+                    <ShieldCheck className="h-3.5 w-3.5 mr-2" /> Trust sender
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={handlers.onBlock} data-testid="more-block">
-                  <Ban className="h-3.5 w-3.5 mr-2" /> Block sender
+                  <Ban className="h-3.5 w-3.5 mr-2" />
+                  {senderEmail ? `Block ${senderEmail}` : "Block sender"}
                 </DropdownMenuItem>
+                {handlers.onBlockDomain && (
+                  <DropdownMenuItem onClick={handlers.onBlockDomain} data-testid="more-block-domain" className="text-amber-400/80 focus:text-amber-400">
+                    <Ban className="h-3.5 w-3.5 mr-2" /> Block entire domain
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={handlers.onMove} data-testid="more-move">
                   <FolderInput className="h-3.5 w-3.5 mr-2" /> Move to folder
                 </DropdownMenuItem>

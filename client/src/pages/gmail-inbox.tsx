@@ -5303,6 +5303,19 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     [filtersQuery.data],
   );
 
+  const blockedSendersQuery = useQuery<{ id: number; email: string }[]>({
+    queryKey: ["/api/blocked-senders"],
+    queryFn: async () => {
+      const res = await fetch("/api/blocked-senders", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  const blockedEmails = useMemo(
+    () => new Set((blockedSendersQuery.data || []).map((r) => r.email.toLowerCase())),
+    [blockedSendersQuery.data],
+  );
+
   const foldersQuery = useQuery<MailFolder[]>({
     queryKey: ["/api/mail-folders"],
     queryFn: async () => {
@@ -5463,13 +5476,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const flagMutation = useMutation({
     mutationFn: async (domain: string) => {
       const res = await apiRequest("POST", "/api/email-filters", { domain });
-      return res.json();
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message || "Domain block failed");
+      return body;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-filters"] });
-      toast({ title: "Domain blocked", description: "Future emails from this sender will go to Spam." });
+      toast({ title: "Domain blocked", description: "Future emails from this domain will go to Spam." });
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Block domain failed", description: err.message, variant: "destructive" }),
   });
 
   const unblockMutation = useMutation({
@@ -5479,9 +5494,44 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/email-filters"] });
-      toast({ title: "Domain unblocked", description: "Emails from this sender will appear in your inbox again." });
+      toast({ title: "Domain unblocked", description: "Emails from this domain will appear in your inbox again." });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  // Block an exact sender email address + move the thread to Spam.
+  // Uses the blocked_senders table (not email_filters which is domain-level).
+  const blockSenderMutation = useMutation({
+    mutationFn: async ({ senderEmail, threadId }: { senderEmail: string; threadId: string }) => {
+      await apiRequest("POST", "/api/blocked-senders", { email: senderEmail });
+      const spamRes = await apiRequest("POST", `/api/inbox/threads/${encodeURIComponent(threadId)}/mark-spam`, {});
+      if (!spamRes.ok) { const b = await spamRes.json(); throw new Error(b.message || "mark-spam failed"); }
+      return { senderEmail, threadId };
+    },
+    onSuccess: ({ threadId }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blocked-senders"] });
+      const removeThread = (old: any) =>
+        old ? { ...old, messages: old.messages.filter((m: any) => m.threadId !== threadId) } : old;
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeThread);
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "spam"] });
+      if (selectedThreadId === threadId) { setSelectedThreadId(null); setSelectedMessageId(null); }
+      invalidateBadgeQueries();
+      toast({ title: "Sender blocked", description: "Moved to Spam. Future emails from this sender will be filtered." });
+    },
+    onError: (err: any) => toast({ title: "Block failed", description: err.message, variant: "destructive" }),
+  });
+
+  // Unblock a specific sender email address (removes from blocked_senders table).
+  const unblockSenderMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/blocked-senders/${id}`);
+      return id;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blocked-senders"] });
+      toast({ title: "Sender unblocked", description: "Emails from this sender will appear in your inbox." });
+    },
+    onError: (err: any) => toast({ title: "Unblock failed", description: err.message, variant: "destructive" }),
   });
 
   const syncMutation = useMutation({
@@ -7123,6 +7173,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       //    after the server has applied the label change (remove SPAM, add INBOX).
       queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "inbox"] });
 
+      // 4. Refresh blocked-senders — the not-spam route also removes the sender
+      //    from blocked_senders, so the unblock is reflected immediately.
+      queryClient.invalidateQueries({ queryKey: ["/api/blocked-senders"] });
+
       if (remainingSpam === 0 && selectedThreadId === threadId) {
         setSelectedThreadId(null);
         setSelectedMessageId(null);
@@ -7323,14 +7377,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   );
 
   const inboxMainRaw = canSend
-    ? allInboxMessages.filter((m) => !blockedDomains.has(parseSenderDomain(m.from)))
+    ? allInboxMessages.filter(
+        (m) =>
+          !blockedDomains.has(parseSenderDomain(m.from)) &&
+          !blockedEmails.has((m.fromEmail || "").toLowerCase()),
+      )
     : allInboxMessages;
   // Apply thread dedup AFTER the blocked-domain filter so a blocked reply can't
   // "shadow" a valid earlier message in the same thread.
   const inboxMain = dedupByThread(inboxMainRaw);
 
   const inboxOther = canSend
-    ? allInboxMessages.filter((m) => blockedDomains.has(parseSenderDomain(m.from)))
+    ? allInboxMessages.filter(
+        (m) =>
+          blockedDomains.has(parseSenderDomain(m.from)) ||
+          blockedEmails.has((m.fromEmail || "").toLowerCase()),
+      )
     : [];
   // Exclude threads the user has explicitly rescued via Not Spam from the
   // blocked-domain overlay. inboxOther items always survive an inbox refetch
@@ -10256,6 +10318,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               const isBulkChecked = selectedInboxIds.has(msg.threadId);
               const domain = parseSenderDomain(msg.from);
               const blocked = blockedDomains.has(domain);
+              const rowSenderEmail = (msg.fromEmail || "").toLowerCase();
+              const emailBlocked = !!rowSenderEmail && blockedEmails.has(rowSenderEmail);
+              const emailBlockRecord = emailBlocked
+                ? (blockedSendersQuery.data || []).find((r) => r.email === rowSenderEmail)
+                : null;
               const senderName = tab === "sent"
                 ? (msg.to ? `→ ${parseSenderName(msg.to)}` : "Unknown")
                 : (msg.fromName?.trim() || msg.fromEmail?.trim() || parseSenderName(msg.from) || "Unknown");
@@ -10492,13 +10559,31 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       <motion.button
                         whileTap={{ scale: 0.82 }}
                         whileHover={{ scale: 1.1 }}
-                        title={blocked ? `Unblock @${domain}` : `Block @${domain}`}
-                        aria-label={blocked ? `Unblock @${domain}` : `Block @${domain}`}
+                        title={
+                          emailBlocked
+                            ? `Unblock ${rowSenderEmail}`
+                            : rowSenderEmail
+                            ? `Block ${rowSenderEmail}`
+                            : blocked
+                            ? `Unblock @${domain}`
+                            : `Block @${domain}`
+                        }
+                        aria-label={
+                          emailBlocked
+                            ? `Unblock ${rowSenderEmail}`
+                            : rowSenderEmail
+                            ? `Block ${rowSenderEmail}`
+                            : `Block @${domain}`
+                        }
                         tabIndex={-1}
                         data-testid={`button-flag-${msg.id}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (blocked) {
+                          if (emailBlocked && emailBlockRecord) {
+                            unblockSenderMutation.mutate(emailBlockRecord.id);
+                          } else if (rowSenderEmail) {
+                            blockSenderMutation.mutate({ senderEmail: rowSenderEmail, threadId: msg.threadId });
+                          } else if (blocked) {
                             const filter = (filtersQuery.data || []).find((f) => f.domain === domain);
                             if (filter) unblockMutation.mutate(filter.id);
                           } else {
@@ -10506,10 +10591,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           }
                         }}
                         className={`p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
-                          blocked ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10"
+                          emailBlocked || blocked
+                            ? "text-amber-400 hover:text-amber-300"
+                            : "text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10"
                         }`}
                       >
-                        {blocked ? <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> : <Ban className="h-3.5 w-3.5" aria-hidden="true" />}
+                        {emailBlocked || blocked
+                          ? <ShieldCheck className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
+                          : <Ban className="h-3.5 w-3.5" aria-hidden="true" />}
                       </motion.button>
                     )}
                   </div>
@@ -10649,6 +10738,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   assignedUserId={readerAssignedUserId}
                   canReply={canSend}
                   isSpamView={tab === "spam"}
+                  senderEmail={focusedMsg.fromEmail?.toLowerCase() || ""}
+                  isBlocked={blockedEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")}
                   handlers={{
                     onClose: handleBack,
                     onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
@@ -10665,12 +10756,32 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     onSendAgain: () => handleReply(focusedMsg),
                     onReply: () => handleReply(focusedMsg),
                     onMove: () => archiveThreadMutation.mutate(selectedThreadId),
-                    onMarkSpam: () => archiveThreadMutation.mutate(selectedThreadId),
+                    onMarkSpam: () => {
+                      apiRequest("POST", `/api/inbox/threads/${encodeURIComponent(selectedThreadId)}/mark-spam`, {})
+                        .then(() => {
+                          const rm = (old: any) => old ? { ...old, messages: old.messages.filter((m: any) => m.threadId !== selectedThreadId) } : old;
+                          queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, rm);
+                          queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "spam"] });
+                          invalidateBadgeQueries();
+                          setSelectedThreadId(null); setSelectedMessageId(null);
+                          toast({ title: "Moved to Spam" });
+                        })
+                        .catch((e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }));
+                    },
                     onBlock: () => {
+                      const _email = focusedMsg.fromEmail?.toLowerCase().trim() || "";
+                      if (_email) blockSenderMutation.mutate({ senderEmail: _email, threadId: selectedThreadId });
+                      else archiveThreadMutation.mutate(selectedThreadId);
+                    },
+                    onBlockDomain: () => {
                       const _domain = parseSenderDomain(focusedMsg.from || focusedMsg.fromEmail || "");
-                      if (_domain) flagMutation.mutate(_domain);
+                      const BROAD = new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","msn.com","icloud.com","me.com","yahoo.com","proton.me","protonmail.com","aol.com","fastmail.com","hey.com"]);
+                      if (!_domain) return;
+                      if (BROAD.has(_domain)) { toast({ title: "Domain too broad", description: `"${_domain}" is a widely-used provider. Block the specific sender instead.`, variant: "destructive" }); return; }
+                      flagMutation.mutate(_domain);
                       archiveThreadMutation.mutate(selectedThreadId);
                     },
+                    onTrustSender: () => notSpamMutation.mutate(selectedThreadId),
                     onNotSpam: () => notSpamMutation.mutate(selectedThreadId),
                   }}
                   onAssignChanged={() => {
@@ -10698,6 +10809,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     assignedUserId={readerAssignedUserId}
                     canReply={canSend}
                     isSpamView={tab === "spam"}
+                    senderEmail={focusedMsg.fromEmail?.toLowerCase() || ""}
+                    isBlocked={blockedEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")}
                     handlers={{
                       onClose: handleBack,
                       onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
@@ -10714,12 +10827,32 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       onSendAgain: () => handleReply(focusedMsg),
                       onReply: () => handleReply(focusedMsg),
                       onMove: () => archiveThreadMutation.mutate(selectedThreadId),
-                      onMarkSpam: () => archiveThreadMutation.mutate(selectedThreadId),
+                      onMarkSpam: () => {
+                        apiRequest("POST", `/api/inbox/threads/${encodeURIComponent(selectedThreadId)}/mark-spam`, {})
+                          .then(() => {
+                            const rm = (old: any) => old ? { ...old, messages: old.messages.filter((m: any) => m.threadId !== selectedThreadId) } : old;
+                            queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, rm);
+                            queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages", "spam"] });
+                            invalidateBadgeQueries();
+                            setSelectedThreadId(null); setSelectedMessageId(null);
+                            toast({ title: "Moved to Spam" });
+                          })
+                          .catch((e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }));
+                      },
                       onBlock: () => {
+                        const _email = focusedMsg.fromEmail?.toLowerCase().trim() || "";
+                        if (_email) blockSenderMutation.mutate({ senderEmail: _email, threadId: selectedThreadId });
+                        else archiveThreadMutation.mutate(selectedThreadId);
+                      },
+                      onBlockDomain: () => {
                         const _domain = parseSenderDomain(focusedMsg.from || focusedMsg.fromEmail || "");
-                        if (_domain) flagMutation.mutate(_domain);
+                        const BROAD = new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","msn.com","icloud.com","me.com","yahoo.com","proton.me","protonmail.com","aol.com","fastmail.com","hey.com"]);
+                        if (!_domain) return;
+                        if (BROAD.has(_domain)) { toast({ title: "Domain too broad", description: `"${_domain}" is a widely-used provider. Block the specific sender instead.`, variant: "destructive" }); return; }
+                        flagMutation.mutate(_domain);
                         archiveThreadMutation.mutate(selectedThreadId);
                       },
+                      onTrustSender: () => notSpamMutation.mutate(selectedThreadId),
                       onNotSpam: () => notSpamMutation.mutate(selectedThreadId),
                     }}
                     onAssignChanged={() => {

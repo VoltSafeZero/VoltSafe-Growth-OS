@@ -1,3 +1,4 @@
+- [Block Sender System](block-sender-system.md) — exact-email blocking via blocked_senders table; separate from email_filters (domain-level); broad-domain guard on POST /api/email-filters; mark-spam route; trust-sender deletes from blocked_senders.
 - [CID Viewer Fixes](cid-viewer-fixes.md) — three root causes for broken inline images in viewer: isInline bug in parser, undefined gmailMessageId, old-DB-row attachment filter; tests/cid-viewer.test.cjs.
 - [Sig CID Disposition](sig-cid-disposition.md) — CID inline image MIME parts must have Content-Disposition: inline; without it Apple Mail renders image twice (inline + attachment ghost).
 - [Mail Trust Hardening Phase 1](mail-trust-hardening-phase1.md) — C1/C2/C3/C4 implemented; key patterns for send idempotency, draft fallback, localStorage scoping, scheduled retry.
