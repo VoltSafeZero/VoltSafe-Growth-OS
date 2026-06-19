@@ -10270,9 +10270,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   );
                 }
 
-                const label = needsServerFetch
-                  ? `Show loaded (${total} of ${serverTotal})`
-                  : `Show all (${total})`;
+                const label = "Show all";
 
                 return (
                   <button
