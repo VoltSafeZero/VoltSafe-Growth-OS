@@ -266,8 +266,11 @@ export async function markNotSpam(
       labelSet.delete("SPAM");
       labelSet.add("INBOX");
       const serialized = esc(serializeLabels(labelSet));
+      // Also update derived columns immediately so inbox queries and the spam
+      // view reflect the restored state without waiting for the next Gmail sync.
+      // is_unread is intentionally NOT touched — preserve per-message read truth.
       await db.execute(sql.raw(
-        `UPDATE email_messages SET label_ids = '${serialized}' WHERE id = ${msg.id}`,
+        `UPDATE email_messages SET label_ids = '${serialized}', is_spam = false, is_inbox = true WHERE id = ${msg.id}`,
       ));
       result.updatedLocal++;
     } catch (e: any) {

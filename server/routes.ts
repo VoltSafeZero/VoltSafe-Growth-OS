@@ -12934,6 +12934,21 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         console.warn(`[mark-spam] mirror failed thread=${threadId}:`, mirrorErr?.message ?? mirrorErr);
       }
 
+      // Immediately update derived columns so the spam view shows the message and
+      // the inbox badge drops — without waiting for the next Gmail incremental sync.
+      // is_unread is intentionally NOT touched: a thread can have a mix of read and
+      // unread messages, and spam actions work at thread granularity; corrupting
+      // per-message read state would be wrong. Inbox badge is driven by is_inbox,
+      // so setting is_inbox=false is sufficient to make the badge drop correctly.
+      try {
+        const safeId = threadId.replace(/'/g, "''");
+        await db.execute(sql.raw(
+          `UPDATE email_messages SET is_spam = true, is_inbox = false WHERE gmail_thread_id = '${safeId}'`,
+        ));
+      } catch (derivedErr: any) {
+        console.warn(`[mark-spam] derived-column update failed thread=${threadId}:`, derivedErr?.message ?? derivedErr);
+      }
+
       res.json({ ok: true, threadId });
     } catch (err: any) {
       res.status(500).json({ message: err?.message || "mark-spam failed" });

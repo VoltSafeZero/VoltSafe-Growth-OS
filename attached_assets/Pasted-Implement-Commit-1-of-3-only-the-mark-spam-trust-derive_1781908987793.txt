@@ -1,0 +1,138 @@
+Implement Commit 1 of 3 only: the mark-spam / trust derived-column fix.
+
+Stop after this commit for .dev verification before any domain-block deletion or email_filters retirement.
+
+Context confirmed by audit:
+block / mark-spam and trust / not-spam currently update label_ids and rely on the next Gmail sync to repair derived columns like is_inbox, is_spam, and is_unread.
+
+That creates the split-brain bug:
+
+* Inbox list hides the message immediately because label_ids contains SPAM.
+* Inbox badge still counts it because is_inbox may remain true.
+* Spam view may not show it because is_spam may remain false.
+* Derived columns only become correct after a later Gmail sync.
+
+Goal:
+When Spam/Inbox label state changes, update the matching derived columns immediately in the same local DB operation.
+
+Scope:
+Only fix:
+
+* POST /api/inbox/threads/:threadId/mark-spam
+* POST /api/inbox/threads/:threadId/not-spam
+* Any shared mirror/update helper those routes already use.
+
+Do not:
+
+* Delete domain-block / Other-tab machinery.
+* Touch email_filters.
+* Change /api/blocked-senders exact-email insert behavior.
+* Add schema or migrations.
+* Use db:push.
+* Touch Gmail sync/OAuth, smartCategory, CRM, signatures, tracking, CID, reply, forward, or unrelated inbox logic.
+
+A. Fix mark-spam
+
+When POST /api/inbox/threads/:threadId/mark-spam runs:
+
+After the Gmail threads.modify({ addLabelIds: ["SPAM"], removeLabelIds: ["INBOX"] }) best-effort call, update the local DB for all messages in that thread so that:
+
+* label_ids contains "SPAM"
+* label_ids does not contain "INBOX"
+* is_spam = true
+* is_inbox = false
+
+Do not force is_unread.
+
+Important:
+Leave each message’s is_unread unchanged. A thread can contain messages that were already read and messages that were unread. Bulk-setting read/unread from a thread-level spam action corrupts per-message read truth. Spam messages stop affecting the inbox badge because is_inbox=false; their unread state should remain truthful.
+
+B. Fix trust / not-spam
+
+When POST /api/inbox/threads/:threadId/not-spam runs:
+
+After the Gmail threads.modify({ removeLabelIds: ["SPAM"], addLabelIds: ["INBOX"] }) best-effort call, update the local DB for all messages in that thread so that:
+
+* label_ids does not contain "SPAM"
+* label_ids contains "INBOX"
+* is_spam = false
+* is_inbox = true
+
+Keep existing behavior:
+
+* Delete exact sender from blocked_senders.
+* Insert exact sender into spam_trusted_senders.
+
+Do not blanket-set is_unread=true.
+
+Unread-state rule:
+Preserve truthful per-message read state. If the original unread state before spam is not recoverable, leave is_unread unchanged during trust. Do not mark an entire thread unread as a shortcut.
+
+C. Tests required
+
+Add behavioral tests using the existing real HTTP + real DB style, similar to block-sender-api.test.cjs.
+
+Required tests:
+
+1. mark-spam sets is_spam=true and is_inbox=false on all messages in the thread.
+2. mark-spam adds SPAM and removes INBOX from label_ids.
+3. mark-spam does not alter is_unread on an already-read message.
+4. mark-spam does not alter is_unread on an unread message.
+5. not-spam sets is_spam=false and is_inbox=true.
+6. not-spam removes SPAM and adds INBOX in label_ids.
+7. not-spam does not blanket-mark the thread unread.
+8. not-spam deletes the exact sender from blocked_senders.
+9. not-spam inserts the exact sender into spam_trusted_senders.
+10. Round-trip:
+    * message starts in Inbox
+    * mark-spam moves it out of Inbox and into Spam locally
+    * not-spam restores it to Inbox and out of Spam locally
+    * is_unread remains truthful throughout
+
+D. .dev verification required
+
+Use one real dev message/thread and show DB values before and after.
+
+Before:
+
+* label_ids
+* is_inbox
+* is_spam
+* is_unread
+
+After mark-spam:
+
+* label_ids
+* is_inbox=false
+* is_spam=true
+* is_unread unchanged
+
+After not-spam:
+
+* label_ids
+* is_inbox=true
+* is_spam=false
+* is_unread unchanged unless there is a specific truthful reason it changed
+
+Also verify:
+
+* Inbox badge decrements on mark-spam because is_inbox=false.
+* Spam view can see the message immediately because is_spam=true.
+* Inbox badge restores appropriately on trust because is_inbox=true.
+* No console errors.
+* No unrelated inbox behavior changed.
+
+E. Final report
+
+Provide:
+
+* Files changed
+* Exact route/helper changes
+* Tests added
+* Test results
+* DB before/after table from .dev
+* Confirmation is_unread was preserved
+* Confirmation no domain-block / Other-tab / email_filters code was touched
+* Any risks or follow-up notes
+
+Stop after Commit 1. Do not begin Commit 2.
