@@ -1,0 +1,37 @@
+Proceed. Step 1 (read-only diagnostics) FIRST and STOP for my review before any code change. Steps 2-3 are the fix once Step 1 confirms. Step 4 is AUDIT-ONLY this round — do not modify the overflow mutation. No DB data mutation anywhere in this work.
+Step 1 — Confirm (read-only, no writes). Report and STOP:
+
+For Trevor's active production account: count rows where is_inbox = true AND is_unread = true AND label_ids does NOT contain "UNREAD". Report the row count and distinct gmail_thread_id count.
+Sample 20 such rows: gmail_message_id, gmail_thread_id, subject, sent_at, label_ids, is_inbox, is_unread, smart_category.
+Confirm the live [INBOX-RESPONSE] / [INBOX-PIPELINE] logs show the predicted split (labelIdsMissingUNREAD > 0, pipeline dropping at the isUnread(m.labelIds) filter).
+Confirm frontend isUnread() currently depends on labelIds, not a server isUnread field.
+Stop here. Show me the confirmed mismatch count and the sample before writing any fix.
+
+Step 2-3 — The fix (only after I approve Step 1):
+
+Make /api/gmail/messages (listLocalMessages) return isUnread from the email_messages.is_unread column, mapped into the response shape — exactly the same additive pattern used to expose smartCategory in Phase 6B. Additive field only; do not change any existing field.
+Update frontend unread filtering to prefer the server field: m.isUnread ?? isUnread(m.labelIds). Keep the labelIds parse as the fallback for rows where isUnread is absent.
+Apply this everywhere the frontend currently derives unread state from labelIds for filtering/grouping (audit all call sites, same as the getEmailCategory sweep).
+Treat is_unread as canonical app state. Do NOT mutate label_ids to re-add "UNREAD". Do NOT run any UPDATE against email_messages. The divergence is fixed by the contract change, not by rewriting data.
+
+Step 4 — AUDIT ONLY (do not action this round):
+
+Locate the overflow / stripOldUnread code that strips "UNREAD" from label_ids for old messages. Report: exact file/line, what triggers it, what it updates, and whether it leaves label_ids and is_unread divergent.
+Do not delete, disable, or modify it this commit. Report its purpose and call sites so I can decide on a separate, dedicated commit. It's dangerous, but the contract fix neutralizes its display impact, so it does not need emergency action.
+
+Step 5 — Tests:
+
+API response includes isUnread.
+Frontend uses m.isUnread ?? isUnread(m.labelIds) (assert no bare isUnread(m.labelIds) remains in unread filtering paths).
+Behavioral, if feasible: a Smart Inbox unread view does NOT drop rows where isUnread=true but labelIds lacks "UNREAD".
+Legacy fallback still works when isUnread is absent.
+
+Step 6 — Verification (in .dev and then production):
+
+Unread badge count matches rendered unread rows for the loaded page.
+/api/gmail/messages?q=in:inbox is:unread response count matches the frontend pipeline count (the [INBOX-PIPELINE] log should no longer collapse to 2).
+No 204→2 drop.
+People/Updates/Promotions/Social render expected rows.
+
+Constraints: No DB data mutation. No db:push, no schema changes, no migrations. Additive response field only. Do not touch Gmail OAuth, account switching, smartCategory, CRM linking, sync auth, signatures, tracking, CID, reply, or forward. Remove the temporary [INBOX-*] logging before final, or flag it for me to confirm removal.
+Begin with Step 1 and stop for my review.
