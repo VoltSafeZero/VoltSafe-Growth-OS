@@ -1,0 +1,27 @@
+Proceed with live production browser tracing. No code changes except the temporary [INBOX-*] logging if not already deployed. No DB writes, no migrations, no sync changes. Stop after the report.THE PRIMARY FORK — answer this before anything else:Open Smart Inbox in a logged-in production session as Trevor (trevor@voltsafe.com selected, Inbox > All, Unread pill active, Smart Inbox mode). In the browser Network tab, find the /api/gmail/messages request and report, before discussing anything else:
+
+Full request URL including asAccountId, q, limit
+Raw response messages.length and nextPageToken
+First 10 rows: gmailMessageId, gmailThreadId, labelIds, smartCategory, sourceAccountId
+Then state explicitly which case this is:
+
+If raw response messages.length is ~50 (many unread): the API is fine, the drop is FRONTEND. Proceed to the pipeline trace below.
+If raw response messages.length is ~2: the API/scope is the problem, the frontend is innocent. Skip the pipeline trace; instead report what asAccountId and q the request used, and run the equivalent backend SQL for that exact asAccountId + q to compare the SQL row count against the API response count. Report whether asAccountId matches Trevor's actual account ID (1) or a shared mailbox (92/93).
+Deploy the logging first if needed. The [INBOX-*] tags currently exist in dev only — redeploy so they're live in production, then capture with DevTools console open. Confirm they're firing before relying on them.FRONTEND PIPELINE TRACE (only if the raw API response had ~50 rows):From [INBOX-PIPELINE], report the count at every stage so the exact drop point is visible:
+
+activeAccountId + activeAccountEmail (confirm it's Trevor / account 1, not 92/93)
+crmFilter, inboxCategory, inboxQueryKey
+inboxQuery.data message count
+allInboxMessages → inboxMain → categorizedInbox → activeMessages → crmFilteredMessages → viewItems → collapsedViewItems → rendered rows
+The drop from ~50 to 2 will be visible between two specific adjacent stages. Identify the exact stage boundary where the count collapses, then report the specific line/function responsible for that stage.ALSO CAPTURE (context, secondary to the fork):
+
+/api/gmail/accounts/health: account IDs + unreadCount per account, and which account the UI shows as selected.
+/api/gmail/category-counts: asAccountId + the five category counts.
+Whether a stale React Query cache could be serving an old 2-row response under Trevor's scope (case E) — check if the inboxQueryKey for the current view matches the key the 2-row response was cached under.
+Return:
+
+The primary fork answer first (raw API response + which case)
+The exact failure stage with line/function
+Root cause
+Smallest safe fix proposal
+Constraints: Logging-only code changes. No DB writes, no migrations, no schema changes, no sync/OAuth/account-switching/smartCategory/CRM/signature/tracking/CID/reply/forward changes. Remove or flag the temporary logging at the end. Stop after the report — do not apply the fix.
