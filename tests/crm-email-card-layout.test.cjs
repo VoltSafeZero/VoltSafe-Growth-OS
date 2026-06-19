@@ -231,16 +231,19 @@ test("FullBodyViewer uses sanitizeRichText for HTML", () => {
 
 console.log("\n[8] Expanded card — attachment count");
 
-test("Attachment count shown in message body when > 0", () => {
-  assertContains(emailsTabSrc, "attachment-count-${email.id}", "attachment-count-{id} testid");
+test("Attachment count shown in message body via AttachmentList component", () => {
+  // Phase 7.1: static badge replaced by expandable AttachmentList
+  assertContains(emailsTabSrc, "<AttachmentList", "AttachmentList component rendered");
 });
 
 test("Attachment count displays count number", () => {
   assertContains(emailsTabSrc, "email.attachmentCount", "email.attachmentCount display");
 });
 
-test("Attachment section has hint to open in VS Mail", () => {
-  assertContains(emailsTabSrc, "Open in VS Mail to download", "VS Mail download hint");
+test("Attachment section allows in-app view/download (no VS Mail redirect required)", () => {
+  // Phase 7.1: 'Open in VS Mail to download' hint removed; users can view/download directly
+  assertContains(emailsTabSrc, "button-download-attachment-${att.id}", "download button testid");
+  assertNotContains(emailsTabSrc, "Open in VS Mail to download", "old hint removed");
 });
 
 // ── Section 9: Open in VS Mail button ─────────────────────────────────────────

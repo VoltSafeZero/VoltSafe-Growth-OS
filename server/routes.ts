@@ -11662,8 +11662,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (!result) return res.status(502).json({ error: "Could not fetch attachment from Gmail" });
       // Strip CR/LF/quotes from filename to keep header parser happy
       const safeName = result.filename.replace(/[\r\n"]/g, "_");
+      // ?view=1 → serve inline (images + PDFs only; HTML/SVG always forced to attachment for XSS safety)
+      const wantsInline = req.query.view === "1";
+      const safeForInline = (result.mimeType.startsWith("image/") && result.mimeType !== "image/svg+xml")
+        || result.mimeType === "application/pdf";
+      const disposition = (wantsInline && safeForInline) ? "inline" : "attachment";
       res.setHeader("Content-Type", result.mimeType);
-      res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+      res.setHeader("Content-Disposition", `${disposition}; filename="${safeName}"`);
       res.setHeader("Content-Length", String(result.data.length));
       res.send(result.data);
     } catch (err: any) {
@@ -12000,6 +12005,53 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       }
     } catch (err: any) {
       console.error("[full-body] error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── CRM email attachment listing ──────────────────────────────────────────────
+  // GET /api/gmail/messages/:msgId/attachments
+  // Lists non-inline attachments (filename, mimeType, sizeBytes) for a given
+  // gmail_message_id. Used by CRM email cards so users can view/download
+  // attachments without leaving the Lead, Account, or Contact page.
+  // Auth: same owner-or-admin-or-shared-mailbox model as /full-body.
+  app.get("/api/gmail/messages/:msgId/attachments", requireAuth, async (req, res) => {
+    try {
+      const msgId = String(req.params.msgId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+      if (!msgId) return res.status(400).json({ error: "Invalid msgId" });
+      const userId = (req.session as any).userId as number;
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+
+      const msgRows = await db.execute(sql.raw(
+        `SELECT id, source_account_id FROM email_messages WHERE gmail_message_id = '${msgId.replace(/'/g, "''")}' LIMIT 1`
+      ));
+      const msgRow = ((msgRows as any).rows ?? msgRows)[0] as any;
+      if (!msgRow) return res.status(404).json({ error: "Message not found" });
+
+      const accountId = Number(msgRow.source_account_id);
+      const hasSharedAccess = mailTeamPerms[String(accountId)]?.view === true
+        || mailTeamPerms[String(accountId)]?.edit === true;
+      const ownerRows = await db.execute(sql.raw(
+        `SELECT user_id FROM email_accounts WHERE id = ${accountId} LIMIT 1`
+      ));
+      const ownerUserId = Number(((ownerRows as any).rows ?? ownerRows)[0]?.user_id ?? 0);
+      if (ownerUserId !== userId && !isAdmin && !hasSharedAccess) {
+        return res.status(403).json({ error: "Not allowed" });
+      }
+
+      const attRows = await db.execute(sql.raw(
+        `SELECT id, filename, mime_type AS "mimeType", size_bytes AS "sizeBytes"
+         FROM email_attachments
+         WHERE message_id = ${Number(msgRow.id)}
+           AND (is_inline IS NOT TRUE)
+         ORDER BY id`
+      ));
+      const attachments = ((attRows as any).rows ?? attRows) as Array<{
+        id: number; filename: string | null; mimeType: string | null; sizeBytes: number | null;
+      }>;
+      return res.json(attachments);
+    } catch (err: any) {
+      console.error("[gmail-attachments-list]", err.message);
       return res.status(500).json({ error: err.message });
     }
   });

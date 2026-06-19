@@ -77,8 +77,10 @@ check(
 );
 
 check(
-  '"Open in VS Mail" uses internal setLocation (not window.open or <a target=_blank>)',
-  src.includes("setLocation(") && !src.includes('target="_blank"')
+  '"Open in VS Mail" uses internal setLocation (not window.open)',
+  // target="_blank" is legitimately present on View attachment links (Phase 7.1);
+  // check that the VS Mail button itself uses setLocation and not window.open
+  src.includes("setLocation(") && !src.includes("window.open")
 );
 
 check(

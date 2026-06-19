@@ -9,6 +9,7 @@ import {
   Mail, RefreshCw, Link, Shield, AlertTriangle,
   Loader2, Eye, MousePointerClick, Clock, Flame, Zap, BarChart2, Inbox,
   Paperclip, ChevronDown, ChevronUp, Users, ArrowDownLeft, ArrowUpRight,
+  FileText,
 } from "lucide-react";
 import { Link as WouterLink, useLocation } from "wouter";
 import { sanitizeRichText } from "@/lib/sanitize-html";
@@ -52,6 +53,13 @@ type EmailThread = {
   hasMultiple: boolean;
 };
 
+type CrmAttachment = {
+  id: number;
+  filename: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+};
+
 type EngagementStats = {
   tracked: boolean;
   trackingId: string | null;
@@ -74,6 +82,35 @@ type EngagementStats = {
     metadata: Record<string, unknown> | null;
   }>;
 };
+
+// ── Attachment helpers ──────────────────────────────────────────────────────────
+
+function formatFileSize(bytes: number | null): string {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getMimeLabel(mimeType: string | null): string {
+  if (!mimeType) return "FILE";
+  if (mimeType === "application/pdf") return "PDF";
+  if (mimeType === "text/plain") return "TXT";
+  if (mimeType === "text/csv" || mimeType === "application/csv") return "CSV";
+  if (mimeType.startsWith("image/")) return mimeType.split("/")[1].toUpperCase().slice(0, 5);
+  if (mimeType.includes("word") || mimeType.includes("officedocument.wordprocessing")) return "DOC";
+  if (mimeType.includes("sheet") || mimeType.includes("excel") || mimeType.includes("officedocument.spreadsheet")) return "XLS";
+  if (mimeType.includes("presentation") || mimeType.includes("powerpoint")) return "PPT";
+  if (mimeType.includes("zip") || mimeType.includes("archive") || mimeType.includes("compressed")) return "ZIP";
+  const sub = mimeType.split("/")[1];
+  return sub ? sub.toUpperCase().slice(0, 6) : "FILE";
+}
+
+function isViewable(mimeType: string | null): boolean {
+  if (!mimeType) return false;
+  return (mimeType.startsWith("image/") && mimeType !== "image/svg+xml")
+    || mimeType === "application/pdf";
+}
 
 // ── Date helpers ───────────────────────────────────────────────────────────────
 
@@ -102,6 +139,107 @@ function formatRelativeTime(dateStr: string | null): string {
   if (diffH < 24)   return `${diffH}h ago`;
   const diffD = Math.floor(diffH / 24);
   return `${diffD}d ago`;
+}
+
+// ── AttachmentList ─────────────────────────────────────────────────────────────
+
+function AttachmentList({ gmailMessageId, count }: { gmailMessageId: string; count: number }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const { data: attachments, isLoading } = useQuery<CrmAttachment[]>({
+    queryKey: ["/api/gmail/messages", gmailMessageId, "attachments"],
+    queryFn: async () => {
+      const r = await fetch(`/api/gmail/messages/${encodeURIComponent(gmailMessageId)}/attachments`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load attachments");
+      return r.json();
+    },
+    enabled: isOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  return (
+    <div
+      className="rounded border border-border/30 bg-secondary/10 overflow-hidden"
+      data-testid={`attachment-list-${gmailMessageId}`}
+    >
+      <button
+        onClick={() => setIsOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        data-testid={`button-toggle-attachments-${gmailMessageId}`}
+      >
+        <Paperclip className="h-3 w-3 flex-shrink-0" />
+        <span>{count} attachment{count !== 1 ? "s" : ""}</span>
+        {isOpen
+          ? <ChevronUp className="h-3 w-3 ml-auto" />
+          : <ChevronDown className="h-3 w-3 ml-auto" />}
+      </button>
+
+      {isOpen && (
+        <div className="border-t border-border/20 divide-y divide-border/10">
+          {isLoading && (
+            <div className="flex items-center gap-2 px-2.5 py-2 text-xs text-muted-foreground" data-testid="attachment-list-loading">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading attachments…
+            </div>
+          )}
+          {attachments?.length === 0 && !isLoading && (
+            <p className="px-2.5 py-2 text-xs text-muted-foreground/50 italic">No downloadable attachments found.</p>
+          )}
+          {attachments?.map(att => (
+            <div
+              key={att.id}
+              className="flex items-center gap-2 px-2.5 py-2 group hover:bg-secondary/20 transition-colors"
+              data-testid={`attachment-row-${att.id}`}
+            >
+              <FileText className="h-3.5 w-3.5 text-muted-foreground/40 flex-shrink-0" />
+              <span
+                className="text-xs text-foreground/80 truncate flex-1 min-w-0"
+                data-testid={`attachment-filename-${att.id}`}
+              >
+                {att.filename || "Unnamed attachment"}
+              </span>
+              <Badge
+                variant="outline"
+                className="text-[9px] px-1 py-0 h-4 text-muted-foreground/60 border-border/40 flex-shrink-0"
+                data-testid={`attachment-type-${att.id}`}
+              >
+                {getMimeLabel(att.mimeType)}
+              </Badge>
+              {att.sizeBytes != null && att.sizeBytes > 0 && (
+                <span
+                  className="text-[10px] text-muted-foreground/50 flex-shrink-0 tabular-nums"
+                  data-testid={`attachment-size-${att.id}`}
+                >
+                  {formatFileSize(att.sizeBytes)}
+                </span>
+              )}
+              <div className="flex items-center gap-2 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                {isViewable(att.mimeType) && (
+                  <a
+                    href={`/api/gmail/attachments/${att.id}/download?view=1`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-primary hover:underline"
+                    data-testid={`button-view-attachment-${att.id}`}
+                  >
+                    View
+                  </a>
+                )}
+                <a
+                  href={`/api/gmail/attachments/${att.id}/download`}
+                  download={att.filename || "attachment"}
+                  className="text-[10px] text-primary hover:underline"
+                  data-testid={`button-download-attachment-${att.id}`}
+                >
+                  Download
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── ConfidenceBadge ────────────────────────────────────────────────────────────
@@ -481,16 +619,12 @@ function MessageRow({
           {/* Full body */}
           <FullBodyViewer gmailMessageId={email.gmailMessageId} snippet={email.snippet} />
 
-          {/* Attachments badge */}
+          {/* Attachments — expandable list with view/download per file */}
           {email.attachmentCount > 0 && (
-            <div
-              className="flex items-center gap-1.5 text-xs text-muted-foreground/70 bg-secondary/20 rounded px-2 py-1 w-fit"
-              data-testid={`attachment-count-${email.id}`}
-            >
-              <Paperclip className="h-3 w-3" />
-              {email.attachmentCount} attachment{email.attachmentCount !== 1 ? "s" : ""}
-              <span className="text-muted-foreground/40 text-[10px]">· Open in VS Mail to download</span>
-            </div>
+            <AttachmentList
+              gmailMessageId={email.gmailMessageId}
+              count={email.attachmentCount}
+            />
           )}
 
           {/* Engagement (outbound only) */}

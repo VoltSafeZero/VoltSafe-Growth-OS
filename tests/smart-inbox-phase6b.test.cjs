@@ -177,7 +177,10 @@ console.log("\n[D] CRM linked-email views are NOT affected by list endpoint shap
 
 check(
   "emails-tab.tsx fetches /full-body (per-message endpoint), not the list",
-  emailsTab.includes("/full-body") && !emailsTab.includes('"/api/gmail/messages"')
+  // Phase 7.1: tab also fetches /attachments sub-path via queryKey containing
+  // "/api/gmail/messages" — that's fine. The invariant is that the bare list
+  // endpoint is never called; check for the list-only fetch pattern instead.
+  emailsTab.includes("/full-body") && !emailsTab.includes('fetch("/api/gmail/messages"')
 );
 check(
   "emails-tab.tsx does NOT call the /api/gmail/messages list endpoint directly",
