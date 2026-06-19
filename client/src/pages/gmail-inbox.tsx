@@ -5359,6 +5359,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return acct && !isNaN(Number(acct)) ? Number(acct) : null;
   });
 
+  // Detect if VS Mail was opened via a CRM deep-link (both ?thread= and ?account= in URL).
+  // Used to suppress the global "expired" banner (the thread IS readable from local DB) and
+  // replace it with a precise, thread-level source-account notice instead.
+  // Computed once at mount — URL params don't change during the session.
+  const isDeepLinkMode = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return !!(params.get("thread") && params.get("account"));
+  }, []);
+
   // When the user is viewing a specific mailbox (not null/"all"), scope the
   // triage counts/IDs to that account so the badges match what they actually see.
   const triageAccountParam = typeof activeAccountId === "number"
@@ -8758,8 +8767,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           </a>
         </div>
       )}
-      {/* Token expired warning banner */}
-      {statusQuery.data?.connected && !statusQuery.data?.tokenValid && (
+      {/* Token expired warning banner — suppressed in deep-link mode because the thread
+          is still readable from local DB; a precise thread-level notice replaces it */}
+      {statusQuery.data?.connected && !statusQuery.data?.tokenValid && !isDeepLinkMode && (
         <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-sm">
           <Mail className="h-4 w-4 flex-shrink-0" />
           <span className="flex-1">Gmail session has expired. Your emails cannot be loaded until you reconnect.</span>
@@ -10910,6 +10920,30 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           </span>
                         )}
                       </div>
+                      {/* Deep-link source account notice — shown when VS Mail is opened from a
+                          CRM linked-email card and the source mailbox is expired/disconnected.
+                          Replaces the global expired banner (suppressed in deep-link mode). */}
+                      {isDeepLinkMode && currentThreadAccountId && (() => {
+                        const srcAcct = accountsQuery.data?.find(a => a.id === currentThreadAccountId);
+                        if (!srcAcct || srcAcct.authStatus === "active") return null;
+                        return (
+                          <div
+                            className="flex items-center gap-2 mt-1.5 px-2.5 py-1.5 bg-amber-500/8 border border-amber-500/20 rounded-lg text-amber-400/80 text-[11px] font-medium"
+                            data-testid="deep-link-expired-source-notice"
+                          >
+                            <Mail className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+                            <span className="flex-1">
+                              Synced from <span className="font-semibold">{srcAcct.emailAddress}</span> · mailbox disconnected (read-only)
+                            </span>
+                            <a
+                              href="/api/auth/gmail/connect"
+                              className="underline underline-offset-2 hover:no-underline opacity-80 hover:opacity-100 transition-opacity whitespace-nowrap"
+                            >
+                              Reconnect →
+                            </a>
+                          </div>
+                        );
+                      })()}
                     </>
                   )}
                 </div>

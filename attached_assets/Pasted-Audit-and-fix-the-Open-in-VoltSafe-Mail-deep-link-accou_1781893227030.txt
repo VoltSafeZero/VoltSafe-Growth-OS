@@ -1,0 +1,105 @@
+Audit and fix the “Open in VoltSafe Mail” deep-link account context bug.
+
+Current behavior:
+From a Lead linked-email card, clicking “Open in VoltSafe Mail” correctly routes to VoltSafe Mail, but the mail view shows:
+
+“No Gmail account connected”
+
+Screenshot evidence:
+
+* VoltSafe Mail loads.
+* Left sidebar shows trevor@voltsafe.com but with reconnect required / red status.
+* UI is in View Only mode.
+* The linked email deep-link likely opens with the wrong account context, stale account id, or a disconnected/expired mailbox id.
+* The active Gmail account should be trevor@voltsafe.com id=1, not expired duplicate id=10 or disconnected personal Gmail id=11.
+
+Audit first, then fix only the proven root cause.
+
+Tasks:
+
+1. Trace the Lead/Account linked-email “Open in VoltSafe Mail” button.
+    Return:
+
+* component/file
+* URL generated
+* query params
+* whether it passes gmailMessageId, gmailThreadId, sourceAccountId, accountId, or email address
+* whether it uses stale association account id
+
+2. Trace VoltSafe Mail deep-link handling.
+    Return:
+
+* route parsed
+* query params read
+* how activeAccountId is selected
+* how the target thread/email is loaded
+* what happens if sourceAccountId points to an expired/disconnected account
+* why it ends in “No Gmail account connected”
+
+3. Verify account mapping in production:
+
+* active trevor@voltsafe.com account id=1
+* expired duplicate id=10 is disconnected / no longer contributing
+* burgesstrevor76@gmail.com id=11 disconnected
+* support/sales active as team accounts
+
+4. Direct DB check for the linked email from the Lead:
+    Return:
+
+* gmail_message_id
+* gmail_thread_id
+* source_account_id
+* email address for that source_account_id
+* auth_status
+* is_active
+* sync_enabled
+* disconnected_at
+
+5. Root cause possibilities to confirm:
+
+* linked email association still points to source_account_id=10
+* deep-link URL uses stale account id
+* deep-link opens mailbox using owner user account instead of email source account
+* Mail page treats read-only/shared account as “no Gmail connected”
+* route requires an active personal mailbox even though thread exists in local DB
+* account selector defaults to expired/disconnected mailbox
+
+6. Fix requirements:
+
+* “Open in VoltSafe Mail” should open the exact thread from the local DB, even if the user came from Lead/Account view.
+* Prefer the thread’s actual active source account.
+* If linked email references a disconnected/expired duplicate account but the same email address has an active replacement account, resolve to the active account.
+* Do not create a new Gmail account.
+* Do not require reconnect if the thread can be opened from the local mirror and the active account is connected.
+* Never select expired/disconnected account ids by default.
+* If account is genuinely disconnected and no active equivalent exists, show a clear message:
+    “This email belongs to a disconnected mailbox. Reconnect or relink the email.”
+    not “No Gmail account connected.”
+
+7. Preserve CRM linking:
+
+* Do not delete associations.
+* Do not relink emails automatically unless explicitly safe.
+* Existing Lead/Account/Contact linked email cards must still render.
+* Full-body expansion must still work.
+* “Open in VoltSafe Mail” must deep-link internally, not Gmail externally.
+
+8. Add tests:
+
+* linked email with active source_account_id opens thread in VS Mail
+* linked email with stale duplicate source_account_id resolves to active same-email account when available
+* disconnected personal mailbox does not hijack activeAccountId
+* deep-link does not show “No Gmail account connected” when a valid active account exists
+* Lead/Account/Contact linked-email cards still render
+
+9. Return:
+
+* root cause
+* exact URL before/after
+* files changed
+* production account/thread evidence
+* browser proof
+* test results
+
+Important:
+Do not touch inbox count logic, smartCategory logic, Gmail sync, signatures, tracking, CID rendering, or reply/forward. This is only the CRM linked-email → VoltSafe Mail deep-link account-context bug.

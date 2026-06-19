@@ -12078,7 +12078,19 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const userId = (req.session as any).userId;
     const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
     const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
-    const resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
+    let resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
+    if (!resolved && asAccountId && typeof asAccountId === "number") {
+      // The specific account was not found or is inaccessible — it was likely deleted
+      // after messages were synced (orphaned source_account_id). Fall back to searching
+      // the thread across all accounts the user can access, using owner_user_id as the
+      // final scope so emails from the orphaned account are still reachable.
+      const fallbackAcct = await getUserGmailAccount(userId);
+      if (fallbackAcct) {
+        const allIds = await getAccessibleAccountIds(userId, _ia, _mtp);
+        resolved = { userId, accountId: fallbackAcct.id, accountIds: allIds as number[], acct: fallbackAcct } as any;
+        console.log(`[thread-api] orphaned asAccountId=${asAccountId} — falling back to unified lookup accountIds=${JSON.stringify(allIds)}`);
+      }
+    }
     if (!resolved) {
       console.warn(`[thread-api] 403 threadId=${req.params.id} userId=${userId} asAccountId=${asAccountId} — no account resolved`);
       return res.status(403).json({ message: "No Gmail account connected" });
