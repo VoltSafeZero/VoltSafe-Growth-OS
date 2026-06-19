@@ -44,6 +44,13 @@ const inboxSrc = fs.readFileSync(
   "utf8"
 );
 
+// The queryKey discriminator logic lives in inbox-query-key.ts (extracted
+// to its own file so all callers share one definition).
+const inboxQueryKeySrc = fs.readFileSync(
+  path.join(__dirname, "../client/src/lib/inbox-query-key.ts"),
+  "utf8"
+);
+
 // ─── 1. Backend: buildQClauses handles is:unread ─────────────────────────────
 
 console.log("\n── 1. Backend: buildQClauses handles is:unread ──");
@@ -75,7 +82,11 @@ console.log("\n── 2. inboxQuery queryKey partitions on unread filter ──"
 
 check(
   'queryKey includes crmFilter === "unread" discriminator',
-  inboxSrc.includes(`crmFilter === "unread" ? "unread" : "all"`) ||
+  // The discriminator lives in inbox-query-key.ts (extracted helper),
+  // not inline in gmail-inbox.tsx.
+  inboxQueryKeySrc.includes(`crmFilter === "unread" ? "unread" : "all"`) ||
+    inboxQueryKeySrc.includes(`crmFilter === "unread" ? "unread"`) ||
+    inboxSrc.includes(`crmFilter === "unread" ? "unread" : "all"`) ||
     inboxSrc.includes(`crmFilter === "unread" ? "unread"`)
 );
 
@@ -220,10 +231,16 @@ check(
 
 check(
   "people/updates/promotions category filters are guarded behind crmFilter check",
-  // Ensure the getEmailCategory filter sits after the crmFilter bypass
+  // Ensure the category filter sits after the crmFilter bypass.
+  // Phase 6: the pattern may be either:
+  //   getEmailCategory(m.labelIds) === inboxCategory          (pre-Phase 6)
+  //   (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory  (Phase 6+)
   (() => {
     const guardIdx = inboxSrc.indexOf('categorizedInbox = crmFilter === "unread"');
-    const catIdx = inboxSrc.indexOf('getEmailCategory(m.labelIds) === inboxCategory');
+    const catIdxOld = inboxSrc.indexOf('getEmailCategory(m.labelIds) === inboxCategory');
+    // Phase 6 form: bare getEmailCategory no longer at top level — the ?? wrapper adds '))'
+    const catIdxNew = inboxSrc.indexOf('getEmailCategory(m.labelIds)) === inboxCategory');
+    const catIdx = catIdxOld !== -1 ? catIdxOld : catIdxNew;
     return guardIdx !== -1 && catIdx !== -1 && guardIdx < catIdx;
   })()
 );

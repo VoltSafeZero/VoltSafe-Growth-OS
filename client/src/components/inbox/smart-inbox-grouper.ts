@@ -4,12 +4,16 @@
  * Sections, in order:
  *   1. Priority      — STARRED messages (user-flagged), regardless of read state.
  *   2. Unread        — non-starred unread, grouped by category:
- *                        • People        (getEmailCategory === "people")
- *                        • Notifications (getEmailCategory === "updates")
- *                        • Newsletters   (getEmailCategory === "newsletters")
+ *                        • People        (smartCategory === "people")
+ *                        • Notifications (smartCategory === "updates" | "social")
+ *                        • Newsletters   (smartCategory === "promotions" | "forums")
  *   3. Pinned        — threads the user has explicitly pinned (localStorage),
  *                      excluding anything already shown above. Read OR unread.
  *   4. Seen          — everything else, sorted newest-first.
+ *
+ * Classification priority:
+ *   1. Server-provided `message.smartCategory` (DB derived column) when present.
+ *   2. Label-ID heuristic (`CATEGORY_*` labels + automation-sender prefix scan).
  *
  * The grouper returns an interleaved `SmartItem[]` so the existing message-row
  * JSX in `gmail-inbox.tsx` can render unchanged — only headers are new rows.
@@ -68,6 +72,13 @@ export interface GroupableMessage {
   date?: string | null;
   /** Sender address (RFC 5322 "From" header). Used for automation detection. */
   from?: string | null;
+  /**
+   * Phase 6: server-derived category from email_messages.smart_category.
+   * Values: "people" | "updates" | "promotions" | "social" | "forums".
+   * When present this wins over the label-ID heuristic inside smartCategoryOf.
+   * Optional — absent until the list endpoint returns this field.
+   */
+  smartCategory?: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -194,15 +205,28 @@ export function classifyAsNewsletter(
 /**
  * Classify a message into one of three Smart Inbox categories.
  *
- * Precedence (first match wins): newsletters → notifications → people.
- * This ordering matters: a message from noreply@ with CATEGORY_PROMOTIONS
+ * Precedence (first match wins):
+ *   1. Server-provided `serverCategory` (email_messages.smart_category) when present.
+ *      Maps "promotions"|"forums" → newsletters, "updates"|"social" → notifications,
+ *      "people" → people. Unknown values fall through to the label heuristic.
+ *   2. CATEGORY_* label-ID heuristic: newsletters → notifications → people.
+ *
+ * The label ordering matters: a message from noreply@ with CATEGORY_PROMOTIONS
  * should be a newsletter, not a notification, even though it also matches the
  * automation-sender heuristic inside classifyAsNotification.
  */
 export function smartCategoryOf(
   labelIds: string[],
   fromAddr?: string | null,
+  serverCategory?: string | null,
 ): SmartCategory {
+  // Phase 6: prefer server-derived category when available.
+  if (serverCategory) {
+    if (serverCategory === "promotions" || serverCategory === "forums") return "newsletters";
+    if (serverCategory === "updates"    || serverCategory === "social")  return "notifications";
+    if (serverCategory === "people")                                      return "people";
+    // Unknown value — fall through to label-based classification below.
+  }
   if (classifyAsNewsletter(labelIds, fromAddr)) return "newsletters";
   if (classifyAsNotification(labelIds, fromAddr)) return "notifications";
   return "people";
@@ -280,7 +304,7 @@ export function groupSmartInbox<M extends GroupableMessage>(
       continue;
     }
     if (unread || isOpenAndJustRead) {
-      const cat = smartCategoryOf(labels, m.from ?? undefined);
+      const cat = smartCategoryOf(labels, m.from ?? undefined, m.smartCategory ?? undefined);
       if (cat === "people") unreadPeople.push(m);
       else if (cat === "notifications") unreadNotifications.push(m);
       else unreadNewsletters.push(m);

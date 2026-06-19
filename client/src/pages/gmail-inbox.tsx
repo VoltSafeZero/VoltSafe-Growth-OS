@@ -122,6 +122,11 @@ type MessageSummary = {
   // Multi-mailbox Phase 1: present when fetched in unified ("All Inboxes") mode so the
   // row can render an account badge. Absent in single-account mode.
   sourceAccountId?: number;
+  // Phase 6: server-derived category (email_messages.smart_category).
+  // Values: "people" | "updates" | "promotions" | "social" | "forums".
+  // When present, used in preference to the client-side label-ID heuristic
+  // (getEmailCategory). Always absent until the list endpoint returns this field.
+  smartCategory?: string | null;
 };
 
 type ThreadAttachment = {
@@ -7417,11 +7422,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     ? inboxMain
     : inboxCategory === "priority"    ? inboxMain.filter((m) => isStarred(m.labelIds)) :
       inboxCategory === "all"         ? inboxMain :
-      inboxMain.filter((m) => getEmailCategory(m.labelIds) === inboxCategory);
+      inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory);
 
   const priorityCount    = inboxMain.filter((m) => isStarred(m.labelIds)).length;
-  const peopleCount      = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "people").length;
-  const updatesCount = inboxMain.filter((m) => getEmailCategory(m.labelIds) === "updates").length;
+  const peopleCount      = inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === "people").length;
+  const updatesCount = inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === "updates").length;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
 
   // ── Raw inbox count from health API (private — feeds countSnapshot below) ───────────

@@ -1,0 +1,77 @@
+Approved to begin Phase 6, but only as a narrow client-thinning pass.
+
+Goal:
+Remove remaining client-side inbox/category/count derivation that is now redundant because server-side derived columns and canonical queries are working.
+
+Do not change backend behavior.
+
+Allowed Phase 6 changes:
+
+1. Replace getEmailCategory(labelIds) usage where possible
+    Use server-provided message.smartCategory if available.
+    Fallback to getEmailCategory(labelIds) only defensively.
+2. Smart Inbox grouping
+    Use server-provided smartCategory / smartGroup where available.
+    Do not reclassify messages from label_ids unless field is missing.
+3. Section header counts
+    Keep serverGroupCounts as the source of truth.
+    Do not use local section length for total counts.
+    Keep loading skeletons where server counts are unavailable.
+4. Show-all behavior
+    Preserve current behavior exactly:
+
+* If serverTotal > localTotal, fetch remaining pages for that section.
+* Use category-specific unread queries.
+* Append, dedupe by gmail_thread_id.
+* Auto-expand after fetch.
+* Show loading state while fetching.
+
+5. Remove obsolete client-side fallbacks only if tests prove they are unnecessary.
+    Do not delete defensive fallbacks unless all responses include the replacement fields.
+6. Do not touch:
+
+* backend
+* Gmail sync
+* count endpoints
+* list endpoints
+* email body/thread rendering
+* reply/reply-all/forward
+* signatures
+* tracking
+* CID rendering
+* CRM-linked emails
+* OAuth/reconnect code
+* mailbox settings
+
+7. Add tests:
+
+* messages with smartCategory render into the correct Smart Inbox section without label_ids parsing
+* People includes smartCategory=‘people’
+* Updates/Promotions/Social/Forums map correctly
+* if smartCategory is missing, fallback still works
+* Show all still fetches remaining pages
+* category badges still match section headers
+
+8. Verification:
+
+* People show-all loads all unread People
+* Updates show-all loads all unread Updates
+* Promotions show-all loads all unread Promotions
+* Social show-all loads all unread Social
+* Forums show-all works if nonzero
+* Inbox > All still works
+* Unread still works
+* category tab clicks still use q=in: is:unread
+* no stale cursor leakage
+
+Run:
+
+* inbox-category-unread-filter.test.cjs
+* inbox-category-visibility.test.cjs
+* inbox-category-badge.test.cjs
+* inbox-count-reconciliation.test.cjs
+* inbox-completeness.test.cjs
+* unread-filter-server-side.test.cjs
+* any Smart Inbox grouper tests
+
+Stop after Phase 6 report.
