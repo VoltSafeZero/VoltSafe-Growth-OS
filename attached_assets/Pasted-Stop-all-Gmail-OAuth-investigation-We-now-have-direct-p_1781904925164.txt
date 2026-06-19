@@ -1,0 +1,94 @@
+Stop all Gmail OAuth investigation.
+
+We now have direct production evidence that trevor@voltsafe.com is connected:
+
+* Status = Active
+* Green indicator present
+* 12,878 messages synced
+* 204 unread shown on mailbox card
+* Watch expiry populated
+* Recent sync timestamp present
+
+Treat Gmail connectivity as VERIFIED WORKING.
+
+New scope: find why Smart Inbox renders only 2 unread messages while the connected mailbox reports ~204 unread.
+
+Do not modify:
+
+* Gmail OAuth
+* Gmail watches
+* Gmail sync logic
+* unread counters
+* database data
+* backfills
+
+Audit only.
+
+Tasks:
+
+1. Capture the exact browser request chain when Trevor mailbox is selected:
+    * activeAccountId
+    * selected mailbox id
+    * selected mailbox email
+    * inboxQueryKey
+    * health query scope
+    * category-counts scope
+    * /api/gmail/messages request
+    * asAccountId
+    * q parameter
+    * nextPageToken
+    * row count returned
+2. Add temporary logging showing:
+    * selected mailbox
+    * activeAccountId
+    * account id used by health endpoint
+    * account id used by category-counts
+    * account id used by messages endpoint
+3. Verify scope consistency:
+    When Trevor mailbox is selected:
+    * health
+    * category-counts
+    * messages
+    * loadMoreInbox
+    * show-all fetches
+        must all use the SAME account id.
+4. Trace counts through the pipeline:
+    * health unread count
+    * category unread count
+    * messages API returned rows
+    * allInboxMessages
+    * inboxMain
+    * categorizedInbox
+    * activeMessages
+    * viewItems
+    * collapsedViewItems
+    * rendered rows
+5. Identify the FIRST point where the count drops from ~204 unread to 2 rendered rows.
+6. Verify whether:
+    * activeAccountId is stale
+    * query cache is stale
+    * inboxQueryKey is missing account scope
+    * account switching fails to clear cache
+    * Smart Inbox grouping is discarding rows
+    * account selection UI and message query use different account ids
+7. Browser proof required:
+    Show actual Network requests for:
+    * /api/gmail/accounts/health
+    * /api/gmail/category-counts
+    * /api/gmail/messages
+    Include:
+    * request params
+    * account id used
+    * response counts
+
+Deliverable:
+
+* exact root cause
+* exact file
+* exact line/function
+* before/after account ids used
+* proof showing where 204 unread becomes 2 rendered rows
+
+Do not propose fixes yet.
+
+Find the precise failure point first.

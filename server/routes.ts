@@ -11332,6 +11332,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const source = ((req.query.source as string) || "local").toLowerCase();
     const q = (req.query.q as string) || "";
     const maxResults = Math.min(Number(req.query.limit) || 50, 100);
+    // [INBOX-SCOPE-LOG] Temporary diagnostic — remove after root cause confirmed
+    console.log("[INBOX-SCOPE]", JSON.stringify({
+      userId,
+      rawAsAccountId: rawAcc,
+      asAccountId,
+      resolvedAccountId: (resolved as any)?.accountId ?? null,
+      resolvedAccountIds: (resolved as any)?.accountIds ?? null,
+      isUnifiedMode: !!(resolved as any)?.accountIds,
+      q,
+      source,
+    }));
     const pageToken = (req.query.pageToken as string) || undefined;
     // Commit 1.1: classify by sentinel prefix instead of guessing by digit-shape.
     // Local-issued tokens carry the "L1:" sentinel. Bare "eyJ" is the in-flight
@@ -11441,6 +11452,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
               !isUnified && !!acct?.id) {
             body.historyLoadCapReached = true;
           }
+          // [INBOX-RESP-LOG] Temporary diagnostic — remove after root cause confirmed
+          const _labelIdsHaveUNREAD = local.messages.filter((m: any) => Array.isArray(m.labelIds) && m.labelIds.includes("UNREAD")).length;
+          console.log("[INBOX-RESPONSE]", JSON.stringify({
+            q,
+            isUnifiedMode: isUnified,
+            resolvedAccountId: (resolved as any)?.accountId ?? null,
+            resolvedAccountIds: (resolved as any)?.accountIds ?? null,
+            messageCount: local.messages.length,
+            nextPageToken: local.nextPageToken,
+            localExhausted: local.localExhausted,
+            shouldOverflow,
+            labelIdsHaveUNREAD: _labelIdsHaveUNREAD,
+            labelIdsMissingUNREAD: local.messages.length - _labelIdsHaveUNREAD,
+          }));
           return res.json(body);
         }
 
@@ -16941,6 +16966,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       `));
       const list = ((rows as any).rows ?? rows) as any[];
       const now = Date.now();
+      // [HEALTH-LOG] Temporary diagnostic — remove after root cause confirmed
+      console.log("[HEALTH-SCOPE]", JSON.stringify({
+        userId,
+        accessibleAccountIds: accountIds,
+        perAccountUnread: ((rows as any).rows ?? rows).map((r: any) => ({
+          id: r.id, email: r.email_address, unread_count: r.unread_count,
+        })),
+      }));
       const annotated = list.map((r) => {
         const watchExp = r.watch_expiration_at ? new Date(r.watch_expiration_at).getTime() : null;
         const lastWebhook = r.last_webhook_at ? new Date(r.last_webhook_at).getTime() : null;
@@ -16999,6 +17032,16 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (!resolved) return res.json(empty);
 
       const accountIds: number[] = (resolved as any).accountIds ?? [Number((resolved as any).accountId)];
+      // [CATCOUNTS-LOG] Temporary diagnostic — remove after root cause confirmed
+      console.log("[CATCOUNTS-SCOPE]", JSON.stringify({
+        userId,
+        rawAsAccountId: rawAcc,
+        asAccountId,
+        resolvedAccountId: (resolved as any)?.accountId ?? null,
+        resolvedAccountIds: (resolved as any)?.accountIds ?? null,
+        isUnifiedMode: !!(resolved as any)?.accountIds,
+        scopedToAccountIds: accountIds,
+      }));
       const validIds = accountIds.filter(Boolean);
       if (validIds.length === 0) return res.json(empty);
 

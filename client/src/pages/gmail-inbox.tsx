@@ -5948,9 +5948,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         params.set("q", inboxCategoryQ);
       }
       appendAccountId(params);
+      // [INBOX-QFN-LOG] Temporary diagnostic — remove after root cause confirmed
+      console.log("[INBOX-QFN] request", { activeAccountId, url: `/api/gmail/messages?${params}`, crmFilter, inboxCategory });
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
-      return res.json();
+      const _json = await res.json();
+      const _have = (_json.messages ?? []).filter((m: any) => Array.isArray(m.labelIds) && m.labelIds.includes("UNREAD")).length;
+      console.log("[INBOX-QFN] response", {
+        activeAccountId,
+        messageCount: _json.messages?.length ?? 0,
+        nextPageToken: _json.nextPageToken,
+        labelIdsHaveUNREAD: _have,
+        labelIdsMissingUNREAD: (_json.messages?.length ?? 0) - _have,
+      });
+      return _json;
     },
     // Premium-client cadence: 15s foreground poll over the local mirror
     // (cheap PG read of already-webhook-synced data). The background-poll
@@ -7675,6 +7686,31 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       openThreadWasUnread,
     });
   }, [isSmartView, crmFilteredMessages, pinnedAPI.pinned, selectedThreadId, openThreadWasUnread]);
+
+  // [PIPELINE-LOG] Temporary diagnostic — remove after root cause confirmed
+  useEffect(() => {
+    if (tab !== "inbox") return;
+    const crmFiltered_unread = crmFilteredMessages.filter(m => Array.isArray(m.labelIds) && m.labelIds.includes("UNREAD")).length;
+    const allInbox_unread = allInboxMessages.filter(m => Array.isArray(m.labelIds) && m.labelIds.includes("UNREAD")).length;
+    console.log("[INBOX-PIPELINE]", {
+      activeAccountId,
+      crmFilter,
+      inboxCategory,
+      isSmartView,
+      allInboxMessages: allInboxMessages.length,
+      allInboxHaveUNREAD: allInbox_unread,
+      allInboxMissingUNREAD: allInboxMessages.length - allInbox_unread,
+      inboxMain: inboxMain.length,
+      categorizedInbox: categorizedInbox.length,
+      activeMessages: activeMessages.length,
+      crmFilteredMessages: crmFilteredMessages.length,
+      crmFilteredHaveUNREAD: crmFiltered_unread,
+      crmFilteredMissingUNREAD: crmFilteredMessages.length - crmFiltered_unread,
+      viewItemsCount: viewItems === null ? "null(not-smart-view)" : viewItems.length,
+    });
+  }, [activeAccountId, crmFilter, inboxCategory, isSmartView,
+      allInboxMessages.length, inboxMain.length, categorizedInbox.length,
+      crmFilteredMessages.length, activeMessages.length, viewItems]);
 
   // Collapses each Smart Inbox section to its per-section cap and injects
   // show-all / show-less sentinels BELOW the last visible email in each section
