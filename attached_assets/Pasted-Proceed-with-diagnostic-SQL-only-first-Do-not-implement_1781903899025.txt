@@ -1,0 +1,116 @@
+Proceed with diagnostic SQL only first. Do not implement code changes yet.
+
+Problem:
+Smart Inbox shows:
+
+* unread badge = 223
+* People = 38
+* Updates = 58
+* Promotions = 124
+* Social = 3
+    but /api/gmail/messages?q=in:inbox is:unread returns only 2 rows and nextPageToken=null.
+
+We need to prove the exact divergence before fixing.
+
+Run production DB diagnostics for trevor@voltsafe.com active account only.
+
+Important:
+Use the real production schema column names:
+
+* email_accounts.id
+* email_accounts.email_address
+* email_messages.source_account_id
+* email_messages.label_ids
+* email_messages.is_inbox
+* email_messages.is_unread
+* email_messages.smart_category
+* email_messages.gmail_thread_id
+
+Do not use account_id if the real column is source_account_id.
+Do not use ANY(label_ids) unless label_ids is a Postgres array. If label_ids is text JSON, use the existing parse/ILIKE style safely.
+
+Queries:
+
+1. Active account id
+    Return active account rows for trevor@voltsafe.com:
+
+* id
+* email_address
+* auth_status
+* is_active
+* sync_enabled
+* disconnected_at
+
+2. Derived-field divergence table
+    For source_account_id = active trevor account id, group by:
+
+* is_inbox
+* is_unread
+* smart_category
+* label_has_inbox
+* label_has_unread
+
+Where:
+label_has_inbox detects whether label_ids contains INBOX.
+label_has_unread detects whether label_ids contains UNREAD.
+
+Return counts.
+
+3. Count comparison
+    For active trevor account id return:
+
+A. Badge-style unread thread count:
+COUNT DISTINCT gmail_thread_id
+WHERE is_inbox = true AND is_unread = true
+
+B. Legacy label-style unread thread count:
+COUNT DISTINCT gmail_thread_id
+WHERE label_ids contains INBOX
+AND label_ids contains UNREAD
+AND label_ids does not contain SPAM/TRASH/DRAFT
+
+C. Health endpoint unread_count value from email_accounts/gmail_accounts table, whichever table currently stores it.
+
+D. /api/gmail/messages equivalent:
+COUNT DISTINCT gmail_thread_id
+WHERE buildQClauses(q=‘in:inbox is:unread’) would filter.
+
+4. Direct API query proof
+    Call:
+    GET /api/gmail/messages?q=in:inbox is:unread&limit=50&asAccountId=<active_account_id>
+
+Return:
+
+* status
+* messages.length
+* nextPageToken
+* first 10 message ids / thread ids / labelIds / isInbox / isUnread / smartCategory if available
+
+5. Category comparison
+    For each category:
+    people, updates, promotions, social, forums
+
+Return:
+
+* category-counts SQL count
+* list-query equivalent count for q=in: is:unread
+* direct API response count/page 1 count
+* nextPageToken
+
+6. Determine exact cause:
+    Choose one only:
+
+A. derived columns stale/wrong
+B. health unread_count stale/wrong
+C. buildQClauses combined-query bug
+D. source_account_id/account-scope mismatch
+E. API pagination/cursor bug
+F. frontend render/drop bug
+
+7. Only after reporting the diagnostics, recommend the smallest safe fix.
+
+Do not run UPDATE.
+Do not backfill yet.
+Do not change code.
+Do not deploy.
+Diagnostics only.
