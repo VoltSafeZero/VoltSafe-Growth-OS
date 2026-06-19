@@ -10529,6 +10529,46 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         </motion.button>
                       );
                     })()}
+                    {/* Block sender (inbox) / Trust sender (spam) quick-action icon */}
+                    {(() => {
+                      const senderEmail = (msg.fromEmail || "").toLowerCase();
+                      const isOwnDomain = senderEmail.endsWith("@voltsafe.com");
+                      if (tab === "spam") {
+                        return (
+                          <motion.button
+                            whileTap={{ scale: 0.82 }}
+                            whileHover={{ scale: 1.1 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                            title="Trust sender — move back to inbox"
+                            aria-label="Trust sender and move to inbox"
+                            tabIndex={-1}
+                            data-testid={`button-trust-sender-${msg.id}`}
+                            onClick={(e) => { e.stopPropagation(); notSpamMutation.mutate(msg.threadId); }}
+                            className="p-1.5 rounded-md transition-colors text-muted-foreground/40 hover:text-emerald-400 hover:bg-emerald-500/10"
+                          >
+                            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                          </motion.button>
+                        );
+                      }
+                      if (!isOwnDomain && senderEmail && tab !== "sent" && tab !== "drafts" && tab !== "scheduled") {
+                        return (
+                          <motion.button
+                            whileTap={{ scale: 0.82 }}
+                            whileHover={{ scale: 1.1 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                            title="Block sender — move to spam"
+                            aria-label="Block sender and move to spam"
+                            tabIndex={-1}
+                            data-testid={`button-block-sender-${msg.id}`}
+                            onClick={(e) => { e.stopPropagation(); blockSenderMutation.mutate({ senderEmail, threadId: msg.threadId }); }}
+                            className="p-1.5 rounded-md transition-colors text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10"
+                          >
+                            <Ban className="h-3.5 w-3.5" aria-hidden="true" />
+                          </motion.button>
+                        );
+                      }
+                      return null;
+                    })()}
                     {canSend && tab === "inbox" && (
                       <motion.button
                         whileTap={{ scale: 0.82 }}
