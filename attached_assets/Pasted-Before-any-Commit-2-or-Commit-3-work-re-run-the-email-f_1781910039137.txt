@@ -1,0 +1,14 @@
+Before any Commit 2 or Commit 3 work: re-run the email_filters / Other-machinery dependency audit now, with fresh greps. Do not rely on or reconstruct the earlier audit from memory — run the searches again and report from what they return. Read-only, no code changes, no deletions.
+I need the full picture before authorizing any deletion. Report:
+
+Every reader of email_filters — frontend and backend. Run the grep; list each call site with file/line.
+Every writer of email_filters — frontend and backend, same.
+Whether anything besides blocked-domain inbox filtering depends on email_filters — spam logic, trust, newsletters, categories, badges, search, sync, exports, anything.
+The full client-side "Other" / blocked-domain machinery — parseSenderDomain, blockedDomains, the inboxMainRaw filter, inboxOther / inboxOtherVisible, the "Other" tab UI, allSpamMessages's union with the Other overlay — each with file/line. (Section 4 cut off mid-line at parseSenderDomain | 214–218 | Extracts—; I never saw the rest.)
+Every test that currently pins email_filters, blockedDomains, inboxOther, or "Other"-tab behavior — these will need updating or deleting in Commit 2 and I want them identified first.
+Impact of ignoring/dropping email_filters on: spam, trust, newsletters, categories, badges, search, sync. State explicitly whether each is affected or not.
+Confirm the ~204 backlog: once domain filtering is removed, those currently-hidden unread messages return to the visible inbox. Confirm that's accurate and confirm where they currently appear (Other tab? nowhere?).
+Separate recommendations for Commit 2 (delete client-side Other/domain machinery) and Commit 3 (retire the 223 rows) — including whether dropping the rows is safe given the readers found above.
+Risk assessment for deleting the client-side Other/domain-block machinery in Commit 2 while leaving the email_filters table and its 223 rows physically untouched until Commit 3.
+
+Do not delete domain-blocking or retire the 223 rows until I've reviewed this. Read-only this turn — stop after the report.
