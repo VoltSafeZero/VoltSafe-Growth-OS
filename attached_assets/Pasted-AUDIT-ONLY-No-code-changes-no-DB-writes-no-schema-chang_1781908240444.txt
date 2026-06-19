@@ -1,0 +1,27 @@
+AUDIT ONLY. No code changes, no DB writes, no schema changes, no migrations. Report and propose; implement nothing.
+Context: We're redefining the block/trust feature. Decisions made:
+
+Block = exact sender only (e.g. jane@linkedin.com), going forward.
+Blocking a sender must move their mail to Spam and out of the inbox (out of inbox counts/badge), not merely hide it client-side.
+Trust/shield (from Spam) reverses an exact-sender block: removes the block, moves that mail back to inbox as unread, future mail lands in inbox again.
+The existing 223 domain blocks in email_filters will be retired (dropped) — we're moving off domain-blocking entirely.
+The client-side "Other" tab / blocked-domain filter will be deleted.
+
+Audit the current mechanics and report:
+
+What block does today, exactly. Trace the block action(s) end to end. For both the exact-email path (blocked_senders) and the domain path (email_filters): what DB writes happen? Does block ever set a SPAM label or change is_inbox/is_unread, or does it only insert a filter row and rely on the client to hide the message? Report the exact write paths with file/line.
+How "Spam" works in this system. Is there a Spam view, and what does it query? Does it read a SPAM label in label_ids, an is_spam derived column, or something else? What is the canonical way, in this schema, to make a message "in Spam and not in Inbox" — which columns/labels must change (is_inbox, is_spam, label_ids)? Does moving to Spam need to propagate to Gmail, or is it local-only? Report what a correct "move to Spam" write would have to touch.
+What the trust/shield currently does. Trace the trust/not-spam action end to end. What does it currently reverse — does it remove from blocked_senders, email_filters, both? Does it currently move mail back to inbox (set is_inbox, clear is_spam/SPAM label, set unread)? Report the exact current behavior and what would need to change for it to cleanly reverse an exact-sender block under the new model.
+The client-side machinery to be deleted. Identify every piece of the blocked-domain / "Other" mechanism: the blockedDomains set and where it's built (the /api/email-filters fetch), parseSenderDomain, the inboxMainRaw filter, inboxOther routing, the "Other" tab UI, and any tests pinning them. List each with file/line so we can see the full deletion surface. Flag anything else that reads email_filters and would break if those rows are dropped.
+The 223-row retirement. Confirm email_filters contains the 223 domain rows (count them, read-only) and report everything that currently reads that table, so dropping the rows doesn't silently break another feature. Do NOT delete anything yet — just report what depends on it.
+The ~204 backlog. Confirm: once the domain blocks are retired and the client-side filter deleted, the ~204 currently-hidden unread messages return to the visible inbox (they're already is_inbox=true, is_unread=true in the DB). State whether that's accurate. This is expected and acceptable — just confirm the mechanism so there are no surprises.
+
+Then propose (do not implement):
+
+The smallest change to make exact-sender block actually move mail to Spam + out of inbox.
+The change (if any) to make trust/shield cleanly reverse it.
+The full list of dead code to delete.
+Whether retiring the 223 rows is safe given what reads email_filters.
+A suggested commit ordering (my instinct: make block-to-spam + trust correct and verified FIRST; retire the 223 domain rows as a SEPARATE deliberate step; treat any one-time backlog reconciliation as its own scoped step, not bundled).
+
+Constraints: Read-only this turn. No writes, no db:push, no migrations, no deletions. Do not touch Gmail sync/OAuth, smartCategory, CRM linking, signatures, tracking, CID, reply, or forward. Stop after the report.
