@@ -1445,7 +1445,7 @@ export async function registerRoutes(
       .set({ passwordResetToken: token, passwordResetExpires: expires } as any)
       .where(eq(users.id, user.id));
 
-    const appUrl = process.env.APP_URL || "https://image-linker-burgesstrevor76.replit.app";
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
     const resetUrl = `${appUrl}/reset-password?token=${token}`;
     const SYSTEM_SENDER_ID = 4;
 
