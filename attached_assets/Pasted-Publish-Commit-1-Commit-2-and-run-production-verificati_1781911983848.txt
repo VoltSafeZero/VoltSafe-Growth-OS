@@ -1,0 +1,90 @@
+Publish Commit 1 + Commit 2 and run production verification.
+
+Do not start Commit 3 yet.
+Do not delete email_filters rows.
+Do not drop email_filters table.
+Do not remove backend email_filters routes yet.
+
+Verify production behavior:
+
+1. Inbox visibility
+
+* Log in as Trevor.
+* Select trevor@voltsafe.com.
+* Open Inbox > Unread > Smart Inbox.
+* Confirm unread messages no longer collapse from ~50 API rows to 2 visible rows.
+* Confirm previously domain-hidden TeamSnap / Crunchbase / Luma / similar messages can now appear in inbox if they are in the current page.
+
+2. Pipeline count
+    Capture:
+
+* /api/gmail/messages q=in:inbox is:unread response count
+* allInboxMessages count
+* inboxMainRaw count
+* inboxMain count
+* rendered row count
+
+Expected:
+
+* inboxMainRaw should no longer drop domain-filtered messages.
+* blockedDomains filter should not run.
+* API count and frontend pipeline count should remain aligned except for exact blocked sender filtering.
+
+3. Spam behavior
+
+* Spam view should show only real spam where is_spam=true.
+* No Other overlay.
+* No domain-blocked inbox messages mixed into Spam.
+
+4. Block exact sender
+    Using a safe test/dev message first:
+
+* Block exact sender.
+* Confirm /api/blocked-senders receives exact email only.
+* Confirm mark-spam sets:
+    * label_ids contains SPAM
+    * label_ids lacks INBOX
+    * is_spam=true
+    * is_inbox=false
+    * is_unread unchanged
+* Confirm message leaves Inbox after refetch.
+* Confirm message appears in Spam.
+
+5. Trust / Shield
+
+* Trust the same sender/message.
+* Confirm:
+    * label_ids contains INBOX
+    * label_ids lacks SPAM
+    * is_spam=false
+    * is_inbox=true
+    * is_unread unchanged
+    * exact sender removed from blocked_senders
+    * sender inserted into spam_trusted_senders
+* Confirm message returns to Inbox.
+
+6. UI cleanup
+    Confirm:
+
+* Other tab is gone from visible navigation.
+* Block entire domain action is gone.
+* Exact sender Block action remains.
+* No console errors.
+
+7. Tests
+    Run:
+
+* mark-spam-derived-columns.test.cjs
+* block-sender.test.cjs
+* block-sender-api.test.cjs
+* inbox-count-reconciliation.test.cjs
+* inbox-category-visibility.test.cjs
+* smart-inbox-phase6b.test.cjs
+
+Return:
+
+* production screenshots
+* test results
+* before/after pipeline counts
+* exact-sender block/trust verification
+* recommendation on whether Commit 3 is worth doing

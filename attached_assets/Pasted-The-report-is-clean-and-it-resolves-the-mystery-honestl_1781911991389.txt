@@ -1,0 +1,17 @@
+The report is clean and it resolves the mystery honestly — including admitting the 223 figure was stale scratchpad data that was never verified. That's the agent catching its own earlier error, which is exactly what you want to see. The real numbers reconcile: 4 domain rows, 552 messages suppressed client-side (not 204), is_inbox was never wrongly flipped, and the 2-of-50 symptom is explained (the recent page happened to be dominated by TeamSnap/Crunchbase/Luma). And item 9 confirms the thing that matters most: the server is authoritative, the client filter is pure cosmetics, nothing leaks back.
+GPT's prompt is correct. Send it. I have only one addition and one caution.
+The addition: capture the real before/after unread number, and don't flinch at it
+Here's the practical consequence the report just handed you, stated plainly so production doesn't surprise you: the unread badge barely moves. Of the 552 suppressed messages, only 1 is unread. The other 551 are already-read mail. So after publish, your unread count goes up by ~1, but your total inbox (read + unread) gains 552 messages spread across pages.
+Why this matters for verification: GPT's prompt frames success as "unread no longer collapses from ~50 to 2." But the 50→2 collapse was about the page being dominated by read-and-unread domain mail getting filtered, and unread specifically only had ~1 domain message in it. So when you log in to verify, the unread view might look almost the same as before, because domain filtering was hiding mostly-read mail. The big visible change will be in the all-inbox view (552 messages return), not the unread view.
+If you go in expecting "unread jumps from 2 to ~50" and instead see "unread is still small," you might think Commit 2 failed when it actually worked perfectly. So I'd have the verification capture both views explicitly and state the expected delta up front. Add this:
+
+[Send GPT's prompt as written, then add:]
+One framing note for verification, and one addition:
+Per the item-8 report: of the 552 messages domain-filtering was suppressing, only 1 is unread — the other 551 are already-read. So expect: the all-inbox view gains up to 552 messages (across pages), but the unread badge moves by only ~1. Do not treat a near-unchanged unread count as a failure — the domain filter was suppressing mostly-read mail.
+Capture both views separately and report the delta:
+
+Unread view (Inbox > Unread > Smart Inbox): before/after rendered count. Expected change: ~+1.
+All-inbox view (Inbox > All): before/after total available count and first-page rendered count. Expected change: previously-suppressed TeamSnap/Crunchbase/Luma mail now present across pages.
+Confirm explicitly: does inboxMain rendered count now equal the API response count (minus only exact-blocked-sender removals), with no domain-filter drop? That single alignment — API count == pipeline count — is the proof Commit 2 worked. State it as a yes/no.
+
+Everything else in this prompt stands. Verification only — no Commit 3, no row deletion, no table drop, no route removal.
