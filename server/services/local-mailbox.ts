@@ -161,6 +161,11 @@ export type LocalMessageSummary = {
   // Multi-mailbox Phase 1: present when caller is in unified mode so the UI can
   // render an account badge per row. Always populated from email_messages.source_account_id.
   sourceAccountId?: number;
+  // Phase 6B: server-derived category from email_messages.smart_category.
+  // Values: "people" | "updates" | "promotions" | "social" | "forums" | null.
+  // Null when the column has not been backfilled for this row (pre-Phase 4 rows).
+  // The frontend uses this in preference to client-side label-ID heuristics.
+  smartCategory: string | null;
 };
 
 export type LocalThreadStub = { id: string; snippet: string; historyId: string };
@@ -466,7 +471,8 @@ export async function listLocalMessages(p: {
     SELECT
       id AS pk,
       gmail_message_id, gmail_thread_id, snippet, sent_at,
-      from_email, from_name, to_emails, subject, label_ids, source_account_id
+      from_email, from_name, to_emails, subject, label_ids, source_account_id,
+      smart_category
     FROM email_messages
     ${whereSql}
     ORDER BY sent_at DESC NULLS LAST, id DESC
@@ -491,6 +497,7 @@ export async function listLocalMessages(p: {
       subject: r.subject || "",
       date: sentAt ? sentAt.toUTCString() : "",
       sourceAccountId: r.source_account_id != null ? Number(r.source_account_id) : undefined,
+      smartCategory: r.smart_category ?? null,
     };
   });
 

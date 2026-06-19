@@ -1,0 +1,101 @@
+Phase 6B — expose smart_category safely without breaking CRM email linking.
+
+Critical constraint:
+Do not break existing email linking to Leads, Accounts, Contacts, CRM activity timelines, or linked-email cards.
+
+Scope:
+Add smart_category to the /api/gmail/messages response as smartCategory only.
+
+Do not change:
+
+* message id
+* gmail_message_id
+* gmail_thread_id
+* thread id
+* source_account_id
+* account scoping
+* association logic
+* Lead/Account/Contact linked email queries
+* CRM timeline queries
+* email body/full-body endpoints
+* thread detail endpoint
+* reply/forward/signature/tracking/CID code
+* pagination behavior
+* counts
+* filters
+
+Tasks:
+
+1. Audit first:
+    Find every place /api/gmail/messages output is consumed:
+
+* Gmail inbox list
+* Smart Inbox
+* Lead linked emails
+* Account linked emails
+* Contact linked emails
+* CRM timeline/activity cards
+* Search results
+* Thread opening/deep links
+
+Report whether each depends on the response shape.
+
+2. Add smartCategory additively:
+    In listLocalMessages SELECT / mapper:
+
+* include smart_category from email_messages
+* return it as smartCategory
+* keep labelIds exactly as-is
+* keep all existing fields exactly as-is
+* do not rename anything
+* do not remove anything
+
+3. Verify CRM linking safety:
+    For linked emails in Lead/Account/Contact views:
+
+* existing linked emails still appear
+* clicking linked email still opens the correct email/thread
+* association IDs still resolve
+* no linked-email cards disappear
+* snippets/subjects/senders/dates unchanged
+
+4. Verify Gmail inbox safety:
+
+* People/Updates/Promotions/Social/Forums still render
+* frontend uses smartCategory when present
+* fallback to labelIds still works
+* counts unchanged
+* pagination unchanged
+
+5. Tests:
+    Add/update tests to assert:
+
+* /api/gmail/messages response includes smartCategory
+* existing fields are still present
+* labelIds is still present
+* gmailThreadId/thread id fields are unchanged
+* CRM linked-email queries still pass
+* Lead/Account/Contact email association tests still pass if available
+
+6. Run:
+
+* smart-inbox-phase6.test.cjs
+* inbox-category-unread-filter.test.cjs
+* inbox-category-visibility.test.cjs
+* inbox-category-badge.test.cjs
+* inbox-count-reconciliation.test.cjs
+* inbox-completeness.test.cjs
+* CRM/association/linked-email tests if available
+* full relevant mail tests
+
+7. Return:
+
+* files changed
+* exact response field added
+* proof no existing fields changed
+* CRM linked-email verification
+* inbox verification
+* test results
+
+Important:
+This phase is additive only. If any existing field needs to change, stop and ask.
