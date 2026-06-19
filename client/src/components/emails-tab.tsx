@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Mail, RefreshCw, Link, Shield, AlertTriangle,
   Loader2, Eye, MousePointerClick, Clock, Flame, Zap, BarChart2, Inbox,
+  Paperclip, ChevronDown, ChevronUp, Users, ArrowDownLeft, ArrowUpRight,
 } from "lucide-react";
 import { Link as WouterLink, useLocation } from "wouter";
 import { sanitizeRichText } from "@/lib/sanitize-html";
@@ -23,6 +24,8 @@ type EmailWithAssociation = {
   subject: string | null;
   fromEmail: string | null;
   fromName: string | null;
+  toEmails: string | null;
+  ccEmails: string | null;
   sentAt: string | null;
   direction: string | null;
   snippet: string | null;
@@ -32,6 +35,7 @@ type EmailWithAssociation = {
   isHot: boolean;
   isReplied: boolean;
   engagementScore: number;
+  attachmentCount: number;
   association?: {
     id: number;
     confidenceScore: number | null;
@@ -39,6 +43,13 @@ type EmailWithAssociation = {
     isAuto: boolean | null;
     isUserConfirmed: boolean | null;
   };
+};
+
+type EmailThread = {
+  threadId: string;
+  messages: EmailWithAssociation[];
+  latest: EmailWithAssociation;
+  hasMultiple: boolean;
 };
 
 type EngagementStats = {
@@ -113,6 +124,27 @@ function ConfidenceBadge({ score, isAuto, isUserConfirmed }: {
   return null;
 }
 
+// ── DirectionBadge ─────────────────────────────────────────────────────────────
+
+function DirectionBadge({ isOutbound }: { isOutbound: boolean }) {
+  return (
+    <Badge
+      variant="outline"
+      className={`text-[10px] px-1.5 py-0 gap-0.5 flex-shrink-0 ${
+        isOutbound
+          ? "text-blue-400 border-blue-500/20 bg-blue-500/5"
+          : "text-emerald-400 border-emerald-500/20 bg-emerald-500/5"
+      }`}
+      data-testid={`badge-direction-${isOutbound ? "outbound" : "inbound"}`}
+    >
+      {isOutbound
+        ? <><ArrowUpRight className="h-2.5 w-2.5" />Outbound</>
+        : <><ArrowDownLeft className="h-2.5 w-2.5" />Inbound</>
+      }
+    </Badge>
+  );
+}
+
 // ── SignalBadge (inline row-level) ─────────────────────────────────────────────
 
 const SIGNAL_CONFIG = {
@@ -185,10 +217,8 @@ function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
   }
 
   const stats = engQuery.data;
-  if (!stats) {
-    return null;
-  }
-  // Untracked send: explicit, no ambiguity vs. "tracked but no opens yet".
+  if (!stats) return null;
+
   if (!stats.tracked) {
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground/60 italic" data-testid="engagement-untracked">
@@ -197,7 +227,6 @@ function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
       </div>
     );
   }
-  // Tracked but no opens yet — this used to be conflated with "untracked".
   if (stats.uniqueOpens === 0) {
     return (
       <div className="space-y-1" data-testid="engagement-tracked-noopens">
@@ -225,7 +254,6 @@ function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
         </div>
       )}
 
-      {/* ── Score + signal level ─────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap">
         {stats.isHot && (
           <div
@@ -246,16 +274,13 @@ function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
         <ScoreBar score={stats.score} />
       </div>
 
-      {/* ── Opens + clicks summary ───────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap">
         <div
           className={`flex items-center gap-1.5 text-xs font-medium ${stats.uniqueOpens > 0 ? "text-emerald-400" : "text-muted-foreground/50"}`}
           data-testid="engagement-opens-count"
         >
           <Eye className="h-3.5 w-3.5" />
-          {stats.uniqueOpens > 0
-            ? `Opened ${stats.uniqueOpens}×`
-            : "Not opened"}
+          {stats.uniqueOpens > 0 ? `Opened ${stats.uniqueOpens}×` : "Not opened"}
         </div>
         {stats.uniqueClicks > 0 && (
           <div className="flex items-center gap-1.5 text-xs font-medium text-blue-400" data-testid="engagement-clicks-count">
@@ -275,7 +300,6 @@ function EngagementPanel({ gmailMessageId }: { gmailMessageId: string }) {
         Opens = image loads (soft signal, not a guaranteed read). Same-source rapid loads are deduplicated.
       </p>
 
-      {/* ── Event timeline ───────────────────────────────── */}
       {visibleEvents.length > 0 && (
         <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
           {visibleEvents.slice(0, 12).map((ev, i) => (
@@ -366,12 +390,352 @@ function FullBodyViewer({ gmailMessageId, snippet }: { gmailMessageId: string; s
   return null;
 }
 
+// ── MessageRow — single message inside an expanded thread ───────────────────────
+
+function MessageRow({
+  email,
+  isBodyOpen,
+  onToggleBody,
+  objectType,
+  objectId,
+  onConfirm,
+  onRemove,
+  confirmPending,
+  removePending,
+}: {
+  email: EmailWithAssociation;
+  isBodyOpen: boolean;
+  onToggleBody: () => void;
+  objectType: string;
+  objectId: number;
+  onConfirm: (emailId: number, assocId: number) => void;
+  onRemove: (emailId: number, assocId: number) => void;
+  confirmPending: boolean;
+  removePending: boolean;
+}) {
+  const [, setLocation] = useLocation();
+  const isOutbound = email.direction === "outbound";
+  const reasons: string[] = email.association?.associationReasonJson
+    ? JSON.parse(email.association.associationReasonJson)
+    : [];
+
+  return (
+    <div
+      className="border border-border/30 rounded-lg overflow-hidden bg-background/30"
+      data-testid={`email-message-row-${email.id}`}
+    >
+      {/* Message header — always visible */}
+      <button
+        className="w-full text-left px-3 py-2.5 flex items-start gap-2.5 hover:bg-muted/30 transition-colors"
+        onClick={onToggleBody}
+        data-testid={`button-toggle-message-${email.id}`}
+      >
+        <div className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOutbound ? "bg-blue-400" : "bg-primary"}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-medium text-foreground/90 truncate">
+              {isOutbound
+                ? `You → ${email.toEmails ? email.toEmails.split(/[,;]/)[0].trim() : "recipient"}`
+                : `${email.fromName || email.fromEmail || "Unknown"}`
+              }
+            </span>
+            <span className="text-xs text-muted-foreground/50 flex-shrink-0 ml-auto">
+              {formatEmailDate(email.sentAt)}
+            </span>
+          </div>
+          {!isBodyOpen && email.snippet && (
+            <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{email.snippet}</p>
+          )}
+        </div>
+        {isBodyOpen
+          ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0 mt-0.5" />
+          : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0 mt-0.5" />
+        }
+      </button>
+
+      {/* Message body — only when open */}
+      {isBodyOpen && (
+        <div className="border-t border-border/20 px-3 py-2.5 space-y-3 bg-muted/10">
+          {/* Recipients */}
+          <div className="space-y-0.5" data-testid={`recipients-block-${email.id}`}>
+            <div className="flex gap-1.5 text-xs">
+              <span className="text-muted-foreground/50 w-7 flex-shrink-0">From</span>
+              <span className="text-foreground/80 truncate">
+                {email.fromName ? `${email.fromName} <${email.fromEmail}>` : (email.fromEmail || "—")}
+              </span>
+            </div>
+            {email.toEmails && (
+              <div className="flex gap-1.5 text-xs" data-testid={`to-field-${email.id}`}>
+                <span className="text-muted-foreground/50 w-7 flex-shrink-0">To</span>
+                <span className="text-foreground/80 truncate">{email.toEmails}</span>
+              </div>
+            )}
+            {email.ccEmails && (
+              <div className="flex gap-1.5 text-xs" data-testid={`cc-field-${email.id}`}>
+                <span className="text-muted-foreground/50 w-7 flex-shrink-0">CC</span>
+                <span className="text-foreground/80 truncate">{email.ccEmails}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Full body */}
+          <FullBodyViewer gmailMessageId={email.gmailMessageId} snippet={email.snippet} />
+
+          {/* Attachments badge */}
+          {email.attachmentCount > 0 && (
+            <div
+              className="flex items-center gap-1.5 text-xs text-muted-foreground/70 bg-secondary/20 rounded px-2 py-1 w-fit"
+              data-testid={`attachment-count-${email.id}`}
+            >
+              <Paperclip className="h-3 w-3" />
+              {email.attachmentCount} attachment{email.attachmentCount !== 1 ? "s" : ""}
+              <span className="text-muted-foreground/40 text-[10px]">· Open in VS Mail to download</span>
+            </div>
+          )}
+
+          {/* Engagement (outbound only) */}
+          {isOutbound && (
+            <div className="rounded-lg border border-border/40 bg-secondary/10 px-3 py-2.5 space-y-2">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Eye className="h-3 w-3" />Engagement
+              </p>
+              <EngagementPanel gmailMessageId={email.gmailMessageId} />
+            </div>
+          )}
+
+          {/* Why linked */}
+          {reasons.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Why linked</p>
+              <ul className="space-y-0.5">
+                {reasons.map((r, i) => (
+                  <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                    <span className="text-primary/60 mt-0.5">·</span>{r}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {email.ignoredReason && (
+            <p className="text-xs text-amber-400 bg-amber-500/10 rounded px-2 py-1">
+              Note: {email.ignoredReason}
+            </p>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 flex-wrap items-center pt-0.5">
+            <button
+              onClick={() => {
+                const params = new URLSearchParams({ thread: email.gmailThreadId });
+                if (email.sourceAccountId) params.set("account", String(email.sourceAccountId));
+                setLocation(`/gmail?${params.toString()}`);
+              }}
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              data-testid={`button-open-vsmail-${email.id}`}
+            >
+              <Inbox className="h-3 w-3" /> Open in VS Mail
+            </button>
+            {email.association && !email.association.isUserConfirmed && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 text-xs px-2"
+                onClick={() => onConfirm(email.id, email.association!.id)}
+                disabled={confirmPending}
+                data-testid={`button-confirm-assoc-${email.id}`}
+              >
+                Confirm link
+              </Button>
+            )}
+            {email.association && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-xs px-2 text-muted-foreground hover:text-red-400"
+                onClick={() => onRemove(email.id, email.association!.id)}
+                disabled={removePending}
+                data-testid={`button-remove-assoc-${email.id}`}
+              >
+                Remove link
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── ThreadCard ─────────────────────────────────────────────────────────────────
+
+function ThreadCard({
+  thread,
+  isExpanded,
+  expandedMessageId,
+  onToggleThread,
+  onToggleMessage,
+  objectType,
+  objectId,
+  onConfirm,
+  onRemove,
+  confirmPending,
+  removePending,
+}: {
+  thread: EmailThread;
+  isExpanded: boolean;
+  expandedMessageId: number | null;
+  onToggleThread: () => void;
+  onToggleMessage: (id: number) => void;
+  objectType: string;
+  objectId: number;
+  onConfirm: (emailId: number, assocId: number) => void;
+  onRemove: (emailId: number, assocId: number) => void;
+  confirmPending: boolean;
+  removePending: boolean;
+}) {
+  const latest = thread.latest;
+  const isOutbound = latest.direction === "outbound";
+  const hasSignal = isOutbound && (latest.isReplied || (latest.signalLevel && latest.signalLevel !== "none"));
+
+  return (
+    <div
+      className="border border-border/50 rounded-lg overflow-hidden hover:border-border transition-colors"
+      data-testid={`thread-card-${thread.threadId}`}
+    >
+      {/* ── Thread collapsed header ── */}
+      <button
+        className="w-full text-left px-4 py-3 flex items-start gap-3"
+        onClick={onToggleThread}
+        data-testid={`button-toggle-thread-${thread.threadId}`}
+      >
+        <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${isOutbound ? "bg-blue-400" : "bg-primary"}`} />
+        <div className="flex-1 min-w-0">
+          {/* Subject row */}
+          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+            <span className="text-sm font-medium truncate">
+              {latest.subject || "(no subject)"}
+            </span>
+            {latest.isReply && (
+              <Badge variant="outline" className="text-xs py-0 flex-shrink-0">Re:</Badge>
+            )}
+            {thread.hasMultiple && (
+              <Badge
+                variant="outline"
+                className="text-xs py-0 gap-1 text-muted-foreground border-border/50 flex-shrink-0"
+                data-testid={`badge-thread-count-${thread.threadId}`}
+              >
+                <Users className="h-2.5 w-2.5" />{thread.messages.length}
+              </Badge>
+            )}
+            {isOutbound && !hasSignal && (
+              <Badge variant="outline" className="text-xs py-0 gap-1 text-blue-400 border-blue-500/20 flex-shrink-0">
+                <Eye className="h-2.5 w-2.5" />Tracked
+              </Badge>
+            )}
+            {isOutbound && hasSignal && (
+              <SignalBadge level={latest.signalLevel} isHot={latest.isHot} isReplied={latest.isReplied} />
+            )}
+            {latest.association && (
+              <ConfidenceBadge
+                score={latest.association.confidenceScore}
+                isAuto={latest.association.isAuto}
+                isUserConfirmed={latest.association.isUserConfirmed}
+              />
+            )}
+          </div>
+
+          {/* Sender / date / meta row */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+            <span className="truncate">
+              {isOutbound
+                ? `Sent by you`
+                : latest.fromName || latest.fromEmail || "Unknown"}
+            </span>
+            <span className="flex-shrink-0">·</span>
+            <span className="flex-shrink-0">{formatEmailDate(latest.sentAt)}</span>
+            {isOutbound && latest.engagementScore > 0 && (
+              <>
+                <span className="flex-shrink-0">·</span>
+                <span className="flex items-center gap-0.5 flex-shrink-0 text-muted-foreground/70" data-testid={`text-score-${latest.id}`}>
+                  <Zap className="h-2.5 w-2.5" />
+                  {latest.engagementScore}pts
+                </span>
+              </>
+            )}
+            <DirectionBadge isOutbound={isOutbound} />
+            {latest.attachmentCount > 0 && (
+              <span
+                className="flex items-center gap-0.5 text-muted-foreground/60 flex-shrink-0"
+                data-testid={`badge-attachment-count-${latest.id}`}
+              >
+                <Paperclip className="h-2.5 w-2.5" />{latest.attachmentCount}
+              </span>
+            )}
+          </div>
+
+          {/* Snippet */}
+          {latest.snippet && !isExpanded && (
+            <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{latest.snippet}</p>
+          )}
+        </div>
+
+        {/* Expand indicator */}
+        <div className="flex-shrink-0 mt-0.5">
+          {isExpanded
+            ? <ChevronUp className="h-4 w-4 text-muted-foreground/50" />
+            : <ChevronDown className="h-4 w-4 text-muted-foreground/50" />
+          }
+        </div>
+      </button>
+
+      {/* ── Thread expanded body ── */}
+      {isExpanded && (
+        <div className="border-t border-border/30 px-4 py-3 bg-muted/20 space-y-2.5">
+          {/* Thread summary header when multiple messages */}
+          {thread.hasMultiple && (
+            <div
+              className="flex items-center gap-2 text-xs text-muted-foreground/70 pb-1.5 border-b border-border/20"
+              data-testid={`thread-summary-header-${thread.threadId}`}
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span className="font-medium">{thread.messages.length} messages</span>
+              <span>·</span>
+              <span>
+                {formatEmailDate(thread.messages[thread.messages.length - 1].sentAt)}
+                {" → "}
+                {formatEmailDate(thread.messages[0].sentAt)}
+              </span>
+            </div>
+          )}
+
+          {/* Message rows (newest first) */}
+          {thread.messages.map((msg) => (
+            <MessageRow
+              key={msg.id}
+              email={msg}
+              isBodyOpen={expandedMessageId === msg.id}
+              onToggleBody={() => onToggleMessage(msg.id)}
+              objectType={objectType}
+              objectId={objectId}
+              onConfirm={onConfirm}
+              onRemove={onRemove}
+              confirmPending={confirmPending}
+              removePending={removePending}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── EmailsTab ──────────────────────────────────────────────────────────────────
 
 export function EmailsTab({ objectType, objectId }: { objectType: string; objectId: number }) {
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
+  const [expandedMessageId, setExpandedMessageId] = useState<number | null>(null);
 
   const emailsQuery = useQuery<EmailWithAssociation[]>({
     queryKey: ["/api/crm-emails", objectType, objectId],
@@ -387,9 +751,6 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
 
   const syncMutation = useMutation({
     mutationFn: async () => {
-      // For accounts: run the smart reindex which also backfills historical associations
-      // (matches emails by account/lead company name when website/contactEmail are absent).
-      // For other object types: fall back to a generic incremental Gmail sync.
       if (objectType === "account") {
         const res = await apiRequest("POST", `/api/accounts/${objectId}/reindex-emails`);
         return res.json();
@@ -420,12 +781,10 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
   });
 
   const removeMutation = useMutation({
-    mutationFn: async ({ emailId, assocId, assocObjectType, assocObjectId }: {
-      emailId: number; assocId: number; assocObjectType: string; assocObjectId: number;
-    }) => {
+    mutationFn: async ({ emailId, assocId }: { emailId: number; assocId: number }) => {
       const res = await apiRequest("POST", `/api/email-messages/${emailId}/reassign`, {
-        removeObjectType: assocObjectType,
-        removeObjectId: assocObjectId,
+        removeObjectType: objectType,
+        removeObjectId: objectId,
       });
       return res.json();
     },
@@ -437,13 +796,62 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
 
   const emails = emailsQuery.data || [];
 
+  // ── Thread grouping (client-side, no API change) ───────────────────────────
+  const threads = useMemo<EmailThread[]>(() => {
+    const map = new Map<string, EmailWithAssociation[]>();
+    for (const email of emails) {
+      const key = email.gmailThreadId || String(email.id);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(email);
+    }
+    return Array.from(map.entries())
+      .map(([threadId, msgs]) => {
+        const sorted = [...msgs].sort(
+          (a, b) => (b.sentAt ? new Date(b.sentAt).getTime() : 0) - (a.sentAt ? new Date(a.sentAt).getTime() : 0)
+        );
+        return {
+          threadId,
+          messages: sorted,
+          latest: sorted[0],
+          hasMultiple: sorted.length > 1,
+        };
+      })
+      .sort(
+        (a, b) =>
+          (b.latest.sentAt ? new Date(b.latest.sentAt).getTime() : 0) -
+          (a.latest.sentAt ? new Date(a.latest.sentAt).getTime() : 0)
+      );
+  }, [emails]);
+
+  function handleToggleThread(threadId: string) {
+    if (expandedThreadId === threadId) {
+      setExpandedThreadId(null);
+      setExpandedMessageId(null);
+    } else {
+      setExpandedThreadId(threadId);
+      // Auto-expand the latest message body
+      const thread = threads.find(t => t.threadId === threadId);
+      if (thread) setExpandedMessageId(thread.latest.id);
+    }
+  }
+
+  function handleToggleMessage(msgId: number) {
+    setExpandedMessageId(prev => (prev === msgId ? null : msgId));
+  }
+
+  const threadCount = threads.length;
+  const msgCount = emails.length;
+  const countLabel = threadCount === msgCount
+    ? `${msgCount} email${msgCount !== 1 ? "s" : ""} linked`
+    : `${threadCount} thread${threadCount !== 1 ? "s" : ""} · ${msgCount} email${msgCount !== 1 ? "s" : ""}`;
+
   return (
     <div className="space-y-3">
       <FollowUpInsightCard entityType={objectType} entityId={objectId} />
 
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {emails.length === 0 ? "No emails linked yet" : `${emails.length} email${emails.length !== 1 ? "s" : ""} linked`}
+        <p className="text-sm text-muted-foreground" data-testid="text-email-count">
+          {emails.length === 0 ? "No emails linked yet" : countLabel}
         </p>
         <Button
           variant="outline"
@@ -479,162 +887,22 @@ export function EmailsTab({ objectType, objectId }: { objectType: string; object
         </div>
       )}
 
-      {emails.map((email) => {
-        const isExpanded = expandedId === email.id;
-        const reasons: string[] = email.association?.associationReasonJson
-          ? JSON.parse(email.association.associationReasonJson)
-          : [];
-        const isOutbound = email.direction === "outbound";
-        const hasSignal = isOutbound && (email.isReplied || (email.signalLevel && email.signalLevel !== "none"));
-
-        return (
-          <div
-            key={email.id}
-            className="border border-border/50 rounded-lg overflow-hidden hover:border-border transition-colors"
-            data-testid={`email-item-${email.id}`}
-          >
-            <button
-              className="w-full text-left px-4 py-3 flex items-start gap-3"
-              onClick={() => setExpandedId(isExpanded ? null : email.id)}
-              data-testid={`button-toggle-email-${email.id}`}
-            >
-              <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${isOutbound ? "bg-blue-400" : "bg-primary"}`} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                  <span className="text-sm font-medium truncate">
-                    {email.subject || "(no subject)"}
-                  </span>
-                  {email.isReply && (
-                    <Badge variant="outline" className="text-xs py-0">Re:</Badge>
-                  )}
-                  {isOutbound && !hasSignal && (
-                    <Badge variant="outline" className="text-xs py-0 gap-1 text-blue-400 border-blue-500/20">
-                      <Eye className="h-2.5 w-2.5" />Tracked
-                    </Badge>
-                  )}
-                  {/* Signal badge replaces plain "Tracked" when we have signal data */}
-                  {isOutbound && hasSignal && (
-                    <SignalBadge level={email.signalLevel} isHot={email.isHot} isReplied={email.isReplied} />
-                  )}
-                  {email.association && (
-                    <ConfidenceBadge
-                      score={email.association.confidenceScore}
-                      isAuto={email.association.isAuto}
-                      isUserConfirmed={email.association.isUserConfirmed}
-                    />
-                  )}
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="truncate">
-                    {isOutbound
-                      ? `Sent by you`
-                      : email.fromName || email.fromEmail || "Unknown"}
-                  </span>
-                  <span className="flex-shrink-0">·</span>
-                  <span className="flex-shrink-0">{formatEmailDate(email.sentAt)}</span>
-                  {isOutbound && email.engagementScore > 0 && (
-                    <>
-                      <span className="flex-shrink-0">·</span>
-                      <span className="flex items-center gap-0.5 flex-shrink-0 text-muted-foreground/70" data-testid={`text-score-${email.id}`}>
-                        <Zap className="h-2.5 w-2.5" />
-                        {email.engagementScore}pts
-                      </span>
-                    </>
-                  )}
-                </div>
-                {email.snippet && !isExpanded && (
-                  <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{email.snippet}</p>
-                )}
-              </div>
-            </button>
-
-            {isExpanded && (
-              <div className="border-t border-border/30 px-4 py-3 bg-muted/20 space-y-3">
-                <FullBodyViewer gmailMessageId={email.gmailMessageId} snippet={email.snippet} />
-                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <span>
-                    From: <span className="text-foreground">
-                      {email.fromName ? `${email.fromName} <${email.fromEmail}>` : email.fromEmail}
-                    </span>
-                  </span>
-                </div>
-
-                {/* ── Engagement panel (outbound only) ─────── */}
-                {isOutbound && (
-                  <div className="rounded-lg border border-border/40 bg-secondary/10 px-3 py-2.5 space-y-2">
-                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <Eye className="h-3 w-3" />Engagement
-                    </p>
-                    <EngagementPanel gmailMessageId={email.gmailMessageId} />
-                  </div>
-                )}
-
-                {reasons.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Why linked</p>
-                    <ul className="space-y-0.5">
-                      {reasons.map((r, i) => (
-                        <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
-                          <span className="text-primary/60 mt-0.5">·</span>{r}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {email.ignoredReason && (
-                  <p className="text-xs text-amber-400 bg-amber-500/10 rounded px-2 py-1">
-                    Note: {email.ignoredReason}
-                  </p>
-                )}
-
-                <div className="flex gap-2 flex-wrap">
-                  <button
-                    onClick={() => {
-                      const params = new URLSearchParams({ thread: email.gmailThreadId });
-                      if (email.sourceAccountId) params.set("account", String(email.sourceAccountId));
-                      setLocation(`/gmail?${params.toString()}`);
-                    }}
-                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                    data-testid={`button-open-vsmail-${email.id}`}
-                  >
-                    <Inbox className="h-3 w-3" /> Open in VS Mail
-                  </button>
-                  {email.association && !email.association.isUserConfirmed && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 text-xs px-2"
-                      onClick={() => confirmMutation.mutate({ emailId: email.id, assocId: email.association!.id })}
-                      disabled={confirmMutation.isPending}
-                      data-testid={`button-confirm-assoc-${email.id}`}
-                    >
-                      Confirm link
-                    </Button>
-                  )}
-                  {email.association && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 text-xs px-2 text-muted-foreground hover:text-red-400"
-                      onClick={() => removeMutation.mutate({
-                        emailId: email.id,
-                        assocId: email.association!.id,
-                        assocObjectType: objectType,
-                        assocObjectId: objectId,
-                      })}
-                      disabled={removeMutation.isPending}
-                      data-testid={`button-remove-assoc-${email.id}`}
-                    >
-                      Remove link
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {threads.map((thread) => (
+        <ThreadCard
+          key={thread.threadId}
+          thread={thread}
+          isExpanded={expandedThreadId === thread.threadId}
+          expandedMessageId={expandedThreadId === thread.threadId ? expandedMessageId : null}
+          onToggleThread={() => handleToggleThread(thread.threadId)}
+          onToggleMessage={handleToggleMessage}
+          objectType={objectType}
+          objectId={objectId}
+          onConfirm={(emailId, assocId) => confirmMutation.mutate({ emailId, assocId })}
+          onRemove={(emailId, assocId) => removeMutation.mutate({ emailId, assocId })}
+          confirmPending={confirmMutation.isPending}
+          removePending={removeMutation.isPending}
+        />
+      ))}
     </div>
   );
 }

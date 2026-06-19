@@ -1,0 +1,125 @@
+Phase 7 — CRM Email Experience Upgrade
+
+Objective:
+Make the Lead / Account / Contact email timeline feel like a first-class mailbox experience while preserving all existing associations and deep-link behavior.
+
+Do not modify:
+
+* Gmail sync
+* Smart Inbox
+* smartCategory
+* inbox counts
+* signatures
+* tracking
+* CID rendering
+* reply/forward
+* deep-link routing (already verified)
+
+Tasks:
+
+1. Audit current CRM email cards
+    For:
+
+* Leads
+* Accounts
+* Contacts
+
+Document:
+
+* card component
+* data source
+* current fields displayed
+* expand/collapse behavior
+* full-body fetch path
+* Open in VS Mail button path
+
+2. Improve email card layout
+
+Collapsed state:
+
+* Sender
+* Subject
+* Date/time
+* Snippet
+* Account badge
+* Direction (Inbound / Outbound)
+
+Expanded state:
+
+* Full email body
+* Attachments
+* Recipients (To / CC / BCC)
+* Thread summary header
+* Open in VS Mail button
+
+3. Thread awareness
+
+When multiple emails belong to the same gmail_thread_id:
+
+Show:
+
+* thread count
+* latest activity
+* expand thread
+
+Avoid rendering duplicate cards for every message when thread context exists.
+
+4. Remove Gmail dependency
+
+Search entire codebase for:
+
+* “Open in Gmail”
+* mail.google.com
+* gmail.google.com
+
+Replace user-facing CRM email actions with:
+
+* Open in VS Mail
+
+Do not change inbox actions if they intentionally open Gmail.
+
+5. Email body rendering
+
+Verify:
+
+* HTML emails render
+* plaintext emails render
+* inline images still render
+* attachments still render
+* quoted replies remain visible
+
+Do not modify CID pipeline.
+
+6. Tests
+
+Add:
+
+* crm-email-card-layout.test
+* crm-thread-awareness.test
+
+Verify:
+
+* Lead email cards
+* Account email cards
+* Contact email cards
+* full body expansion
+* Open in VS Mail button
+* thread grouping
+* attachment rendering
+
+7. Deliverable
+
+Return:
+
+* files changed
+* screenshots
+* before/after UX
+* tests run
+* remaining CRM email UX opportunities
+
+Important:
+No database migrations.
+No schema changes.
+No inbox changes.
+No Gmail sync changes.
+Pure CRM email UX upgrade only.

@@ -20,6 +20,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { TimelineTab } from "@/components/timeline-tab";
+import { EmailsTab } from "@/components/emails-tab";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { SuggestedActionsCard } from "@/components/suggested-actions-card";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
@@ -812,12 +814,18 @@ export default function ContactProfilePage() {
 function TimelineSection({ contactId }: { contactId: number }) {
   return (
     <div className="mt-2">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="flex-1 border-t border-border/30" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Unified Timeline</span>
-        <div className="flex-1 border-t border-border/30" />
-      </div>
-      <TimelineTab objectType="contact" objectId={contactId} />
+      <Tabs defaultValue="timeline">
+        <TabsList className="mb-3 h-8 bg-secondary/30">
+          <TabsTrigger value="timeline" className="text-xs" data-testid="tab-contact-timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="emails" className="text-xs" data-testid="tab-contact-emails">Emails</TabsTrigger>
+        </TabsList>
+        <TabsContent value="timeline">
+          <TimelineTab objectType="contact" objectId={contactId} />
+        </TabsContent>
+        <TabsContent value="emails">
+          <EmailsTab objectType="contact" objectId={contactId} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

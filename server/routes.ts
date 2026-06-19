@@ -18126,6 +18126,19 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const msgs = await db.select().from(emailMessages)
         .where(inArray(emailMessages.id, msgIds));
 
+      // Batch attachment counts (non-inline attachments only — no schema change)
+      const attachCountMap: Record<number, number> = {};
+      if (msgIds.length > 0) {
+        const attachRows = ((await db.execute(sql.raw(
+          `SELECT message_id, COUNT(*)::int AS cnt FROM email_attachments
+           WHERE message_id IN (${msgIds.join(",")}) AND (is_inline IS NOT TRUE OR is_inline IS NULL)
+           GROUP BY message_id`
+        ))) as any).rows as any[];
+        for (const r of attachRows) {
+          attachCountMap[Number(r.message_id)] = Number(r.cnt);
+        }
+      }
+
       // Batch-fetch signal data for outbound emails
       const outboundGmailIds = msgs
         .filter(m => m.direction === "outbound" && m.gmailMessageId)
@@ -18158,6 +18171,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           isHot: signal?.isHot ?? false,
           engagementScore: signal?.engagementScore ?? 0,
           isReplied: signal?.isReplied ?? false,
+          attachmentCount: attachCountMap[msg.id] ?? 0,
         };
       }).sort((a, b) => {
         const aTime = a.sentAt ? new Date(a.sentAt).getTime() : 0;
