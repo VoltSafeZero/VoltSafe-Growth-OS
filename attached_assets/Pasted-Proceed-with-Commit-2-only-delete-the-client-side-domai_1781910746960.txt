@@ -1,0 +1,29 @@
+Proceed with Commit 2 only: delete the client-side domain-block / Other machinery. Do NOT touch email_filters table rows. Do NOT delete the email_filters routes. Do NOT do Commit 3. No DB data changes.
+Context confirmed by fresh audit: email_filters is read only by the frontend domain-filter and its GET/POST/DELETE routes; spam, trust, newsletters, categories, badges, search, sync, and CRM are all independent of it. Commit 1 already fixed real spam/inbox derived-column consistency. Block going forward is exact-sender only.
+Changes (all in client/src/pages/gmail-inbox.tsx unless noted):
+
+Stop fetching/using email_filters for inbox filtering: remove filtersQuery, blockedDomains, the two /api/email-filters cache invalidations. Remove flagMutation and its call sites (10682, 10873, 10944) — it only creates domain blocks. Remove unblockMutation and its call site (10680) — it only removes domain blocks.
+Remove domain filtering from the inbox pipeline: remove the blockedDomains clause from the inboxMainRaw filter (7407-7413) so the main inbox no longer excludes by domain. Remove inboxOther (7418-7424), inboxOtherVisible (7426-7430), and inboxOther from the activeMessages dep array (7655). Remove rescuedFromSpam (4958) and the not-spam inboxOtherMsg rescue branch (7170-7207) — these only support the Other/domain rescue path.
+For parseSenderDomain (214-218, called at 7410, 7421, 7186, 10371, 10869, 10940): do NOT delete it outright. Remove only the calls tied to domain-block filtering. After removing those, if ZERO call sites remain, delete the function; if ANY call site remains, LEAVE the function and report which call sites still use it and why. Same conditional rule for any other shared helper — delete only when all references are gone, otherwise keep and report.
+Keep blockedEmails (exact-sender) behavior unless you confirm exact-block now always moves to spam server-side (Commit 1) making client-side hiding redundant — if so, report that and remove it; if unsure, keep it.
+Remove the Other overlay from Spam: change allSpamMessages to spamQuery.data?.messages || []. Spam shows only is_spam=true mail.
+Remove the Other tab UI: nav entry (3038), secondary nav entry (11661), and the tab === "other" loading/error branches (7797-7798+). If removing "other" from the tab type union is risky, leave the type but remove the visible nav and redirect any residual "other" state to inbox. Report which approach you took.
+Remove domain-block actions from message controls. Keep the exact-sender Block action (it calls the Commit 1 exact-block + mark-spam flow). Where a domain-block and exact-block action sit in the same menu, remove only the domain one.
+Do NOT change /api/blocked-senders, /api/inbox/threads/:id/mark-spam, /api/inbox/threads/:id/not-spam, or spam_trusted_senders behavior. Do NOT touch the email_filters routes or rows.
+
+Tests:
+
+Inbox pipeline no longer filters by blockedDomains.
+allSpamMessages uses only spamQuery.data.messages.
+Other tab is gone/inaccessible.
+Domain-block action removed; exact-sender block action remains.
+Update or retire not-spam-blocked-domain.test.js (it tests the rescue path you're deleting). Leave p1-undergated-mutations-2.test.js email_filters-route assertions intact since the routes stay.
+
+Verification in .dev — this is EXPECTED, not a regression:
+
+/api/gmail/messages?q=in:inbox is:unread returns ~50; inboxMain now stays ~50, NOT 2. The previously-hidden LinkedIn/Substack/Beehiiv unread mail returning to the inbox is the intended outcome of retiring domain-blocking — confirm it happens and do not treat the 2→~50 jump as a bug.
+Spam view shows only real spam; no Other overlay.
+No console errors.
+
+Report: files changed, machinery removed, what was kept-and-why (especially parseSenderDomain and blockedEmails), which Other-tab-removal approach you took, tests updated/retired, before/after pipeline counts, confirmation that email_filters rows still physically exist and are now ignored by the UI, and risks/follow-ups for Commit 3.
+Constraints: No db:push, no migrations, no schema changes, no deletion of email_filters rows or routes. Don't touch Gmail sync/OAuth, smartCategory, CRM, signatures, tracking, CID, reply, forward. Stop after Commit 2 for my .dev verification.

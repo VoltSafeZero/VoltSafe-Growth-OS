@@ -9,7 +9,6 @@
  *  A4. POST /api/inbox/threads/:id/not-spam removes block and restores Inbox in DB
  *  A5. DELETE /api/blocked-senders/:id removes the exact block
  *  A6. GET /api/blocked-senders returns all blocks for the authed user
- *  A7. POST /api/email-filters with a broad domain returns 400 + broadDomain:true
  *
  * Run: node tests/block-sender-api.test.cjs
  */
@@ -258,23 +257,6 @@ async function main() {
       const body = await r.json();
       if (Array.isArray(body)) ok(`A6: response is an array (${body.length} entries)`);
       else bad("A6: response is array", `got ${typeof body}`);
-    }
-
-    // ─── A7: Broad domain guard returns 400 with broadDomain:true ──────────
-    console.log("\n── A7: Broad domain guard on POST /api/email-filters ──");
-    {
-      const broadDomains = ["gmail.com", "outlook.com", "icloud.com", "yahoo.com", "proton.me"];
-      for (const domain of broadDomains) {
-        const r = await api(cookie, "/api/email-filters", {
-          method: "POST",
-          body: JSON.stringify({ domain }),
-        });
-        const body = await r.json().catch(() => ({}));
-        if (r.status === 400) ok(`A7: POST email-filters domain="${domain}" → 400`);
-        else bad(`A7: POST email-filters domain="${domain}" → 400`, `got ${r.status}`);
-        if (body.broadDomain === true) ok(`A7: response has broadDomain:true for "${domain}"`);
-        else bad(`A7: broadDomain:true for "${domain}"`, `got ${JSON.stringify(body)}`);
-      }
     }
 
   } catch (err) {

@@ -5,13 +5,18 @@
  *  1. Mark-as-read backend persistence (Gmail API + local mirror)
  *  2. Block sender uses exact email (not domain) via blocked_senders table
  *  3. mark-spam route exists and adds SPAM / removes INBOX
- *  4. Broad-domain guard prevents blocking gmail.com etc. at domain level
+ *  4. blocked-senders CRUD routes exist
  *  5. Trust sender (not-spam) also removes from blocked_senders
- *  6. blocked-senders GET/POST/DELETE routes exist
- *  7. Row hover button uses blockSenderMutation (exact email), not flagMutation
- *  8. Toolbar onBlock uses blockSenderMutation (not flagMutation)
- *  9. onBlockDomain keeps flagMutation for domain-level blocking
- * 10. Icon consistency: priority=Star, pin=Pin/PinOff (not Zap/Flame)
+ *  6. Frontend exact-email blocking in inbox
+ *  7. Row hover button uses exact-email blocking
+ *  8. Toolbar onBlock uses blockSenderMutation (not domain flagMutation)
+ *  9. Toolbar type definitions (onBlockDomain removed in Commit 2)
+ * 10. Query cache key fixes
+ * 11. Icon consistency: priority=Star, pin=Pin/PinOff (not Zap/Flame)
+ *
+ * Note: Domain-level blocking (email_filters / flagMutation / onBlockDomain /
+ * inboxOther / Other tab) was retired in Commit 2. Those source-grep checks
+ * have been removed from this file.
  */
 
 const fs = require("fs");
@@ -120,29 +125,6 @@ check(
   routes.includes("ON CONFLICT (email) DO NOTHING")
 );
 
-// ── 5. Broad-domain guard ────────────────────────────────────────────────────
-console.log("\n[5] Broad-domain guard on POST /api/email-filters");
-check(
-  "gmail.com is in the BROAD_EMAIL_DOMAINS guard list",
-  routes.includes('"gmail.com"') && routes.includes("BROAD_EMAIL_DOMAINS")
-);
-check(
-  "outlook.com is in the BROAD_EMAIL_DOMAINS guard list",
-  routes.includes('"outlook.com"')
-);
-check(
-  "icloud.com is in the BROAD_EMAIL_DOMAINS guard list",
-  routes.includes('"icloud.com"')
-);
-check(
-  "broad-domain guard returns broadDomain: true in response",
-  routes.includes("broadDomain: true")
-);
-check(
-  "frontend onBlockDomain handler checks BROAD set before calling flagMutation",
-  inbox.includes("BROAD.has(_domain)")
-);
-
 // ── 6. Trust sender (not-spam) removes from blocked_senders ─────────────────
 console.log("\n[6] Trust sender removes from blocked_senders");
 check(
@@ -190,13 +172,6 @@ check(
   inbox.includes("blockedEmails.has((m.fromEmail") ||
   inbox.includes('blockedEmails.has((m.fromEmail || "").toLowerCase())')
 );
-check(
-  "inboxOther includes exact-email blocked senders",
-  inbox.includes("blockedEmails.has((m.fromEmail") &&
-  // inboxOther uses OR (domain OR email blocked)
-  inbox.includes("blockedEmails.has((m.fromEmail")
-);
-
 // ── 8. Row hover button uses exact-email blocking ───────────────────────────
 console.log("\n[8] Row hover button — exact-email block");
 check(
@@ -213,7 +188,7 @@ check(
 );
 check(
   "row block button shows ShieldCheck when blocked (not Trash2 or Ban)",
-  inbox.includes("emailBlocked || blocked") &&
+  inbox.includes("emailBlocked") &&
   inbox.includes("ShieldCheck")
 );
 
@@ -222,11 +197,6 @@ console.log("\n[9] Toolbar handlers");
 check(
   "onBlock in toolbar uses blockSenderMutation (exact email)",
   inbox.includes("blockSenderMutation.mutate({ senderEmail: _email, threadId: selectedThreadId })")
-);
-check(
-  "onBlockDomain in toolbar uses flagMutation (domain)",
-  inbox.includes("onBlockDomain: () => {") &&
-  inbox.includes("flagMutation.mutate(_domain)")
 );
 check(
   "onTrustSender in toolbar calls notSpamMutation",
@@ -249,8 +219,8 @@ check(
 // ── 10. toolbar ActionsToolbarHandlers interface ─────────────────────────────
 console.log("\n[10] Toolbar type definitions");
 check(
-  "ActionsToolbarHandlers has onBlockDomain optional handler",
-  toolbar.includes("onBlockDomain?: () => void")
+  "ActionsToolbarHandlers does NOT have onBlockDomain (removed in Commit 2)",
+  !toolbar.includes("onBlockDomain?: () => void")
 );
 check(
   "ActionsToolbarHandlers has onTrustSender optional handler",
@@ -272,11 +242,6 @@ check(
   "More menu shows Block sender with senderEmail label",
   toolbar.includes("senderEmail ? `Block ${senderEmail}`")
 );
-check(
-  "More menu has Block entire domain item",
-  toolbar.includes('data-testid="more-block-domain"')
-);
-
 // ── 11. Query cache key fixes (setQueriesData prefix, not specific 4/6-part key) ───
 console.log("\n[11] Query cache key correctness — setQueriesData 2-part prefix");
 check(

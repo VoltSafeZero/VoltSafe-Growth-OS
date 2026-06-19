@@ -106,8 +106,6 @@ export interface ActionsToolbarHandlers {
   onMarkSpam: () => void;
   /** Block exact sender email address + move to spam. */
   onBlock: () => void;
-  /** Block the sender's entire domain + move to spam. Separate from onBlock. */
-  onBlockDomain?: () => void;
   /** Trust this sender — move to inbox and whitelist them. Visible when isSpamView or isBlocked. */
   onTrustSender?: () => void;
   /** Remove SPAM label and move to Inbox. Only called when isSpamView=true. */
@@ -850,11 +848,6 @@ function EmailActionsToolbarImpl({
                   <Ban className="h-3.5 w-3.5 mr-2" />
                   {senderEmail ? `Block ${senderEmail}` : "Block sender"}
                 </DropdownMenuItem>
-                {handlers.onBlockDomain && (
-                  <DropdownMenuItem onClick={handlers.onBlockDomain} data-testid="more-block-domain" className="text-amber-400/80 focus:text-amber-400">
-                    <Ban className="h-3.5 w-3.5 mr-2" /> Block entire domain
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem onClick={handlers.onMove} data-testid="more-move">
                   <FolderInput className="h-3.5 w-3.5 mr-2" /> Move to folder
                 </DropdownMenuItem>

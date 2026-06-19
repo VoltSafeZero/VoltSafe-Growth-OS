@@ -37,7 +37,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuIte
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import {
-  Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, FolderX, Trash2,
+  Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, Trash2,
   Clock, FileText, CalendarClock, CalendarX, Calendar, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronUp, ChevronRight, Folder,
   Reply, ReplyAll, Forward, Pencil, User, Building2, Zap, Flame, Video, UserPlus,
@@ -211,13 +211,6 @@ function parseSenderEmail(from: string) {
   return match ? match[1] : from;
 }
 
-function parseSenderDomain(from: string): string {
-  const email = parseSenderEmail(from);
-  const at = email.lastIndexOf("@");
-  return at >= 0 ? email.slice(at + 1).toLowerCase() : "";
-}
-
-type EmailFilter = { id: number; domain: string; createdAt: string };
 type InboxCategory = "all" | "people" | "updates" | "promotions" | "social" | "forums" | "priority";
 type CrmInboxFilter = "all" | "unread" | "starred" | "follow-up" | "needs-reply" | "awaiting-reply" | "hot" | "unlinked";
 
@@ -4950,12 +4943,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Used by the smart-inbox grouper to keep it in the unread bucket only when
   // it genuinely transitioned from unread→read (not when already read).
   const [openThreadWasUnread, setOpenThreadWasUnread] = useState(false);
-  // Tracks threads the user has explicitly rescued from the spam/blocked tab.
-  // inboxOther items (inbox messages from blocked domains shown in the spam tab)
-  // always survive an inbox refetch, so a cache eviction alone cannot keep them
-  // hidden. This set gives a permanent session-level exclusion that survives
-  // every subsequent inbox query invalidation.
-  const [rescuedFromSpam, setRescuedFromSpam] = useState<Set<string>>(new Set());
   // Mail Trust Strip — transient send/draft event surfaced from ComposeDialog mutations.
   const [trustEvent, setTrustEvent] = useState<TrustEvent | null>(null);
   const trustEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -5293,22 +5280,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [quickTaskThreadId, setQuickTaskThreadId] = useState<string | null>(null);
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
 
-  const filtersQuery = useQuery<EmailFilter[]>({
-    queryKey: ["/api/email-filters"],
-    queryFn: async () => {
-      const res = await fetch("/api/email-filters", { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
-  });
-
-  // Memoized so downstream derived arrays (inboxMain, categorizedInbox, crmFilteredMessages,
-  // viewItems) only recompute when the filter data actually changes — not on every render.
-  const blockedDomains = useMemo(
-    () => new Set((filtersQuery.data || []).map((f) => f.domain)),
-    [filtersQuery.data],
-  );
-
   const blockedSendersQuery = useQuery<{ id: number; email: string }[]>({
     queryKey: ["/api/blocked-senders"],
     queryFn: async () => {
@@ -5484,32 +5455,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mail-folders", selectedFolderId, "emails"] });
       queryClient.invalidateQueries({ queryKey: ["/api/mail-folders"] });
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
-
-  const flagMutation = useMutation({
-    mutationFn: async (domain: string) => {
-      const res = await apiRequest("POST", "/api/email-filters", { domain });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.message || "Domain block failed");
-      return body;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/email-filters"] });
-      toast({ title: "Domain blocked", description: "Future emails from this domain will go to Spam." });
-    },
-    onError: (err: any) => toast({ title: "Block domain failed", description: err.message, variant: "destructive" }),
-  });
-
-  const unblockMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("DELETE", `/api/email-filters/${id}`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/email-filters"] });
-      toast({ title: "Domain unblocked", description: "Emails from this domain will appear in your inbox again." });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -7167,30 +7112,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           old ? { ...old, messages: old.messages.filter(m => m.threadId !== threadId) } : old;
         // Remove from spam cache (catches real-spam rows served by spamQuery).
         queryClient.setQueryData(["/api/gmail/messages", "spam", searchQuery, activeAccountId], removeThread);
-        // Mark thread as rescued so inboxOther (inbox messages from blocked domains
-        // shown in the spam tab) never re-surfaces it — even after the inbox query
-        // refetches and returns the same messages from the server.
-        setRescuedFromSpam((prev) => new Set([...prev, threadId]));
-
-        // Persist the rescue for inboxOther messages across page refreshes.
-        // rescuedFromSpam is in-memory React state — it resets on every page load,
-        // which causes blocked-domain messages to reappear in the spam tab after
-        // refresh even though the user explicitly clicked "Not Spam".
-        //
-        // Fix: if the rescued thread was being shown because its sender domain is
-        // in the email_filters block-list (inboxOther path), permanently delete
-        // that filter so the domain is no longer blocked.  The message will then
-        // appear normally in the Inbox on any future load.
-        const inboxOtherMsg = inboxOtherVisible.find((m) => m.threadId === threadId);
-        if (inboxOtherMsg) {
-          const domain = parseSenderDomain(inboxOtherMsg.from);
-          const matchingFilter = (filtersQuery.data || []).find((f) => f.domain === domain);
-          if (matchingFilter) {
-            apiRequest("DELETE", `/api/email-filters/${matchingFilter.id}`)
-              .then(() => queryClient.invalidateQueries({ queryKey: ["/api/email-filters"] }))
-              .catch(() => {/* best-effort; rescuedFromSpam still guards this session */});
-          }
-        }
       }
 
       // 2. Invalidate ALL spam queries (partial key match) so every spam cache entry
@@ -7406,29 +7327,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   const inboxMainRaw = canSend
     ? allInboxMessages.filter(
-        (m) =>
-          !blockedDomains.has(parseSenderDomain(m.from)) &&
-          !blockedEmails.has((m.fromEmail || "").toLowerCase()),
+        (m) => !blockedEmails.has((m.fromEmail || "").toLowerCase()),
       )
     : allInboxMessages;
-  // Apply thread dedup AFTER the blocked-domain filter so a blocked reply can't
-  // "shadow" a valid earlier message in the same thread.
+  // Apply thread dedup after the exact-sender filter.
   const inboxMain = dedupByThread(inboxMainRaw);
 
-  const inboxOther = canSend
-    ? allInboxMessages.filter(
-        (m) =>
-          blockedDomains.has(parseSenderDomain(m.from)) ||
-          blockedEmails.has((m.fromEmail || "").toLowerCase()),
-      )
-    : [];
-  // Exclude threads the user has explicitly rescued via Not Spam from the
-  // blocked-domain overlay. inboxOther items always survive an inbox refetch
-  // (they're genuinely in the inbox), so cache invalidation alone cannot hide
-  // them. rescuedFromSpam provides a session-level exclusion that is unaffected
-  // by any subsequent query invalidation or refetch.
-  const inboxOtherVisible = inboxOther.filter((m) => !rescuedFromSpam.has(m.threadId));
-  const allSpamMessages = [...(spamQuery.data?.messages || []), ...inboxOtherVisible];
+  const allSpamMessages = spamQuery.data?.messages || [];
 
   // When the Unread filter pill is active, bypass the category sub-tab filter entirely.
   // The Unread view is meant to show ALL unread inbox messages — the badge ("Unread 223")
@@ -7652,7 +7557,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     tab === "sent"    ? allSentMessages :
     tab === "spam"    ? allSpamMessages :
     tab === "pinned"  ? pinnedMessages :
-    inboxOther;
+    [];
 
   const crmFilteredMessages = tab !== "inbox" ? activeMessages :
     // Keep the currently-open thread visible even after its UNREAD label is
@@ -7794,19 +7699,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return crmFilteredMessages ?? [];
   }, [tab, isUnreadCardsView, unreadCardsMessages, collapsedViewItems, crmFilteredMessages]);
 
-  const isLoading = isCategoryTab ? categoryQuery.isLoading : tab === "other" || tab === "pinned" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : tab === "spam" ? spamQuery.isLoading : sentQuery.isLoading;
-  const error = isCategoryTab ? categoryQuery.error : tab === "other" || tab === "pinned" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : tab === "spam" ? spamQuery.error : sentQuery.error;
-  // "Other" tab is a derived slice of the same inboxQuery — it must paginate too,
-  // otherwise users land on Other and see only blocked-domain rows from the first 50.
+  const isLoading = isCategoryTab ? categoryQuery.isLoading : tab === "pinned" ? inboxQuery.isLoading : tab === "inbox" ? inboxQuery.isLoading : tab === "spam" ? spamQuery.isLoading : sentQuery.isLoading;
+  const error = isCategoryTab ? categoryQuery.error : tab === "pinned" ? inboxQuery.error : tab === "inbox" ? inboxQuery.error : tab === "spam" ? spamQuery.error : sentQuery.error;
   const hasMore =
-    (tab === "inbox" || tab === "other") ? !!inboxNextToken :
+    tab === "inbox" ? !!inboxNextToken :
     tab === "sent" ? !!sentNextToken :
     false;
   const isLoadingMore =
-    (tab === "inbox" || tab === "other") ? loadingMoreInbox :
+    tab === "inbox" ? loadingMoreInbox :
     tab === "sent" ? loadingMoreSent :
     false;
-  const loadMore = (tab === "inbox" || tab === "other") ? loadMoreInbox : loadMoreSent;
+  const loadMore = tab === "inbox" ? loadMoreInbox : loadMoreSent;
 
   // ── Infinite scroll — stable observer (Apr 2026 fix for "hard stop after first batch") ──
   // Previous version listed `loadMore` (a fresh function every render) in deps, which tore the
@@ -7881,7 +7784,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     setAutoChainExhaustedKey((prev) => (prev !== null && prev !== inboxChainKey ? null : prev));
   }, [inboxChainKey]);
   useEffect(() => {
-    if (tab !== "inbox" && tab !== "other") return;
+    if (tab !== "inbox") return;
     if (!hasMore || isLoadingMore) return;
     if (autoChainRef.current.key !== inboxChainKey) {
       autoChainRef.current = { key: inboxChainKey, count: 0 };
@@ -7963,7 +7866,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // (b) we're on a tab where auto-chain even applies, and (c) hasMore is still true.
   const autoChainExhausted =
     autoChainExhaustedKey === inboxChainKey &&
-    (tab === "inbox" || tab === "other") &&
+    tab === "inbox" &&
     hasMore;
 
   // Batch fetch signal + triage data for visible thread IDs
@@ -10170,7 +10073,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 </div>
               </div>
             )}
-            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && !isLoading && !error && tab !== "other" && crmFilteredMessages?.length === 0 && (
+            {tab !== "drafts" && tab !== "scheduled" && tab !== "folder" && tab !== "review" && !isLoading && !error && crmFilteredMessages?.length === 0 && (
               statusQuery.data && !statusQuery.data.connected ? (
                 <div className="p-8 text-center">
                   <Mail className="h-12 w-12 mx-auto mb-4 opacity-20" />
@@ -10230,12 +10133,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <p>No messages found</p>
                 </div>
               )
-            )}
-            {tab === "other" && inboxOther.length === 0 && !isLoading && (
-              <div className="p-6 text-center text-sm text-muted-foreground">
-                <FolderX className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                <p>No filtered emails</p>
-              </div>
             )}
 
             {/* PART C — Smart Inbox status strip */}
@@ -10368,8 +10265,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               const starred = isStarred(msg.labelIds);
               const isSelected = msg.threadId === selectedThreadId;
               const isBulkChecked = selectedInboxIds.has(msg.threadId);
-              const domain = parseSenderDomain(msg.from);
-              const blocked = blockedDomains.has(domain);
               const rowSenderEmail = (msg.fromEmail || "").toLowerCase();
               const emailBlocked = !!rowSenderEmail && blockedEmails.has(rowSenderEmail);
               const emailBlockRecord = emailBlocked
@@ -10675,20 +10570,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             unblockSenderMutation.mutate(emailBlockRecord.id);
                           } else if (rowSenderEmail) {
                             blockSenderMutation.mutate({ senderEmail: rowSenderEmail, threadId: msg.threadId });
-                          } else if (blocked) {
-                            const filter = (filtersQuery.data || []).find((f) => f.domain === domain);
-                            if (filter) unblockMutation.mutate(filter.id);
-                          } else {
-                            flagMutation.mutate(domain);
                           }
                         }}
                         className={`p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
-                          emailBlocked || blocked
+                          emailBlocked
                             ? "text-amber-400 hover:text-amber-300"
                             : "text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10"
                         }`}
                       >
-                        {emailBlocked || blocked
+                        {emailBlocked
                           ? <ShieldCheck className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
                           : <Ban className="h-3.5 w-3.5" aria-hidden="true" />}
                       </motion.button>
@@ -10732,9 +10622,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <span>Load more older messages</span>
                         <span className="text-[10px] text-muted-foreground/50 tabular-nums">
                           {crmFilteredMessages.length.toLocaleString()} shown · {allInboxMessages.length.toLocaleString()} scanned
-                          {(tab === "inbox" || tab === "other") && inboxOther.length > 0
-                            ? ` · ${inboxOther.length.toLocaleString()} in Other`
-                            : ""}
+                          {""}
                         </span>
                       </>
                     ) : (
@@ -10750,7 +10638,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <span className="text-[10.5px] text-muted-foreground/40 text-center">
                       Looking for an older email? Use the search bar above — it searches your full mail history.
                     </span>
-                    {(tab === "inbox" || tab === "other") && (
+                    {tab === "inbox" && (
                       <button
                         data-testid="button-load-older-gmail"
                         onClick={() => {
@@ -10865,14 +10753,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       if (_email) blockSenderMutation.mutate({ senderEmail: _email, threadId: selectedThreadId });
                       else archiveThreadMutation.mutate(selectedThreadId);
                     },
-                    onBlockDomain: () => {
-                      const _domain = parseSenderDomain(focusedMsg.from || focusedMsg.fromEmail || "");
-                      const BROAD = new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","msn.com","icloud.com","me.com","yahoo.com","proton.me","protonmail.com","aol.com","fastmail.com","hey.com"]);
-                      if (!_domain) return;
-                      if (BROAD.has(_domain)) { toast({ title: "Domain too broad", description: `"${_domain}" is a widely-used provider. Block the specific sender instead.`, variant: "destructive" }); return; }
-                      flagMutation.mutate(_domain);
-                      archiveThreadMutation.mutate(selectedThreadId);
-                    },
                     onTrustSender: () => notSpamMutation.mutate(selectedThreadId),
                     onNotSpam: () => notSpamMutation.mutate(selectedThreadId),
                   }}
@@ -10935,14 +10815,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         const _email = focusedMsg.fromEmail?.toLowerCase().trim() || "";
                         if (_email) blockSenderMutation.mutate({ senderEmail: _email, threadId: selectedThreadId });
                         else archiveThreadMutation.mutate(selectedThreadId);
-                      },
-                      onBlockDomain: () => {
-                        const _domain = parseSenderDomain(focusedMsg.from || focusedMsg.fromEmail || "");
-                        const BROAD = new Set(["gmail.com","googlemail.com","outlook.com","hotmail.com","live.com","msn.com","icloud.com","me.com","yahoo.com","proton.me","protonmail.com","aol.com","fastmail.com","hey.com"]);
-                        if (!_domain) return;
-                        if (BROAD.has(_domain)) { toast({ title: "Domain too broad", description: `"${_domain}" is a widely-used provider. Block the specific sender instead.`, variant: "destructive" }); return; }
-                        flagMutation.mutate(_domain);
-                        archiveThreadMutation.mutate(selectedThreadId);
                       },
                       onTrustSender: () => notSpamMutation.mutate(selectedThreadId),
                       onNotSpam: () => notSpamMutation.mutate(selectedThreadId),
@@ -11658,7 +11530,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               { key: "sent" as const,      label: "Sent",      icon: Send },
               { key: "drafts" as const,    label: "Drafts",    icon: FileText },
               { key: "scheduled" as const, label: "Scheduled", icon: CalendarClock },
-              { key: "other" as const,     label: "Other",     icon: Newspaper },
               { key: "review" as const,    label: "Review",    icon: ShieldCheck },
             ]).map((t) => (
               <CommandItem
