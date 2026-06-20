@@ -1,0 +1,14 @@
+Publish the unread badge fix (Commit 1 read-path + Bug C invalidation) and verify in production. Verification only — no Commit 3, no mirror-helper refactor, no schema changes.
+Verify as Trevor (trevor@voltsafe.com) at /gmail:
+
+The core fix — single message: note the Inbox and a category badge count. Open one unread message in that category. Confirm: the badge decrements by 1 immediately (not after a delay), the row's unread styling clears, and other category badges are unchanged.
+Multi-message thread (the case dev didn't fully exercise): open a thread that contains more than one unread message if one's available. Confirm the badge moves by the expected amount given that counts are COUNT(DISTINCT gmail_thread_id) — i.e. opening the thread should resolve its unread-ness per the per-message behavior implemented. Report exactly what happened to the count vs. what you expected, so we know the thread case behaves sanely.
+Immediate vs. polling: confirm the badge updates on click (the Bug C invalidation firing), not only on the next ~30s poll. If you can, note roughly how fast — instant refetch vs. visible lag.
+Bulk and mark-all: mark several read via the toolbar, and use mark-all-inbox-read if present. Confirm badges drop correctly for both.
+Mark-as-unread still works (the shared-handler guard): if there's a mark-as-unread action, use it on a read message and confirm is_unread goes back to true and the badge increments — proving the markAs==="read" guard correctly does NOT block the unread direction.
+DB spot-check: for one message you opened, confirm in the DB that is_unread=false AND UNREAD is gone from label_ids — both, on the same row.
+Run the suites: mark-read-derived-columns.test.cjs, mark-spam-derived-columns.test.cjs, block-sender.test.cjs, inbox-count-reconciliation.test.cjs. Confirm the Commit 1 regression guards (mark-spam/not-spam don't touch is_unread) are still green.
+
+Report: production screenshots, before/after badge counts for single + multi-message + bulk, how fast the badge updates, the mark-unread round-trip result, the DB spot-check, and test results.
+Note for the record (do NOT action): the derived-column writes now live in four route handlers rather than in the shared mirror helper. That's intentional debt — making the mirror authoritative is a worthwhile future refactor but is explicitly out of scope today. Just confirm you've left the mirror untouched; don't change it.
+Constraints: verification only. No db:push, no migrations, no mirror-helper changes, no Commit 3. Don't touch mark-spam/not-spam, smartCategory, CRM, sync/OAuth, signatures, tracking, CID, reply/forward. Stop after the report.
