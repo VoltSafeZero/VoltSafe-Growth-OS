@@ -1,0 +1,118 @@
+High-priority audit first. Do not implement until root cause is proven.
+
+Bug:
+When I open unread emails in VoltSafe Mail, the unread badges/counts do not go down.
+
+Observed:
+
+* Inbox count remains 217
+* Updates count remains 60
+* Opened multiple unread emails
+* Rows visually appear opened/selected, but counts do not decrement
+
+Context:
+Recent work made derived columns canonical:
+
+* Inbox/counts use is_inbox and is_unread
+* mark-spam/not-spam now update is_inbox/is_spam
+* domain-block filtering was removed
+
+Likely issue:
+The read/open action may still update label_ids or Gmail only, but not email_messages.is_unread=false. Counts read is_unread, so badges do not move.
+
+Audit exact read/open flow:
+
+1. Find what happens when a user opens/clicks an unread email row.
+    Trace:
+
+* frontend click handler
+* API endpoint called
+* backend route
+* Gmail API call if any
+* local DB update if any
+* query invalidations
+
+2. Determine whether opening an unread email:
+
+* removes “UNREAD” from label_ids
+* sets is_unread=false
+* updates account/category count caches
+* invalidates /api/gmail/accounts/health
+* invalidates /api/gmail/category-counts
+* invalidates /api/gmail/messages
+
+3. Check canonical count source:
+    Confirm:
+
+* Inbox badge reads is_unread=true
+* category badges read is_unread=true
+* row unread dot/style reads labelIds, isUnread field, or both
+
+4. Run read-only DB test:
+    Pick one unread message shown in the screenshot.
+    Before opening/read:
+
+* gmail_message_id
+* gmail_thread_id
+* label_ids
+* is_unread
+* is_inbox
+* smart_category
+
+Then trigger the same read/open route in dev/test.
+After:
+
+* label_ids
+* is_unread
+* account unread count
+* category unread count
+
+5. Identify exact divergence:
+    Choose one:
+    A. Gmail API removes UNREAD but local DB is_unread stays true
+    B. local label_ids removes UNREAD but is_unread stays true
+    C. is_unread updates correctly but badge queries are not invalidated
+    D. badge queries refetch but use stale cached health/category-counts
+    E. row click does not call any mark-read route
+    F. message is opened read-only and intentionally does not mark read
+6. Propose smallest safe fix only after audit:
+    Likely fix should mirror Commit 1 pattern:
+    When marking a message/thread read locally, update both:
+
+* label_ids removes “UNREAD”
+* is_unread=false
+
+Do not touch:
+
+* is_inbox
+* is_spam
+* smartCategory
+* email_filters
+* domain-blocking
+* CRM
+* Gmail sync/OAuth
+* signatures
+* tracking
+* CID
+* reply/forward
+
+7. Tests required if fix is confirmed:
+
+* opening unread message removes UNREAD from label_ids
+* opening unread message sets is_unread=false
+* inbox badge decrements
+* category badge decrements
+* unread row styling disappears
+* already-read message remains unchanged
+* thread with multiple unread messages handles count correctly
+* account health and category-counts invalidated/refetched
+
+Return:
+
+* root cause
+* exact file/line
+* before/after DB proof
+* smallest fix proposal
+* tests needed
+
+Stop after audit. Do not implement yet.
