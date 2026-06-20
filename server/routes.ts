@@ -11108,7 +11108,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 }`;
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-5-mini",
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
         max_tokens: 600,

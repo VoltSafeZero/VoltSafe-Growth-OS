@@ -4,7 +4,7 @@
  * Flow:
  *   1. Read raw_transcript_text from DB
  *   2. If empty/missing, write polite empty-state fields and mark completed
- *   3. Call OpenAI (gpt-4o → gpt-4o-mini fallback) with JSON-mode prompt
+ *   3. Call OpenAI (gpt-4o → gpt-5-mini fallback) with JSON-mode prompt
  *   4. Parse structured output:
  *        executive_summary, detailed_notes, decisions, action_items,
  *        blockers, risks, followup_draft, voltsafe_signals
@@ -158,7 +158,7 @@ async function callAI(
   client: OpenAI,
   userPrompt: string,
 ): Promise<AiOutput | null> {
-  const models = ["gpt-4o", "gpt-4o-mini"];
+  const models = ["gpt-4o", "gpt-5-mini"];
   for (const model of models) {
     try {
       const resp = await client.chat.completions.create({

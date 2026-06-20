@@ -639,7 +639,7 @@ Return only valid JSON matching this schema:
 Return only the JSON object, no explanation.`;
 
   const resp = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-5-mini",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: `Analyse my writing style from these ${emailSamples.length} email samples:\n\n${joined}` },
