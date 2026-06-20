@@ -6,9 +6,8 @@ npm install
 # Ensure test fixture user exists with the expected password
 npx tsx scripts/seed-viewer-user.ts
 # Push the latest merged commit to GitHub.
-# Requires GitHub HTTPS credentials to be configured (e.g. via a GITHUB_TOKEN-based
-# credential helper or Replit's GitHub integration). If credentials are not available
-# this step will exit non-zero with a clear git error — intentional per set -e above.
+# Non-fatal: GitHub HTTPS credentials are not yet configured (Task #28 will wire
+# up a GITHUB_TOKEN-based credential helper). Until then the push is skipped
+# gracefully so future merges don't fail post-merge setup.
 echo "Pushing to GitHub (origin main)..."
-git push origin main
-echo "GitHub push complete."
+git push origin main && echo "GitHub push complete." || echo "GitHub push skipped — credentials not yet configured (see Task #28)."
