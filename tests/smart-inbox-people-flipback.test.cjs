@@ -78,9 +78,17 @@ const grouperSrc = fs.readFileSync(GROUPER_PATH, "utf8");
 const markReadFetchIdx = inboxSrc.indexOf("fetch(`/api/gmail/messages/${msg.id}/mark-read`");
 assert(markReadFetchIdx !== -1, "Could not locate mark-read fetch in gmail-inbox.tsx");
 
-// The .then() callback starts after the fetch(...) block
-const thenStart = inboxSrc.indexOf(".then(() => {", markReadFetchIdx);
-assert(thenStart !== -1, ".then(() => { not found after mark-read fetch");
+// The .then() callback starts after the fetch(...) block.
+// Accept both the original () => { form and the updated (resp) => { form.
+const thenStart = (() => {
+  const a = inboxSrc.indexOf(".then(() => {", markReadFetchIdx);
+  const b = inboxSrc.indexOf(".then((resp) => {", markReadFetchIdx);
+  if (a === -1 && b === -1) return -1;
+  if (a === -1) return b;
+  if (b === -1) return a;
+  return Math.min(a, b);
+})();
+assert(thenStart !== -1, ".then(() => { or .then((resp) => { not found after mark-read fetch");
 
 const thenEnd = inboxSrc.indexOf("}", thenStart + 13); // closing brace of .then body
 // Grab a generous window around the .then block (up to 800 chars)

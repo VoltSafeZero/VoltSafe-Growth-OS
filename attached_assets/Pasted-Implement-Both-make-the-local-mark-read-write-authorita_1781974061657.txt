@@ -1,0 +1,32 @@
+Implement "Both": make the local mark-read write authoritative/unconditional (Option B), and keep a rollback for genuine local-write failures (Option A) — with the rollback trigger correctly inverted so the two compose. One scoped commit. Verify with connected Gmail before anything else.
+Core principle: the local DB (email_messages.is_unread) is the source of truth for the badge and read-state. Marking read must update local truth FIRST and UNCONDITIONALLY, then attempt the Gmail label change best-effort. A Gmail failure must NOT prevent or revert the local read-state.
+Backend — reorder the mark-read route (POST /api/gmail/messages/:id/mark-read):
+
+Write is_unread=false to the local DB (and the mirrorLabelChangeForMessages UNREAD removal from label_ids) FIRST, not gated behind the Gmail call. This local write is the operation's success criterion.
+THEN attempt markMessageRead (Gmail API) best-effort. If Gmail throws, log it but do NOT 503 the whole request and do NOT revert the local write — Gmail will be reconciled by the next sync.
+Return a response that distinguishes outcomes so the client can act correctly:
+
+local write succeeded (regardless of Gmail): return 200 with something like { success: true, gmailSynced: <bool> }.
+local write FAILED (DB error): return non-200 — this is the only true failure.
+
+
+Apply the same reordering to the bulk mark-read and mark-all-inbox-read paths if they share the gating structure, so behavior is consistent. (Report if they differ.)
+
+Frontend — invert the rollback trigger in handleSelectMessage .then():
+
+On local-write success (200): keep current behavior — invalidateBadgeQueries() + reapply the optimistic removeUnread patch. Do NOT roll back even if gmailSynced is false; the read persisted locally, which is what the badge reads.
+On true failure (non-200, i.e. the local write failed): roll back the optimistic patch — restore UNREAD in the inbox/sent caches and in inboxExtra — and do NOT invalidate badges (DB didn't change). Avoid duplicate UNREAD when restoring.
+Critical: the rollback must NOT fire on a Gmail-only failure. Under the new backend, Gmail failure returns 200 (local write succeeded), so a correct implementation naturally won't roll back — but make this explicit and test it, because the old Option-A logic rolled back on Gmail failure and that would now re-break the fix.
+
+Tests:
+
+Backend: local is_unread=false commits even when markMessageRead (Gmail) throws — simulate the Gmail failure and assert the DB row is is_unread=false and the route returns 200.
+Backend: route returns non-200 only when the local DB write itself fails.
+Frontend: 200 response (Gmail synced) → reapply patch, invalidate badges, no rollback.
+Frontend: 200 response with gmailSynced:false → STILL no rollback (this is the compose-correctness test — the read persisted locally).
+Frontend: non-200 (local write failed) → rollback restores UNREAD in caches and inboxExtra, no badge invalidation, no duplicate UNREAD.
+Regression: existing flip-back test still passes; mark-read-derived-columns still passes; mark-spam/not-spam still don't touch is_unread.
+Regression: badge still decrements on click in the happy path.
+
+Verify in .dev, then REQUIRE production verification with a CONNECTED Gmail before declaring done: click an unread email with Gmail connected — row clears, stays read through 3s/15s/refresh, badge decrements, DB shows is_unread=false. Then, if you can simulate or observe a Gmail-unreachable state, confirm the email STILL goes read and stays read (the whole point of B). Report before/after for both cases.
+Constraints: This touches the mark-read route (a hot path edited several times this session) — keep the change limited to the reorder + response shape and the frontend rollback trigger. Do NOT touch mark-spam/not-spam, the shared mirror helper's other callers, smartCategory, email_filters, CRM, signatures, tracking, CID, reply/forward, schema. No db:push. Report the call-path findings for bulk/mark-all before implementing if their structure differs. Stop after the commit for my verification.

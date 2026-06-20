@@ -7963,14 +7963,43 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(accId ? { asAccountId: accId } : {}),
       })
-        .then(() => {
-          invalidateBadgeQueries();
-          // Re-apply the read-state patch so a concurrent sync tick that may have
-          // re-added UNREAD to the cache doesn't cause the dot/bold to reappear.
-          queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeUnread);
-          queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "sent"] }, removeUnread);
+        .then((resp) => {
+          if (resp.ok) {
+            // Local DB write succeeded (200). gmailSynced may be false (Gmail failed)
+            // but the read persisted locally — do NOT roll back. Re-apply the optimistic
+            // patch to overwrite any concurrent sync tick, and refresh badge counts.
+            invalidateBadgeQueries();
+            queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeUnread);
+            queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "sent"] }, removeUnread);
+          } else {
+            // Non-200 means the local DB write failed — the local truth didn't change.
+            // Roll back the optimistic patch so the row returns to bold/dot.
+            // Do NOT invalidate badge queries — the DB didn't change so counts are unchanged.
+            // Guard against duplicate UNREAD on the restore (addLabel only if absent).
+            const restoreUnread = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
+              old ? {
+                ...old,
+                messages: old.messages.map((m) =>
+                  m.id === msg.id && !m.labelIds.includes("UNREAD")
+                    ? { ...m, labelIds: [...m.labelIds, "UNREAD"] }
+                    : m
+                ),
+              } : old;
+            queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, restoreUnread);
+            queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "sent"] }, restoreUnread);
+            setInboxExtra(prev => prev.map((m) =>
+              m.id === msg.id && !m.labelIds.includes("UNREAD")
+                ? { ...m, labelIds: [...m.labelIds, "UNREAD"] }
+                : m
+            ));
+            setSentExtra(prev => prev.map((m) =>
+              m.id === msg.id && !m.labelIds.includes("UNREAD")
+                ? { ...m, labelIds: [...m.labelIds, "UNREAD"] }
+                : m
+            ));
+          }
         })
-        .catch(() => {/* silent — cache already updated; badge refreshes on next 30 s poll */});
+        .catch(() => {/* network error — leave optimistic patch in place; 15 s poll corrects */});
     }
   };
 

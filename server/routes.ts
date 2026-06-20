@@ -14798,32 +14798,40 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     // Phase 4: marking read mutates Gmail labels — require edit access.
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
+    // ── Step 1: Local writes (authoritative — the success criterion) ───────────
+    // Mirror UNREAD removal from label_ids first. Non-fatal: badge reads is_unread,
+    // not label_ids, so a mirror failure won't break the badge decrement.
+    try {
+      const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
+      await mirrorLabelChangeForMessages([req.params.id], resolved.accountId ?? null, { remove: ["UNREAD"] });
+    } catch (mirrorErr: any) {
+      console.error("[mark-read] local mirror failed (non-fatal):", mirrorErr.message);
+    }
+    // is_unread=false is the authoritative local write. If this fails the local DB truth
+    // didn't change — return non-200 so the client rolls back the optimistic patch.
+    // This write is intentionally NOT inside mirrorLabelChangeForMessages so that
+    // mark-spam (which also calls the mirror) never touches is_unread (Commit 1 invariant).
+    const safeId = req.params.id.replace(/'/g, "''");
+    const accClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
+    try {
+      await db.execute(sql.raw(
+        `UPDATE email_messages SET is_unread = false WHERE gmail_message_id = '${safeId}'${accClause}`
+      ));
+    } catch (isUnreadErr: any) {
+      console.error("[mark-read] is_unread write FAILED:", isUnreadErr.message);
+      return res.status(500).json({ success: false, gmailSynced: false, message: "Local write failed" });
+    }
+    // ── Step 2: Gmail API (best-effort — never reverts the local write) ────────
+    // A Gmail failure is logged and reconciled on the next incremental sync.
+    // The local read-state is already committed, so the response is 200 regardless.
+    let gmailSynced = false;
     try {
       await markMessageRead(resolved.userId, req.params.id, resolved.accountId);
-      // Mirror the label change to the local DB so the next local-source fetch
-      // doesn't re-surface UNREAD. Best-effort — never block the response.
-      try {
-        const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
-        await mirrorLabelChangeForMessages([req.params.id], resolved.accountId ?? null, { remove: ["UNREAD"] });
-      } catch (mirrorErr: any) {
-        console.error("[mark-read] local mirror failed (non-fatal):", mirrorErr.message);
-      }
-      // Derived-column write: set is_unread=false for the message actually marked read.
-      // Done here in the route handler — NOT inside mirrorLabelChangeForMessages — so that
-      // mark-spam (which also calls the mirror) never touches is_unread (Commit 1 invariant).
-      try {
-        const safeId = req.params.id.replace(/'/g, "''");
-        const accClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
-        await db.execute(sql.raw(
-          `UPDATE email_messages SET is_unread = false WHERE gmail_message_id = '${safeId}'${accClause}`
-        ));
-      } catch (isUnreadErr: any) {
-        console.error("[mark-read] is_unread write failed (non-fatal):", isUnreadErr.message);
-      }
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(503).json({ message: "Failed to mark as read", error: err.message });
+      gmailSynced = true;
+    } catch (gmailErr: any) {
+      console.error("[mark-read] Gmail API failed (non-fatal, local write committed):", gmailErr.message);
     }
+    return res.json({ success: true, gmailSynced });
   });
 
   app.post("/api/gmail/messages/:id/toggle-star", requireAuth, async (req, res) => {
@@ -14928,7 +14936,25 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       let failed = 0;
       const op = markAs === "read" ? { remove: ["UNREAD"] } : { add: ["UNREAD"] };
       for (const [accountId, ids] of groups.byAccount) {
-        const succeededIds: string[] = [];
+        // ── Local writes first (authoritative) ────────────────────────────
+        // Write is_unread=false for ALL requested IDs in this account group
+        // before attempting Gmail — local DB is the source of truth.
+        if (markAs === "read" && ids.length > 0) {
+          try {
+            await mirrorLabelChangeForMessages(ids, accountId, op);
+          } catch (mirrorErr: any) {
+            console.error(`[bulk-mark-read fan-out] mirror FAILED (non-fatal): account=${accountId}:`, mirrorErr.message);
+          }
+          try {
+            const idList = ids.map((i: string) => `'${i.replace(/'/g, "''")}'`).join(",");
+            await db.execute(sql.raw(
+              `UPDATE email_messages SET is_unread = false WHERE gmail_message_id IN (${idList}) AND source_account_id = ${Number(accountId)}`
+            ));
+          } catch (isUnreadErr: any) {
+            console.error(`[bulk-mark-read fan-out] is_unread write failed (non-fatal): account=${accountId}:`, isUnreadErr.message);
+          }
+        }
+        // ── Gmail best-effort ──────────────────────────────────────────────
         try {
           const gmail = await getGmailClient(userId, accountId);
           for (const messageId of ids) {
@@ -14940,7 +14966,6 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                   : { addLabelIds: ["UNREAD"] },
               });
               success++;
-              succeededIds.push(messageId);
             } catch (e: any) {
               console.error(
                 `[bulk-mark-read fan-out] gmail modify failed account=${accountId} id=${messageId}:`,
@@ -14950,46 +14975,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             }
           }
         } catch (acctErr: any) {
-          // getGmailClient itself failed (token expired, account inactive,
-          // etc). Count every ID we'd have sent to it as failed and move on
-          // — don't drag down the other accounts in the same request.
+          // getGmailClient itself failed — local writes already committed above.
           console.error(
-            `[bulk-mark-read fan-out] account=${accountId} unavailable:`,
+            `[bulk-mark-read fan-out] account=${accountId} unavailable (non-fatal, local writes committed):`,
             acctErr.message,
           );
           failed += ids.length;
-          continue;
-        }
-        if (succeededIds.length > 0) {
-          try {
-            const r = await mirrorLabelChangeForMessages(succeededIds, accountId, op);
-            if (r.missing > 0 || r.errors > 0) {
-              console.warn(
-                `[bulk-mark-read fan-out] mirror partial: account=${accountId} ` +
-                `updated=${r.updated} missing=${r.missing} errors=${r.errors}`
-              );
-            }
-          } catch (mirrorErr: any) {
-            console.error(
-              `[bulk-mark-read fan-out] mirror FAILED (non-fatal): ` +
-              `account=${accountId} ids=[${succeededIds.join(",")}]:`,
-              mirrorErr.message,
-            );
-          }
-        }
-        // Derived-column: set is_unread=false for confirmed-read messages.
-        // Gated on markAs==="read" — mark-unread (is_unread=true) is out of scope
-        // for this commit; leaving that asymmetry intentionally rather than creating
-        // two writers of is_unread in one commit.
-        if (markAs === "read" && succeededIds.length > 0) {
-          try {
-            const idList = succeededIds.map((i: string) => `'${i.replace(/'/g, "''")}'`).join(",");
-            await db.execute(sql.raw(
-              `UPDATE email_messages SET is_unread = false WHERE gmail_message_id IN (${idList}) AND source_account_id = ${Number(accountId)}`
-            ));
-          } catch (isUnreadErr: any) {
-            console.error(`[bulk-mark-read fan-out] is_unread write failed (non-fatal): account=${accountId}:`, isUnreadErr.message);
-          }
         }
       }
       const failedNoPermission = groups.forbiddenIds.length;
@@ -15012,13 +15003,41 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     // Phase 4: bulk mark-read mutates Gmail labels — require edit access.
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
+    let success = 0; let failed = 0;
+    // ── Local writes first (authoritative) ──────────────────────────────────
+    // Write is_unread=false for ALL requested IDs before attempting Gmail so the
+    // local DB is the source of truth. A Gmail failure for any individual message
+    // does not revert these writes — Gmail is reconciled on the next sync.
+    if (markAs === "read" && messageIds.length > 0) {
+      try {
+        const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
+        const op = { remove: ["UNREAD"] };
+        const r = await mirrorLabelChangeForMessages(messageIds.map(String), resolved.accountId, op);
+        if (r.missing > 0 || r.errors > 0) {
+          console.warn(
+            `[bulk-mark-read] local mirror partial: user=${resolved.userId} ` +
+            `account=${resolved.accountId} updated=${r.updated} missing=${r.missing} errors=${r.errors}`
+          );
+        }
+      } catch (mirrorErr: any) {
+        console.error(
+          `[bulk-mark-read] local mirror FAILED (non-fatal): user=${resolved.userId} account=${resolved.accountId}:`,
+          mirrorErr.message,
+        );
+      }
+      try {
+        const idList = messageIds.map((i: any) => `'${String(i).replace(/'/g, "''")}'`).join(",");
+        const accClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
+        await db.execute(sql.raw(
+          `UPDATE email_messages SET is_unread = false WHERE gmail_message_id IN (${idList})${accClause}`
+        ));
+      } catch (isUnreadErr: any) {
+        console.error(`[bulk-mark-read] is_unread write failed (non-fatal):`, isUnreadErr.message);
+      }
+    }
+    // ── Gmail best-effort ────────────────────────────────────────────────────
     try {
       const gmail = await getGmailClient(resolved.userId, resolved.accountId);
-      let success = 0; let failed = 0;
-      // Track which Gmail IDs actually flipped on Gmail's side. We mirror
-      // ONLY these to local — partial-failure case: 5 requested, 3 succeed,
-      // 2 fail → local mirror updates exactly the 3 that Gmail confirmed.
-      const succeededIds: string[] = [];
       for (const messageId of messageIds) {
         try {
           await gmail.users.messages.modify({
@@ -15026,60 +15045,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             requestBody: markAs === "read" ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] },
           });
           success++;
-          succeededIds.push(String(messageId));
         } catch (e: any) {
-          // 1-line addition (per the original investigation report's
-          // "two pre-existing 1-line bugs"): bare `} catch { failed++; }`
-          // hid which message failed, making partial-failure debugging
-          // impossible. Now we log per-message context so operators can
-          // diagnose drift without having to add ad-hoc logging.
           console.error(`[bulk-mark-read] gmail modify failed for id=${messageId}:`, e.message);
           failed++;
         }
       }
-
-      // Inline local mirror — best-effort. Gmail is the source of truth, so
-      // if the mirror fails we still return success to the user; the next
-      // hourly sync / push event will reconcile. Critically, we DO NOT
-      // swallow the mirror error silently — log with full context.
-      if (succeededIds.length > 0) {
-        try {
-          const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
-          const op = markAs === "read" ? { remove: ["UNREAD"] } : { add: ["UNREAD"] };
-          const r = await mirrorLabelChangeForMessages(succeededIds, resolved.accountId, op);
-          if (r.missing > 0 || r.errors > 0) {
-            console.warn(
-              `[bulk-mark-read] local mirror partial: user=${resolved.userId} ` +
-              `account=${resolved.accountId} updated=${r.updated} missing=${r.missing} errors=${r.errors}`
-            );
-          }
-        } catch (mirrorErr: any) {
-          console.error(
-            `[bulk-mark-read] local mirror FAILED (non-fatal): ` +
-            `user=${resolved.userId} account=${resolved.accountId} ` +
-            `markAs=${markAs} ids=[${succeededIds.join(",")}]:`,
-            mirrorErr.message,
-          );
-        }
-        // Derived-column: set is_unread=false for confirmed-read messages.
-        // Gated on markAs==="read" — see fan-out path comment above for rationale.
-        if (markAs === "read") {
-          try {
-            const idList = succeededIds.map((i: string) => `'${i.replace(/'/g, "''")}'`).join(",");
-            const accClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
-            await db.execute(sql.raw(
-              `UPDATE email_messages SET is_unread = false WHERE gmail_message_id IN (${idList})${accClause}`
-            ));
-          } catch (isUnreadErr: any) {
-            console.error(`[bulk-mark-read] is_unread write failed (non-fatal):`, isUnreadErr.message);
-          }
-        }
-      }
-
-      res.json({ success, failed });
     } catch (err: any) {
-      res.status(503).json({ message: "Gmail API error", error: err.message });
+      // getGmailClient failed — local writes already committed above.
+      console.error(`[bulk-mark-read] Gmail client unavailable (non-fatal, local writes committed):`, err.message);
+      failed += messageIds.length;
     }
+    return res.json({ success, failed });
   });
 
   // ── Mark ALL unread inbox messages as read (single-account) ──────────────
@@ -15093,22 +15069,40 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const resolved = await resolveAccount(userId, numAcc, _ia, _mtp);
     if (!resolved) return res.status(403).json({ message: "No Gmail account connected" });
     if (!(await requireAccountEditAccess(req, res, resolved.acct?.id ?? null))) return;
+    const unreadRows = await db
+      .select({ gmailMessageId: emailMessages.gmailMessageId })
+      .from(emailMessages)
+      .where(
+        and(
+          eq(emailMessages.sourceAccountId, resolved.accountId),
+          sql`label_ids @> ARRAY['INBOX']::text[]`,
+          sql`label_ids @> ARRAY['UNREAD']::text[]`,
+        )
+      );
+    if (unreadRows.length === 0) return res.json({ success: 0, failed: 0, total: 0 });
+    const ids = unreadRows.map(r => r.gmailMessageId).filter(Boolean) as string[];
+    // ── Local writes first (authoritative) ──────────────────────────────────
+    // Write is_unread=false for all fetched IDs before calling Gmail batchModify.
+    // Local DB is the source of truth; Gmail is reconciled on the next sync.
     try {
-      const unreadRows = await db
-        .select({ gmailMessageId: emailMessages.gmailMessageId })
-        .from(emailMessages)
-        .where(
-          and(
-            eq(emailMessages.sourceAccountId, resolved.accountId),
-            sql`label_ids @> ARRAY['INBOX']::text[]`,
-            sql`label_ids @> ARRAY['UNREAD']::text[]`,
-          )
-        );
-      if (unreadRows.length === 0) return res.json({ success: 0, failed: 0, total: 0 });
-      const ids = unreadRows.map(r => r.gmailMessageId).filter(Boolean) as string[];
+      const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
+      await mirrorLabelChangeForMessages(ids, resolved.accountId, { remove: ["UNREAD"] });
+    } catch (mirrorErr: any) {
+      console.error(`[mark-all-inbox-read] mirror failed (non-fatal):`, mirrorErr.message);
+    }
+    try {
+      const idList = ids.map((i: string) => `'${i.replace(/'/g, "''")}'`).join(",");
+      const accClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
+      await db.execute(sql.raw(
+        `UPDATE email_messages SET is_unread = false WHERE gmail_message_id IN (${idList})${accClause}`
+      ));
+    } catch (isUnreadErr: any) {
+      console.error(`[mark-all-inbox-read] is_unread write failed (non-fatal):`, isUnreadErr.message);
+    }
+    // ── Gmail best-effort ────────────────────────────────────────────────────
+    let success = 0; let failed = 0;
+    try {
       const gmail = await getGmailClient(resolved.userId, resolved.accountId);
-      let success = 0; let failed = 0;
-      const succeededIds: string[] = [];
       const BATCH = 100;
       for (let i = 0; i < ids.length; i += BATCH) {
         const batch = ids.slice(i, i + BATCH);
@@ -15118,34 +15112,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             requestBody: { ids: batch, removeLabelIds: ["UNREAD"] },
           });
           success += batch.length;
-          succeededIds.push(...batch);
         } catch (e: any) {
           console.error(`[mark-all-inbox-read] batch i=${i} failed:`, e.message);
           failed += batch.length;
         }
       }
-      if (succeededIds.length > 0) {
-        try {
-          const { mirrorLabelChangeForMessages } = await import("./services/local-label-mirror");
-          await mirrorLabelChangeForMessages(succeededIds, resolved.accountId, { remove: ["UNREAD"] });
-        } catch (mirrorErr: any) {
-          console.error(`[mark-all-inbox-read] mirror failed (non-fatal):`, mirrorErr.message);
-        }
-        // Derived-column: set is_unread=false for all messages confirmed read.
-        try {
-          const idList = succeededIds.map((i: string) => `'${i.replace(/'/g, "''")}'`).join(",");
-          const accClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
-          await db.execute(sql.raw(
-            `UPDATE email_messages SET is_unread = false WHERE gmail_message_id IN (${idList})${accClause}`
-          ));
-        } catch (isUnreadErr: any) {
-          console.error(`[mark-all-inbox-read] is_unread write failed (non-fatal):`, isUnreadErr.message);
-        }
-      }
-      return res.json({ success, failed, total: ids.length });
     } catch (err: any) {
-      return res.status(503).json({ message: "Gmail API error", error: err.message });
+      // getGmailClient failed — local writes already committed above.
+      console.error(`[mark-all-inbox-read] Gmail client unavailable (non-fatal, local writes committed):`, err.message);
+      failed += ids.length;
     }
+    return res.json({ success, failed, total: ids.length });
   });
 
   app.post("/api/gmail/bulk-archive", requireAuth, async (req, res) => {
