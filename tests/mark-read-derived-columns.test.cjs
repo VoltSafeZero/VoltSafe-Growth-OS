@@ -467,8 +467,10 @@ async function main() {
   {
     const { execSync } = require("child_process");
     // Check 1: fetch call in handleSelectMessage is followed by .then(
-    // Use -i for case-insensitive match; -A15 to capture lines past the closing }
-    const fetchBlock = execSync(`grep -iA15 "tell Gmail to mark it read" client/src/pages/gmail-inbox.tsx`, { cwd: process.cwd() }).toString();
+    // Use -i for case-insensitive match; -A35 to capture lines past the full comment block + fetch + .then() body.
+    // The context window was widened from -A15 to -A35 because an expanded explanatory comment block
+    // (documenting the flip-back fix) pushed the .then() body beyond the original 15-line window.
+    const fetchBlock = execSync(`grep -iA35 "tell Gmail to mark it read" client/src/pages/gmail-inbox.tsx`, { cwd: process.cwd() }).toString();
     const hasThen = fetchBlock.includes(".then(");
     // Check 2: invalidateBadgeQueries call count (>= all existing + our new one)
     const invalidateCount = parseInt(

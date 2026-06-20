@@ -7948,7 +7948,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
       // Tell Gmail to mark it read server-side. In unified mode we send
       // the message's specific sourceAccountId, since /mark-read parses asAccountId as Number.
-      // .then() invalidates badge queries so inbox/category counts drop immediately;
+      // .then() refreshes badge counts and re-asserts the optimistic patch so any
+      // concurrent foreground-sync tick that re-added UNREAD to the cache is overwritten.
+      // We do NOT call invalidateQueries(["/api/gmail/messages"]) here — that broad
+      // invalidation triggers an immediate inboxQuery refetch whose response can arrive
+      // before the mirror DB write commits, putting UNREAD back into labelIds and causing
+      // the 1-2 s "flip-back" bug in the Smart Inbox PEOPLE section. The 15 s poll
+      // provides eventual consistency for the full message list.
       // .catch() is silent because the optimistic cache update already cleared the row styling.
       const accId = msg.sourceAccountId ?? (typeof activeAccountId === "number" ? activeAccountId : null);
       fetch(`/api/gmail/messages/${msg.id}/mark-read`, {
@@ -7959,7 +7965,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       })
         .then(() => {
           invalidateBadgeQueries();
-          queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
+          // Re-apply the read-state patch so a concurrent sync tick that may have
+          // re-added UNREAD to the cache doesn't cause the dot/bold to reappear.
+          queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, removeUnread);
+          queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "sent"] }, removeUnread);
         })
         .catch(() => {/* silent — cache already updated; badge refreshes on next 30 s poll */});
     }

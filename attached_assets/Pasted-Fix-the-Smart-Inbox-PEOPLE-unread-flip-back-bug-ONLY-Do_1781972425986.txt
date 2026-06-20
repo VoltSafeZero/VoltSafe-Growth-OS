@@ -1,0 +1,23 @@
+Fix the Smart Inbox PEOPLE unread flip-back bug ONLY. Do NOT remove or change the sidebar subcategories in this commit — that's a separate change I'll scope after this. Audit first, report, then implement the narrow fix.
+Bug: In Smart Inbox, clicking an unread PEOPLE email removes the unread dot/bold immediately, but it flips back to unread within 1-2 seconds. Only PEOPLE exhibits this. Refresh-persistence and DB truth are not the issue — the mark-read DB write (is_unread=false, UNREAD removed from label_ids) was just shipped and verified. This is a client-side cache-coherence problem: the optimistic read-state update reaches some caches but not the grouped Smart Inbox view, and a recompute/refetch rehydrates the row from a stale source.
+Audit first (report before editing):
+
+Trace the PEOPLE section's data source: groupSmartInbox → viewItems → collapsedViewItems (or whatever the actual chain is). What underlying message array does the PEOPLE group recompute from — the same allInboxMessages/inboxMain the flat list uses, or a separate cache?
+When a message is opened (handleSelectMessage), trace every cache the optimistic read-state update writes to. Identify which representation the PEOPLE grouped view reads from, and confirm whether that representation receives the optimistic update or not.
+Find the ~1-2s refetch/recompute that flips it back. Is it the inboxQuery refetch returning a stale row (server still says unread because the mark-read write hadn't committed when the refetch fired — a race), or is it the grouped view recomputing from an un-patched source object that still has UNREAD/isUnread=true?
+Side finding I need for later (report, do not act on): do the left-sidebar subcategory counts (People 25, Updates, Promotions 118, etc.) and the Smart Inbox section counts (PEOPLE 25, Newsletters 118, etc.) read from the SAME data source/endpoint, or different ones? The screenshots show matching numbers (People 25 = 25, Newsletters 118 = Promotions 118) — confirm whether that's because they share a source or coincidence. I'm not touching the sidebar this commit; I just need to know for when I do.
+
+Then fix (narrowly):
+
+5. Make the PEOPLE grouped view receive the same read-state update as the flat inbox list. Whatever object/cache the grouping recomputes from must reflect isUnread=false for the opened message, so a recompute keeps it read. Apply the fix so it covers ALL grouped sections (Newsletters, Notifications, etc.), not just PEOPLE — if PEOPLE is affected, the others share the same grouping path and the fix should be uniform, even if only PEOPLE currently shows the symptom.
+
+6. If the flip-back is a refetch race (server returns stale unread because the read-write hadn't committed), ensure the mark-read write is awaited/ordered such that the invalidation-triggered refetch reads the committed is_unread=false — don't fire the refetch before the write lands.
+Tests:
+
+Smart Inbox PEOPLE: render unread item, click, assert unread styling clears, then simulate the recompute/refetch and assert it STAYS read.
+Same assertion for at least one other grouped section (Newsletters or Notifications) to prove the fix is uniform.
+The grouped-view source object has isUnread=false after mark-read; a recompute does not flip it back.
+Regression: normal flat-Inbox unread click still works; mark-spam/not-spam still don't touch is_unread (Commit 1 guards green).
+
+Verify in .dev: click an unread PEOPLE email, confirm it goes read AND stays read through the 1-2s window AND after a manual refresh. Report before/after.
+Constraints: Do NOT remove/hide/change sidebar subcategories. Do NOT restructure Smart Inbox sections. Do NOT touch the mark-read DB write (it's correct). No mirror-helper changes, no schema changes, no db:push. Don't touch mark-spam/not-spam, CRM, sync/OAuth, signatures, tracking, CID, reply/forward. Report the audit (including the sidebar side-finding) before implementing; stop after the fix for my verification.
