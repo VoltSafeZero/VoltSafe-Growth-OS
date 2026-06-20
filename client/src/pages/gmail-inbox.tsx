@@ -7946,15 +7946,22 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       setInboxExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
       setSentExtra((prev) => prev.map((m) => m.id === msg.id ? { ...m, labelIds: m.labelIds.filter((l) => l !== "UNREAD") } : m));
 
-      // Fire-and-forget — tell Gmail to mark it read server-side. In unified mode we send
+      // Tell Gmail to mark it read server-side. In unified mode we send
       // the message's specific sourceAccountId, since /mark-read parses asAccountId as Number.
+      // .then() invalidates badge queries so inbox/category counts drop immediately;
+      // .catch() is silent because the optimistic cache update already cleared the row styling.
       const accId = msg.sourceAccountId ?? (typeof activeAccountId === "number" ? activeAccountId : null);
       fetch(`/api/gmail/messages/${msg.id}/mark-read`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(accId ? { asAccountId: accId } : {}),
-      }).catch(() => {/* silent — cache already updated */});
+      })
+        .then(() => {
+          invalidateBadgeQueries();
+          queryClient.invalidateQueries({ queryKey: ["/api/gmail/messages"] });
+        })
+        .catch(() => {/* silent — cache already updated; badge refreshes on next 30 s poll */});
     }
   };
 

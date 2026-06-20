@@ -14808,6 +14808,18 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       } catch (mirrorErr: any) {
         console.error("[mark-read] local mirror failed (non-fatal):", mirrorErr.message);
       }
+      // Derived-column write: set is_unread=false for the message actually marked read.
+      // Done here in the route handler — NOT inside mirrorLabelChangeForMessages — so that
+      // mark-spam (which also calls the mirror) never touches is_unread (Commit 1 invariant).
+      try {
+        const safeId = req.params.id.replace(/'/g, "''");
+        const accClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
+        await db.execute(sql.raw(
+          `UPDATE email_messages SET is_unread = false WHERE gmail_message_id = '${safeId}'${accClause}`
+        ));
+      } catch (isUnreadErr: any) {
+        console.error("[mark-read] is_unread write failed (non-fatal):", isUnreadErr.message);
+      }
       res.json({ success: true });
     } catch (err: any) {
       res.status(503).json({ message: "Failed to mark as read", error: err.message });
@@ -14965,6 +14977,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             );
           }
         }
+        // Derived-column: set is_unread=false for confirmed-read messages.
+        // Gated on markAs==="read" — mark-unread (is_unread=true) is out of scope
+        // for this commit; leaving that asymmetry intentionally rather than creating
+        // two writers of is_unread in one commit.
+        if (markAs === "read" && succeededIds.length > 0) {
+          try {
+            const idList = succeededIds.map((i: string) => `'${i.replace(/'/g, "''")}'`).join(",");
+            await db.execute(sql.raw(
+              `UPDATE email_messages SET is_unread = false WHERE gmail_message_id IN (${idList}) AND source_account_id = ${Number(accountId)}`
+            ));
+          } catch (isUnreadErr: any) {
+            console.error(`[bulk-mark-read fan-out] is_unread write failed (non-fatal): account=${accountId}:`, isUnreadErr.message);
+          }
+        }
       }
       const failedNoPermission = groups.forbiddenIds.length;
       const failedNotFound = groups.unknownIds.length;
@@ -15035,6 +15061,19 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             mirrorErr.message,
           );
         }
+        // Derived-column: set is_unread=false for confirmed-read messages.
+        // Gated on markAs==="read" — see fan-out path comment above for rationale.
+        if (markAs === "read") {
+          try {
+            const idList = succeededIds.map((i: string) => `'${i.replace(/'/g, "''")}'`).join(",");
+            const accClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
+            await db.execute(sql.raw(
+              `UPDATE email_messages SET is_unread = false WHERE gmail_message_id IN (${idList})${accClause}`
+            ));
+          } catch (isUnreadErr: any) {
+            console.error(`[bulk-mark-read] is_unread write failed (non-fatal):`, isUnreadErr.message);
+          }
+        }
       }
 
       res.json({ success, failed });
@@ -15091,6 +15130,16 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           await mirrorLabelChangeForMessages(succeededIds, resolved.accountId, { remove: ["UNREAD"] });
         } catch (mirrorErr: any) {
           console.error(`[mark-all-inbox-read] mirror failed (non-fatal):`, mirrorErr.message);
+        }
+        // Derived-column: set is_unread=false for all messages confirmed read.
+        try {
+          const idList = succeededIds.map((i: string) => `'${i.replace(/'/g, "''")}'`).join(",");
+          const accClause = resolved.accountId ? ` AND source_account_id = ${Number(resolved.accountId)}` : "";
+          await db.execute(sql.raw(
+            `UPDATE email_messages SET is_unread = false WHERE gmail_message_id IN (${idList})${accClause}`
+          ));
+        } catch (isUnreadErr: any) {
+          console.error(`[mark-all-inbox-read] is_unread write failed (non-fatal):`, isUnreadErr.message);
         }
       }
       return res.json({ success, failed, total: ids.length });

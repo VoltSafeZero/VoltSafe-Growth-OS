@@ -1,0 +1,27 @@
+Proceed with the unread badge fix — Option 2 only: patch the mark-read route handler, do NOT modify the shared mirror helpers.
+Root cause confirmed by audit: the read path removes UNREAD from label_ids but never sets is_unread=false; badges count is_unread=true, so they don't decrement (Bug B). Plus single-message mark-read doesn't invalidate the badge queries (Bug C).
+Critical constraint — do NOT touch the shared mirror helpers. mirrorLabelChangeForMessages and mirrorLabelChangeForThreads are also called by mark-spam/not-spam, where Commit 1 deliberately keeps is_unread untouched. Adding is_unread logic inside those helpers would change spam read-state behavior and create two competing writers of is_unread. We are fixing this in the mark-read route handler(s) only, exactly as Commit 1 patched is_spam/is_inbox in the mark-spam/not-spam routes after the mirror call — NOT in the mirror itself.
+First, confirm the call path (report before editing):
+
+Identify the exact route handler(s) that handle marking a message/thread read when a user opens an unread email — the single-message open path AND any explicit mark-read/bulk-mark-read path. Give file/line for each.
+Confirm each calls a mirror helper, and report whether the operation is per-message or per-thread.
+Report whether opening one message in a multi-message thread currently marks just that message or the whole thread.
+
+Then implement (after reporting the above):
+
+4. In the mark-read route handler(s) — NOT the mirror helper — after the existing mirror call succeeds, add a derived-column write setting is_unread=false for the message(s) actually marked read. Per-message granularity: set is_unread=false only for the message(s) the action actually reads, not by blanket-flipping an entire thread. If the open path is inherently thread-level, set is_unread=false for the messages in that thread that had UNREAD — matching whatever the existing label_ids change already does, so is_unread and label_ids stay consistent for exactly the same rows. Report which case applied.
+
+5. Do NOT set is_unread=true anywhere in this commit — this is the read path; there's no "mark unread" action in scope. (If a mark-as-unread action exists and shares the handler, flag it and stop for my decision rather than guessing.)
+
+6. Frontend (Bug C): after single-message mark-read succeeds, invalidate /api/gmail/accounts/health, /api/gmail/category-counts, and /api/gmail/messages so the badge refetches immediately. Keep the existing optimistic row update. Confirm whether bulk-mark-read already invalidates both badge queries; if not, fix it the same way.
+Tests (behavioral, real HTTP + DB where possible, like Commit 1's):
+
+Opening/marking an unread message sets is_unread=false AND removes UNREAD from label_ids — both, on the same row.
+An already-read message is unchanged.
+A multi-message thread: opening one message sets is_unread=false for the correct message(s) only — assert the per-message behavior you implemented.
+Inbox health count and category-counts decrement after a read.
+Single-message mark-read invalidates health, category-counts, and messages queries.
+Regression guard: mark-spam still does NOT alter is_unread (the Commit 1 behavior is intact) — assert this explicitly, since it's the thing we're protecting by not touching the shared helper.
+
+Verification in .dev: pick one real unread message; show label_ids + is_unread + the relevant category badge before; mark read; show all three after. Confirm is_unread=false, UNREAD gone from label_ids, badge decremented, row styling cleared. Report before/after.
+Constraints: No changes to mirrorLabelChangeForMessages / mirrorLabelChangeForThreads. No changes to mark-spam/not-spam, is_inbox, is_spam, smartCategory, email_filters, CRM, Gmail sync/OAuth, signatures, tracking, CID, reply/forward. No db:push, no migrations, no schema changes. Report the call-path findings before implementing; if the read path turns out to share a handler with mark-spam or mark-unread in a way that makes the route-only patch unsafe, stop and tell me rather than working around it.
