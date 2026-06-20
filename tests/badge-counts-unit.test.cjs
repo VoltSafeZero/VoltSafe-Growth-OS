@@ -229,11 +229,11 @@ const bulkMutBlock = bulkMutIdx !== -1
   : "";
 
 assert(
-  bulkMutBlock.includes('invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"]'),
+  bulkMutBlock.includes("invalidateBadgeQueries()"),
   'bulkMarkReadMutation.onSuccess invalidates accounts/health'
 );
 assert(
-  bulkMutBlock.includes('invalidateQueries({ queryKey: ["/api/gmail/category-counts"]'),
+  bulkMutBlock.includes("invalidateBadgeQueries()"),
   'bulkMarkReadMutation.onSuccess invalidates category-counts'
 );
 

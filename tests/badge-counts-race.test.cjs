@@ -172,11 +172,9 @@ test("R3h: bulkMarkReadMutation onSuccess invalidates both badge queries", () =>
   const idx = src.indexOf("const bulkMarkReadMutation");
   assert(idx !== -1, "bulkMarkReadMutation not found");
   const snippet = src.slice(idx, idx + 1800);
-  // These use direct invalidateQueries calls (not the helper), check for the full paths
   assert(
-    snippet.includes('"/api/gmail/accounts", "health"') &&
-    snippet.includes('"/api/gmail/category-counts"'),
-    "bulkMarkReadMutation.onSuccess must invalidate both health and category-counts"
+    snippet.includes("invalidateBadgeQueries()"),
+    "bulkMarkReadMutation.onSuccess must call invalidateBadgeQueries()"
   );
 });
 

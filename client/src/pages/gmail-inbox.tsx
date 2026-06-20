@@ -6900,8 +6900,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           : m
       ));
       // Refresh badge counts immediately so sidebar numbers drop/rise to match.
-      queryClient.invalidateQueries({ queryKey: ["/api/gmail/accounts", "health"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gmail/category-counts"] });
+      invalidateBadgeQueries();
       setSelectedInboxIds(new Set());
       toast({ title: `Marked ${messageIds.length} email${messageIds.length !== 1 ? "s" : ""} as ${markAs}` });
     },
