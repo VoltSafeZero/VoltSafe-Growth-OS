@@ -89,6 +89,52 @@ async function checkHubAccess(viewerId: number, targetId: number, adminOverride:
   return null;
 }
 
+// Object-level authorization guard for individual task endpoints.
+//
+// A caller may access a task if ANY of the following hold:
+//   • they are the task's owner_user_id (edit)
+//   • they are the task's created_by_user_id (edit — delegation)
+//   • they are an admin (edit)
+//   • they hold a hub-access grant to the task owner:
+//       "edit" grant → write access (readOnly=false)
+//       "view" grant → read access only (readOnly=true)
+//
+// Returns the task's ownership row on success, or sends a 401/403/404
+// response and returns null so the caller can early-return.
+async function requireTaskAccess(
+  req: Request,
+  res: any,
+  taskId: number,
+  readOnly = false,
+): Promise<{ owner_user_id: number | null; created_by_user_id: number | null } | null> {
+  const taskRow: any = await db.execute(sql`
+    SELECT owner_user_id, created_by_user_id FROM tasks WHERE id = ${taskId} LIMIT 1
+  `);
+  const task = taskRow.rows?.[0] ?? null;
+  if (!task) {
+    res.status(404).json({ message: "Not found" });
+    return null;
+  }
+  const userId = uid(req);
+  if (!userId) {
+    res.status(401).json({ message: "Unauthorized" });
+    return null;
+  }
+  // Owner, creator, or admin always have full edit access
+  if (task.owner_user_id === userId || task.created_by_user_id === userId || isAdmin(req)) {
+    return task;
+  }
+  // Hub-access delegation
+  const ownerId: number | null = task.owner_user_id ?? null;
+  if (ownerId !== null) {
+    const level = await checkHubAccess(userId, ownerId, false);
+    if (readOnly && level !== null) return task;
+    if (!readOnly && level === "edit") return task;
+  }
+  res.status(403).json({ message: "Access denied" });
+  return null;
+}
+
 async function logActivity(
   taskId: number,
   userId: number | null,
@@ -452,6 +498,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+      if (!await requireTaskAccess(req, res, id, true)) return;
       const data = await loadTaskFull(id);
       if (!data) return res.status(404).json({ message: "Not found" });
       res.json(data);
@@ -563,6 +610,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       const { boardColumn, sortOrder } = req.body || {};
       const isValidBoardCol = typeof boardColumn === "string" && (SLUG_RE.test(boardColumn) || USER_COL_RE.test(boardColumn));
       if (!isValidBoardCol) {
@@ -627,6 +675,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       const body = req.body || {};
       const cur: any = await db.execute(sql`SELECT * FROM tasks WHERE id = ${id} LIMIT 1`);
       const prev = cur.rows?.[0];
@@ -694,6 +743,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       const notes = req.body?.notes ? String(req.body.notes) : null;
       await db.execute(sql`
         UPDATE tasks SET status='completed', completed_at=NOW(), completed_by_user_id=${userId},
@@ -715,6 +765,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       await db.execute(sql`
         UPDATE tasks SET status='pending', completed_at=NULL, completed_by_user_id=NULL,
           completion_notes=NULL, board_column='todo', last_updated_by_user_id=${userId}, updated_at=NOW()
@@ -733,6 +784,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       const dependsOn = Number(req.body?.dependsOnTaskId);
       if (!Number.isFinite(dependsOn) || dependsOn === id) return res.status(400).json({ message: "Invalid dependency" });
       // Cycle check (simple): can't depend on a task that depends on this one
@@ -763,6 +815,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const depId = Number(req.params.depId);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       const depRow: any = await db.execute(sql`SELECT depends_on_task_id FROM task_dependencies WHERE id = ${depId} AND task_id = ${id}`);
       const removedDep = depRow.rows?.[0]?.depends_on_task_id ?? null;
       await db.execute(sql`DELETE FROM task_dependencies WHERE id = ${depId} AND task_id = ${id}`);
@@ -821,6 +874,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const labelId = Number(req.params.labelId);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       await db.execute(sql`
         INSERT INTO task_label_assignments (task_id, label_id) VALUES (${id}, ${labelId})
         ON CONFLICT DO NOTHING`);
@@ -837,6 +891,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const labelId = Number(req.params.labelId);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       const lab: any = await db.execute(sql`SELECT name FROM task_labels WHERE id = ${labelId}`);
       await db.execute(sql`DELETE FROM task_label_assignments WHERE task_id = ${id} AND label_id = ${labelId}`);
       await logActivity(id, userId, "label_removed", lab.rows?.[0]?.name ?? String(labelId), null);
@@ -851,6 +906,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       const title = String(req.body?.title || "Checklist").slice(0, 120);
       const r: any = await db.execute(sql`
         INSERT INTO task_checklists (task_id, title) VALUES (${id}, ${title}) RETURNING *`);
@@ -868,6 +924,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const c: any = await db.execute(sql`SELECT task_id, title FROM task_checklists WHERE id = ${id}`);
       const row = c.rows?.[0];
       if (!row) return res.status(404).json({ message: "Not found" });
+      if (!await requireTaskAccess(req, res, row.task_id)) return;
       await db.execute(sql`DELETE FROM task_checklist_items WHERE checklist_id = ${id}`);
       await db.execute(sql`DELETE FROM task_checklists WHERE id = ${id}`);
       await logActivity(row.task_id, userId, "checklist_removed", row.title, null);
@@ -886,6 +943,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const c: any = await db.execute(sql`SELECT task_id FROM task_checklists WHERE id = ${checklistId}`);
       const taskId = c.rows?.[0]?.task_id;
       if (!taskId) return res.status(404).json({ message: "Checklist not found" });
+      if (!await requireTaskAccess(req, res, taskId)) return;
       const r: any = await db.execute(sql`
         INSERT INTO task_checklist_items (checklist_id, content, sort_order)
         VALUES (${checklistId}, ${content},
@@ -908,6 +966,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         JOIN task_checklists c ON c.id = i.checklist_id WHERE i.id = ${id}`);
       const row = cur.rows?.[0];
       if (!row) return res.status(404).json({ message: "Not found" });
+      if (!await requireTaskAccess(req, res, row.task_id)) return;
       if (typeof completed === "boolean") {
         await db.execute(sql`
           UPDATE task_checklist_items
@@ -937,6 +996,13 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   app.delete("/api/task-checklist-items/:id", canEdit, async (req, res) => {
     try {
       const id = Number(req.params.id);
+      const itemRow: any = await db.execute(sql`
+        SELECT c.task_id FROM task_checklist_items i
+        JOIN task_checklists c ON c.id = i.checklist_id
+        WHERE i.id = ${id} LIMIT 1`);
+      const taskId: number | null = itemRow.rows?.[0]?.task_id ?? null;
+      if (taskId === null) return res.status(404).json({ message: "Not found" });
+      if (!await requireTaskAccess(req, res, taskId)) return;
       await db.execute(sql`DELETE FROM task_checklist_items WHERE id = ${id}`);
       res.json({ success: true });
     } catch (err: any) {
@@ -950,6 +1016,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const watcherId = Number(req.params.userId);
       const actor = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       await db.execute(sql`
         INSERT INTO task_watchers (task_id, user_id) VALUES (${id}, ${watcherId})
         ON CONFLICT DO NOTHING`);
@@ -965,6 +1032,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const watcherId = Number(req.params.userId);
       const actor = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       await db.execute(sql`DELETE FROM task_watchers WHERE task_id = ${id} AND user_id = ${watcherId}`);
       await logActivity(id, actor, "watcher_removed", String(watcherId), null);
       res.json({ success: true });
@@ -977,6 +1045,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   app.get("/api/tasks/:id/comments", canView, async (req, res) => {
     try {
       const id = Number(req.params.id);
+      if (!await requireTaskAccess(req, res, id, true)) return;
       const r: any = await db.execute(sql`
         SELECT c.id, c.content AS body, c.created_at AS "createdAt", c.user_id AS "authorId",
                COALESCE(u.name, c.user_name) AS "authorName"
@@ -993,6 +1062,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!await requireTaskAccess(req, res, id)) return;
       const body = String(req.body?.body || "").slice(0, 2000);
       if (!body.trim()) return res.status(400).json({ message: "Body required" });
       const userRow: any = userId ? await db.execute(sql`SELECT name FROM users WHERE id = ${userId}`) : null;
@@ -1116,10 +1186,26 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const q = String(req.query.q || "").slice(0, 100);
       const exclude = Number(req.query.exclude || 0);
+      const userId = uid(req);
+      const admin = isAdmin(req);
       const like = `%${q.replace(/[%_]/g, " ")}%`;
+      // Scope results to tasks the caller can legitimately see:
+      //   • their own tasks (owner or creator)
+      //   • tasks belonging to users they have hub-access grants for
+      //   • admins see all tasks (team visibility)
+      const visibilityClause = (admin || !userId) ? sql`` : sql`
+        AND (
+          owner_user_id = ${userId}
+          OR created_by_user_id = ${userId}
+          OR owner_user_id IN (
+            SELECT target_user_id FROM task_hub_access_permissions
+            WHERE viewer_user_id = ${userId} AND revoked_at IS NULL
+          )
+        )`;
       const r: any = await db.execute(sql`
         SELECT id, title, status, board_column AS "boardColumn"
         FROM tasks WHERE title ILIKE ${like} AND id <> ${exclude} AND archived = false
+        ${visibilityClause}
         ORDER BY id DESC LIMIT 20`);
       res.json(r.rows ?? []);
     } catch (err: any) {
