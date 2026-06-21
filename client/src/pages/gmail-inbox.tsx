@@ -77,7 +77,7 @@ import { useSnippets } from "@/hooks/use-snippets";
 import { useLocation } from "wouter";
 import { takePendingCompose } from "@/lib/compose-handoff";
 import { PENDING_COMPOSE_KEY } from "@/components/crm/suggested-next-email-modal";
-import { sanitizeEmailHtml, plainTextToEmailHtml, htmlToPlainText } from "@/lib/sanitize-html";
+import { sanitizeEmailHtml, sanitizeRichText, plainTextToEmailHtml, htmlToPlainText } from "@/lib/sanitize-html";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 
@@ -1606,7 +1606,7 @@ function ComposeDialog({
                   </div>
                   <div
                     className="px-3 py-2.5 text-sm text-foreground/70 max-h-64 overflow-y-auto"
-                    dangerouslySetInnerHTML={{ __html: defaultQuotedHtml }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeRichText(defaultQuotedHtml) }}
                   />
                 </div>
               )}

@@ -65,6 +65,16 @@ function fmtDate(d: Date | string | null | undefined): string {
   return new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
+function escQ(v: string | number | undefined | null): string {
+  if (v === null || v === undefined) return "";
+  return String(v)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function generateInvoiceHtml(q: QuoteData): string {
   const sym = getCurrencySymbol(q.currency);
   const hwItems = q.lineItems.filter(i => i.category === "hardware");
@@ -78,8 +88,8 @@ export function generateInvoiceHtml(q: QuoteData): string {
   const lineRow = (item: QuoteLineItemData) => `
     <tr>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">
-        <div style="font-weight:500;font-size:13px;">${item.name}</div>
-        ${item.description ? `<div style="font-size:11px;color:#6b7280;margin-top:2px;">${item.description}</div>` : ""}
+        <div style="font-weight:500;font-size:13px;">${escQ(item.name)}</div>
+        ${item.description ? `<div style="font-size:11px;color:#6b7280;margin-top:2px;">${escQ(item.description)}</div>` : ""}
         ${item.isRecurring ? `<div style="font-size:10px;color:#3b82f6;margin-top:2px;">Annual subscription</div>` : ""}
       </td>
       <td style="padding:8px 12px;text-align:center;border-bottom:1px solid #e5e7eb;font-size:13px;">${item.qty}</td>
@@ -113,7 +123,7 @@ export function generateInvoiceHtml(q: QuoteData): string {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pro Forma Invoice ${q.quoteNumber} — VoltSafe Inc.</title>
+<title>Pro Forma Invoice ${escQ(q.quoteNumber)} — VoltSafe Inc.</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #111827; background: #fff; font-size: 14px; }
@@ -182,10 +192,10 @@ export function generateInvoiceHtml(q: QuoteData): string {
     </div>
     <div class="invoice-meta">
       <div class="invoice-title">Pro Forma Invoice</div>
-      <div class="invoice-number">${q.quoteNumber}</div>
+      <div class="invoice-number">${escQ(q.quoteNumber)}</div>
       <div class="invoice-date">Issue Date: ${fmtDate(q.createdAt)}</div>
       ${q.validUntil ? `<div class="invoice-date">Valid Until: ${fmtDate(q.validUntil)}</div>` : ""}
-      <div style="margin-top:8px;"><span class="badge badge-${q.status}">${q.status}</span></div>
+      <div style="margin-top:8px;"><span class="badge badge-${escQ(q.status)}">${escQ(q.status)}</span></div>
     </div>
   </div>
 
@@ -193,25 +203,25 @@ export function generateInvoiceHtml(q: QuoteData): string {
   <div class="info-grid">
     <div class="info-box">
       <h3>Bill To</h3>
-      ${q.customerName ? `<p class="strong">${q.customerName}</p>` : ""}
-      ${q.customerEmail ? `<p>${q.customerEmail}</p>` : ""}
-      ${q.customerPhone ? `<p>${q.customerPhone}</p>` : ""}
-      ${q.marinaAddress ? `<p style="margin-top:6px;">${q.marinaAddress.replace(/\n/g, "<br>")}</p>` : ""}
+      ${q.customerName ? `<p class="strong">${escQ(q.customerName)}</p>` : ""}
+      ${q.customerEmail ? `<p>${escQ(q.customerEmail)}</p>` : ""}
+      ${q.customerPhone ? `<p>${escQ(q.customerPhone)}</p>` : ""}
+      ${q.marinaAddress ? `<p style="margin-top:6px;">${escQ(q.marinaAddress).replace(/\n/g, "<br>")}</p>` : ""}
     </div>
     <div class="info-box">
       <h3>Site / Installation Address</h3>
-      ${q.siteAddress ? `<p>${q.siteAddress.replace(/\n/g, "<br>")}</p>` : `<p style="color:#9ca3af;">Same as billing address</p>`}
-      ${q.slipsCount ? `<p style="margin-top:8px;"><strong>Slip Count:</strong> ${q.slipsCount}</p>` : ""}
-      <p style="margin-top:8px;"><strong>Currency:</strong> ${q.currency} (${getCurrencySymbol(q.currency)})</p>
+      ${q.siteAddress ? `<p>${escQ(q.siteAddress).replace(/\n/g, "<br>")}</p>` : `<p style="color:#9ca3af;">Same as billing address</p>`}
+      ${q.slipsCount ? `<p style="margin-top:8px;"><strong>Slip Count:</strong> ${escQ(q.slipsCount)}</p>` : ""}
+      <p style="margin-top:8px;"><strong>Currency:</strong> ${escQ(q.currency)} (${getCurrencySymbol(q.currency)})</p>
     </div>
   </div>
 
   <!-- Entitlement / License Info -->
   ${(q.entitlementNumber || q.licensedTo || q.billingPeriodStart) ? `
   <div class="entitlement-box">
-    ${q.entitlementNumber ? `<div class="field"><div class="label">Entitlement #</div><div class="value">${q.entitlementNumber}</div></div>` : ""}
-    ${q.licensedTo ? `<div class="field"><div class="label">Licensed To</div><div class="value">${q.licensedTo}</div></div>` : ""}
-    ${q.billingPeriodStart ? `<div class="field"><div class="label">Billing Period</div><div class="value">${q.billingPeriodStart}${q.billingPeriodEnd ? ` — ${q.billingPeriodEnd}` : ""}</div></div>` : ""}
+    ${q.entitlementNumber ? `<div class="field"><div class="label">Entitlement #</div><div class="value">${escQ(q.entitlementNumber)}</div></div>` : ""}
+    ${q.licensedTo ? `<div class="field"><div class="label">Licensed To</div><div class="value">${escQ(q.licensedTo)}</div></div>` : ""}
+    ${q.billingPeriodStart ? `<div class="field"><div class="label">Billing Period</div><div class="value">${escQ(q.billingPeriodStart)}${q.billingPeriodEnd ? ` — ${escQ(q.billingPeriodEnd)}` : ""}</div></div>` : ""}
   </div>` : ""}
 
   <!-- Line Items -->
@@ -265,16 +275,16 @@ export function generateInvoiceHtml(q: QuoteData): string {
   </div>
 
   <!-- Notes / Assumptions -->
-  ${q.notes ? `<div style="margin-bottom:16px;"><h4 style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Notes</h4><p style="font-size:12px;color:#374151;white-space:pre-wrap;">${q.notes}</p></div>` : ""}
-  ${q.assumptions ? `<div style="margin-bottom:16px;"><h4 style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Assumptions</h4><p style="font-size:12px;color:#374151;white-space:pre-wrap;">${q.assumptions}</p></div>` : ""}
-  ${q.exclusions ? `<div style="margin-bottom:16px;"><h4 style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Exclusions</h4><p style="font-size:12px;color:#374151;white-space:pre-wrap;">${q.exclusions}</p></div>` : ""}
+  ${q.notes ? `<div style="margin-bottom:16px;"><h4 style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Notes</h4><p style="font-size:12px;color:#374151;white-space:pre-wrap;">${escQ(q.notes)}</p></div>` : ""}
+  ${q.assumptions ? `<div style="margin-bottom:16px;"><h4 style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Assumptions</h4><p style="font-size:12px;color:#374151;white-space:pre-wrap;">${escQ(q.assumptions)}</p></div>` : ""}
+  ${q.exclusions ? `<div style="margin-bottom:16px;"><h4 style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Exclusions</h4><p style="font-size:12px;color:#374151;white-space:pre-wrap;">${escQ(q.exclusions)}</p></div>` : ""}
 
   <!-- Wire Transfer -->
   <div class="terms-section">
     <h4>Wire Transfer / Payment Information</h4>
     <p>Bank: RBC Royal Bank of Canada · Account Name: VoltSafe Inc. · Transit: 04652 · Institution: 003 · Account: 1007183</p>
-    <p style="margin-top:6px;">Please reference invoice number <strong>${q.quoteNumber}</strong> in your payment.</p>
-    <p style="margin-top:10px;font-style:italic;">This is a pro forma invoice. Goods and services will be provided upon receipt of deposit payment. All prices are in ${q.currency} and exclude applicable taxes unless noted. This quote is valid for 30 days from issue date. VoltSafe Inc. reserves the right to adjust pricing after expiry.</p>
+    <p style="margin-top:6px;">Please reference invoice number <strong>${escQ(q.quoteNumber)}</strong> in your payment.</p>
+    <p style="margin-top:10px;font-style:italic;">This is a pro forma invoice. Goods and services will be provided upon receipt of deposit payment. All prices are in ${escQ(q.currency)} and exclude applicable taxes unless noted. This quote is valid for 30 days from issue date. VoltSafe Inc. reserves the right to adjust pricing after expiry.</p>
   </div>
 
   <!-- Footer -->
@@ -284,7 +294,7 @@ export function generateInvoiceHtml(q: QuoteData): string {
       <div class="website">voltsafe.com</div>
     </div>
     <div style="text-align:right;font-size:11px;color:#9ca3af;">
-      <div>${q.quoteNumber} · v${q.version}</div>
+      <div>${escQ(q.quoteNumber)} · v${escQ(q.version)}</div>
       <div>Generated ${fmtDate(new Date())}</div>
     </div>
   </div>
