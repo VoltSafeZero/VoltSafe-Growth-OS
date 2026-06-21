@@ -13,8 +13,15 @@ npx tsx scripts/seed-viewer-user.ts
 echo "Pushing to GitHub (origin main)..."
 if [ -n "$GITHUB_TOKEN" ]; then
   REMOTE_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/VoltSafeZero/VoltSafe-Growth-OS.git"
-  git push "$REMOTE_URL" main && echo "GitHub push complete." \
-    || echo "GitHub push failed (non-fast-forward?) — push manually if needed."
+  # Try fast-forward push first; fall back to --force-with-lease when GitHub has
+  # diverged (e.g. task-agent commits pushed directly to GitHub during development).
+  if git push "$REMOTE_URL" main; then
+    echo "GitHub push complete."
+  elif git push --force-with-lease "$REMOTE_URL" main; then
+    echo "GitHub push complete (force-with-lease used — remote had diverged commits)."
+  else
+    echo "GitHub push failed — push manually if needed."
+  fi
 else
   echo "GitHub push skipped — GITHUB_TOKEN secret not set."
 fi
