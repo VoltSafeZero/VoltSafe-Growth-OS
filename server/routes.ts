@@ -31715,11 +31715,16 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── AI Follow-Up Engine (Phase 3) ─────────────────────────────────────────────
+  const FOLLOW_UP_ALLOWED_ENTITY_TYPES = ["contact", "account", "lead"] as const;
+
   app.get("/api/ai-follow-up/insights", requireAuth, async (req, res) => {
     try {
       const entityType = String(req.query.entityType || "");
       const entityId   = Number(req.query.entityId);
       if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+      if (!(FOLLOW_UP_ALLOWED_ENTITY_TYPES as readonly string[]).includes(entityType)) {
+        return res.status(400).json({ message: "Invalid entityType" });
+      }
       const { buildEngagementSummary, isInsightDismissed } = await import("./services/ai-follow-up");
       if (isInsightDismissed(entityType, entityId)) {
         return res.json({ dismissed: true, insight: null });
@@ -31733,6 +31738,9 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const { entityType, entityId, voiceProfileId, ceoWattsonInfluenceLevel } = req.body;
       if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+      if (!(FOLLOW_UP_ALLOWED_ENTITY_TYPES as readonly string[]).includes(String(entityType))) {
+        return res.status(400).json({ message: "Invalid entityType" });
+      }
       const { buildEngagementSummary, generateFollowUpEmail } = await import("./services/ai-follow-up");
       const summary = await buildEngagementSummary(String(entityType), Number(entityId));
       const result  = await generateFollowUpEmail({
@@ -31753,6 +31761,9 @@ export function registerConfluenceRoutes(app: Express) {
       const { entityType, entityId } = req.body;
       if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
       const { dismissInsight } = await import("./services/ai-follow-up");
+      if (!(FOLLOW_UP_ALLOWED_ENTITY_TYPES as readonly string[]).includes(String(entityType))) {
+        return res.status(400).json({ message: "Invalid entityType" });
+      }
       dismissInsight(String(entityType), Number(entityId));
       res.json({ dismissed: true });
     } catch (err: any) { res.status(500).json({ message: err.message }); }

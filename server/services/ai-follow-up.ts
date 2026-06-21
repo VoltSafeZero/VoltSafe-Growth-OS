@@ -11,7 +11,7 @@
 
 import OpenAI from "openai";
 import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { sql, SQL } from "drizzle-orm";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -50,6 +50,18 @@ export interface FollowUpInsight {
   generatedAt: string;
 }
 
+// ── Allowlist ─────────────────────────────────────────────────────────────────
+
+/** Exhaustive list of entity types accepted by the follow-up engine. */
+const ALLOWED_ENTITY_TYPES = ["contact", "account", "lead"] as const;
+type AllowedEntityType = typeof ALLOWED_ENTITY_TYPES[number];
+
+function assertAllowedEntityType(entityType: string): asserts entityType is AllowedEntityType {
+  if (!(ALLOWED_ENTITY_TYPES as readonly string[]).includes(entityType)) {
+    throw new Error(`Invalid entityType: "${entityType}"`);
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function buildOpenAIClient(): OpenAI | null {
@@ -59,9 +71,9 @@ function buildOpenAIClient(): OpenAI | null {
   return new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
 }
 
-async function safeRows(sqlStr: string): Promise<any[]> {
+async function safeRows(query: SQL): Promise<any[]> {
   try {
-    const r = await db.execute(sql.raw(sqlStr));
+    const r = await db.execute(query);
     return (r as any).rows || [];
   } catch { return []; }
 }
@@ -105,10 +117,11 @@ export async function buildEngagementSummary(
   entityType: string,
   entityId: number
 ): Promise<EngagementSummary> {
+  assertAllowedEntityType(entityType);
   const id = Number(entityId);
 
   // ── Email cadence ──────────────────────────────────────────────────────────
-  const emailStats = await safeRows(`
+  const emailStats = await safeRows(sql`
     SELECT
       COUNT(*) AS total,
       MAX(em.sent_at) FILTER (WHERE em.direction = 'inbound')  AS last_inbound_at,
@@ -116,7 +129,7 @@ export async function buildEngagementSummary(
       COUNT(*) FILTER (WHERE em.direction = 'inbound') AS inbound_count
     FROM email_associations ea
     JOIN email_messages em ON ea.email_message_id = em.id
-    WHERE ea.object_type = '${entityType}' AND ea.object_id = ${id}
+    WHERE ea.object_type = ${entityType} AND ea.object_id = ${id}
   `);
   const es = emailStats[0] || {};
   const totalEmails = Number(es.total || 0);
@@ -130,7 +143,7 @@ export async function buildEngagementSummary(
   let uniqueOpens = 0;
   let uniqueClicks = 0;
   try {
-    const trackingStats = await safeRows(`
+    const trackingStats = await safeRows(sql`
       SELECT
         COUNT(*) FILTER (WHERE ee.event_type = 'open'  AND ee.is_bot = FALSE AND ee.is_duplicate = FALSE AND ee.is_internal IS NOT TRUE) AS unique_opens,
         COUNT(*) FILTER (WHERE ee.event_type = 'click' AND ee.is_bot = FALSE AND ee.is_duplicate = FALSE AND ee.is_internal IS NOT TRUE) AS unique_clicks
@@ -138,7 +151,7 @@ export async function buildEngagementSummary(
       JOIN email_messages em ON ea.email_message_id = em.id
       JOIN email_recipients er ON er.gmail_message_id = em.gmail_message_id
       JOIN email_engagement_events ee ON ee.tracking_token = er.tracking_token
-      WHERE ea.object_type = '${entityType}' AND ea.object_id = ${id}
+      WHERE ea.object_type = ${entityType} AND ea.object_id = ${id}
     `);
     uniqueOpens  = Number(trackingStats[0]?.unique_opens  || 0);
     uniqueClicks = Number(trackingStats[0]?.unique_clicks || 0);
@@ -147,23 +160,29 @@ export async function buildEngagementSummary(
   // ── CTA clicks (signature_cta_clicks) ─────────────────────────────────────
   // Filter by contact_id / account_id where available, or fall back to no entity link.
   let ctaRows: any[] = [];
-  const ctaFilter = entityType === "contact"
-    ? `sc.contact_id = ${id}`
-    : entityType === "account"
-    ? `sc.account_id = ${id}`
-    : `FALSE`; // leads don't have direct cta FK — skip
 
-  if (entityType !== "lead") {
-    ctaRows = await safeRows(`
+  if (entityType === "contact") {
+    ctaRows = await safeRows(sql`
       SELECT sc.cta_name, sc.destination_url, SUM(sc.click_count) AS total_clicks,
              MAX(sc.last_clicked_at) AS last_clicked_at
       FROM signature_cta_clicks sc
-      WHERE ${ctaFilter} AND sc.click_count > 0
+      WHERE sc.contact_id = ${id} AND sc.click_count > 0
+      GROUP BY sc.cta_name, sc.destination_url
+      ORDER BY total_clicks DESC
+      LIMIT 10
+    `);
+  } else if (entityType === "account") {
+    ctaRows = await safeRows(sql`
+      SELECT sc.cta_name, sc.destination_url, SUM(sc.click_count) AS total_clicks,
+             MAX(sc.last_clicked_at) AS last_clicked_at
+      FROM signature_cta_clicks sc
+      WHERE sc.account_id = ${id} AND sc.click_count > 0
       GROUP BY sc.cta_name, sc.destination_url
       ORDER BY total_clicks DESC
       LIMIT 10
     `);
   }
+  // leads don't have a direct CTA FK — ctaRows stays empty
 
   const ctaClicks = ctaRows.map((r: any) => ({
     ctaName: String(r.cta_name || ""),
