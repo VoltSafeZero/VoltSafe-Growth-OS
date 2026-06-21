@@ -53,6 +53,8 @@ Required guarantees:
 - All state-changing API endpoints MUST require a valid session cookie or a per-route signed token.
 - The webhook secret MUST be compared in constant time and MUST be rotatable without code changes.
 - Login MUST be rate-limited per IP and MUST regenerate the session ID on success (session-fixation defense — present at `server/routes.ts:624`).
+- OAuth account-linking flows MUST generate a per-session `state` value and MUST validate it on callback before exchanging codes or upgrading the flow to a shared-workspace connection.
+- Production startup MUST NOT create reachable accounts with shared or predictable bootstrap credentials; any seed-user path must be dev-only or otherwise blocked from running in production.
 
 ### Tampering
 
