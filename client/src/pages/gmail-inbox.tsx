@@ -5330,6 +5330,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     return acct && !isNaN(Number(acct)) ? Number(acct) : null;
   });
 
+  // CRM Review backfill tracking — auto-fetch missing threads from Gmail when the
+  // local index lacks them. Uses a ref (not state) to guard against double-firing.
+  const crmBackfillAttemptedRef = useRef<Set<string>>(new Set());
+  const [crmBackfillingThreadId, setCrmBackfillingThreadId] = useState<string | null>(null);
+  const [crmBackfillFailedThreadId, setCrmBackfillFailedThreadId] = useState<string | null>(null);
+
   // Detect if VS Mail was opened via a CRM deep-link (both ?thread= and ?account= in URL).
   // Used to suppress the global "expired" banner (the thread IS readable from local DB) and
   // replace it with a precise, thread-level source-account notice instead.
@@ -6633,6 +6639,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     gmailAccountId: number | null;
     latestMessage: {
       id: number;
+      gmailMessageId: string | null;
       subject: string | null;
       fromName: string | null;
       fromEmail: string | null;
@@ -6662,6 +6669,49 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     enabled: tab === "review",
     refetchInterval: tab === "review" ? 30000 : false,
   });
+
+  // Auto-backfill: when the thread reader shows "Thread not in local index" for a CRM
+  // Review item, silently fetch it from Gmail and re-open. Fires at most once per thread
+  // per page load (guarded by crmBackfillAttemptedRef). Diagnostics only — no email body.
+  useEffect(() => {
+    if (!threadQuery.isError || !selectedThreadId) return;
+    const errMsg = (threadQuery.error as any)?.message || "";
+    if (!errMsg.includes("not in local index")) return;
+    const reviewItem = reviewQueueQuery.data?.items?.find(i => i.gmailThreadId === selectedThreadId);
+    if (!reviewItem) return;
+    if (crmBackfillAttemptedRef.current.has(selectedThreadId)) return;
+
+    crmBackfillAttemptedRef.current.add(selectedThreadId);
+    setCrmBackfillingThreadId(selectedThreadId);
+    setCrmBackfillFailedThreadId(null);
+
+    const backfillAccountId = reviewItem.gmailAccountId ?? currentThreadAccountId;
+    const qs = backfillAccountId != null ? `?asAccountId=${backfillAccountId}` : "";
+    console.log("[crm-backfill] starting", { threadId: selectedThreadId, backfillAccountId });
+
+    fetch(`/api/gmail/threads/${encodeURIComponent(selectedThreadId)}/backfill${qs}`, {
+      method: "POST",
+      credentials: "include",
+    })
+      .then(async r => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error((body as any).message || `HTTP ${r.status}`);
+        }
+        return r.json();
+      })
+      .then(() => {
+        console.log("[crm-backfill] success, refetching thread", { threadId: selectedThreadId });
+        setCrmBackfillingThreadId(null);
+        threadQuery.refetch();
+      })
+      .catch((err: any) => {
+        console.warn("[crm-backfill] failed", { threadId: selectedThreadId, error: err.message });
+        setCrmBackfillingThreadId(null);
+        setCrmBackfillFailedThreadId(selectedThreadId);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadQuery.isError, selectedThreadId, reviewQueueQuery.data]);
 
   const HIGH_CONFIDENCE_THRESHOLD = 75;
 
@@ -10880,18 +10930,42 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       <Skeleton className="h-3 w-32" />
                     </div>
                   ) : threadQuery.isError ? (
-                    <div className="flex items-center gap-2" data-testid="thread-load-error">
-                      <span className="text-[13px] text-destructive/80 font-medium">
-                        {(threadQuery.error as any)?.message || "Could not load message"}
-                      </span>
-                      <button
-                        onClick={() => threadQuery.refetch()}
-                        className="text-[12px] text-primary/70 hover:text-primary underline underline-offset-2 transition-colors"
-                        data-testid="button-retry-thread"
-                      >
-                        Retry
-                      </button>
-                    </div>
+                    (() => {
+                      const isSyncing = crmBackfillingThreadId === selectedThreadId;
+                      const isFailed = crmBackfillFailedThreadId === selectedThreadId;
+                      const isNotInIndex = ((threadQuery.error as any)?.message || "").includes("not in local index");
+                      const isReviewItem = !!reviewQueueQuery.data?.items?.find(i => i.gmailThreadId === selectedThreadId);
+                      if (isSyncing || (isNotInIndex && isReviewItem && !isFailed)) {
+                        return (
+                          <div className="flex items-center gap-2" data-testid="thread-load-syncing">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary/60 flex-shrink-0" aria-hidden="true" />
+                            <span className="text-[13px] text-muted-foreground font-medium">Syncing from Gmail…</span>
+                          </div>
+                        );
+                      }
+                      if (isFailed && isNotInIndex && isReviewItem) {
+                        return (
+                          <div className="flex items-center gap-1.5" data-testid="thread-load-error">
+                            <AlertCircle className="h-3.5 w-3.5 text-destructive/70 flex-shrink-0" aria-hidden="true" />
+                            <span className="text-[13px] text-destructive/80 font-medium">Thread unavailable</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="flex items-center gap-2" data-testid="thread-load-error">
+                          <span className="text-[13px] text-destructive/80 font-medium">
+                            {(threadQuery.error as any)?.message || "Could not load message"}
+                          </span>
+                          <button
+                            onClick={() => threadQuery.refetch()}
+                            className="text-[12px] text-primary/70 hover:text-primary underline underline-offset-2 transition-colors"
+                            data-testid="button-retry-thread"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      );
+                    })()
                   ) : (
                     <>
                       <div className="flex items-baseline gap-2 flex-wrap">
@@ -11071,6 +11145,97 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   ))}
                 </div>
               )}
+              {/* CRM Review backfill error card — shown when a review-queue thread is not in
+                  the local index and the automatic backfill from Gmail has failed. */}
+              {threadQuery.isError && (() => {
+                const errMsg = (threadQuery.error as any)?.message || "";
+                if (!errMsg.includes("not in local index")) return null;
+                const reviewItem = reviewQueueQuery.data?.items?.find(i => i.gmailThreadId === selectedThreadId);
+                if (!reviewItem) return null;
+                const isSyncing = crmBackfillingThreadId === selectedThreadId;
+                const isFailed = crmBackfillFailedThreadId === selectedThreadId;
+                if (!isSyncing && !isFailed) return null;
+                if (isSyncing) {
+                  return (
+                    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center" data-testid="thread-backfill-syncing">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary/40" aria-hidden="true" />
+                      <p className="text-[14px] text-muted-foreground font-medium">Syncing from Gmail…</p>
+                      <p className="text-[12px] text-muted-foreground/60 max-w-xs">Fetching this email thread from your inbox. This usually takes just a moment.</p>
+                    </div>
+                  );
+                }
+                const gmailMessageId = reviewItem.latestMessage.gmailMessageId;
+                const gmailUrl = `https://mail.google.com/mail/u/0/#all/${selectedThreadId}`;
+                return (
+                  <div
+                    className="mx-2 my-4 rounded-xl border border-destructive/20 bg-destructive/5 px-6 py-7 flex flex-col items-center gap-4 text-center"
+                    data-testid="thread-backfill-error"
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="h-9 w-9 text-destructive/50" aria-hidden="true" />
+                      <p className="text-[15px] font-semibold text-foreground/90 leading-snug">
+                        This email thread is no longer available
+                      </p>
+                      <p className="text-[13px] text-muted-foreground/80 max-w-sm leading-relaxed">
+                        It may have been deleted in Gmail, moved to another folder, or it hasn't synced yet.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+                      <button
+                        data-testid="button-retry-backfill"
+                        onClick={() => {
+                          if (!selectedThreadId) return;
+                          crmBackfillAttemptedRef.current.delete(selectedThreadId);
+                          setCrmBackfillFailedThreadId(null);
+                          setCrmBackfillingThreadId(selectedThreadId);
+                          const backfillAccountId = reviewItem.gmailAccountId ?? currentThreadAccountId;
+                          const qs = backfillAccountId != null ? `?asAccountId=${backfillAccountId}` : "";
+                          fetch(`/api/gmail/threads/${encodeURIComponent(selectedThreadId)}/backfill${qs}`, {
+                            method: "POST",
+                            credentials: "include",
+                          })
+                            .then(async r => {
+                              if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || `HTTP ${r.status}`);
+                              return r.json();
+                            })
+                            .then(() => { setCrmBackfillingThreadId(null); threadQuery.refetch(); })
+                            .catch(() => { setCrmBackfillingThreadId(null); setCrmBackfillFailedThreadId(selectedThreadId); });
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary/10 hover:bg-primary/15 text-primary text-[13px] font-medium transition-colors border border-primary/20"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                        Retry sync
+                      </button>
+                      {reviewItem.topCandidate && (
+                        <button
+                          data-testid="button-dismiss-backfill"
+                          disabled={bulkRejectMutation.isPending}
+                          onClick={() => {
+                            if (!reviewItem.topCandidate) return;
+                            bulkRejectMutation.mutate([{ associationId: reviewItem.topCandidate.id, threadId: reviewItem.gmailThreadId }]);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground text-[13px] font-medium transition-colors border border-border/50"
+                        >
+                          {bulkRejectMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <X className="h-3.5 w-3.5" aria-hidden="true" />}
+                          Dismiss
+                        </button>
+                      )}
+                      <a
+                        data-testid="link-open-in-gmail"
+                        href={gmailMessageId
+                          ? `https://mail.google.com/mail/u/0/#search/rfc822msgid:${encodeURIComponent(gmailMessageId)}`
+                          : gmailUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground text-[13px] font-medium transition-colors border border-border/50"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                        Open in Gmail
+                      </a>
+                    </div>
+                  </div>
+                );
+              })()}
               {displayMessages.map((msg, idx) => {
                 const resolvedSenderName = parseSenderName(msg.from) || parseSenderEmail(msg.from) || "Unknown";
                 const initials = resolvedSenderName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();

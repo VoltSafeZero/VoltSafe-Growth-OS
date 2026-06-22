@@ -12301,6 +12301,95 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // POST /api/gmail/threads/:id/backfill — live-fetch a single thread from Gmail and index it locally.
+  // Used by the CRM Review pane when a thread is auto-associated but not yet in the local index.
+  // Diagnostics are logged (no email body); the stored thread is returned on success.
+  app.post("/api/gmail/threads/:id/backfill", requireAuth, async (req, res) => {
+    const userId = (req.session as any).userId;
+    const asAccountId = req.query.asAccountId ? Number(req.query.asAccountId) : undefined;
+    const { isAdmin: _ia, mailTeamPerms: _mtp } = await getSessionUserAccess(req.session);
+    let resolved = await resolveAccount(userId, asAccountId, _ia, _mtp);
+
+    // Same orphan fallback as GET /api/gmail/threads/:id
+    if (!resolved && asAccountId && typeof asAccountId === "number") {
+      const fallbackAcct = await getUserGmailAccount(userId);
+      if (fallbackAcct) {
+        const allIds = await getAccessibleAccountIds(userId, _ia, _mtp);
+        resolved = {
+          userId,
+          accountId: fallbackAcct.id,
+          accountIds: allIds as number[],
+          acct: fallbackAcct,
+        } as any;
+      }
+    }
+    if (!resolved) {
+      return res.status(403).json({ message: "No Gmail account connected" });
+    }
+
+    const threadId = req.params.id;
+    log(`[crm-backfill] start threadId=${threadId} userId=${userId} asAccountId=${asAccountId ?? "unset"} resolvedAccountId=${resolved.accountId}`);
+
+    try {
+      const { getGmailClient } = await import("./gmail-oauth");
+      const { upsertMessageById } = await import("./services/gmail-incremental");
+      const { getLocalThread } = await import("./services/local-mailbox");
+
+      const [acctRow] = await db
+        .select({ emailAddress: emailAccounts.emailAddress })
+        .from(emailAccounts)
+        .where(eq(emailAccounts.id, resolved.accountId))
+        .limit(1);
+      const myEmail = acctRow?.emailAddress ?? "";
+
+      const gmail = await getGmailClient(resolved.userId, resolved.accountId);
+
+      const threadRes = await gmail.users.threads.get({
+        userId: "me",
+        id: threadId,
+        format: "metadata",
+        metadataHeaders: ["Message-ID"],
+      });
+      const messages = threadRes.data.messages ?? [];
+      log(`[crm-backfill] threadId=${threadId} found ${messages.length} message(s) in Gmail`);
+
+      let inserted = 0, labelUpdated = 0;
+      for (const msg of messages) {
+        if (!msg.id) continue;
+        try {
+          const r = await upsertMessageById(gmail, msg.id, resolved.userId, resolved.accountId, myEmail);
+          if (r.inserted) inserted++;
+          else if (r.updatedLabels) labelUpdated++;
+        } catch (msgErr: any) {
+          log(`[crm-backfill] msgId=${msg.id} upsert failed: ${String(msgErr?.message ?? msgErr).slice(0, 120)}`);
+        }
+      }
+      log(`[crm-backfill] done threadId=${threadId} inserted=${inserted} labelUpdated=${labelUpdated}`);
+
+      const local = await getLocalThread({
+        resolved: {
+          userId: resolved.userId,
+          accountId: resolved.accountId,
+          accountIds: (resolved as any).accountIds,
+        },
+        threadId,
+      });
+
+      if (!local) {
+        return res.status(404).json({ message: "Thread fetched from Gmail but could not be indexed locally — it may have been deleted or is in Trash" });
+      }
+
+      res.setHeader("X-Mail-Source", "backfilled");
+      return res.json(local);
+    } catch (err: any) {
+      log(`[crm-backfill] error threadId=${threadId}: ${String(err?.message ?? err).slice(0, 200)}`);
+      if (err?.code === 404 || /not found/i.test(err?.message || "")) {
+        return res.status(404).json({ message: "Thread not found in Gmail — it may have been deleted or moved" });
+      }
+      return res.status(503).json({ message: "Could not reach Gmail", error: err.message });
+    }
+  });
+
   // Phase 2C parity helper: compares local index vs live Gmail for the resolved mailbox.
   // GET /api/email-search/parity?asAccountId=&label=INBOX|SENT&limit=10
   app.get("/api/email-search/parity", requireAuth, async (req, res) => {
@@ -14410,6 +14499,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
             hasAttachments: emailMessages.hasAttachments,
             hasBody: sql<boolean>`(body_html IS NOT NULL AND body_html != '') OR (body_text IS NOT NULL AND body_text != '')`,
             sourceAccountId: emailMessages.sourceAccountId,
+            gmailMessageId: emailMessages.gmailMessageId,
           })
           .from(emailMessages)
           .where(eq(emailMessages.gmailThreadId, tid))
@@ -14473,6 +14563,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         // Strip internal-only fields before pushing — hasBody is a server-side filter
         // field that the client type doesn't need. sourceAccountId is hoisted to the
         // top-level item so the frontend can pass asAccountId when fetching the thread.
+        // gmailMessageId is kept in latestMsgForClient so the frontend can build
+        // "Open in Gmail" links without a second round-trip.
         const { hasBody: _hb, sourceAccountId: _srcAcct, ...latestMsgForClient } = latestMsg;
         items.push({
           gmailThreadId: tid,
