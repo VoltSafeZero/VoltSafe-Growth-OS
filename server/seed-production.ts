@@ -1826,3 +1826,50 @@ export async function migrateRepairCmsInternalEvents(): Promise<void> {
     console.error("[migration] migrateRepairCmsInternalEvents error (non-fatal):", err);
   }
 }
+
+/**
+ * Creates the crm_intelligence_context table for the rolling CRM context
+ * optimisation layer.  Each CRM record (lead / account / contact) gets one
+ * row containing:
+ *   • durable_summary  — compressed text summary of all history before
+ *                        last_context_build_at (bootstrapped from existing
+ *                        crm_ai_summaries on first build)
+ *   • key_*            — structured JSON arrays extracted from the summary
+ *   • recent_activity_digest — latest raw activity items (newest first)
+ *   • last_context_build_at  — timestamp of last successful build; only
+ *                              activity AFTER this timestamp is treated as
+ *                              "new" and passed in full to the model
+ *   • source_coverage  — metadata about what was processed (prevents
+ *                        repeatedly reprocessing the same old material)
+ */
+export async function migrateCrmIntelligenceContextSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS crm_intelligence_context (
+        id                     SERIAL PRIMARY KEY,
+        record_type            TEXT NOT NULL,
+        record_id              INTEGER NOT NULL,
+        record_name            TEXT NOT NULL DEFAULT '',
+        durable_summary        TEXT NOT NULL DEFAULT '',
+        key_facts              JSONB NOT NULL DEFAULT '[]'::jsonb,
+        key_people             JSONB NOT NULL DEFAULT '[]'::jsonb,
+        open_loops             JSONB NOT NULL DEFAULT '[]'::jsonb,
+        objections             JSONB NOT NULL DEFAULT '[]'::jsonb,
+        buying_signals         JSONB NOT NULL DEFAULT '[]'::jsonb,
+        risks                  JSONB NOT NULL DEFAULT '[]'::jsonb,
+        opportunities          JSONB NOT NULL DEFAULT '[]'::jsonb,
+        commitments            JSONB NOT NULL DEFAULT '[]'::jsonb,
+        next_steps             JSONB NOT NULL DEFAULT '[]'::jsonb,
+        recent_activity_digest JSONB NOT NULL DEFAULT '[]'::jsonb,
+        last_context_build_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        source_coverage        JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (record_type, record_id)
+      )
+    `);
+    console.log("[migration] crm_intelligence_context table ready.");
+  } catch (err) {
+    console.error("[migration] migrateCrmIntelligenceContextSchema error (non-fatal):", err);
+  }
+}

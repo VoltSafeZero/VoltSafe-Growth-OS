@@ -31131,6 +31131,38 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
+  // ── CRM Intelligence Context debug endpoint ──────────────────────────────
+  app.get("/api/crm/:recordType/:recordId/intelligence-context/debug", requireAuth, async (req, res) => {
+    const recordType = req.params.recordType;
+    const recordId = parseInt(req.params.recordId);
+    if (!_VALID_AI_ENTITY_TYPES.includes(recordType) || isNaN(recordId) || recordId <= 0) {
+      return res.status(400).json({ message: "Invalid record type or ID" });
+    }
+    try {
+      const { debugCrmIntelligenceContext } = await import("./services/crm-intelligence-context");
+      const info = await debugCrmIntelligenceContext(recordType as any, recordId);
+      res.json(info);
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "debug failed" });
+    }
+  });
+
+  // ── CRM Intelligence Context force-build endpoint ─────────────────────────
+  app.post("/api/crm/:recordType/:recordId/intelligence-context/build", requireAuth, async (req, res) => {
+    const recordType = req.params.recordType;
+    const recordId = parseInt(req.params.recordId);
+    if (!_VALID_AI_ENTITY_TYPES.includes(recordType) || isNaN(recordId) || recordId <= 0) {
+      return res.status(400).json({ message: "Invalid record type or ID" });
+    }
+    try {
+      const { buildOrUpdateCrmIntelligenceContext } = await import("./services/crm-intelligence-context");
+      const ctx = await buildOrUpdateCrmIntelligenceContext(recordType as any, recordId);
+      res.json({ ok: true, built: !!ctx, lastContextBuildAt: ctx?.lastContextBuildAt, recordName: ctx?.recordName });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "build failed" });
+    }
+  });
+
   app.post("/api/crm/ai-summary/:entityType/:entityId/suggest-next-email", requireAuth, async (req, res) => {
     const entityType = req.params.entityType;
     const entityId = parseInt(req.params.entityId);

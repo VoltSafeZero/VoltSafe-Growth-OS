@@ -200,13 +200,13 @@ check(
 );
 
 check(
-  "User prompt: activities section present",
-  src.includes("ACTIVITY HISTORY"),
+  "User prompt: activity digest section present (intelligence context)",
+  src.includes("RECENT ACTIVITY DIGEST") || src.includes("ACTIVITY HISTORY"),
 );
 
 check(
-  "User prompt: attachments/documents section present",
-  src.includes("DOCUMENTS / ATTACHMENTS"),
+  "User prompt: durable historical context section present (intelligence context)",
+  src.includes("DURABLE HISTORICAL CONTEXT") || src.includes("DOCUMENTS / ATTACHMENTS"),
 );
 
 check(

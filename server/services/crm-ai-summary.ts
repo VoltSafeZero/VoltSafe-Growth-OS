@@ -18,6 +18,7 @@ import { buildOpenAIModelParams } from "./openai-compat";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { resolveIntentModifiers, buildIntentModifierPromptBlock } from "../../shared/intent-modifiers";
+import { buildSuggestedEmailContext } from "./crm-intelligence-context";
 
 // ── OpenAI client ────────────────────────────────────────────────────────────
 
@@ -915,21 +916,20 @@ export async function generateSuggestedNextEmail(
     } catch { /* non-fatal */ }
   }
 
-  // Use saved summary if available — do not auto-generate if missing
-  const summary = await getCrmAiSummary(entityType, id);
-  const ctx = await collectCrmEntityContext(entityType, id);
+  // Build compact rolling intelligence context (lazy build on first call)
+  const intelligenceCtx = await buildSuggestedEmailContext(entityType, id);
+  console.log(`[suggest-next-email] ${entityType}:${id} intelligence context — est=${intelligenceCtx.estimatedPromptChars} chars, hasContext=${intelligenceCtx.hasIntelligenceContext}, cutoff=${intelligenceCtx.cutoffUsed || "none"}`);
 
   // ── Deterministic date classification (authoritative, pre-LLM) ───────────
   const now = new Date();
   const todayISO = now.toISOString().slice(0, 10); // e.g. "2026-05-21"
 
-  // Collect all text that might contain date references
+  // Collect all text that might contain date references — from compact context
   const allContextText = [
-    JSON.stringify(summary?.summaryJson || {}),
-    ...ctx.notes.map((n) => n.content),
-    ...ctx.activities.map((a) => a.description),
-    ...ctx.emails.map((e) => `${e.subject} ${e.snippet}`),
-    JSON.stringify(ctx.entityFields),
+    intelligenceCtx.durableContext.summary,
+    ...intelligenceCtx.highPriorityRecentActivity.map(a => `${a.subject || ""} ${a.content}`),
+    ...intelligenceCtx.recentActivityDigest.map(a => `${a.subject || ""} ${a.content}`),
+    JSON.stringify(intelligenceCtx.currentCrmState),
   ].join(" ");
 
   const classifiedDates = extractAndClassifyDates(allContextText, now);
@@ -938,7 +938,7 @@ export async function generateSuggestedNextEmail(
   const todayDates  = classifiedDates.filter((d) => d.classification === "today").map((d) => d.dateStr);
 
   // Also classify est_close_date for leads
-  const estCloseDate = ctx.entityFields.est_close_date as string | undefined;
+  const estCloseDate = intelligenceCtx.currentCrmState.est_close_date as string | undefined;
   const estCloseClass = classifyDate(estCloseDate, now);
   if (estCloseDate && !classifiedDates.some((d) => d.dateStr === estCloseDate)) {
     if (estCloseClass === "past") pastDates.push(estCloseDate);
@@ -1050,58 +1050,10 @@ export async function generateSuggestedNextEmail(
     `- The DETERMINISTIC DATE CONTEXT section below is authoritative. Trust it over any date in the AI summary.`,
   ].filter(Boolean).join("\n");
 
-  // Smart email context: up to 20 emails covering recent, important, keyword-matched, and early history
-  const smartEmails = selectSmartEmailContext(ctx.emails);
-  // ── Build labelled email context lines ───────────────────────────────────
-  const emailContextLines: string[] = [];
-  if (smartEmails.length > 0) {
-    emailContextLines.push(`=== EMAIL HISTORY (smart-selected: ${smartEmails.length} emails — ordered newest-first) ===`);
-    emailContextLines.push(`[⚑ NEWEST — PRIMARY SIGNAL] is the most recent email. It must drive the email you generate.`);
-    emailContextLines.push(`EARLY RELATIONSHIP CONTEXT emails are background only — never let them override newer signals.`);
-    smartEmails.forEach((e, i) => {
-      const dirLabel = e.direction === "outbound" ? "OUTBOUND (we sent)" : e.direction === "inbound" ? "INBOUND (they sent)" : e.direction || "UNKNOWN";
-      emailContextLines.push(`[${i + 1}] [${e.selectionLabel}] TYPE: email | ${dirLabel} | ${e.sentAt} | From: ${e.fromEmail} | Subject: "${e.subject}"`);
-      emailContextLines.push(`    Preview: ${e.snippet}`);
-    });
-  }
-
-  // ── Pre-compute HIGH PRIORITY CONTEXT (newest 3–5 items across all types) ─
-  // Collect all timestamped items from emails, notes, and activities then sort
-  // newest-first so the model sees exactly what the latest open loop is.
-  interface PriorityContextItem {
-    type: string;
-    direction?: string;
-    timestamp: string;
-    author?: string;
-    subject?: string;
-    content: string;
-  }
-  const allTimedItems: PriorityContextItem[] = [];
-
-  // Most-recent email (index 0 of smartEmails = newest)
-  if (smartEmails.length > 0) {
-    const e = smartEmails[0];
-    const dirLabel = e.direction === "outbound" ? "OUTBOUND (we sent)" : e.direction === "inbound" ? "INBOUND (they sent)" : e.direction || "unknown";
-    allTimedItems.push({ type: "email", direction: dirLabel, timestamp: e.sentAt || "", author: e.fromEmail || "", subject: e.subject || "", content: e.snippet || "" });
-  }
-  // Up to 4 more recent emails
-  smartEmails.slice(1, 5).forEach(e => {
-    const dirLabel = e.direction === "outbound" ? "OUTBOUND (we sent)" : e.direction === "inbound" ? "INBOUND (they sent)" : e.direction || "unknown";
-    allTimedItems.push({ type: "email", direction: dirLabel, timestamp: e.sentAt || "", author: e.fromEmail || "", subject: e.subject || "", content: e.snippet || "" });
-  });
-  // Notes (already newest-first)
-  ctx.notes.slice(0, 5).forEach(n => {
-    allTimedItems.push({ type: "note / comment", timestamp: n.createdAt || "", content: n.content || "" });
-  });
-  // Activities (already newest-first)
-  ctx.activities.slice(0, 5).forEach(a => {
-    allTimedItems.push({ type: "activity", timestamp: a.createdAt || "", content: `${a.type}: ${a.description}` });
-  });
-
-  // Sort all items descending by ISO timestamp
-  allTimedItems.sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
-
-  const highPriorityItems = allTimedItems.slice(0, 5);
+  // ── Compact HIGH PRIORITY CONTEXT from intelligence context ─────────────
+  // The intelligence context has already pre-sorted all CRM activity newest-first
+  // and compressed older history into a durable summary.  This prompt is
+  // dramatically smaller than the old raw-dump approach.
   const highPriorityLines: string[] = [
     `=== ⚑ HIGH PRIORITY CONTEXT — MOST RECENT ACTIVITY (PRE-COMPUTED, AUTHORITATIVE) ===`,
     `These are the NEWEST items in this CRM file, sorted newest-first across ALL activity types.`,
@@ -1109,28 +1061,34 @@ export async function generateSuggestedNextEmail(
     `a specific open loop, action item, inbound question, or follow-up commitment is visible here.`,
     ``,
   ];
-  highPriorityItems.forEach((item, i) => {
+  intelligenceCtx.highPriorityRecentActivity.forEach((item, i) => {
     const rankLabel = i === 0 ? "⚑ NEWEST — PRIMARY SIGNAL (base the email on this)"
                     : i === 1 ? "VERY RECENT — strong secondary signal"
                     : "RECENT — supporting context";
+    const dirLabel = item.direction === "outbound" ? "OUTBOUND (we sent)"
+                   : item.direction === "inbound"  ? "INBOUND (they sent)"
+                   : item.direction || "internal";
     const parts = [
       `[${rankLabel}]`,
       `TYPE: ${item.type.toUpperCase()}`,
-      item.direction ? `| DIRECTION: ${item.direction}` : "",
+      `| DIRECTION: ${dirLabel}`,
       `| TIMESTAMP: ${item.timestamp || "unknown"}`,
       item.author ? `| FROM: ${item.author}` : "",
       item.subject ? `| SUBJECT: "${item.subject}"` : "",
     ].filter(Boolean).join(" ");
     highPriorityLines.push(parts);
-    highPriorityLines.push(`  Content: ${item.content.slice(0, 350)}`);
+    highPriorityLines.push(`  Content: ${item.content.slice(0, 400)}`);
     highPriorityLines.push(``);
   });
+  if (intelligenceCtx.highPriorityRecentActivity.length === 0) {
+    highPriorityLines.push(`No recent activity found. Use the durable historical context below to determine best next email.`);
+  }
   highPriorityLines.push(`HARD RULE: If the PRIMARY SIGNAL above is an inbound email — reply to its specific content.`);
   highPriorityLines.push(`If it is a note/comment about planned outreach — execute that outreach.`);
   highPriorityLines.push(`If it is an action item — move it forward directly. NEVER ignore it.`);
 
   const userPrompt = [
-    `Generate a suggested next email for this ${entityType}. The context is ordered so the NEWEST activity appears first.`,
+    `Generate a suggested next email for this ${entityType} "${intelligenceCtx.recordName}". The context is ordered so the NEWEST activity appears first.`,
     `The HIGH PRIORITY CONTEXT block immediately below is authoritative — it identifies the most recent open loops.`,
     `The generated email MUST be driven by that newest context, not by older meeting notes or summaries.`,
     ``,
@@ -1143,34 +1101,33 @@ export async function generateSuggestedNextEmail(
     todayDates.length  ? `Today's dates: ${todayDates.join(", ")}` : "",
     `Recommended email intent: ${emailIntent}`,
     ``,
-    emailContextLines.length > 0 ? emailContextLines.join("\n") : "=== EMAIL HISTORY ===\nNo associated emails found.",
-    ``,
-    ctx.notes.length > 0 ? [
-      `=== NOTES / COMMENTS (newest first — higher items carry more weight) ===`,
-      ...ctx.notes.slice(0, 10).map((n, i) => `[${i + 1}] TYPE: note | TIMESTAMP: ${n.createdAt} | Content: ${n.content}`),
+    intelligenceCtx.recentActivityDigest.length > 0 ? [
+      `=== RECENT ACTIVITY DIGEST (supporting context — newer items ranked higher) ===`,
+      ...intelligenceCtx.recentActivityDigest.slice(0, 10).map((a, i) => {
+        const dir = a.direction === "outbound" ? "OUTBOUND" : a.direction === "inbound" ? "INBOUND" : "INTERNAL";
+        return `[${i + 1}] TYPE: ${a.type} | ${dir} | ${a.timestamp} | ${a.subject ? `Subject: "${a.subject}" | ` : ""}${a.content.substring(0, 200)}`;
+      }),
     ].join("\n") : "",
     ``,
-    ctx.activities.length > 0 ? [
-      `=== ACTIVITY HISTORY (newest first — higher items carry more weight) ===`,
-      ...ctx.activities.slice(0, 10).map((a, i) => `[${i + 1}] TYPE: activity | TIMESTAMP: ${a.createdAt} | ${a.type}: ${a.description}`),
-    ].join("\n") : "",
+    `=== DURABLE HISTORICAL CONTEXT (compressed — supports latest activity; do not let it override HIGH PRIORITY above) ===`,
+    intelligenceCtx.durableContext.summary || "No historical summary available.",
     ``,
-    `=== AI SUMMARY (MAY BE STALE — generated at an earlier point; defer to newer signals above) ===`,
-    JSON.stringify(summary?.summaryJson || {}, null, 2),
+    intelligenceCtx.durableContext.keyFacts.length > 0
+      ? `Key Facts: ${intelligenceCtx.durableContext.keyFacts.slice(0, 5).join(" | ")}` : "",
+    intelligenceCtx.durableContext.openLoops.length > 0
+      ? `Open Loops / Action Items: ${intelligenceCtx.durableContext.openLoops.slice(0, 4).join(" | ")}` : "",
+    intelligenceCtx.durableContext.nextSteps.length > 0
+      ? `Last Known Next Steps: ${intelligenceCtx.durableContext.nextSteps.slice(0, 3).join(" | ")}` : "",
+    intelligenceCtx.durableContext.objections.length > 0
+      ? `Known Objections: ${intelligenceCtx.durableContext.objections.slice(0, 3).join(" | ")}` : "",
+    ``,
+    `=== KEY PEOPLE / CONTACTS ===`,
+    JSON.stringify(intelligenceCtx.keyPeople.slice(0, 8), null, 2),
     ``,
     `=== ${entityType.toUpperCase()} RECORD — CURRENT CRM FIELDS ===`,
-    JSON.stringify(ctx.entityFields, null, 2),
-    ``,
-    `=== CONTACTS / KEY PEOPLE ===`,
-    JSON.stringify(ctx.contacts.slice(0, 8), null, 2),
-    ``,
-    ctx.attachments.length > 0 ? [
-      `=== DOCUMENTS / ATTACHMENTS ===`,
-      ...ctx.attachments.map(a => `${a.category}: ${a.name} (${a.createdAt})`),
-    ].join("\n") : "",
+    JSON.stringify(intelligenceCtx.currentCrmState, null, 2),
     ``,
     userInputs?.trim() ? [
-      ``,
       `=== USER INPUTS — HIGH-PRIORITY GUIDANCE FOR THIS EMAIL ONLY ===`,
       `User-provided focus for this email:`,
       userInputs.trim(),

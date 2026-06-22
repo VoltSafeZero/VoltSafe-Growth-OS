@@ -1,0 +1,425 @@
+Build a rolling CRM context optimization layer for AI Summary and Suggested Email generation.
+
+Problem:
+The AI Email Generator currently appears to pass too much raw CRM context into the model, including old emails, notes, comments, documents, meeting summaries, and activity history.
+
+This causes:
+
+* huge prompts
+* token-limit failures
+* finish_reason=length
+* empty JSON outputs like {}
+* slow generation
+* higher cost
+* inconsistent suggested emails
+* weak weighting of the newest activity
+
+We should not keep increasing token limits as the main fix.
+
+Goal:
+Create a durable “CRM Intelligence Context” system for every Lead, Account, Contact, and Opportunity.
+
+The AI generator should use:
+
+1. Full raw context only for new activity since the last successful context update.
+2. A compressed, structured, high-quality summary of all older activity.
+3. The most recent emails/comments/notes/action items in full.
+4. Key CRM fields and contact/stakeholder data.
+5. Explicit recency weighting so the latest activity controls the next email.
+
+Core architecture:
+For each CRM record, maintain a rolling context object like:
+
+{
+recordId,
+recordType,
+recordName,
+lastContextBuildAt,
+durableSummary,
+keyFacts,
+keyPeople,
+openLoops,
+objections,
+buyingSignals,
+risks,
+opportunities,
+commitments,
+nextSteps,
+recentActivityDigest,
+lastImportantEmailThreadSummary,
+sourceCoverage,
+updatedAt
+}
+
+This object becomes the primary context used by:
+
+* AI Summary
+* Suggested Email
+* Follow-up generation
+* Sales briefing
+* Any future CRM AI feature
+
+Do not repeatedly send the entire historical raw CRM file to the model.
+
+1. Add CRM Intelligence Context persistence
+
+Create or use a database table such as:
+
+crm_intelligence_context
+
+Suggested fields:
+
+* id
+* record_type
+* record_id
+* record_name
+* durable_summary
+* key_facts JSON
+* key_people JSON
+* open_loops JSON
+* objections JSON
+* buying_signals JSON
+* risks JSON
+* opportunities JSON
+* commitments JSON
+* next_steps JSON
+* recent_activity_digest JSON
+* last_context_build_at
+* source_coverage JSON
+* created_at
+* updated_at
+
+Add a unique key:
+record_type + record_id
+
+This should be upserted, not duplicated.
+
+2. Track incremental activity
+
+For every Lead/Account/Contact/Opportunity, determine what activity is new since last_context_build_at.
+
+New activity includes:
+
+* new linked inbound emails
+* new linked outbound emails
+* new comments
+* new notes
+* new action items
+* new meeting summaries
+* new documents
+* new CRM field changes
+* new contact/stakeholder changes
+
+Build a function like:
+
+getNewCrmActivitySince(recordType, recordId, sinceTimestamp)
+
+This should return raw full-text/activity objects sorted newest-first.
+
+Each activity item should include:
+
+* type
+* timestamp
+* author/sender
+* recipients if applicable
+* direction: inbound/outbound/internal
+* subject/title
+* body/snippet/content
+* source id
+* importance hints if available
+
+3. Compress old context into durable summary
+
+When building AI context:
+
+If no existing intelligence context exists:
+
+* Build one from all available CRM activity.
+* Compress the older full history into structured durable context.
+* Save it.
+
+If an intelligence context already exists:
+
+* Pull only new raw activity since last_context_build_at.
+* Merge the new activity into the existing durable summary.
+* Save the updated intelligence context.
+* Advance last_context_build_at only after successful save.
+
+The durable summary should preserve:
+
+* account situation
+* product interest
+* stakeholder roles
+* technical needs
+* objections
+* urgency
+* pilot/commercial status
+* pricing/commercial discussion
+* compliance questions
+* commitments made by VoltSafe
+* commitments made by prospect
+* unresolved action items
+* latest known next step
+* relationship tone
+* strategic value of the account
+
+4. Recency-weighted context assembly
+
+For Suggested Email generation, assemble context in this order:
+
+A. Latest raw activity — full detail
+
+* newest 3 to 10 emails/comments/notes/action items
+* full content, newest first
+* mark as HIGH PRIORITY CONTEXT
+
+B. New activity since last context build
+
+* raw enough to understand what changed
+* newest first
+
+C. Rolling durable summary
+
+* compressed important historical context
+* no long raw old email chains unless explicitly needed
+
+D. Key people/contact data
+
+* names
+* roles
+* emails
+* decision-maker/influencer tags
+* latest known involvement
+
+E. Current CRM state
+
+* pipeline stage
+* status
+* temperature
+* confidence
+* assigned owner
+* source
+* notes fields
+* linked docs metadata
+
+F. Explicit instruction:
+The newest activity wins if it conflicts with older context.
+
+5. Suggested Email prompt behavior
+
+Update Suggested Email generation so the model is told:
+
+* You are generating the next best email based on the latest CRM context.
+* HIGH PRIORITY CONTEXT contains the newest activity and must dominate the email.
+* Durable summary is supporting background only.
+* Do not rehash old meeting notes unless they are still directly relevant.
+* Do not write generic check-ins if there is a known next step.
+* Address the latest open loop.
+* Use the latest selected recipients and stakeholder context.
+* Generate a complete email body.
+
+Expected output:
+
+{
+“subject”: “string”,
+“body”: “string”,
+“whyThisEmail”: “string”
+}
+
+6. AI Summary behavior
+
+Update AI Summary generation to use the same rolling intelligence context.
+
+AI Summary should not require dumping every old raw activity item into the model.
+
+AI Summary should show:
+
+* current status
+* key people
+* opportunities
+* risks
+* suggested next steps
+* key history
+
+But these sections should be derived from:
+
+* durable summarized context
+* latest raw updates
+* current CRM fields
+
+7. Source coverage and traceability
+
+The context object should include source coverage so we know what went into it.
+
+Example:
+
+sourceCoverage: {
+emailsIncludedThrough: “2026-06-22T…”,
+commentsIncludedThrough: “2026-06-22T…”,
+notesIncludedThrough: “2026-06-22T…”,
+documentsIncludedThrough: “2026-06-22T…”,
+lastRawActivityIds: […]
+}
+
+This prevents the system from repeatedly processing the same old material.
+
+8. Do not overwrite good context with empty model output
+
+If context compression fails:
+
+* keep previous intelligence context
+* do not advance last_context_build_at
+* log the failure
+* allow Suggested Email to use previous durable context plus latest raw activity if possible
+
+If Suggested Email generation fails:
+
+* do not corrupt the intelligence context
+* show recoverable frontend error
+* keep textarea editable
+
+9. Token budget controls
+
+Add explicit token/context limits before model calls.
+
+Suggested approach:
+
+* newest 3 to 5 activity items: full text
+* next 10 to 20 recent items: summarized snippets
+* older history: durable summary only
+* documents: metadata + extracted key points only, not entire raw documents unless specifically selected
+
+Add safeguards:
+
+* estimate prompt size before calling OpenAI
+* if too large, further compress older/newer non-critical activity
+* never send unbounded raw history
+
+10. Implementation functions
+
+Add helpers similar to:
+
+buildOrUpdateCrmIntelligenceContext(recordType, recordId)
+
+getCrmIntelligenceContext(recordType, recordId)
+
+getNewCrmActivitySince(recordType, recordId, sinceTimestamp)
+
+compressCrmActivityIntoContext(existingContext, newActivity)
+
+buildSuggestedEmailContext(recordType, recordId, selectedRecipients)
+
+buildAiSummaryContext(recordType, recordId)
+
+11. Suggested Email context should look like this
+
+{
+highPriorityRecentActivity: [
+newest full email/comment/note/action item objects
+],
+newActivitySinceLastBuild: [
+new items not yet compressed
+],
+durableHistoricalContext: {
+summary,
+keyFacts,
+openLoops,
+objections,
+risks,
+opportunities,
+commitments,
+nextSteps
+},
+keyPeople: […],
+currentCrmState: {…},
+selectedRecipients: {…}
+}
+
+12. Backfill existing records
+
+Create a backfill script:
+
+npm run backfill:crm-intelligence-context – –dry-run
+npm run backfill:crm-intelligence-context – –record lead:
+npm run backfill:crm-intelligence-context – –all
+
+Backfill should:
+
+* be idempotent
+* process records in batches
+* log token/input size
+* log successful context builds
+* skip records with no meaningful activity
+* preserve existing context unless new context is better/non-empty
+
+13. Add admin/debug view or endpoint
+
+Add an internal debug endpoint to inspect context health:
+
+GET /api/crm/:recordType/:recordId/intelligence-context/debug
+
+Should return:
+
+* hasContext
+* lastContextBuildAt
+* durableSummary length
+* keyPeople count
+* openLoops count
+* latest activity timestamp
+* new activity count since last build
+* estimated prompt size for Suggested Email
+* estimated prompt size for AI Summary
+* source coverage
+
+14. Tests
+
+Add tests to confirm:
+
+* First run builds durable context from historical activity.
+* Second run only processes activity since last_context_build_at.
+* New email updates the rolling context.
+* New comment updates the rolling context.
+* Latest activity is passed in full to Suggested Email.
+* Older history is passed as compressed durable summary.
+* Newest activity overrides conflicting older context.
+* Empty compression output does not overwrite previous context.
+* last_context_build_at advances only after successful save.
+* Suggested Email does not send unbounded raw history.
+* AI Summary can render from durable context plus latest activity.
+* Safe Harbor Group prompt size stays within a safe budget.
+* Suggested Email no longer needs tokenLimit inflation as the primary solution.
+
+15. Manual acceptance test
+
+Use Safe Harbor Group.
+
+Before:
+Large CRM context caused:
+finish_reason=length
+raw_chars=2
+empty {}
+generation failure
+
+After:
+
+* Build/update CRM intelligence context.
+* Suggested Email should use:
+    * latest emails/comments in full
+    * durable compressed historical context
+    * selected Key People
+* Email should generate without hitting length errors.
+* AI Summary should regenerate without blank Fresh state.
+* Suggested Email should produce subject/body/whyThisEmail.
+* Continue in Mail should work.
+* Return-to-CRM flow should remain intact.
+
+Acceptance criteria:
+The system should behave like this:
+
+Old CRM history → compressed once into durable intelligence context.
+New CRM activity → read in full and merged incrementally.
+Suggested Email → uses latest raw activity + durable summary.
+AI Summary → uses latest raw activity + durable summary.
+
+Do not rely on dumping the entire CRM record into every AI call.
+Do not treat token limit increases as the long-term solution.
