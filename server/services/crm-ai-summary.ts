@@ -1223,7 +1223,7 @@ export async function generateSuggestedNextEmail(
         { role: "user", content: userPrompt },
       ],
       response_format: { type: "json_object" },
-      ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 2000, temperature: 0.4 }),
+      ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 4000, temperature: 0.4 }),
     });
 
     const finishReason = completion.choices[0]?.finish_reason;

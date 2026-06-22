@@ -1,0 +1,151 @@
+Debug and fix Suggested Next Email 500 error after CRM return-context changes.
+
+Current issue:
+When opening Suggested Next Email from a Lead/Account, the modal now shows:
+
+Failed to generate suggestion
+Request failed: 500
+
+The modal itself is improved because the body textarea remains editable, but the backend generation is failing.
+
+Important:
+This is not the CRM return-navigation feature. That appears wired.
+This is now a backend Suggested Email generation failure.
+
+Tasks:
+
+1. Inspect the server logs for the exact 500 error
+Find the backend route used by Suggested Next Email generation.
+
+Log and inspect:
+- full error message
+- stack trace
+- record type
+- record id
+- model name
+- OpenAI request result
+- parsing failure details
+- token finish_reason if available
+- response payload shape
+
+Do not log API keys.
+
+2. Reproduce with Safe Harbor Group
+Use the same record shown in the screenshot:
+Suggested Next Email — SAFE HARBOR GROUP
+
+Click:
+- Suggested Email
+- Generate Email
+- Regenerate Email
+
+Capture the backend error causing HTTP 500.
+
+3. Check crm-ai-summary.ts suggested email function
+Recent fixes changed:
+- tokenLimit from 800 to 2000
+- blank body now throws
+- catch block now rethrows
+- parser normalization
+
+Now that errors are no longer swallowed, the true failure is surfacing as 500.
+
+Find whether the failure is caused by:
+- OpenAI returning empty JSON
+- OpenAI returning truncated JSON
+- JSON.parse failure
+- response_format incompatibility with gpt-5-mini
+- missing response.choices[0].message.content
+- finish_reason = length
+- parser expecting field names that are absent
+- prompt not forcing required subject/body/whyThisEmail
+- selected recipients payload causing an error
+- CRM context being too large or malformed
+
+4. Make backend error response useful
+Instead of generic 500, return a useful safe error to the frontend, for example:
+
+{
+  error: "Could not generate suggested email",
+  reason: "Model returned empty body",
+  recoverable: true
+}
+
+Do not expose raw OpenAI internals to end users, but log them server-side.
+
+5. Strengthen OpenAI output contract
+For Suggested Email generation, force the model to return usable structured content.
+
+Required fields:
+{
+  "subject": "string",
+  "body": "string",
+  "whyThisEmail": "string"
+}
+
+Rules:
+- subject must not be empty
+- body must contain a complete email draft
+- whyThisEmail must briefly explain why this email is the right next step
+- body must not be "{}"
+- body must not be blank
+- body must not say "Could not generate email"
+
+6. Increase token limit if still too small
+If logs show finish_reason = "length" or output is truncated, increase Suggested Email tokenLimit from 2000 to 3000 or 4000.
+
+Do not increase blindly if the failure is parsing or response_format.
+
+7. Add robust fallback
+If JSON parsing fails but the raw model output contains a usable email:
+- use raw cleaned output as body
+- subject fallback = "Follow-up"
+- whyThisEmail fallback = "Generated from CRM context and recent activity."
+
+If the model returns no usable body:
+- return a controlled recoverable error
+- frontend should keep textarea editable
+
+8. Frontend behavior
+The current frontend behavior is mostly correct:
+- show the error
+- keep body editable
+- allow manual writing
+
+But improve it slightly:
+- If generation fails, show:
+  "AI could not generate this email. You can write it manually below or try again."
+- Keep Generate Email / Regenerate Email clickable.
+- If user manually types a subject/body, Continue in Mail should work.
+
+9. Tests
+Add/update tests to confirm:
+
+- Backend logs and returns controlled error when OpenAI output is empty.
+- Empty model body does not return a fake successful draft.
+- JSON parse failure with usable raw text falls back to body.
+- Truncated JSON does not crash silently.
+- finish_reason length is logged.
+- Suggested Email with valid JSON returns subject/body/whyThisEmail.
+- Frontend keeps textarea editable after 500.
+- User can manually type body after failed generation.
+- Continue in Mail works with manually typed body.
+- CRM return context remains preserved after failure and retry.
+
+10. Manual acceptance test
+Use Safe Harbor Group.
+
+Expected:
+- Click Suggested Email.
+- If AI succeeds: subject/body/whyThisEmail populate.
+- If AI fails: visible useful error, editable body remains.
+- Type a manual body.
+- Continue in Mail works.
+- Cancel/Back returns to the same Lead/Account.
+- Send returns to the same Lead/Account.
+
+Acceptance criteria:
+No generic unexplained 500 in the UI.
+Backend logs show the real cause.
+Suggested Email either generates a real draft or lets the user manually continue.
+CRM return navigation remains intact.

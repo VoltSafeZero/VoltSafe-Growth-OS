@@ -31166,7 +31166,14 @@ export function registerConfluenceRoutes(app: Express) {
       const { generateSuggestedNextEmail } = await import("./services/crm-ai-summary");
       const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin, ceoWattsonInfluenceLevel, undefined, intentModifierIds, userInputs);
       res.json(suggestion);
-    } catch (err: any) { res.status(500).json({ message: err.message }); }
+    } catch (err: any) {
+      const msg: string = err?.message || "Could not generate suggested email";
+      // finish_reason=length, empty body, or parse failure are recoverable — return 422
+      // so the frontend shows the real error rather than a generic "Request failed: 500".
+      const recoverable = /finish_reason|empty (email )?body|Invalid JSON|Please regenerate/i.test(msg);
+      console.error(`[suggest-next-email] ${entityType}:${entityId} error (recoverable=${recoverable}):`, msg);
+      res.status(recoverable ? 422 : 500).json({ message: msg, recoverable });
+    }
   });
 
   // ── Email Signatures ─────────────────────────────────────────────────────────

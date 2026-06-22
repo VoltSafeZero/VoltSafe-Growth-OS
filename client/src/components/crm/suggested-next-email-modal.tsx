@@ -87,7 +87,14 @@ async function fetchSuggestedEmail(
     credentials: "include",
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  if (!res.ok) {
+    let msg = `Request failed: ${res.status}`;
+    try {
+      const errBody = await res.json();
+      if (errBody?.message) msg = errBody.message;
+    } catch { /* ignore parse errors */ }
+    throw new Error(msg);
+  }
   return res.json();
 }
 
@@ -547,11 +554,12 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
           )}
 
           {!loading && error && (
-            <div className="flex items-start gap-2 rounded-md bg-red-500/8 border border-red-500/20 p-3">
+            <div className="flex items-start gap-2 rounded-md bg-red-500/8 border border-red-500/20 p-3" data-testid="suggest-email-error-banner">
               <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-red-400">Failed to generate suggestion</p>
+                <p className="text-sm font-medium text-red-400">AI could not generate this email</p>
                 <p className="text-xs text-muted-foreground mt-1">{error}</p>
+                <p className="text-xs text-muted-foreground/70 mt-1.5">You can write it manually below or try again.</p>
               </div>
             </div>
           )}
