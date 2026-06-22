@@ -157,7 +157,7 @@ import { populateParticipantsFromEmails, getUserEmail } from "./services/partici
 import { validateAudioChunk, storeChunk } from "./services/meeting-notes-audio";
 import { transcribeMeetingNote } from "./services/meeting-notes-transcription";
 import { processWithAI } from "./services/meeting-notes-ai";
-import { getTokenLimitParam } from "./services/openai-compat";
+import { getTokenLimitParam, getTemperatureParam } from "./services/openai-compat";
 
 // ── Auth rate limiters ─────────────────────────────────────────────────────
 // Defense in depth against credential stuffing, password-reset spam, and
@@ -11128,7 +11128,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
         ...getTokenLimitParam("gpt-5-mini", 600),
-        temperature: 0.5,
+        ...getTemperatureParam("gpt-5-mini", 0.5),
       });
 
       const briefing = JSON.parse(completion.choices[0].message.content ?? "{}");

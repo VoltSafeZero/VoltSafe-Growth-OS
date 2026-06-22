@@ -1,0 +1,108 @@
+Fix OpenAI temperature compatibility for upgraded models.
+
+Current issue:
+Suggested Next Email still fails after the max_tokens fix.
+
+The new error is:
+
+400 Unsupported value: 'temperature' does not support 0.4 with this model. Only the default (1) value is supported.
+
+Cause:
+Some newer OpenAI/reasoning models do not support custom temperature values. The app is sending temperature: 0.4 to a model that only supports the default temperature.
+
+Goal:
+Add a shared compatibility helper so newer models do not receive unsupported custom temperature values.
+
+Requirements:
+
+1. Create or update the OpenAI compatibility helper
+
+In server/services/openai-compat.ts, add a helper similar to:
+
+export function supportsCustomTemperature(model: string): boolean {
+  const normalized = (model || "").toLowerCase();
+
+  // Newer/reasoning models should not receive custom temperature.
+  // They only support the default temperature.
+  if (
+    normalized.startsWith("o") ||
+    normalized.includes("gpt-5") ||
+    normalized.includes("reasoning")
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+export function getTemperatureParam(model: string, value?: number) {
+  if (value === undefined || value === null) return {};
+
+  if (!supportsCustomTemperature(model)) {
+    // Omit temperature entirely for models that only support the default.
+    return {};
+  }
+
+  return { temperature: value };
+}
+
+2. Update all OpenAI call sites
+
+Search the entire codebase for:
+
+temperature:
+
+Replace direct usage like:
+
+temperature: 0.4
+
+with:
+
+...getTemperatureParam(model, 0.4)
+
+or equivalent.
+
+Important:
+- Do not send temperature: 0.4 to gpt-5, gpt-5-mini, o-series, or reasoning models.
+- Prefer omitting temperature entirely for unsupported models.
+- Preserve the existing temperature values for older models like gpt-4o if they are still used.
+- Preserve all other request parameters.
+
+3. Fix the Suggested Next Email path specifically
+
+Make sure the Suggested Next Email generator uses:
+
+...getTemperatureParam(model, 0.4)
+
+or, for newer models, sends no temperature field.
+
+The failing screen is:
+Suggested Next Email — Safe Harbor Group
+
+4. Fix AI Summary regeneration too
+
+Also make sure AI Summary regeneration uses the same temperature compatibility helper.
+
+5. Add tests
+
+Add or update tests to confirm:
+
+- gpt-5-mini does not receive a temperature field.
+- gpt-5 does not receive a temperature field.
+- o-series/reasoning models do not receive a temperature field.
+- gpt-4o still receives temperature when provided.
+- Suggested Email request does not include unsupported temperature for newer models.
+- AI Summary regeneration request does not include unsupported temperature for newer models.
+- Existing max_completion_tokens compatibility still works.
+
+6. Verification
+
+After the fix:
+- Open Safe Harbor Group.
+- Click Suggested Email.
+- It should generate without the temperature error.
+- Click Regenerate Email.
+- It should regenerate without the temperature error.
+- Click AI Summary Regenerate.
+- It should regenerate without the temperature error.
+- Server logs should show no OpenAI 400 errors for max_tokens or temperature.
