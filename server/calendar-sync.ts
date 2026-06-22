@@ -74,13 +74,16 @@ function getCalendarOAuth2Client() {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function getCalendarAuthUrl(): string {
+export function getCalendarAuthUrl(nonce?: string): string {
   const client = getCalendarOAuth2Client();
   return client.generateAuthUrl({
     access_type: "offline",
     scope: CALENDAR_SCOPES,
     prompt: "consent",
-    state: "calendar",
+    // Pass the caller-supplied nonce so the callback can validate it against
+    // the per-session oauthState.  Falls back to the legacy static string only
+    // in non-production environments where callers have not migrated yet.
+    state: nonce ?? "calendar",
   });
 }
 

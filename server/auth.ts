@@ -38,6 +38,14 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export async function seedUsers() {
+  // Never seed known accounts with a shared default password in production.
+  // An empty users table in production must be handled by an out-of-band
+  // admin setup process, not by writing predictable credentials at startup.
+  if (process.env.NODE_ENV === "production") {
+    console.warn("[seed] seedUsers() skipped — production environment. Create accounts via the admin panel.");
+    return;
+  }
+
   const existingUsers = await db.select().from(users);
   if (existingUsers.length > 0) return;
 
@@ -72,6 +80,8 @@ declare module "express-session" {
     webauthnRegChallenge: string;
     webauthnAuthChallenge: string;
     zoomOAuthState?: string;
+    /** Per-session OAuth CSRF nonce. Set before redirect; consumed in callback. */
+    oauthState?: { nonce: string; type: "personal" | "shared" | "calendar" };
   }
 }
 

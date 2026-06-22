@@ -8537,9 +8537,11 @@ export async function registerRoutes(
   });
 
   // Get Google Calendar OAuth authorization URL
-  app.get("/api/calendar/integrations/google/auth-url", requireAuth, (_req, res) => {
+  app.get("/api/calendar/integrations/google/auth-url", requireAuth, (req, res) => {
     try {
-      const url = getCalendarAuthUrl();
+      const nonce = require("crypto").randomBytes(32).toString("hex");
+      (req.session as any).oauthState = { nonce, type: "calendar" };
+      const url = getCalendarAuthUrl(nonce);
       res.json({ url });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -17550,9 +17552,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // Connect personal Gmail account
-  app.get("/api/auth/gmail/connect", requireAuth, (_req, res) => {
+  app.get("/api/auth/gmail/connect", requireAuth, (req, res) => {
     try {
-      const url = getAuthUrl();
+      const nonce = require("crypto").randomBytes(32).toString("hex");
+      (req.session as any).oauthState = { nonce, type: "personal" };
+      const url = getAuthUrl(nonce);
       res.redirect(url);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -17560,8 +17564,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // Connect a shared workspace inbox (master_admin only).
-  // Passes state="shared" through the OAuth flow so the callback knows to
-  // mark the resulting account record as isShared=true.
+  // Stores a per-session nonce so the callback can validate that this browser
+  // actually initiated the flow and that the isShared flag was set server-side.
   app.get("/api/auth/gmail/connect-shared", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId;
@@ -17571,7 +17575,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           <div style="text-align:center"><h2 style="color:#ef4444">Access Denied</h2><p>Only master admins can connect shared team inboxes.</p><a href="/gmail" style="color:#14b8a6">← Back</a></div>
         </body></html>`);
       }
-      const url = getAuthUrl("shared");
+      const nonce = require("crypto").randomBytes(32).toString("hex");
+      (req.session as any).oauthState = { nonce, type: "shared" };
+      const url = getAuthUrl(nonce);
       res.redirect(url);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -17580,7 +17586,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.get("/api/auth/google/callback", async (req, res) => {
     const code = req.query.code as string;
-    const state = (req.query.state as string) || "";
+    const stateParam = (req.query.state as string) || "";
     if (!code) return res.status(400).send("Missing authorization code");
     const userId: number | undefined = (req.session as any)?.userId;
     if (!userId) {
@@ -17593,8 +17599,27 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       </body></html>`);
     }
 
+    // ── OAuth CSRF nonce validation ───────────────────────────────────────
+    // The initiation routes store { nonce, type } in the session.
+    // The callback must receive the matching nonce as the state parameter.
+    // Trusting the type from the query string would allow privilege escalation
+    // (e.g. any authenticated user forging state=shared to create a shared inbox).
+    const sessionOAuth: { nonce: string; type: string } | undefined = (req.session as any).oauthState;
+    if (!sessionOAuth || !stateParam || sessionOAuth.nonce !== stateParam) {
+      return res.status(403).send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+        <div style="text-align:center">
+          <h2 style="color:#ef4444">Request Validation Failed</h2>
+          <p>This OAuth request could not be verified. Please start the connection flow again.</p>
+          <a href="/gmail" style="color:#14b8a6">← Back</a>
+        </div>
+      </body></html>`);
+    }
+    // Consume the nonce — one-time use only.
+    const flowType = sessionOAuth.type;
+    delete (req.session as any).oauthState;
+
     // ── Google Calendar OAuth callback ────────────────────────────────────
-    if (state === "calendar") {
+    if (flowType === "calendar") {
       try {
         const { email, displayName } = await exchangeCalendarCode(code, userId);
         res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
@@ -17625,11 +17650,22 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
 
     // ── Gmail OAuth callback (personal + shared) ──────────────────────────
-    const isShared = state === "shared";
+    // Re-check master_admin for shared flows — the initiation route already
+    // enforced this, but we verify again at token exchange time to close the
+    // window between initiation and callback.
+    const isShared = flowType === "shared";
+    if (isShared) {
+      const [me] = await db.select({ role: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
+      if (!me || me.role !== "master_admin") {
+        return res.status(403).send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+          <div style="text-align:center"><h2 style="color:#ef4444">Access Denied</h2><p>Only master admins can connect shared team inboxes.</p><a href="/gmail" style="color:#14b8a6">← Back</a></div>
+        </body></html>`);
+      }
+    }
     try {
       const { emailAddress, accountId: reconnectedAccountId, isNewAccount } = await exchangeCodeForTokens(code, userId, isShared);
       const label = isShared ? "Team inbox" : "personal Gmail account";
-      const returnPath = state === "personal" ? "/settings/mailbox" : "/gmail";
+      const returnPath = flowType === "personal" ? "/settings/mailbox" : "/gmail";
       res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="text-align:center">
           <h2 style="color:#22c55e">✓ ${label === "personal Gmail account" ? "Mailbox" : "Team Inbox"} Connected</h2>
@@ -29033,9 +29069,17 @@ export function registerConfluenceRoutes(app: Express) {
   app.get("/api/my/mailbox/connect", requireAuth, async (req, res) => {
     try {
       const isShared = req.query.shared === "1";
+      if (isShared) {
+        const userId = (req.session as any).userId;
+        const [me] = await db.select({ role: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
+        if (!me || me.role !== "master_admin") {
+          return res.status(403).json({ message: "Only master admins can connect shared team inboxes." });
+        }
+      }
       const { getAuthUrl } = await import("./gmail-oauth");
-      const state = isShared ? "shared" : "personal";
-      const url = getAuthUrl(state);
+      const nonce = require("crypto").randomBytes(32).toString("hex");
+      (req.session as any).oauthState = { nonce, type: isShared ? "shared" : "personal" };
+      const url = getAuthUrl(nonce);
       res.json({ url });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
