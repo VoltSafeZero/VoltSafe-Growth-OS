@@ -201,7 +201,7 @@ assert(
   "frontend guard checks data.body?.trim()"
 );
 assert(
-  modal.includes("Generation returned an empty email body"),
+  modal.includes("Email body could not be generated. Please regenerate or write one manually."),
   "empty body guard sets a user-visible error message"
 );
 

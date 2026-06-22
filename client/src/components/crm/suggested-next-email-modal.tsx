@@ -126,6 +126,9 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   const [whyExpanded, setWhyExpanded] = useState(false);
   // Editable body — user can modify the AI-generated draft before sending
   const [editedBody, setEditedBody] = useState("");
+  // Tracks whether the user has attempted generation at least once, so the manual
+  // body textarea and Continue in Mail button remain visible after a failed attempt.
+  const [generationAttempted, setGenerationAttempted] = useState(false);
 
   // ── Voice profile selection ───────────────────────────────────────────────
   const [selectedVoiceId, setSelectedVoiceId] = useState<number | null>(() => {
@@ -235,12 +238,15 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     setSuggestion(null);
     setEditedBody("");
     setWhyExpanded(false);
+    // Mark that at least one attempt has been made so the manual body textarea
+    // and Continue in Mail button remain visible even if generation fails.
+    setGenerationAttempted(true);
     try {
       const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers, userInputs);
       // Frontend guard: treat a blank body as a generation failure so the user
       // sees a real error instead of a blank-looking "successful" draft.
       if (!data.body?.trim()) {
-        setError(data.warning || data.reason || "Generation returned an empty email body. Please try regenerating.");
+        setError("Email body could not be generated. Please regenerate or write one manually.");
         return;
       }
       setSuggestion(data);
@@ -253,12 +259,14 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   }
 
   async function handleContinue() {
-    if (!suggestion) return;
+    // Allow continue even if AI generation failed — user may have written the body manually.
+    if (!editedBody.trim()) return;
     // If key people were pre-selected in the AI Summary card, use them as recipients;
-    // otherwise fall back to the AI-generated suggestion.
-    const effectiveTo = (initialTo !== undefined && initialTo !== "") ? initialTo : suggestion.to;
-    const effectiveCc = (initialTo !== undefined) ? (initialCc ?? "") : (suggestion.cc ?? "");
-    console.log("[suggested-email-modal] handleContinue triggered", { to: effectiveTo, subject: suggestion.subject });
+    // otherwise fall back to the AI-generated suggestion (or empty when typing manually).
+    const effectiveTo = (initialTo !== undefined && initialTo !== "") ? initialTo : (suggestion?.to ?? "");
+    const effectiveCc = (initialTo !== undefined) ? (initialCc ?? "") : (suggestion?.cc ?? "");
+    const effectiveSubject = suggestion?.subject ?? "Follow-up";
+    console.log("[suggested-email-modal] handleContinue triggered", { to: effectiveTo, subject: effectiveSubject });
     setIsSaving(true);
 
     // Use editedBody (the user may have modified the AI draft); scheduling link appended at handoff
@@ -274,7 +282,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     const payload = {
       to: effectiveTo,
       cc: effectiveCc,
-      subject: suggestion.subject,
+      subject: effectiveSubject,
       body: finalBody,
     };
 
@@ -544,6 +552,21 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
             </div>
           )}
 
+          {/* Manual body entry — shown after a failed generation so the user can write manually */}
+          {generationAttempted && !loading && !suggestion && (
+            <div data-testid="manual-body-section">
+              <p className="text-[11px] uppercase font-semibold tracking-wider text-muted-foreground mb-1.5">Body</p>
+              <textarea
+                value={editedBody}
+                onChange={(e) => setEditedBody(e.target.value)}
+                rows={10}
+                placeholder="Write your email here…"
+                className="w-full rounded-md border border-border/50 bg-muted/20 px-3 py-2.5 text-sm text-foreground/90 leading-relaxed resize-y overflow-y-auto focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 transition-colors"
+                data-testid="textarea-email-body"
+              />
+            </div>
+          )}
+
           {!loading && suggestion && (
             <div className="space-y-3">
               {suggestion.warning && (
@@ -731,8 +754,9 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
                     : <><Sparkles className="h-3.5 w-3.5 mr-1.5" />Generate Email{selectedModifiers.length > 0 ? ` (${selectedModifiers.length})` : ""}</>
                 }
               </Button>
-              {/* Continue in Mail — only once a draft exists */}
-              {suggestion && (
+              {/* Continue in Mail — visible once generation has been attempted;
+                  enabled when editedBody is non-empty (AI-generated or manually written) */}
+              {(suggestion || (generationAttempted && !loading)) && (
                 <Button
                   type="button"
                   size="sm"
