@@ -6,8 +6,16 @@
  *
  * o-series, gpt-5*, gpt-4.1*, and any model whose name starts with "o":
  *   - Use `max_completion_tokens` instead of the legacy `max_tokens`.
- *   - Do NOT support custom `temperature` values (only the default of 1 is
- *     accepted). Sending any other value causes a 400 error.
+ *   - Do NOT support custom `temperature`, `top_p`, `frequency_penalty`, or
+ *     `presence_penalty` values. Sending any of these causes a 400 error.
+ *
+ * Preferred usage — one spread at each call site:
+ *
+ *   openai.chat.completions.create({
+ *     model,
+ *     messages,
+ *     ...buildOpenAIModelParams(model, { tokenLimit: 1200, temperature: 0.4 }),
+ *   });
  */
 
 function isNewerModel(model: string): boolean {
@@ -20,15 +28,11 @@ function isNewerModel(model: string): boolean {
   );
 }
 
+// ── Legacy individual helpers (kept for backward compatibility) ────────────────
+
 /**
  * Returns the correct token-limit parameter object for a given model.
- *
- * Usage:
- *   openai.chat.completions.create({
- *     model,
- *     messages,
- *     ...getTokenLimitParam(model, 1200),
- *   });
+ * Prefer `buildOpenAIModelParams` for new code.
  */
 export function getTokenLimitParam(
   model: string,
@@ -49,15 +53,8 @@ export function supportsCustomTemperature(model: string): boolean {
 }
 
 /**
- * Returns `{ temperature: value }` for models that support it, or `{}` for
- * models that only accept the default.
- *
- * Usage:
- *   openai.chat.completions.create({
- *     model,
- *     messages,
- *     ...getTemperatureParam(model, 0.4),
- *   });
+ * Returns `{ temperature: value }` for models that support it, or `{}`.
+ * Prefer `buildOpenAIModelParams` for new code.
  */
 export function getTemperatureParam(
   model: string,
@@ -66,4 +63,75 @@ export function getTemperatureParam(
   if (value === undefined || value === null) return {};
   if (!supportsCustomTemperature(model)) return {};
   return { temperature: value };
+}
+
+// ── Unified helper ─────────────────────────────────────────────────────────────
+
+export interface OpenAIModelOptions {
+  /** Maps to max_completion_tokens (newer) or max_tokens (legacy). */
+  tokenLimit?: number;
+  /** Omitted entirely for newer models that only accept the default (1). */
+  temperature?: number;
+  /** Omitted for newer models. */
+  topP?: number;
+  /** Omitted for newer models. */
+  frequencyPenalty?: number;
+  /** Omitted for newer models. */
+  presencePenalty?: number;
+}
+
+/**
+ * Builds the generation-parameter object for an OpenAI chat completion call,
+ * automatically omitting or renaming params that are unsupported by newer
+ * model families.
+ *
+ * Spread directly into `openai.chat.completions.create({...})`:
+ *
+ *   openai.chat.completions.create({
+ *     model,
+ *     messages,
+ *     ...buildOpenAIModelParams(model, { tokenLimit: 1200, temperature: 0.4 }),
+ *   });
+ *
+ * For gpt-5*, o-series, gpt-4.1*, reasoning:
+ *   - tokenLimit  → max_completion_tokens
+ *   - temperature, topP, frequencyPenalty, presencePenalty → omitted
+ *
+ * For legacy models (gpt-4o, gpt-3.5, etc.):
+ *   - tokenLimit  → max_tokens
+ *   - all sampling params passed through as-is
+ */
+export function buildOpenAIModelParams(
+  model: string,
+  options: OpenAIModelOptions = {},
+): Record<string, number> {
+  const newer = isNewerModel(model);
+  const result: Record<string, number> = {};
+
+  // Token limit
+  if (options.tokenLimit) {
+    if (newer) {
+      result.max_completion_tokens = options.tokenLimit;
+    } else {
+      result.max_tokens = options.tokenLimit;
+    }
+  }
+
+  // Sampling params — not supported on newer models
+  if (!newer) {
+    if (options.temperature !== undefined && options.temperature !== null) {
+      result.temperature = options.temperature;
+    }
+    if (options.topP !== undefined && options.topP !== null) {
+      result.top_p = options.topP;
+    }
+    if (options.frequencyPenalty !== undefined && options.frequencyPenalty !== null) {
+      result.frequency_penalty = options.frequencyPenalty;
+    }
+    if (options.presencePenalty !== undefined && options.presencePenalty !== null) {
+      result.presence_penalty = options.presencePenalty;
+    }
+  }
+
+  return result;
 }

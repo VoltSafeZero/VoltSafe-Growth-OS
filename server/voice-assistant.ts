@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import express from "express";
 import { openai, ensureCompatibleFormat, speechToText } from "./replit_integrations/audio/client";
+import { buildOpenAIModelParams } from "./services/openai-compat";
 import { chatStorage } from "./replit_integrations/chat/storage";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
@@ -1084,7 +1085,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
             messages: toolMessages,
             tools: CRM_TOOLS,
             tool_choice: "auto",
-            max_completion_tokens: 4096,
+            ...buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 4096 }),
           });
 
           const choice = completion.choices[0];
@@ -1234,7 +1235,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
         const summary = await openai.chat.completions.create({
           model: "gpt-5-nano",
           messages: chatHistory,
-          max_completion_tokens: 1024,
+          ...buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 1024 }),
         });
         fullResponse = summary.choices[0]?.message?.content || confirmation.result;
         res.write(`data: ${JSON.stringify({ type: "text", data: fullResponse })}\n\n`);
@@ -1256,7 +1257,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
             messages: toolMessages,
             tools: CRM_TOOLS,
             tool_choice: "auto",
-            max_completion_tokens: 4096,
+            ...buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 4096 }),
           });
 
           const choice = completion.choices[0];
@@ -1294,7 +1295,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
           const summary = await openai.chat.completions.create({
             model: "gpt-5-nano",
             messages: toolMessages,
-            max_completion_tokens: 2048,
+            ...buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 2048 }),
           });
           fullResponse = summary.choices[0]?.message?.content || "Done. The requested changes have been applied.";
           res.write(`data: ${JSON.stringify({ type: "text", data: fullResponse })}\n\n`);
@@ -1304,7 +1305,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
           model: "gpt-5-nano",
           messages: chatHistory,
           stream: true,
-          max_completion_tokens: 8192,
+          ...buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 8192 }),
         });
 
         for await (const chunk of stream) {

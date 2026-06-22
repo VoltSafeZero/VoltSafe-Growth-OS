@@ -2,19 +2,24 @@
 /**
  * openai-compat.test.cjs
  *
- * Source-grep tests that pin the openai-compat helper and verify every
- * OpenAI call site in the codebase uses getTokenLimitParam /
- * getTemperatureParam instead of bare max_tokens / temperature literals.
+ * Tests for server/services/openai-compat.ts:
+ *   - getTokenLimitParam  (legacy individual helper)
+ *   - getTemperatureParam (legacy individual helper)
+ *   - buildOpenAIModelParams (unified helper)
+ *
+ * Also verifies every OpenAI call site in the codebase routes all generation
+ * params through the compat helpers — no bare legacy params remain.
  */
 
-const fs = require("fs");
+const fs   = require("fs");
 const path = require("path");
 
-const COMPAT   = path.join(__dirname, "../server/services/openai-compat.ts");
-const SUMMARY  = path.join(__dirname, "../server/services/crm-ai-summary.ts");
-const MEETING  = path.join(__dirname, "../server/services/meeting-notes-ai.ts");
-const VOICE    = path.join(__dirname, "../server/services/ai-voice-profiles.ts");
-const ROUTES   = path.join(__dirname, "../server/routes.ts");
+const COMPAT  = path.join(__dirname, "../server/services/openai-compat.ts");
+const SUMMARY = path.join(__dirname, "../server/services/crm-ai-summary.ts");
+const MEETING = path.join(__dirname, "../server/services/meeting-notes-ai.ts");
+const VOICE   = path.join(__dirname, "../server/services/ai-voice-profiles.ts");
+const ROUTES  = path.join(__dirname, "../server/routes.ts");
+const VA      = path.join(__dirname, "../server/voice-assistant.ts");
 
 let passed = 0;
 let failed = 0;
@@ -34,144 +39,179 @@ const summary = fs.readFileSync(SUMMARY,  "utf8");
 const meeting = fs.readFileSync(MEETING,  "utf8");
 const voice   = fs.readFileSync(VOICE,    "utf8");
 const routes  = fs.readFileSync(ROUTES,   "utf8");
+const va      = fs.readFileSync(VA,       "utf8");
 
-// ── Section 1: getTokenLimitParam helper definition ───────────────────────────
-console.log("\n── openai-compat.ts: getTokenLimitParam definition ──");
+// ── Section 1: helper exports ─────────────────────────────────────────────────
+console.log("\n── openai-compat.ts: exports ──");
 
-assert(compat.includes("export function getTokenLimitParam"), "getTokenLimitParam exported");
-assert(compat.includes("max_completion_tokens: value"),       "returns max_completion_tokens for newer models");
-assert(compat.includes("max_tokens: value"),                  "returns max_tokens for legacy models");
-assert(compat.includes("if (!value) return {}"),              "returns {} when no value supplied");
+assert(compat.includes("export function getTokenLimitParam"),      "getTokenLimitParam exported");
+assert(compat.includes("export function supportsCustomTemperature"),"supportsCustomTemperature exported");
+assert(compat.includes("export function getTemperatureParam"),     "getTemperatureParam exported");
+assert(compat.includes("export function buildOpenAIModelParams"),  "buildOpenAIModelParams exported");
+assert(compat.includes("export interface OpenAIModelOptions"),     "OpenAIModelOptions interface exported");
 
-// ── Section 2: getTemperatureParam helper definition ──────────────────────────
-console.log("\n── openai-compat.ts: getTemperatureParam definition ──");
+// ── Section 2: OpenAIModelOptions interface covers all params ─────────────────
+console.log("\n── openai-compat.ts: OpenAIModelOptions fields ──");
 
-assert(compat.includes("export function supportsCustomTemperature"), "supportsCustomTemperature exported");
-assert(compat.includes("export function getTemperatureParam"),       "getTemperatureParam exported");
-assert(compat.includes("return { temperature: value }"),             "returns temperature for supported models");
-assert(
-  compat.includes("if (!supportsCustomTemperature(model)) return {}"),
-  "returns {} for models that do not support custom temperature"
-);
+assert(compat.includes("tokenLimit?"),       "tokenLimit option present");
+assert(compat.includes("temperature?"),      "temperature option present");
+assert(compat.includes("topP?"),             "topP option present");
+assert(compat.includes("frequencyPenalty?"), "frequencyPenalty option present");
+assert(compat.includes("presencePenalty?"),  "presencePenalty option present");
 
-// ── Section 3: isNewerModel detects the right families ────────────────────────
+// ── Section 3: newer-model detection ─────────────────────────────────────────
 console.log("\n── openai-compat.ts: newer-model detection ──");
 
-assert(compat.includes('n.startsWith("o")'),          "o-series models detected");
-assert(compat.includes('n.includes("gpt-5")'),         "gpt-5 family detected");
-assert(compat.includes('n.includes("gpt-4.1")'),       "gpt-4.1 family detected");
-assert(compat.includes('n.includes("reasoning")'),     "reasoning keyword detected");
+assert(compat.includes('n.startsWith("o")'),      "o-series detected");
+assert(compat.includes('n.includes("gpt-5")'),     "gpt-5 family detected");
+assert(compat.includes('n.includes("gpt-4.1")'),   "gpt-4.1 family detected");
+assert(compat.includes('n.includes("reasoning")'), "reasoning keyword detected");
 
-// ── Section 4: no bare max_tokens in updated call sites ───────────────────────
-console.log("\n── No bare max_tokens in updated files ──");
+// ── Section 4: buildOpenAIModelParams logic ───────────────────────────────────
+console.log("\n── openai-compat.ts: buildOpenAIModelParams logic ──");
 
-function countBareMaxTokens(src) {
+assert(compat.includes("result.max_completion_tokens = options.tokenLimit"),
+       "newer models: tokenLimit → max_completion_tokens");
+assert(compat.includes("result.max_tokens = options.tokenLimit"),
+       "legacy models: tokenLimit → max_tokens");
+assert(compat.includes("if (!newer)"),
+       "sampling params gated on !newer");
+assert(compat.includes("result.temperature = options.temperature"),
+       "temperature passed for legacy models");
+assert(compat.includes("result.top_p = options.topP"),
+       "top_p passed for legacy models");
+assert(compat.includes("result.frequency_penalty = options.frequencyPenalty"),
+       "frequency_penalty passed for legacy models");
+assert(compat.includes("result.presence_penalty = options.presencePenalty"),
+       "presence_penalty passed for legacy models");
+
+// ── Section 5: no bare generation params remain anywhere ──────────────────────
+console.log("\n── No bare legacy params in call sites ──");
+
+function countBareParam(src, paramName) {
   return src.split("\n").filter(line => {
-    const trimmed = line.trim();
-    return /\bmax_tokens\s*:/.test(trimmed) &&
-           !trimmed.startsWith("//") &&
-           !trimmed.startsWith("*") &&
-           !trimmed.includes("max_completion_tokens");
+    const t = line.trim();
+    return new RegExp(`\\b${paramName}\\s*:`).test(t) &&
+           !t.startsWith("//") &&
+           !t.startsWith("*") &&
+           !t.includes("buildOpenAIModelParams") &&
+           !t.includes("getTemperatureParam") &&
+           !t.includes("getTokenLimitParam") &&
+           // allow return statements inside the helper itself
+           !t.includes("result.") &&
+           !t.includes("return {");
   }).length;
 }
 
-assert(countBareMaxTokens(summary) === 0, "crm-ai-summary.ts: no bare max_tokens");
-assert(countBareMaxTokens(meeting) === 0, "meeting-notes-ai.ts: no bare max_tokens");
-assert(countBareMaxTokens(voice)   === 0, "ai-voice-profiles.ts: no bare max_tokens");
-assert(countBareMaxTokens(routes)  === 0, "routes.ts: no bare max_tokens");
+// Services
+assert(countBareParam(summary, "max_tokens")          === 0, "crm-ai-summary: no bare max_tokens");
+assert(countBareParam(summary, "max_completion_tokens") === 0, "crm-ai-summary: no bare max_completion_tokens");
+assert(countBareParam(summary, "temperature")          === 0, "crm-ai-summary: no bare temperature");
+assert(countBareParam(summary, "top_p")                === 0, "crm-ai-summary: no bare top_p");
 
-// ── Section 5: no bare temperature in updated call sites ──────────────────────
-console.log("\n── No bare temperature literals in updated files ──");
+assert(countBareParam(meeting, "max_tokens")           === 0, "meeting-notes: no bare max_tokens");
+assert(countBareParam(meeting, "max_completion_tokens") === 0, "meeting-notes: no bare max_completion_tokens");
+assert(countBareParam(meeting, "temperature")          === 0, "meeting-notes: no bare temperature");
 
-function countBareTemperature(src) {
-  return src.split("\n").filter(line => {
-    const trimmed = line.trim();
-    return /\btemperature\s*:/.test(trimmed) &&
-           !trimmed.startsWith("//") &&
-           !trimmed.startsWith("*") &&
-           !trimmed.includes("getTemperatureParam") &&
-           !trimmed.includes("return { temperature: value }");
-  }).length;
-}
+assert(countBareParam(voice, "max_tokens")             === 0, "ai-voice-profiles: no bare max_tokens");
+assert(countBareParam(voice, "max_completion_tokens")  === 0, "ai-voice-profiles: no bare max_completion_tokens");
+assert(countBareParam(voice, "temperature")            === 0, "ai-voice-profiles: no bare temperature");
 
-assert(countBareTemperature(summary) === 0, "crm-ai-summary.ts: no bare temperature literal");
-assert(countBareTemperature(meeting) === 0, "meeting-notes-ai.ts: no bare temperature literal");
-assert(countBareTemperature(voice)   === 0, "ai-voice-profiles.ts: no bare temperature literal");
-assert(countBareTemperature(routes)  === 0, "routes.ts: no bare temperature literal");
+// Routes
+assert(countBareParam(routes, "max_tokens")            === 0, "routes: no bare max_tokens");
+assert(countBareParam(routes, "max_completion_tokens") === 0, "routes: no bare max_completion_tokens");
+assert(countBareParam(routes, "temperature")           === 0, "routes: no bare temperature");
 
-// ── Section 6: getTokenLimitParam spread usage counts ─────────────────────────
-console.log("\n── getTokenLimitParam spread usage ──");
+// Voice assistant
+assert(countBareParam(va, "max_tokens")                === 0, "voice-assistant: no bare max_tokens");
+assert(countBareParam(va, "max_completion_tokens")     === 0, "voice-assistant: no bare max_completion_tokens");
+assert(countBareParam(va, "temperature")               === 0, "voice-assistant: no bare temperature");
+assert(countBareParam(va, "top_p")                     === 0, "voice-assistant: no bare top_p");
+assert(countBareParam(va, "frequency_penalty")         === 0, "voice-assistant: no bare frequency_penalty");
+assert(countBareParam(va, "presence_penalty")          === 0, "voice-assistant: no bare presence_penalty");
+
+// ── Section 6: buildOpenAIModelParams usage counts ────────────────────────────
+console.log("\n── buildOpenAIModelParams spread usage ──");
 
 function countSpread(src, fn) {
   return (src.match(new RegExp(`\\.\\.\\.${fn}\\(`, "g")) || []).length;
 }
 
-assert(countSpread(summary, "getTokenLimitParam") === 2, "crm-ai-summary.ts: getTokenLimitParam spread ×2");
-assert(countSpread(meeting, "getTokenLimitParam") === 1, "meeting-notes-ai.ts: getTokenLimitParam spread ×1");
-assert(countSpread(voice,   "getTokenLimitParam") === 1, "ai-voice-profiles.ts: getTokenLimitParam spread ×1");
-assert(countSpread(routes,  "getTokenLimitParam") === 1, "routes.ts: getTokenLimitParam spread ×1");
+assert(countSpread(summary, "buildOpenAIModelParams") === 2,
+       "crm-ai-summary: spread ×2 (summary + suggested-email)");
+assert(countSpread(meeting, "buildOpenAIModelParams") === 1,
+       "meeting-notes: spread ×1");
+assert(countSpread(voice,   "buildOpenAIModelParams") === 1,
+       "ai-voice-profiles: spread ×1");
+assert(countSpread(routes,  "buildOpenAIModelParams") === 1,
+       "routes: spread ×1");
+assert(countSpread(va,      "buildOpenAIModelParams") === 5,
+       "voice-assistant: spread ×5 (tool-loop ×2, summary ×2, stream ×1)");
 
-// ── Section 7: getTemperatureParam spread usage counts ────────────────────────
-console.log("\n── getTemperatureParam spread usage ──");
-
-assert(countSpread(summary, "getTemperatureParam") === 2, "crm-ai-summary.ts: getTemperatureParam spread ×2 (summary + suggested-email)");
-assert(countSpread(meeting, "getTemperatureParam") === 1, "meeting-notes-ai.ts: getTemperatureParam spread ×1");
-assert(countSpread(voice,   "getTemperatureParam") === 1, "ai-voice-profiles.ts: getTemperatureParam spread ×1");
-assert(countSpread(routes,  "getTemperatureParam") === 1, "routes.ts: getTemperatureParam spread ×1");
-
-// ── Section 8: imports are present ────────────────────────────────────────────
-console.log("\n── imports include both helpers ──");
-
-function hasFullImport(src, relPath) {
-  return src.includes(`getTokenLimitParam, getTemperatureParam" from "${relPath}"`) ||
-         src.includes(`getTokenLimitParam, getTemperatureParam } from "${relPath}"`);
-}
+// ── Section 7: imports correct ────────────────────────────────────────────────
+console.log("\n── buildOpenAIModelParams imported ──");
 
 assert(
-  summary.includes('getTokenLimitParam, getTemperatureParam') && summary.includes('from "./openai-compat"'),
-  "crm-ai-summary.ts imports both helpers from openai-compat"
+  summary.includes("buildOpenAIModelParams") && summary.includes('from "./openai-compat"'),
+  "crm-ai-summary imports buildOpenAIModelParams"
 );
 assert(
-  meeting.includes('getTokenLimitParam, getTemperatureParam') && meeting.includes('from "./openai-compat"'),
-  "meeting-notes-ai.ts imports both helpers from openai-compat"
+  meeting.includes("buildOpenAIModelParams") && meeting.includes('from "./openai-compat"'),
+  "meeting-notes imports buildOpenAIModelParams"
 );
 assert(
-  voice.includes('getTokenLimitParam, getTemperatureParam') && voice.includes('from "./openai-compat"'),
-  "ai-voice-profiles.ts imports both helpers from openai-compat"
+  voice.includes("buildOpenAIModelParams") && voice.includes('from "./openai-compat"'),
+  "ai-voice-profiles imports buildOpenAIModelParams"
 );
 assert(
-  routes.includes('getTokenLimitParam, getTemperatureParam') && routes.includes('from "./services/openai-compat"'),
-  "routes.ts imports both helpers from openai-compat"
-);
-
-// ── Section 9: temperature values are preserved correctly ─────────────────────
-console.log("\n── Temperature values preserved ──");
-
-assert(summary.includes('getTemperatureParam("gpt-5-mini", 0.3)'), "AI summary uses 0.3 temperature");
-assert(summary.includes('getTemperatureParam("gpt-5-mini", 0.4)'), "Suggested email uses 0.4 temperature");
-assert(meeting.includes('getTemperatureParam(model, 0.2)'),         "Meeting notes passes model variable with 0.2");
-assert(voice.includes('getTemperatureParam("gpt-5-mini", 0.2)'),    "Voice profiles uses 0.2 temperature");
-assert(routes.includes('getTemperatureParam("gpt-5-mini", 0.5)'),   "Sales briefing uses 0.5 temperature");
-
-// ── Section 10: token limit values preserved ──────────────────────────────────
-console.log("\n── Token limit values preserved ──");
-
-assert(summary.includes('getTokenLimitParam("gpt-5-mini", 1200)'), "AI summary: 1200 token limit");
-assert(summary.includes('getTokenLimitParam("gpt-5-mini", 800)'),  "Suggested email: 800 token limit");
-assert(meeting.includes('getTokenLimitParam(model, 4096)'),         "Meeting notes: 4096 token limit");
-assert(voice.includes('getTokenLimitParam("gpt-5-mini", 800)'),     "Voice profiles: 800 token limit");
-assert(routes.includes('getTokenLimitParam("gpt-5-mini", 600)'),    "Sales briefing: 600 token limit");
-
-// ── Section 11: meeting-notes passes model variable (not hardcoded) ───────────
-console.log("\n── meeting-notes-ai: model variable used (not hardcoded string) ──");
-
-assert(
-  meeting.includes("getTemperatureParam(model, 0.2)"),
-  "meeting-notes uses model variable for temperature — gpt-4o fallback gets temperature, gpt-5-mini does not"
+  routes.includes("buildOpenAIModelParams") && routes.includes('from "./services/openai-compat"'),
+  "routes imports buildOpenAIModelParams"
 );
 assert(
-  meeting.includes("getTokenLimitParam(model, 4096)"),
-  "meeting-notes uses model variable for token limit"
+  va.includes("buildOpenAIModelParams") && va.includes('from "./services/openai-compat"'),
+  "voice-assistant imports buildOpenAIModelParams"
+);
+
+// ── Section 8: option values preserved correctly ──────────────────────────────
+console.log("\n── Option values preserved at call sites ──");
+
+assert(summary.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 1200, temperature: 0.3 })'),
+       "AI summary: tokenLimit 1200, temperature 0.3");
+assert(summary.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 800, temperature: 0.4 })'),
+       "Suggested email: tokenLimit 800, temperature 0.4");
+assert(meeting.includes('buildOpenAIModelParams(model, { tokenLimit: 4096, temperature: 0.2 })'),
+       "Meeting notes: model variable, tokenLimit 4096, temperature 0.2");
+assert(voice.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 800, temperature: 0.2 })'),
+       "Voice profiles: tokenLimit 800, temperature 0.2");
+assert(routes.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 600, temperature: 0.5 })'),
+       "Sales briefing: tokenLimit 600, temperature 0.5");
+
+// Voice assistant token limits
+assert(va.includes('buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 4096 })'),
+       "Voice assistant tool loop: tokenLimit 4096");
+assert(va.includes('buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 1024 })'),
+       "Voice assistant confirmation summary: tokenLimit 1024");
+assert(va.includes('buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 2048 })'),
+       "Voice assistant tool summary: tokenLimit 2048");
+assert(va.includes('buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 8192 })'),
+       "Voice assistant read-only stream: tokenLimit 8192");
+
+// ── Section 9: legacy helpers still exported (backward compat) ────────────────
+console.log("\n── Legacy helpers still available ──");
+
+assert(compat.includes("export function getTokenLimitParam"),
+       "getTokenLimitParam still exported for backward compat");
+assert(compat.includes("export function getTemperatureParam"),
+       "getTemperatureParam still exported for backward compat");
+assert(compat.includes("export function supportsCustomTemperature"),
+       "supportsCustomTemperature still exported for backward compat");
+
+// ── Section 10: meeting-notes uses model variable (not hardcoded) ─────────────
+console.log("\n── meeting-notes-ai: model variable used ──");
+
+assert(
+  meeting.includes("buildOpenAIModelParams(model,"),
+  "meeting-notes passes `model` variable — gpt-4o fallback gets max_tokens + temperature, gpt-5-mini does not"
 );
 
 // ── Summary ───────────────────────────────────────────────────────────────────

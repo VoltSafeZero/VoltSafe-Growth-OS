@@ -14,7 +14,7 @@
  */
 
 import OpenAI from "openai";
-import { getTokenLimitParam, getTemperatureParam } from "./openai-compat";
+import { buildOpenAIModelParams } from "./openai-compat";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
@@ -645,8 +645,7 @@ Return only the JSON object, no explanation.`;
       { role: "system", content: systemPrompt },
       { role: "user", content: `Analyse my writing style from these ${emailSamples.length} email samples:\n\n${joined}` },
     ],
-    ...getTemperatureParam("gpt-5-mini", 0.2),
-    ...getTokenLimitParam("gpt-5-mini", 800),
+    ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 800, temperature: 0.2 }),
     response_format: { type: "json_object" },
   });
 
