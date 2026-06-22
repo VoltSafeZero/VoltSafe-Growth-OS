@@ -177,8 +177,8 @@ console.log("\n── Option values preserved at call sites ──");
 
 assert(summary.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 3000, temperature: 0.3 })'),
        "AI summary: tokenLimit 3000, temperature 0.3");
-assert(summary.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 2000, temperature: 0.4 })'),
-       "Suggested email: tokenLimit 2000, temperature 0.4");
+assert(summary.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 4000, temperature: 0.4 })'),
+       "Suggested email: tokenLimit 4000, temperature 0.4");
 assert(meeting.includes('buildOpenAIModelParams(model, { tokenLimit: 4096, temperature: 0.2 })'),
        "Meeting notes: model variable, tokenLimit 4096, temperature 0.2");
 assert(voice.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 800, temperature: 0.2 })'),
