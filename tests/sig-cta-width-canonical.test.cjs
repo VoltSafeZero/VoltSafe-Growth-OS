@@ -258,8 +258,8 @@ ok("no remaining max-width:100% in any CTA/sig generation source",
 // 6. CID REWRITE — only replaces src, does not rebuild the img tag
 // ═══════════════════════════════════════════════════════════════════════════
 const cidRewriteBlock = inboxSrc.slice(
-  inboxSrc.indexOf("// 1. Resolve cid: references BEFORE DOMPurify"),
-  inboxSrc.indexOf("// 1. Resolve cid: references BEFORE DOMPurify") + 500,
+  inboxSrc.indexOf("// 2. Resolve cid: references BEFORE DOMPurify"),
+  inboxSrc.indexOf("// 2. Resolve cid: references BEFORE DOMPurify") + 500,
 );
 
 ok("CID rewrite only replaces src= attribute (not whole img tag)",
