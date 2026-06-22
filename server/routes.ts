@@ -164,7 +164,9 @@ import { processWithAI } from "./services/meeting-notes-ai";
 // so legitimate users aren't accidentally locked out by repeated valid logins.
 const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
-  max: 10,                  // 10 failed attempts per IP per 15 min
+  // Production: strict 10 failed attempts. Dev: 100 so the full .test.cjs suite can run
+  // without cascading 429s across tests that share the same loopback IP.
+  max: process.env.NODE_ENV === "production" ? 10 : 100,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,

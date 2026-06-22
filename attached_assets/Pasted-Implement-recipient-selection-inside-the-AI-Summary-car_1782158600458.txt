@@ -1,0 +1,270 @@
+Implement recipient selection inside the AI Summary card’s Key People section for Leads, Accounts, and related CRM records.
+
+Context:
+VoltSafe CMS has an AI Summary card that includes a “Key People” section and a “Suggested Email” action. I want users to select one or more Key People directly inside the AI Summary card, then either compose a blank email or generate a suggested AI email with those selected people automatically placed into the correct email fields.
+
+Important:
+This feature should be implemented inside the AI Summary card only.
+Do not add checkboxes to the main contact list at the top of the Lead/Account modal.
+Do not add a Create Email button beside the main Add Contact button.
+
+Feature requirements:
+
+1. Add checkboxes beside AI Summary Key People
+
+Inside the AI Summary card, under “Key People,” add a small checkbox to the left of each listed key person.
+
+Each checkbox should:
+
+* Select or deselect that key person as an email recipient.
+* Be visually subtle and aligned cleanly with the person’s name.
+* Preserve the existing AI Summary card design.
+* Have an accessible label such as “Select Josh Hester for email.”
+
+Only key people with a valid email address should be selectable.
+
+If a key person has no email address:
+
+* Prefer showing a disabled checkbox.
+* Add a tooltip/title such as “No email address available.”
+* Do not allow that person to be selected.
+* Do not pass blank or invalid emails into compose.
+
+2. Add “Compose New Email” button inside AI Summary
+
+Add a button labeled “Compose New Email” inside the AI Summary card near the Key People section.
+
+Preferred layout:
+
+KEY PEOPLE
+[ ] Josh Hester · RVP
+[ ] Caitlin Ajax · SVP
+[ ] Dan Wilson · SVP
+[ ] David Miller · SVP
+
+                            [ Compose New Email ]
+                            [ Suggested Email ]
+
+On wide screens:
+
+* Place the buttons to the right of the Key People list if space allows.
+
+On mobile or narrow screens:
+
+* Stack the buttons below the Key People list.
+
+The “Compose New Email” button should:
+
+* Always be clickable.
+* Open the in-app VoltSafe Mail composer.
+* Never use Gmail.
+* Never use mailto links.
+* Never open an external email client.
+
+If no Key People are selected:
+
+* Open a blank compose window normally.
+
+If one or more Key People are selected:
+
+* Pre-fill TO and CC using the selected key people rules below.
+
+3. Move “Suggested Email” action into the Key People area
+
+Move the clickable “Suggested Email” action down from the AI Summary card header into the Key People action area.
+
+It should appear near or below “Compose New Email.”
+
+The “Suggested Email” button should:
+
+* Continue to use the existing AI suggested email generation flow.
+* Still use full CRM context, including Lead/Account data, contacts, notes, comments, linked emails, documents, pipeline stage, and latest activity.
+* Also respect selected Key People as recipients.
+
+If no Key People are selected:
+
+* Keep the current Suggested Email behavior.
+
+If one or more Key People are selected:
+
+* Generate/open the suggested email with selected recipients pre-filled using the TO/CC logic below.
+
+4. Recipient assignment logic
+
+When the user clicks either “Compose New Email” or “Suggested Email”:
+
+If exactly one key person is selected:
+
+* Put that person’s email address in the TO field.
+* Leave CC empty.
+
+If more than one key person is selected:
+
+* The first key person selected by the user goes into the TO field.
+* Every other selected key person goes into the CC field.
+* Preserve the order the user selected people.
+* Do not use the visual list order unless it matches the selection order.
+* Do not alphabetize selected recipients.
+
+Example:
+User selects:
+
+1. Josh Hester
+2. Caitlin Ajax
+3. Dan Wilson
+
+Result:
+TO = Josh Hester’s email
+CC = Caitlin Ajax’s email, Dan Wilson’s email
+
+5. Selection order rules
+
+Store selected Key People in an ordered array.
+
+Suggested state shape:
+
+selectedKeyPeopleEmailContacts: Array<{
+id: string;
+name: string;
+email: string;
+}>
+
+Rules:
+
+* When a checkbox is checked, append that contact to the selected array.
+* When a checkbox is unchecked, remove that contact from the selected array.
+* The first selected contact remains the TO recipient unless unchecked.
+* If the first selected contact is unchecked and others remain selected, promote the next earliest selected contact to TO.
+* All remaining selected contacts go to CC.
+
+Suggested helper:
+
+getComposeRecipientsFromSelectedKeyPeople(selected) {
+return {
+to: selected.length > 0 ? [selected[0].email] : [],
+cc: selected.length > 1 ? selected.slice(1).map(c => c.email) : []
+};
+}
+
+6. Compose New Email behavior
+
+When “Compose New Email” is clicked:
+
+* Open the existing in-app VoltSafe Mail composer.
+* Use the app’s existing compose mechanism/state/router/action.
+* Pass:
+    * to: first selected email only
+    * cc: all remaining selected emails
+    * subject: blank unless existing compose logic requires otherwise
+    * body: blank
+
+Expected payload shape:
+
+{
+to: [“first-selected@example.com”],
+cc: [“second-selected@example.com”, “third-selected@example.com”],
+subject: “”,
+body: “”
+}
+
+If no valid recipients are selected:
+
+{
+to: [],
+cc: [],
+subject: “”,
+body: “”
+}
+
+7. Suggested Email behavior
+
+When “Suggested Email” is clicked:
+
+* Continue using the existing AI email generator.
+* Include selected recipient data in the compose/draft output.
+* The generated body should still be based on the CRM record’s most recent and relevant context.
+* Recipient fields should use the same selection-order TO/CC logic:
+    * First selected = TO
+    * Later selected = CC
+
+If no Key People are selected:
+
+* Suggested Email should behave exactly as it does today.
+
+8. Visual selection feedback
+
+When one or more Key People are selected, show a small helper text near the buttons.
+
+Examples:
+
+* “1 recipient selected”
+* “3 recipients selected: 1 To, 2 Cc”
+
+Keep it subtle and consistent with the VoltSafe Growth OS design.
+
+9. Preserve existing behavior
+
+Do not break:
+
+* AI Summary regenerate behavior.
+* AI Summary collapse/expand behavior.
+* Existing Suggested Email generation.
+* Existing Add Contact behavior.
+* Existing Lead/Account/Contact modal layout.
+* Existing linked email, comments, notes, and documents sections.
+
+10. Accessibility
+
+Each checkbox should have an accessible label:
+
+* “Select Josh Hester for email”
+* “Select Caitlin Ajax for email”
+
+Disabled checkboxes should explain why:
+
+* “No email address available”
+
+Buttons should be keyboard accessible and use real button elements where possible.
+
+11. Tests / verification
+
+Add or update tests to confirm:
+
+* AI Summary Key People render with checkboxes.
+* Key People without valid emails cannot be selected.
+* Selecting one Key Person and clicking Compose New Email opens compose with that email in TO and empty CC.
+* Selecting multiple Key People preserves selection order.
+* First-selected Key Person goes to TO.
+* Later-selected Key People go to CC.
+* Unchecking the first-selected Key Person promotes the next selected person to TO.
+* Compose New Email opens blank compose when no Key People are selected.
+* Suggested Email uses the same selected-recipient TO/CC logic.
+* Suggested Email still works normally when no Key People are selected.
+* Existing AI Summary regenerate still works.
+* Existing AI Summary collapse/expand still works.
+* Existing main Add Contact behavior is unchanged.
+
+Implementation notes:
+Find the component that renders the AI Summary card and the Key People section.
+
+Add local state and helper functions similar to:
+
+selectedKeyPeopleEmailContacts
+toggleSelectedKeyPerson(contact)
+getComposeRecipientsFromSelectedKeyPeople()
+handleComposeNewEmailFromAiSummary()
+handleSuggestedEmailFromAiSummary()
+
+Use existing VoltSafe UI components/styles for buttons, checkboxes, cards, icons, layout, and compose integration.
+
+Final result:
+The AI Summary card should become the email command center.
+
+Users should be able to:
+
+1. Select one or more Key People.
+2. Click Compose New Email for a blank email.
+3. Click Suggested Email for an AI-generated email.
+4. Have recipients automatically placed correctly:
+    * First selected person = TO
+    * All other selected people = CC

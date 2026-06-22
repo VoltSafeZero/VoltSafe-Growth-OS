@@ -1,0 +1,103 @@
+Implement contact checkbox selection and “Create Email” behavior in the Lead / Account / Contact detail modal.
+
+Context:
+Inside the VoltSafe CMS Lead/Account/Contact detail modal, each related contact is displayed in a contact list. I want users to be able to select one or more contacts, then create a new VoltSafe Mail compose window with those contacts pre-filled.
+
+Feature requirements:
+
+1. Add contact selection checkboxes
+- Add a small checkbox to the LEFT of every displayed contact row/card.
+- This should apply anywhere contacts are shown inside Lead, Account, or Contact detail views.
+- The checkbox should be visually subtle but easy to click.
+- Clicking the checkbox should select/deselect that contact.
+- Do not make the entire contact row accidentally toggle unless that is already consistent with the app UX.
+- Preserve the existing contact row layout as much as possible.
+
+2. Add “Create Email” button
+- Add a button labeled “Create Email” to the LEFT of the existing “Add contact” button.
+- Default state:
+  - Disabled
+  - Muted/grey styling
+  - Not clickable
+- Active state:
+  - If one or more contact checkboxes are selected, the button lights up using the app’s teal/primary action styling.
+  - The button becomes clickable.
+- The button should show a clear active affordance when contacts are selected.
+
+3. Email field assignment logic
+When the user clicks “Create Email”:
+
+- If exactly 1 contact is selected:
+  - Open a new VoltSafe Mail compose window.
+  - Put that contact’s email address in the TO field.
+  - CC should remain empty.
+
+- If more than 1 contact is selected:
+  - The FIRST contact the user selected must go into the TO field.
+  - Every other selected contact must go into the CC field.
+  - Preserve the selection order, not the visual list order.
+  - Example:
+    - User selects Josh first, Caitlin second, Dan third.
+    - TO = Josh
+    - CC = Caitlin, Dan
+
+4. Selection order
+- Store selected contacts as an ordered array.
+- When a checkbox is checked, append that contact to the selected array.
+- When a checkbox is unchecked, remove that contact from the selected array.
+- Do not re-sort selected contacts alphabetically or by screen position.
+- The first selected contact should remain the TO recipient unless that contact is unchecked.
+- If the TO contact is unchecked and other contacts remain selected, the next earliest selected contact becomes TO and the rest remain CC.
+
+5. Email validation / missing email handling
+- Only contacts with a valid email address should be selectable.
+- If a contact has no email address:
+  - Show the checkbox disabled, OR hide the checkbox.
+  - Prefer disabled with a tooltip/title like “No email address available.”
+- Do not open compose with blank/invalid recipients.
+
+6. Compose integration
+- Reuse the existing VoltSafe Mail compose/new-email mechanism.
+- Do not open Gmail.
+- Do not use mailto: links.
+- This must open the in-app VoltSafe Mail composer.
+- Pass recipients into the compose state/router/action using the existing app pattern.
+
+Expected compose payload:
+- to: string[] containing the first selected contact email
+- cc: string[] containing all additional selected contact emails
+- subject: optional/blank unless existing compose pattern requires it
+- body: optional/blank unless existing compose pattern requires it
+
+7. UI behavior after click
+- After opening the compose window, keep the modal state stable unless the existing app behavior normally closes it.
+- Do not lose the selected contact state unless the modal is closed.
+- If compose opens in a drawer/modal, make sure it does not appear behind the current Lead/Account modal.
+
+8. Accessibility
+- Each checkbox should have an accessible label, for example:
+  “Select Caitlin Ajax for email”
+- The Create Email button should have a disabled state that is programmatically disabled when no valid contacts are selected.
+
+9. Tests / verification
+Add or update tests to confirm:
+
+- Create Email is disabled when no contacts are selected.
+- Selecting one contact enables Create Email.
+- One selected contact opens compose with that email in TO and empty CC.
+- Multiple selected contacts open compose with first-selected contact in TO and later-selected contacts in CC.
+- Selection order is preserved even if the visual contact list order is different.
+- Unchecking the first selected contact promotes the next selected contact to TO.
+- Contacts without email addresses cannot be selected or are ignored.
+- Existing Add Contact behavior still works.
+
+Implementation notes:
+- Look for the component that renders the Lead/Account/Contact detail modal and contact list.
+- Add local state similar to:
+  selectedEmailContacts: Array<{ id: string; name: string; email: string }>
+- Add helper functions:
+  toggleSelectedEmailContact(contact)
+  getComposeRecipientsFromSelectedContacts()
+  handleCreateEmailFromSelectedContacts()
+- Use the app’s existing button, checkbox, modal, drawer, and compose components/styles.
+- Keep styling consistent with the current VoltSafe Growth OS design.

@@ -807,9 +807,13 @@ export function selectSmartEmailContext(emails: EmailRow[], cap = 20): SmartEmai
   };
 
   // Group 1 — most recent 10 (array comes sorted newest-first from DB)
-  // The single newest email gets a distinct NEWEST label — it is the primary signal
-  emails.slice(0, 1).forEach((e) => tag(e, "⚑ NEWEST — PRIMARY SIGNAL", 0));
-  emails.slice(1, 10).forEach((e, i) => tag(e, "MOST RECENT", i + 1));
+  emails.slice(0, 10).forEach((e, i) => tag(e, "MOST RECENT", i));
+
+  // The very newest email gets an elevated label so the model treats it as the primary signal
+  if (emails.length > 0) {
+    const newest = selected.get(emails[0].id);
+    if (newest) newest.selectionLabel = "⚑ NEWEST — PRIMARY SIGNAL";
+  }
 
   // Group 2 — important / starred via Gmail label_ids
   emails.forEach(e => {
