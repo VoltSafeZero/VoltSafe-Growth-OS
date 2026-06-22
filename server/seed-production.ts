@@ -1797,3 +1797,32 @@ export async function migrateBlockedSenders(): Promise<void> {
     console.error("[migration] migrateBlockedSenders error (non-fatal):", err);
   }
 }
+
+/**
+ * Data repair: back-fill is_internal=true for engagement events that were
+ * triggered by VoltSafe CMS team members viewing sent emails in the reading
+ * pane.  The proxy-image handler fetches images server-side with the custom
+ * UA "VoltSafeMailViewer"; before this fix those events were stored as
+ * is_internal=false and incorrectly counted as external recipient opens.
+ *
+ * Safe to run repeatedly (idempotent WHERE clause).
+ */
+export async function migrateRepairCmsInternalEvents(): Promise<void> {
+  try {
+    const result = await db.execute(sql`
+      UPDATE email_engagement_events
+      SET    is_internal     = true,
+             internal_reason = 'cms_proxy_image'
+      WHERE  is_internal IS NOT TRUE
+        AND  user_agent ILIKE '%VoltSafeMailViewer%'
+    `);
+    const count = (result as any).rowCount ?? 0;
+    if (count > 0) {
+      console.log(`[migration] repaired ${count} CMS-proxy-image engagement event(s) → is_internal=true`);
+    } else {
+      console.log("[migration] cms internal event repair: no rows to fix.");
+    }
+  } catch (err) {
+    console.error("[migration] migrateRepairCmsInternalEvents error (non-fatal):", err);
+  }
+}

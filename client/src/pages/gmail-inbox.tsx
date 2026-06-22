@@ -2555,7 +2555,23 @@ function MessageBody({
       );
     }
 
-    // 1. Resolve cid: references BEFORE DOMPurify (DOMPurify strips cid: URIs by
+    // 1. Strip outbound tracking pixels BEFORE any proxy rewriting.
+    //    Outbound emails sent through VoltSafe contain a 1×1 pixel at
+    //    <img src="https://APP/track/open/TOKEN"> or <img src="/track/open/TOKEN">.
+    //    When we render the email in this iframe, the browser would load that URL
+    //    (either directly or after the proxy rewrite below converts it to
+    //    /api/gmail/proxy-image?url=...), which triggers recordOpen() and falsely
+    //    counts the CMS user's view as an external recipient open.
+    //    Strip every <img> whose src contains /track/open/ or /track/click/ so
+    //    no tracking request is made at all from the reading pane.
+    if (isHtml) {
+      resolved = resolved.replace(
+        /<img[^>]+src=["'][^"']*\/track\/(?:open|click)\/[^"']*["'][^>]*\/?>/gi,
+        ""
+      );
+    }
+
+    // 2. Resolve cid: references BEFORE DOMPurify (DOMPurify strips cid: URIs by
     //    default). Replace src="cid:xxx" with a backend proxy URL that fetches the
     //    inline image part from Gmail API.
     if (gmailMessageId && /src=["']cid:/i.test(resolved)) {
@@ -2569,7 +2585,7 @@ function MessageBody({
       );
     }
 
-    // 2. Proxy remote https:// image URLs through our server so they always
+    // 3. Proxy remote https:// image URLs through our server so they always
     //    render in the sandboxed iframe reading pane, regardless of cross-origin
     //    or network-sandbox restrictions (same approach as Spark Mail / Gmail).
     //    Only rewrites src="https://..." — skips CID proxy paths (already /api/),
@@ -2583,7 +2599,7 @@ function MessageBody({
       );
     }
 
-    // 3. Diagnostic: log every img src before and after sanitization so broken
+    // 4. Diagnostic: log every img src before and after sanitization so broken
     //    images in the viewer are traceable in the browser console.
     if (import.meta.env.DEV || (window as any).__VS_IMG_DEBUG__) {
       const preSrcs = [...resolved.matchAll(/\bsrc="([^"]+)"/gi)].map(m => m[1]);

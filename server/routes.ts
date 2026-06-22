@@ -772,8 +772,11 @@ export async function registerRoutes(
     res.setHeader("Pragma", "no-cache");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.end(pixel);
+    // Authenticated CMS sessions must be recorded as internal so they are
+    // excluded from engagement counts and "last seen" timestamps.
+    const isCmsSession = !!(req.session?.userId);
     // Fire and forget — write event after response is already sent
-    recordOpen(trackingId, ip, ua).catch(() => {});
+    recordOpen(trackingId, ip, ua, { cmsSession: isCmsSession }).catch(() => {});
   }
 
   // Primary: with .gif extension (used in injected pixels)
@@ -805,8 +808,10 @@ export async function registerRoutes(
     }
 
     res.redirect(302, safeUrl);
+    // Authenticated CMS sessions must be marked internal on clicks too.
+    const isCmsSession = !!(req.session?.userId);
     // Fire and forget
-    recordClick(trackingId, safeUrl, ip, ua).catch(() => {});
+    recordClick(trackingId, safeUrl, ip, ua, { cmsSession: isCmsSession }).catch(() => {});
   });
 
   // ── Signature CTA tracked redirect (public — no auth; clicked by email recipients) ──
@@ -11833,6 +11838,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       let parsed: URL;
       try { parsed = new URL(rawUrl); } catch {
         return res.status(400).json({ error: "Invalid URL" });
+      }
+      // Block self-referential tracking pixel requests.  The proxy-image handler
+      // fetches images server-side with the VoltSafeMailViewer UA.  If it fetched
+      // a /track/open/ URL it would fire recordOpen() with a server-to-server
+      // request that has no session — recording a false "external recipient open"
+      // for every CMS team member who views the email in VoltSafe.
+      if (/\/track\/(open|click)\//i.test(parsed.pathname)) {
+        const BLANK = Buffer.from(
+          "47494638396101000100800000ffffff00000021f90400000000002c00000000010001000002024401003b", "hex"
+        );
+        res.set("Content-Type", "image/gif");
+        res.set("Cache-Control", "no-store");
+        res.set("Content-Length", String(BLANK.length));
+        return res.send(BLANK);
       }
       const h = parsed.hostname.toLowerCase();
       // SSRF guard — block loopback, private, link-local, and metadata ranges

@@ -35,6 +35,19 @@ export function isInternalEmail(email: string | null | undefined): boolean {
   return INTERNAL_DOMAINS.has(email.slice(at + 1).toLowerCase());
 }
 
+/**
+ * Returns true when the user-agent string indicates a VoltSafe CMS internal
+ * request (e.g. the proxy-image handler fetching a tracking pixel on behalf of
+ * an authenticated team member viewing the email in VoltSafe CMS).
+ *
+ * These events must be stored as is_internal=true so they are excluded from all
+ * engagement counts, scores, and "last seen" timestamps.
+ */
+export function isCmsProxyUserAgent(ua: string | undefined | null): boolean {
+  if (!ua) return false;
+  return /VoltSafeMailViewer/i.test(ua);
+}
+
 // ── Bot UA patterns ────────────────────────────────────────────────────────────
 const BOT_UA: RegExp[] = [
   /googleimageproxy/i, /yahoo.*mail/i, /yahooysmtp/i, /yahoo.*slurp/i,
@@ -92,7 +105,8 @@ export function injectTracking(html: string, trackingId: string, baseUrl: string
 export async function recordOpen(
   trackingId: string,
   ip: string | undefined,
-  userAgent: string | undefined
+  userAgent: string | undefined,
+  opts?: { cmsSession?: boolean }
 ): Promise<void> {
   const bot    = isBotUserAgent(userAgent);
   const ipHash = ip ? hashIp(ip) : null;
@@ -102,9 +116,13 @@ export async function recordOpen(
     const meta: Record<string, unknown> = {};
     if (userAgent) meta.uaParsed = classifyUa(userAgent);
 
-    const internal = isInternalEmail(pixel?.recipient_email);
-    const internalReason = internal
+    const isCmsProxy  = isCmsProxyUserAgent(userAgent);
+    const isCmsDirect = opts?.cmsSession === true;
+    const internal = isInternalEmail(pixel?.recipient_email) || isCmsProxy || isCmsDirect;
+    const internalReason = isInternalEmail(pixel?.recipient_email)
       ? `internal_domain:${String(pixel!.recipient_email!).split("@")[1]}`
+      : isCmsProxy  ? "cms_proxy_image"
+      : isCmsDirect ? "cms_authenticated_session"
       : null;
 
     // Insert first, then post-insert dedupe (no TOCTOU race)
@@ -147,7 +165,8 @@ export async function recordClick(
   trackingId: string,
   url: string | undefined,
   ip: string | undefined,
-  userAgent: string | undefined
+  userAgent: string | undefined,
+  opts?: { cmsSession?: boolean }
 ): Promise<void> {
   const bot    = isBotUserAgent(userAgent);
   const ipHash = ip ? hashIp(ip) : null;
@@ -159,9 +178,13 @@ export async function recordClick(
       try { const p = new URL(url); meta.domain = p.hostname; meta.path = p.pathname; } catch { /* */ }
     }
 
-    const internal = isInternalEmail(pixel?.recipient_email);
-    const internalReason = internal
+    const isCmsProxy  = isCmsProxyUserAgent(userAgent);
+    const isCmsDirect = opts?.cmsSession === true;
+    const internal = isInternalEmail(pixel?.recipient_email) || isCmsProxy || isCmsDirect;
+    const internalReason = isInternalEmail(pixel?.recipient_email)
       ? `internal_domain:${String(pixel!.recipient_email!).split("@")[1]}`
+      : isCmsProxy  ? "cms_proxy_image"
+      : isCmsDirect ? "cms_authenticated_session"
       : null;
 
     await db.execute(sql.raw(`
