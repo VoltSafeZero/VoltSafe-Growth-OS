@@ -95,8 +95,17 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
   });
 
   const s = summary;
-  // Content is shown whenever we have a real summary — even while a manual regenerate is queued
-  const hasContent = !!(s?.summaryJson && (s.status === "success" || s.status === "stale" || s.status === "generating" || s.status === "failed"));
+  // Content requires at least one non-empty field in summaryJson — an empty {} does not count.
+  const hasContent = !!(
+    s?.summaryJson &&
+    (s.status === "success" || s.status === "stale" || s.status === "generating" || s.status === "failed") &&
+    (s.summaryJson.executiveSummary ||
+      (s.summaryJson.keyPeople && s.summaryJson.keyPeople.length > 0) ||
+      s.summaryJson.currentStatus ||
+      (s.summaryJson.opportunitiesAndRisks && s.summaryJson.opportunitiesAndRisks.length > 0) ||
+      (s.summaryJson.suggestedNextSteps && s.summaryJson.suggestedNextSteps.length > 0) ||
+      (s.summaryJson.relevantHistory && s.summaryJson.relevantHistory.length > 0))
+  );
   const json: AiSummaryJson = s?.summaryJson || {};
 
   // Active generation means the DB itself says 'generating' (a real background job)

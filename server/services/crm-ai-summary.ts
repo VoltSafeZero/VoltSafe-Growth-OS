@@ -593,15 +593,32 @@ export async function generateCrmAiSummary(
         { role: "user", content: prompt },
       ],
       response_format: { type: "json_object" },
-      ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 1200, temperature: 0.3 }),
+      ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 3000, temperature: 0.3 }),
     });
 
+    const finishReason = completion.choices[0]?.finish_reason;
     const raw = completion.choices[0]?.message?.content || "{}";
+    console.log(`[crm-ai-summary] ${entityType}:${id} finish_reason=${finishReason} raw_chars=${raw.length}`);
+
     let parsed: AiSummaryJson;
     try {
       parsed = JSON.parse(raw);
     } catch (_e) {
-      throw new Error(`Invalid JSON from OpenAI: ${raw.substring(0, 200)}`);
+      throw new Error(`Invalid JSON from OpenAI (finish_reason=${finishReason}): ${raw.substring(0, 200)}`);
+    }
+
+    // Guard: never save an empty result as success — preserve previous good summary.
+    const hasAnyContent = !!(
+      parsed.executiveSummary ||
+      (parsed.keyPeople && parsed.keyPeople.length > 0) ||
+      parsed.currentStatus ||
+      (parsed.opportunitiesAndRisks && parsed.opportunitiesAndRisks.length > 0) ||
+      (parsed.suggestedNextSteps && parsed.suggestedNextSteps.length > 0) ||
+      (parsed.relevantHistory && parsed.relevantHistory.length > 0)
+    );
+    if (!hasAnyContent) {
+      console.warn(`[crm-ai-summary] ${entityType}:${id} model returned empty content (finish_reason=${finishReason}) — preserving previous summary`);
+      throw new Error(`Model returned empty content (finish_reason=${finishReason}). Previous summary preserved.`);
     }
 
     const summaryText = [
@@ -624,6 +641,7 @@ export async function generateCrmAiSummary(
         updated_at = NOW()
       WHERE entity_type = '${entityType}' AND entity_id = ${id}
     `));
+    console.log(`[crm-ai-summary] Saved ${entityType}:${id} — sections: executiveSummary=${!!parsed.executiveSummary} keyPeople=${parsed.keyPeople?.length ?? 0} opps=${parsed.opportunitiesAndRisks?.length ?? 0}`);
 
     console.log(`[crm-ai-summary] Generated ${entityType}:${id}`);
   } catch (err: any) {

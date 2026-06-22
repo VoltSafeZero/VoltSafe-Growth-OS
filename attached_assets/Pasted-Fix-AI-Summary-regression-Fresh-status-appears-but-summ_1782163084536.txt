@@ -1,0 +1,185 @@
+Fix AI Summary regression: Fresh status appears but summary content and Key People disappear after publish.
+
+Problem:
+After the OpenAI compatibility hardening pass, the AI Summary card can show "Fresh" while the actual summary content is blank/missing. Key People also disappear from the AI Summary card.
+
+Expected behavior:
+The AI Summary card should look like it did previously:
+- AI Summary title
+- Fresh/Failed badge
+- Main summary paragraph
+- Current Status box
+- Key People list with checkboxes
+- Opportunities & Risks
+- Suggested Next Steps
+- Key History
+- Compose New Email button
+- Suggested Email button
+- Generated timestamp
+
+Current broken behavior:
+The card shows:
+- AI Summary title
+- Fresh badge
+- Regenerate button
+- Compose New Email
+- Suggested Email
+- footer/timestamp
+
+But the main body content and Key People are missing.
+
+Important:
+This is not just an OpenAI parameter issue. Treat this as a data contract/rendering regression.
+
+Tasks:
+
+1. Trace the AI Summary regenerate response
+Find the frontend call made when clicking Regenerate in the AI Summary card.
+
+Log/inspect the response payload from the backend.
+
+Confirm whether the response includes:
+- summary / overview text
+- current_status
+- key_people
+- opportunities
+- risks
+- suggested_next_steps
+- key_history
+- generated_at
+- status/fresh/failed fields
+
+2. Trace the saved AI Summary record
+After regeneration, inspect what is saved to the database.
+
+Confirm the saved row/object contains the full structured AI Summary, not only:
+- status = fresh
+- generated_at = current date
+
+If regeneration fails to parse or save content, do not mark the summary Fresh.
+
+3. Fix Fresh status logic
+Only show Fresh if there is valid summary content.
+
+Do not mark AI Summary as Fresh when required body fields are empty.
+
+Minimum valid content should include at least one of:
+- main summary paragraph
+- current status
+- key people
+- opportunities/risks
+- suggested next steps
+- key history
+
+If the model call succeeds but parsing produces empty content:
+- keep previous summary
+- show Failed or Partial
+- log the parsing problem
+- do not overwrite good previous summary with blank data
+
+4. Restore Key People rendering
+Key People must render even if the AI-generated summary body fails.
+
+Key People are CRM/contact data and should not depend only on the AI summary response.
+
+If AI summary key_people is missing or empty:
+- fall back to associated CRM contacts/key people from the Lead/Account record
+- preserve the checkbox recipient selection feature
+- preserve contact email validation
+- preserve selection order logic:
+  first selected = TO
+  later selected = CC
+
+Expected:
+Josh Hester, Caitlin Ajax, Dan Wilson, David Miller should still appear for Safe Harbor Group if they are associated contacts.
+
+5. Fix AI Summary parsing for newer model output
+The newer model may return content differently than before.
+
+Make the parser robust to:
+- plain JSON
+- JSON inside markdown fences
+- partial JSON
+- text with JSON-like sections
+- missing optional fields
+
+If the app expects structured JSON, ensure the prompt and response_format are still correct after the OpenAI compatibility helper change.
+
+Check whether buildOpenAIModelParams accidentally removed or changed response_format, messages, or other parameters needed by crm-ai-summary.ts.
+
+Important:
+The compatibility helper should only control generation params such as token limit, temperature, top_p, frequency_penalty, presence_penalty.
+It must not remove:
+- model
+- messages
+- response_format
+- tools
+- tool_choice
+- JSON mode settings
+- any app-specific payload fields
+
+6. Protect previous good summary
+If regeneration fails or returns empty content:
+- do not overwrite previous good AI Summary content
+- keep showing previous summary
+- show the Failed badge/banner
+- log the root cause
+
+This was working before and must remain safe.
+
+7. Add server-side logging
+Add useful logging for AI Summary regeneration:
+- record id
+- record type
+- model
+- whether OpenAI call succeeded
+- whether parsing succeeded
+- parsed section counts
+- whether saved content is empty
+- whether previous summary was preserved
+
+Do not log API keys.
+
+8. Tests / verification
+Add or update tests to confirm:
+
+- AI Summary regeneration with valid model output saves and displays all sections.
+- Fresh status is only shown when content exists.
+- Empty parsed output does not mark summary Fresh.
+- Empty parsed output does not overwrite previous good summary.
+- Key People still render from CRM contacts even if AI summary content is missing.
+- Key People checkboxes still render.
+- Compose New Email still works from selected Key People.
+- Suggested Email still works from selected Key People.
+- AI Summary Failed state still shows previous summary.
+- OpenAI compatibility helper does not remove response_format or JSON mode settings.
+- Safe Harbor Group renders Josh Hester, Caitlin Ajax, Dan Wilson, and David Miller in Key People.
+
+9. Manual acceptance test
+Use Safe Harbor Group.
+
+Before clicking Regenerate:
+- AI Summary should show previous populated content.
+- Key People should show:
+  - Josh Hester
+  - Caitlin Ajax
+  - Dan Wilson
+  - David Miller
+
+After clicking Regenerate:
+- If regeneration succeeds:
+  - Badge shows Fresh
+  - Main summary content is visible
+  - Key People remain visible
+  - Current Status, Opportunities/Risks, Suggested Next Steps, and Key History render
+
+- If regeneration fails:
+  - Badge shows Failed
+  - Previous populated summary remains visible
+  - Key People remain visible
+  - No blank Fresh card is shown
+
+Likely root cause:
+The regenerate flow is marking the AI Summary as Fresh even when the parsed/saved structured content is empty, or the frontend is now reading a different response shape than the backend returns.
+
+Fix the data contract first, then the UI.
