@@ -135,7 +135,7 @@ import { generateICalString } from "./services/ical-generator";
 import {
   listBookingLinks, getBookingLink, createBookingLink, updateBookingLink,
   listRecipients, addRecipient, revokeRecipient, resolvePublicToken,
-  confirmBooking, confirmBookingSchema,
+  confirmBooking, confirmBookingSchema, BookingSlotError,
   createBookingLinkSchema, updateBookingLinkSchema, addRecipientSchema,
 } from "./services/booking-link-service";
 import {
@@ -30523,6 +30523,9 @@ export function registerConfluenceRoutes(app: Express) {
       }
       res.status(201).json(result);
     } catch (e: any) {
+      if (e instanceof BookingSlotError) {
+        return res.status(422).json({ message: e.reason });
+      }
       res.status(500).json({ message: e.message });
     }
   });

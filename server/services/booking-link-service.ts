@@ -112,6 +112,109 @@ export function isZoomJoinUrl(url: string | null | undefined): url is string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Server-side slot validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Thrown by confirmBooking() when the requested slot violates the booking
+ * link's scheduling rules.  The route catches this and returns HTTP 422 so
+ * the caller knows the slot itself is the problem (not a server error).
+ */
+export class BookingSlotError extends Error {
+  constructor(public readonly reason: string) {
+    super(reason);
+    this.name = "BookingSlotError";
+  }
+}
+
+/** Return the day-of-week (0=Sunday…6=Saturday) of `date` in `tz`. */
+function dowInTz(date: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    weekday: "short",
+  }).formatToParts(date);
+  const day = parts.find((p) => p.type === "weekday")?.value ?? "";
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(day);
+}
+
+/** Return the local time as "HH:MM" in `tz`. */
+function hhmmInTz(date: Date, tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return `${h}:${m}`;
+}
+
+/**
+ * Validates a proposed slot against the booking link's scheduling rules.
+ *
+ * Rules enforced (all server-side, matching what the public UI shows):
+ *  1. slotStart must be at least `minNoticeHours` from now.
+ *  2. slotStart must not be further than `advanceDays` from now.
+ *  3. If availability windows are configured, the entire slot
+ *     (slotStart … slotStart + slotMinutes) must fall within a window
+ *     whose day-of-week matches — evaluated in the link's timezone.
+ *
+ * Returns null if the slot is valid; returns a human-readable reason string
+ * if it violates a rule.
+ */
+export function validateSlotAgainstLink(
+  link: {
+    slotMinutes: number;
+    advanceDays: number;
+    minNoticeHours: number;
+    timeZone: string;
+    availability: { dow: number; start: string; end: string }[];
+  },
+  slotStart: string,
+): string | null {
+  const start = new Date(slotStart);
+  if (isNaN(start.getTime())) return "slotStart is not a valid date";
+
+  const now = Date.now();
+
+  // Rule 1: minimum notice
+  const minNoticeMs = link.minNoticeHours * 3_600_000;
+  if (start.getTime() < now + minNoticeMs) {
+    return `Slot must be at least ${link.minNoticeHours} hour(s) from now`;
+  }
+
+  // Rule 2: booking horizon
+  const horizonMs = link.advanceDays * 86_400_000;
+  if (start.getTime() > now + horizonMs) {
+    return `Slot is further than ${link.advanceDays} day(s) in advance`;
+  }
+
+  // Rule 3: availability windows (only enforced when windows are defined)
+  const windows = link.availability;
+  if (windows && windows.length > 0) {
+    const tz = link.timeZone || "UTC";
+    const slotDow = dowInTz(start, tz);
+    const slotStartHHMM = hhmmInTz(start, tz);
+    const slotEnd = new Date(start.getTime() + link.slotMinutes * 60_000);
+    const slotEndHHMM = hhmmInTz(slotEnd, tz);
+
+    const fits = windows.some(
+      (w) =>
+        w.dow === slotDow &&
+        slotStartHHMM >= w.start &&
+        slotEndHHMM <= w.end,
+    );
+
+    if (!fits) {
+      return "Slot does not fall within the booking link's available hours";
+    }
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Booking link CRUD
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -499,6 +602,25 @@ export async function confirmBooking(
     .limit(1);
 
   if (!link) return null;
+
+  // 3b. SERVER-SIDE SLOT VALIDATION
+  // The public page only shows slots that pass these rules, but the server
+  // must enforce them too because any token holder can POST an arbitrary
+  // slotStart — there is no signature or round-trip integrity guarantee.
+  const availability = (link.availability as { dow: number; start: string; end: string }[]) ?? [];
+  const slotError = validateSlotAgainstLink(
+    {
+      slotMinutes:    link.slotMinutes,
+      advanceDays:    link.advanceDays,
+      minNoticeHours: link.minNoticeHours,
+      timeZone:       link.timeZone ?? "UTC",
+      availability,
+    },
+    data.slotStart,
+  );
+  if (slotError) {
+    throw new BookingSlotError(slotError);
+  }
 
   // 4. Calculate times
   const startTime = new Date(data.slotStart);

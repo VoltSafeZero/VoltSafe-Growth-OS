@@ -3,6 +3,68 @@
 // the token for that specific account is used regardless of which user is calling.
 import fs from "fs";
 import path from "path";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SSRF guard — used by extractCtaInlineImages() before any outbound fetch
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns true only if `src` is an absolute http/https URL that does NOT
+ * resolve to a private, loopback, link-local, or otherwise reserved address.
+ *
+ * Rationale: the signature section may contain http/https image URLs sourced
+ * from user-supplied content.  Without this guard the server would perform
+ * server-side fetches to any address the user can craft — including internal
+ * metadata endpoints (169.254.169.254), RFC-1918 ranges, or localhost variants
+ * that the runtime exposes under aliases such as "::1" or bracketed IPv6.
+ *
+ * This check is purely hostname-based (no DNS resolution) and is therefore
+ * a best-effort defence against directly-supplied IP literals.  DNS-rebinding
+ * is mitigated by operating in a sandboxed environment and by the 10 s fetch
+ * timeout already on every call.
+ */
+function isSsrfSafeUrl(src: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(src);
+  } catch {
+    return false;
+  }
+
+  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+
+  const host = u.hostname.toLowerCase();
+
+  // IPv6 loopback / link-local
+  if (host === "::1" || host === "[::1]") return false;
+  if (host.startsWith("[fe80:") || host.startsWith("[fc") || host.startsWith("[fd")) return false;
+
+  // Well-known internal hostnames
+  if (
+    host === "localhost" ||
+    host === "metadata.google.internal" ||
+    host.endsWith(".internal") ||
+    host.endsWith(".local") ||
+    host.endsWith(".localhost")
+  ) return false;
+
+  // IPv4 literals — check against private / reserved ranges
+  const octets = host.split(".");
+  if (octets.length === 4 && octets.every((o) => /^\d+$/.test(o))) {
+    const [a, b] = octets.map(Number);
+    if (
+      a === 0 ||                           // 0.0.0.0/8      — reserved
+      a === 10 ||                          // 10.0.0.0/8     — RFC-1918 private
+      a === 127 ||                         // 127.0.0.0/8    — loopback
+      (a === 169 && b === 254) ||          // 169.254.0.0/16 — link-local / APIPA
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12  — RFC-1918 private
+      (a === 192 && b === 168) ||          // 192.168.0.0/16 — RFC-1918 private
+      a >= 224                             // 224+           — multicast / reserved
+    ) return false;
+  }
+
+  return true;
+}
 import { getGmailClient } from "./gmail-oauth";
 import { resolveCtaAsset, getCtaAssetHealth } from "./services/cta-asset-resolver";
 
@@ -306,14 +368,20 @@ export async function extractCtaInlineImages(
       }
 
       // Non-CTA HTTP/HTTPS URL — direct fetch with 10 s timeout (leave URL as-is on failure).
+      // isSsrfSafeUrl() blocks private IPs (RFC-1918), link-local (169.254.x),
+      // loopback, and known internal hostnames before the network call is made.
       if (!data && (src.startsWith("https://") || src.startsWith("http://"))) {
-        try {
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 10000);
-          const resp = await fetch(src, { signal: ctrl.signal });
-          clearTimeout(timer);
-          if (resp.ok) data = Buffer.from(await resp.arrayBuffer());
-        } catch { /* timeout / network error — leave URL as-is */ }
+        if (!isSsrfSafeUrl(src)) {
+          console.error(`[sig-cid] SSRF blocked — refusing to fetch private/reserved URL: "${src.slice(0, 80)}"`);
+        } else {
+          try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 10000);
+            const resp = await fetch(src, { signal: ctrl.signal });
+            clearTimeout(timer);
+            if (resp.ok) data = Buffer.from(await resp.arrayBuffer());
+          } catch { /* timeout / network error — leave URL as-is */ }
+        }
       }
 
       if (!data) {
