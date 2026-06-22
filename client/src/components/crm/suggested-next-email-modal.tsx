@@ -60,6 +60,10 @@ interface Props {
   entityId: number;
   entityName?: string;
   onClose: () => void;
+  /** Pre-selected TO recipient(s) from AI Summary Key People — overrides AI-generated recipient */
+  initialTo?: string;
+  /** Pre-selected CC recipient(s) from AI Summary Key People — overrides AI-generated CC */
+  initialCc?: string;
 }
 
 async function fetchSuggestedEmail(
@@ -113,7 +117,7 @@ const CATEGORY_ORDER = [
   "Follow-Up Intent",
 ];
 
-export function SuggestedNextEmailModal({ entityType, entityId, entityName, onClose }: Props) {
+export function SuggestedNextEmailModal({ entityType, entityId, entityName, onClose, initialTo, initialCc }: Props) {
   const [, setLocation] = useLocation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -240,7 +244,11 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
 
   async function handleContinue() {
     if (!suggestion) return;
-    console.log("[suggested-email-modal] handleContinue triggered", { to: suggestion.to, subject: suggestion.subject });
+    // If key people were pre-selected in the AI Summary card, use them as recipients;
+    // otherwise fall back to the AI-generated suggestion.
+    const effectiveTo = (initialTo !== undefined && initialTo !== "") ? initialTo : suggestion.to;
+    const effectiveCc = (initialTo !== undefined) ? (initialCc ?? "") : (suggestion.cc ?? "");
+    console.log("[suggested-email-modal] handleContinue triggered", { to: effectiveTo, subject: suggestion.subject });
     setIsSaving(true);
 
     const rawBody =
@@ -253,8 +261,8 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     const finalBody = plainTextToHtml(rawBody);
 
     const payload = {
-      to: suggestion.to,
-      cc: suggestion.cc,
+      to: effectiveTo,
+      cc: effectiveCc,
       subject: suggestion.subject,
       body: finalBody,
     };
@@ -568,12 +576,25 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
                 </div>
               )}
 
-              {/* Fields */}
-              <div className="space-y-2.5">
-                <FieldRow label="To" value={suggestion.to} />
-                {suggestion.cc && <FieldRow label="CC" value={suggestion.cc} />}
-                <FieldRow label="Subject" value={suggestion.subject} />
-              </div>
+              {/* Fields — use pre-selected key people if provided, else AI suggestion */}
+              {(() => {
+                const displayTo = (initialTo !== undefined && initialTo !== "") ? initialTo : suggestion.to;
+                const displayCc = initialTo !== undefined ? (initialCc ?? "") : (suggestion.cc ?? "");
+                const recipientsOverridden = initialTo !== undefined && initialTo !== "";
+                return (
+                  <div className="space-y-2.5">
+                    {recipientsOverridden && (
+                      <p className="text-[10px] text-primary/70 flex items-center gap-1">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary/50 shrink-0" />
+                        Recipients pre-filled from selected Key People
+                      </p>
+                    )}
+                    <FieldRow label="To" value={displayTo} />
+                    {displayCc && <FieldRow label="CC" value={displayCc} />}
+                    <FieldRow label="Subject" value={suggestion.subject} />
+                  </div>
+                );
+              })()}
 
               {/* Body */}
               <div>

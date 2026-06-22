@@ -1,16 +1,19 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Sparkles, RefreshCw, Mail, ChevronDown, ChevronUp,
   AlertTriangle, Users, Clock, TrendingUp, ArrowRight,
-  CheckCircle2, Loader2
+  CheckCircle2, Loader2, PenLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { setPendingCompose } from "@/lib/compose-handoff";
 import { SuggestedNextEmailModal } from "./suggested-next-email-modal";
 
 type EntityType = "lead" | "account" | "contact";
@@ -43,6 +46,11 @@ interface Props {
   entityName?: string;
 }
 
+interface SelectedKeyPerson {
+  name: string;
+  email: string;
+}
+
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "";
   try {
@@ -53,8 +61,10 @@ function fmtDate(iso: string | null | undefined) {
 }
 
 export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
+  const [, setLocation] = useLocation();
   const [expanded, setExpanded] = useState(true);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [selectedKeyPeople, setSelectedKeyPeople] = useState<SelectedKeyPerson[]>([]);
 
   // Read-only fetch — never auto-triggers generation on page open.
   // refetchInterval only activates when a real background job is running (status === 'generating').
@@ -92,6 +102,38 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
   // Active generation means the DB itself says 'generating' (a real background job)
   const isActivelyGenerating = s?.status === "generating";
 
+  // ── Key People selection helpers ─────────────────────────────────────────
+  function toggleKeyPerson(person: SelectedKeyPerson) {
+    setSelectedKeyPeople(prev => {
+      const exists = prev.some(p => p.email === person.email);
+      if (exists) return prev.filter(p => p.email !== person.email);
+      return [...prev, person];
+    });
+  }
+
+  function getComposeRecipients() {
+    return {
+      to: selectedKeyPeople.length > 0 ? selectedKeyPeople[0].email : "",
+      cc: selectedKeyPeople.length > 1
+        ? selectedKeyPeople.slice(1).map(p => p.email).join(", ")
+        : "",
+    };
+  }
+
+  function handleComposeNewEmail() {
+    const { to, cc } = getComposeRecipients();
+    setPendingCompose({ to, cc, subject: "", body: "" });
+    setLocation("/gmail");
+  }
+
+  const { to: recipientTo, cc: recipientCc } = getComposeRecipients();
+
+  const recipientHint = selectedKeyPeople.length === 0
+    ? null
+    : selectedKeyPeople.length === 1
+      ? "1 recipient selected"
+      : `${selectedKeyPeople.length} recipients: 1 To, ${selectedKeyPeople.length - 1} Cc`;
+
   return (
     <div className="border-t border-border/50 pt-4" data-testid="ai-summary-section">
       <Card className="border border-primary/20 bg-primary/3 overflow-hidden">
@@ -128,17 +170,6 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
                 >
                   <RefreshCw className={cn("h-3 w-3 mr-1", generateMutation.isPending && "animate-spin")} />
                   Regenerate
-                </Button>
-              )}
-              {hasContent && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-[11px] text-primary hover:text-primary/80 px-2"
-                  onClick={() => setEmailModalOpen(true)}
-                  data-testid="button-suggest-next-email"
-                >
-                  <Mail className="h-3 w-3 mr-1" />Suggested Email
                 </Button>
               )}
               <button
@@ -235,26 +266,87 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
                   </div>
                 )}
 
-                {/* Key People */}
-                {json.keyPeople && json.keyPeople.length > 0 && (
-                  <div>
+                {/* Key People + Email action buttons */}
+                <div data-testid="key-people-email-actions">
+                  {json.keyPeople && json.keyPeople.length > 0 && (
                     <div className="flex items-center gap-1.5 mb-1.5">
                       <Users className="h-3.5 w-3.5 text-muted-foreground" />
                       <p className="text-[11px] uppercase font-semibold tracking-wider text-muted-foreground">Key People</p>
                     </div>
-                    <div className="space-y-1">
-                      {json.keyPeople.map((p, i) => (
-                        <div key={i} className="flex items-center gap-2 text-xs">
-                          <span className="font-medium text-foreground/90">{p.name}</span>
-                          {p.title && <span className="text-muted-foreground">· {p.title}</span>}
-                          {p.isDecisionMaker && (
-                            <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-primary/30 text-primary">DM</Badge>
-                          )}
-                        </div>
-                      ))}
+                  )}
+
+                  <div className={cn(
+                    "flex gap-3",
+                    json.keyPeople && json.keyPeople.length > 0
+                      ? "flex-col sm:flex-row sm:items-start"
+                      : "justify-end"
+                  )}>
+                    {/* Checkbox list */}
+                    {json.keyPeople && json.keyPeople.length > 0 && (
+                      <div className="flex-1 space-y-1.5" data-testid="key-people-list">
+                        {json.keyPeople.map((p, i) => {
+                          const hasEmail = !!(p.email && p.email.trim());
+                          const isSelected = selectedKeyPeople.some(s => s.email === p.email);
+                          return (
+                            <label
+                              key={i}
+                              className={cn(
+                                "flex items-center gap-2 text-xs select-none",
+                                hasEmail ? "cursor-pointer group" : "cursor-not-allowed opacity-50"
+                              )}
+                              title={!hasEmail ? "No email address available" : undefined}
+                              data-testid={`key-person-row-${i}`}
+                            >
+                              <Checkbox
+                                checked={isSelected}
+                                disabled={!hasEmail}
+                                onCheckedChange={() => {
+                                  if (!hasEmail || !p.email) return;
+                                  toggleKeyPerson({ name: p.name, email: p.email });
+                                }}
+                                className="h-3 w-3 rounded-[2px] border-muted-foreground/30 data-[state=checked]:bg-primary data-[state=checked]:border-primary shrink-0"
+                                aria-label={hasEmail ? `Select ${p.name} for email` : "No email address available"}
+                                data-testid={`checkbox-key-person-${i}`}
+                              />
+                              <span className="font-medium text-foreground/90">{p.name}</span>
+                              {p.title && <span className="text-muted-foreground">· {p.title}</span>}
+                              {p.isDecisionMaker && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-primary/30 text-primary">DM</Badge>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Action buttons column */}
+                    <div className="flex flex-col gap-1.5 sm:items-end shrink-0" data-testid="email-action-buttons">
+                      {recipientHint && (
+                        <p className="text-[10px] text-muted-foreground/60 sm:text-right" data-testid="text-recipient-hint">
+                          {recipientHint}
+                        </p>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-[11px] px-2 border-border/50 hover:border-primary/40"
+                        onClick={handleComposeNewEmail}
+                        data-testid="button-compose-new-email-from-summary"
+                      >
+                        <PenLine className="h-3 w-3 mr-1" />Compose New Email
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[11px] text-primary hover:text-primary/80 px-2"
+                        onClick={() => setEmailModalOpen(true)}
+                        data-testid="button-suggest-next-email"
+                      >
+                        <Mail className="h-3 w-3 mr-1" />Suggested Email
+                      </Button>
                     </div>
                   </div>
-                )}
+                </div>
 
                 {/* Opportunities & Risks */}
                 {json.opportunitiesAndRisks && json.opportunitiesAndRisks.length > 0 && (
@@ -338,6 +430,8 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
           entityType={entityType}
           entityId={entityId}
           entityName={entityName}
+          initialTo={recipientTo || undefined}
+          initialCc={recipientCc || undefined}
           onClose={() => setEmailModalOpen(false)}
         />
       )}
