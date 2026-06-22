@@ -14,6 +14,7 @@
 
 import OpenAI from "openai";
 import { createHash } from "crypto";
+import { getTokenLimitParam } from "./openai-compat";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { resolveIntentModifiers, buildIntentModifierPromptBlock } from "../../shared/intent-modifiers";
@@ -593,7 +594,7 @@ export async function generateCrmAiSummary(
       ],
       response_format: { type: "json_object" },
       temperature: 0.3,
-      max_tokens: 1200,
+      ...getTokenLimitParam("gpt-5-mini", 1200),
     });
 
     const raw = completion.choices[0]?.message?.content || "{}";
@@ -1206,7 +1207,7 @@ export async function generateSuggestedNextEmail(
       ],
       response_format: { type: "json_object" },
       temperature: 0.4,
-      max_tokens: 800,
+      ...getTokenLimitParam("gpt-5-mini", 800),
     });
 
     const raw = completion.choices[0]?.message?.content || "{}";

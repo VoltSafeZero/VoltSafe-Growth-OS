@@ -14,6 +14,7 @@
  */
 
 import OpenAI from "openai";
+import { getTokenLimitParam } from "./openai-compat";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
@@ -645,7 +646,7 @@ Return only the JSON object, no explanation.`;
       { role: "user", content: `Analyse my writing style from these ${emailSamples.length} email samples:\n\n${joined}` },
     ],
     temperature: 0.2,
-    max_tokens: 800,
+    ...getTokenLimitParam("gpt-5-mini", 800),
     response_format: { type: "json_object" },
   });
 

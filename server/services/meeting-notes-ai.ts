@@ -16,6 +16,7 @@
  */
 
 import OpenAI from "openai";
+import { getTokenLimitParam } from "./openai-compat";
 import { db } from "../db";
 import {
   meetingNotes,
@@ -169,7 +170,7 @@ async function callAI(
           { role: "user",   content: userPrompt },
         ],
         temperature: 0.2,
-        max_tokens: 4096,
+        ...getTokenLimitParam(model, 4096),
       });
       const raw = resp.choices[0]?.message?.content ?? "";
       const parsed = JSON.parse(raw) as AiOutput;
