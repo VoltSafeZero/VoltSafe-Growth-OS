@@ -277,9 +277,12 @@ const upload = multer({
   },
 });
 
+// SVG is excluded: browsers render SVG from the application origin and execute
+// any embedded JavaScript, making it a stored-XSS vector.  Upload is rejected;
+// existing SVGs are served as forced downloads (see sendAssetFile below).
 const ALLOWED_ASSET_MIME_TYPES = new Set([
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif",
-  "image/svg+xml", "image/tiff", "image/bmp",
+  "image/tiff", "image/bmp",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -295,7 +298,10 @@ const assetUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (ALLOWED_ASSET_MIME_TYPES.has(file.mimetype) || file.mimetype.startsWith("image/")) {
+    // Explicit allowlist only — the previous wildcard that matched any image/
+    // subtype was removed because it permitted SVG and other active-content
+    // image subtypes through the upload filter.
+    if (ALLOWED_ASSET_MIME_TYPES.has(file.mimetype)) {
       cb(null, true);
     } else {
       cb(new Error(`File type '${file.mimetype}' is not allowed`));
@@ -19041,9 +19047,30 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
+  // MIME types that can contain or execute script in a browser when served inline
+  // from the application origin.  These are always forced to "attachment" +
+  // "application/octet-stream" regardless of the caller's disposition argument,
+  // so even assets uploaded before the SVG upload ban are safe.
+  const ACTIVE_CONTENT_MIME_TYPES = new Set([
+    "image/svg+xml",
+    "text/html", "text/xml", "application/xml", "application/xhtml+xml",
+    "application/javascript", "text/javascript",
+    "application/x-shockwave-flash",
+  ]);
+
   function sendAssetFile(asset: { fileData?: string | null; filePath: string; mimeType: string; originalName: string }, res: any, disposition: "inline" | "attachment") {
-    res.setHeader("Content-Disposition", `${disposition}; filename="${encodeURIComponent(asset.originalName)}"`);
-    res.setHeader("Content-Type", asset.mimeType);
+    // Defense-in-depth: active-content types must never be served inline from
+    // the app origin.  Force download + opaque MIME so the browser cannot
+    // render or execute the payload even if the caller requested "inline".
+    const isActiveContent = ACTIVE_CONTENT_MIME_TYPES.has(asset.mimeType) ||
+      asset.mimeType.startsWith("text/html") ||
+      asset.mimeType.startsWith("image/svg");
+    const safeDisposition = isActiveContent ? "attachment" : disposition;
+    const safeContentType = isActiveContent ? "application/octet-stream" : asset.mimeType;
+
+    res.setHeader("Content-Disposition", `${safeDisposition}; filename="${encodeURIComponent(asset.originalName)}"`);
+    res.setHeader("Content-Type", safeContentType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
     if (asset.fileData) {
       const buf = Buffer.from(asset.fileData, "base64");
       return res.send(buf);
