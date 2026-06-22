@@ -80,7 +80,7 @@ check(
 
 check(
   "cleanAiEmailBody is applied to parsed body before returning",
-  src.includes("cleanAiEmailBody(parsed.body"),
+  src.includes("cleanAiEmailBody(parsed.body") || src.includes("cleanAiEmailBody(normalizedBody"),
 );
 
 // ── 2. System prompt — signature and formatting rules ────────────────────────
