@@ -47,11 +47,11 @@ const svc   = fs.readFileSync(SVC,   "utf8");
 const modal = fs.readFileSync(MODAL, "utf8");
 
 // ── Section 1: tokenLimit raised ─────────────────────────────────────────────
-console.log("\n── Backend: tokenLimit raised to 2000 ──");
+console.log("\n── Backend: tokenLimit raised to 4000 ──");
 
 assert(
-  svc.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 2000, temperature: 0.4 })'),
-  "suggest-next-email uses tokenLimit: 2000 (was 800 — caused empty {} from model)"
+  svc.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 4000, temperature: 0.4 })'),
+  "suggest-next-email uses tokenLimit: 4000 (was 800 then 2000 — finish_reason=length fix)"
 );
 assert(
   !svc.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 800'),
@@ -161,8 +161,8 @@ console.log("\n── Backend: response_format: json_object still in suggest-nex
 
 // Find the suggest-next-email openai call specifically (not the AI summary call)
 const suggestBlock = svc.substring(
-  svc.indexOf("buildOpenAIModelParams(\"gpt-5-mini\", { tokenLimit: 2000"),
-  svc.indexOf("buildOpenAIModelParams(\"gpt-5-mini\", { tokenLimit: 2000") + 300
+  svc.indexOf("buildOpenAIModelParams(\"gpt-5-mini\", { tokenLimit: 4000"),
+  svc.indexOf("buildOpenAIModelParams(\"gpt-5-mini\", { tokenLimit: 4000") + 300
 );
 assert(
   svc.includes('response_format: { type: "json_object" }'),
