@@ -15,7 +15,7 @@
 import crypto from "crypto";
 import { db } from "../db";
 import { bookingLinks, bookingLinkRecipients, calendarEvents } from "@shared/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, lt, gt } from "drizzle-orm";
 import { z } from "zod";
 import { createZoomMeetingForBooking } from "./zoom-meeting-service";
 
@@ -536,8 +536,9 @@ export async function resolvePublicToken(token: string): Promise<PublicBookingVi
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const confirmBookingSchema = z.object({
-  slotStart:    z.string().datetime({ message: "slotStart must be an ISO 8601 datetime" }),
-  attendeeName: z.string().max(200).optional(),
+  slotStart:      z.string().datetime({ message: "slotStart must be an ISO 8601 datetime" }),
+  attendeeName:   z.string().max(200).optional(),
+  attendeeEmail:  z.string().email().max(320).optional(),
 });
 
 export interface ConfirmBookingResult {
@@ -562,7 +563,7 @@ export interface ConfirmBookingResult {
  */
 export async function confirmBooking(
   token: string,
-  data: { slotStart: string; attendeeName?: string },
+  data: { slotStart: string; attendeeName?: string; attendeeEmail?: string },
 ): Promise<ConfirmBookingResult | null> {
   // 1. Resolve recipient
   const [recipient] = await db
@@ -620,6 +621,47 @@ export async function confirmBooking(
   );
   if (slotError) {
     throw new BookingSlotError(slotError);
+  }
+
+  // 3c. RECIPIENT MATCH — when enabled, the caller must supply the email address
+  // that this booking token was issued to. Without this check any token holder
+  // who obtained the URL (e.g. from a forwarded invite) could book on behalf of
+  // the intended recipient without proving they are that person.
+  if (link.requireRecipientMatch) {
+    const supplied = (data.attendeeEmail ?? "").toLowerCase().trim();
+    const expected = recipient.recipientEmail.toLowerCase().trim();
+    if (!supplied || supplied !== expected) {
+      throw new BookingSlotError(
+        "This booking link requires confirming the email address it was sent to"
+      );
+    }
+  }
+
+  // 3d. BUFFER CONFLICT — if the link has a bufferMinutes setting, reject slots
+  // that would leave less than that buffer around any existing calendar event
+  // owned by the same user.  The check is advisory on the client but mandatory
+  // here so no token holder can bypass it by posting an arbitrary slotStart.
+  if (link.bufferMinutes > 0) {
+    const _reqStart = new Date(data.slotStart);
+    const _reqEnd   = new Date(_reqStart.getTime() + link.slotMinutes * 60_000);
+    const _bufMs    = link.bufferMinutes * 60_000;
+    const _bufStart = new Date(_reqStart.getTime() - _bufMs);
+    const _bufEnd   = new Date(_reqEnd.getTime()   + _bufMs);
+    const _conflicts = await db
+      .select({ id: calendarEvents.id })
+      .from(calendarEvents)
+      .where(and(
+        eq(calendarEvents.userId, link.ownerUserId),
+        isNotNull(calendarEvents.endTime),
+        lt(calendarEvents.startTime, _bufEnd),
+        gt(calendarEvents.endTime!, _bufStart),
+      ))
+      .limit(1);
+    if (_conflicts.length > 0) {
+      throw new BookingSlotError(
+        `This slot conflicts with an existing booking — a ${link.bufferMinutes}-minute buffer is required between meetings`
+      );
+    }
   }
 
   // 4. Calculate times

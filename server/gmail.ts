@@ -3,6 +3,7 @@
 // the token for that specific account is used regardless of which user is calling.
 import fs from "fs";
 import path from "path";
+import { promises as dnsPromises } from "dns";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SSRF guard — used by extractCtaInlineImages() before any outbound fetch
@@ -65,6 +66,67 @@ function isSsrfSafeUrl(src: string): boolean {
 
   return true;
 }
+
+/**
+ * Async SSRF guard that extends isSsrfSafeUrl with DNS resolution.
+ *
+ * The synchronous isSsrfSafeUrl only validates hostname/IP literals, which
+ * is sufficient to block direct private-IP literals but not DNS-rebinding
+ * attacks where an attacker registers a public hostname that resolves to a
+ * private address (e.g. evil.attacker.com → 169.254.169.254).
+ *
+ * This function additionally resolves A/AAAA records for hostnames and
+ * rejects the URL if any resolved IP falls in a private/reserved range.
+ * On DNS resolution failure (NXDOMAIN, timeout) the URL is blocked.
+ *
+ * IPv4/IPv6 literals that already passed isSsrfSafeUrl need no DNS lookup.
+ */
+async function checkSsrfSafeUrlAsync(src: string): Promise<boolean> {
+  if (!isSsrfSafeUrl(src)) return false;
+
+  let host: string;
+  try {
+    host = new URL(src).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return false;
+  }
+
+  // IP literals already validated by isSsrfSafeUrl — no DNS needed
+  const isIpv4Literal = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+  const isIpv6Literal = host.includes(":");
+  if (isIpv4Literal || isIpv6Literal) return true;
+
+  // Resolve A/AAAA records and validate each resolved address
+  try {
+    const [ipv4s, ipv6s] = await Promise.all([
+      dnsPromises.resolve4(host).catch(() => [] as string[]),
+      dnsPromises.resolve6(host).catch(() => [] as string[]),
+    ]);
+    const all = [...ipv4s, ...ipv6s];
+    // No records resolved → block (NXDOMAIN or empty response)
+    if (all.length === 0) return false;
+    return all.every((addr) => {
+      if (addr.includes(":")) {
+        // IPv6
+        const l = addr.toLowerCase();
+        return l !== "::1" && !l.startsWith("fe80:") && !l.startsWith("fc") && !l.startsWith("fd");
+      }
+      // IPv4
+      const parts = addr.split(".").map(Number);
+      const [a, b] = parts;
+      return !(
+        a === 0 || a === 10 || a === 127 ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) ||
+        a >= 224
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
 import { getGmailClient } from "./gmail-oauth";
 import { resolveCtaAsset, getCtaAssetHealth } from "./services/cta-asset-resolver";
 
@@ -371,16 +433,19 @@ export async function extractCtaInlineImages(
       // isSsrfSafeUrl() blocks private IPs (RFC-1918), link-local (169.254.x),
       // loopback, and known internal hostnames before the network call is made.
       if (!data && (src.startsWith("https://") || src.startsWith("http://"))) {
-        if (!isSsrfSafeUrl(src)) {
+        if (!await checkSsrfSafeUrlAsync(src)) {
           console.error(`[sig-cid] SSRF blocked — refusing to fetch private/reserved URL: "${src.slice(0, 80)}"`);
         } else {
           try {
             const ctrl = new AbortController();
             const timer = setTimeout(() => ctrl.abort(), 10000);
-            const resp = await fetch(src, { signal: ctrl.signal });
+            // redirect:'error' prevents following HTTP redirects to avoid SSRF via
+            // open-redirect chains.  A redirect response is treated the same as a
+            // network error (image is not inlined, URL is left as-is).
+            const resp = await fetch(src, { signal: ctrl.signal, redirect: "error" });
             clearTimeout(timer);
             if (resp.ok) data = Buffer.from(await resp.arrayBuffer());
-          } catch { /* timeout / network error — leave URL as-is */ }
+          } catch { /* timeout / network error / redirect blocked — leave URL as-is */ }
         }
       }
 

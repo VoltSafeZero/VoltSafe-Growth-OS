@@ -1,0 +1,103 @@
+Fix email open tracking so VoltSafe CMS/internal views do NOT count as recipient opens.
+
+Current issue:
+In the Leads section, I opened a linked email and the engagement panel immediately showed:
+- Opened 38x
+- Last seen just now
+
+That appears to have been triggered by me viewing the email inside VoltSafe CMS. This is wrong.
+
+Expected behavior:
+Email opens should only count when the external email recipient opens the email in their email client.
+
+Do NOT count opens caused by:
+- Trevor or any @voltsafe.com user viewing the email in VoltSafe CMS
+- internal team members
+- CRM lead page rendering
+- Mail thread viewer rendering
+- backend sync/indexing
+- image proxy loading
+- attachment preview loading
+- demo/admin/test preview views
+- any authenticated VoltSafe CMS session
+
+Audit the full tracking flow:
+1. Find the tracking pixel/open endpoint.
+   Search for:
+   - tracking pixel
+   - open tracking
+   - email_open
+   - engagement
+   - last_seen
+   - image load
+   - pixel
+   - opens
+   - recipient tracking
+
+2. Identify what triggers an open event.
+   Confirm whether the CMS reader loads:
+   - tracking pixel URL
+   - tracked CTA image
+   - proxied image that records opens
+   - original outbound HTML with tracking pixel still embedded
+
+3. Fix internal self-tracking.
+   Add a hard exclusion so open events are ignored when:
+   - request is authenticated as a VoltSafe CMS user
+   - request comes from internal app preview/render route
+   - recipient email domain is voltsafe.com
+   - viewer email is @voltsafe.com
+   - user-agent/referrer indicates VoltSafe CMS internal render
+   - request is from localhost/dev/Replit preview/internal server-side fetch
+
+4. Preserve real external tracking.
+   External recipient opens should still count normally when:
+   - the recipient opens the email in Gmail/Outlook/Apple Mail/etc.
+   - the tracking request is unauthenticated/public
+   - the recipient is not internal
+   - the event maps to the intended recipient
+
+5. Recipient attribution:
+   The engagement panel should show:
+   - recipient email
+   - total opens by that recipient
+   - first opened timestamp
+   - last opened timestamp
+   - individual open events with timestamps
+   - clicks separately from opens
+
+6. Deduping:
+   Keep or improve existing rapid-repeat dedupe.
+   Do not count multiple image loads from the same recipient/client within a short window as many opens.
+   But do not hide real later opens from the same recipient.
+
+7. Data repair:
+   Add a cleanup query or admin action to remove/flag historical internal opens caused by:
+   - @voltsafe.com viewers
+   - authenticated CMS sessions
+   - internal/referrer CMS views
+   - localhost/Replit/dev preview
+   These should not contribute to open counts or “last seen.”
+
+8. UI improvement:
+   In the engagement panel, distinguish:
+   - External recipient open
+   - Internal view ignored
+   - Rapid repeat ignored
+   - Bot/proxy likely ignored
+
+9. Tests:
+   Add regression tests:
+   - CMS authenticated user viewing linked email does not create open event.
+   - @voltsafe.com recipient/viewer is excluded.
+   - external recipient pixel load creates open event.
+   - same-source rapid image loads are deduped.
+   - engagement count excludes ignored/internal events.
+   - “Last seen just now” only updates from valid external recipient events.
+
+Acceptance criteria:
+- Opening/viewing an email inside VoltSafe CMS does not increment opens.
+- Opening/viewing a lead email inside CRM does not update “last seen.”
+- Only external recipient opens count.
+- The Safe Harbor email should not show “just now” merely because I viewed it in CMS.
+- Historical polluted internal opens can be cleaned or excluded from analytics.
