@@ -10,7 +10,7 @@ import {
   calcDelta, getPriorPeriod, generateSummaryBullets,
 } from "./executive-kpis";
 import { storage } from "./storage";
-import { runAutomationRule, evaluateConditions, type TriggerContext, type Condition, type Action } from "./services/automation-engine";
+import { runAutomationRule, evaluateConditions, VALID_OBJECT_TYPES, type TriggerContext, type Condition, type Action } from "./services/automation-engine";
 import { scanEmailsForWinter, generateCaseNumber, classifyIssueType, classifySeverity, scoreSentiment } from "./services/winter-detector";
 import { scoreLeadQuality, scoreOpportunityClose, scoreQuoteFollowUpUrgency, scoreDeploymentDelayRisk, scoreChurnRisk, scoreExpansionLikelihood, bandRank, actionHintFor, type HotListItem } from "./services/scoring-engine";
 import { composeReport, ALL_SECTION_KEYS } from "./services/report-composer";
@@ -25882,7 +25882,9 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // POST /api/automations — create rule (BEFORE /:id/run)
-  app.post("/api/automations", requireAuth, async (req, res) => {
+  // Restricted to admins: automation rules run privileged DB writes against
+  // any object in the application and must not be creatable by regular users.
+  app.post("/api/automations", requireAuth, requireAdmin, async (req, res) => {
     try {
       const { name, description, triggerType, conditions, actions, scope, cooldownMinutes, dedupeKey, enabled, isTemplate, templateName } = req.body;
       if (!name || !triggerType) return res.status(400).json({ message: "name and triggerType are required" });
@@ -25930,15 +25932,22 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // POST /api/automations/:id/run — manual trigger with optional dry-run
-  app.post("/api/automations/:id/run", requireAuth, async (req, res) => {
+  // Restricted to admins: manually firing a rule can write to any CRM record.
+  app.post("/api/automations/:id/run", requireAuth, requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const rule = await storage.getAutomationRule(id);
       if (!rule) return res.status(404).json({ message: "Rule not found" });
       const dryRun = req.body.dryRun === true || req.query.dryRun === "true";
+      // Validate objectType against the fixed allowlist before it reaches the
+      // engine where it would otherwise be interpolated into SQL statements.
+      const rawObjectType = String(req.body.objectType ?? "general");
+      if (!VALID_OBJECT_TYPES.has(rawObjectType)) {
+        return res.status(400).json({ message: `Invalid objectType '${rawObjectType}'` });
+      }
       const ctx: TriggerContext = {
         triggerType: rule.triggerType,
-        objectType: req.body.objectType ?? "general",
+        objectType: rawObjectType,
         objectId: Number(req.body.objectId ?? 0),
         actorUserId: req.session.userId ?? null,
         before: req.body.before ?? {},
@@ -25962,7 +25971,8 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // PUT /api/automations/:id — update rule
-  app.put("/api/automations/:id", requireAuth, async (req, res) => {
+  // Admin-only: same privilege concern as rule creation.
+  app.put("/api/automations/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const existing = await storage.getAutomationRule(id);
@@ -25973,7 +25983,8 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // PATCH /api/automations/:id/toggle — enable/disable
-  app.patch("/api/automations/:id/toggle", requireAuth, async (req, res) => {
+  // Admin-only: enabling a rule could immediately trigger privileged writes.
+  app.patch("/api/automations/:id/toggle", requireAuth, requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const existing = await storage.getAutomationRule(id);
@@ -25984,7 +25995,8 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // DELETE /api/automations/:id
-  app.delete("/api/automations/:id", requireAuth, async (req, res) => {
+  // Admin-only: deleting rules is a privileged management action.
+  app.delete("/api/automations/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const ok = await storage.deleteAutomationRule(Number(req.params.id));
       if (!ok) return res.status(404).json({ message: "Rule not found" });
