@@ -165,13 +165,13 @@ check(
 console.log("\n── 3. User prompt — context richness and recency ──────────────");
 
 check(
-  "User prompt: instructs to use ALL available context",
-  src.includes("Use ALL available context"),
+  "User prompt: instructs model to use newest activity first",
+  src.includes("NEWEST activity appears first") || src.includes("Use ALL available context"),
 );
 
 check(
   "User prompt: instructs strongest weight on most recent emails",
-  src.includes("strongest weight on the most recent"),
+  src.includes("newest activity carries the most weight") || src.includes("strongest weight on the most recent"),
 );
 
 check(

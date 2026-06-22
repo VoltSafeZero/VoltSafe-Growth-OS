@@ -78,8 +78,8 @@ check(
 );
 check(
   "System prompt references todayISO",
-  // Window expanded: system prompt now includes signature/formatting/content rules before temporal section
-  /systemPrompt[\s\S]{0,4000}todayISO/.test(src),
+  // Window expanded: system prompt now includes signature/formatting/content/recency rules before temporal section
+  /systemPrompt[\s\S]{0,8000}todayISO/.test(src),
 );
 check(
   "Today's date is injected into DETERMINISTIC DATE CONTEXT block",
@@ -109,8 +109,8 @@ check(
 );
 check(
   "pastDates are included in the user prompt",
-  // Window expanded: user prompt array now has more preamble before pastDates reference
-  /pastDates[\s\S]{0,500}userPrompt|userPrompt[\s\S]{0,500}pastDates/.test(src),
+  // Window expanded: HIGH PRIORITY CONTEXT pre-processing block sits between userPrompt and pastDates reference
+  /pastDates[\s\S]{0,500}userPrompt|userPrompt[\s\S]{0,5000}pastDates/.test(src),
 );
 check(
   "futureDates are included in the user prompt",

@@ -1,0 +1,95 @@
+Update the AI Suggested Email Generator prompt/instructions so it strongly prioritizes the most recent CRM activity when generating the next email.
+
+Goal:
+The AI must generate the next best email based on the newest and most relevant context from the Lead/Account/Contact file, including linked emails, comments, notes, action items, meeting summaries, documents, status fields, and pipeline stage.
+
+Add or replace the email generation instruction with the following:
+
+---
+RECENCY-WEIGHTED EMAIL GENERATION RULES
+
+When generating a suggested follow-up email, treat the CRM file as a timeline, not a pile of facts.
+
+The newest relevant activity must carry the most weight.
+
+Priority order:
+
+1. Most recent direct emails
+- Prioritize the newest inbound and outbound emails above older notes or summaries.
+- The latest reply, question, objection, commitment, requested follow-up, or open loop is the strongest signal.
+- Never ignore the most recent email thread.
+- Do not restart the conversation as if prior emails did not happen.
+
+2. Most recent comments, notes, meeting summaries, and action items
+- Recent internal comments and notes should guide the purpose of the next email.
+- If a recent comment says the user plans to reach out today, the generated email should follow that direction.
+- If there is a recent action item, the email should move that action forward.
+
+3. Current CRM status and pipeline context
+- Use the current pipeline stage, lead status, temperature, confidence, assigned owner, and next-step fields to shape tone and urgency.
+- Do not write a generic sales email if the lead is already qualified, warm, active, or mid-conversation.
+
+4. Key people and stakeholder context
+- Address the right person or group based on the latest communication.
+- Mention relevant stakeholders only when useful.
+- Avoid using stale or low-confidence contact details.
+
+5. Older background information
+- Older notes should only support the email.
+- Older context must not override newer emails, comments, or action items.
+- If old and new context conflict, follow the newest relevant activity.
+
+Hard rule:
+MOST RECENT ACTIVITY WINS.
+
+A comment, email, note, or action item from today should outweigh a meeting summary from last month unless the older item is explicitly marked as still active, strategic, or unresolved.
+
+Before writing the email, silently determine:
+- What happened most recently?
+- Who said what last?
+- What is the latest open loop?
+- What is the most logical next step?
+- What should the recipient understand, feel, and do after reading this email?
+
+The generated email must:
+- Acknowledge the most recent relevant interaction.
+- Explain the reason for reaching out now.
+- Use the most relevant value point based on the account context.
+- Include one clear next step or call to action.
+- Be concise, executive, helpful, and action-oriented.
+
+Avoid:
+- Generic “just checking in” emails.
+- Repeating stale meeting notes.
+- Summarizing the whole account.
+- Overexplaining.
+- Making claims not supported by the CRM file.
+- Ignoring recent emails, comments, or action items.
+
+If the latest context includes a pilot invitation, meeting follow-up, requested deck, compliance question, pricing discussion, technical question, stakeholder intro, scheduling need, or decision deadline, the email must directly advance that item.
+
+If the context is incomplete or conflicting, generate the safest useful email based on the newest reliable activity.
+---
+
+Implementation requirement:
+Make sure the AI Email Generator receives CRM context sorted newest-first wherever possible.
+
+Context passed into the model should clearly label each item with:
+- type: email, comment, note, meeting, action_item, document, CRM field, etc.
+- direction: inbound, outbound, internal, if applicable
+- timestamp
+- author/sender
+- recipients, if applicable
+- content/body/snippet
+
+Also add a small pre-processing step before calling the model:
+- Sort all activity by timestamp descending.
+- Mark the newest 3 to 5 relevant activities as HIGH PRIORITY CONTEXT.
+- Include a clear instruction that HIGH PRIORITY CONTEXT must dominate the suggested email.
+
+Add tests or verification to confirm:
+1. A recent comment overrides older notes.
+2. A recent inbound email drives the generated next step.
+3. Older meeting notes are used only as supporting context.
+4. The generated email does not ignore the newest linked email.
+5. The generated email does not produce a generic check-in when a specific recent action item exists.
