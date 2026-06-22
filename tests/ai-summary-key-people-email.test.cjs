@@ -203,7 +203,7 @@ assert(
   "SuggestedNextEmailModal has optional initialCc prop"
 );
 assert(
-  modal.includes("initialTo, initialCc }"),
+  modal.includes("initialTo, initialCc") && modal.includes("}: Props"),
   "SuggestedNextEmailModal destructures initialTo and initialCc"
 );
 
