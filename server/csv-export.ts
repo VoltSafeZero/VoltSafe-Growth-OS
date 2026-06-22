@@ -3,9 +3,25 @@ export interface CsvColumn {
   header: string;
 }
 
+/**
+ * Neutralize CSV / spreadsheet formula injection.
+ *
+ * Cells that begin with =, +, -, @, TAB, or CR are interpreted as formulas
+ * by Excel, LibreOffice Calc, and Google Sheets.  Prefixing with a single
+ * quote (') forces those programs to treat the cell as plain text.  The
+ * apostrophe is invisible to the reader inside a cell but is the standard
+ * OWASP-recommended mitigation for CSV injection.
+ */
+function neutralizeFormula(str: string): string {
+  if (str.length > 0 && /^[=+\-@\t\r]/.test(str)) {
+    return "'" + str;
+  }
+  return str;
+}
+
 function escapeValue(val: unknown): string {
   if (val === null || val === undefined) return "";
-  const str = String(val);
+  const str = neutralizeFormula(String(val));
   if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
