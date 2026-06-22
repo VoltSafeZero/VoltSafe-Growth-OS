@@ -13,7 +13,7 @@ import {
   CheckCircle2, Loader2, PenLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { setPendingCompose } from "@/lib/compose-handoff";
+import { setPendingCompose, type CrmReturnContext } from "@/lib/compose-handoff";
 import { SuggestedNextEmailModal } from "./suggested-next-email-modal";
 
 type EntityType = "lead" | "account" | "contact";
@@ -129,9 +129,24 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
     };
   }
 
+  function buildCrmReturnContext(): CrmReturnContext {
+    const pathMap: Record<EntityType, string> = {
+      lead: `/opportunities?selected=${entityId}`,
+      account: `/accounts?selected=${entityId}`,
+      contact: `/contacts?selected=${entityId}`,
+    };
+    return {
+      source: "crm",
+      recordType: entityType,
+      recordId: entityId,
+      recordName: entityName,
+      returnPath: pathMap[entityType],
+    };
+  }
+
   function handleComposeNewEmail() {
     const { to, cc } = getComposeRecipients();
-    setPendingCompose({ to, cc, subject: "", body: "" });
+    setPendingCompose({ to, cc, subject: "", body: "", crmReturnContext: buildCrmReturnContext() });
     setLocation("/gmail");
   }
 
@@ -442,6 +457,7 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
           initialTo={recipientTo || undefined}
           initialCc={recipientCc || undefined}
           onClose={() => setEmailModalOpen(false)}
+          crmReturnContext={buildCrmReturnContext()}
         />
       )}
     </div>

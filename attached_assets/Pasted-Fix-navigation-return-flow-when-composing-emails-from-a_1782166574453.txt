@@ -1,0 +1,244 @@
+Fix navigation/return flow when composing emails from a Lead/Account/Contact record.
+
+Problem:
+When a user is inside a Lead/Account/Contact detail modal and clicks either:
+- Compose New Email
+- Suggested Email → Continue in Mail
+
+…the app correctly opens VoltSafe Mail compose, but the user loses the original CRM context.
+
+Current broken behavior:
+- User starts inside a Lead/Account detail modal.
+- User clicks Compose New Email or Suggested Email.
+- VoltSafe Mail compose opens.
+- There is no reliable “Back” path to return to the original Lead/Account modal.
+- After sending the email, the user lands in VoltSafe Mail / Leads list instead of returning to the Lead/Account they started from.
+- This breaks workflow continuity.
+
+Expected behavior:
+The app should preserve origin context whenever email compose is launched from CRM.
+
+If the user starts from a Lead/Account/Contact and opens compose:
+1. User should be able to go Back to the previous CRM screen/modal at every step.
+2. If the user sends the email, they should return to the exact Lead/Account/Contact detail modal they started from.
+3. If the user cancels compose, they should return to the exact Lead/Account/Contact detail modal they started from.
+4. If the user is in Suggested Email modal and clicks Cancel/Close, they should return to the Lead/Account detail modal, not the general Leads list.
+5. If the user continues from Suggested Email into VoltSafe Mail compose, the original CRM return destination must still be preserved.
+
+Core requirement:
+Create a CRM email compose return context.
+
+When launching Compose New Email or Suggested Email from CRM, pass/store origin context like:
+
+{
+  source: "crm",
+  recordType: "lead" | "account" | "contact" | "opportunity",
+  recordId: string,
+  recordName: string,
+  returnPath: string,
+  modalState: {
+    openDetailModal: true,
+    activeTab?: string,
+    scrollPosition?: number
+  }
+}
+
+Use whatever state/router pattern already exists in the app, but the return context must survive:
+- Suggested Email modal
+- Continue in Mail
+- VoltSafe Mail compose modal
+- Send
+- Cancel
+- Close
+- Browser back where possible
+
+Feature requirements:
+
+1. Preserve CRM origin when clicking Compose New Email
+
+From the AI Summary card inside a Lead/Account/Contact:
+- User selects Key People.
+- User clicks Compose New Email.
+- Open VoltSafe Mail compose with recipients prefilled.
+- Attach return context pointing back to the current CRM record/detail modal.
+
+If user clicks Cancel in compose:
+- Return to the same Lead/Account/Contact modal.
+
+If user sends:
+- Return to the same Lead/Account/Contact modal.
+- Ideally refresh linked emails/activity so the newly sent email appears or can be synced.
+
+2. Preserve CRM origin when clicking Suggested Email
+
+From the AI Summary card:
+- User selects Key People.
+- User clicks Suggested Email.
+- Suggested Email modal opens.
+
+If user closes/cancels Suggested Email:
+- Return to the same Lead/Account/Contact modal.
+
+If user clicks Continue in Mail:
+- Open VoltSafe Mail compose with suggested subject/body/recipients.
+- Carry forward the same CRM return context.
+
+If user cancels compose:
+- Return to the same Lead/Account/Contact modal.
+
+If user sends:
+- Return to the same Lead/Account/Contact modal.
+- Refresh CRM linked email/activity if possible.
+
+3. Add visible Back behavior
+
+When compose was launched from CRM:
+- Show a Back button or “Back to [Record Name]” action in the compose modal/header.
+- Example:
+  “← Back to Safe Harbor Group”
+  or
+  “← Back to Lead”
+
+Clicking it should:
+- Close compose
+- Restore the original CRM record/detail modal
+- Not lose the Lead/Account page state
+
+For Suggested Email modal:
+- Add or ensure a Back/Cancel path returns to the Lead/Account detail modal.
+- Do not dump the user back to the Leads list unless that is where they actually started.
+
+4. Send completion behavior
+
+After a successful Send from compose:
+- If compose has crmReturnContext:
+  - close compose
+  - navigate back to the CRM route
+  - reopen the original record detail modal
+  - optionally refresh that record’s activity/emails/comments
+- If compose was opened directly from VoltSafe Mail:
+  - preserve existing behavior
+
+Do not change normal Mail compose behavior unless a CRM return context exists.
+
+5. Draft/cancel behavior
+
+If the user cancels compose:
+- If CRM return context exists, return to CRM origin.
+- If no CRM return context exists, preserve existing cancel behavior.
+
+If the user saves a draft:
+- If CRM return context exists, return to CRM origin after save unless existing UX intentionally keeps compose open.
+- Do not lose the draft.
+
+6. Browser history/back support
+
+Where practical, update browser history/state so the native browser Back button does the expected thing.
+
+Example:
+- Starting point: /crm/leads?leadId=abc or current equivalent
+- Open Suggested Email: push state or modal state
+- Continue in Mail compose: push state or modal state
+- Back should close compose and return to Suggested Email or CRM detail, depending on previous state.
+- Another Back should return to the Lead detail/list state.
+
+Do not over-engineer if the app uses modal state instead of route state, but users must not get trapped.
+
+7. Do not lose compose data accidentally
+
+If user clicks Back from compose and the body has unsaved edits:
+- Show a simple confirm dialog:
+  “Discard this email draft?”
+- Options:
+  - Keep editing
+  - Discard and go back
+
+If the email was opened from Suggested Email and unchanged, going back can safely return to the Suggested Email modal or CRM record.
+
+8. Linked email/activity refresh
+
+After sending from a CRM-origin compose:
+- The sent email should be linked to the CRM record if that is already supported.
+- Trigger a refresh of linked emails/activity for that Lead/Account if possible.
+- The user should return to the record and see updated context or be able to sync.
+
+9. Implementation notes
+
+Look for:
+- AI Summary card Compose New Email handler
+- AI Summary Suggested Email handler
+- Suggested Next Email modal Continue in Mail handler
+- VoltSafe Mail compose modal/component
+- send email handler
+- cancel/close compose handler
+- router/navigation state
+- CRM detail modal open state
+
+Add a reusable return-context type/helper, for example:
+
+type ComposeReturnContext = {
+  source: "crm";
+  recordType: "lead" | "account" | "contact" | "opportunity";
+  recordId: string;
+  recordName?: string;
+  returnPath?: string;
+  reopenDetailModal?: boolean;
+  activeTab?: string;
+};
+
+Pass this into compose state alongside:
+- to
+- cc
+- bcc
+- subject
+- body
+
+10. Tests / verification
+
+Add or update tests to confirm:
+
+- Compose New Email from Lead detail opens compose with crmReturnContext.
+- Suggested Email from Lead detail opens Suggested Email modal with crmReturnContext.
+- Continue in Mail preserves crmReturnContext into compose.
+- Cancel compose returns to the original Lead detail modal.
+- Send compose returns to the original Lead detail modal.
+- Back button returns to the original Lead detail modal.
+- Direct compose from VoltSafe Mail still behaves normally.
+- Direct compose from VoltSafe Mail does not attempt CRM return.
+- Unsaved edited compose prompts before discarding.
+- Sent email from CRM-origin compose links back to the CRM record if linking is supported.
+- Returning to the CRM record refreshes linked email/activity.
+
+Manual acceptance test:
+
+Use Safe Harbor Group or Safe Harbor Cabrillo Isle.
+
+Test A — Compose New Email:
+1. Open Lead/Account detail modal.
+2. Select Key People.
+3. Click Compose New Email.
+4. Confirm compose opens with TO/CC prefilled.
+5. Click Back or Cancel.
+6. Confirm you return to the same Lead/Account detail modal, not the Leads list.
+
+Test B — Suggested Email:
+1. Open Lead/Account detail modal.
+2. Select Key People.
+3. Click Suggested Email.
+4. Confirm Suggested Email modal opens.
+5. Click Continue in Mail.
+6. Confirm compose opens with recipients, subject, and body.
+7. Click Send.
+8. Confirm you return to the original Lead/Account detail modal.
+
+Test C — normal Mail:
+1. Open VoltSafe Mail directly.
+2. Click Compose.
+3. Cancel or Send.
+4. Confirm normal Mail behavior is unchanged.
+
+Acceptance criteria:
+CRM-origin email actions must behave like a round trip:
+Lead/Account → Suggested/Compose → Mail Compose → Send/Cancel → same Lead/Account.
+
+Do not strand the user in VoltSafe Mail or the general Leads list after they started from a specific CRM record.

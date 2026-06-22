@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, RefreshCw, Send, Sliders, Sparkles, X, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { setPendingCompose } from "@/lib/compose-handoff";
+import { setPendingCompose, type CrmReturnContext } from "@/lib/compose-handoff";
 import { plainTextToHtml } from "@/lib/email-format";
 import {
   INTENT_MODIFIERS,
@@ -64,6 +64,8 @@ interface Props {
   initialTo?: string;
   /** Pre-selected CC recipient(s) from AI Summary Key People — overrides AI-generated CC */
   initialCc?: string;
+  /** CRM origin — when present, compose dialog navigates back to the source record after send/cancel */
+  crmReturnContext?: CrmReturnContext;
 }
 
 async function fetchSuggestedEmail(
@@ -117,7 +119,7 @@ const CATEGORY_ORDER = [
   "Follow-Up Intent",
 ];
 
-export function SuggestedNextEmailModal({ entityType, entityId, entityName, onClose, initialTo, initialCc }: Props) {
+export function SuggestedNextEmailModal({ entityType, entityId, entityName, onClose, initialTo, initialCc, crmReturnContext }: Props) {
   const [, setLocation] = useLocation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -284,6 +286,8 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
       cc: effectiveCc,
       subject: effectiveSubject,
       body: finalBody,
+      // Forward CRM origin so the compose dialog can navigate back after send/cancel
+      crmReturnContext,
     };
 
     try {

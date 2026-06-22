@@ -489,6 +489,7 @@ function ComposeDialog({
   forwardSubject = "",
   forwardTo = "",
   onTrustEvent,
+  crmReturnContext,
 }: {
   open: boolean;
   onClose: () => void;
@@ -509,6 +510,8 @@ function ComposeDialog({
   forwardSubject?: string;
   forwardTo?: string;
   onTrustEvent?: (event: TrustEvent) => void;
+  /** When set, shows a "← Back to [Record]" button and navigates there on close */
+  crmReturnContext?: import("@/lib/compose-handoff").CrmReturnContext;
 }) {
   const { toast } = useToast();
   const [to, setTo] = useState(defaultTo);
@@ -1429,6 +1432,18 @@ function ComposeDialog({
                   <Reply className="h-2.5 w-2.5 flex-shrink-0" />
                   <span>to <span className="font-medium text-foreground/65">{replyToSender}</span></span>
                 </span>
+              )}
+              {/* CRM origin back button — visible when compose was launched from a Lead/Account/Contact */}
+              {crmReturnContext && (
+                <button
+                  onClick={onClose}
+                  className="flex items-center gap-1 text-[11px] text-primary/75 hover:text-primary transition-colors border border-primary/25 hover:border-primary/50 rounded-full px-2 py-0.5 bg-primary/5 hover:bg-primary/10"
+                  data-testid="button-back-to-crm"
+                  title={`Back to ${crmReturnContext.recordName ?? crmReturnContext.recordType}`}
+                >
+                  <ArrowLeft className="h-3 w-3 flex-shrink-0" />
+                  <span>Back to {crmReturnContext.recordName ?? (crmReturnContext.recordType === "lead" ? "Lead" : crmReturnContext.recordType === "account" ? "Account" : "Contact")}</span>
+                </button>
               )}
             </div>
             <button
@@ -5122,7 +5137,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [snippetsManagerOpen, setSnippetsManagerOpen] = useState(false);
   const { snippets } = useSnippets();
   // ── Compose seed (cmdk → contact / snippet → fresh compose) ────────────
-  const [composeInitial, setComposeInitial] = useState<{ to?: string; cc?: string; subject?: string; body?: string; isForward?: boolean; quotedHtml?: string; quotedFrom?: string; quotedDate?: string; forwardSubject?: string; forwardTo?: string } | null>(null);
+  const [composeInitial, setComposeInitial] = useState<{ to?: string; cc?: string; subject?: string; body?: string; isForward?: boolean; quotedHtml?: string; quotedFrom?: string; quotedDate?: string; forwardSubject?: string; forwardTo?: string; crmReturnContext?: import("@/lib/compose-handoff").CrmReturnContext } | null>(null);
   // ── Cmd+K / Ctrl+K listener ────────────────────────────────────────────
   // Registered in CAPTURE phase + stopImmediatePropagation so the inbox
   // palette is the *only* ⌘K target while this page is mounted (preempts
@@ -5150,8 +5165,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // is synchronously available the moment this effect runs.
     const inMemory = takePendingCompose();
     if (inMemory) {
-      console.log("[gmail-inbox] compose-handoff in-memory payload found", { to: inMemory.to, subject: inMemory.subject });
-      setComposeInitial({ to: inMemory.to || "", cc: inMemory.cc || "", subject: inMemory.subject || "", body: inMemory.body || "" });
+      console.log("[gmail-inbox] compose-handoff in-memory payload found", { to: inMemory.to, subject: inMemory.subject, hasCrmCtx: !!inMemory.crmReturnContext });
+      setComposeInitial({ to: inMemory.to || "", cc: inMemory.cc || "", subject: inMemory.subject || "", body: inMemory.body || "", crmReturnContext: inMemory.crmReturnContext });
       setComposeOpen(true);
     } else {
       // ── Secondary fallback: sessionStorage (works for hard page reloads) ─
@@ -5160,8 +5175,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         if (raw) {
           sessionStorage.removeItem(PENDING_COMPOSE_KEY);
           const p = JSON.parse(raw);
-          console.log("[gmail-inbox] sessionStorage compose payload found", { to: p.to, subject: p.subject });
-          setComposeInitial({ to: p.to || "", cc: p.cc || "", subject: p.subject || "", body: p.body || "" });
+          console.log("[gmail-inbox] sessionStorage compose payload found", { to: p.to, subject: p.subject, hasCrmCtx: !!p.crmReturnContext });
+          setComposeInitial({ to: p.to || "", cc: p.cc || "", subject: p.subject || "", body: p.body || "", crmReturnContext: p.crmReturnContext });
           setComposeOpen(true);
         } else {
           console.log("[gmail-inbox] no pending compose payload (in-memory or sessionStorage)");
@@ -11928,7 +11943,18 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       <ComposeDialog
         key={editingDraft?.draftId ?? (replyTo ? `reply-${replyTo.threadId}` : composeInitial?.isForward ? `fwd-${composeInitial.subject}` : "compose")}
         open={composeOpen || !!replyTo || !!editingDraft || !!composeInitial}
-        onClose={() => { setComposeOpen(false); setReplyTo(null); setEditingDraft(null); setComposeInitial(null); }}
+        onClose={() => {
+          // Capture CRM return context before clearing state — used to navigate back to the source record.
+          const crmCtx = composeInitial?.crmReturnContext;
+          setComposeOpen(false);
+          setReplyTo(null);
+          setEditingDraft(null);
+          setComposeInitial(null);
+          if (crmCtx?.returnPath) {
+            // Small delay lets the dialog unmount gracefully before the route changes.
+            setTimeout(() => setLocation(crmCtx.returnPath), 60);
+          }
+        }}
         canSend={canSend}
         defaultTo={editingDraft?.to || replyTo?.to || composeInitial?.to || ""}
         defaultCc={editingDraft?.cc || replyTo?.cc || composeInitial?.cc || ""}
@@ -11946,6 +11972,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         forwardSubject={composeInitial?.forwardSubject || ""}
         forwardTo={composeInitial?.forwardTo || ""}
         onTrustEvent={handleTrustEvent}
+        crmReturnContext={composeInitial?.crmReturnContext}
       />
 
       {/* Create Folder dialog */}

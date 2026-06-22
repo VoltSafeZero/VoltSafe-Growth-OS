@@ -19,18 +19,35 @@
  * readable at any point — no storage APIs, no async, no race conditions.
  */
 
+/**
+ * CRM origin context — attached to any compose payload launched from inside a
+ * Lead, Account, or Contact detail modal.  After send or cancel, the compose
+ * dialog navigates the user back to `returnPath` so they land on the same
+ * record they started from.
+ */
+export interface CrmReturnContext {
+  source: "crm";
+  recordType: "lead" | "account" | "contact";
+  recordId: number;
+  recordName?: string;
+  /** Wouter path that reopens the CRM record — e.g. "/opportunities?selected=42" */
+  returnPath: string;
+}
+
 export interface ComposeHandoff {
   to: string;
   cc?: string;
   subject: string;
   body: string;
+  /** Present when compose was launched from a CRM record — used to navigate back after send/cancel. */
+  crmReturnContext?: CrmReturnContext;
 }
 
 let _pending: ComposeHandoff | null = null;
 
 /** Write a pending compose payload before navigating to the inbox. */
 export function setPendingCompose(data: ComposeHandoff): void {
-  console.log("[compose-handoff] setPendingCompose", { to: data.to, subject: data.subject, bodyLen: data.body?.length });
+  console.log("[compose-handoff] setPendingCompose", { to: data.to, subject: data.subject, bodyLen: data.body?.length, hasCrmCtx: !!data.crmReturnContext });
   _pending = data;
 }
 
@@ -43,7 +60,7 @@ export function takePendingCompose(): ComposeHandoff | null {
   const p = _pending;
   _pending = null;
   if (p) {
-    console.log("[compose-handoff] takePendingCompose — found payload", { to: p.to, subject: p.subject, bodyLen: p.body?.length });
+    console.log("[compose-handoff] takePendingCompose — found payload", { to: p.to, subject: p.subject, bodyLen: p.body?.length, hasCrmCtx: !!p.crmReturnContext });
   }
   return p;
 }
