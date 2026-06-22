@@ -1223,11 +1223,45 @@ export async function generateSuggestedNextEmail(
         { role: "user", content: userPrompt },
       ],
       response_format: { type: "json_object" },
-      ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 800, temperature: 0.4 }),
+      ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 2000, temperature: 0.4 }),
     });
 
+    const finishReason = completion.choices[0]?.finish_reason;
     const raw = completion.choices[0]?.message?.content || "{}";
-    const parsed: SuggestedEmail = JSON.parse(raw);
+    console.log(`[crm-ai-summary] suggest-next-email ${entityType}:${id} finish_reason=${finishReason} raw_chars=${raw.length}`);
+
+    // Strip markdown code fences the model occasionally wraps JSON in
+    const stripped = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim() || "{}";
+
+    let rawParsed: any;
+    try {
+      rawParsed = JSON.parse(stripped);
+    } catch (_e) {
+      throw new Error(`Invalid JSON from model (finish_reason=${finishReason}): ${raw.substring(0, 200)}`);
+    }
+
+    // Normalize alternate field names the model may use instead of the canonical names
+    const normalizedBody = (
+      rawParsed.body || rawParsed.email_body || rawParsed.draft_body ||
+      rawParsed.message || rawParsed.content || rawParsed.body_text || ""
+    );
+    const normalizedReason = (
+      rawParsed.reason || rawParsed.why || rawParsed.rationale ||
+      rawParsed.why_this_email || rawParsed.whyThisEmail || ""
+    );
+    const normalizedSubject = (
+      rawParsed.subject || rawParsed.email_subject || rawParsed.subject_line || "Follow-up"
+    );
+
+    // Content guard: a blank body is never a success — throw so the route returns 500
+    // and the frontend shows the error state instead of a blank draft.
+    if (!normalizedBody.trim()) {
+      console.warn(`[crm-ai-summary] suggest-next-email ${entityType}:${id} empty body (finish_reason=${finishReason}) keys=${JSON.stringify(Object.keys(rawParsed))}`);
+      throw new Error(`Model returned empty email body (finish_reason=${finishReason}). Please regenerate.`);
+    }
+
+    const cleanedBody = cleanAiEmailBody(normalizedBody);
+    console.log(`[crm-ai-summary] suggest-next-email ${entityType}:${id} ok — subject="${normalizedSubject}" body_chars=${cleanedBody.length}`);
 
     // Derive why-generated explanations deterministically
     let whyGenerated: string[] = [];
@@ -1237,12 +1271,12 @@ export async function generateSuggestedNextEmail(
     } catch { /* non-fatal */ }
 
     return {
-      to: parsed.to || "",
-      cc: parsed.cc || "",
-      subject: parsed.subject || "Follow-up",
-      body: cleanAiEmailBody(parsed.body || ""),
-      reason: parsed.reason || "",
-      warning: parsed.warning || undefined,
+      to: rawParsed.to || "",
+      cc: rawParsed.cc || "",
+      subject: normalizedSubject,
+      body: cleanedBody,
+      reason: normalizedReason,
+      warning: rawParsed.warning || undefined,
       detectedContext,
       voiceProfileId: resolvedVoiceProfileId,
       voiceProfileName: voiceProfileName || undefined,
@@ -1250,14 +1284,11 @@ export async function generateSuggestedNextEmail(
       whyGenerated,
     };
   } catch (err: any) {
+    // Re-throw — the route catches this and returns HTTP 500, which sets the
+    // frontend error state and shows the user a real failure message instead
+    // of a blank "successful" draft with no body.
     console.error(`[crm-ai-summary] suggest-next-email error for ${entityType}:${id}:`, err?.message);
-    return {
-      to: "", cc: "", subject: "Follow-up", body: "",
-      reason: "Could not generate email suggestion.",
-      warning: err?.message || "Generation failed.",
-      detectedContext,
-      ceoWattsonInfluenceLevel,
-    };
+    throw err;
   }
 }
 

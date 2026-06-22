@@ -1,0 +1,263 @@
+Fix Suggested Next Email modal generating an empty/non-editable draft body.
+
+Problem:
+The Suggested Next Email modal opens and pre-fills recipients/subject, but the generated email body is blank.
+
+Observed UI:
+- Suggested Next Email modal opens.
+- TO is populated correctly from selected Key People.
+- SUBJECT shows “Follow-up”.
+- BODY is empty.
+- The body field cannot be typed into or edited.
+- Continue in Mail is not clickable / does not proceed.
+- Regenerate Email still returns an empty body.
+- “Why this email” is also empty.
+
+This is happening after recent OpenAI compatibility changes.
+
+This is not a recipient selection issue.
+This is not the max_tokens/temperature issue anymore.
+This is likely a Suggested Email response parsing, data contract, or frontend draft-state bug.
+
+Tasks:
+
+1. Trace the Suggested Email generation flow
+
+Find the full path for the Suggested Next Email modal:
+
+Frontend:
+- Button: Suggested Email
+- Modal: Suggested Next Email
+- Regenerate Email button
+- Continue in Mail button
+- Draft/body preview state
+
+Backend:
+- Suggested email route/endpoint
+- crm-ai-summary.ts suggested email generation function
+- OpenAI request
+- response parsing
+- returned payload shape
+
+2. Log and inspect the backend response
+
+Add safe debug logging around Suggested Email generation.
+
+Log:
+- record id
+- record type/name
+- selected recipients count
+- model name
+- whether OpenAI call succeeded
+- raw model output length
+- parsed subject
+- parsed body length
+- parsed why_this_email length
+- final response payload keys
+
+Do not log API keys.
+
+3. Verify OpenAI response parsing
+
+Confirm the model is actually returning email body content.
+
+The parser must handle:
+- plain JSON
+- JSON inside markdown fences
+- text with JSON-looking content
+- missing optional fields
+- alternate field names
+
+Expected normalized backend response shape should include:
+
+{
+  subject: string,
+  body: string,
+  whyThisEmail: string,
+  to: string[],
+  cc: string[],
+  bcc: string[],
+  confidence?: string,
+  reasons?: string[]
+}
+
+If the model returns fields like:
+- email_body
+- draft_body
+- message
+- content
+- body_text
+
+map them into `body`.
+
+If the model returns:
+- why
+- rationale
+- reason
+- why_this_email
+
+map them into `whyThisEmail`.
+
+4. Do not allow a “successful” empty email
+
+If generated body is empty or only whitespace:
+- Treat the generation as failed.
+- Show a useful error.
+- Do not enable Continue in Mail.
+- Do not display an apparently successful blank draft.
+- Preserve any previous valid generated draft if one exists.
+
+Minimum valid generated email:
+- subject is non-empty
+- body is non-empty
+
+Subject fallback can be “Follow-up”.
+Body must not be blank.
+
+5. Fix body editability
+
+The body field in the Suggested Next Email modal must be editable.
+
+Requirements:
+- User must be able to click into the body field and type/edit.
+- If body is blank due to failure, the user should still be able to manually type a body unless the modal is explicitly in loading state.
+- Do not render the body as a disabled input unless generation is actively loading.
+- Prefer textarea for body editing.
+- Ensure value/onChange are wired correctly.
+- Ensure no transparent overlay or disabled parent container is blocking interaction.
+
+6. Fix Continue in Mail behavior
+
+Continue in Mail should be enabled only when:
+- at least one TO recipient exists OR app allows draft without recipient
+- subject exists
+- body exists
+
+If body is blank:
+- keep disabled
+- show why in tooltip/helper text if possible
+
+If user manually types a body:
+- Continue in Mail should become enabled.
+
+When clicked:
+- Open in-app VoltSafe Mail compose.
+- Pass:
+  - to
+  - cc
+  - bcc
+  - subject
+  - body
+- Do not use Gmail.
+- Do not use mailto.
+
+7. Confirm compatibility helper did not remove response format
+
+Check the OpenAI request for Suggested Email.
+
+The new buildOpenAIModelParams helper should only affect:
+- token limit
+- temperature
+- top_p
+- frequency_penalty
+- presence_penalty
+
+It must not remove or interfere with:
+- model
+- messages
+- response_format
+- tools
+- tool_choice
+- JSON schema
+- system prompt
+- user prompt
+
+If this flow previously depended on JSON mode or response_format, make sure it is still present.
+
+8. Strengthen the Suggested Email prompt/output contract
+
+Update the Suggested Email system/developer prompt so the model must return valid structured output.
+
+Required fields:
+- subject
+- body
+- whyThisEmail
+
+Rules:
+- body must contain a complete ready-to-send email
+- body must not be empty
+- body must not be only a placeholder
+- body must not say “Could not generate email”
+- whyThisEmail should briefly explain why this email is the right next step
+
+If using JSON output, require:
+
+{
+  "subject": "string",
+  "body": "string",
+  "whyThisEmail": "string"
+}
+
+9. Add fallback extraction
+
+If structured parsing fails but raw model text contains a usable email, extract it as body instead of returning blank.
+
+Example fallback:
+- subject = existing parsed subject or “Follow-up”
+- body = raw model output cleaned of JSON fences if it appears email-like
+- whyThisEmail = “Generated from CRM context and recent activity.”
+
+If no usable body exists:
+- return failure, not blank success.
+
+10. Tests / verification
+
+Add or update tests to confirm:
+
+- Suggested Email response with valid JSON populates subject/body/whyThisEmail.
+- Suggested Email response with markdown-fenced JSON is parsed correctly.
+- Suggested Email response with alternate body field names maps to body.
+- Empty body is treated as generation failure.
+- Blank generated body does not enable Continue in Mail.
+- User can manually type into the body textarea.
+- Manually typed body enables Continue in Mail.
+- Regenerate Email replaces blank/failed body with valid generated body when successful.
+- Continue in Mail passes the edited body into VoltSafe Mail compose.
+- Recipient selection still works:
+  - first selected Key Person = TO
+  - later selected Key People = CC
+- OpenAI compatibility helper does not remove response_format / JSON settings.
+
+11. Manual acceptance test
+
+Use Safe Harbor Cabrillo Isle.
+
+Steps:
+1. Open Suggested Email.
+2. Confirm TO is populated.
+3. Confirm subject is populated.
+4. Confirm body contains a complete email draft.
+5. Confirm Why This Email contains a short rationale.
+6. Click into body and edit text.
+7. Confirm Continue in Mail becomes clickable.
+8. Click Continue in Mail.
+9. Confirm VoltSafe Mail compose opens with:
+   - TO
+   - CC if applicable
+   - subject
+   - edited body
+
+Then test Regenerate Email:
+1. Click Regenerate Email.
+2. Confirm body updates with a non-empty generated email.
+3. Confirm Continue in Mail works.
+
+Acceptance criteria:
+- No blank successful drafts.
+- Body is editable.
+- Continue in Mail works when body is present.
+- Regenerate produces a real body.
+- If generation fails, the modal shows a failed state instead of pretending the blank draft is usable.
+
+Likely root cause:
+The backend or frontend is treating a parsed empty object as a successful suggested email. The modal receives recipients and subject defaults, but body/whyThisEmail are empty or mapped from the wrong field name. Fix the data contract and make empty body a hard failure.

@@ -124,6 +124,8 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   const [suggestion, setSuggestion] = useState<SuggestedEmail | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [whyExpanded, setWhyExpanded] = useState(false);
+  // Editable body — user can modify the AI-generated draft before sending
+  const [editedBody, setEditedBody] = useState("");
 
   // ── Voice profile selection ───────────────────────────────────────────────
   const [selectedVoiceId, setSelectedVoiceId] = useState<number | null>(() => {
@@ -231,10 +233,18 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     setLoading(true);
     setError(null);
     setSuggestion(null);
+    setEditedBody("");
     setWhyExpanded(false);
     try {
       const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers, userInputs);
+      // Frontend guard: treat a blank body as a generation failure so the user
+      // sees a real error instead of a blank-looking "successful" draft.
+      if (!data.body?.trim()) {
+        setError(data.warning || data.reason || "Generation returned an empty email body. Please try regenerating.");
+        return;
+      }
       setSuggestion(data);
+      setEditedBody(data.body);
     } catch (err: any) {
       setError(err.message || "Failed to generate");
     } finally {
@@ -251,10 +261,11 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     console.log("[suggested-email-modal] handleContinue triggered", { to: effectiveTo, subject: suggestion.subject });
     setIsSaving(true);
 
+    // Use editedBody (the user may have modified the AI draft); scheduling link appended at handoff
     const rawBody =
       includeLink && calendlyUrl.trim()
-        ? insertSchedulingLink(suggestion.body, calendlyUrl.trim())
-        : suggestion.body;
+        ? insertSchedulingLink(editedBody, calendlyUrl.trim())
+        : editedBody;
 
     // Convert plain-text paragraph breaks to HTML so the contentEditable
     // compose editor renders them correctly (plain \n\n becomes one space in innerHTML).
@@ -596,14 +607,17 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
                 );
               })()}
 
-              {/* Body */}
+              {/* Body — editable textarea so the user can refine the draft before sending */}
               <div>
                 <p className="text-[11px] uppercase font-semibold tracking-wider text-muted-foreground mb-1.5">Body</p>
-                <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
-                  {includeLink && calendlyUrl.trim()
-                    ? insertSchedulingLink(suggestion.body, calendlyUrl.trim())
-                    : suggestion.body}
-                </div>
+                <textarea
+                  value={editedBody}
+                  onChange={(e) => setEditedBody(e.target.value)}
+                  rows={10}
+                  disabled={loading}
+                  className="w-full rounded-md border border-border/50 bg-muted/20 px-3 py-2.5 text-sm text-foreground/90 leading-relaxed resize-y overflow-y-auto focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 transition-colors"
+                  data-testid="textarea-email-body"
+                />
               </div>
 
               {/* Why this draft was generated — expandable */}
@@ -723,7 +737,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
                   type="button"
                   size="sm"
                   onClick={handleContinue}
-                  disabled={loading || !suggestion.body || isSaving || urlMissing}
+                  disabled={loading || !editedBody.trim() || isSaving || urlMissing}
                   className="bg-primary hover:bg-primary/90"
                   data-testid="button-continue-suggested-email"
                 >
