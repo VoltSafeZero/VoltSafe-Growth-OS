@@ -1,0 +1,182 @@
+Yes, proceed and build this.
+
+Important: keep this surgical. This feature is an authoritative CRM email-identifier layer, not a rewrite of the existing association engine.
+
+Build exactly this:
+
+1. Add two new additive DB tables:
+- crm_email_domains
+- crm_email_addresses
+
+Each record must include:
+- id
+- entity_type: lead | account | contact
+- entity_id
+- domain or email
+- label
+- is_verified
+- source
+- created_at
+- created_by
+
+Add:
+- unique constraint/index on normalized domain globally
+- unique constraint/index on normalized email globally
+- index on entity_type + entity_id
+- no destructive migrations
+
+2. Add normalization + public-domain guard
+
+Create shared utility:
+shared/public-domains.ts or equivalent
+
+Must support:
+- normalizeIdentifierInput(raw)
+- isPublicDomain(domain)
+
+Normalization must handle:
+- uppercase/lowercase
+- whitespace
+- @domain.com
+- https://domain.com
+- http://domain.com
+- www.domain.com
+- mailto:name@domain.com
+- trailing slashes
+- pasted URLs
+
+Reject public/free email domains for domain-level linking:
+- gmail.com
+- yahoo.com
+- outlook.com
+- hotmail.com
+- icloud.com
+- aol.com
+- proton.me
+- protonmail.com
+- live.com
+- msn.com
+- me.com
+- plus the rest of the common public domains from the existing spec
+
+Important:
+Public domains may be allowed as specific email addresses, but never as domain-level company identifiers.
+
+3. Backend routes
+
+Add routes using existing auth and CRM permission patterns:
+
+GET /api/crm/:type/:id/email-identifiers
+POST /api/crm/:type/:id/email-domains
+DELETE /api/crm/:type/:id/email-domains/:identifierId
+POST /api/crm/:type/:id/email-addresses
+DELETE /api/crm/:type/:id/email-addresses/:identifierId
+POST /api/crm/:type/:id/backfill-email-links
+
+Rules:
+- requireAuth on all
+- require CRM edit permission for add/delete
+- require admin/master_admin for backfill
+- validate entity_type
+- validate entity exists
+- normalize input server-side
+- block public domain identifiers
+- block duplicate/conflicting domain/email ownership
+- return clear conflict message showing which entity already owns it
+- never trust client-side validation alone
+
+4. Identity resolver integration
+
+Update server/services/identity-resolver.ts and/or server/services/association-engine.ts so these identifiers act as authoritative signals before fuzzy matching.
+
+Priority order:
+1. Exact email match from crm_email_addresses
+2. Domain match from crm_email_domains, excluding public domains
+3. Existing fuzzy/domain scoring logic
+
+Rules:
+- Do not remove or rewrite existing fuzzy scoring.
+- Do not change existing scoring weights unless absolutely necessary.
+- New identifiers should short-circuit ambiguous fuzzy matching.
+- Exact email match should win over domain match.
+- Domain match should win over fuzzy match.
+- Conflict prevention should make it impossible for the same domain/email to point to multiple CRM entities.
+
+5. UI
+
+Create reusable component:
+
+client/src/components/email-identifiers-panel.tsx
+
+Embed it in:
+- account-profile.tsx
+- leads.tsx LeadDetailDialog
+- contact-profile.tsx
+
+UI should show:
+- Verified Domains
+- Specific Emails
+- Add domain/email controls
+- remove controls
+- conflict warnings
+- public-domain warning
+- normalized preview before save
+
+UX:
+- Chips for existing identifiers
+- Inline add input
+- Clear error if domain is public
+- Clear error if identifier is already owned by another entity
+- Use existing VoltSafe styling/components
+- No ugly one-off UI
+
+6. Backfill
+
+POST /api/crm/:type/:id/backfill-email-links should:
+- re-scan historical emails against the newly added identifiers
+- create/update associations using existing association mechanisms
+- not duplicate associations
+- not overwrite manually confirmed/rejected associations
+- be admin-only
+- return count summary:
+  - scanned
+  - matched
+  - associated
+  - skipped
+  - conflicts/errors
+
+7. Tests
+
+Add tests covering:
+- normalization
+- public-domain rejection for domain identifiers
+- public-domain allowed as specific email only if valid
+- duplicate/conflict detection
+- exact email match priority
+- domain match priority
+- fuzzy matching still works when no identifier exists
+- backfill does not duplicate links
+- backfill does not override manually rejected/confirmed associations
+- API permission rules
+- UI renders identifiers on account, lead, and contact detail views
+
+8. Safety checks
+
+Before finishing:
+- run relevant tests
+- run typecheck/lint if available
+- restart app if server routes/schema changed
+- verify no destructive migration
+- verify no changes to existing fuzzy scoring weights
+- verify no changes to email_associations schema unless absolutely required
+
+Final report must include:
+- files changed
+- DB migration summary
+- how conflicts are prevented
+- how identity resolver priority now works
+- tests run
+- any known limitations
+
+Product rule:
+This feature lets VoltSafe explicitly say: “Emails from this domain or address belong to this CRM record.” Once declared, that should beat fuzzy guessing every time. Fuzzy matching is useful. Authoritative identifiers are the boss.

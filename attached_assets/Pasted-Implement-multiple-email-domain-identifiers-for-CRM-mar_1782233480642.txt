@@ -1,0 +1,284 @@
+Implement multiple email/domain identifiers for CRM marina/company email linking.
+
+Current issue:
+A marina/company may use:
+
+* more than one unique business domain
+* one or more specific email addresses on public domains like Gmail/Outlook/Yahoo
+* multiple unique email addresses that should all link to the same marina/company
+
+We need to capture and link all related emails correctly.
+
+Examples:
+
+* @boatbnb.com should link all emails from that unique business domain to BoatBNB.
+* boatbnbsd@gmail.com should link only that specific Gmail address to BoatBNB.
+* Do NOT link every @gmail.com email to BoatBNB.
+* Some marinas may use multiple domains, such as:
+    * @marinaname.com
+    * @marinaname.ca
+    * @dockwa.com only if specifically verified and not shared/common
+* Some marinas may also have specific emails:
+    * info@marina.com
+    * manager@marina.com
+    * marinaname@gmail.com
+
+Goal:
+Allow each marina/company/CRM entity to store multiple email matching identifiers:
+
+1. Unique verified domains
+2. Specific verified email addresses
+
+Then use these identifiers when auto-linking inbound/outbound emails to CRM records.
+
+Required data model:
+
+Add support for two types of identifiers:
+
+A. CRM email domains
+Fields:
+
+* id
+* crm_entity_id / company_id / marina_id / lead_id — use the existing canonical CRM entity key
+* domain — normalized lowercase domain without @
+* label / note optional
+* is_verified boolean default true
+* source optional: manual, auto_suggested, import, enrichment
+* created_at
+* updated_at
+* created_by optional
+
+B. CRM email addresses
+Fields:
+
+* id
+* crm_entity_id / company_id / marina_id / lead_id
+* email — normalized lowercase full email address
+* label / note optional
+* is_verified boolean default true
+* source optional: manual, auto_suggested, import, enrichment
+* created_at
+* updated_at
+* created_by optional
+
+Important:
+Use existing table/entity naming conventions. If there is already a CRM aliases/contact-methods table, extend it instead of creating duplicate architecture.
+
+Public/common domain protection:
+Create a shared public-domain blocklist/helper.
+
+Common domains must never be accepted as domain-level identifiers:
+
+* gmail.com
+* googlemail.com
+* yahoo.com
+* outlook.com
+* hotmail.com
+* live.com
+* msn.com
+* icloud.com
+* me.com
+* mac.com
+* aol.com
+* proton.me
+* protonmail.com
+* zoho.com
+* mail.com
+* gmx.com
+* yandex.com
+* comcast.net
+* telus.net
+* shaw.ca
+* rogers.com
+* bell.net
+* sympatico.ca
+* hey.com
+
+Rules:
+
+* If user enters @gmail.com as a domain alias, reject it with a clear message:
+    “Public email domains cannot be added as domain matches. Add the full specific email address instead.”
+* If user enters boatbnbsd@gmail.com, allow it as a specific email address.
+* If user enters @boatbnb.com, allow it as a unique domain.
+* If user enters info@boatbnb.com, allow it as a specific email address too, but if boatbnb.com is already added as a domain, warn that the address is already covered by the domain.
+
+Normalization rules:
+
+* lowercase everything
+* trim whitespace
+* strip leading @ for domains
+* strip mailto: if pasted
+* remove trailing slash/path if a domain was pasted as a URL
+* convert https://www.boatbnb.com/contact to boatbnb.com if adding as domain
+* validate email addresses with existing email validation helper or robust regex
+* validate domains with robust domain validation
+* reject malformed values
+
+Conflict rules:
+
+* A unique domain should generally belong to only one CRM entity.
+* If attempting to add a domain already assigned to another marina/company, block and show conflict:
+    “boatbnb.com is already linked to [Company Name].”
+* A specific email address should generally belong to only one CRM entity.
+* If attempting to add an email already assigned elsewhere, block and show conflict.
+* Allow admin override only if an existing admin override pattern exists.
+
+CRM UI requirements:
+In the marina/company detail screen, add an “Email Linking” or “Email Identifiers” section.
+
+It should show two lists:
+
+1. Verified Domains
+    Example:
+
+* boatbnb.com
+* boatbnb.ca
+
+2. Specific Emails
+    Example:
+
+* boatbnbsd@gmail.com
+* info@boatbnb.com
+* marina.manager@yahoo.com
+
+Actions:
+
+* Add domain
+* Add specific email
+* Delete/remove identifier
+* optional note/source label
+
+UX:
+
+* Use chips/tags.
+* Show public-domain warning inline.
+* Show duplicate/conflict warning inline.
+* Keep it simple and fast.
+
+Email linking logic:
+When processing any inbound/outbound email:
+
+1. Extract all participant email addresses:
+    * from
+    * to
+    * cc
+    * bcc if available
+    * reply-to if available
+2. Normalize every email address and domain.
+3. Match priority:
+    Priority 1 — exact specific email match
+    * If full address matches CRM email address table, link email/thread to that CRM entity.
+    Priority 2 — unique verified domain match
+    * If domain matches CRM domain table and is not public/common, link email/thread to that CRM entity.
+    Priority 3 — existing person/contact association
+    * Preserve existing logic.
+
+Important:
+
+* Exact email match should work even for public domains.
+* Domain match must never work for public domains.
+* Internal VoltSafe domains must continue to be excluded from auto-attach logic unless explicitly allowed by existing rules.
+
+Email threading/linking:
+When an email matches multiple participants:
+
+* Link to all relevant CRM entities if current CRM model supports many-to-many.
+* If current model supports only one entity, choose strongest match:
+    1. exact email match
+    2. unique domain match
+    3. existing contact/person relationship
+* Add audit/debug metadata explaining why the email linked.
+
+Backfill:
+Add an admin-safe backfill job:
+
+* For a given CRM entity, re-scan existing emails and link any emails matching its verified domains/emails.
+* Support one entity at a time first.
+* Later can support global backfill.
+
+Endpoint examples:
+
+* GET /api/crm/entities/:id/email-identifiers
+* POST /api/crm/entities/:id/email-domains
+* DELETE /api/crm/entities/:id/email-domains/:identifierId
+* POST /api/crm/entities/:id/email-addresses
+* DELETE /api/crm/entities/:id/email-addresses/:identifierId
+* POST /api/crm/entities/:id/backfill-email-links
+
+Use existing route style/auth patterns.
+
+Security/auth:
+
+* Only authenticated users can view.
+* Only appropriate admin/editor roles can add/remove identifiers.
+* Backfill should be admin-only or restricted to CRM editors.
+* Validate all inputs server-side.
+
+Tests:
+Add tests for:
+
+Normalization:
+
+* @BoatBNB.com → boatbnb.com
+* https://www.boatbnb.com/contact → boatbnb.com
+* mailto:BoatBnbSD@gmail.com → boatbnbsd@gmail.com
+
+Public domain block:
+
+* reject domain gmail.com
+* reject domain @outlook.com
+* allow email boatbnbsd@gmail.com
+* allow email info@boatbnb.com
+
+Conflict:
+
+* reject same domain assigned to two CRM entities
+* reject same email assigned to two CRM entities
+
+Matching:
+
+* email from dockmaster@boatbnb.com links to entity with domain boatbnb.com
+* email from boatbnbsd@gmail.com links only if exact email identifier exists
+* email from random@gmail.com does not link to BoatBNB
+* email to/cc/from participants all considered
+* exact email match beats domain match
+
+Backfill:
+
+* entity backfill links historical matching emails
+* public-domain broad match is never used during backfill
+
+UI:
+
+* domain chips render
+* specific email chips render
+* add/remove actions work
+* public domain warning displays
+* conflict warning displays
+
+Manual verification:
+Create or use test marina/company:
+BoatBNB
+
+Add:
+
+* domain: boatbnb.com
+* specific email: boatbnbsd@gmail.com
+
+Then verify:
+
+* email from captain@boatbnb.com links to BoatBNB
+* email from boatbnbsd@gmail.com links to BoatBNB
+* email from random@gmail.com does not link to BoatBNB
+* trying to add gmail.com as a domain is rejected
+* trying to add boatbnb.com to another marina is rejected
+* backfill links old matching emails
+
+Report:
+
+* schema changes
+* routes added
+* UI files changed
+* matching logic changed
+* tests run
+* manual verification examples
