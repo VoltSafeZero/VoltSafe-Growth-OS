@@ -180,7 +180,7 @@ check(
 );
 check(
   "row block button calls blockSenderMutation for exact email",
-  inbox.includes("blockSenderMutation.mutate({ senderEmail: rowSenderEmail")
+  inbox.includes("confirmBlockSender(rowSenderEmail")
 );
 check(
   "row block button calls unblockSenderMutation when already blocked",
@@ -196,7 +196,7 @@ check(
 console.log("\n[9] Toolbar handlers");
 check(
   "onBlock in toolbar uses blockSenderMutation (exact email)",
-  inbox.includes("blockSenderMutation.mutate({ senderEmail: _email, threadId: selectedThreadId })")
+  inbox.includes("confirmBlockSender(_email, selectedThreadId)")
 );
 check(
   "onTrustSender in toolbar calls notSpamMutation",
