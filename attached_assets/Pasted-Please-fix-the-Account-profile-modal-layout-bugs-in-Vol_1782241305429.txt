@@ -1,0 +1,72 @@
+Please fix the Account profile modal layout bugs in VoltSafe CMS.
+
+Issue 1 — Activity tab cuts off right side
+In the Account modal/profile popup, there are 3 header tabs:
+
+* Overview
+* People & Pipeline
+* Activity
+
+When I click the Activity tab on the far right, the right side of the modal/page content gets cut off horizontally. This should never happen.
+
+Required behavior:
+
+* Switching between Overview, People & Pipeline, and Activity must not change the modal width unexpectedly.
+* The Activity tab content must stay fully inside the modal viewport.
+* No horizontal clipping.
+* No content disappearing off the right edge.
+* No need for the user to scroll sideways to see the full tab content.
+* The modal should remain responsive at desktop and smaller widths.
+
+Please audit:
+
+* Account modal container width
+* Tab header layout
+* Activity tab content wrapper
+* Any overflow-x, fixed width, min-width, transform, absolute positioning, or grid/flex rules causing the Activity pane to exceed the modal boundary
+
+Likely fix:
+
+* Ensure the modal body uses max-width: 100%
+* Ensure tab panels use width: 100%
+* Add min-width: 0 to flex/grid children where needed
+* Use overflow-x: hidden only on the correct wrapper, not as a lazy cover-up that hides useful content
+* Make Activity content wrap instead of forcing the modal wider
+
+Issue 2 — Popup resize only works horizontally
+The bottom-right resize handle on the Account modal currently allows horizontal resizing, but vertical resizing does not work properly.
+
+Required behavior:
+
+* The modal resize handle must allow resizing both:
+    * horizontally
+    * vertically
+* Dragging the bottom-right corner should resize width and height together.
+* Vertical resize must work smoothly.
+* The modal should enforce sensible limits:
+    * minimum width
+    * minimum height
+    * maximum width based on viewport
+    * maximum height based on viewport
+* Resizing must not push the modal off-screen.
+* After resizing, the modal body should scroll vertically inside the modal if content exceeds available height.
+* The header and tab navigation should remain visible and usable.
+
+Please audit:
+
+* Modal resize logic / drag handler
+* Mouse/touch pointer calculations for width and height
+* CSS resize, height, max-height, overflow, and fixed positioning rules
+* Any code that updates width but not height
+* Any parent container preventing height changes
+
+Acceptance criteria:
+
+* Activity tab opens without cutting off the right side.
+* Overview, People & Pipeline, and Activity all fit cleanly inside the modal.
+* Bottom-right resize handle resizes both width and height.
+* Modal content scrolls internally when needed.
+* Close X and expand buttons remain clickable.
+* No regression to dragging, expanding, tabs, notes, emails, contacts, deals, tickets, or linked source lead panels.
+
+Please run the relevant frontend checks/build after the fix.

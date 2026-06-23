@@ -1,0 +1,71 @@
+Please fix the VoltSafe CMS Pipeline list/grid behavior and default sorting.
+
+Issue:
+- Leads list view renders correctly as a table/list.
+- Accounts “list view” currently still renders as card tiles.
+- This is wrong. When the list-view icon is selected, Accounts must render as an actual table/list view, matching the Leads UX pattern.
+- Screenshot reference: Leads list view is correct; Accounts list view incorrectly remains tiled.
+
+Required fixes:
+
+1. Accounts view toggle behavior
+- Accounts must support the same view modes as Leads:
+  - List view = table/list layout
+  - Grid/card view = tiles/cards
+  - Map view = map, if currently supported
+- When the user clicks the list icon on Accounts, render the Accounts table/list, not cards.
+- Preserve existing card/grid behavior only when the grid/card icon is selected.
+
+2. Add/repair Accounts table layout
+Accounts list view should show rows similar to Leads, with useful columns such as:
+- Account / Company
+- Location
+- Type
+- Segment / Industry
+- Priority
+- Stage / Status
+- Contact / Owner if available
+- Last activity if available
+- Actions / View Profile
+
+Use existing account fields only. Do not invent backend fields if they do not exist.
+
+3. Default sort must be A→Z everywhere
+All Pipeline lists must default to alphabetical A→Z on initial load:
+- Leads
+- Accounts
+- Contacts
+
+Default sort should be by the primary display name:
+- Leads: marina/company name
+- Accounts: account/company name
+- Contacts: contact/person name
+
+This must apply:
+- On first page load
+- After refreshing
+- When switching between Leads / Accounts / Contacts
+- When no saved custom view overrides the sort
+
+4. Sort dropdown UI
+- The sort dropdown should display A→Z as the default selected value.
+- Existing manual sort changes should still work.
+- Z→A or other sorts should only happen when explicitly selected by the user.
+
+5. Saved views
+- If a user has a saved view with a custom sort, respect the saved view.
+- If no saved view exists, default to A→Z.
+- Do not let stale/default “Default” sorting override the required alphabetical order.
+
+6. Verification
+Please audit the relevant components/routes/state for Leads, Accounts, and Contacts.
+Find where Leads list view is implemented correctly and reuse that pattern for Accounts where possible.
+Then run relevant tests/build checks.
+
+Acceptance criteria:
+- Accounts list icon shows a table/list, not tiles.
+- Accounts grid icon shows tiles.
+- Leads still shows table/list correctly.
+- Leads, Accounts, and Contacts all load A→Z by default.
+- Sort dropdown visually shows A→Z by default.
+- No regression to filtering, searching, saved views, export CSV, or “View Profile”.
