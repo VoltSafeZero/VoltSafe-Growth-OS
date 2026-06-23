@@ -1,0 +1,74 @@
+Inbox unread/category count mismatch bug.
+
+Current issue from screenshots:
+- trevor@voltsafe.com shows Inbox badge = 1
+- Inbox > All shows badge = 1
+- Inbox > People shows badge = 1
+- Unread filter says 1 unread
+- But the message list shows:
+  - All: no visible message / still loading
+  - People: "No messages found"
+
+This is broken and confusing. If the count says 1 unread People email exists, that exact email must be visible in the People list and All list.
+
+Do a focused audit of the unread count vs message list query pipeline.
+
+Find the exact unread message behind the count:
+1. Query DB for trevor@voltsafe.com account:
+   - unread inbox threads/messages
+   - labels
+   - category labels
+   - source_account_id
+   - gmail_message_id
+   - thread_id
+   - subject
+   - sender
+   - is_read/read status
+   - archived/deleted/spam/trash flags
+   - category = People or derived PEOPLE label
+2. Identify the one unread message counted by the badge.
+3. Then run the exact list API query used by:
+   - Inbox > All
+   - Inbox > People
+   - Unread filter
+4. Explain why that same message is excluded from the visible list.
+
+Likely causes:
+- Badge count uses Gmail INBOX + unread, but list query excludes messages due to category filter.
+- Badge count uses message-level unread, while list renders thread-level read state.
+- People count uses derived label/category but People list uses a different label name.
+- Message has INBOX + UNREAD + PEOPLE count labels but is filtered out as archived/category-only.
+- List query excludes old unread messages due to pagination/window cap.
+- Unread loader is still using newest-first paging and cannot find the unread message.
+- Count query includes messages from a thread where newest thread message is read, so the thread is hidden.
+- Account id mismatch: count uses trevor account, list query uses unified/null/all account logic.
+- Spam/trash/draft/category exclusion differs between count and list.
+
+Required fix:
+1. Make counts and message lists use the same canonical source of truth.
+2. If a badge says People = 1, then People list must show that exact thread.
+3. If Inbox > All says 1 unread, All must show that unread thread.
+4. Unread filter must use a server-side unread query, not a client-side "load until we find unread" loop.
+5. Thread-level unread state must be computed consistently:
+   - If any inbox message in the thread is unread, the thread should be visible as unread.
+   - Or if product decision is newest-message-only, then counts must match that. Do not mix both.
+6. Add a debug-only "why hidden" trace for counted-but-not-visible emails:
+   - counted_by_badge: yes/no
+   - returned_by_list: yes/no
+   - hidden_reason
+   - labels
+   - category
+   - account_id
+   - thread_id
+   - unread status
+   - inbox status
+
+Acceptance criteria:
+- The current missing unread People email becomes visible under:
+  - trevor@voltsafe.com > Inbox > All
+  - trevor@voltsafe.com > Inbox > People
+  - Unread filter
+- The "Unread messages are still loading..." spinner does not hang forever.
+- If no messages match, the badge must be 0.
+- Add regression test for a counted unread People thread that must appear in the People list.
+- Add regression test for thread-level unread count matching visible unread list.

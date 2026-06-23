@@ -1,5 +1,6 @@
 - [Smart Inbox Flip-Back Fix](smart-inbox-flipback.md) — dropping broad invalidateQueries(["/api/gmail/messages"]) from mark-read .then(); re-patch setQueriesData instead; 15s poll handles eventual consistency.
 - [Block Sender System](block-sender-system.md) — exact-email blocking via blocked_senders table; separate from email_filters (domain-level); broad-domain guard on POST /api/email-filters; mark-spam route; trust-sender deletes from blocked_senders.
+- [Badge vs List Blocked-Sender Mismatch](badge-blocked-sender-mismatch.md) — badge SQL (category-counts + health API unread_count) must exclude blocked_senders; client inboxMainRaw filter hides them but server badge counted them, causing badge=1/list=0.
 - [CID Viewer Fixes](cid-viewer-fixes.md) — three root causes for broken inline images in viewer: isInline bug in parser, undefined gmailMessageId, old-DB-row attachment filter; tests/cid-viewer.test.cjs.
 - [Sig CID Disposition](sig-cid-disposition.md) — CID inline image MIME parts must have Content-Disposition: inline; without it Apple Mail renders image twice (inline + attachment ghost).
 - [Mail Trust Hardening Phase 1](mail-trust-hardening-phase1.md) — C1/C2/C3/C4 implemented; key patterns for send idempotency, draft fallback, localStorage scoping, scheduled retry.

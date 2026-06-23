@@ -17110,10 +17110,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           a.sync_error_message,
           -- Phase 4: derived columns replace label_ids ILIKE patterns.
           -- unread_count = distinct INBOX unread THREADS (badge unit).
+          -- Blocked senders excluded so the badge matches what the client renders.
           (SELECT count(distinct m.gmail_thread_id)::int FROM email_messages m
              WHERE m.source_account_id = a.id
                AND m.is_inbox = true
-               AND m.is_unread = true) AS unread_count,
+               AND m.is_unread = true
+               AND NOT EXISTS (
+                 SELECT 1 FROM blocked_senders bs WHERE bs.email = m.from_email
+               )) AS unread_count,
           (SELECT count(*)::int FROM email_messages m
              WHERE m.source_account_id = a.id) AS message_count,
           -- inbox_count = raw inbox messages (displayed as message count, not badge).
@@ -17211,6 +17215,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // Canonical unit: unread THREADS (COUNT DISTINCT gmail_thread_id).
       // people includes CATEGORY_PERSONAL + uncategorized INBOX (smart_category='people').
       // is_inbox=true already excludes TRASH/SPAM/DRAFT — no outer filter needed.
+      // Blocked senders (blocked_senders table) are excluded so the badge matches
+      // what the client actually renders after its own blocked-sender filter.
       const rows = await db.execute(sql.raw(`
         SELECT
           COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true
@@ -17225,6 +17231,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
                              AND smart_category = 'people')::int     AS people_unread
         FROM email_messages
         WHERE source_account_id IN (${validIds.join(",")})
+          AND NOT EXISTS (
+            SELECT 1 FROM blocked_senders bs WHERE bs.email = email_messages.from_email
+          )
       `));
       const r = (((rows as any).rows ?? rows)[0] ?? {}) as Record<string, number>;
       res.json({
