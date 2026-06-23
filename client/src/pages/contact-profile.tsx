@@ -21,6 +21,7 @@ import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { TimelineTab } from "@/components/timeline-tab";
 import { EmailsTab } from "@/components/emails-tab";
+import { EmailIdentifiersPanel } from "@/components/email-identifiers-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { SuggestedActionsCard } from "@/components/suggested-actions-card";
@@ -542,6 +543,9 @@ export default function ContactProfilePage() {
               </div>
             )}
           </SectionCard>
+
+          {/* Email Identifiers */}
+          <EmailIdentifiersPanel entityType="contact" entityId={contact.id} canEdit={true} />
 
           {/* Meetings */}
           <SectionCard title="Meetings" icon={CalendarDays} count={meetings.length}>

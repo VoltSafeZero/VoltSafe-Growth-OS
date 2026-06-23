@@ -244,8 +244,53 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
     return rejectedKeys.has(`${type}:${id}`);
   }
 
+  // ── Signal 0: Pinned identifier match (+100, pre-confirmed) ─────────────────
+  // Authoritative identifiers from crm_email_domains / crm_email_addresses beat
+  // all fuzzy scoring. Pinned matches are immediately pre-confirmed so they never
+  // appear in the CRM Review queue and never get overridden by score-based logic.
+  for (const contact of resolved.contacts) {
+    if (!(contact as any).pinnedIdentifier) continue;
+    if (isRejected("contact", contact.id)) continue;
+    if (confirmedByType.has("contact")) continue;
+    const reasons = [`Pinned identifier match (${contact.email})`];
+    const existingAssoc = await db.select({ id: emailAssociations.id }).from(emailAssociations)
+      .where(and(eq(emailAssociations.emailMessageId, emailMessageId), eq(emailAssociations.objectType, "contact"), eq(emailAssociations.objectId, contact.id))).limit(1);
+    if (!existingAssoc.length) {
+      await db.insert(emailAssociations).values({ emailMessageId, objectType: "contact", objectId: contact.id, objectName: contact.name, confidenceScore: 100, associationReasonJson: JSON.stringify(reasons), isAuto: false, isUserConfirmed: true });
+    }
+    confirmedByType.set("contact", contact.id);
+    import("./crm-ai-summary").then(m => m.markCrmAiSummaryStale("contact", contact.id, "gmail_auto_sync_email_association")).catch(() => {});
+  }
+  for (const account of resolved.accounts) {
+    if (!(account as any).pinnedIdentifier) continue;
+    if (isRejected("account", account.id)) continue;
+    if (confirmedByType.has("account")) continue;
+    const reasons = [`Pinned identifier match (@${account.domain})`];
+    const existingAssoc = await db.select({ id: emailAssociations.id }).from(emailAssociations)
+      .where(and(eq(emailAssociations.emailMessageId, emailMessageId), eq(emailAssociations.objectType, "account"), eq(emailAssociations.objectId, account.id))).limit(1);
+    if (!existingAssoc.length) {
+      await db.insert(emailAssociations).values({ emailMessageId, objectType: "account", objectId: account.id, objectName: account.name, confidenceScore: 100, associationReasonJson: JSON.stringify(reasons), isAuto: false, isUserConfirmed: true });
+    }
+    confirmedByType.set("account", account.id);
+    import("./crm-ai-summary").then(m => m.markCrmAiSummaryStale("account", account.id, "gmail_auto_sync_email_association")).catch(() => {});
+  }
+  for (const lead of resolved.leads) {
+    if (!(lead as any).pinnedIdentifier) continue;
+    if (isRejected("lead", lead.id)) continue;
+    if (confirmedByType.has("lead")) continue;
+    const reasons = [`Pinned identifier match (${lead.email})`];
+    const existingAssoc = await db.select({ id: emailAssociations.id }).from(emailAssociations)
+      .where(and(eq(emailAssociations.emailMessageId, emailMessageId), eq(emailAssociations.objectType, "lead"), eq(emailAssociations.objectId, lead.id))).limit(1);
+    if (!existingAssoc.length) {
+      await db.insert(emailAssociations).values({ emailMessageId, objectType: "lead", objectId: lead.id, objectName: lead.name, confidenceScore: 100, associationReasonJson: JSON.stringify(reasons), isAuto: false, isUserConfirmed: true });
+    }
+    confirmedByType.set("lead", lead.id);
+    import("./crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", lead.id, "gmail_auto_sync_email_association")).catch(() => {});
+  }
+
   // ── Signal 1: Exact email → Contact (+50) ─────────────────────────────────
   for (const contact of resolved.contacts) {
+    if ((contact as any).pinnedIdentifier) continue; // already handled by Signal 0
     if (isRejected("contact", contact.id)) continue;
     const reasons: string[] = [`Exact email match (${contact.email})`];
     let score = 50;

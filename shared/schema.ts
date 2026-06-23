@@ -2766,3 +2766,40 @@ export const crmIntelligenceContext = pgTable("crm_intelligence_context", {
 export const insertCrmIntelligenceContextSchema = createInsertSchema(crmIntelligenceContext).omit({ id: true, createdAt: true, updatedAt: true });
 export type CrmIntelligenceContext = typeof crmIntelligenceContext.$inferSelect;
 export type InsertCrmIntelligenceContext = z.infer<typeof insertCrmIntelligenceContextSchema>;
+
+// ── CRM Email Identifiers ─────────────────────────────────────────────────────
+// Authoritative domain + email address identifiers for CRM entities.
+// These beat fuzzy matching: if a domain or address is pinned to an entity,
+// any email from that domain/address belongs to that entity.
+
+export const crmEmailDomains = pgTable("crm_email_domains", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(), // 'lead' | 'account' | 'contact'
+  entityId: integer("entity_id").notNull(),
+  domain: text("domain").notNull(), // normalized lowercase, no leading @
+  label: text("label"),
+  isVerified: boolean("is_verified").notNull().default(true),
+  source: text("source").notNull().default("manual"), // manual | auto_suggested | import | enrichment
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer("created_by"),
+});
+export const insertCrmEmailDomainSchema = createInsertSchema(crmEmailDomains).omit({ id: true, createdAt: true, updatedAt: true });
+export type CrmEmailDomain = typeof crmEmailDomains.$inferSelect;
+export type InsertCrmEmailDomain = z.infer<typeof insertCrmEmailDomainSchema>;
+
+export const crmEmailAddresses = pgTable("crm_email_addresses", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(), // 'lead' | 'account' | 'contact'
+  entityId: integer("entity_id").notNull(),
+  email: text("email").notNull(), // normalized lowercase full email address
+  label: text("label"),
+  isVerified: boolean("is_verified").notNull().default(true),
+  source: text("source").notNull().default("manual"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer("created_by"),
+});
+export const insertCrmEmailAddressSchema = createInsertSchema(crmEmailAddresses).omit({ id: true, createdAt: true, updatedAt: true });
+export type CrmEmailAddress = typeof crmEmailAddresses.$inferSelect;
+export type InsertCrmEmailAddress = z.infer<typeof insertCrmEmailAddressSchema>;

@@ -705,6 +705,8 @@ export async function registerRoutes(
   registerImageRoutes(app);
   const { registerTaskRoutes } = await import("./routes-tasks");
   registerTaskRoutes(app, requireAuth);
+  const { registerCrmIdentifierRoutes } = await import("./routes-crm-identifiers");
+  registerCrmIdentifierRoutes(app);
 
   // ── Help Center: end-of-day asset refresh ───────────────────────────────────
   // Runs only on days when the production app has been republished that day

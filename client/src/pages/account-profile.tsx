@@ -21,6 +21,7 @@ import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { SuggestedActionsCard } from "@/components/suggested-actions-card";
 import { TimelineTab } from "@/components/timeline-tab";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
+import { EmailIdentifiersPanel } from "@/components/email-identifiers-panel";
 import { AccountEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { MousePointerClick } from "lucide-react";
 
@@ -670,6 +671,9 @@ export default function AccountProfilePage() {
           <SectionCard title="Contacts" icon={Users} count={contacts.length}>
             <ContactsPanel entityType="account" entityId={account.id} emptyText="No contacts on record yet." />
           </SectionCard>
+
+          {/* Email Identifiers */}
+          <EmailIdentifiersPanel entityType="account" entityId={account.id} canEdit={true} />
 
           {/* Opportunities */}
           <SectionCard title="Opportunities" icon={TrendingUp} count={opportunities.length}>

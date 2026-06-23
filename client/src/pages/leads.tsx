@@ -39,6 +39,7 @@ import { EmailsTab } from "@/components/emails-tab";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
+import { EmailIdentifiersPanel } from "@/components/email-identifiers-panel";
 import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, shouldShowMarinaOps, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry } from "@/lib/crm-taxonomy";
 
 
@@ -1756,6 +1757,9 @@ function LeadDetailDialog({
                 <p className="text-sm font-medium break-words">{lead.source || "—"}</p>
               </div>
             </div>
+
+            {/* Email Identifiers */}
+            <EmailIdentifiersPanel entityType="lead" entityId={lead.id} canEdit={canEdit} />
 
             {(lead.dealAmount || lead.dealProbability || lead.primaryValueDriver || lead.estimatedPedestalCount) && (
               <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
