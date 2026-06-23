@@ -5496,6 +5496,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  // Pending block confirmation — holds the payload until the user confirms.
+  const [pendingBlock, setPendingBlock] = useState<{ senderEmail: string; threadId: string } | null>(null);
+  const confirmBlockSender = (senderEmail: string, threadId: string) => {
+    setPendingBlock({ senderEmail, threadId });
+  };
+
   // Block an exact sender email address + move the thread to Spam.
   // Uses the blocked_senders table (not email_filters which is domain-level).
   const blockSenderMutation = useMutation({
@@ -5582,6 +5588,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       setInboxExtra((prev) => prev.map((m) => m.id === msgId ? { ...m, labelIds: data.starred
         ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
         : m.labelIds.filter(l => l !== "STARRED") } : m));
+      // Also update the open thread's message list so focusedMsg.labelIds reflects the new state
+      // immediately (header star + EmailActionsToolbar isPriority both read from threadQuery.data).
+      queryClient.setQueriesData({ queryKey: ["/api/gmail/threads"] }, (old: any) =>
+        old?.messages ? { ...old, messages: old.messages.map((m: any) =>
+          m.id === msgId ? { ...m, labelIds: data.starred
+            ? [...(m.labelIds || []).filter((l: string) => l !== "STARRED"), "STARRED"]
+            : (m.labelIds || []).filter((l: string) => l !== "STARRED") } : m
+        ) } : old
+      );
     },
     onError: (err: any) => toast({ title: "Failed to update star", description: err.message, variant: "destructive" }),
   });
@@ -10585,46 +10600,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         </motion.button>
                       );
                     })()}
-                    {/* Block sender (inbox) / Trust sender (spam) quick-action icon */}
-                    {(() => {
-                      const senderEmail = (msg.fromEmail || "").toLowerCase();
-                      const isOwnDomain = senderEmail.endsWith("@voltsafe.com");
-                      if (tab === "spam") {
-                        return (
-                          <motion.button
-                            whileTap={{ scale: 0.82 }}
-                            whileHover={{ scale: 1.1 }}
-                            transition={{ type: "spring", stiffness: 400, damping: 20 }}
-                            title="Trust sender — move back to inbox"
-                            aria-label="Trust sender and move to inbox"
-                            tabIndex={-1}
-                            data-testid={`button-trust-sender-${msg.id}`}
-                            onClick={(e) => { e.stopPropagation(); notSpamMutation.mutate(msg.threadId); }}
-                            className="p-1.5 rounded-md transition-colors text-muted-foreground/40 hover:text-emerald-400 hover:bg-emerald-500/10"
-                          >
-                            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                          </motion.button>
-                        );
-                      }
-                      if (!isOwnDomain && senderEmail && tab !== "sent" && tab !== "drafts" && tab !== "scheduled") {
-                        return (
-                          <motion.button
-                            whileTap={{ scale: 0.82 }}
-                            whileHover={{ scale: 1.1 }}
-                            transition={{ type: "spring", stiffness: 400, damping: 20 }}
-                            title="Block sender — move to spam"
-                            aria-label="Block sender and move to spam"
-                            tabIndex={-1}
-                            data-testid={`button-block-sender-${msg.id}`}
-                            onClick={(e) => { e.stopPropagation(); blockSenderMutation.mutate({ senderEmail, threadId: msg.threadId }); }}
-                            className="p-1.5 rounded-md transition-colors text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10"
-                          >
-                            <Ban className="h-3.5 w-3.5" aria-hidden="true" />
-                          </motion.button>
-                        );
-                      }
-                      return null;
-                    })()}
                     {canSend && tab === "inbox" && (
                       <motion.button
                         whileTap={{ scale: 0.82 }}
@@ -10674,18 +10649,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         title={
                           emailBlocked
                             ? `Unblock ${rowSenderEmail}`
-                            : rowSenderEmail
-                            ? `Block ${rowSenderEmail}`
-                            : blocked
-                            ? `Unblock @${domain}`
-                            : `Block @${domain}`
+                            : "Block sender and move to spam"
                         }
                         aria-label={
                           emailBlocked
                             ? `Unblock ${rowSenderEmail}`
-                            : rowSenderEmail
-                            ? `Block ${rowSenderEmail}`
-                            : `Block @${domain}`
+                            : "Block sender and move to spam"
                         }
                         tabIndex={-1}
                         data-testid={`button-flag-${msg.id}`}
@@ -10694,7 +10663,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           if (emailBlocked && emailBlockRecord) {
                             unblockSenderMutation.mutate(emailBlockRecord.id);
                           } else if (rowSenderEmail) {
-                            blockSenderMutation.mutate({ senderEmail: rowSenderEmail, threadId: msg.threadId });
+                            confirmBlockSender(rowSenderEmail, msg.threadId);
                           }
                         }}
                         className={`p-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
@@ -10875,7 +10844,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     },
                     onBlock: () => {
                       const _email = focusedMsg.fromEmail?.toLowerCase().trim() || "";
-                      if (_email) blockSenderMutation.mutate({ senderEmail: _email, threadId: selectedThreadId });
+                      if (_email) confirmBlockSender(_email, selectedThreadId);
                       else archiveThreadMutation.mutate(selectedThreadId);
                     },
                     onTrustSender: () => notSpamMutation.mutate(selectedThreadId),
@@ -12271,6 +12240,40 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Block sender confirmation dialog ─────────────────────────────────── */}
+      <Dialog open={!!pendingBlock} onOpenChange={(v) => { if (!v) setPendingBlock(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Block this sender?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{pendingBlock?.senderEmail}</span> will be
+            blocked and this thread will be moved to Spam. Future emails from this address will be
+            filtered automatically.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPendingBlock(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={blockSenderMutation.isPending}
+              onClick={() => {
+                if (pendingBlock) {
+                  blockSenderMutation.mutate(pendingBlock, {
+                    onSettled: () => setPendingBlock(null),
+                  });
+                }
+              }}
+            >
+              {blockSenderMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
+              Block sender
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
