@@ -1,0 +1,94 @@
+Stop the current publish. The generated production migration is trying to delete the crm_intelligence_context table:
+
+DROP TABLE "crm_intelligence_context" CASCADE;
+
+This is wrong. Do not approve or publish this migration.
+
+Goal:
+Keep the crm_intelligence_context table in production. It is part of the new rolling CRM intelligence context system and should not be dropped.
+
+Please inspect why Replit generated a destructive migration.
+
+Tasks:
+
+1. Check schema drift
+Compare development schema vs production schema for:
+- crm_intelligence_context
+- all newly added CRM intelligence context fields/indexes
+- related migrations
+
+2. Confirm the intended schema
+The crm_intelligence_context table should exist and be preserved.
+
+Expected table purpose:
+Stores durable rolling AI context for Leads, Accounts, Contacts, and Opportunities.
+
+It should include fields similar to:
+- id
+- record_type
+- record_id
+- record_name
+- durable_summary
+- key_facts
+- key_people
+- open_loops
+- objections
+- buying_signals
+- risks
+- opportunities
+- commitments
+- next_steps
+- recent_activity_digest
+- last_context_build_at
+- source_coverage
+- created_at
+- updated_at
+
+There should be a unique key/index on:
+record_type + record_id
+
+3. Fix the migration generation
+The migration should create or preserve crm_intelligence_context, not drop it.
+
+If the table already exists in production:
+- generate a safe migration that only adds missing columns/indexes
+- do not drop the table
+- do not drop indexes unrelated to this feature
+
+If the table exists only in development:
+- generate a CREATE TABLE migration for production
+
+If the migration system thinks the table should be dropped because it is missing from the current schema file:
+- restore/add crm_intelligence_context to the source schema definition
+- regenerate the migration
+
+4. Remove destructive statements
+The production migration must not include:
+- DROP TABLE "crm_intelligence_context"
+- DROP INDEX statements unless they are clearly intentional and safe
+- CASCADE drops for CRM/email/activity tables
+
+5. Add a safety check
+Before publish, run a migration review and confirm there are no destructive statements unless explicitly intended.
+
+Search generated SQL for:
+DROP TABLE
+DROP COLUMN
+DROP INDEX
+CASCADE
+TRUNCATE
+DELETE FROM
+
+If any appear, stop and explain why they are safe before proceeding.
+
+6. Validation
+After regenerating the migration:
+- crm_intelligence_context remains present
+- existing 1 production row is preserved
+- app starts successfully
+- AI Summary still loads
+- Suggested Email still works
+- CRM intelligence context build/update still works
+
+Acceptance criteria:
+A new publish migration is generated that does not delete crm_intelligence_context or other production data.

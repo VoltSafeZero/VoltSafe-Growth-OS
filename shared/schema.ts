@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, doublePrecision, timestamp, boolean, real, jsonb, numeric, date } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, doublePrecision, timestamp, boolean, real, jsonb, numeric, date, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -2738,3 +2738,31 @@ export const emailSignatures = pgTable("email_signatures", {
 export const insertEmailSignatureSchema = createInsertSchema(emailSignatures).omit({ id: true, createdAt: true, updatedAt: true });
 export type EmailSignature = typeof emailSignatures.$inferSelect;
 export type InsertEmailSignature = z.infer<typeof insertEmailSignatureSchema>;
+
+// ── CRM Intelligence Context ──────────────────────────────────────────────────
+export const crmIntelligenceContext = pgTable("crm_intelligence_context", {
+  id: serial("id").primaryKey(),
+  recordType: text("record_type").notNull(),
+  recordId: integer("record_id").notNull(),
+  recordName: text("record_name").notNull().default(""),
+  durableSummary: text("durable_summary").notNull().default(""),
+  keyFacts: jsonb("key_facts").notNull().default([]),
+  keyPeople: jsonb("key_people").notNull().default([]),
+  openLoops: jsonb("open_loops").notNull().default([]),
+  objections: jsonb("objections").notNull().default([]),
+  buyingSignals: jsonb("buying_signals").notNull().default([]),
+  risks: jsonb("risks").notNull().default([]),
+  opportunities: jsonb("opportunities").notNull().default([]),
+  commitments: jsonb("commitments").notNull().default([]),
+  nextSteps: jsonb("next_steps").notNull().default([]),
+  recentActivityDigest: jsonb("recent_activity_digest").notNull().default([]),
+  lastContextBuildAt: timestamp("last_context_build_at", { withTimezone: true }).notNull().defaultNow(),
+  sourceCoverage: jsonb("source_coverage").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniqueRecordTypeId: unique("crm_intelligence_context_record_type_record_id_key").on(table.recordType, table.recordId),
+}));
+export const insertCrmIntelligenceContextSchema = createInsertSchema(crmIntelligenceContext).omit({ id: true, createdAt: true, updatedAt: true });
+export type CrmIntelligenceContext = typeof crmIntelligenceContext.$inferSelect;
+export type InsertCrmIntelligenceContext = z.infer<typeof insertCrmIntelligenceContextSchema>;
