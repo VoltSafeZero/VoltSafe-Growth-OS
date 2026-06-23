@@ -437,14 +437,22 @@ async function main() {
     let grepOut = "";
     try { grepOut = execSync(grepCmd, { cwd: process.cwd() }).toString(); } catch {}
 
-    const markReadSection = grepOut.split("\n").filter(l => /14[89]\d\d/.test(l.split(":")[0]));
-    // Line range 14800-14830 is the single-message mark-read route
-    const hasSingleRoute = grepOut.split("\n").some(l => {
+    // Locate the single-message mark-read route. The route anchor is
+    // app.post("/api/gmail/messages/:id/mark-read") — we accept any window
+    // within ±200 lines of wherever that anchor currently lives so this check
+    // stays green across minor route-file refactors without pinning exact lines.
+    const { execSync: _ex2 } = require("child_process");
+    let anchorLine = 0;
+    try {
+      const anchorOut = _ex2(`grep -n 'messages/:id/mark-read' server/routes.ts`, { cwd: process.cwd() }).toString();
+      anchorLine = parseInt(anchorOut.split("\n")[0]?.split(":")[0] || "0");
+    } catch {}
+    const hasSingleRoute = anchorLine > 0 && grepOut.split("\n").some(l => {
       const lineNum = parseInt(l.split(":")[0]);
-      return lineNum >= 14800 && lineNum <= 14960;
+      return lineNum >= anchorLine && lineNum <= anchorLine + 200;
     });
     if (!hasSingleRoute)
-      bad("MR-09: is_unread=false write not found in single mark-read route (lines 14800-14960)");
+      bad(`MR-09: is_unread=false write not found in single mark-read route (anchor line ${anchorLine})`);
     else
       ok("MR-09: is_unread=false write present in single mark-read route");
   }
