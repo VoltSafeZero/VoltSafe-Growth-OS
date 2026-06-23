@@ -35,7 +35,9 @@ const DialogContent = React.forwardRef<
 >(({ className, children, ...props }, ref) => {
   const [expanded, setExpanded] = React.useState(false)
   const [dragPos, setDragPos] = React.useState<{ x: number; y: number } | null>(null)
+  const [resizeSize, setResizeSize] = React.useState<{ w: number | null; h: number | null }>({ w: null, h: null })
   const dragRef = React.useRef<{ mx: number; my: number; ox: number; oy: number } | null>(null)
+  const resizeRef = React.useRef<{ mx: number; my: number; ow: number; oh: number } | null>(null)
   const innerRef = React.useRef<HTMLDivElement | null>(null)
 
   const mergedRef = React.useCallback(
@@ -77,11 +79,50 @@ const DialogContent = React.forwardRef<
     [expanded, dragPos]
   )
 
+  const handleResizeMouseDown = React.useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (expanded) return
+      e.preventDefault()
+      e.stopPropagation()
+      const el = innerRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const startW = resizeSize.w ?? rect.width
+      const startH = resizeSize.h ?? rect.height
+      resizeRef.current = { mx: e.clientX, my: e.clientY, ow: startW, oh: startH }
+
+      const onMove = (ev: MouseEvent) => {
+        if (!resizeRef.current) return
+        const newW = Math.min(
+          window.innerWidth * 0.96,
+          Math.max(480, resizeRef.current.ow + (ev.clientX - resizeRef.current.mx))
+        )
+        const newH = Math.min(
+          window.innerHeight * 0.92,
+          Math.max(400, resizeRef.current.oh + (ev.clientY - resizeRef.current.my))
+        )
+        setResizeSize({ w: newW, h: newH })
+      }
+      const onUp = () => {
+        resizeRef.current = null
+        window.removeEventListener("mousemove", onMove)
+        window.removeEventListener("mouseup", onUp)
+      }
+      window.addEventListener("mousemove", onMove)
+      window.addEventListener("mouseup", onUp)
+    },
+    [expanded, resizeSize]
+  )
+
+  const isResized = resizeSize.w != null || resizeSize.h != null
+
   const posStyle: React.CSSProperties = expanded
     ? {}
-    : dragPos
-    ? { left: dragPos.x, top: dragPos.y }
-    : {}
+    : {
+        ...(dragPos ? { left: dragPos.x, top: dragPos.y } : {}),
+        ...(resizeSize.w != null ? { width: resizeSize.w } : {}),
+        ...(resizeSize.h != null ? { height: resizeSize.h, maxHeight: "none" } : {}),
+      }
 
   const isCentered = !expanded && !dragPos
 
@@ -104,7 +145,8 @@ const DialogContent = React.forwardRef<
                 isCentered
                   ? "left-[50%] top-[50%] data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]"
                   : "",
-                "resize overflow-auto min-h-[120px] min-w-[280px] max-h-[90dvh]"
+                "min-h-[120px] min-w-[280px] max-h-[90dvh]",
+                isResized ? "overflow-hidden" : "overflow-y-auto"
               ),
           className
         )}
@@ -147,6 +189,20 @@ const DialogContent = React.forwardRef<
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
+
+        {/* Resize corner handle — bottom-right grip */}
+        {!expanded && (
+          <div
+            className="absolute bottom-0 right-0 w-5 h-5 z-[11] cursor-se-resize select-none flex items-end justify-end pb-0.5 pr-0.5"
+            onMouseDown={handleResizeMouseDown}
+            data-testid="dialog-resize-handle"
+            title="Drag to resize"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" className="opacity-30">
+              <path d="M9 1L1 9M9 5L5 9M9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </div>
+        )}
       </DialogPrimitive.Content>
     </DialogPortal>
   )
