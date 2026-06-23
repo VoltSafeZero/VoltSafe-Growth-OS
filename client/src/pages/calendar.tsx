@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
@@ -67,6 +67,8 @@ import {
   Sparkles,
   Bot,
   Mic,
+  GripVertical,
+  CalendarCheck,
 } from "lucide-react";
 import {
   Tabs,
@@ -359,6 +361,11 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [clickedSlot, setClickedSlot] = useState<{ date: Date; hour?: number } | null>(null);
+  const [rescheduleRequest, setRescheduleRequest] = useState<{
+    event: DisplayEvent;
+    newStartTime: Date;
+    newEndTime: Date | null;
+  } | null>(null);
   const [enabledOverlays, setEnabledOverlays] = useState<Set<number>>(new Set());
   const { toast } = useToast();
 
@@ -480,6 +487,42 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
       toast({ title: "Failed to delete", description: err.message, variant: "destructive" });
     },
   });
+
+  const rescheduleMutation = useMutation({
+    mutationFn: async ({
+      id, startTime, endTime, notify, prevStartTime, prevEndTime,
+    }: {
+      id: number; startTime: Date; endTime: Date | null;
+      notify: boolean; prevStartTime: Date; prevEndTime: Date | null;
+    }) => {
+      await apiRequest("PUT", `/api/calendar/events/${id}`, {
+        startTime: startTime.toISOString(),
+        endTime: endTime?.toISOString() ?? null,
+      });
+      if (notify) {
+        await apiRequest("POST", `/api/calendar/events/${id}/notify-reschedule`, {
+          previousStartTime: prevStartTime.toISOString(),
+          previousEndTime: prevEndTime?.toISOString() ?? null,
+        });
+      }
+    },
+    onSuccess: (_, { notify }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+      setRescheduleRequest(null);
+      toast({
+        title: notify ? "Event moved & attendees notified" : "Event moved",
+        description: notify ? "Reschedule notifications sent to all attendees." : undefined,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to reschedule", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleReschedule = useCallback((event: DisplayEvent, newStartTime: Date, newEndTime: Date | null) => {
+    if (event._team) return;
+    setRescheduleRequest({ event, newStartTime, newEndTime });
+  }, []);
 
   const navigate = (direction: "prev" | "next" | "today") => {
     if (direction === "today") {
@@ -637,6 +680,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 events={allEvents}
                 onSlotClick={handleSlotClick}
                 onEventClick={(ev) => { if (!ev._team) setSelectedEvent(ev); }}
+                onReschedule={handleReschedule}
               />
             ) : (
               <DayView
@@ -644,6 +688,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 events={allEvents}
                 onSlotClick={handleSlotClick}
                 onEventClick={(ev) => { if (!ev._team) setSelectedEvent(ev); }}
+                onReschedule={handleReschedule}
               />
             )}
           </CardContent>
@@ -713,6 +758,23 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           isDeleting={deleteMutation.isPending}
         />
       )}
+
+      <RescheduleConfirmDialog
+        request={rescheduleRequest}
+        onCancel={() => setRescheduleRequest(null)}
+        onConfirm={(notify) => {
+          if (!rescheduleRequest) return;
+          rescheduleMutation.mutate({
+            id: rescheduleRequest.event.id,
+            startTime: rescheduleRequest.newStartTime,
+            endTime: rescheduleRequest.newEndTime,
+            notify,
+            prevStartTime: new Date(rescheduleRequest.event.startTime),
+            prevEndTime: rescheduleRequest.event.endTime ? new Date(rescheduleRequest.event.endTime) : null,
+          });
+        }}
+        isPending={rescheduleMutation.isPending}
+      />
     </div>
   );
 }
@@ -818,14 +880,35 @@ function WeekView({
   events,
   onSlotClick,
   onEventClick,
+  onReschedule,
 }: {
   currentDate: Date;
   events: DisplayEvent[];
   onSlotClick: (date: Date, hour: number) => void;
   onEventClick: (event: DisplayEvent) => void;
+  onReschedule?: (event: DisplayEvent, newStart: Date, newEnd: Date | null) => void;
 }) {
   const weekStart = startOfWeek(currentDate);
   const weekDays = eachDayOfInterval({ start: weekStart, end: endOfWeek(currentDate) });
+  const dragRef = useRef<DisplayEvent | null>(null);
+  const [dragOverSlot, setDragOverSlot] = useState<{ day: string; hour: number } | null>(null);
+
+  const handleDrop = useCallback((day: Date, hour: number) => {
+    const ev = dragRef.current;
+    if (!ev || !onReschedule) return;
+    const orig = new Date(ev.startTime);
+    if (isSameDay(orig, day) && getHours(orig) === hour) return;
+    const newStart = new Date(day);
+    newStart.setHours(hour, orig.getMinutes(), 0, 0);
+    let newEnd: Date | null = null;
+    if (ev.endTime) {
+      const duration = new Date(ev.endTime).getTime() - orig.getTime();
+      newEnd = new Date(newStart.getTime() + duration);
+    }
+    onReschedule(ev, newStart, newEnd);
+    dragRef.current = null;
+    setDragOverSlot(null);
+  }, [onReschedule]);
 
   return (
     <div className="overflow-x-auto">
@@ -861,26 +944,37 @@ function WeekView({
                   const eStart = new Date(e.startTime);
                   return isSameDay(eStart, day) && getHours(eStart) === hour;
                 });
+                const slotKey = format(day, "yyyy-MM-dd");
+                const isDropTarget = dragOverSlot?.day === slotKey && dragOverSlot?.hour === hour;
 
                 return (
                   <div
                     key={day.toISOString()}
-                    className="border-l border-border/30 min-h-[48px] p-0.5 cursor-pointer overflow-hidden min-w-0"
+                    className={`border-l border-border/30 min-h-[48px] p-0.5 cursor-pointer overflow-hidden min-w-0 transition-colors ${
+                      isDropTarget ? "bg-primary/10 ring-1 ring-inset ring-primary/40" : ""
+                    }`}
                     onClick={() => onSlotClick(day, hour)}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverSlot({ day: slotKey, hour }); }}
+                    onDragLeave={() => setDragOverSlot(null)}
+                    onDrop={(e) => { e.preventDefault(); handleDrop(day, hour); }}
                     data-testid={`slot-week-${format(day, "yyyy-MM-dd")}-${hour}`}
                   >
                     {hourEvents.map((ev) => (
                       <button
                         key={`${ev.id}-${ev._team?.name ?? "own"}`}
-                        className={`w-full min-w-0 text-left text-[10px] px-1 py-0.5 rounded border mb-0.5 block truncate ${
+                        draggable={!ev._team}
+                        className={`w-full min-w-0 text-left text-[10px] px-1 py-0.5 rounded border mb-0.5 block truncate transition-opacity ${
                           ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEventClick(ev);
+                        } ${!ev._team ? "cursor-grab active:cursor-grabbing" : ""}`}
+                        onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
+                        onDragStart={(e) => {
+                          dragRef.current = ev;
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", String(ev.id));
                         }}
+                        onDragEnd={() => { dragRef.current = null; setDragOverSlot(null); }}
                         data-testid={`event-week-${ev.id}`}
-                        title={`${formatTime(new Date(ev.startTime))} ${ev.title}`}
+                        title={`${formatTime(new Date(ev.startTime))} ${ev.title}${!ev._team ? " · Drag to reschedule" : ""}`}
                       >
                         {ev._team ? `${ev._team.name.split(" ")[0]}: ` : ""}{formatTime(new Date(ev.startTime))} {ev.title}
                       </button>
@@ -901,24 +995,51 @@ function DayView({
   events,
   onSlotClick,
   onEventClick,
+  onReschedule,
 }: {
   currentDate: Date;
   events: DisplayEvent[];
   onSlotClick: (date: Date, hour: number) => void;
   onEventClick: (event: DisplayEvent) => void;
+  onReschedule?: (event: DisplayEvent, newStart: Date, newEnd: Date | null) => void;
 }) {
   const dayEvents = events.filter((e) => isSameDay(new Date(e.startTime), currentDate));
+  const dragRef = useRef<DisplayEvent | null>(null);
+  const [dragOverHour, setDragOverHour] = useState<number | null>(null);
+
+  const handleDrop = useCallback((hour: number) => {
+    const ev = dragRef.current;
+    if (!ev || !onReschedule) return;
+    const orig = new Date(ev.startTime);
+    if (isSameDay(orig, currentDate) && getHours(orig) === hour) return;
+    const newStart = new Date(currentDate);
+    newStart.setHours(hour, orig.getMinutes(), 0, 0);
+    let newEnd: Date | null = null;
+    if (ev.endTime) {
+      const duration = new Date(ev.endTime).getTime() - orig.getTime();
+      newEnd = new Date(newStart.getTime() + duration);
+    }
+    onReschedule(ev, newStart, newEnd);
+    dragRef.current = null;
+    setDragOverHour(null);
+  }, [onReschedule, currentDate]);
 
   return (
     <div className="max-h-[600px] overflow-y-auto">
       {HOURS.map((hour) => {
         const hourEvents = dayEvents.filter((e) => getHours(new Date(e.startTime)) === hour);
+        const isDropTarget = dragOverHour === hour;
 
         return (
           <div
             key={hour}
-            className="grid grid-cols-[60px_1fr] border-b border-border/30 min-h-[56px] cursor-pointer"
+            className={`grid grid-cols-[60px_1fr] border-b border-border/30 min-h-[56px] cursor-pointer transition-colors ${
+              isDropTarget ? "bg-primary/10 ring-1 ring-inset ring-primary/40" : ""
+            }`}
             onClick={() => onSlotClick(currentDate, hour)}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverHour(hour); }}
+            onDragLeave={() => setDragOverHour(null)}
+            onDrop={(e) => { e.preventDefault(); handleDrop(hour); }}
             data-testid={`slot-day-${hour}`}
           >
             <div className="p-1 text-xs text-muted-foreground text-right pr-3 pt-1">
@@ -928,16 +1049,22 @@ function DayView({
               {hourEvents.map((ev) => (
                 <button
                   key={`${ev.id}-${ev._team?.name ?? "own"}`}
+                  draggable={!ev._team}
                   className={`w-full text-left text-xs px-2 py-1.5 rounded border ${
                     ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
-                  }`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEventClick(ev);
+                  } ${!ev._team ? "cursor-grab active:cursor-grabbing" : ""}`}
+                  onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
+                  onDragStart={(e) => {
+                    dragRef.current = ev;
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", String(ev.id));
                   }}
+                  onDragEnd={() => { dragRef.current = null; setDragOverHour(null); }}
                   data-testid={`event-day-${ev.id}`}
+                  title={!ev._team ? "Drag to reschedule" : undefined}
                 >
-                  <div className="font-medium">
+                  <div className="font-medium flex items-center gap-1">
+                    {!ev._team && <GripVertical className="h-3 w-3 opacity-40 shrink-0" />}
                     {ev._team && <span className="opacity-70">{ev._team.name.split(" ")[0]}: </span>}{ev.title}
                   </div>
                   <div className="text-muted-foreground mt-0.5">
@@ -951,6 +1078,74 @@ function DayView({
         );
       })}
     </div>
+  );
+}
+
+function RescheduleConfirmDialog({
+  request,
+  onCancel,
+  onConfirm,
+  isPending,
+}: {
+  request: { event: DisplayEvent; newStartTime: Date; newEndTime: Date | null } | null;
+  onCancel: () => void;
+  onConfirm: (notify: boolean) => void;
+  isPending: boolean;
+}) {
+  if (!request) return null;
+  const { event, newStartTime, newEndTime } = request;
+  const oldStart = new Date(event.startTime);
+  const oldEnd = event.endTime ? new Date(event.endTime) : null;
+  const hasInvitees = (event.invitees?.length ?? 0) > 0;
+
+  const fmtSlot = (start: Date, end: Date | null) =>
+    `${format(start, "EEE, MMM d")} · ${formatTime(start)}${end ? ` – ${formatTime(end)}` : ""}`;
+
+  return (
+    <Dialog open={!!request} onOpenChange={() => { if (!isPending) onCancel(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CalendarCheck className="h-5 w-5 text-primary" />
+            Reschedule Event
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-1">
+          <p className="text-sm font-semibold truncate">{event.title}</p>
+          <div className="space-y-2.5 text-sm rounded-lg border border-border/60 bg-muted/30 p-3">
+            <div className="flex items-start gap-3">
+              <span className="text-muted-foreground w-10 shrink-0 text-xs pt-0.5 uppercase tracking-wide">From</span>
+              <span className="line-through text-muted-foreground">{fmtSlot(oldStart, oldEnd)}</span>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="text-muted-foreground w-10 shrink-0 text-xs pt-0.5 uppercase tracking-wide">To</span>
+              <span className="font-medium">{fmtSlot(newStartTime, newEndTime)}</span>
+            </div>
+          </div>
+          {hasInvitees && (
+            <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 flex items-center gap-2">
+              <Users className="h-3.5 w-3.5 shrink-0" />
+              {event.invitees!.length} attendee{event.invitees!.length !== 1 ? "s" : ""} will receive a reschedule notification if you choose "Move &amp; Notify".
+            </p>
+          )}
+        </div>
+        <DialogFooter className="gap-2 sm:gap-1 flex-wrap sm:flex-nowrap">
+          <Button variant="ghost" onClick={onCancel} disabled={isPending} className="sm:mr-auto">
+            Cancel
+          </Button>
+          <Button variant="outline" onClick={() => onConfirm(false)} disabled={isPending} data-testid="button-reschedule-move">
+            {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
+            Move
+          </Button>
+          {hasInvitees && (
+            <Button onClick={() => onConfirm(true)} disabled={isPending} data-testid="button-reschedule-move-notify">
+              {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
+              Move &amp; Notify
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

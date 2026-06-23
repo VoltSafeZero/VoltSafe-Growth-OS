@@ -8535,6 +8535,92 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/calendar/events/:id/notify-reschedule
+  // Notifies all invitees that an event has been rescheduled to its current time.
+  // Body: { previousStartTime?: string, previousEndTime?: string }
+  app.post("/api/calendar/events/:id/notify-reschedule", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = req.session.userId!;
+      const event = await storage.getCalendarEvent(id);
+      if (!event || event.userId !== userId) return res.status(404).json({ message: "Event not found" });
+      const invitees = (event.invitees ?? []).filter(Boolean);
+      if (invitees.length === 0) return res.json({ sent: 0, total: 0 });
+
+      const { previousStartTime, previousEndTime } = req.body ?? {};
+      const startDate = new Date(event.startTime);
+      const endDate = event.endTime ? new Date(event.endTime) : new Date(startDate.getTime() + 60 * 60_000);
+      const tzNote = event.timeZone ? ` (${event.timeZone})` : "";
+      const dateStr = startDate.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+      const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+        + ` – ${endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+        + tzNote;
+
+      let prevBlock = "";
+      if (previousStartTime) {
+        const prevStart = new Date(previousStartTime);
+        const prevEnd = previousEndTime ? new Date(previousEndTime) : new Date(prevStart.getTime() + 60 * 60_000);
+        const prevDateStr = prevStart.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        const prevTimeStr = prevStart.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+          + ` – ${prevEnd.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+        const prevFull = prevDateStr === dateStr ? prevTimeStr : `${prevDateStr}, ${prevTimeStr}`;
+        prevBlock = `<p style="color:#888;margin:4px 0;font-size:14px;"><s>Previously: ${prevFull}</s></p>`;
+      }
+
+      const zoomUrl = event.meetingUrl && /zoom\.us/i.test(event.meetingUrl) ? event.meetingUrl : null;
+      const locationLine = zoomUrl ? zoomUrl : (event.location ?? "");
+
+      const html = `<div style="font-family:sans-serif;max-width:540px;margin:0 auto;color:#222;">
+  <div style="background:#f0f9ff;border-left:4px solid #0ea5e9;padding:12px 16px;border-radius:4px;margin-bottom:16px;">
+    <strong style="color:#0369a1;">📅 This event has been rescheduled</strong>
+  </div>
+  <h2 style="margin-bottom:4px;">${event.title}</h2>
+  ${prevBlock}
+  <p style="color:#555;margin:4px 0;"><strong>New Date:</strong> ${dateStr}</p>
+  <p style="color:#555;margin:4px 0;"><strong>New Time:</strong> ${timeStr}</p>
+  ${event.location && !zoomUrl ? `<p style="color:#555;margin:4px 0;"><strong>Location:</strong> ${event.location}</p>` : ""}
+  ${zoomUrl ? `<p style="margin:16px 0;"><a href="${zoomUrl}" style="background:#2D8CFF;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">Join Zoom Meeting</a></p><p style="color:#888;font-size:12px;margin:0;">Or copy link: <a href="${zoomUrl}" style="color:#2D8CFF;">${zoomUrl}</a></p>` : ""}
+  ${event.description ? `<p style="margin-top:16px;color:#444;white-space:pre-line;">${event.description}</p>` : ""}
+  <hr style="border:none;border-top:1px solid #eee;margin:20px 0;"/>
+  <p style="color:#888;font-size:12px;">An updated calendar invite (.ics) is attached — accept it to update this event in your calendar.</p>
+</div>`;
+
+      let icalContent: string | undefined;
+      try {
+        const profile = await getProfile(userId);
+        const organizerEmail = profile.emailAddress || `user-${userId}@voltsafe.com`;
+        const organizerName = profile.displayName || organizerEmail;
+        icalContent = generateICalString({
+          uid: `event-${event.id}@voltsafe.com`,
+          summary: event.title,
+          description: event.description ?? undefined,
+          location: locationLine || undefined,
+          startTime: startDate,
+          endTime: endDate,
+          organizer: { name: organizerName, email: organizerEmail },
+          attendees: invitees.map((e) => ({ email: e })),
+        });
+      } catch (icalErr: any) {
+        console.warn("[notify-reschedule] iCal generation failed (non-fatal):", icalErr.message);
+      }
+
+      let sent = 0;
+      for (const email of invitees) {
+        try {
+          await sendEmail(userId, email, `Rescheduled: ${event.title}`, html,
+            undefined, [], undefined, undefined, undefined, icalContent);
+          sent++;
+        } catch (err: any) {
+          console.warn(`[notify-reschedule] Failed to send to ${email}: ${err.message}`);
+        }
+      }
+      res.json({ sent, total: invitees.length });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ── Calendar integrations (sync providers) ─────────────────────────────────
 
   // List connected calendar providers for the current user
