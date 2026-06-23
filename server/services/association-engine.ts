@@ -259,7 +259,6 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
       await db.insert(emailAssociations).values({ emailMessageId, objectType: "contact", objectId: contact.id, objectName: contact.name, confidenceScore: 100, associationReasonJson: JSON.stringify(reasons), isAuto: false, isUserConfirmed: true });
     }
     confirmedByType.set("contact", contact.id);
-    import("./crm-ai-summary").then(m => m.markCrmAiSummaryStale("contact", contact.id, "gmail_auto_sync_email_association")).catch(() => {});
   }
   for (const account of resolved.accounts) {
     if (!(account as any).pinnedIdentifier) continue;
@@ -272,7 +271,6 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
       await db.insert(emailAssociations).values({ emailMessageId, objectType: "account", objectId: account.id, objectName: account.name, confidenceScore: 100, associationReasonJson: JSON.stringify(reasons), isAuto: false, isUserConfirmed: true });
     }
     confirmedByType.set("account", account.id);
-    import("./crm-ai-summary").then(m => m.markCrmAiSummaryStale("account", account.id, "gmail_auto_sync_email_association")).catch(() => {});
   }
   for (const lead of resolved.leads) {
     if (!(lead as any).pinnedIdentifier) continue;
@@ -285,12 +283,10 @@ export async function runAssociationEngine(emailMessageId: number): Promise<void
       await db.insert(emailAssociations).values({ emailMessageId, objectType: "lead", objectId: lead.id, objectName: lead.name, confidenceScore: 100, associationReasonJson: JSON.stringify(reasons), isAuto: false, isUserConfirmed: true });
     }
     confirmedByType.set("lead", lead.id);
-    import("./crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", lead.id, "gmail_auto_sync_email_association")).catch(() => {});
   }
 
   // ── Signal 1: Exact email → Contact (+50) ─────────────────────────────────
   for (const contact of resolved.contacts) {
-    if ((contact as any).pinnedIdentifier) continue; // already handled by Signal 0
     if (isRejected("contact", contact.id)) continue;
     const reasons: string[] = [`Exact email match (${contact.email})`];
     let score = 50;
