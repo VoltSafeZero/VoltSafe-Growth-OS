@@ -6,8 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import { formatDistanceToNow } from "date-fns";
-import { Mic, Plus, CalendarClock, Mail, Upload, Hash, AlertCircle, Loader2 } from "lucide-react";
+import {
+  formatDistanceToNow, format, isToday, isYesterday, isThisWeek,
+} from "date-fns";
+import {
+  Mic, Plus, CalendarClock, Mail, Upload, Hash, AlertCircle, Loader2,
+  Video, Phone, Users, Clock,
+} from "lucide-react";
 import { ToastAction } from "@/components/ui/toast";
 
 type MeetingNoteSummary = {
@@ -20,6 +25,8 @@ type MeetingNoteSummary = {
   durationSeconds: number | null;
   createdAt: string;
   updatedAt: string;
+  calendarEventTitle: string | null;
+  calendarEventStartTime: string | null;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -58,11 +65,56 @@ const SOURCE_ICON: Record<string, React.ElementType> = {
   upload:   Upload,
 };
 
+const PLATFORM_LABEL: Record<string, string> = {
+  zoom:      "Zoom",
+  teams:     "Teams",
+  meet:      "Meet",
+  phone:     "Phone",
+  in_person: "In Person",
+  other:     "Meeting",
+};
+
+function PlatformIcon({ platform }: { platform: string | null }) {
+  if (!platform) return null;
+  if (platform === "phone") return <Phone className="w-3 h-3 shrink-0" />;
+  if (platform === "in_person") return <Users className="w-3 h-3 shrink-0" />;
+  return <Video className="w-3 h-3 shrink-0" />;
+}
+
 function formatDuration(secs: number | null): string {
   if (!secs) return "";
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${m}m ${s}s`;
+}
+
+function getDisplayDate(note: MeetingNoteSummary): Date {
+  if (note.calendarEventStartTime) return new Date(note.calendarEventStartTime);
+  return new Date(note.createdAt);
+}
+
+function getDateGroupLabel(date: Date): string {
+  if (isToday(date)) return "Today";
+  if (isYesterday(date)) return "Yesterday";
+  if (isThisWeek(date, { weekStartsOn: 1 })) return "This Week";
+  return format(date, "MMMM yyyy");
+}
+
+function groupNotes(notes: MeetingNoteSummary[]): Array<{ label: string; items: MeetingNoteSummary[] }> {
+  const order: string[] = [];
+  const map = new Map<string, MeetingNoteSummary[]>();
+
+  for (const note of notes) {
+    const date = getDisplayDate(note);
+    const label = getDateGroupLabel(date);
+    if (!map.has(label)) {
+      order.push(label);
+      map.set(label, []);
+    }
+    map.get(label)!.push(note);
+  }
+
+  return order.map((label) => ({ label, items: map.get(label)! }));
 }
 
 const PAGE_SIZE = 20;
@@ -74,10 +126,9 @@ export default function MeetingNotesIndexPage() {
 
   const { data: notes = [], isLoading, isError } = useQuery<MeetingNoteSummary[]>({
     queryKey: ["/api/meeting-notes"],
-    // Poll every 3s when any note is processing
     refetchInterval: (query) => {
       const data = query.state.data as MeetingNoteSummary[] | undefined;
-      return data?.some((n) => n.status === "processing") ? 3000 : false;
+      return data?.some((n) => n.status === "processing" || n.status === "recording") ? 3000 : false;
     },
   });
 
@@ -89,7 +140,7 @@ export default function MeetingNotesIndexPage() {
       const prevStatus = prev.get(note.id);
       if (prevStatus === "processing" && note.status === "completed") {
         const noteId = note.id;
-        const noteTitle = note.title || "Meeting";
+        const noteTitle = note.title || note.calendarEventTitle || "Meeting";
         toast({
           title: `"${noteTitle}" is ready`,
           description: "AI processing complete — open to review insights.",
@@ -106,7 +157,7 @@ export default function MeetingNotesIndexPage() {
 
   const createMutation = useMutation({
     mutationFn: () =>
-      apiRequest("POST", "/api/meeting-notes", { source: "adhoc", title: "New Meeting Note" }),
+      apiRequest("POST", "/api/meeting-notes", { source: "adhoc" }),
     onSuccess: async (res) => {
       const note = await res.json();
       await queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes"] });
@@ -119,6 +170,7 @@ export default function MeetingNotesIndexPage() {
 
   const visible = notes.slice(0, visibleCount);
   const hasMore = notes.length > visibleCount;
+  const groups = groupNotes(visible);
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-background">
@@ -170,7 +222,7 @@ export default function MeetingNotesIndexPage() {
             <div>
               <p className="text-sm font-medium text-foreground">No meeting notes yet</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Create your first note to start capturing meetings.
+                Create your first note or start one from a calendar event.
               </p>
             </div>
             <Button
@@ -185,52 +237,102 @@ export default function MeetingNotesIndexPage() {
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            {visible.map((note) => {
-              const SrcIcon = SOURCE_ICON[note.source] ?? Hash;
-              const isProcessing = note.status === "processing";
-              return (
-                <button
-                  key={note.id}
-                  onClick={() => navigate(`/meeting-notes/${note.id}`)}
-                  data-testid={`row-meeting-note-${note.id}`}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-border/50 bg-card hover:bg-secondary/40 hover:border-border transition-all text-left"
-                >
-                  <div className="w-8 h-8 rounded-md bg-primary/8 flex items-center justify-center shrink-0">
-                    {isProcessing
-                      ? <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
-                      : <SrcIcon className="w-4 h-4 text-primary/70" />}
-                  </div>
+          <div className="flex flex-col gap-4">
+            {groups.map(({ label, items }) => (
+              <div key={label} className="flex flex-col gap-1">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide px-1 pb-0.5">
+                  {label}
+                </p>
+                <div className="flex flex-col gap-1">
+                  {items.map((note) => {
+                    const SrcIcon = SOURCE_ICON[note.source] ?? Hash;
+                    const isProcessing = note.status === "processing";
+                    const isRecording = note.status === "recording";
+                    const displayTitle = note.title
+                      || note.calendarEventTitle
+                      || (note.source === "calendar" ? "Calendar Meeting" : "Untitled Meeting");
 
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className="text-sm font-medium truncate text-foreground"
-                      data-testid={`text-meeting-note-title-${note.id}`}
-                    >
-                      {note.title || "Untitled Meeting"}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {SOURCE_LABEL[note.source] ?? note.source}
-                      {note.durationSeconds ? ` · ${formatDuration(note.durationSeconds)}` : ""}
-                      {" · "}
-                      {formatDistanceToNow(new Date(note.createdAt), { addSuffix: true })}
-                    </p>
-                  </div>
+                    const displayDate = getDisplayDate(note);
+                    let subtitleParts: string[] = [];
 
-                  <Badge
-                    variant="outline"
-                    className={`text-[10px] shrink-0 ${STATUS_CLASS[note.status] ?? "bg-muted text-muted-foreground"}`}
-                    data-testid={`status-meeting-note-${note.id}`}
-                  >
-                    {STATUS_LABEL[note.status] ?? note.status}
-                  </Badge>
-                </button>
-              );
-            })}
+                    if (note.source === "calendar" && note.calendarEventStartTime) {
+                      subtitleParts.push(format(displayDate, "h:mm a"));
+                    }
+                    if (note.platform && PLATFORM_LABEL[note.platform]) {
+                      subtitleParts.push(PLATFORM_LABEL[note.platform]);
+                    } else {
+                      subtitleParts.push(SOURCE_LABEL[note.source] ?? note.source);
+                    }
+                    if (note.durationSeconds) {
+                      subtitleParts.push(formatDuration(note.durationSeconds));
+                    }
+                    if (!note.calendarEventStartTime) {
+                      subtitleParts.push(formatDistanceToNow(new Date(note.createdAt), { addSuffix: true }));
+                    }
+
+                    return (
+                      <button
+                        key={note.id}
+                        onClick={() => navigate(`/meeting-notes/${note.id}`)}
+                        data-testid={`row-meeting-note-${note.id}`}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-border/50 bg-card hover:bg-secondary/40 hover:border-border transition-all text-left"
+                      >
+                        <div className="w-8 h-8 rounded-md bg-primary/8 flex items-center justify-center shrink-0">
+                          {isRecording ? (
+                            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                          ) : isProcessing ? (
+                            <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+                          ) : note.platform ? (
+                            <PlatformIcon platform={note.platform} />
+                          ) : (
+                            <SrcIcon className="w-4 h-4 text-primary/70" />
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p
+                              className="text-sm font-medium truncate text-foreground"
+                              data-testid={`text-meeting-note-title-${note.id}`}
+                            >
+                              {displayTitle}
+                            </p>
+                            {note.platform && (
+                              <span
+                                className={`text-[10px] shrink-0 font-medium ${
+                                  note.platform === "zoom"      ? "text-[#2D8CFF]" :
+                                  note.platform === "teams"     ? "text-[#6264A7]" :
+                                  note.platform === "meet"      ? "text-emerald-500" :
+                                  note.platform === "phone"     ? "text-orange-500" :
+                                  "text-muted-foreground"
+                                }`}
+                              >
+                                {PLATFORM_LABEL[note.platform]}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 flex-wrap">
+                            {subtitleParts.join(" · ")}
+                          </p>
+                        </div>
+
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] shrink-0 ${STATUS_CLASS[note.status] ?? "bg-muted text-muted-foreground"}`}
+                          data-testid={`status-meeting-note-${note.id}`}
+                        >
+                          {STATUS_LABEL[note.status] ?? note.status}
+                        </Badge>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
 
             {/* Load more */}
             {hasMore && (
-              <div className="flex justify-center pt-2">
+              <div className="flex justify-center pt-1">
                 <Button
                   variant="outline"
                   size="sm"
@@ -244,7 +346,6 @@ export default function MeetingNotesIndexPage() {
               </div>
             )}
 
-            {/* Total count when showing all */}
             {!hasMore && notes.length > PAGE_SIZE && (
               <p className="text-center text-xs text-muted-foreground py-2">
                 Showing all {notes.length} notes

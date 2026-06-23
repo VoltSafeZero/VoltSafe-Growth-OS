@@ -2176,50 +2176,71 @@ function BriefingTab({ eventId }: { eventId: number }) {
 
 // ─── Zoom URL extractor ───────────────────────────────────────────────────────
 
-/** Checks meetingUrl, then location, then description for a zoom.us URL. */
-function extractZoomUrl(event: { meetingUrl?: string | null; location?: string | null; description?: string | null }): string | null {
-  const ZOOM_RE = /https?:\/\/[a-z0-9.-]*zoom\.us\/[^\s"'<>)]+/i;
-  if (event.meetingUrl && ZOOM_RE.test(event.meetingUrl)) return event.meetingUrl;
-  if (event.location && ZOOM_RE.test(event.location)) {
-    const m = event.location.match(ZOOM_RE);
-    if (m) return m[0];
+type MeetingProvider = "zoom" | "teams" | "meet" | "phone" | "other" | null;
+
+/** Detects meeting provider from meetingUrl, location, and description fields. */
+function detectMeetingProvider(event: {
+  meetingUrl?: string | null;
+  location?: string | null;
+  description?: string | null;
+}): { provider: MeetingProvider; joinUrl: string | null } {
+  const { meetingUrl, location, description } = event;
+  const sources = [meetingUrl, location, description].filter(Boolean) as string[];
+
+  for (const src of sources) {
+    if (/zoom\.us\//i.test(src)) {
+      const m = src.match(/https?:\/\/[a-z0-9.-]*zoom\.us\/[^\s"'<>)]+/i);
+      return { provider: "zoom", joinUrl: m ? m[0] : (meetingUrl ?? null) };
+    }
+    if (/teams\.microsoft\.com|teams\.live\.com/i.test(src)) {
+      const m = src.match(/https?:\/\/teams\.[a-z.]+\/[^\s"'<>)]+/i);
+      return { provider: "teams", joinUrl: m ? m[0] : (meetingUrl ?? null) };
+    }
+    if (/meet\.google\.com/i.test(src)) {
+      const m = src.match(/https?:\/\/meet\.google\.com\/[^\s"'<>)]+/i);
+      return { provider: "meet", joinUrl: m ? m[0] : (meetingUrl ?? null) };
+    }
   }
-  if (event.description) {
-    const m = event.description.match(ZOOM_RE);
-    if (m) return m[0];
+
+  if (meetingUrl && /^https?:\/\//i.test(meetingUrl)) {
+    return { provider: "other", joinUrl: meetingUrl };
   }
-  return null;
+  return { provider: null, joinUrl: null };
 }
 
 // ─── Meeting Note Action (compact hook inside event detail) ─────────────────
 
 type MeetingNoteRef = { id: number; title: string | null; status: string } | null;
 
-function MeetingNoteAction({ eventId, zoomUrl }: { eventId: number; zoomUrl: string | null }) {
+function MeetingNoteAction({ event }: { event: CalendarEvent }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const isZoom = !!zoomUrl;
+  const { provider } = detectMeetingProvider(event);
 
   const { data: note, isLoading } = useQuery<MeetingNoteRef>({
-    queryKey: ["/api/calendar/events", eventId, "meeting-note"],
+    queryKey: ["/api/calendar/events", event.id, "meeting-note"],
     queryFn: async () => {
-      const r = await fetch(`/api/calendar/events/${eventId}/meeting-note`, { credentials: "include" });
+      const r = await fetch(`/api/calendar/events/${event.id}/meeting-note`, { credentials: "include" });
       if (r.status === 404) return null;
       if (!r.ok) throw new Error("failed");
       return r.json();
     },
     retry: false,
+    refetchInterval: (query) => {
+      const data = query.state.data as MeetingNoteRef | undefined;
+      return data && (data.status === "recording" || data.status === "processing") ? 5000 : false;
+    },
   });
 
   const createMutation = useMutation({
     mutationFn: () => apiRequest(
       "POST",
-      `/api/calendar/events/${eventId}/create-meeting-note`,
-      isZoom ? { platform: "zoom" } : {},
+      `/api/calendar/events/${event.id}/create-meeting-note`,
+      {},
     ),
     onSuccess: async (res) => {
       const created = await res.json();
-      await queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", eventId, "meeting-note"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", event.id, "meeting-note"] });
       navigate(`/meeting-notes/${created.id}`);
     },
     onError: () => toast({ title: "Could not create meeting note", variant: "destructive" }),
@@ -2229,21 +2250,111 @@ function MeetingNoteAction({ eventId, zoomUrl }: { eventId: number; zoomUrl: str
     return <div className="h-8 w-full bg-muted/40 rounded animate-pulse" />;
   }
 
+  // ── Existing note — show status-aware UI ───────────────────────────────────
   if (note) {
+    if (note.status === "recording") {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full gap-2 border-red-500/40 text-red-500 hover:bg-red-500/10 animate-pulse"
+          onClick={() => navigate(`/meeting-notes/${note.id}`)}
+          data-testid="button-view-meeting-note-recording"
+        >
+          <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+          Recording in progress · Open
+        </Button>
+      );
+    }
+
+    if (note.status === "processing") {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full gap-2 border-amber-500/40 text-amber-600 hover:bg-amber-500/10"
+          onClick={() => navigate(`/meeting-notes/${note.id}`)}
+          data-testid="button-view-meeting-note-processing"
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+          Processing transcript…
+        </Button>
+      );
+    }
+
+    if (note.status === "completed" || note.status === "done") {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full gap-2 border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10"
+          onClick={() => navigate(`/meeting-notes/${note.id}`)}
+          data-testid="button-view-meeting-note"
+        >
+          <CheckCheck className="h-3.5 w-3.5 shrink-0" />
+          View Meeting Notes
+        </Button>
+      );
+    }
+
+    if (note.status === "failed") {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full gap-2 border-red-500/30 text-red-600 hover:bg-red-500/10"
+          onClick={() => navigate(`/meeting-notes/${note.id}`)}
+          data-testid="button-view-meeting-note-failed"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          View Note (Processing Error)
+        </Button>
+      );
+    }
+
+    if (note.status === "cancelled") {
+      return (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full gap-2"
+          onClick={() => createMutation.mutate()}
+          disabled={createMutation.isPending}
+          data-testid="button-restart-meeting-note"
+        >
+          {createMutation.isPending
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+            : <Mic className="h-3.5 w-3.5 shrink-0" />}
+          Create New Meeting Note
+        </Button>
+      );
+    }
+
+    // scheduled_prompted → show "Start Recording Now" prominently
     return (
-      <Button
-        size="sm"
-        variant="outline"
-        className="w-full gap-2"
-        onClick={() => navigate(`/meeting-notes/${note.id}`)}
-        data-testid="button-view-meeting-note"
-      >
-        <Mic className="h-3.5 w-3.5 shrink-0" />
-        {isZoom ? "View Meeting Notes" : "View Meeting Note"}
-      </Button>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2 px-0.5">
+          <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 animate-pulse" />
+          <span className="text-xs text-blue-500 font-medium">Meeting note ready</span>
+          {provider && (
+            <span className="ml-auto text-[10px] text-muted-foreground capitalize">{provider}</span>
+          )}
+        </div>
+        <Button
+          size="sm"
+          className="w-full gap-2"
+          onClick={() => navigate(`/meeting-notes/${note.id}`)}
+          data-testid="button-start-meeting-note"
+        >
+          <Mic className="h-3.5 w-3.5 shrink-0" />
+          Start Recording Now
+        </Button>
+      </div>
     );
   }
 
+  // ── No note yet — offer to create one ─────────────────────────────────────
+  const isZoom = provider === "zoom";
   return (
     <Button
       size="sm"
@@ -2257,7 +2368,7 @@ function MeetingNoteAction({ eventId, zoomUrl }: { eventId: number; zoomUrl: str
         ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
         : <Mic className="h-3.5 w-3.5 shrink-0" />
       }
-      {isZoom ? "Start Meeting Notes" : "Create Meeting Note"}
+      {provider ? "Start Meeting Notes" : "Create Meeting Note"}
     </Button>
   );
 }
@@ -2402,22 +2513,53 @@ function EventDetailDialog({
           <TabsContent value="details" className="flex-1 overflow-y-auto px-6 pb-4 mt-3">
             <div className="space-y-2.5 text-sm">
               {event.meetingUrl ? (() => {
-                const isZoomUrl = /zoom\.us/i.test(event.meetingUrl!);
-                return isZoomUrl ? (
-                  <a
-                    href={event.meetingUrl!}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 w-full bg-[#2D8CFF] hover:bg-[#2680f0] text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
-                    data-testid="link-join-zoom"
-                  >
-                    <Video className="h-4 w-4 shrink-0" />
-                    Join Zoom Meeting
-                  </a>
-                ) : (
+                const { provider: mp, joinUrl: mUrl } = detectMeetingProvider(event);
+                if (mp === "zoom") {
+                  return (
+                    <a
+                      href={mUrl ?? event.meetingUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full bg-[#2D8CFF] hover:bg-[#2680f0] text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
+                      data-testid="link-join-zoom"
+                    >
+                      <Video className="h-4 w-4 shrink-0" />
+                      Join Zoom Meeting
+                    </a>
+                  );
+                }
+                if (mp === "teams") {
+                  return (
+                    <a
+                      href={mUrl ?? event.meetingUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full bg-[#6264A7] hover:bg-[#5456a0] text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
+                      data-testid="link-join-teams"
+                    >
+                      <Video className="h-4 w-4 shrink-0" />
+                      Join Teams Meeting
+                    </a>
+                  );
+                }
+                if (mp === "meet") {
+                  return (
+                    <a
+                      href={mUrl ?? event.meetingUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
+                      data-testid="link-join-meet"
+                    >
+                      <Video className="h-4 w-4 shrink-0" />
+                      Join Google Meet
+                    </a>
+                  );
+                }
+                return (
                   <div className="flex items-center gap-2">
                     <Video className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <a href={event.meetingUrl!} target="_blank" rel="noopener noreferrer" className="text-primary truncate" data-testid="link-meeting-url">
+                    <a href={mUrl ?? event.meetingUrl!} target="_blank" rel="noopener noreferrer" className="text-primary truncate" data-testid="link-meeting-url">
                       Join Meeting
                     </a>
                   </div>
@@ -2487,7 +2629,7 @@ function EventDetailDialog({
             </div>
             {/* Footer actions inside scroll */}
             <div className="mt-5 pt-4 border-t border-border/30 flex flex-col gap-2">
-              <MeetingNoteAction eventId={event.id} zoomUrl={extractZoomUrl(event)} />
+              <MeetingNoteAction event={event} />
               {event.invitees && event.invitees.length > 0 && (
                 <Button
                   size="sm"

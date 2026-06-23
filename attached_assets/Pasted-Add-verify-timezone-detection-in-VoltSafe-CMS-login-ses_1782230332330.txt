@@ -1,0 +1,198 @@
+Add/verify timezone detection in VoltSafe CMS login/session initialization.
+
+Goal:
+Anytime a user logs into VoltSafe CMS, the app must immediately determine the user’s current local timezone and local time-of-day context, then store it in the active user session/profile context so all calendar, meeting notes, reminders, CRM activity timestamps, email scheduling, and AI summaries use the correct local time.
+
+Important:
+Do not assume the timezone from the company, browser locale, account default, or previous login. Users travel. The timezone must be detected fresh on login/session start.
+
+============================================================
+REQUIRED BEHAVIOUR
+============================================================
+
+1. On every login/session start, detect the browser/device timezone
+
+Use browser-native timezone detection:
+
+Intl.DateTimeFormat().resolvedOptions().timeZone
+
+Example result:
+
+America/Vancouver
+America/Los_Angeles
+America/Mexico_City
+Europe/London
+
+Also capture:
+- current local timestamp
+- timezone offset in minutes
+- local date
+- local time
+- local hour
+- day/night bucket if useful:
+  - early_morning
+  - morning
+  - afternoon
+  - evening
+  - night
+
+Example client payload:
+
+{
+  timezone: "America/Vancouver",
+  timezoneOffsetMinutes: -420,
+  localTimestamp: "2026-06-23T08:55:00-07:00",
+  localDate: "2026-06-23",
+  localTime: "08:55",
+  localHour: 8
+}
+
+============================================================
+
+2. Send timezone context to backend immediately after login
+
+After authentication succeeds and the app loads the authenticated user/session, send the detected timezone info to the backend.
+
+Add or reuse an endpoint like:
+
+POST /api/session/timezone
+
+Payload:
+
+{
+  timezone,
+  timezoneOffsetMinutes,
+  localTimestamp,
+  localDate,
+  localTime,
+  localHour
+}
+
+Backend should validate:
+- timezone is a valid IANA timezone string
+- offset is numeric
+- timestamp is parseable
+
+If invalid, reject safely and fall back to existing account timezone/default UTC.
+
+============================================================
+
+3. Store timezone in active session/user context
+
+Store the detected timezone in whatever session/user context VoltSafe CMS already uses.
+
+Preferred storage:
+- active session metadata
+- user profile last_detected_timezone
+- user profile last_detected_timezone_at
+- optional last_detected_timezone_offset_minutes
+
+Do not overwrite the user’s permanent preferred timezone unless the product already treats detected timezone as preferred timezone.
+
+Separate these concepts:
+
+preferred_timezone = user/account setting
+current_detected_timezone = where the user appears to be right now
+
+This matters because Trevor may normally be in Vancouver but log in from Mexico, San Diego, Toronto, etc.
+
+============================================================
+
+4. Use detected timezone across the app
+
+Make sure the current detected timezone is used for:
+
+- Calendar event display
+- Meeting Notes scheduled auto-record start time
+- Meeting Notes list grouping:
+  - Today
+  - Yesterday
+  - Last Week
+- Reminder timing
+- Email scheduled-send display
+- CRM activity timestamps
+- AI briefings that mention “today,” “tomorrow,” “this morning,” etc.
+- Any notification logic tied to time of day
+- Any “meeting starting now” logic
+
+If the app already has timezone utilities, update them to prefer:
+
+current_detected_timezone
+then preferred_timezone
+then browser timezone
+then account/company timezone
+then UTC fallback
+
+============================================================
+
+5. Login/session timing
+
+Timezone detection must happen as early as possible after login.
+
+Required flow:
+
+User logs in
+→ authenticated session loads
+→ client detects timezone
+→ client sends timezone to backend
+→ backend stores it
+→ frontend global app state updates
+→ calendar/meeting notes/reminders render using detected timezone
+
+If timezone detection fails:
+- Do not block login
+- Log the failure
+- Use existing fallback timezone
+- Retry once after app load
+
+============================================================
+
+6. Visible confirmation/debugging for admins
+
+For master admin/dev mode only, expose timezone debugging somewhere sensible, such as Settings, user profile, or diagnostics:
+
+Current detected timezone: America/Vancouver
+Detected at: Jun 23, 2026 8:55 AM
+Offset: UTC-7
+Preferred timezone: America/Vancouver
+
+Do not clutter normal user UI.
+
+============================================================
+
+7. Tests
+
+Add or update tests for:
+
+- Browser timezone is detected on login/session initialization
+- Timezone payload is sent to backend
+- Backend validates IANA timezone
+- Invalid timezone does not crash login
+- Detected timezone is stored separately from preferred timezone
+- Calendar event display uses detected timezone
+- Meeting Notes auto-record scheduling uses detected timezone
+- “Today / Yesterday” grouping uses detected timezone
+- Fallback order works correctly:
+  1. current_detected_timezone
+  2. preferred_timezone
+  3. account/company timezone
+  4. UTC
+
+============================================================
+
+8. Acceptance criteria
+
+- Every login/session start detects the user’s current timezone immediately.
+- The backend stores the latest detected timezone for the active session/user.
+- The app does not rely only on old saved timezone data.
+- Traveling users see calendar and meeting-note times in their current local timezone.
+- Meeting auto-record triggers according to the user’s current local time context.
+- No login failures if timezone detection fails.
+- No destructive migrations.
+- Existing timezone/account settings are not broken.
+- Tests pass.
+
+============================================================
+
+Plain-English product rule:
+VoltSafe CMS must always know “where in time” the user is right now. Calendar, meeting notes, reminders, email scheduling, and AI briefings are useless if the app thinks the CEO is in Vancouver while he is actually in Mexico. Timezone drift is tiny bug energy with massive chaos potential. Fix it properly.

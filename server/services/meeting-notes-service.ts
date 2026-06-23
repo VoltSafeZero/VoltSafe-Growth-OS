@@ -107,19 +107,78 @@ export async function lookupNote(
   return note;
 }
 
+// ── Meeting provider detection ────────────────────────────────────────────────
+
+export function detectMeetingProvider(
+  meetingUrl?: string | null,
+  location?: string | null,
+  description?: string | null,
+): { platform: typeof VALID_PLATFORMS[number] | null; joinUrl: string | null } {
+  const sources = [meetingUrl, location, description].filter(Boolean) as string[];
+
+  for (const src of sources) {
+    if (/zoom\.us\//i.test(src)) {
+      const m = src.match(/https?:\/\/[a-z0-9.-]*zoom\.us\/[^\s"'<>)]+/i);
+      return { platform: "zoom", joinUrl: m ? m[0] : (meetingUrl ?? null) };
+    }
+    if (/teams\.microsoft\.com|teams\.live\.com/i.test(src)) {
+      const m = src.match(/https?:\/\/teams\.[a-z.]+\/[^\s"'<>)]+/i);
+      return { platform: "teams", joinUrl: m ? m[0] : (meetingUrl ?? null) };
+    }
+    if (/meet\.google\.com/i.test(src)) {
+      const m = src.match(/https?:\/\/meet\.google\.com\/[^\s"'<>)]+/i);
+      return { platform: "meet", joinUrl: m ? m[0] : (meetingUrl ?? null) };
+    }
+  }
+
+  if (meetingUrl && /^https?:\/\//i.test(meetingUrl)) {
+    return { platform: "other", joinUrl: meetingUrl };
+  }
+  return { platform: null, joinUrl: null };
+}
+
 // ── List ──────────────────────────────────────────────────────────────────────
 
-export async function listMeetingNotes(
-  userId: number, isAdmin: boolean,
-): Promise<MeetingNote[]> {
-  if (isAdmin) {
-    return db.select().from(meetingNotes).orderBy(desc(meetingNotes.createdAt));
-  }
-  return db
-    .select()
+export async function listMeetingNotes(userId: number, isAdmin: boolean) {
+  const base = db
+    .select({
+      id:               meetingNotes.id,
+      uuid:             meetingNotes.uuid,
+      title:            meetingNotes.title,
+      status:           meetingNotes.status,
+      source:           meetingNotes.source,
+      createdBy:        meetingNotes.createdBy,
+      calendarEventId:  meetingNotes.calendarEventId,
+      emailThreadId:    meetingNotes.emailThreadId,
+      emailMessageId:   meetingNotes.emailMessageId,
+      linkedObjectType: meetingNotes.linkedObjectType,
+      linkedObjectId:   meetingNotes.linkedObjectId,
+      startedAt:        meetingNotes.startedAt,
+      endedAt:          meetingNotes.endedAt,
+      durationSeconds:  meetingNotes.durationSeconds,
+      platform:         meetingNotes.platform,
+      audioStorageKey:  meetingNotes.audioStorageKey,
+      rawTranscriptText:   meetingNotes.rawTranscriptText,
+      cleanTranscriptText: meetingNotes.cleanTranscriptText,
+      summaryText:      meetingNotes.summaryText,
+      notesText:        meetingNotes.notesText,
+      decisionsText:    meetingNotes.decisionsText,
+      actionItemsText:  meetingNotes.actionItemsText,
+      followupDraftText: meetingNotes.followupDraftText,
+      processingError:  meetingNotes.processingError,
+      consentNoted:     meetingNotes.consentNoted,
+      createdAt:        meetingNotes.createdAt,
+      updatedAt:        meetingNotes.updatedAt,
+      // Enrichment from linked calendar event
+      calendarEventTitle:     calendarEvents.title,
+      calendarEventStartTime: calendarEvents.startTime,
+    })
     .from(meetingNotes)
-    .where(eq(meetingNotes.createdBy, userId))
+    .leftJoin(calendarEvents, eq(meetingNotes.calendarEventId, calendarEvents.id))
     .orderBy(desc(meetingNotes.createdAt));
+
+  if (isAdmin) return base;
+  return base.where(eq(meetingNotes.createdBy, userId));
 }
 
 // ── Create ────────────────────────────────────────────────────────────────────
@@ -549,28 +608,58 @@ export async function createMeetingNoteForCalendarEvent(
   calendarEventId: number, userId: number,
   data: Partial<z.infer<typeof createMeetingNoteSchema>>,
 ): Promise<MeetingNote> {
+  // Idempotent: if a note already exists for this calendar event + user, return it
+  const existing = await getMeetingNoteByCalendarEvent(calendarEventId, userId, false);
+  if (existing) return existing;
+
+  // Fetch full calendar event to auto-populate title and platform
+  const [calEvent] = await db
+    .select({
+      title:            calendarEvents.title,
+      meetingUrl:       calendarEvents.meetingUrl,
+      location:         calendarEvents.location,
+      description:      calendarEvents.description,
+      invitees:         calendarEvents.invitees,
+      linkedObjectType: calendarEvents.linkedObjectType,
+      linkedObjectId:   calendarEvents.linkedObjectId,
+    })
+    .from(calendarEvents)
+    .where(eq(calendarEvents.id, calendarEventId))
+    .limit(1);
+
+  // Detect platform from event data when not explicitly provided
+  let resolvedPlatform = data.platform;
+  if (!resolvedPlatform && calEvent) {
+    const detected = detectMeetingProvider(calEvent.meetingUrl, calEvent.location, calEvent.description);
+    resolvedPlatform = detected.platform ?? undefined;
+  }
+
+  // Use event title as default note title
+  const resolvedTitle = data.title ?? calEvent?.title ?? undefined;
+
+  // Inherit CRM link from calendar event if not explicitly provided
+  const resolvedLinkedObjectType = data.linkedObjectType
+    ?? (calEvent?.linkedObjectType as typeof VALID_OBJECT_TYPES[number] | undefined)
+    ?? undefined;
+  const resolvedLinkedObjectId = data.linkedObjectId
+    ?? (calEvent?.linkedObjectId ?? undefined)
+    ?? undefined;
+
   const note = await createMeetingNote(userId, {
-    source:           data.source    ?? "calendar",
-    title:            data.title,
-    platform:         data.platform,
+    source:           data.source           ?? "calendar",
+    title:            resolvedTitle,
+    platform:         resolvedPlatform,
     calendarEventId,
-    linkedObjectType: data.linkedObjectType,
-    linkedObjectId:   data.linkedObjectId,
+    linkedObjectType: resolvedLinkedObjectType,
+    linkedObjectId:   resolvedLinkedObjectId,
     consentNoted:     data.consentNoted,
   });
 
   // Seed participants from calendar event invitees (fire-and-forget, non-blocking)
   setImmediate(async () => {
     try {
-      const [event] = await db
-        .select({ invitees: calendarEvents.invitees })
-        .from(calendarEvents)
-        .where(eq(calendarEvents.id, calendarEventId))
-        .limit(1);
-
-      const invitees: string[] = (event?.invitees ?? []).filter(Boolean);
+      const invitees: string[] = ((calEvent?.invitees ?? []) as string[]).filter(Boolean);
       if (invitees.length === 0) return;
-
       const ownerEmail = await getUserEmail(userId);
       await populateParticipantsFromEmails(note.id, invitees, ownerEmail);
     } catch (err) {

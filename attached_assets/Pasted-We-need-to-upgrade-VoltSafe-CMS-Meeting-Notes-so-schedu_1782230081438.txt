@@ -1,0 +1,492 @@
+We need to upgrade VoltSafe CMS Meeting Notes so scheduled calendar meetings can automatically create, schedule, start, record/transcribe, summarize, and CRM-link AI Meeting Notes directly from the calendar event.
+
+Context from screenshots:
+- Calendar event modal example: “VoltSafe + POSD Monthly Check Ins”
+- Time: Jun 23, 2026, 11:00 AM – 11:30 AM
+- Location/provider text: Microsoft Teams Meeting
+- Invitees include:
+  - trevor@voltsafe.com
+  - scott@voltsafe.com
+  - c-cmiotto@portofsandiego.org
+  - cwkiker@portofsandiego.org
+  - psylvia@portofsandiego.org
+  - zbirming@portofsandiego.org
+- The event body contains Microsoft Teams join details and a teams.microsoft.com meeting URL.
+- Current Meeting Notes page shows too many generic “New Meeting Note” rows with statuses like Scheduled, Recording, Completed, Failed. This is wrong. Scheduled calendar meetings must create named meeting notes tied to the actual calendar event.
+
+Build this as one clean feature, but do it safely and incrementally. Audit existing calendar, meeting notes, transcription, CRM relationship, and database code before editing anything.
+
+Core product rule:
+A scheduled calendar meeting should never become a mystery “New Meeting Note.”
+It should become:
+
+Calendar Event → AI Meeting Note → Recorder/Transcription → Summary → Action Items → CRM Intelligence
+
+The Meeting Notes system must distinguish between:
+1. Scheduled calendar-linked meeting notes
+2. True ad-hoc meeting notes
+
+Ad-hoc notes can remain “Ad-hoc Meeting Note” or “New Meeting Note” if no title exists.
+Calendar-linked notes must always use the calendar event title.
+
+============================================================
+FEATURE REQUIREMENTS
+============================================================
+
+1. Add AI Meeting Notes controls inside every scheduled calendar event modal
+
+Inside the calendar event detail modal, add a clear section:
+
+AI Meeting Notes
+
+Possible states:
+
+A) No meeting note exists yet:
+- Show button: “Enable Auto-Record”
+- Show button: “Start Recording Now”
+- Show button/link: “Join Meeting” if a meeting URL exists
+
+B) Auto-record enabled:
+- Show status: “AI Notes Scheduled”
+- Show helper text: “Auto-record will begin at the meeting start time.”
+- Show button: “Disable Auto-Record”
+- Show button/link: “Open Meeting Note”
+- Show button/link: “Join Meeting”
+
+C) Meeting is currently active:
+- Show button: “Start Recording Now”
+- If auto-record is enabled and permissions are not granted, show: “Ready to record — permission required”
+- Show button/link: “Join Meeting”
+
+D) Recording:
+- Show status: “Recording”
+- Show button: “Stop Recording”
+- Show button/link: “Open Meeting Note”
+
+E) Processing:
+- Show status: “Processing transcript and summary”
+- Show button/link: “Open Meeting Note”
+
+F) Completed:
+- Show status: “Completed”
+- Show button/link: “View Meeting Notes”
+
+G) Failed:
+- Show status: “Failed”
+- Show readable error message
+- Show button: “Retry”
+- Show button: “Start Recording Now”
+
+Important:
+Do not fake recording. Only show “Recording” if audio is actually being captured or a real transcription session is active.
+
+============================================================
+
+2. Calendar event to meeting note data model
+
+Find the existing meeting notes table/model/schema. Add fields if missing.
+
+Each meeting note should support:
+
+- id
+- account_id / user_id, matching existing architecture
+- calendar_event_id
+- calendar_provider
+- calendar_account_id if applicable
+- meeting_title
+- meeting_start_time
+- meeting_end_time
+- meeting_url
+- meeting_provider
+- meeting_location
+- attendees
+- auto_record_enabled boolean default false
+- status enum/string:
+  - scheduled
+  - ready
+  - recording
+  - processing
+  - completed
+  - failed
+  - cancelled
+- transcript
+- summary
+- action_items
+- decisions
+- risks_blockers
+- follow_up_email_draft
+- ai_metadata JSON if appropriate
+- error_message
+- created_at
+- updated_at
+- started_at
+- ended_at
+
+Add an idempotency constraint so calendar sync cannot create duplicate meeting notes.
+
+Use the safest existing DB style. Preferred unique constraint:
+
+UNIQUE(account_id, calendar_event_id)
+
+If account_id is not the correct field in this codebase, use the correct scoped owner key already used by calendar events.
+
+Do not create destructive migrations.
+Do not drop or rename existing columns unless absolutely necessary.
+Only additive migration changes unless there is already a safe migration pattern.
+
+============================================================
+
+3. Detect meeting provider and meeting URL
+
+Implement a shared utility function for parsing calendar event body/location/description/conference fields.
+
+Detect:
+
+- microsoft_teams if text contains teams.microsoft.com or “Microsoft Teams Meeting”
+- zoom if text contains zoom.us or “Zoom Meeting”
+- google_meet if text contains meet.google.com or “Google Meet”
+- phone if text contains dial-in, phone conference, tel:, conference ID, or similar
+- unknown if none detected
+- adhoc for non-calendar notes
+
+Extract meeting_url:
+- Prefer actual calendar conference/link field if available
+- Otherwise parse first valid meeting join URL from description/body/location
+- For Teams, extract the teams.microsoft.com/l/meetup-join or teams.microsoft.com/meet URL
+- For Zoom, extract the zoom.us/j or company.zoom.us/j URL
+- For Google Meet, extract meet.google.com URL
+
+For the screenshot example, the system should detect:
+
+meeting_provider = microsoft_teams
+meeting_url = first valid Teams join URL from the event body
+
+============================================================
+
+4. Auto-create or update scheduled meeting note records
+
+When calendar events are synced, opened, or loaded, ensure a meeting note record exists for scheduled events that have:
+- a start time
+- a title
+- and either attendees or a meeting URL/conference/location/body
+
+This must be idempotent:
+- If a note already exists for account_id + calendar_event_id, update it with latest title/time/provider/url/attendees.
+- Do not create duplicates.
+- Do not overwrite completed transcript/summary/action_items unless explicitly regenerating.
+- Do not overwrite manually edited notes if such edit tracking exists.
+
+Meeting note title:
+- For calendar-linked notes, always use the calendar event title.
+- Never default to “New Meeting Note” when calendar_event_id exists and event title exists.
+
+============================================================
+
+5. Auto-record scheduling behaviour
+
+Minimum viable version:
+At meeting start time, if auto_record_enabled = true:
+- Create/activate the meeting note session
+- Show an in-app notification/banner/toast:
+  “[Meeting Title] is starting.”
+  Buttons:
+  - Start Transcription
+  - Join Meeting
+  - Snooze 5 min / Dismiss if existing notification patterns support it
+
+If browser/device permissions are already granted and existing recorder supports automatic start, start recording.
+If permissions are not granted, do not silently fail. Show:
+“Recording requires microphone/system audio permission. Click Start Transcription.”
+
+Important browser limitation:
+Browser apps cannot reliably capture audio from Zoom, Teams, Google Meet, iMessage, WhatsApp, etc. automatically without user permission or provider-specific integrations. So the MVP must be honest:
+- Support mic capture
+- Support browser tab/system audio only where supported
+- Support manual Start Transcription
+- Support post-meeting upload/import if already available or easy to wire
+- Do not claim full bot-level auto-join recording unless that integration actually exists
+
+Future provider bots can come later:
+- Zoom bot/app
+- Microsoft Teams Graph/bot
+- Google Meet bot
+- Native desktop helper
+
+For now, implement:
+- calendar-linked notes
+- auto-created scheduled notes
+- provider detection
+- start-at-meeting-time prompt
+- manual/browser-based recording/transcription
+- post-meeting summary
+- CRM linking
+
+============================================================
+
+6. Manual “Start Recording Now” from calendar event
+
+Clicking “Start Recording Now” from a calendar event must:
+- Ensure/create the linked meeting note
+- Use event title as note title
+- Set status to recording only after recorder/transcription successfully starts
+- Preserve calendar_event_id linkage
+- Link attendees
+- Open or focus the meeting note recording UI
+
+If permission is denied:
+- Set status to failed or ready/pending_permission according to existing app pattern
+- Show a clear message
+- Do not show fake recording
+
+============================================================
+
+7. Meeting Notes list redesign
+
+Update Meeting Notes list so rows are meaningful.
+
+Current bad behavior:
+- Many rows say “New Meeting Note”
+- It is impossible to tell which scheduled meeting they belong to
+
+New behavior:
+Group notes by date:
+- Today
+- Yesterday
+- Last Week
+- June
+- Older if needed
+
+Calendar-linked scheduled notes should display:
+- Actual meeting title
+- Status
+- Meeting provider
+- Time
+- Duration if known
+- Attendees/company if useful
+
+Example:
+
+Today
+- VoltSafe + POSD Monthly Check Ins
+  Scheduled · Microsoft Teams · 11:00 AM
+
+- Tiffany-Trevor Weekly
+  Recording · Google Meet · 10:00 AM
+
+Yesterday
+- VoltSafe Marketing and Pilot Program Update
+  Completed · Ad-hoc · 54m
+
+Ad-hoc notes:
+- Use “Ad-hoc Meeting Note” unless a custom title exists
+- Show “Ad-hoc” label
+
+Statuses should be visually clear:
+- Scheduled = blue
+- Recording = red
+- Processing = amber/neutral
+- Completed = green
+- Failed = red
+
+Use existing design tokens/classes. Do not create ugly one-off styling.
+
+============================================================
+
+8. Calendar side panel integration
+
+In the calendar/day sidebar, scheduled meetings should show AI note controls inline or in the event hover/card.
+
+For upcoming meeting:
+- “Start Transcription”
+- “Join”
+
+If auto-record enabled:
+- “AI Notes Scheduled”
+- “Join”
+
+If completed:
+- “View Notes”
+
+If recording:
+- “Recording”
+- “Open Notes”
+
+This should mirror the Spark Mail style shown in the screenshot, but use VoltSafe CMS design language.
+
+============================================================
+
+9. Post-meeting AI output
+
+After recording/transcription ends, automatically process and generate:
+
+- Summary
+- Key decisions
+- Action items
+- Follow-up tasks
+- Risks/blockers
+- Important quotes if available
+- Suggested follow-up email
+- CRM relationships
+- Linked people/company/deal records
+
+Keep output structured so the UI can render each section.
+
+If existing AI meeting summary code exists, reuse it. Do not build duplicate AI pipelines.
+
+============================================================
+
+10. CRM relationship linking
+
+For scheduled calendar-linked notes, use invitees to auto-link to CRM contacts/companies.
+
+Example from screenshot:
+- c-cmiotto@portofsandiego.org
+- cwkiker@portofsandiego.org
+- psylvia@portofsandiego.org
+- zbirming@portofsandiego.org
+
+These should link to Port of San Diego company/contact records if they exist.
+
+Rules:
+- Match people by exact email.
+- Match company by email domain where appropriate.
+- Do not auto-link internal @voltsafe.com attendees as external CRM contacts unless existing CRM logic already does so.
+- Internal attendees can appear as participants but should not create external company relationships.
+- If no CRM record exists, do not break. Optionally show “unlinked attendee.”
+
+Meeting note should appear in the CRM relationship timeline for linked people/company/deal where existing timeline architecture supports it.
+
+============================================================
+
+11. Permissions and failure states
+
+Be painfully clear in the UI.
+
+If auto-start fails because browser permission is missing:
+- Show status: “Permission required”
+- Show CTA: “Start Transcription”
+
+If provider URL is missing:
+- Show: “No meeting link found”
+- Still allow mic-based recording if meeting is in person/phone/ad-hoc
+
+If transcription service fails:
+- Show status: “Failed”
+- Store error_message
+- Allow retry
+
+If user joins late:
+- Still allow starting recording mid-meeting
+
+If meeting is cancelled:
+- Mark linked note as cancelled or hide from active scheduled list, depending existing calendar behavior
+
+============================================================
+
+12. Acceptance criteria
+
+Calendar modal:
+- Every scheduled calendar event has an AI Meeting Notes section.
+- User can enable/disable auto-record.
+- User can start recording manually.
+- User can open linked meeting note.
+- User can join meeting if URL exists.
+- Meeting provider is detected from event body/location/conference data.
+
+Meeting Notes page:
+- Scheduled notes show actual calendar event titles.
+- Ad-hoc notes remain clearly labeled as ad-hoc.
+- No duplicate notes are created on calendar sync/load/open.
+- Statuses are accurate: scheduled, recording, processing, completed, failed.
+- Existing generic “New Meeting Note” issue is fixed for calendar-linked notes.
+
+Recording:
+- If auto-record is enabled, system attempts to activate at meeting start time.
+- If permission is required, user gets a clear prompt.
+- Recording state only appears when real audio/transcription is active.
+- Failed/pending states are visible and recoverable.
+
+CRM:
+- Meeting note links to attendees by email.
+- External domains link to company records where possible.
+- Meeting summary can appear in relationship timeline where supported.
+
+Safety:
+- No destructive migrations.
+- No duplicate meeting notes.
+- No fake recording states.
+- Existing ad-hoc meeting notes still work.
+- Existing completed meeting notes are not overwritten.
+- Tests added or updated for provider detection, idempotent note creation, scheduled note naming, and status transitions.
+
+============================================================
+
+13. Implementation plan
+
+Step 1: Audit
+- Find calendar event modal/component
+- Find calendar event sync/load code
+- Find Meeting Notes page/component
+- Find meeting note DB schema/model/routes
+- Find recorder/transcription start/stop logic
+- Find CRM relationship/linking logic
+- Find existing notification/toast/banner system
+- Find tests
+
+Step 2: Schema
+- Add missing fields to meeting notes table/model
+- Add unique constraint for account/calendar event idempotency
+- Add safe migration only
+
+Step 3: Shared utility
+- Add provider/url detection utility
+- Add tests for Teams, Zoom, Google Meet, phone, unknown
+
+Step 4: Backend
+- Add ensureCalendarMeetingNote(event, account/user) function
+- Use it during calendar sync/load/open
+- Make it idempotent
+- Add start recording endpoint/action for calendar-linked note
+- Add auto-record toggle endpoint/action
+- Add scheduled start/notification mechanism using existing app patterns
+
+Step 5: Frontend
+- Add AI Meeting Notes section to calendar event modal
+- Add controls and status states
+- Update Meeting Notes list naming/grouping
+- Add calendar sidebar controls
+- Wire buttons to backend/recorder
+
+Step 6: AI summary + CRM
+- Reuse existing summary pipeline
+- Link attendees to CRM records
+- Ensure meeting note appears in relationship context/timeline if supported
+
+Step 7: Tests
+Add tests for:
+- Teams provider detection from screenshot-style body
+- Zoom detection
+- Google Meet detection
+- Phone detection
+- Unknown provider
+- Idempotent calendar note creation
+- Calendar note title uses event title, not “New Meeting Note”
+- Existing completed summary/transcript is not overwritten by sync
+- Auto-record toggle persists
+- Start Recording Now only sets recording after recorder starts
+- CRM attendee matching excludes internal @voltsafe.com from external CRM auto-linking
+
+Step 8: Verification
+- Run relevant test suite
+- Run typecheck/lint if available
+- Provide concise report:
+  - files changed
+  - DB migration summary
+  - tests run
+  - manual QA steps
+  - known browser/provider limitations
+
+============================================================
+
+Final product intent:
+VoltSafe CMS should feel like an executive memory layer. The calendar knows the meeting. The recorder captures the conversation. AI turns it into decisions, actions, follow-ups, and CRM intelligence. No more mystery “New Meeting Note” junk drawer.

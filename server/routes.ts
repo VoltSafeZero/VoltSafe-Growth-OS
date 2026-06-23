@@ -31147,8 +31147,8 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // POST /api/calendar/events/:id/create-meeting-note
-  // Creates a new meeting note pre-linked to the given calendar event.
-  // Auto-detects platform="zoom" from the event's meetingUrl if not overridden.
+  // Creates (or returns existing) meeting note linked to the given calendar event.
+  // The service auto-detects platform (Zoom/Teams/Meet), sets title from event, and is idempotent.
   app.post("/api/calendar/events/:id/create-meeting-note", requireAuth, async (req, res) => {
     try {
       const calId = parseInt(req.params.id, 10);
@@ -31158,22 +31158,7 @@ export function registerConfluenceRoutes(app: Express) {
       if (!overrides.success) {
         return res.status(400).json({ message: "Validation error", errors: overrides.error.issues });
       }
-      const userId = req.session.userId!;
-
-      // Auto-detect platform from event meetingUrl when not explicitly provided
-      let resolvedOverrides = { ...overrides.data };
-      if (!resolvedOverrides.platform) {
-        const [calEvent] = await db
-          .select({ meetingUrl: calendarEvents.meetingUrl })
-          .from(calendarEvents)
-          .where(eq(calendarEvents.id, calId))
-          .limit(1);
-        if (calEvent?.meetingUrl && /zoom\.us/i.test(calEvent.meetingUrl)) {
-          resolvedOverrides = { ...resolvedOverrides, platform: "zoom" };
-        }
-      }
-
-      const note = await createMeetingNoteForCalendarEvent(calId, userId, resolvedOverrides);
+      const note = await createMeetingNoteForCalendarEvent(calId, req.session.userId!, overrides.data);
       res.status(201).json(note);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
