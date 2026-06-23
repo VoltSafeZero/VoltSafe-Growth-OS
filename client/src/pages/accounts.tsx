@@ -117,10 +117,10 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   const regionOptions = countryFilter !== "all" ? getRegionsForCountry(countryFilter) : [];
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
-  const [view, setView] = useState<"list" | "pipeline" | "map">("list");
+  const [view, setView] = useState<"list" | "grid" | "pipeline" | "map">("grid");
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
-  const [sortOption, setSortOption] = useState("default");
+  const [sortOption, setSortOption] = useState("name:asc");
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
   const [saveViewIsShared, setSaveViewIsShared] = useState(false);
@@ -178,7 +178,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   });
 
   const isFiltered = industryFilter !== "__all__" || marketSegmentFilter !== "all" || typeFilter !== "all"
-    || countryFilter !== "all" || regionFilter !== "all" || priorityFilter !== "all" || sortOption !== "default" || search !== "";
+    || countryFilter !== "all" || regionFilter !== "all" || priorityFilter !== "all" || sortOption !== "name:asc" || search !== "";
 
   const resetFilters = () => {
     setSearch("");
@@ -188,7 +188,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     setCountryFilter("all");
     setRegionFilter("all");
     setPriorityFilter("all");
-    setSortOption("default");
+    setSortOption("name:asc");
     setActiveViewId(null);
   };
 
@@ -241,7 +241,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     setCountryFilter(f.country ?? "all");
     setRegionFilter(f.state ?? "all");
     setPriorityFilter(f.priority ?? "all");
-    setSortOption(f.sort ?? "default");
+    setSortOption(f.sort ?? "name:asc");
     setActiveViewId(sv.id);
   };
 
@@ -322,8 +322,9 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <p className="text-muted-foreground mt-1 text-sm">Manage marina accounts and prospects.</p>
           </div>
           <div className="flex items-center border border-border/50 rounded-xl overflow-hidden">
-            <Button variant={view === "list" ? "secondary" : "ghost"} size="default" onClick={() => setView("list")} className="rounded-none px-3" data-testid="button-list-view"><List className="h-5 w-5" /></Button>
-            <Button variant={view === "pipeline" ? "secondary" : "ghost"} size="default" onClick={() => setView("pipeline")} className="rounded-none px-3" data-testid="button-pipeline-view"><LayoutGrid className="h-5 w-5" /></Button>
+            <Button variant={view === "list" ? "secondary" : "ghost"} size="default" onClick={() => setView("list")} className="rounded-none px-3" data-testid="button-list-view" title="List view"><List className="h-5 w-5" /></Button>
+            <Button variant={view === "grid" ? "secondary" : "ghost"} size="default" onClick={() => setView("grid")} className="rounded-none px-3" data-testid="button-grid-view" title="Grid view"><LayoutGrid className="h-5 w-5" /></Button>
+            <Button variant={view === "pipeline" ? "secondary" : "ghost"} size="default" onClick={() => setView("pipeline")} className="rounded-none px-3" data-testid="button-pipeline-view" title="Pipeline view"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="5" height="18"/><rect x="10" y="3" width="5" height="12"/><rect x="17" y="3" width="5" height="15"/></svg></Button>
             <Button variant={view === "map" ? "secondary" : "ghost"} size="default" onClick={() => setView("map")} className="rounded-none px-3" data-testid="button-map-view"><Map className="h-5 w-5" /></Button>
           </div>
         </div>
@@ -370,7 +371,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           >
             <Settings2 className="h-4 w-4" />
             {isFiltered ? (
-              <span className="text-xs font-bold text-primary">{[industryFilter !== "__all__" ? 1 : 0, marketSegmentFilter !== "all" ? 1 : 0, typeFilter !== "all" ? 1 : 0, countryFilter !== "all" ? 1 : 0, regionFilter !== "all" ? 1 : 0, priorityFilter !== "all" ? 1 : 0].reduce((a, b) => a + b, 0) + (sortOption !== "default" ? 1 : 0)}</span>
+              <span className="text-xs font-bold text-primary">{[industryFilter !== "__all__" ? 1 : 0, marketSegmentFilter !== "all" ? 1 : 0, typeFilter !== "all" ? 1 : 0, countryFilter !== "all" ? 1 : 0, regionFilter !== "all" ? 1 : 0, priorityFilter !== "all" ? 1 : 0].reduce((a, b) => a + b, 0) + (sortOption !== "name:asc" ? 1 : 0)}</span>
             ) : null}
           </button>
         </div>
@@ -620,6 +621,99 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             onUpdateStatus={(id, leadStatus) => updateStatusMutation.mutate({ id, leadStatus })}
           />
         )
+      ) : view === "list" ? (
+        <>
+          <Card className="border-border/50">
+            <CardContent className="p-0 overflow-x-auto">
+              <table className="w-full min-w-[600px]">
+                <thead>
+                  <tr className="border-b border-border/50">
+                    <th className="p-3 sm:p-4 w-8">
+                      <BulkCheckbox
+                        checked={allAccounts.length > 0 && allAccounts.every(a => selectedIds.has(a.id))}
+                        onChange={() => { const allSel = allAccounts.every(a => selectedIds.has(a.id)); allSel ? setSelectedIds(new Set()) : setSelectedIds(new Set(allAccounts.map(a => a.id))); }}
+                        testId="checkbox-accounts-select-all"
+                      />
+                    </th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Company</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden sm:table-cell">Location</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden md:table-cell">Type</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden lg:table-cell">Segment</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden sm:table-cell">Priority</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Stage</th>
+                    <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    [...Array(6)].map((_, i) => (
+                      <tr key={i} className="border-b border-border/30">
+                        <td colSpan={8} className="p-3 sm:p-4"><Skeleton className="h-4" /></td>
+                      </tr>
+                    ))
+                  ) : allAccounts.map((account) => (
+                    <tr key={account.id} className={`border-b border-border/30 hover:bg-muted/30 cursor-pointer ${selectedIds.has(account.id) ? "bg-primary/5" : ""}`} data-testid={`row-account-${account.id}`}>
+                      <td className="p-3 sm:p-4 w-8" onClick={e => { e.stopPropagation(); toggleSelect(account.id); }}>
+                        <BulkCheckbox checked={selectedIds.has(account.id)} onChange={() => toggleSelect(account.id)} testId={`checkbox-account-row-${account.id}`} />
+                      </td>
+                      <td className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)}>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-primary/60 shrink-0 hidden sm:block" />
+                          <div className="min-w-0">
+                            <span className="font-medium block truncate max-w-[180px] sm:max-w-none">{account.name}</span>
+                            <span className="text-xs text-muted-foreground sm:hidden">
+                              {[account.city, account.stateProvince].filter(Boolean).join(", ") || account.region || ""}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell" onClick={() => setSelectedAccount(account)}>
+                        {[account.city, account.stateProvince, account.country].filter(Boolean).join(", ") || account.region || "—"}
+                      </td>
+                      <td className="p-3 sm:p-4 hidden md:table-cell" onClick={() => setSelectedAccount(account)}>
+                        {account.orgType
+                          ? <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${orgTypeColors[account.orgType] || orgTypeColors.other}`}>{getOrgTypeLabel(account.orgType)}</Badge>
+                          : <span className="text-sm text-muted-foreground">—</span>}
+                      </td>
+                      <td className="p-3 sm:p-4 hidden lg:table-cell" onClick={() => setSelectedAccount(account)}>
+                        {account.segment
+                          ? <Badge variant="outline" className={`text-xs ${segmentColors[account.segment] || ""}`}>{account.segment}</Badge>
+                          : <span className="text-sm text-muted-foreground">—</span>}
+                      </td>
+                      <td className="p-3 sm:p-4 hidden sm:table-cell" onClick={() => setSelectedAccount(account)}>
+                        {account.priority
+                          ? <Badge variant="outline" className={`text-xs ${priorityColors[account.priority] || ""}`}>{account.priority}</Badge>
+                          : <span className="text-sm text-muted-foreground">—</span>}
+                      </td>
+                      <td className="p-3 sm:p-4" onClick={() => setSelectedAccount(account)}>
+                        <Badge variant="outline" className={`text-xs ${statusColors[account.leadStatus] || ""}`} data-testid={`badge-status-${account.id}`}>{getStageLabel(account.leadStatus)}</Badge>
+                      </td>
+                      <td className="p-3 sm:p-4 text-right">
+                        <Link href={`/accounts/${account.id}`}>
+                          <Button variant="ghost" size="sm" onClick={e => e.stopPropagation()} data-testid={`link-account-profile-${account.id}`} title="View full profile" className="h-8 px-2 text-xs text-muted-foreground hover:text-primary gap-1">
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                  {!isLoading && allAccounts.length === 0 && (
+                    <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">
+                      No organizations found.{isFiltered && <> Try <button onClick={resetFilters} className="underline hover:text-foreground transition-colors">clearing filters</button>.</>}
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+          <div className="flex items-center justify-between py-2">
+            <p className="text-sm text-muted-foreground">{allAccounts.length.toLocaleString()} of {totalCount.toLocaleString()} organizations loaded</p>
+            {isFetchingNextPage && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>
+            )}
+          </div>
+          <div ref={scrollSentinelRef} className="h-4" />
+        </>
       ) : (
         <>
           {isLoading ? (

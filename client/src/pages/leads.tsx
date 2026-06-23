@@ -87,7 +87,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [typeFilter, setTypeFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [shorePowerFilter, setShorePowerFilter] = useState("all");
-  const [sortOption, setSortOption] = useState("default");
+  const [sortOption, setSortOption] = useState("name:asc");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
     const v = new URLSearchParams(window.location.search).get("view");
@@ -340,7 +340,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     }
   };
 
-  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("__all__"); setMarketSegmentFilter("__all__"); setTypeFilter("all"); setPriorityFilter("all"); setShorePowerFilter("all"); setSortOption("default"); };
+  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("__all__"); setMarketSegmentFilter("__all__"); setTypeFilter("all"); setPriorityFilter("all"); setShorePowerFilter("all"); setSortOption("name:asc"); };
 
   const isAllSelected = allLeads.length > 0 && allLeads.every(l => selectedIds.has(l.id));
 
