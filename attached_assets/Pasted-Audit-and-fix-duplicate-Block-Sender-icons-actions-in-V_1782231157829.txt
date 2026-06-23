@@ -1,0 +1,71 @@
+Audit and fix duplicate Block Sender icons/actions in VoltSafe Mail.
+
+Problem:
+In VoltSafe Mail, there appear to be two clickable red block icons for the same email/sender context:
+1. In the email list row hover/actions area:
+   Tooltip example: “Block milliondollarauthor@mail.beehiiv.com”
+2. In the thread/reply toolbar area:
+   Tooltip example: “Block sender — move to spam”
+
+This is confusing and dangerous. Users should not see duplicate block controls for the same message/sender unless they are clearly different actions.
+
+Goal:
+Create one consistent Block Sender action across VoltSafe Mail.
+
+Required behavior:
+- There should be only one primary Block Sender control visible per email context.
+- If the user is in the message list, row actions may show Block Sender.
+- If the user is inside an opened thread/reply view, the toolbar may show Block Sender.
+- But do not show two block icons simultaneously for the same active message/sender area.
+- Tooltip text must be consistent everywhere.
+- Action behavior must be consistent everywhere.
+
+Preferred tooltip:
+“Block sender and move to spam”
+
+Confirmation:
+Because blocking is destructive/serious, clicking Block Sender should show a confirmation dialog unless the app already has an undo/snackbar pattern.
+
+Dialog:
+Title: “Block sender?”
+Body: “Future emails from [sender email] will be moved to spam. This message will also be moved to spam.”
+Buttons:
+- Cancel
+- Block Sender
+
+After success:
+Show toast/snackbar:
+“Blocked [sender email]. Moved message to spam.”
+Include undo if existing architecture supports undo.
+
+Backend/action requirements:
+- Both UI entry points, if both remain in different contexts, must call the same shared handler/API.
+- Do not duplicate block logic in separate components.
+- Blocking should:
+  - Add sender/domain to the existing blocked sender system if one exists.
+  - Move current message/thread to spam.
+  - Remove from inbox/list view.
+  - Update unread/count/category state correctly.
+- If block fails, show a clear error and do not remove the message from the UI.
+
+Audit tasks:
+1. Find all block sender icons/buttons/components in VoltSafe Mail.
+2. Identify whether the row action and thread toolbar action call different handlers.
+3. Consolidate into one shared function/hook/action.
+4. Remove or hide the duplicate icon where both are shown at once.
+5. Standardize icon, tooltip, confirmation modal, toast, and backend behavior.
+6. Add tests.
+
+Acceptance criteria:
+- Only one block icon is visible for the same email/sender context at a time.
+- Tooltip is consistent: “Block sender and move to spam”.
+- Confirmation dialog appears before blocking unless undo exists.
+- Blocking uses one shared code path.
+- Message/thread moves to spam.
+- Sender is blocked using the canonical blocked-sender system.
+- Inbox/list counts update correctly.
+- No duplicate block controls appear when opening reply/thread view.
+- Tests cover row action, thread toolbar action, success, failure, and UI deduplication.
+
+Important:
+Do not simply hide one icon with CSS if the duplicate logic still exists underneath. Fix the actual component/action structure. CSS duct tape is how software becomes lasagna.

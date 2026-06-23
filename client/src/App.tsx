@@ -15,6 +15,7 @@ import { isAdvisorRole } from "@/lib/nav-config";
 import BookingPublicPage from "@/pages/booking-public";
 import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
 import { ChunkErrorBoundary } from "@/components/chunk-error-boundary";
+import { TimezoneContext, TimezoneContextValue, detectBrowserTimezone } from "@/lib/timezone";
 
 // ── Lazy page imports — each route gets its own chunk ─────────────────────────
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -149,6 +150,8 @@ type AuthUser = {
   preferredLayout?: string;
   widgetVisibility?: Record<string, boolean>;
   defaultCommandCenter?: string | null;
+  /** IANA timezone last detected from the user's browser, e.g. "America/Vancouver". */
+  detectedTimezone?: string | null;
 };
 
 function isAdmin(role: string) {
@@ -411,6 +414,11 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tzCtx, setTzCtx] = useState<TimezoneContextValue>({
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    offsetMinutes: null,
+    detectedAt: null,
+  });
 
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "include" })
@@ -419,6 +427,46 @@ function App() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // Send detected timezone to backend once after every login (keyed on user.id).
+  // Fire-and-forget — never blocks login or UI rendering.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const send = async () => {
+      try {
+        const payload = detectBrowserTimezone();
+        // Immediately update local context with detected values (optimistic)
+        if (!cancelled) {
+          setTzCtx({
+            timezone: payload.timezone,
+            offsetMinutes: payload.timezoneOffsetMinutes,
+            detectedAt: payload.localTimestamp,
+          });
+        }
+        const res = await fetch("/api/session/timezone", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setTzCtx({
+            timezone: data.timezone,
+            offsetMinutes: data.offsetMinutes ?? null,
+            detectedAt: data.detectedAt ?? null,
+          });
+          setUser(u => u ? { ...u, detectedTimezone: data.timezone } : u);
+        }
+      } catch {
+        // Non-fatal — app continues with browser-detected timezone
+      }
+    };
+    send();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
@@ -440,6 +488,7 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <TimezoneContext.Provider value={tzCtx}>
       <ThemeProvider>
         <TooltipProvider>
           <ChunkErrorBoundary>
@@ -477,6 +526,7 @@ function App() {
           </ChunkErrorBoundary>
         </TooltipProvider>
       </ThemeProvider>
+      </TimezoneContext.Provider>
     </QueryClientProvider>
   );
 }

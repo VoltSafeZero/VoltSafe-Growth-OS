@@ -1,0 +1,289 @@
+Audit and fix two related VoltSafe Mail action-bar bugs:
+
+1. Duplicate Block Sender icons/actions appear for the same email/sender context.
+2. Clicking the Priority star works in the backend/category logic, but the star icon does not visually light up/fill after being clicked.
+
+These should be fixed together because they both live in the email action/toolbar state layer and should use one consistent source of truth.
+
+============================================================
+BUG 1 — DUPLICATE BLOCK SENDER ICONS
+============================================================
+
+Problem:
+In VoltSafe Mail, there appear to be two clickable red block icons for the same email/sender context:
+
+1. In the email list row hover/actions area:
+   Tooltip example:
+   “Block milliondollarauthor@mail.beehiiv.com”
+
+2. In the opened thread/reply toolbar area:
+   Tooltip example:
+   “Block sender — move to spam”
+
+This is confusing and dangerous. Users should not see duplicate block controls for the same active message/sender unless they are clearly separate actions, which they are not.
+
+Goal:
+Create one consistent Block Sender action across VoltSafe Mail.
+
+Required behavior:
+- There should be only one primary Block Sender control visible per email context.
+- If the user is only looking at the message list, row actions may show Block Sender.
+- If the user has opened a thread/reply view, the thread toolbar may show Block Sender.
+- Do not show two block icons simultaneously for the same selected/open email context.
+- Tooltip text must be consistent everywhere.
+- Action behavior must be consistent everywhere.
+
+Preferred tooltip:
+“Block sender and move to spam”
+
+Confirmation:
+Because blocking is a serious/destructive action, clicking Block Sender should show a confirmation dialog unless the app already has a reliable undo/snackbar pattern.
+
+Dialog:
+Title:
+“Block sender?”
+
+Body:
+“Future emails from [sender email] will be moved to spam. This message will also be moved to spam.”
+
+Buttons:
+- Cancel
+- Block Sender
+
+After success:
+Show toast/snackbar:
+“Blocked [sender email]. Moved message to spam.”
+
+If existing architecture supports undo, include Undo.
+
+Backend/action requirements:
+- Both UI entry points, if both remain in different contexts, must call the same shared handler/API.
+- Do not duplicate block logic in separate components.
+- Blocking should:
+  - Add sender/email/domain to the existing blocked sender system if one exists.
+  - Move current message/thread to spam.
+  - Remove message/thread from inbox/list view.
+  - Update unread/count/category state correctly.
+- If block fails:
+  - Show a clear error.
+  - Do not remove the message/thread from the UI.
+  - Do not show success state.
+
+Audit tasks:
+1. Find all block sender icons/buttons/components in VoltSafe Mail.
+2. Identify whether row action and thread toolbar action call different handlers.
+3. Consolidate into one shared function/hook/action.
+4. Remove or hide the duplicate icon where both are shown at once.
+5. Standardize icon, tooltip, confirmation modal, toast, and backend behavior.
+6. Add tests.
+
+Acceptance criteria:
+- Only one block icon is visible for the same email/sender context at a time.
+- Tooltip is consistent:
+  “Block sender and move to spam”
+- Confirmation dialog appears before blocking unless undo exists.
+- Blocking uses one shared code path.
+- Message/thread moves to spam.
+- Sender is blocked using the canonical blocked-sender system.
+- Inbox/list counts update correctly.
+- No duplicate block controls appear when opening reply/thread view.
+- Tests cover row action, thread toolbar action, success, failure, and UI deduplication.
+
+Important:
+Do not simply hide one icon with CSS if duplicate logic still exists underneath. Fix the actual component/action structure. CSS duct tape is how software becomes lasagna.
+
+============================================================
+BUG 2 — PRIORITY STAR DOES NOT VISUALLY FILL/LIGHT UP
+============================================================
+
+Problem:
+When the user clicks the star/priority icon on an email, the action appears to work logically because the email is added to the Priority Highlights category. However, the star icon itself does not visually light up/fill after being clicked.
+
+Screenshot context:
+- Opened email toolbar shows a star icon.
+- Tooltip: “Mark as Priority”
+- Clicking it successfully puts the email into “Priority Highlights.”
+- But the star remains visually unfilled/unlit instead of showing active priority state.
+
+This is a state synchronization bug. Backend/category state changes, but the icon visual state is stale or reading the wrong field.
+
+Goal:
+The Priority star must visually reflect the email/thread’s current priority state immediately and persistently.
+
+Required behavior:
+- If an email/thread is priority, the star icon must be filled/lit.
+- If an email/thread is not priority, the star icon must be outline/unfilled.
+- Clicking the star should optimistically update the icon immediately.
+- If backend succeeds, keep the new visual state.
+- If backend fails, revert the icon and show an error.
+- The Priority Highlights category/list should update consistently.
+- If the email is already in Priority Highlights on page load, the star should load as filled.
+- If priority is removed, the star should unfill and the email should leave Priority Highlights where appropriate.
+
+Tooltip behavior:
+When not priority:
+“Mark as Priority”
+
+When priority:
+“Remove Priority”
+
+Visual behavior:
+- Use existing star/priority icon design system.
+- Filled/lit state should be obvious.
+- Do not invent a new random style.
+- Use the same active-state styling across row actions, thread toolbar, and any priority buttons.
+
+============================================================
+STATE SOURCE OF TRUTH
+============================================================
+
+Audit how priority is represented.
+
+Possible fields may include:
+- isPriority
+- priority
+- is_starred
+- starred
+- labels
+- categories
+- derived labels
+- priority_highlights
+- CATEGORY_PRIORITY
+- Gmail STARRED
+- internal CRM priority flag
+
+Find the canonical field actually used by the Priority Highlights category.
+
+Then make the star icon read from that same canonical state.
+
+Important:
+If the app has both Gmail “starred” and VoltSafe “priority,” do not accidentally mix them unless they are intentionally the same feature.
+
+The UI tooltip currently says “Mark as Priority,” so this should map to VoltSafe Priority Highlights, not necessarily Gmail Starred, unless the existing system intentionally uses Gmail STARRED as priority.
+
+============================================================
+REQUIRED IMPLEMENTATION DETAILS
+============================================================
+
+1. Shared priority state helper
+
+Create or reuse a helper like:
+
+isMessagePriority(messageOrThread)
+
+It should return true if the message/thread belongs in Priority Highlights according to the canonical logic.
+
+Use this helper everywhere:
+- email row
+- opened thread toolbar
+- reply toolbar
+- Priority Highlights category
+- optimistic UI updates
+
+2. Shared toggle priority action
+
+Create or reuse one shared handler/API action:
+
+togglePriority(messageId/threadId)
+
+It should:
+- Determine current priority state
+- Toggle it
+- Update backend
+- Update local cache/state
+- Update category membership
+- Update counts if needed
+
+Do not have one priority implementation in the row and another in the toolbar.
+
+3. Optimistic UI update
+
+On click:
+- Immediately fill/unfill star
+- Disable repeated rapid clicks or debounce
+- If request fails, revert and show error
+
+4. Sync after server response
+
+After success:
+- Refresh/update the specific message/thread state
+- Ensure Priority Highlights list reflects the change
+- Avoid full mailbox reload unless existing architecture requires it
+
+5. Initial render fix
+
+When opening an email already in Priority Highlights:
+- Star must render filled immediately
+- No need to click twice
+- No stale state after category/list changes
+
+============================================================
+COMBINED ACCEPTANCE CRITERIA
+============================================================
+
+Block Sender:
+- Only one block icon is visible for the same email/sender context at a time.
+- Tooltip is consistent:
+  “Block sender and move to spam”
+- Confirmation dialog appears before blocking unless undo exists.
+- Blocking uses one shared code path.
+- Message/thread moves to spam.
+- Sender is blocked using the canonical blocked-sender system.
+- Inbox/list counts update correctly.
+- No duplicate block controls appear when opening reply/thread view.
+
+Priority Star:
+- Clicking priority star fills/lights the star immediately.
+- Priority Highlights category updates correctly.
+- Opening an already-priority email shows filled/lit star.
+- Removing priority un-fills star.
+- Tooltip changes correctly:
+  - Not priority: “Mark as Priority”
+  - Priority: “Remove Priority”
+- Backend failure reverts optimistic UI and shows an error.
+- Row action and thread toolbar use the same priority logic.
+- No mismatch between Priority Highlights category and star visual state.
+
+Tests:
+Add or update tests for:
+- Duplicate block icon not rendered in open-thread context
+- Block action uses shared handler
+- Block success moves sender/message to spam and updates UI
+- Block failure does not remove message
+- Priority star initial active state when message is already in Priority Highlights
+- Priority toggle fills star optimistically
+- Priority toggle backend success persists filled state
+- Priority toggle backend failure reverts state
+- Priority removal un-fills star
+- Priority Highlights category membership matches star state
+
+============================================================
+AUDIT FIRST
+============================================================
+
+Before editing:
+- Locate all Mail action bar components
+- Locate row hover action components
+- Locate thread/reply toolbar components
+- Locate Block Sender logic/API
+- Locate Priority Highlights query/category logic
+- Locate priority/star toggle logic/API
+- Locate message/thread local cache update logic
+- Locate tests covering mail actions/categories
+
+Then implement the smallest safe fix that creates one shared action path for each behavior.
+
+============================================================
+FINAL REPORT REQUIRED
+============================================================
+
+After changes, report:
+- Files changed
+- What duplicate Block Sender component/logic was removed or consolidated
+- What canonical priority field/state is used
+- How optimistic priority star state is updated
+- Tests run
+- Any known limitations
+
+Plain-English product rule:
+Mail actions must behave like cockpit controls, not Christmas lights. One block button. One priority truth. If the email is priority, the star glows. If blocking is dangerous, confirm it. No mystery icons, no stale stars, no UI gaslighting.

@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import {
   formatDistanceToNow, format, isToday, isYesterday, isThisWeek,
 } from "date-fns";
+import { useTimezone, getDateGroupLabelInTz } from "@/lib/timezone";
 import {
   Mic, Plus, CalendarClock, Mail, Upload, Hash, AlertCircle, Loader2,
   Video, Phone, Users, Clock,
@@ -93,20 +94,13 @@ function getDisplayDate(note: MeetingNoteSummary): Date {
   return new Date(note.createdAt);
 }
 
-function getDateGroupLabel(date: Date): string {
-  if (isToday(date)) return "Today";
-  if (isYesterday(date)) return "Yesterday";
-  if (isThisWeek(date, { weekStartsOn: 1 })) return "This Week";
-  return format(date, "MMMM yyyy");
-}
-
-function groupNotes(notes: MeetingNoteSummary[]): Array<{ label: string; items: MeetingNoteSummary[] }> {
+function groupNotes(notes: MeetingNoteSummary[], timezone: string): Array<{ label: string; items: MeetingNoteSummary[] }> {
   const order: string[] = [];
   const map = new Map<string, MeetingNoteSummary[]>();
 
   for (const note of notes) {
     const date = getDisplayDate(note);
-    const label = getDateGroupLabel(date);
+    const label = getDateGroupLabelInTz(date, timezone);
     if (!map.has(label)) {
       order.push(label);
       map.set(label, []);
@@ -120,6 +114,7 @@ function groupNotes(notes: MeetingNoteSummary[]): Array<{ label: string; items: 
 const PAGE_SIZE = 20;
 
 export default function MeetingNotesIndexPage() {
+  const { timezone } = useTimezone();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -170,7 +165,7 @@ export default function MeetingNotesIndexPage() {
 
   const visible = notes.slice(0, visibleCount);
   const hasMore = notes.length > visibleCount;
-  const groups = groupNotes(visible);
+  const groups = groupNotes(visible, timezone);
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto bg-background">

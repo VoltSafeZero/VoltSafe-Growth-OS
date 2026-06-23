@@ -1280,7 +1280,44 @@ export async function registerRoutes(
       widgetVisibility: user.widgetVisibility ?? {},
       defaultCommandCenter: user.defaultCommandCenter,
       calendarBookingUrl: user.calendarBookingUrl ?? null,
+      detectedTimezone: (req.session as any).detectedTimezone ?? null,
     });
+  });
+
+  // POST /api/session/timezone — detect and persist the user's browser timezone
+  app.post("/api/session/timezone", requireAuth, async (req, res) => {
+    try {
+      const { timezone, timezoneOffsetMinutes } = req.body ?? {};
+
+      if (!timezone || typeof timezone !== "string" || timezone.length > 100) {
+        return res.status(400).json({ message: "timezone is required" });
+      }
+      // Validate IANA timezone string
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: timezone });
+      } catch {
+        return res.status(400).json({ message: "Invalid IANA timezone" });
+      }
+      const offsetMinutes = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : null;
+      const detectedAt = new Date().toISOString();
+      const userId = req.session.userId!;
+
+      // Store in session for fast access on subsequent requests
+      (req.session as any).detectedTimezone = timezone;
+
+      // Persist to DB (non-blocking — never fails the response)
+      db.execute(sql`
+        UPDATE users
+        SET last_detected_timezone = ${timezone},
+            last_detected_timezone_at = NOW(),
+            last_detected_timezone_offset_minutes = ${offsetMinutes}
+        WHERE id = ${userId}
+      `).catch((err: unknown) => console.error("[timezone] DB write failed:", err));
+
+      res.json({ ok: true, timezone, offsetMinutes, detectedAt });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message ?? "Internal error" });
+    }
   });
 
   // PATCH /api/users/me/calendar-url — save the user's personal booking/calendar link

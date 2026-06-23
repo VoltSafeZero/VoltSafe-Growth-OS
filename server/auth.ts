@@ -82,6 +82,8 @@ declare module "express-session" {
     zoomOAuthState?: string;
     /** Per-session OAuth CSRF nonce. Set before redirect; consumed in callback. */
     oauthState?: { nonce: string; type: "personal" | "shared" | "calendar" };
+    /** Current detected IANA timezone from the user's browser, refreshed every login/session start. */
+    detectedTimezone?: string;
   }
 }
 

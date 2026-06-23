@@ -29,8 +29,9 @@ import {
   AlertCircle, Clock, Settings2, Apple, ChevronLeft, FlaskConical,
   CalendarCheck, ShieldAlert, Users, WifiOff, Wifi,
   Mail, Eye, MousePointerClick, BellRing, ListTodo, Zap,
-  PenSquare, ArrowRight,
+  PenSquare, ArrowRight, Globe,
 } from "lucide-react";
+import { useTimezone } from "@/lib/timezone";
 import { SiGooglecalendar, SiZoom } from "react-icons/si";
 import { useLocation } from "wouter";
 import { startRegistration } from "@simplewebauthn/browser";
@@ -763,6 +764,57 @@ function TeamCalendarHealthSection() {
   );
 }
 
+function TimezoneDebugSection() {
+  const { timezone, offsetMinutes, detectedAt } = useTimezone();
+  const { data: me } = useQuery<{ globalRole?: string }>({
+    queryKey: ["/api/auth/me"],
+    staleTime: 60_000,
+  });
+
+  const role = me?.globalRole ?? "";
+  if (role !== "master_admin" && role !== "admin") return null;
+
+  const offsetLabel = offsetMinutes !== null
+    ? `UTC${offsetMinutes >= 0 ? "+" : ""}${Math.round(offsetMinutes / 60)}`
+    : "Unknown";
+
+  const detectedLabel = detectedAt
+    ? new Date(detectedAt).toLocaleString()
+    : "Not yet detected";
+
+  return (
+    <Card className="border-border/50" data-testid="timezone-debug-section">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Globe className="h-5 w-5 text-primary" />
+          <div>
+            <CardTitle className="text-base">Timezone Detection</CardTitle>
+            <CardDescription className="text-xs mt-0.5">
+              Browser-detected timezone stored per session and persisted to the user record
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between py-1.5 border-b border-border/30">
+            <span className="text-muted-foreground">Detected timezone</span>
+            <span className="font-mono text-xs bg-muted/40 px-2 py-0.5 rounded" data-testid="tz-detected-value">{timezone}</span>
+          </div>
+          <div className="flex items-center justify-between py-1.5 border-b border-border/30">
+            <span className="text-muted-foreground">UTC offset</span>
+            <span className="font-mono text-xs bg-muted/40 px-2 py-0.5 rounded" data-testid="tz-offset-value">{offsetLabel}</span>
+          </div>
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-muted-foreground">Last detected at</span>
+            <span className="text-xs text-muted-foreground" data-testid="tz-detected-at">{detectedLabel}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -1259,6 +1311,9 @@ export default function SettingsPage() {
 
       {/* Team Calendar Health — admin only */}
       <TeamCalendarHealthSection />
+
+      {/* Timezone Detection Debug — admin only */}
+      <TimezoneDebugSection />
 
       {/* Mail Tracking & Automation — admin only */}
       <MailTrackingAutomationSection />

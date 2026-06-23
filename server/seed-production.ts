@@ -1873,3 +1873,17 @@ export async function migrateCrmIntelligenceContextSchema(): Promise<void> {
     console.error("[migration] migrateCrmIntelligenceContextSchema error (non-fatal):", err);
   }
 }
+
+export async function migrateTimezoneColumns(): Promise<void> {
+  try {
+    await db.execute(sql`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS last_detected_timezone TEXT,
+        ADD COLUMN IF NOT EXISTS last_detected_timezone_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS last_detected_timezone_offset_minutes INTEGER
+    `);
+    console.log("[migration] User timezone detection columns ready.");
+  } catch (err) {
+    console.error("[migration] migrateTimezoneColumns error (non-fatal):", err);
+  }
+}
