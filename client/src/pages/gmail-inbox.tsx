@@ -7429,7 +7429,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // Re-inject the sticky thread if a background is:unread refetch evicted it
     // while the user is still reading it. The sticky copy has UNREAD stripped so
     // it renders as read (no dot / no bold) but stays in the list.
-    if (stickyUnreadMessage && !messages.some(m => m.id === stickyUnreadMessage.id)) {
+    // Guard by threadId (not just id): if a newer reply to the same thread arrived
+    // and became the representative message, the sticky's id would differ but the
+    // thread is already present — skip injection to avoid a ghost duplicate row.
+    if (stickyUnreadMessage && !messages.some(m => m.threadId === stickyUnreadMessage.threadId)) {
       return dedupById([stickyUnreadMessage, ...messages]);
     }
     return messages;
