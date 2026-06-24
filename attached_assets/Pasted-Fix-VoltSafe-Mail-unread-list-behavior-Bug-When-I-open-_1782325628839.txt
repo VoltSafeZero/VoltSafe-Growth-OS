@@ -1,0 +1,36 @@
+Fix VoltSafe Mail unread-list behavior.
+
+Bug:
+When I open an unread email from the Unread mailbox/category, the message correctly opens and the unread dot disappears. But after the mark-read sync/cache refresh runs, the message disappears from the unread list while I am still viewing it. The body remains open, but the list jumps and the currently selected row vanishes.
+
+Desired behavior:
+If a user opens an unread email while in an unread-filtered mailbox, keep that currently selected/open message visible in the list until the user clicks a different email, changes folder/category, or leaves the unread view.
+
+Do not remove the currently selected message from the unread list immediately just because it was marked read.
+
+Implementation requirements:
+1. Preserve the active/selected message in unread-filtered result sets even after it becomes read.
+2. Visually show it as read: remove unread dot, remove bold unread styling, decrement unread count if that is the canonical behavior.
+3. Keep the selected row in place while it remains the active message.
+4. Once the user selects a different message or changes mailbox/filter, allow the previously selected read message to disappear from the unread list.
+5. This should apply to Inbox > Unread and category unread views like Promotions/People/Updates if they use the same unread filter logic.
+6. Avoid hacky timers. The fix should be based on selectedMessageId / activeThreadId preservation.
+7. Add or update tests covering:
+   - unread message opened from unread list remains visible while selected
+   - unread dot disappears immediately
+   - unread count decrements correctly
+   - after selecting another message, the first read message is removed from unread-filtered list
+   - behavior works after background Gmail sync/cache refresh
+
+Likely fix area:
+Where the client filters messages for unread views, change filtering from:
+
+message.isUnread === true
+
+to something like:
+
+message.isUnread === true || message.id === selectedMessageId
+
+but only while the current view is an unread-filtered mailbox/category and the selected message originated from that unread result set.
+
+Also audit any server refresh/reconciliation logic that replaces the visible list and make sure it re-inserts/preserves the active selected message in the unread view until selection changes.

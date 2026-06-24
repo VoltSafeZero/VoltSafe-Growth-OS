@@ -4974,6 +4974,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Used by the smart-inbox grouper to keep it in the unread bucket only when
   // it genuinely transitioned from unread→read (not when already read).
   const [openThreadWasUnread, setOpenThreadWasUnread] = useState(false);
+  // Sticky unread: when the Unread filter is active, hold a "read" copy of the
+  // currently-open thread so it stays visible in the list even after a background
+  // is:unread refetch evicts it from inboxQuery.data. Cleared when the user moves
+  // to a different thread or leaves the unread filter.
+  const [stickyUnreadMessage, setStickyUnreadMessage] = useState<MessageSummary | null>(null);
   // Mail Trust Strip — transient send/draft event surfaced from ComposeDialog mutations.
   const [trustEvent, setTrustEvent] = useState<TrustEvent | null>(null);
   const trustEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -6359,6 +6364,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const sentEpochRef = useRef(0);
   useEffect(() => { inboxEpochRef.current += 1; }, [activeAccountId, searchQuery, tab, inboxCategory, crmFilter]);
   useEffect(() => { sentEpochRef.current += 1; }, [activeAccountId, searchQuery, tab]);
+  // Clear the sticky unread thread when the user deselects all threads or switches
+  // away from the unread filter — at that point the thread should leave the list naturally.
+  useEffect(() => {
+    if (!selectedThreadId || crmFilter !== "unread") {
+      setStickyUnreadMessage(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedThreadId, crmFilter]);
 
   // Inbox debug instrumentation — opt-in via `localStorage.inbox_debug=1`. Logs every fetch's
   // full context, raw vs visible count, drop-on-stale-epoch, and auto-chain decisions. Stripped
@@ -7411,10 +7424,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // user never sees a row twice.
   // Memoized on query data + extras so it only reruns when actual message data changes, not on
   // every render — prevents unnecessary downstream recomputation of inboxMain/viewItems/navList.
-  const allInboxMessages = useMemo(
-    () => dedupById([...(inboxQuery.data?.messages || []), ...inboxExtra]),
-    [inboxQuery.data, inboxExtra],
-  );
+  const allInboxMessages = useMemo(() => {
+    const messages = dedupById([...(inboxQuery.data?.messages || []), ...inboxExtra]);
+    // Re-inject the sticky thread if a background is:unread refetch evicted it
+    // while the user is still reading it. The sticky copy has UNREAD stripped so
+    // it renders as read (no dot / no bold) but stays in the list.
+    if (stickyUnreadMessage && !messages.some(m => m.id === stickyUnreadMessage.id)) {
+      return dedupById([stickyUnreadMessage, ...messages]);
+    }
+    return messages;
+  }, [inboxQuery.data, inboxExtra, stickyUnreadMessage]);
   const allSentMessages = useMemo(
     () => dedupById([...(sentQuery.data?.messages || []), ...sentExtra]),
     [sentQuery.data, sentExtra],
@@ -8019,6 +8038,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // Record whether this thread was unread at click time so the grouper can
     // keep it in the unread bucket only during the genuine unread→read transition.
     setOpenThreadWasUnread(isUnread(msg.labelIds));
+    // Sticky unread: when opening from the Unread filter, preserve the thread row
+    // in the list until the user moves to a different email — even if a background
+    // is:unread refetch evicts it. We save a "read" copy (UNREAD stripped) so it
+    // stays visible without showing a bold/dot as if still unread.
+    if (crmFilter === "unread" && isUnread(msg.labelIds)) {
+      setStickyUnreadMessage({ ...msg, labelIds: msg.labelIds.filter(l => l !== "UNREAD") });
+    } else if (stickyUnreadMessage && stickyUnreadMessage.threadId !== msg.threadId) {
+      // User navigated to a different thread — release the previous sticky so that
+      // thread can now leave the unread list naturally.
+      setStickyUnreadMessage(null);
+    }
     // Multi-mailbox Phase 1: capture the source account so thread reads + mutations target
     // the correct mailbox when we're in unified mode. Outside unified mode this is unused.
     setCurrentThreadAccountId(msg.sourceAccountId ?? null);
