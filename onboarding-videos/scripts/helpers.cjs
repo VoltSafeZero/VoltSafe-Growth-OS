@@ -8,6 +8,10 @@ const path = require("path");
 const fs   = require("fs");
 
 const OUTPUTS_DIR = path.join(__dirname, "..", "outputs");
+const RAW_DIR     = path.join(OUTPUTS_DIR, "raw");
+
+// Ensure raw/ dir exists at runtime
+if (!fs.existsSync(RAW_DIR)) fs.mkdirSync(RAW_DIR, { recursive: true });
 
 function getBaseUrl() {
   return (process.env.APP_URL || "http://localhost:5000").replace(/\/$/, "");
@@ -21,9 +25,7 @@ function getCredentials() {
 }
 
 /**
- * Log in to VoltSafe CMS.
- * Navigates to /login, fills credentials, submits, then waits for the
- * authenticated shell (sidebar) to be visible.
+ * Log in to VoltSafe CMS and wait for the authenticated shell.
  */
 async function login(page, baseUrl, email, password) {
   await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
@@ -31,7 +33,6 @@ async function login(page, baseUrl, email, password) {
   await page.fill('input[type="email"], input[name="email"]', email);
   await page.fill('input[type="password"], input[name="password"]', password);
   await page.click('button[type="submit"]');
-  // Wait for authenticated shell — sidebar nav or main content
   await page.waitForSelector('[data-sidebar="sidebar"], [data-testid="pipeline-page"], main, #root > div > div', {
     timeout: 15000,
   });
@@ -39,18 +40,14 @@ async function login(page, baseUrl, email, password) {
 }
 
 /**
- * Activate demo mode — sets localStorage flag so the demo banner appears
- * and real sends are blocked. Call once after login.
+ * Activate demo mode — sets localStorage flag, reloads, confirms banner.
  */
 async function enableDemoMode(page) {
   await page.evaluate(() => {
     localStorage.setItem("voltSafeDemoMode", "1");
   });
-  // Reload current URL to pick up demo banner
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-testid="demo-mode-banner"]', { timeout: 8000 }).catch(() => {
-    // Banner not rendered yet is acceptable on first load
-  });
+  await page.waitForSelector('[data-testid="demo-mode-banner"]', { timeout: 8000 }).catch(() => {});
 }
 
 /**
@@ -62,8 +59,7 @@ async function waitForAppReady(page) {
 }
 
 /**
- * Click an element identified by a CSS selector. Fails with a clear message
- * if the element is not found within the timeout.
+ * Click an element by CSS selector with a clear error if not found.
  */
 async function safeClick(page, selector, options = {}) {
   const timeout = options.timeout || 10000;
@@ -86,12 +82,54 @@ async function pauseForViewer(ms = 2000) {
 }
 
 /**
- * After the browser context is closed and the video has been finalized,
- * this renames the Playwright-generated UUID video file to a human-readable name.
- *
- * @param {import('playwright').Page} page - The page whose video was recorded
- * @param {string} readableName - e.g. "01-dashboard-overview"
- * @returns {string} Final video path
+ * Intentional pause sized for a narrator to speak the accompanying line.
+ * Slightly longer than pauseForViewer — signals "narration gap" in the script.
+ */
+async function pauseForNarration(page, ms = 3500) {
+  await pauseForViewer(ms);
+}
+
+/**
+ * Show a callout bubble at the bottom-centre of the screen.
+ * Only visible in demo mode. Dispatches a custom DOM event the overlay listens to.
+ */
+async function showCallout(page, text) {
+  await page.evaluate((t) => {
+    window.dispatchEvent(new CustomEvent("voltSafeCallout", {
+      detail: { text: t, visible: true },
+    }));
+  }, text);
+  await pauseForViewer(400);
+}
+
+/**
+ * Hide the current callout bubble.
+ */
+async function hideCallout(page) {
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("voltSafeCallout", {
+      detail: { text: "", visible: false },
+    }));
+  });
+  await pauseForViewer(300);
+}
+
+/**
+ * Flash a full-screen section title overlay for 2.5 s then auto-dismiss.
+ * Use at the start of each major section to orient the viewer.
+ */
+async function stepTitle(page, title) {
+  await page.evaluate((t) => {
+    window.dispatchEvent(new CustomEvent("voltSafeStepTitle", {
+      detail: { title: t },
+    }));
+  }, title);
+  await pauseForViewer(2800); // let title animate in and be readable
+}
+
+/**
+ * Rename the Playwright-generated UUID video file to a human-readable name
+ * and save it into onboarding-videos/outputs/raw/.
  */
 async function saveVideoWithReadableName(page, readableName) {
   const video = page.video();
@@ -104,8 +142,8 @@ async function saveVideoWithReadableName(page, readableName) {
     console.warn("Video path is null — skipping rename.");
     return null;
   }
-  const ext    = path.extname(tmpPath) || ".webm";
-  const dest   = path.join(OUTPUTS_DIR, `${readableName}${ext}`);
+  const ext  = path.extname(tmpPath) || ".webm";
+  const dest = path.join(RAW_DIR, `${readableName}${ext}`);
   if (fs.existsSync(dest)) fs.unlinkSync(dest);
   fs.renameSync(tmpPath, dest);
   return dest;
@@ -113,29 +151,24 @@ async function saveVideoWithReadableName(page, readableName) {
 
 /**
  * Resolve the Chromium executable path.
- * Prefers CHROMIUM_PATH env var, then tries common Nix/system paths.
+ * Prefers CHROMIUM_PATH env var, then tries Nix store paths.
  */
 function getChromiumPath() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
-  // Check Nix store (installed via nix)
   const { execSync } = require("child_process");
   try {
     const p = execSync("which chromium 2>/dev/null || true", { encoding: "utf8" }).trim();
     if (p) return p;
   } catch {}
-  // Known Replit Nix path pattern
-  const nixGlob = "/nix/store/*chromium*/bin/chromium";
   try {
-    const p = execSync(`ls ${nixGlob} 2>/dev/null | head -1 || true`, { encoding: "utf8" }).trim();
+    const p = execSync("ls /nix/store/*chromium*/bin/chromium 2>/dev/null | head -1 || true", { encoding: "utf8" }).trim();
     if (p) return p;
   } catch {}
-  return undefined; // fallback: let Playwright use its own browser
+  return undefined;
 }
 
 /**
- * Launch a Chromium browser using the system Chromium (Nix) when available,
- * falling back to Playwright's bundled browser. All scripts call this instead
- * of chromium.launch() directly so the executablePath is resolved once.
+ * Launch Chromium using system Nix binary when available.
  */
 async function launchBrowser() {
   const { chromium } = require("playwright");
@@ -151,12 +184,12 @@ async function launchBrowser() {
 }
 
 /**
- * Open a new Playwright browser context pre-configured for video recording.
+ * Open a browser context with video recording saving to outputs/raw/.
  */
 async function createRecordingContext(browser) {
   const context = await browser.newContext({
     viewport:    { width: 1440, height: 900 },
-    recordVideo: { dir: OUTPUTS_DIR, size: { width: 1440, height: 900 } },
+    recordVideo: { dir: RAW_DIR, size: { width: 1440, height: 900 } },
   });
   return context;
 }
@@ -171,7 +204,12 @@ module.exports = {
   waitForAppReady,
   safeClick,
   pauseForViewer,
+  pauseForNarration,
+  showCallout,
+  hideCallout,
+  stepTitle,
   saveVideoWithReadableName,
   createRecordingContext,
   OUTPUTS_DIR,
+  RAW_DIR,
 };

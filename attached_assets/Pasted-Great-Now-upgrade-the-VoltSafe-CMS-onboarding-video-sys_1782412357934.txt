@@ -1,0 +1,77 @@
+Great. Now upgrade the VoltSafe CMS onboarding video system from raw recordings into polished user-training walkthroughs.
+
+Goal:
+Make the Playwright recordings easier for real users to understand by adding guided visual cues, consistent pacing, section titles, and optional narration scripts.
+
+Requirements:
+
+1. Add an onboarding-videos/storyboards/ folder.
+
+2. Create one storyboard markdown file for each video:
+   - 01-dashboard-overview.md
+   - 02-leads-accounts-contacts.md
+   - 03-marina-lead-pipeline.md
+   - 04-voltsafe-mail-overview.md
+   - 05-ai-email-generator.md
+   - 06-account-intelligence-view.md
+
+3. Each storyboard should include:
+   - Video title
+   - Target audience
+   - User outcome
+   - Step-by-step walkthrough
+   - Suggested voiceover script
+   - On-screen callout text
+   - Recommended duration
+   - Key “pause moments” where the recording should slow down
+
+4. Add optional visual callouts during demo mode:
+   - A lightweight overlay component that can display short training labels during recordings
+   - Example labels:
+     “Start here”
+     “Open the account record”
+     “Review activity before outreach”
+     “Generate a suggested email”
+     “No email is sent in demo mode”
+   - These callouts should only appear when demo mode is enabled
+   - They must not affect production behavior
+
+5. Add helper functions in onboarding-videos/scripts/helpers.cjs:
+   - showCallout(page, text)
+   - hideCallout(page)
+   - stepTitle(page, title)
+   - pauseForNarration(page, ms)
+
+6. Update each Playwright script to use:
+   - Section title moments
+   - Short callouts
+   - Better viewer pauses
+   - Smooth scrolling where useful
+   - Less rushed navigation
+
+7. Add a new README section:
+   - “How to turn raw .webm files into finished onboarding videos”
+   - Recommend workflow:
+     1. Run npm run video:all
+     2. Import .webm files into Descript, Screen Studio, Loom, or CapCut
+     3. Add voiceover using the storyboard script
+     4. Add captions
+     5. Export final MP4
+     6. Host in HubSpot, Vimeo, YouTube unlisted, or the VoltSafe Help Center
+
+8. Add output folders:
+   - onboarding-videos/outputs/raw/
+   - onboarding-videos/outputs/final/
+   - onboarding-videos/outputs/archive/
+
+9. Adjust saveVideoWithReadableName so raw files save into:
+   onboarding-videos/outputs/raw/
+
+10. Do not break the existing video scripts.
+11. Do not expose real customer data.
+12. Do not send real emails.
+13. Do not change production behavior.
+14. Run npm run video:dashboard after changes and confirm a new raw video is created.
+
+Expected final result:
+The video system should now produce clean demo recordings with visible guidance, and each video should have a matching storyboard/voiceover script so we can quickly turn recordings into polished onboarding videos.

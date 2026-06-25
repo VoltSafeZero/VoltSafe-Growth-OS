@@ -15,6 +15,7 @@ import { isAdvisorRole } from "@/lib/nav-config";
 import BookingPublicPage from "@/pages/booking-public";
 import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
 import { DemoModeBanner } from "@/lib/demo-mode";
+import { DemoCalloutOverlay } from "@/components/demo-callout";
 import { ChunkErrorBoundary } from "@/components/chunk-error-boundary";
 import { TimezoneContext, TimezoneContextValue, detectBrowserTimezone } from "@/lib/timezone";
 
@@ -521,6 +522,7 @@ function App() {
                 </Suspense>
                 <UpcomingMeetingBanner currentUserId={user.id} isAdmin={isAdmin(user.globalRole || "sales")} />
                 <DemoModeBanner />
+                <DemoCalloutOverlay />
                 <Toaster />
               </>
             )}

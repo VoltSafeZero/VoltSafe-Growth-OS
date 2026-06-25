@@ -4,3 +4,9 @@
 *.mov
 !.gitkeep
 !.gitignore
+raw/*.webm
+raw/*.mp4
+final/*.mp4
+final/*.webm
+archive/*.webm
+archive/*.mp4

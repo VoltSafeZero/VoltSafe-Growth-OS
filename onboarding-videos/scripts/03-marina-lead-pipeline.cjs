@@ -1,19 +1,27 @@
 "use strict";
 /**
  * Video 03 — Marina Lead Pipeline
- *
- * Pipeline kanban view, stage columns, opportunity cards, list view.
- * Read-only — no data is mutated.
- *
- * Run:  npm run video:pipeline
+ * Storyboard: onboarding-videos/storyboards/03-marina-lead-pipeline.md
+ * Run: npm run video:pipeline
  */
 
 const {
   getBaseUrl, getCredentials,
   launchBrowser, createRecordingContext,
   login, enableDemoMode, waitForAppReady,
-  pauseForViewer, saveVideoWithReadableName,
+  pauseForViewer, pauseForNarration,
+  showCallout, hideCallout, stepTitle,
+  saveVideoWithReadableName,
 } = require("./helpers.cjs");
+
+const STAGE_LABELS = {
+  new_lead:       "Stage 1: New Lead — first contact, not yet qualified",
+  qualified:      "Stage 2: Qualified — BANT confirmed",
+  discovery:      "Stage 3: Discovery — active conversations",
+  pilot_candidate:"Stage 4: Pilot Candidate — deployment agreed",
+  proposal:       "Stage 5: Proposal — formal quote submitted",
+  closed_won:     "Stage 6: Closed Won — contract signed",
+};
 
 (async () => {
   const BASE = getBaseUrl();
@@ -28,45 +36,58 @@ const {
     await login(page, BASE, email, password);
     await enableDemoMode(page);
 
-    // Section 1: Pipeline kanban
-    console.log("[03] Pipeline kanban …");
+    // ── Section 1: Pipeline kanban ────────────────────────────────────────────
+    await stepTitle(page, "Marina Lead Pipeline");
     await page.goto(`${BASE}/pipeline`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
     const kanbanBtn = await page.$('[data-testid="button-kanban-view"]');
-    if (kanbanBtn) { await kanbanBtn.click(); await pauseForViewer(800); }
-    await pauseForViewer(3000);
+    if (kanbanBtn) { await kanbanBtn.click(); await pauseForViewer(600); }
+    await showCallout(page, "Your deal board — every active opportunity by stage");
+    await pauseForNarration(page, 3500);
+    await hideCallout(page);
 
-    // Section 2: Scroll through pipeline stage columns
-    console.log("[03] Pipeline stages …");
-    const stageKeys = ["new_lead", "qualified", "discovery", "pilot_candidate", "proposal", "closed_won"];
-    for (const key of stageKeys) {
+    // ── Section 2: Walk each stage column ─────────────────────────────────────
+    await stepTitle(page, "Pipeline Stages — New Lead to Closed Won");
+    for (const [key, label] of Object.entries(STAGE_LABELS)) {
       const col = await page.$(`[data-testid="column-${key}"]`);
-      if (col) { await col.scrollIntoViewIfNeeded(); await pauseForViewer(1500); }
+      if (col) {
+        await col.scrollIntoViewIfNeeded();
+        await showCallout(page, label);
+        await pauseForNarration(page, 2500);
+        await hideCallout(page);
+        await pauseForViewer(400);
+      }
     }
-    await pauseForViewer(2000);
 
-    // Section 3: Open an opportunity card
-    console.log("[03] Opening an opportunity …");
+    // ── Section 3: Open an opportunity card ───────────────────────────────────
+    await stepTitle(page, "Deal Card — Full Opportunity Detail");
     const firstCard = await page.$('[data-testid^="pipeline-opp-"]');
     if (firstCard) {
+      await firstCard.scrollIntoViewIfNeeded();
       await firstCard.click();
       await waitForAppReady(page);
-      await pauseForViewer(3500);
+      await showCallout(page, "Full deal detail here — value, contacts, timeline, next step");
+      await pauseForNarration(page, 5000);
+      await hideCallout(page);
     }
 
-    // Section 4: List view
-    console.log("[03] List view …");
+    // ── Section 4: List view ──────────────────────────────────────────────────
+    await stepTitle(page, "List View — Quick Pipeline Scan");
     await page.goto(`${BASE}/pipeline`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
     const listBtn = await page.$('[data-testid="button-list-view"]');
-    if (listBtn) { await listBtn.click(); await pauseForViewer(2000); }
-    await pauseForViewer(2500);
+    if (listBtn) { await listBtn.click(); await pauseForViewer(600); }
+    await showCallout(page, "List view for a quick pipeline scan");
+    await pauseForNarration(page, 3000);
+    await hideCallout(page);
 
-    // Section 5: Forecast/Execution view
-    console.log("[03] Forecast view …");
+    // ── Section 5: Forecast view ──────────────────────────────────────────────
+    await stepTitle(page, "Forecast — Committed vs. Pipeline");
     await page.goto(`${BASE}/execution/forecast`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(3000);
+    await showCallout(page, "Forecast: committed revenue vs. monthly target");
+    await pauseForNarration(page, 3500);
+    await hideCallout(page);
 
     console.log("[03] Recording complete. Saving …");
   } catch (err) {

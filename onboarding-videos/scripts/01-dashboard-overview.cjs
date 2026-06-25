@@ -1,18 +1,17 @@
 "use strict";
 /**
  * Video 01 — VoltSafe CMS Dashboard Overview
- *
- * Shows the main dashboard, high-level navigation, and a quick tour of
- * the CRM, Mail, Accounts, Leads, Pipeline, and AI areas.
- *
- * Run:  npm run video:dashboard
+ * Storyboard: onboarding-videos/storyboards/01-dashboard-overview.md
+ * Run: npm run video:dashboard
  */
 
 const {
   getBaseUrl, getCredentials,
   launchBrowser, createRecordingContext,
   login, enableDemoMode, waitForAppReady,
-  pauseForViewer, saveVideoWithReadableName,
+  pauseForViewer, pauseForNarration,
+  showCallout, hideCallout, stepTitle,
+  saveVideoWithReadableName,
 } = require("./helpers.cjs");
 
 (async () => {
@@ -28,52 +27,68 @@ const {
     await login(page, BASE, email, password);
     await enableDemoMode(page);
 
-    // Section 1: Role Command Center (home)
-    console.log("[01] Dashboard / home …");
+    // ── Section 1: Role Command Center ───────────────────────────────────────
+    await stepTitle(page, "Your Daily Starting Point");
     await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(3000);
+    await showCallout(page, "Your daily starting point");
+    await pauseForNarration(page, 4000);
+    await hideCallout(page);
 
-    // Section 2: Executive Dashboard
-    console.log("[01] Executive Dashboard …");
+    // ── Section 2: Executive Dashboard ───────────────────────────────────────
+    await stepTitle(page, "Executive Dashboard");
     await page.goto(`${BASE}/executive-dashboard`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(3500);
+    await showCallout(page, "KPIs at a glance — pipeline, bookings, team activity");
+    await pauseForNarration(page, 4000);
+    await hideCallout(page);
 
-    // Section 3: CRM — Leads
-    console.log("[01] Leads (CRM) …");
+    // ── Section 3: Leads ─────────────────────────────────────────────────────
+    await stepTitle(page, "Leads — Your Prospect List");
     await page.goto(`${BASE}/opportunities`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(2500);
+    await showCallout(page, "Every marina prospect lives here");
+    await pauseForNarration(page, 3000);
+    await hideCallout(page);
 
-    // Section 4: Accounts
-    console.log("[01] Accounts …");
+    // ── Section 4: Accounts ──────────────────────────────────────────────────
+    await stepTitle(page, "Accounts — Active Relationships");
     await page.goto(`${BASE}/accounts`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(2500);
+    await showCallout(page, "Active accounts & marinas you're working with");
+    await pauseForNarration(page, 3000);
+    await hideCallout(page);
 
-    // Section 5: Pipeline
-    console.log("[01] Pipeline …");
+    // ── Section 5: Pipeline ──────────────────────────────────────────────────
+    await stepTitle(page, "Pipeline — Deals in Motion");
     await page.goto(`${BASE}/pipeline`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(2500);
+    await showCallout(page, "Every deal, organised by stage");
+    await pauseForNarration(page, 3000);
+    await hideCallout(page);
 
-    // Section 6: VoltSafe Mail
-    console.log("[01] VoltSafe Mail …");
+    // ── Section 6: Mail ──────────────────────────────────────────────────────
+    await stepTitle(page, "VoltSafe Mail — CRM-Connected Inbox");
     await page.goto(`${BASE}/gmail`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(3000);
+    await showCallout(page, "Email built for sales — every message linked to CRM");
+    await pauseForNarration(page, 3500);
+    await hideCallout(page);
 
-    // Section 7: AI Copilot
-    console.log("[01] AI Copilot …");
+    // ── Section 7: AI Copilot ─────────────────────────────────────────────────
+    await stepTitle(page, "Cortex AI — Your Sales Copilot");
     await page.goto(`${BASE}/executive-copilot`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(3000);
+    await showCallout(page, "AI-powered insights: who to call, what to say, what's at risk");
+    await pauseForNarration(page, 3500);
+    await hideCallout(page);
 
-    // Section 8: Return home
+    // ── Return home ──────────────────────────────────────────────────────────
     await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(2000);
+    await showCallout(page, "Explore at your own pace — more detail in the next videos");
+    await pauseForViewer(2500);
+    await hideCallout(page);
 
     console.log("[01] Recording complete. Saving …");
   } catch (err) {

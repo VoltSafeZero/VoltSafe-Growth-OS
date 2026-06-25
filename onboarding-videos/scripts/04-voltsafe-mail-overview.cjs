@@ -1,17 +1,17 @@
 "use strict";
 /**
  * Video 04 — VoltSafe Mail Overview
- *
- * Inbox, categories, message view, reply UI. NO emails are sent.
- *
- * Run:  npm run video:mail
+ * Storyboard: onboarding-videos/storyboards/04-voltsafe-mail-overview.md
+ * Run: npm run video:mail
  */
 
 const {
   getBaseUrl, getCredentials,
   launchBrowser, createRecordingContext,
   login, enableDemoMode, waitForAppReady,
-  pauseForViewer, saveVideoWithReadableName,
+  pauseForViewer, pauseForNarration,
+  showCallout, hideCallout, stepTitle,
+  saveVideoWithReadableName,
 } = require("./helpers.cjs");
 
 (async () => {
@@ -27,57 +27,87 @@ const {
     await login(page, BASE, email, password);
     await enableDemoMode(page);
 
-    // Section 1: Inbox overview
-    console.log("[04] VoltSafe Mail inbox …");
+    // ── Section 1: Inbox overview ─────────────────────────────────────────────
+    await stepTitle(page, "VoltSafe Mail — Your CRM-Connected Inbox");
     await page.goto(`${BASE}/gmail`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(3000);
+    await showCallout(page, "Your inbox — every message automatically CRM-linked");
+    await pauseForNarration(page, 4000);
+    await hideCallout(page);
 
-    // Section 2: Priority tab
+    // ── Section 2: Priority tab ───────────────────────────────────────────────
+    await stepTitle(page, "Priority Inbox — Deal-Moving Emails First");
     const priorityTab = await page.$('button:has-text("Priority")');
-    if (priorityTab) { await priorityTab.click(); await pauseForViewer(2000); }
+    if (priorityTab) {
+      await priorityTab.click();
+      await pauseForViewer(1000);
+    }
+    await showCallout(page, "Priority: emails from active leads and accounts");
+    await pauseForNarration(page, 3000);
+    await hideCallout(page);
 
-    // Section 3: People tab
+    // ── Section 3: People tab ─────────────────────────────────────────────────
+    await stepTitle(page, "People — Conversations by Contact");
     const peopleTab = await page.$('button:has-text("People")');
-    if (peopleTab) { await peopleTab.click(); await pauseForViewer(2000); }
+    if (peopleTab) {
+      await peopleTab.click();
+      await pauseForViewer(1000);
+    }
+    await showCallout(page, "People: all threads with a single contact in one place");
+    await pauseForNarration(page, 3000);
+    await hideCallout(page);
 
-    // Section 4: Open a message
-    console.log("[04] Opening a message …");
+    // ── Section 4: Open a message ─────────────────────────────────────────────
+    await stepTitle(page, "Open a Thread — Full Context Panel");
     await page.goto(`${BASE}/gmail`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
-    await pauseForViewer(1500);
+    await pauseForViewer(1000);
     const firstRow = await page.$('[class*="cursor-pointer"][class*="border"]');
     if (firstRow) {
       await firstRow.click();
       await waitForAppReady(page);
-      await pauseForViewer(3500);
+      await showCallout(page, "Open any thread for the full message + CRM context");
+      await pauseForNarration(page, 5000);
+      await hideCallout(page);
     }
 
-    // Section 5: Reply UI (don't send)
+    // ── Section 5: Reply UI ───────────────────────────────────────────────────
+    await stepTitle(page, "Reply — Inline, Tracked, CRM-Linked");
     const replyBtn = await page.$('button:has-text("Reply")');
     if (replyBtn) {
       await replyBtn.click();
-      await pauseForViewer(3000);
+      await pauseForViewer(1000);
+      await showCallout(page, "Reply inline — signature, tracking, and CRM link automatic");
+      await pauseForNarration(page, 3500);
+      await hideCallout(page);
       await page.keyboard.press("Escape");
       await pauseForViewer(800);
     }
 
-    // Section 6: Unread filter
-    console.log("[04] Unread filter …");
+    // ── Section 6: Unread filter ──────────────────────────────────────────────
+    await stepTitle(page, "Unread Filter — Start Every Day Here");
     await page.goto(`${BASE}/gmail`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
     const unreadBtn = await page.$('button:has-text("Unread")');
-    if (unreadBtn) { await unreadBtn.click(); await pauseForViewer(2500); }
+    if (unreadBtn) {
+      await unreadBtn.click();
+      await pauseForViewer(1000);
+    }
+    await showCallout(page, "Unread filter — zero in on what needs a response");
+    await pauseForNarration(page, 3000);
+    await hideCallout(page);
 
-    // Section 7: Compose (demo mode blocks send)
-    console.log("[04] Compose (demo — send blocked) …");
+    // ── Section 7: Compose ────────────────────────────────────────────────────
+    await stepTitle(page, "Compose — New Outbound Email");
     await page.goto(`${BASE}/gmail`, { waitUntil: "domcontentloaded" });
     await waitForAppReady(page);
     const composeBtn = await page.$('button:has-text("Compose"), button:has-text("New Email")');
     if (composeBtn) {
       await composeBtn.click();
       await waitForAppReady(page);
-      await pauseForViewer(3000);
+      await showCallout(page, "No email is sent in demo mode");
+      await pauseForNarration(page, 3500);
+      await hideCallout(page);
       await page.keyboard.press("Escape");
       await pauseForViewer(800);
     }
