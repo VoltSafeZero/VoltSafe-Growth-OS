@@ -1,0 +1,290 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Problem:
+The Lead / Account sidebar edit forms have redundant marina data fields that are confusing users and creating dirty CRM data.
+
+Example from Oak Bay Marina Lead:
+The edit Lead page currently shows multiple overlapping fields for the same concepts:
+- Slips
+- Slip Count (exact)
+- Est. Slips
+- Est. Slips Impacted
+- Est. Pedestals
+- Segment free-text field
+- Market Segment dropdown
+
+This is bad UX and bad CRM hygiene. Users should have one obvious place to enter each piece of information.
+
+Goal:
+Audit and clean up the Lead / Account / Marina CRM field model and edit UI so there is one canonical field per concept, while preserving existing data safely.
+
+Do NOT delete data blindly.
+Do NOT run destructive migrations.
+Do NOT remove backend fields until data migration/aliasing is understood.
+Do NOT break existing AI summaries, lead scoring, enrichment, ROI story, opportunity profile, or CRM cards.
+Do NOT rename database columns casually if downstream code relies on them.
+First make the UI sane, then map legacy fields behind the scenes.
+
+Primary product direction:
+For marina-related Leads/Accounts, use a single clean field taxonomy:
+
+Canonical fields should be:
+
+1. Marina size
+- Canonical display field: Slip Count
+- Meaning: actual number of slips at the marina, if known
+- Example: 412
+- This should replace/hide duplicate visible fields like:
+  - Slips
+  - Slip Count (exact)
+  - Est. Slips
+  - Est. Slips Impacted
+unless those are truly separate concepts.
+
+2. Estimated VoltSafe deployment size
+- Canonical display field: Est. Pedestals
+- Meaning: estimated number of VoltSafe pedestals/opportunities
+- Example: 150
+- This should be the only visible pedestal estimate field unless there is a clear need for more.
+
+3. Shore power availability
+- Canonical display field: Shore Power?
+- Values: Yes / No / Unknown
+- No duplicate fields.
+
+4. Market Segment
+- Canonical display field: Market Segment
+- Type: dropdown/select
+- Example values:
+  - Marina
+  - RV Park
+  - Commercial Port
+  - Yacht Club
+  - Resort / Hospitality
+  - Municipality
+  - Utility / Energy
+  - Other
+- Remove or hide the free-text “Segment” field from the primary edit UI unless it serves a distinct purpose.
+- If the old free-text segment has data, preserve it as legacy/internal or map it into notes/tags only after audit.
+
+5. Slip Range
+- Canonical display field: Slip Range
+- Type: dropdown/select
+- Example:
+  - 0–50
+  - 51–100
+  - 101–300
+  - 300–500
+  - 500+
+  - Unknown
+- This is allowed because it is a category/bucket, not a duplicate of exact slip count.
+- But it should be clearly secondary to exact Slip Count.
+
+6. Source
+- Canonical display field: Source
+- Meaning: where the lead came from
+- Example: marina_directory
+- Keep this.
+
+7. Deal / Financial
+- Deal Amount
+- Probability
+- Est. Close Date
+- Hardware $
+- Software $
+- Services $
+- Primary Value Driver
+- Competitors
+- ROI Story
+These are separate and can remain, but ensure Est. Slips and Est. Pedestals are not duplicated here if already shown under Marina Details / Deal Information.
+
+Audit first:
+Before coding, inspect:
+1. Database schema for Leads, Accounts, Opportunities, marina-specific fields.
+2. Frontend edit forms for:
+   - Lead detail drawer/modal
+   - Account detail drawer/modal
+   - Opportunity profile
+   - Enrich Lead form
+   - Any quick-edit components
+3. Display cards/read-only detail panels that show:
+   - Slips
+   - Est. Slips Impacted
+   - Est. Pedestals
+   - Deal Information
+4. AI summary generation inputs.
+5. Lead scoring / “Strong 100” scoring logic.
+6. Enrichment logic that writes marina_directory fields.
+7. Any import/parsing scripts that populate:
+   - slips
+   - slip_count
+   - slip_count_exact
+   - estimated_slips
+   - est_slips
+   - est_slips_impacted
+   - pedestal_count
+   - estimated_pedestals
+   - est_pedestals
+   - segment
+   - market_segment
+8. Any API payload shapes for lead/account update.
+
+Then report:
+- All fields found that relate to slips
+- All fields found that relate to pedestals
+- All fields found that relate to segment/market segment
+- Which fields are currently displayed in the UI
+- Which fields are used by AI/scoring/enrichment
+- Which field should become canonical
+- Which fields should be hidden from UI but preserved in backend for compatibility
+
+Implementation objective:
+Make the visible UI clean and singular.
+
+Lead edit form should show only this under Marina Details:
+
+Marina Details:
+- Slip Count
+- Slip Range
+- Market Segment
+- Shore Power?
+- Source
+
+Deal / Financial:
+- Deal Amount
+- Probability
+- Est. Close Date
+- Hardware $
+- Software $
+- Services $
+- Primary Value Driver
+- Est. Pedestals
+- Competitors
+- ROI Story
+
+Remove/hide from visible edit UI:
+- Duplicate “Slips” if “Slip Count” is shown
+- Duplicate “Slip Count (exact)” if “Slip Count” is shown
+- Duplicate “Est. Slips” if “Slip Count” already captures marina size
+- Duplicate “Est. Slips Impacted” unless it is explicitly renamed and used as a different concept
+- Free-text “Segment” field when “Market Segment” dropdown exists
+
+Preferred labels:
+- Use “Slip Count,” not “Slips” and not “Slip Count (exact).”
+- Use “Est. Pedestals,” not multiple pedestal estimate variants.
+- Use “Market Segment” for the dropdown.
+- Use “Slip Range” only as a bucket/category.
+
+Data compatibility:
+If multiple legacy fields exist, create a safe read resolver.
+
+Example:
+getCanonicalSlipCount(record):
+- Prefer slip_count_exact if populated
+- Else prefer slip_count
+- Else prefer slips
+- Else prefer est_slips only if no exact count exists
+- Else null
+
+getCanonicalEstimatedPedestals(record):
+- Prefer est_pedestals
+- Else prefer estimated_pedestals
+- Else null
+
+getCanonicalMarketSegment(record):
+- Prefer market_segment
+- Else map old segment if it matches known dropdown values
+- Else keep segment as legacy note/internal field
+
+When saving from the UI:
+- Save user input to the canonical field only.
+- Do not keep writing the same value to five different columns unless a temporary compatibility shim is necessary.
+- If compatibility writes are needed, comment clearly and centralize them in one mapper function.
+
+Display/read-only detail panel:
+Clean up the main Lead/Account read view too.
+
+Current read view shows:
+- Slips
+- Shore Power?
+- Country
+- Source
+- Deal Information with Est. Pedestals and Est. Slips Impacted
+
+Update display to avoid duplicate concepts.
+
+Recommended visible layout:
+Marina Snapshot:
+- Slip Count: 412
+- Slip Range: 300–500
+- Shore Power: Yes
+- Country: Canada
+- Source: marina_directory
+
+Deal Information:
+- Value Driver: Infrastructure Modernization
+- Est. Pedestals: 150
+- ROI Story: [existing text]
+
+Do not show “Est. Slips Impacted” if it is the same as Slip Count.
+
+AI Summary:
+Ensure AI summaries use the canonical labels:
+- “412 slips”
+- “estimated 150 pedestals”
+not:
+- “412 slips, 412 estimated slips impacted, slip count exact 412…”
+No duplicate wording.
+
+Enrichment:
+Ensure Enrich Lead does not repopulate duplicate fields into the UI.
+If enrichment receives multiple slip-related values, normalize into canonical Slip Count and Slip Range.
+
+Validation:
+- Slip Count should be numeric.
+- Est. Pedestals should be numeric.
+- If Slip Count is entered, auto-suggest Slip Range if empty.
+- Do not overwrite a user-entered Slip Range unless user confirms or field is blank.
+- Shore Power should be Yes / No / Unknown.
+- Market Segment should use dropdown values.
+
+Migration:
+Avoid migration unless required.
+If migration is required, make it additive only.
+Do not drop old columns.
+If adding canonical columns, backfill safely from legacy fields.
+Do not destroy legacy data.
+
+Testing/verification:
+Use Oak Bay Marina as the test record.
+
+Verify:
+1. Lead read view no longer shows duplicate slips/pedestal fields.
+2. Lead edit form no longer shows multiple slip fields.
+3. Free-text Segment field is hidden or removed from primary UI.
+4. Market Segment dropdown remains.
+5. Slip Count shows 412.
+6. Slip Range shows 300–500.
+7. Est. Pedestals shows 150.
+8. Shore Power shows Yes.
+9. Saving changes preserves values.
+10. AI Summary still generates and uses canonical wording.
+11. Lead score / Strong 100 does not break.
+12. Enrich Lead does not reintroduce duplicate UI fields.
+13. Account edit/detail forms are checked for the same issue.
+14. No destructive migration was created.
+15. Typecheck/lint/tests pass if available.
+
+Final report:
+Provide:
+- Audit findings
+- Canonical field mapping chosen
+- Files changed
+- Any DB migration added
+- Screenshots or verification notes
+- Known remaining legacy fields
+- Recommended next cleanup task
+
+Critical product principle:
+One business concept = one visible field.
+Legacy fields can exist behind the curtain temporarily, but users should never have to guess which duplicate field is the real one.

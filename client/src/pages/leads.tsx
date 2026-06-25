@@ -645,7 +645,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                     <SortableHeader label="Marina / Company" sortKey="company" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Location" sortKey="state" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Contact" sortKey="contactName" sort={sort} onSort={handleSort} className="hidden md:table-cell" />
-                    {(!industryFilter || industryFilter === "__all__" || industryFilter === "marine") && <SortableHeader label="Slips" sortKey="slips" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />}
+                    {(!industryFilter || industryFilter === "__all__" || industryFilter === "marine") && <SortableHeader label="Slip Count" sortKey="slips" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />}
                     <SortableHeader label="Deal $" sortKey="dealAmount" sort={sort} onSort={handleSort} className="hidden xl:table-cell" />
                     <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
@@ -677,7 +677,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                         <div>{lead.contactName}</div>
                         {lead.contactPhone && <div className="text-muted-foreground text-xs">{lead.contactPhone}</div>}
                       </td>
-                      {(!industryFilter || industryFilter === "__all__" || industryFilter === "marine") && <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{!lead.slips || lead.slips === "-" ? "Unknown" : lead.slips}</td>}
+                      {(!industryFilter || industryFilter === "__all__" || industryFilter === "marine") && <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden lg:table-cell" onClick={() => setSelectedLead(lead)}>{(lead as any).slipCountInt ?? (!lead.slips || lead.slips === "-" ? "—" : lead.slips)}</td>}
                       <td className="p-3 sm:p-4 text-sm hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
                         {lead.dealAmount ? (
                           <span className="text-emerald-400 font-medium">${Number(lead.dealAmount).toLocaleString()}</span>
@@ -881,8 +881,8 @@ function PipelineView({
                       {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.state}
                     </p>
                   )}
-                  {lead.slips && lead.slips !== "-" && (
-                    <p className="text-xs text-muted-foreground mt-0.5">{lead.slips} slips</p>
+                  {((lead as any).slipCountInt || (lead.slips && lead.slips !== "-")) && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{(lead as any).slipCountInt ?? lead.slips} slips</p>
                   )}
                   {lead.dealAmount != null && lead.dealAmount > 0 && (
                     <p className="text-xs text-emerald-400 font-medium mt-0.5 flex items-center gap-1">
@@ -1739,8 +1739,8 @@ function LeadDetailDialog({
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
-                <p className="text-xs text-muted-foreground">Slips</p>
-                <p className="text-lg font-semibold">{!lead.slips || lead.slips === "-" ? "—" : lead.slips}</p>
+                <p className="text-xs text-muted-foreground">Slip Count</p>
+                <p className="text-lg font-semibold">{(lead as any).slipCountInt ?? (!lead.slips || lead.slips === "-" ? "—" : lead.slips)}</p>
               </div>
               <div className="rounded-lg border border-border/50 p-3 min-w-0 overflow-hidden">
                 <p className="text-xs text-muted-foreground">Shore Power?</p>
@@ -1799,10 +1799,9 @@ function LeadDetailDialog({
                     <div><p className="text-xs text-muted-foreground">Services</p><p className="text-sm font-medium">${Number(lead.dealValueServices || 0).toLocaleString()}</p></div>
                   </div>
                 )}
-                {(lead.estimatedPedestalCount || lead.estimatedSlipsImpacted) && (
+                {lead.estimatedPedestalCount && (
                   <div className="grid grid-cols-2 gap-3 mt-2 pt-2 border-t border-emerald-500/10">
-                    {lead.estimatedPedestalCount && <div><p className="text-xs text-muted-foreground">Est. Pedestals</p><p className="text-sm font-medium">{lead.estimatedPedestalCount}</p></div>}
-                    {lead.estimatedSlipsImpacted && <div><p className="text-xs text-muted-foreground">Est. Slips Impacted</p><p className="text-sm font-medium">{lead.estimatedSlipsImpacted}</p></div>}
+                    <div><p className="text-xs text-muted-foreground">Est. Pedestals</p><p className="text-sm font-medium">{lead.estimatedPedestalCount}</p></div>
                   </div>
                 )}
               </div>
@@ -1992,7 +1991,8 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
         dealValueSoftware: form.dealValueSoftware ? Number(form.dealValueSoftware) : null,
         dealValueServices: form.dealValueServices ? Number(form.dealValueServices) : null,
         estimatedPedestalCount: form.estimatedPedestalCount ? Number(form.estimatedPedestalCount) : null,
-        estimatedSlipsImpacted: form.estimatedSlipsImpacted ? Number(form.estimatedSlipsImpacted) : null,
+        // Mirror slip count to the legacy estimatedSlipsImpacted column so AI scoring stays consistent
+        estimatedSlipsImpacted: form.slipCountInt ? Number(form.slipCountInt) : (form.estimatedSlipsImpacted ? Number(form.estimatedSlipsImpacted) : null),
         marketSegment: form.marketSegment || null,
         slipRange: form.slipRange || null,
         slipCountInt: form.slipCountInt ? Number(form.slipCountInt) : null,
@@ -2117,8 +2117,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
       <div className="border-t border-border/50 pt-3">
         <Label className="text-xs text-muted-foreground mb-2 block">Marina Details</Label>
         <div className="grid grid-cols-2 gap-3">
-          {showMarinaOps && <div><Label className="text-xs">Slips</Label><Input value={form.slips} onChange={(e) => setForm(f => ({ ...f, slips: e.target.value }))} data-testid="input-edit-slips" /></div>}
-          <div><Label className="text-xs">Segment</Label><Input value={form.segment} onChange={(e) => setForm(f => ({ ...f, segment: e.target.value }))} data-testid="input-edit-segment" /></div>
+          {showMarinaOps && <div><Label className="text-xs">Slip Count</Label><Input type="number" value={form.slipCountInt} onChange={(e) => setForm(f => ({ ...f, slipCountInt: e.target.value }))} placeholder="e.g. 412" data-testid="input-edit-slip-count-int" /></div>}
           <div>
             <Label className="text-xs">Market Segment</Label>
             <Select value={form.marketSegment || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, marketSegment: v === "__none__" ? "" : v }))}>
@@ -2139,7 +2138,6 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
               </SelectContent>
             </Select>
           </div>}
-          {showMarinaOps && <div><Label className="text-xs">Slip Count (exact)</Label><Input type="number" value={form.slipCountInt} onChange={(e) => setForm(f => ({ ...f, slipCountInt: e.target.value }))} placeholder="e.g. 250" data-testid="input-edit-slip-count-int" /></div>}
           <div>
             <Label className="text-xs">Shore Power?</Label>
             <Select value={form.shorePower || "unknown"} onValueChange={(v) => setForm(f => ({ ...f, shorePower: v }))}>
@@ -2202,10 +2200,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
               </SelectContent>
             </Select>
           </div>
-          {showMarinaOps && <div className="grid grid-cols-2 gap-3">
-            <div><Label className="text-xs">Est. Pedestals</Label><Input type="number" value={form.estimatedPedestalCount} onChange={(e) => setForm(f => ({ ...f, estimatedPedestalCount: e.target.value }))} data-testid="input-edit-pedestal-count" /></div>
-            <div><Label className="text-xs">Est. Slips</Label><Input type="number" value={form.estimatedSlipsImpacted} onChange={(e) => setForm(f => ({ ...f, estimatedSlipsImpacted: e.target.value }))} data-testid="input-edit-slips-impacted" /></div>
-          </div>}
+          {showMarinaOps && <div><Label className="text-xs">Est. Pedestals</Label><Input type="number" value={form.estimatedPedestalCount} onChange={(e) => setForm(f => ({ ...f, estimatedPedestalCount: e.target.value }))} data-testid="input-edit-pedestal-count" /></div>}
         </div>
         <div className="mt-3"><Label className="text-xs">Competitors</Label><Input value={form.competitors} onChange={(e) => setForm(f => ({ ...f, competitors: e.target.value }))} placeholder="Competing vendors or solutions" data-testid="input-edit-competitors" /></div>
         <div className="mt-3"><Label className="text-xs">ROI Story</Label><Textarea value={form.roiStory} onChange={(e) => setForm(f => ({ ...f, roiStory: e.target.value }))} rows={2} placeholder="How does VoltSafe create value for this marina?" data-testid="input-edit-roi-story" /></div>

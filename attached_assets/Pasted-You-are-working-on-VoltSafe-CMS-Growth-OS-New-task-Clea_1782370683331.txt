@@ -1,0 +1,281 @@
+You are working on VoltSafe CMS / Growth OS.
+
+New task:
+Clean up redundant marina fields in Lead / Account detail and edit views.
+
+Problem:
+The current Lead/Account UI shows duplicate or near-duplicate fields for the same business concept.
+
+Example: Oak Bay Marina Lead currently shows multiple fields related to slips and pedestals:
+- Slips
+- Slip Count (exact)
+- Est. Slips
+- Est. Slips Impacted
+- Est. Pedestals
+
+It also shows both:
+- Segment free-text field
+- Market Segment dropdown
+
+This is confusing and creates dirty CRM data. Users should not have to guess which duplicate field is the real one.
+
+Product principle:
+One business concept = one visible field.
+Legacy fields can remain behind the curtain temporarily, but users should see one clean canonical field.
+
+Do NOT:
+- Do not delete data.
+- Do not drop columns.
+- Do not run destructive migrations.
+- Do not rename DB columns unless absolutely required.
+- Do not break AI summaries, enrichment, lead scoring, opportunity profile, or CRM cards.
+- Do not remove useful fields just because the current data model is messy.
+- Do not create more duplicate fields.
+
+Audit first:
+Before coding, inspect all relevant files and report findings.
+
+Search for fields and labels:
+- slips
+- slip_count
+- slipCount
+- slip_count_exact
+- exactSlipCount
+- est_slips
+- estimated_slips
+- estimatedSlips
+- est_slips_impacted
+- estimatedSlipsImpacted
+- slips_impacted
+- pedestals
+- est_pedestals
+- estimated_pedestals
+- estimatedPedestals
+- segment
+- market_segment
+- marketSegment
+- shore_power
+- shorePower
+
+Audit these surfaces:
+1. Lead detail read-only view / drawer / sidebar.
+2. Lead edit form.
+3. Account detail read-only view / drawer / sidebar.
+4. Account edit form.
+5. Opportunity profile.
+6. Enrich Lead.
+7. AI summary generation inputs.
+8. Lead scoring / Strong score.
+9. Marina directory import/enrichment logic.
+10. API update payloads and server-side mappers.
+11. Shared schema / DB schema.
+12. Any tests that reference these fields.
+
+Report:
+- Every slip-related field found.
+- Every pedestal-related field found.
+- Every segment-related field found.
+- Which are DB fields vs frontend-only labels.
+- Which are used by AI/scoring/enrichment.
+- Which appear visibly to users.
+- Recommended canonical mapping.
+
+Canonical visible field taxonomy:
+
+A) Marina Details section
+Show only:
+1. Slip Count
+   - Meaning: actual marina slip count, if known.
+   - Example: 412.
+   - Numeric.
+   - This is the canonical marina size field.
+
+2. Slip Range
+   - Meaning: bucket/category derived from or related to Slip Count.
+   - Example: 300–500.
+   - Dropdown.
+   - Allowed because it is a category, not a duplicate exact count.
+
+3. Market Segment
+   - Meaning: business category.
+   - Dropdown only.
+   - Example: Marina.
+   - Hide/remove free-text Segment from primary UI.
+
+4. Shore Power?
+   - Values: Yes / No / Unknown.
+
+5. Source
+   - Example: marina_directory.
+
+B) Deal / Financial section
+Show only:
+1. Deal Amount ($)
+2. Probability (%)
+3. Est. Close Date
+4. Hardware ($)
+5. Software ($)
+6. Services ($)
+7. Primary Value Driver
+8. Est. Pedestals
+   - Meaning: estimated VoltSafe pedestal deployment opportunity.
+   - Example: 150.
+   - Numeric.
+9. Competitors
+10. ROI Story
+
+Hide from visible UI:
+- Duplicate Slips if Slip Count is already shown.
+- Slip Count (exact) label — rename to Slip Count if it is the chosen canonical source.
+- Est. Slips if it means the same thing as Slip Count.
+- Est. Slips Impacted if it is the same as Slip Count.
+- Free-text Segment field when Market Segment dropdown exists.
+
+Important distinction:
+Slip Count = how many slips the marina has.
+Est. Pedestals = how many VoltSafe pedestals we estimate we could deploy/sell.
+Do not mix these.
+
+Preferred canonical resolver functions:
+Create centralized helpers if they do not already exist.
+
+Suggested helpers:
+- getCanonicalSlipCount(record)
+- getCanonicalSlipRange(record)
+- getCanonicalEstimatedPedestals(record)
+- getCanonicalMarketSegment(record)
+- normalizeMarinaUpdatePayload(payload)
+
+Suggested resolver behavior:
+getCanonicalSlipCount(record):
+1. Prefer exact/current slip count field if available.
+2. Then legacy slip count fields.
+3. Then old “slips” field.
+4. Only use estimated slips as fallback if there is no actual count.
+5. Return null if unknown.
+
+getCanonicalEstimatedPedestals(record):
+1. Prefer est_pedestals / estimatedPedestals.
+2. Then other legacy pedestal estimate fields.
+3. Return null if unknown.
+
+getCanonicalMarketSegment(record):
+1. Prefer market_segment / marketSegment dropdown value.
+2. If old free-text segment exactly matches a known dropdown option, map it.
+3. Otherwise preserve old segment as legacy/internal data but do not show it as a primary field.
+
+Saving behavior:
+When the user saves the edit form:
+- Write Slip Count to the canonical slip field.
+- Write Est. Pedestals to the canonical pedestal field.
+- Write Market Segment to the dropdown/canonical field.
+- Do not continue writing the same value to five fields unless a temporary compatibility shim is truly needed.
+- If a compatibility shim is required, keep it centralized and clearly commented.
+
+Read-only detail view cleanup:
+Update the visible Lead/Account detail panels.
+
+Recommended read-only layout:
+
+Marina Snapshot:
+- Slip Count: 412
+- Slip Range: 300–500
+- Shore Power: Yes
+- Country: Canada
+- Source: marina_directory
+
+Deal Information:
+- Value Driver: Infrastructure Modernization
+- Est. Pedestals: 150
+- ROI Story: [existing text]
+
+Do not show:
+- Est. Slips Impacted if it duplicates Slip Count.
+- Multiple slip fields.
+- Multiple pedestal estimate fields.
+
+Edit form cleanup:
+Update Lead and Account edit forms so users only see:
+
+Marina Details:
+- Slip Count
+- Slip Range
+- Market Segment
+- Shore Power?
+- Source
+
+Deal / Financial:
+- Deal Amount ($)
+- Probability (%)
+- Est. Close Date
+- Hardware ($)
+- Software ($)
+- Services ($)
+- Primary Value Driver
+- Est. Pedestals
+- Competitors
+- ROI Story
+
+Validation:
+- Slip Count numeric.
+- Est. Pedestals numeric.
+- If Slip Count is entered and Slip Range is empty, auto-suggest Slip Range.
+- Do not overwrite a user-entered Slip Range unless blank.
+- Shore Power must be Yes / No / Unknown.
+- Market Segment must use dropdown options.
+
+AI Summary cleanup:
+Ensure AI summaries and AI context use canonical wording:
+- “412 slips”
+- “estimated 150 pedestals”
+Avoid duplicate wording like:
+- “412 slips, 412 estimated slips impacted, slip count exact 412…”
+
+Enrichment cleanup:
+Ensure Enrich Lead normalizes incoming marina directory data:
+- Exact slip count → Slip Count
+- Derived bucket → Slip Range
+- Estimated VoltSafe deployment → Est. Pedestals
+- Business category → Market Segment
+Do not reintroduce duplicate visible fields.
+
+Testing record:
+Use Oak Bay Marina as the primary verification record.
+
+Expected verification:
+1. Oak Bay Marina read view no longer shows multiple slip fields.
+2. Oak Bay Marina edit form no longer shows Slips + Slip Count (exact) + Est. Slips duplicates.
+3. Free-text Segment field is removed/hidden from primary edit UI.
+4. Market Segment dropdown remains.
+5. Slip Count shows 412.
+6. Slip Range shows 300–500.
+7. Est. Pedestals shows 150.
+8. Shore Power shows Yes.
+9. Saving preserves values.
+10. AI Summary still works and uses canonical wording.
+11. Strong score does not break.
+12. Enrich Lead does not reintroduce duplicate fields into the UI.
+13. Account forms are checked and cleaned consistently.
+14. No destructive migration.
+15. Typecheck/lint/tests pass if available.
+
+Implementation priority:
+1. Audit and report mapping.
+2. Add/centralize canonical field helpers.
+3. Clean read-only Lead view.
+4. Clean Lead edit form.
+5. Clean Account read/edit forms if same issue exists.
+6. Adjust AI/enrichment display labels if needed.
+7. Verify Oak Bay Marina.
+
+Final report:
+Include:
+- Audit findings.
+- Canonical mapping selected.
+- Files changed.
+- Whether DB migration was avoided.
+- Known legacy fields still preserved behind the curtain.
+- Remaining cleanup recommendations.
+
+Critical:
+This is primarily a UX/data hygiene cleanup. The database can stay messy for now if needed, but the user-facing CRM must be clean, singular, and obvious.
