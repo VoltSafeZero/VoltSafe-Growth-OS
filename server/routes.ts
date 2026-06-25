@@ -1778,7 +1778,7 @@ export async function registerRoutes(
     const { search, segment } = req.query;
     const result = await storage.getAccounts({ search: search as string, segment: segment as string, page: 1, limit: 100000, onlyPromoted: true });
     const cols: CsvColumn[] = [
-      { key: "name", header: "Name" }, { key: "segment", header: "Segment" },
+      { key: "name", header: "Name" }, { key: "segment", header: "Classification" },
       { key: "region", header: "Region" }, { key: "timezone", header: "Timezone" },
       { key: "slipCount", header: "Slip Count" }, { key: "tags", header: "Tags" },
       { key: "notes", header: "Notes" }, { key: "createdAt", header: "Created At" },

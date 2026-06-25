@@ -638,7 +638,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Company</th>
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden sm:table-cell">Location</th>
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden md:table-cell">Type</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden lg:table-cell">Segment</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden lg:table-cell">Classification</th>
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden sm:table-cell">Priority</th>
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Stage</th>
                     <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
@@ -2223,7 +2223,7 @@ function EditAccountForm({ account, onSubmit, onCancel, isPending }: { account: 
           </Select>
         </div>
         <div>
-          <Label className="text-xs">Segment</Label>
+          <Label className="text-xs">Classification</Label>
           <Select value={form.segment} onValueChange={(v) => setForm(f => ({ ...f, segment: v }))}>
             <SelectTrigger data-testid="select-edit-segment"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -2390,7 +2390,7 @@ function CreateAccountForm({ onSubmit, isPending }: { onSubmit: (data: Record<st
         </Select>
       </div>
       <div>
-        <Label>Segment</Label>
+        <Label>Classification</Label>
         <Select value={form.segment} onValueChange={(v) => setForm(f => ({ ...f, segment: v }))}>
           <SelectTrigger data-testid="select-account-segment"><SelectValue /></SelectTrigger>
           <SelectContent>

@@ -1,0 +1,88 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Do a small label-only cleanup for Account “Segment” terminology.
+
+Context:
+The marina field cleanup is complete and verified.
+One remaining clarity issue was identified:
+
+In accounts.tsx, there is still a visible “Segment” label used for a structured 4-option account routing field:
+
+* marina
+* corp
+* partner
+* other
+
+This field is not the same as “Market Segment” in Marina Details.
+It is a higher-level account classification field.
+
+Problem:
+Calling this field “Segment” creates confusion with “Market Segment.”
+
+Goal:
+Rename the user-facing label from “Segment” to “Classification” wherever this 4-option account routing field appears.
+
+Important:
+This is a label/UX cleanup only.
+Do not rename database columns.
+Do not rename API fields.
+Do not create migrations.
+Do not alter saved values.
+Do not change the dropdown options unless required by existing UI copy.
+Do not touch the marina “Market Segment” field.
+
+Audit first:
+Search for visible labels:
+
+* “Segment”
+* “Account Segment”
+* “segment”
+* “Market Segment”
+* “Classification”
+
+Inspect:
+
+1. Account list table
+2. Account edit form Classification section
+3. Account read/detail view
+4. Account filters, if any
+5. CSV exports, if account exports include this field
+6. AI summary/context labels, if this account routing field is included
+7. Any tests/snapshots that expect the label “Segment”
+
+Implementation:
+Where the 4-option account routing field is shown to the user, update visible label to:
+“Classification”
+
+Examples:
+
+* Account list column: “Segment” → “Classification”
+* Account edit form label: “Segment” → “Classification”
+* Any helper text should say “Classification,” not “Segment”
+
+Do not change:
+
+* Marina Details → “Market Segment”
+* Any DB field named segment
+* Any API payload property named segment
+* Any legacy backend compatibility logic
+
+Verification:
+
+1. Account list no longer shows “Segment” for the 4-option account routing field.
+2. Account edit form shows “Classification.”
+3. Marina Details still shows “Market Segment.”
+4. Lead forms remain unchanged.
+5. No DB migration created.
+6. Typecheck/lint/tests pass if available.
+7. App boots cleanly.
+
+Final report:
+Include:
+
+* Files changed
+* Labels renamed
+* Confirmation that DB/API fields were untouched
+* Verification results
+* Any remaining “Segment” labels and whether they are correct or need future cleanup
