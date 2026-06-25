@@ -138,6 +138,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   // Tracks whether the user has attempted generation at least once, so the manual
   // body textarea and Continue in Mail button remain visible after a failed attempt.
   const [generationAttempted, setGenerationAttempted] = useState(false);
+  const [noRecipientWarning, setNoRecipientWarning] = useState(false);
 
   // ── Voice profile selection ───────────────────────────────────────────────
   const [selectedVoiceId, setSelectedVoiceId] = useState<number | null>(() => {
@@ -247,6 +248,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     setSuggestion(null);
     setEditedBody("");
     setWhyExpanded(false);
+    setNoRecipientWarning(false);
     // Mark that at least one attempt has been made so the manual body textarea
     // and Continue in Mail button remain visible even if generation fails.
     setGenerationAttempted(true);
@@ -267,13 +269,36 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     }
   }
 
+  /** Filter out @voltsafe.com internal addresses from a comma-separated email string. */
+  function filterExternalEmails(emailStr: string): string {
+    return emailStr
+      .split(",")
+      .map(e => e.trim())
+      .filter(e => e && !e.toLowerCase().endsWith("@voltsafe.com"))
+      .join(", ");
+  }
+
   async function handleContinue() {
     // Allow continue even if AI generation failed — user may have written the body manually.
     if (!editedBody.trim()) return;
-    // If key people were pre-selected in the AI Summary card, use them as recipients;
-    // otherwise fall back to the AI-generated suggestion (or empty when typing manually).
-    const effectiveTo = (initialTo !== undefined && initialTo !== "") ? initialTo : (suggestion?.to ?? "");
-    const effectiveCc = (initialTo !== undefined) ? (initialCc ?? "") : (suggestion?.cc ?? "");
+
+    // If key people were pre-selected in the AI Summary card, use them as recipients
+    // (already filtered for internals in getComposeRecipients); otherwise fall back to
+    // the AI-generated suggestion — stripping any @voltsafe.com addresses the model may
+    // have included when no external contact existed.
+    const effectiveTo = (initialTo !== undefined && initialTo !== "")
+      ? initialTo
+      : filterExternalEmails(suggestion?.to ?? "");
+    const effectiveCc = (initialTo !== undefined)
+      ? (initialCc ?? "")
+      : filterExternalEmails(suggestion?.cc ?? "");
+
+    // Guard: do not open composer with a completely blank TO field.
+    if (!effectiveTo.trim()) {
+      setNoRecipientWarning(true);
+      return;
+    }
+    setNoRecipientWarning(false);
     const effectiveSubject = suggestion?.subject ?? "Follow-up";
     console.log("[suggested-email-modal] handleContinue triggered", { to: effectiveTo, subject: effectiveSubject });
     setIsSaving(true);
@@ -734,6 +759,22 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
               {urlMissing && (
                 <span className="text-[10px] text-amber-400/80">Paste your link to enable</span>
               )}
+            </div>
+          )}
+
+          {/* No-recipient warning — shown when user clicks Continue but no external TO exists */}
+          {noRecipientWarning && (
+            <div
+              className="flex items-start gap-2 rounded-md bg-amber-500/8 border border-amber-500/20 p-3"
+              data-testid="suggest-email-no-recipient-warning"
+            >
+              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-amber-300">No external recipient found</p>
+                <p className="text-xs text-muted-foreground">
+                  Select an external contact from the Key People list above, or go back and add a contact to this record first.
+                </p>
+              </div>
             </div>
           )}
 

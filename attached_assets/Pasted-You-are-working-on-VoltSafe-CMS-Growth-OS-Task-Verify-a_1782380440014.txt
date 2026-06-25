@@ -1,0 +1,195 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Verify and harden the AI Suggested Email composer flow.
+
+Context already completed:
+
+* AI Suggested Email context builder now uses:
+    * user inputs first
+    * recent meeting outcomes
+    * last outbound email boundary
+    * new activity since last touch
+    * open tasks
+    * CRM/deal context
+    * compressed earlier context
+* Prompt now enforces a concise 5-part email structure.
+* Bugs fixed:
+    * activities.summary used instead of nonexistent description
+    * meeting outcomes labeled as MEETING OUTCOME
+    * weak context warning
+* Tests passing:
+    * 85/85 crm-intelligence-context
+    * 58/58 ai-email-quality
+    * 26/26 suggested-email-user-inputs
+    * 71/71 permissions
+
+Primary goal:
+Make sure the generated suggested email opens in the existing composer correctly and safely:
+
+* correct recipient(s)
+* correct To/CC rules
+* subject populated
+* body populated
+* signature not duplicated
+* review-before-send preserved
+* return navigation preserved
+
+Do NOT:
+
+* Do not auto-send emails.
+* Do not redesign the whole composer.
+* Do not break manual Compose New Email.
+* Do not create migrations.
+* Do not touch tracking logic unless needed.
+* Do not hardcode “Best regards.”
+* Do not silently email internal @voltsafe.com as external recipients.
+
+Audit first:
+Inspect:
+
+1. Suggested Email button/component.
+2. Compose New Email button/component.
+3. Existing email composer component.
+4. Recipient selection / Key People checkbox logic.
+5. Any selectedPeople state.
+6. To/CC population logic.
+7. Subject generation.
+8. Signature insertion logic.
+9. Send/draft route.
+10. Return navigation after send.
+11. Email tracking/signature/open pixel injection.
+12. Tests around composer or AI email.
+
+Report:
+
+* Where generated email body is passed to composer.
+* How To/CC are determined today.
+* Whether multiple selected people behave correctly.
+* Whether signature is inserted once.
+* Whether manual Compose New Email still works.
+* Whether return navigation exists and works.
+* What needs fixing.
+
+Implementation Phase 1 — Recipient selection rules
+
+Enforce:
+
+* 1 selected external person → TO
+* More than 1 selected external person → first selected external person TO, remaining external people CC
+* No selected person:
+    * use primary external contact if clearly available
+    * otherwise show clear recipient selection state and do not silently generate to blank
+* Internal @voltsafe.com contacts must not be auto-selected as external recipients unless explicitly selected by user
+
+If Key People checkboxes already exist:
+
+* Ensure they drive Suggested Email recipient selection.
+* Ensure checkbox order determines TO/CC order if applicable.
+* If ordering is unclear, preserve existing displayed order.
+
+Implementation Phase 2 — Composer handoff
+
+Suggested Email should open composer with:
+
+* TO populated
+* CC populated when applicable
+* subject populated
+* generated body populated
+* source/origin metadata preserved:
+    * originating entity type
+    * originating entity ID
+    * return path
+
+Manual Compose New Email should still open composer without requiring AI generation.
+
+Implementation Phase 3 — Signature safety
+
+Verify:
+
+* Suggested Email body does not include hardcoded signature.
+* Composer or send pipeline appends/inserts user signature exactly once.
+* If generated body already contains signature-like ending, strip or prevent duplicate if existing utility supports this.
+* Do not remove legitimate closing sentence, just avoid full duplicated signature blocks.
+
+Implementation Phase 4 — Review-before-send
+
+Ensure:
+
+* Suggested Email opens as editable draft in composer.
+* User must click Send.
+* No auto-send path.
+* If generation fails, composer does not open with partial broken content unless clearly marked.
+
+Implementation Phase 5 — Return navigation
+
+After Send or cancel:
+
+* Return user to originating Lead / Account / Contact.
+* Preserve originating tab if existing route state supports it.
+* Do not dump user back to generic inbox unless there is no origin.
+
+Implementation Phase 6 — Empty/error states
+
+If no recipient:
+
+* Show clear UI:
+    “Select a recipient before generating a suggested email.”
+    or
+    “No external contact found for this record.”
+
+If context is weak:
+
+* Show existing weak-context warning before or inside composer.
+* Still allow user to generate if they choose.
+
+If generation fails:
+
+* Show useful toast.
+* Do not lose user inputs.
+
+Implementation Phase 7 — Tracking compatibility
+
+Verify:
+
+* Existing send pipeline still adds tracking/open/click behavior as before.
+* Internal @voltsafe.com opens remain excluded if that logic exists.
+* Suggested Email does not bypass normal send pipeline.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing relevant tests
+* AI email tests
+* Composer/email tests if any
+* App boot check
+
+Manual smoke scenarios:
+
+1. One selected external contact → TO only.
+2. Two selected external contacts → first TO, second CC.
+3. Internal @voltsafe.com contact not auto-selected.
+4. No selected/available recipient → clear blocked state.
+5. Suggested Email opens composer with subject/body.
+6. Signature appears once.
+7. User can edit before sending.
+8. Cancel/send returns to originating CRM record.
+9. Manual Compose New Email still works.
+10. Tracking path unchanged.
+
+Final report:
+Include:
+
+* Audit findings.
+* Recipient selection behavior.
+* Composer handoff changes.
+* Signature handling status.
+* Return navigation status.
+* Files changed.
+* Tests run.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+AI Suggested Email is only useful if it lands in the composer correctly, safely, and ready for a human to review.

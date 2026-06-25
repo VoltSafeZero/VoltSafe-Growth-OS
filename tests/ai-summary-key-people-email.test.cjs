@@ -61,11 +61,11 @@ assert(
 console.log("\n── Selection order: first selected = TO, rest = CC ──");
 
 assert(
-  card.includes("selectedKeyPeople[0].email"),
+  card.includes("external[0].email") || card.includes("selectedKeyPeople[0].email"),
   "First selected key person email goes to TO"
 );
 assert(
-  card.includes("selectedKeyPeople.slice(1).map(p => p.email).join"),
+  card.includes("external.slice(1).map(p => p.email).join") || card.includes("selectedKeyPeople.slice(1).map(p => p.email).join"),
   "Remaining selected key people emails go to CC (joined)"
 );
 assert(

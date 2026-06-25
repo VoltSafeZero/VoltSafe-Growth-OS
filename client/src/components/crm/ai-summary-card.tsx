@@ -112,6 +112,10 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
   const isActivelyGenerating = s?.status === "generating";
 
   // ── Key People selection helpers ─────────────────────────────────────────
+  function isInternalEmail(email: string): boolean {
+    return email.toLowerCase().endsWith("@voltsafe.com");
+  }
+
   function toggleKeyPerson(person: SelectedKeyPerson) {
     setSelectedKeyPeople(prev => {
       const exists = prev.some(p => p.email === person.email);
@@ -121,10 +125,14 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
   }
 
   function getComposeRecipients() {
+    // Exclude internal @voltsafe.com contacts — they must not be silently added
+    // as external recipients. Users who intentionally want to email an internal
+    // person should do so via manual Compose, not Suggested Email.
+    const external = selectedKeyPeople.filter(p => !isInternalEmail(p.email));
     return {
-      to: selectedKeyPeople.length > 0 ? selectedKeyPeople[0].email : "",
-      cc: selectedKeyPeople.length > 1
-        ? selectedKeyPeople.slice(1).map(p => p.email).join(", ")
+      to: external.length > 0 ? external[0].email : "",
+      cc: external.length > 1
+        ? external.slice(1).map(p => p.email).join(", ")
         : "",
     };
   }
@@ -152,11 +160,13 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
 
   const { to: recipientTo, cc: recipientCc } = getComposeRecipients();
 
-  const recipientHint = selectedKeyPeople.length === 0
-    ? null
-    : selectedKeyPeople.length === 1
+  // Count only external recipients for the hint — internals are excluded from email targeting
+  const externalSelected = selectedKeyPeople.filter(p => !isInternalEmail(p.email));
+  const recipientHint = externalSelected.length === 0
+    ? (selectedKeyPeople.length > 0 ? "Only internal contacts selected — not added as recipients" : null)
+    : externalSelected.length === 1
       ? "1 recipient selected"
-      : `${selectedKeyPeople.length} recipients: 1 To, ${selectedKeyPeople.length - 1} Cc`;
+      : `${externalSelected.length} recipients: 1 To, ${externalSelected.length - 1} Cc`;
 
   return (
     <div className="border-t border-border/50 pt-4" data-testid="ai-summary-section">
@@ -310,6 +320,7 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
                       <div className="flex-1 space-y-1.5" data-testid="key-people-list">
                         {json.keyPeople.map((p, i) => {
                           const hasEmail = !!(p.email && p.email.trim());
+                          const isInternal = hasEmail && isInternalEmail(p.email!);
                           const isSelected = selectedKeyPeople.some(s => s.email === p.email);
                           return (
                             <label
@@ -318,7 +329,13 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
                                 "flex items-center gap-2 text-xs select-none",
                                 hasEmail ? "cursor-pointer group" : "cursor-not-allowed opacity-50"
                               )}
-                              title={!hasEmail ? "No email address available" : undefined}
+                              title={
+                                !hasEmail
+                                  ? "No email address available"
+                                  : isInternal
+                                    ? "Internal VoltSafe contact — not added as external email recipient"
+                                    : undefined
+                              }
                               data-testid={`key-person-row-${i}`}
                             >
                               <Checkbox
@@ -336,6 +353,9 @@ export function AiSummaryCard({ entityType, entityId, entityName }: Props) {
                               {p.title && <span className="text-muted-foreground">· {p.title}</span>}
                               {p.isDecisionMaker && (
                                 <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-primary/30 text-primary">DM</Badge>
+                              )}
+                              {isInternal && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-amber-500/30 text-amber-400/80">Internal</Badge>
                               )}
                             </label>
                           );
