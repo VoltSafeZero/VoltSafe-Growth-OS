@@ -470,19 +470,30 @@ function classifyCalendarEvent(event: DisplayEvent): EventClassification {
   return { isInternal, isExternal, hasBusinessDomain, needsPrep, isFocusBlock, isAllDay, externalCount: external.length };
 }
 
+// ── Outcome status types (module-level so WorkdayAgendaPanel can use them) ────
+type OutcomeValue = "completed" | "rescheduled" | "no_show" | "cancelled" | "followup_needed";
+const OUTCOME_OPTIONS: { value: OutcomeValue; label: string }[] = [
+  { value: "completed",       label: "Completed" },
+  { value: "rescheduled",     label: "Rescheduled" },
+  { value: "no_show",         label: "No-show" },
+  { value: "cancelled",       label: "Cancelled" },
+  { value: "followup_needed", label: "Follow-up needed" },
+];
+type OutcomeStatus = { hasOutcome: boolean; outcome?: string | null };
+
 // ── Workday Agenda panel (Phase 1) ────────────────────────────────────────────
 function WorkdayAgendaPanel({
   events,
   tasks,
   onEventClick,
   onAddOutcome,
-  savedOutcomeEventIds,
+  outcomeStatuses,
 }: {
   events: DisplayEvent[];
   tasks: any[];
   onEventClick: (ev: DisplayEvent) => void;
   onAddOutcome: (ev: DisplayEvent) => void;
-  savedOutcomeEventIds?: Set<number>;
+  outcomeStatuses?: Record<number, OutcomeStatus>;
 }) {
   const today = new Date();
 
@@ -650,7 +661,11 @@ function WorkdayAgendaPanel({
                 {recentlyFinished.map(ev => {
                   const cls = classifyCalendarEvent(ev);
                   const endTime = ev.endTime ? new Date(ev.endTime) : new Date(ev.startTime);
-                  const outcomeSaved = savedOutcomeEventIds?.has(ev.id) ?? false;
+                  const outcomeStatus = outcomeStatuses?.[ev.id];
+                  const outcomeSaved = outcomeStatus?.hasOutcome ?? false;
+                  const outcomeLabel = outcomeSaved && outcomeStatus?.outcome
+                    ? (OUTCOME_OPTIONS.find(o => o.value === outcomeStatus.outcome)?.label ?? null)
+                    : null;
                   return (
                     <div
                       key={ev.id}
@@ -666,7 +681,8 @@ function WorkdayAgendaPanel({
                       </div>
                       {outcomeSaved ? (
                         <div className="mt-1 flex items-center gap-1 text-[10px] text-emerald-400" data-testid={`agenda-outcome-saved-${ev.id}`}>
-                          <CheckCheck className="h-3 w-3 shrink-0" /> Outcome saved
+                          <CheckCheck className="h-3 w-3 shrink-0" />
+                          {outcomeLabel ? `Outcome: ${outcomeLabel}` : "Outcome saved"}
                         </div>
                       ) : (
                         <button
@@ -831,6 +847,48 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
     },
     staleTime: 5 * 60_000,
   });
+
+  // Cross-session outcome detection — one batched POST for today's own events
+  const todayOwnEvents = useMemo(() => {
+    if (!isToday(currentDate) || !ownEvents) return null;
+    const today = new Date();
+    return ownEvents
+      .filter(e => !e._team && isSameDay(new Date(e.startTime), today))
+      .map(e => ({ id: e.id, externalId: (e as any).externalId ?? null, title: e.title, startTime: e.startTime }));
+  }, [currentDate, ownEvents]);
+
+  const todayDateStr = format(currentDate, "yyyy-MM-dd");
+
+  const { data: serverOutcomeData } = useQuery<{ statuses: Record<string, { hasOutcome: boolean; activityId: number; outcome: string | null; createdAt: string; linkedObjectType: string; linkedObjectId: number }> }>({
+    queryKey: ["/api/calendar/outcome-status", todayDateStr],
+    queryFn: async () => {
+      if (!todayOwnEvents || todayOwnEvents.length === 0) return { statuses: {} };
+      const res = await fetch("/api/calendar/outcome-status", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ events: todayOwnEvents }),
+      });
+      if (!res.ok) return { statuses: {} };
+      return res.json();
+    },
+    enabled: !!todayOwnEvents && todayOwnEvents.length > 0,
+    staleTime: 2 * 60_000,
+  });
+
+  // Merge server statuses + session state — session state gives instant feedback
+  const mergedOutcomeStatuses = useMemo<Record<number, OutcomeStatus>>(() => {
+    const result: Record<number, OutcomeStatus> = {};
+    if (serverOutcomeData?.statuses) {
+      for (const [idStr, s] of Object.entries(serverOutcomeData.statuses)) {
+        if (s.hasOutcome) result[Number(idStr)] = { hasOutcome: true, outcome: s.outcome };
+      }
+    }
+    for (const eventId of savedOutcomeEventIds) {
+      if (!result[eventId]) result[eventId] = { hasOutcome: true, outcome: null };
+    }
+    return result;
+  }, [serverOutcomeData, savedOutcomeEventIds]);
 
   // Build busy block overlays for DayView (privacy-safe: no event titles)
   const teamBusyOverlays = useMemo(() => {
@@ -1209,7 +1267,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 setSelectedEvent(ev as CalendarEvent);
                 setEventInitialTab("outcome");
               }}
-              savedOutcomeEventIds={savedOutcomeEventIds}
+              outcomeStatuses={mergedOutcomeStatuses}
             />
           )}
 
@@ -3004,16 +3062,6 @@ function MetricsBar() {
 
 // ─── Outcome Tab ─────────────────────────────────────────────────────────────
 
-type OutcomeValue = "completed" | "rescheduled" | "no_show" | "cancelled" | "followup_needed";
-
-const OUTCOME_OPTIONS: { value: OutcomeValue; label: string }[] = [
-  { value: "completed",        label: "Completed" },
-  { value: "rescheduled",      label: "Rescheduled" },
-  { value: "no_show",          label: "No-show" },
-  { value: "cancelled",        label: "Cancelled" },
-  { value: "followup_needed",  label: "Follow-up needed" },
-];
-
 function OutcomeTab({
   event,
   crmCtx,
@@ -3125,6 +3173,7 @@ function OutcomeTab({
     },
     onSuccess: () => {
       setSaved(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/outcome-status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", event.id, "crm-context"] });
       if (crmLink) {
         queryClient.invalidateQueries({ queryKey: ["/api/timeline", crmLink.linkedObjectType, crmLink.linkedObjectId] });
@@ -3182,6 +3231,7 @@ function OutcomeTab({
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/outcome-status"] });
       if (crmLink) {
         queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", event.id, "crm-context"] });
         queryClient.invalidateQueries({ queryKey: ["/api/timeline", crmLink.linkedObjectType, crmLink.linkedObjectId] });

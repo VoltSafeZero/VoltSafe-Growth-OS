@@ -9226,6 +9226,93 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/calendar/outcome-status — batched cross-session outcome detection
+  // Returns which events in the request already have a saved calendar_meeting_outcome
+  // activity. Only checks activities created by the requesting user (privacy-safe).
+  app.post("/api/calendar/outcome-status", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { events } = req.body as {
+        events: Array<{ id: number; externalId?: string | null; title: string; startTime: string }>;
+      };
+      if (!Array.isArray(events) || events.length === 0) return res.json({ statuses: {} });
+
+      const safeEvents = events.slice(0, 50);
+
+      // Determine the oldest event start to bound the DB query window
+      const earliest = safeEvents.reduce((min, e) => {
+        const t = new Date(e.startTime).getTime();
+        return isNaN(t) ? min : Math.min(min, t);
+      }, Date.now());
+      const windowStart = new Date(earliest - 48 * 60 * 60 * 1000);
+
+      // One query: all calendar_meeting_outcome activities by this user in the window
+      const rows = await db
+        .select({
+          id:               activities.id,
+          linkedObjectType: activities.linkedObjectType,
+          linkedObjectId:   activities.linkedObjectId,
+          subject:          activities.subject,
+          outcome:          activities.outcome,
+          rawContent:       activities.rawContent,
+          createdAt:        activities.createdAt,
+        })
+        .from(activities)
+        .where(
+          and(
+            eq(activities.type,      "calendar_meeting_outcome"),
+            eq(activities.createdBy, userId),
+            gte(activities.createdAt, windowStart),
+          )
+        )
+        .orderBy(desc(activities.createdAt));
+
+      const statuses: Record<string, {
+        hasOutcome: boolean; activityId: number; outcome: string | null;
+        createdAt: string; linkedObjectType: string; linkedObjectId: number;
+      }> = {};
+
+      for (const ev of safeEvents) {
+        const evKey = String(ev.id);
+        if (statuses[evKey]) continue;
+
+        const match = rows.find(row => {
+          // Primary: __meta.calendarEventId or __meta.providerEventId in rawContent
+          if (row.rawContent) {
+            try {
+              const metaIdx = row.rawContent.lastIndexOf("__meta:");
+              if (metaIdx !== -1) {
+                const meta = JSON.parse(row.rawContent.slice(metaIdx + 7));
+                if (meta.calendarEventId === ev.id) return true;
+                if (ev.externalId && meta.providerEventId === ev.externalId) return true;
+              }
+            } catch { /* malformed rawContent — skip */ }
+          }
+          // Fallback: same subject + created within 48 h after event start
+          if (row.subject !== ev.title) return false;
+          const evStart = new Date(ev.startTime);
+          const hoursDiff = (new Date(row.createdAt).getTime() - evStart.getTime()) / 3_600_000;
+          return hoursDiff >= -2 && hoursDiff <= 48;
+        });
+
+        if (match) {
+          statuses[evKey] = {
+            hasOutcome:      true,
+            activityId:      match.id,
+            outcome:         match.outcome,
+            createdAt:       match.createdAt.toISOString(),
+            linkedObjectType: match.linkedObjectType,
+            linkedObjectId:   match.linkedObjectId,
+          };
+        }
+      }
+
+      res.json({ statuses });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Team calendar connection health (admin only)
   app.get("/api/calendar/connections/team", requireAuth, async (req, res) => {
     try {
