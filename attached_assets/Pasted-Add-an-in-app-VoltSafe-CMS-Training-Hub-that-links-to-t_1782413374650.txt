@@ -1,0 +1,132 @@
+Add an in-app VoltSafe CMS Training Hub that links to the onboarding video system.
+
+Goal:
+Create a lightweight Training / Help Center section inside VoltSafe CMS where users can access onboarding playlists, walkthrough videos, and role-based learning paths from inside the app.
+
+Requirements:
+
+1. Add a new Training Hub page or modal inside VoltSafe CMS.
+
+Suggested route:
+   /training
+or if routing is centralized:
+   Add a “Training” item to the main navigation.
+
+2. The Training Hub should include these sections:
+
+   A. Welcome / Overview
+   - Title: VoltSafe CMS Training Hub
+   - Short description:
+     “Learn how to use VoltSafe CMS through role-based walkthroughs, onboarding videos, and workflow guides.”
+
+   B. Role-Based Playlists
+   Cards for:
+   - Sales Team
+   - Executives
+   - Marina Operators
+   - Support / Admin
+   - New Employees
+
+   Each card should show:
+   - Audience
+   - Estimated time
+   - Videos included
+   - Button: View Playlist
+
+   C. Video Library
+   List the existing six onboarding videos:
+   - Dashboard Overview
+   - Leads, Accounts, Contacts
+   - Marina Lead Pipeline
+   - VoltSafe Mail Overview
+   - AI Email Generator
+   - Account Intelligence View
+
+   Each video row/card should show:
+   - Title
+   - Description
+   - Duration estimate
+   - Recommended audience
+   - Button: Watch Video
+   - Button: View Storyboard, only visible in dev/demo mode or admin mode
+
+   D. Future Training
+   Add placeholder cards for:
+   - Marina Dashboard
+   - Slip Management
+   - Power Session Management
+   - Boater App
+   - User Permissions
+   - Reporting / Analytics
+   - Issue / Support Workflow
+
+3. Data source:
+   Create a simple local config file, for example:
+
+   client/src/data/training-hub.ts
+
+   This file should define:
+   - playlists
+   - videos
+   - futureVideos
+
+   Keep this data static for now. Do not connect to a database yet.
+
+4. Video links:
+   For now, use placeholder links or local references matching:
+
+   onboarding-videos/outputs/final/[video-name].mp4
+
+   Make it easy to swap in Vimeo, YouTube, HubSpot, or Help Center URLs later.
+
+5. Storyboard links:
+   Link to the corresponding markdown files in:
+
+   onboarding-videos/storyboards/
+
+   If these cannot be served directly in the app, show the file path clearly.
+
+6. Playlist links:
+   Link to:
+
+   onboarding-videos/PLAYLISTS.md
+
+   and individual playlist markdown paths.
+
+   If these cannot be served directly, show the path clearly.
+
+7. Add navigation:
+   Add “Training” to the main app navigation if appropriate.
+   Use an icon that fits the current UI style.
+
+8. Permissions:
+   - Regular users can see role playlists and video library.
+   - Dev/demo/admin users can also see storyboard links and internal file paths.
+   - Do not expose internal implementation details to normal users unless already public-safe.
+
+9. Styling:
+   Match the existing VoltSafe CMS look and feel.
+   Use clean cards, clear headings, and simple CTAs.
+   Avoid creating a huge new design system.
+   Keep it consistent with existing UI components.
+
+10. Empty/future state:
+   Future videos should be clearly marked:
+   “Coming soon”
+   They should not look broken.
+
+11. No behavior changes:
+   - Do not change existing onboarding recording scripts.
+   - Do not change demo mode behavior.
+   - Do not alter CRM/Mail/Account functionality.
+   - This is an additive Training Hub only.
+
+12. Validation:
+   - Run the app
+   - Confirm the Training Hub loads
+   - Confirm playlist/video/future cards render
+   - Confirm normal users do not see internal storyboard paths unless in demo/dev/admin mode
+   - Confirm no existing routes are broken
+
+Expected result:
+VoltSafe CMS has an in-app Training Hub where users can find the right onboarding playlist and video walkthrough for their role.

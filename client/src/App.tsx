@@ -100,6 +100,7 @@ const MailboxHealthPage = lazy(() => import("@/pages/mailbox-health"));
 const SignatureSettingsPage = lazy(() => import("@/pages/signature-settings"));
 const AiVoiceProfilesPage = lazy(() => import("@/pages/ai-voice-profiles"));
 const HelpCenterPage = lazy(() => import("@/pages/help-center"));
+const TrainingHubPage = lazy(() => import("@/pages/training-hub"));
 const MeetingNotesIndexPage = lazy(() => import("@/pages/meeting-notes-index"));
 const MeetingNotesDetailPage = lazy(() => import("@/pages/meeting-notes-detail"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
@@ -356,6 +357,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/admin/roles">{() => wrap(<AdminRolesPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>
       <Route path="/jira">{() => wrap(<JiraPage />)}</Route>
       <Route path="/confluence">{() => wrap(<ConfluencePage />)}</Route>
+      <Route path="/training">{() => wrap(<TrainingHubPage />)}</Route>
       <Route path="/help">{() => wrap(<HelpCenterPage />)}</Route>
       <Route path="/settings">{() => wrap(<SettingsPage />)}</Route>
       <Route path="/settings/mailbox">{() => wrap(<MailboxSettingsPage />)}</Route>
