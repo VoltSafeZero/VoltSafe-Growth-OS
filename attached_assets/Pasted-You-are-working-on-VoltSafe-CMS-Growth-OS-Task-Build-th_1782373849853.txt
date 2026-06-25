@@ -1,0 +1,226 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Build the next Calendar / Workday Intelligence layer: Post-Meeting Follow-Up.
+
+Context already completed:
+
+* Calendar page shows real Google Calendar events.
+* Workday Agenda panel exists.
+* Team free/busy is privacy-safe.
+* Suggested openings exist.
+* Tasks Due Soon can be scheduled into calendar focus blocks with confirmation.
+* Event detail dialog has Prep tab.
+* Prep tab has grounded Prep Summary.
+* Create Follow-Up Task has confirmation.
+* Calendar write actions have safety handling.
+* No DB migrations were needed in the last pass.
+
+Goal:
+After a meeting ends, VoltSafe CMS should help the user capture outcome, create next steps, and update CRM context.
+
+Product principle:
+Before meeting = prep.
+During/after meeting = outcome capture.
+After meeting = follow-up execution.
+
+Do NOT:
+
+* Do not build a full meeting notes product.
+* Do not auto-record calls.
+* Do not expose teammate private calendar data.
+* Do not create destructive migrations.
+* Do not auto-write CRM updates without user confirmation.
+* Do not invent AI summaries if no notes/context exist.
+
+Audit first:
+Inspect current implementation for:
+
+1. EventDetailDialog tabs/components.
+2. Existing task creation APIs.
+3. Existing activity/note creation APIs.
+4. CRM activity timeline model.
+5. Lead/Account/Contact note/comment model.
+6. Existing email/activity association logic.
+7. Calendar event CRM context route.
+8. Existing AI summary refresh/update route.
+9. Any meeting notes model/table if already present.
+10. Existing toast/error/loading patterns.
+
+Report:
+
+* What existing routes can create CRM notes/activities.
+* Whether event outcomes can be stored without a migration.
+* Whether a migration is needed for calendar meeting outcomes.
+* Best safe implementation path.
+
+Implementation Phase 1 — Add “Outcome” tab to EventDetailDialog
+
+Add a new tab beside Prep:
+
+* Prep
+* Outcome
+
+The Outcome tab should be visible for the current user’s own calendar events.
+
+Outcome tab fields:
+
+1. Meeting outcome
+    Dropdown:
+    * Completed
+    * Rescheduled
+    * No-show
+    * Cancelled
+    * Follow-up needed
+2. Notes
+    Textarea:
+    “What happened?”
+3. Next step
+    Text input:
+    “What should happen next?”
+4. Follow-up due date
+    Options:
+    * Today
+    * Tomorrow
+    * Next week
+    * Custom date if simple existing date picker exists
+5. Related CRM record
+    Preselect high-confidence CRM match if available.
+    Allow changing if existing UI supports it.
+    If not, show selected match read-only for MVP.
+
+Actions:
+
+* Save Outcome
+* Save + Create Follow-Up Task
+
+Do not auto-save while typing.
+
+Implementation Phase 2 — Store outcome safely
+
+Preferred:
+Reuse existing CRM activity/note system if available.
+
+When saving outcome:
+
+* Create a CRM activity/note linked to the matched Account/Lead/Contact if available.
+* Include:
+    * calendar event title
+    * calendar event time
+    * attendees
+    * outcome value
+    * notes
+    * next step
+    * source: calendar_meeting_outcome
+
+If no CRM match exists:
+
+* Store nothing globally unless a safe calendar-outcome model already exists.
+* For MVP, show:
+    “No CRM record linked. Outcome can be copied or saved after linking a CRM record.”
+* Or allow local-only state if existing pattern supports it.
+
+Avoid a new DB table unless needed.
+If a table is needed, propose it first and keep migration additive only.
+
+Implementation Phase 3 — Save + Create Follow-Up Task
+
+If user clicks Save + Create Follow-Up Task:
+
+* Save the outcome/note first.
+* Then create a task:
+    Title: “Follow up: [Event Title]”
+    Due date: chosen due date
+    Related CRM entity: matched entity if available
+    Notes:
+    * Meeting outcome
+    * User notes
+    * Next step
+    * Event title/time
+    * Attendees
+
+Require user confirmation before creating.
+
+Implementation Phase 4 — Workday Agenda “Recently Finished” section
+
+Add a compact section to WorkdayAgendaPanel for today:
+“Recently Finished”
+
+Rules:
+
+* Show meetings from today that ended within the last 2 hours.
+* Exclude all-day events.
+* Prioritize external or CRM-matched meetings.
+* Each item should show:
+    * title
+    * end time
+    * CRM match if available
+    * button: “Add Outcome”
+
+Clicking “Add Outcome” opens EventDetailDialog directly on the Outcome tab if feasible.
+
+If tab deep-linking is too much for this pass, open event dialog normally and users can click Outcome.
+
+Implementation Phase 5 — Outcome status badge
+
+If an event has an outcome saved, show a small badge:
+
+* Outcome saved
+    or
+* Follow-up created
+
+Only if this can be detected from existing activity/task data.
+If not safely detectable, skip and report as known limitation.
+
+Implementation Phase 6 — AI summary refresh hook
+
+If an outcome is saved to a CRM record:
+
+* Invalidate/refetch that CRM record’s activity/intelligence context.
+* Do not trigger expensive AI summary generation automatically unless existing pattern already does this safely.
+* Show optional action:
+    “Refresh AI Summary”
+    if such a route exists.
+
+Implementation Phase 7 — Privacy/security
+
+Ensure:
+
+* Current user can save outcome only for their own visible events.
+* Team free/busy events cannot be opened or have outcomes saved.
+* No teammate private calendar details are exposed.
+* Outcome notes are only saved to CRM records the user has permission to edit.
+* No full private event descriptions are logged.
+
+Verification:
+Use a real past meeting from today or create a test event.
+
+Verify:
+
+1. Outcome tab appears in EventDetailDialog.
+2. Outcome fields render correctly.
+3. High-confidence CRM match is preselected/readable.
+4. Save Outcome creates CRM activity/note if CRM match exists.
+5. No CRM match shows honest blocked/empty state.
+6. Save + Create Follow-Up Task creates both note and task.
+7. Recently Finished section appears for ended meetings.
+8. Add Outcome opens event dialog.
+9. Team busy overlays remain private and not clickable.
+10. No destructive migration created.
+11. Typecheck/lint/tests pass if available.
+12. App boots cleanly.
+
+Final report:
+Include:
+
+* Audit findings.
+* Storage approach chosen.
+* Files changed.
+* Routes reused or added.
+* Whether DB migration was avoided.
+* What works now.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+A meeting is not done when it ends. It is done when the outcome is captured and the next step is owned.

@@ -475,10 +475,12 @@ function WorkdayAgendaPanel({
   events,
   tasks,
   onEventClick,
+  onAddOutcome,
 }: {
   events: DisplayEvent[];
   tasks: any[];
   onEventClick: (ev: DisplayEvent) => void;
+  onAddOutcome: (ev: DisplayEvent) => void;
 }) {
   const today = new Date();
 
@@ -513,7 +515,26 @@ function WorkdayAgendaPanel({
     []
   ).slice(0, 2);
 
-  const hasContent = nextMeeting || needsPrepEvents.length > 0 || followupsDue.length > 0 || focusWindows.length > 0;
+  // Recently Finished: today's non-all-day own events that ended within the last 2 hours
+  const twoHoursAgo = new Date(today.getTime() - 2 * 60 * 60 * 1000);
+  const recentlyFinished = todayEvents
+    .filter(e => {
+      if (e.allDay || e._team) return false;
+      const end = e.endTime ? new Date(e.endTime) : new Date(e.startTime);
+      return end <= today && end >= twoHoursAgo;
+    })
+    .sort((a, b) => {
+      const aEnd = a.endTime ? new Date(a.endTime) : new Date(a.startTime);
+      const bEnd = b.endTime ? new Date(b.endTime) : new Date(b.startTime);
+      // Prioritize external / CRM-matched first, then by recency (most recent end first)
+      const aExt = classifyCalendarEvent(a).isExternal ? 0 : 1;
+      const bExt = classifyCalendarEvent(b).isExternal ? 0 : 1;
+      if (aExt !== bExt) return aExt - bExt;
+      return bEnd.getTime() - aEnd.getTime();
+    })
+    .slice(0, 3);
+
+  const hasContent = nextMeeting || needsPrepEvents.length > 0 || followupsDue.length > 0 || focusWindows.length > 0 || recentlyFinished.length > 0;
   if (!hasContent) return null;
 
   return (
@@ -611,6 +632,40 @@ function WorkdayAgendaPanel({
               </div>
             </div>
           )}
+
+          {recentlyFinished.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Recently Finished</p>
+              <div className="space-y-1">
+                {recentlyFinished.map(ev => {
+                  const cls = classifyCalendarEvent(ev);
+                  const endTime = ev.endTime ? new Date(ev.endTime) : new Date(ev.startTime);
+                  return (
+                    <div
+                      key={ev.id}
+                      className="rounded border border-border/40 bg-secondary/20 px-2 py-1.5"
+                      data-testid={`agenda-finished-${ev.id}`}
+                    >
+                      <p className="text-xs font-medium truncate">{ev.title}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-muted-foreground">Ended {formatTime(endTime)}</span>
+                        {cls.isExternal && (
+                          <span className="text-[9px] px-1 rounded bg-foreground/10 border border-border/40">ext</span>
+                        )}
+                      </div>
+                      <button
+                        className="mt-1 w-full text-[10px] text-primary hover:underline text-left flex items-center gap-1"
+                        onClick={() => onAddOutcome(ev)}
+                        data-testid={`agenda-add-outcome-${ev.id}`}
+                      >
+                        <ClipboardList className="h-3 w-3 shrink-0" /> Add Outcome
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -641,6 +696,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   });
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [eventInitialTab, setEventInitialTab] = useState<string | undefined>();
   const [clickedSlot, setClickedSlot] = useState<{ date: Date; hour?: number } | null>(null);
   const [rescheduleRequest, setRescheduleRequest] = useState<{
     event: DisplayEvent;
@@ -1131,6 +1187,10 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
               events={ownEvents ?? []}
               tasks={pendingTasks ?? []}
               onEventClick={(ev) => setSelectedEvent(ev)}
+              onAddOutcome={(ev) => {
+                setSelectedEvent(ev as CalendarEvent);
+                setEventInitialTab("outcome");
+              }}
             />
           )}
 
@@ -1426,11 +1486,12 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
       {selectedEvent && (
         <EventDetailDialog
           event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
+          onClose={() => { setSelectedEvent(null); setEventInitialTab(undefined); }}
           onUpdate={(data) => updateMutation.mutate({ id: selectedEvent.id, data })}
           onDelete={() => deleteMutation.mutate(selectedEvent.id)}
           isUpdating={updateMutation.isPending}
           isDeleting={deleteMutation.isPending}
+          initialTab={eventInitialTab}
         />
       )}
 
@@ -2916,6 +2977,295 @@ function MetricsBar() {
   );
 }
 
+// ─── Outcome Tab ─────────────────────────────────────────────────────────────
+
+type OutcomeValue = "completed" | "rescheduled" | "no_show" | "cancelled" | "followup_needed";
+
+const OUTCOME_OPTIONS: { value: OutcomeValue; label: string }[] = [
+  { value: "completed",        label: "Completed" },
+  { value: "rescheduled",      label: "Rescheduled" },
+  { value: "no_show",          label: "No-show" },
+  { value: "cancelled",        label: "Cancelled" },
+  { value: "followup_needed",  label: "Follow-up needed" },
+];
+
+function OutcomeTab({
+  event,
+  crmCtx,
+  onSaved,
+}: {
+  event: CalendarEvent;
+  crmCtx?: CRMContext;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [outcome, setOutcome] = useState<OutcomeValue | "">("");
+  const [notes, setNotes] = useState("");
+  const [nextStep, setNextStep] = useState("");
+  const [followUpDue, setFollowUpDue] = useState<"today" | "tomorrow" | "next_week">("tomorrow");
+  const [saved, setSaved] = useState(false);
+
+  // Determine best CRM match — priority: contact > lead > account
+  const bestContact = crmCtx?.matchedContacts[0] ?? null;
+  const bestLead    = crmCtx?.matchedLeads.find(l => l.confidence === "high") ?? crmCtx?.matchedLeads[0] ?? null;
+  const bestAccount = crmCtx?.matchedAccounts.find(a => a.confidence === "high") ?? crmCtx?.matchedAccounts[0] ?? null;
+
+  const crmLink: { linkedObjectType: string; linkedObjectId: number; name: string; typeLabel: string } | null =
+    bestContact
+      ? { linkedObjectType: "contact", linkedObjectId: bestContact.id, name: bestContact.name, typeLabel: "Contact" }
+    : bestLead
+      ? { linkedObjectType: "lead",    linkedObjectId: bestLead.id,    name: bestLead.name,    typeLabel: "Lead" }
+    : bestAccount
+      ? { linkedObjectType: "account", linkedObjectId: bestAccount.id, name: bestAccount.name, typeLabel: "Account" }
+    : null;
+
+  function getDueDate(opt: typeof followUpDue): string {
+    const d = new Date();
+    if (opt === "today")      return d.toISOString().split("T")[0];
+    if (opt === "tomorrow")   { d.setDate(d.getDate() + 1); return d.toISOString().split("T")[0]; }
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split("T")[0];
+  }
+
+  function buildSummary(): string {
+    const timeStr = `${format(new Date(event.startTime), "MMM d, yyyy")} ${formatTime(new Date(event.startTime))}`;
+    return [
+      `Meeting: ${event.title}`,
+      `Time: ${timeStr}`,
+      outcome ? `Outcome: ${OUTCOME_OPTIONS.find(o => o.value === outcome)?.label ?? outcome}` : null,
+      notes    ? `Notes: ${notes}` : null,
+      nextStep ? `Next step: ${nextStep}` : null,
+    ].filter(Boolean).join("\n");
+  }
+
+  function buildAttendeeStr(): string {
+    const raw: any[] = Array.isArray((event as any).attendeeDetails) ? (event as any).attendeeDetails : [];
+    if (raw.length) return raw.map((a: any) => a.email || a.displayName).filter(Boolean).join(", ");
+    return ((event as any).invitees ?? []).join(", ");
+  }
+
+  const saveOutcomeMutation = useMutation({
+    mutationFn: async () => {
+      if (!crmLink) throw new Error("No CRM record to link outcome to.");
+      const res = await apiRequest("POST", "/api/activities", {
+        linkedObjectType: crmLink.linkedObjectType,
+        linkedObjectId:   crmLink.linkedObjectId,
+        type:             "calendar_meeting_outcome",
+        subject:          event.title,
+        summary:          buildSummary(),
+        outcome:          outcome || null,
+        attendees:        buildAttendeeStr() || null,
+        rawContent:       [notes, nextStep ? `Next step: ${nextStep}` : null].filter(Boolean).join("\n") || null,
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message ?? "Failed to save"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      setSaved(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", event.id, "crm-context"] });
+      toast({ title: "Outcome saved", description: `Logged to ${crmLink?.typeLabel}: ${crmLink?.name}` });
+      onSaved();
+    },
+    onError: (err: Error) => toast({ title: "Could not save outcome", description: err.message, variant: "destructive" }),
+  });
+
+  const saveAndTaskMutation = useMutation({
+    mutationFn: async () => {
+      // 1. Save outcome activity if CRM record matched
+      if (crmLink) {
+        const res = await apiRequest("POST", "/api/activities", {
+          linkedObjectType: crmLink.linkedObjectType,
+          linkedObjectId:   crmLink.linkedObjectId,
+          type:             "calendar_meeting_outcome",
+          subject:          event.title,
+          summary:          buildSummary(),
+          outcome:          outcome || null,
+          attendees:        buildAttendeeStr() || null,
+          rawContent:       [notes, nextStep ? `Next step: ${nextStep}` : null].filter(Boolean).join("\n") || null,
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message ?? "Failed to save activity"); }
+      }
+      // 2. Create follow-up task
+      const taskNotes = [
+        outcome   ? `Meeting outcome: ${OUTCOME_OPTIONS.find(o => o.value === outcome)?.label}` : null,
+        notes     ? `Notes: ${notes}` : null,
+        nextStep  ? `Next step: ${nextStep}` : null,
+        `Event: ${event.title}`,
+        `Time: ${format(new Date(event.startTime), "MMM d, yyyy")} ${formatTime(new Date(event.startTime))}`,
+      ].filter(Boolean).join("\n");
+
+      const taskPayload: Record<string, unknown> = {
+        title:    `Follow up: ${event.title}`,
+        status:   "pending",
+        priority: "medium",
+        dueDate:  getDueDate(followUpDue),
+        notes:    taskNotes,
+      };
+      if (crmLink) {
+        taskPayload.linkedObjectType = crmLink.linkedObjectType;
+        taskPayload.linkedObjectId   = crmLink.linkedObjectId;
+      }
+      const taskRes = await apiRequest("POST", "/api/tasks", taskPayload);
+      if (!taskRes.ok) { const e = await taskRes.json().catch(() => ({})); throw new Error((e as any).message ?? "Failed to create task"); }
+      return taskRes.json();
+    },
+    onSuccess: () => {
+      setSaved(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      if (crmLink) queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", event.id, "crm-context"] });
+      const dueLabel = followUpDue === "today" ? "today" : followUpDue === "tomorrow" ? "tomorrow" : "next week";
+      toast({ title: "Outcome saved + task created", description: `Follow-up task due ${dueLabel}.` });
+      onSaved();
+    },
+    onError: (err: Error) => toast({ title: "Could not complete", description: err.message, variant: "destructive" }),
+  });
+
+  const isPending = saveOutcomeMutation.isPending || saveAndTaskMutation.isPending;
+
+  if (saved) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-10 text-center">
+        <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+          <CheckCheck className="h-5 w-5 text-green-500" />
+        </div>
+        <p className="text-sm font-medium">Outcome saved</p>
+        <p className="text-xs text-muted-foreground">CRM activity recorded.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 text-sm">
+      {/* Outcome type */}
+      <div className="space-y-2">
+        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Meeting Outcome</Label>
+        <div className="grid grid-cols-2 gap-1.5">
+          {OUTCOME_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              className={`rounded-md border px-2.5 py-1.5 text-xs transition-colors text-left ${
+                outcome === opt.value
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border/50 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              }`}
+              onClick={() => setOutcome(opt.value)}
+              data-testid={`outcome-option-${opt.value}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Notes */}
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <ClipboardList className="h-3.5 w-3.5" /> What happened?
+        </Label>
+        <Textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Key decisions, blockers, outcomes discussed…"
+          rows={3}
+          className="text-sm resize-none"
+          data-testid="textarea-outcome-notes"
+        />
+      </div>
+
+      {/* Next step */}
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <ArrowRight className="h-3.5 w-3.5" /> What should happen next?
+        </Label>
+        <Input
+          value={nextStep}
+          onChange={e => setNextStep(e.target.value)}
+          placeholder="e.g. Send proposal by Friday"
+          className="h-8 text-sm"
+          data-testid="input-next-step"
+        />
+      </div>
+
+      {/* Follow-up due date */}
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Follow-up due</Label>
+        <div className="flex gap-1.5">
+          {(["today", "tomorrow", "next_week"] as const).map(opt => (
+            <button
+              key={opt}
+              className={`flex-1 text-xs rounded border px-2 py-1.5 transition-colors ${
+                followUpDue === opt
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border/50 text-muted-foreground hover:border-primary/40"
+              }`}
+              onClick={() => setFollowUpDue(opt)}
+              data-testid={`followup-due-${opt}`}
+            >
+              {opt === "today" ? "Today" : opt === "tomorrow" ? "Tomorrow" : "Next week"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* CRM record */}
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Building2 className="h-3.5 w-3.5" /> Related CRM Record
+        </Label>
+        {crmLink ? (
+          <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium truncate">{crmLink.name}</p>
+              <p className="text-[10px] text-muted-foreground">{crmLink.typeLabel} · auto-matched from attendees</p>
+            </div>
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-medium shrink-0">CRM</span>
+          </div>
+        ) : (
+          <div className="rounded-md border border-border/30 bg-secondary/20 px-3 py-2.5 text-center">
+            <p className="text-xs text-muted-foreground">No CRM record matched to this event's attendees.</p>
+            <p className="text-[10px] text-muted-foreground/60 mt-0.5">You can still create a follow-up task below.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2 pt-1">
+        {crmLink && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 gap-1.5"
+            onClick={() => saveOutcomeMutation.mutate()}
+            disabled={isPending}
+            data-testid="button-save-outcome"
+          >
+            {saveOutcomeMutation.isPending
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <CircleCheck className="h-3.5 w-3.5" />}
+            Save Outcome
+          </Button>
+        )}
+        <Button
+          size="sm"
+          className={`${crmLink ? "flex-1" : "w-full"} gap-1.5`}
+          onClick={() => saveAndTaskMutation.mutate()}
+          disabled={isPending}
+          data-testid="button-save-and-task"
+        >
+          {saveAndTaskMutation.isPending
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            : <ClipboardList className="h-3.5 w-3.5" />}
+          {crmLink ? "Save + Task" : "Create Follow-Up Task"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ─── AI Briefing Tab ──────────────────────────────────────────────────────────
 
 function BriefingTab({ eventId }: { eventId: number }) {
@@ -3198,6 +3548,7 @@ function EventDetailDialog({
   onDelete,
   isUpdating,
   isDeleting,
+  initialTab,
 }: {
   event: CalendarEvent;
   onClose: () => void;
@@ -3205,6 +3556,7 @@ function EventDetailDialog({
   onDelete: () => void;
   isUpdating: boolean;
   isDeleting: boolean;
+  initialTab?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [showFollowUpForm, setShowFollowUpForm] = useState(false);
@@ -3332,7 +3684,7 @@ function EventDetailDialog({
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="details" className="flex flex-col flex-1 overflow-hidden">
+        <Tabs defaultValue={initialTab ?? "details"} className="flex flex-col flex-1 overflow-hidden">
           <TabsList className="mx-6 mt-3 mb-0 shrink-0 w-auto justify-start bg-secondary/40 h-8">
             <TabsTrigger value="details" className="text-xs h-6 px-3" data-testid="tab-details">
               Details
@@ -3343,6 +3695,11 @@ function EventDetailDialog({
             <TabsTrigger value="briefing" className="text-xs h-6 px-3" data-testid="tab-briefing">
               <Sparkles className="h-3 w-3 mr-1" />Prep
             </TabsTrigger>
+            {isPast && !event._team && (
+              <TabsTrigger value="outcome" className="text-xs h-6 px-3" data-testid="tab-outcome">
+                Outcome
+              </TabsTrigger>
+            )}
             {isPast && (
               <TabsTrigger value="post-meeting" className="text-xs h-6 px-3" data-testid="tab-post-meeting">
                 Post-Meeting
@@ -3710,6 +4067,17 @@ function EventDetailDialog({
 
             <BriefingTab eventId={event.id} />
           </TabsContent>
+
+          {/* Outcome tab */}
+          {isPast && !event._team && (
+            <TabsContent value="outcome" className="flex-1 overflow-y-auto px-6 pb-6 mt-3">
+              <OutcomeTab
+                event={event}
+                crmCtx={crmCtx}
+                onSaved={onClose}
+              />
+            </TabsContent>
+          )}
 
           {/* Post-Meeting tab */}
           {isPast && (
