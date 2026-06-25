@@ -424,6 +424,199 @@ function computeSuggestedOpenings(
   return windows.slice(0, 3);
 }
 
+// ── Event classification helper (Phase 6) ─────────────────────────────────────
+const INTERNAL_DOMAIN = "voltsafe.com";
+const GENERIC_DOMAINS_SET = new Set([
+  "gmail.com","googlemail.com","outlook.com","hotmail.com","yahoo.com",
+  "icloud.com","me.com","mac.com","live.com","msn.com","protonmail.com","aol.com","ymail.com",
+]);
+
+type EventClassification = {
+  isInternal: boolean;
+  isExternal: boolean;
+  hasBusinessDomain: boolean;
+  needsPrep: boolean;
+  isFocusBlock: boolean;
+  isAllDay: boolean;
+  externalCount: number;
+};
+
+function classifyCalendarEvent(event: DisplayEvent): EventClassification {
+  const attendees: Array<{ email?: string; self?: boolean }> = Array.isArray(event.attendeeDetails)
+    ? (event.attendeeDetails as any[])
+    : (event.invitees || []).map((e: string) => ({ email: e }));
+
+  const external = attendees.filter(a => {
+    const em = (a.email || "").toLowerCase().trim();
+    const domain = em.split("@")[1] || "";
+    return !a.self && em.includes("@") && domain !== INTERNAL_DOMAIN;
+  });
+
+  const hasBusinessDomain = external.some(a => {
+    const domain = (a.email || "").toLowerCase().split("@")[1] || "";
+    return !GENERIC_DOMAINS_SET.has(domain);
+  });
+
+  const isFocusBlock = /^focus:/i.test(event.title || "");
+  const isAllDay = !!event.allDay;
+  const isExternal = external.length > 0;
+  const isInternal = !isExternal;
+
+  const now = new Date();
+  const startTime = new Date(event.startTime);
+  const upcoming = startTime > now;
+  const needsPrep = isExternal && upcoming && !isFocusBlock && event.status !== "cancelled";
+
+  return { isInternal, isExternal, hasBusinessDomain, needsPrep, isFocusBlock, isAllDay, externalCount: external.length };
+}
+
+// ── Workday Agenda panel (Phase 1) ────────────────────────────────────────────
+function WorkdayAgendaPanel({
+  events,
+  tasks,
+  onEventClick,
+}: {
+  events: DisplayEvent[];
+  tasks: any[];
+  onEventClick: (ev: DisplayEvent) => void;
+}) {
+  const today = new Date();
+
+  const todayEvents = events.filter(e =>
+    isSameDay(new Date(e.startTime), today) &&
+    !e._team &&
+    e.status !== "cancelled"
+  );
+
+  const nextMeeting = todayEvents
+    .filter(e => !e.allDay && new Date(e.startTime) > today)
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0] ?? null;
+
+  const needsPrepEvents = todayEvents
+    .filter(e => classifyCalendarEvent(e).needsPrep)
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    .slice(0, 3);
+
+  const followupsDue = tasks
+    .filter(t => {
+      if (!t.dueDate) return false;
+      const due = new Date(t.dueDate);
+      const startOfTomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+      return due < startOfTomorrow;
+    })
+    .sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+    .slice(0, 3);
+
+  const focusWindows = computeSuggestedOpenings(
+    today,
+    events.filter(e => !e._team),
+    []
+  ).slice(0, 2);
+
+  const hasContent = nextMeeting || needsPrepEvents.length > 0 || followupsDue.length > 0 || focusWindows.length > 0;
+  if (!hasContent) return null;
+
+  return (
+    <Card className="border-border/50 w-52 shrink-0" data-testid="workday-agenda-panel">
+      <CardContent className="p-3">
+        <div className="flex items-center gap-2 mb-3">
+          <CalendarCheck className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium">Today's Agenda</span>
+        </div>
+        <div className="space-y-3">
+          {nextMeeting && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Next Meeting</p>
+              <button
+                className="w-full text-left rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-2 hover:bg-primary/10 transition-colors"
+                onClick={() => onEventClick(nextMeeting)}
+                data-testid="agenda-next-meeting"
+              >
+                <p className="text-xs font-medium truncate text-foreground">{nextMeeting.title}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{formatTime(new Date(nextMeeting.startTime))}</p>
+                <div className="flex items-center gap-1 mt-1 flex-wrap">
+                  {nextMeeting.meetingUrl && <Video className="h-3 w-3 text-blue-400 shrink-0" />}
+                  {(() => {
+                    const cls = classifyCalendarEvent(nextMeeting);
+                    return cls.externalCount > 0 ? (
+                      <span className="text-[9px] px-1 rounded bg-foreground/10 border border-border/40">{cls.externalCount} ext</span>
+                    ) : null;
+                  })()}
+                </div>
+              </button>
+            </div>
+          )}
+
+          {needsPrepEvents.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Needs Prep</p>
+              <div className="space-y-1">
+                {needsPrepEvents.map(ev => (
+                  <button
+                    key={ev.id}
+                    className="w-full text-left rounded border border-border/40 bg-secondary/20 px-2 py-1.5 hover:bg-secondary/40 transition-colors"
+                    onClick={() => onEventClick(ev)}
+                    data-testid={`agenda-prep-${ev.id}`}
+                  >
+                    <p className="text-xs font-medium truncate">{ev.title}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[10px] text-muted-foreground">{formatTime(new Date(ev.startTime))}</span>
+                      {ev.meetingUrl && <Video className="h-3 w-3 text-blue-400 shrink-0" />}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {followupsDue.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Follow-ups Due</p>
+              <div className="space-y-1">
+                {followupsDue.map((t: any) => {
+                  const due = new Date(t.dueDate);
+                  const overdue = due < today && !isToday(due);
+                  return (
+                    <Link key={t.id} href="/tasks">
+                      <div
+                        className="rounded border border-border/40 bg-secondary/20 px-2 py-1.5 hover:bg-secondary/40 transition-colors cursor-pointer"
+                        data-testid={`agenda-followup-${t.id}`}
+                      >
+                        <p className="text-xs font-medium truncate">{t.title}</p>
+                        <p className={`text-[10px] ${overdue ? "text-red-400" : "text-amber-400"}`}>
+                          {overdue ? "Overdue" : "Due today"}
+                        </p>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {focusWindows.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Open Windows</p>
+              <div className="space-y-1">
+                {focusWindows.map((w, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded bg-primary/5 border border-primary/15"
+                    data-testid={`agenda-window-${i}`}
+                  >
+                    <Zap className="h-3 w-3 text-primary shrink-0" />
+                    <span>{format(w.start, "h:mm")}–{format(w.end, "h:mm a")}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 type CalendarPageProps = {
   permissions?: { calendar_team?: number[]; [k: string]: unknown };
   currentUserId?: number;
@@ -807,7 +1000,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
         </div>
       )}
 
-      <div className={(showOverlayPanel && permittedMembers.length > 0) || (sourcesData && sourcesData.sources.length > 0) || dueTasks.length > 0 ? "flex gap-4 items-start" : undefined}>
+      <div className={(showOverlayPanel && permittedMembers.length > 0) || (sourcesData && sourcesData.sources.length > 0) || dueTasks.length > 0 || isToday(currentDate) ? "flex gap-4 items-start" : undefined}>
         <Card className="border-border/50 flex-1 min-w-0">
           <CardContent className="p-3 sm:p-4">
             <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
@@ -890,6 +1083,15 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
         </Card>
 
         <div className="flex flex-col gap-3">
+          {/* Workday Agenda — always shown for today (Phase 1) */}
+          {isToday(currentDate) && (
+            <WorkdayAgendaPanel
+              events={ownEvents ?? []}
+              tasks={pendingTasks ?? []}
+              onEventClick={(ev) => setSelectedEvent(ev)}
+            />
+          )}
+
           {/* My Calendars — sources selector */}
           {sourcesData && sourcesData.sources.length > 0 && (
             <Card className="border-border/50 w-52 shrink-0" data-testid="my-calendars-panel">
@@ -1021,7 +1223,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
             </Card>
           )}
 
-          {/* Tasks to Schedule */}
+          {/* Tasks to Schedule (Phase 4) */}
           {dueTasks.length > 0 && (
             <Card className="border-border/50 w-52 shrink-0" data-testid="tasks-to-schedule-panel">
               <CardContent className="p-3">
@@ -1034,13 +1236,53 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                     const due = new Date(task.dueDate);
                     const overdue = due < new Date() && !isToday(due);
                     const dueToday = isToday(due);
+                    const todayWindows = computeSuggestedOpenings(new Date(), ownEvents ?? [], []);
                     return (
-                      <div key={task.id} className="space-y-0.5" data-testid={`due-task-${task.id}`}>
+                      <div key={task.id} className="space-y-1" data-testid={`due-task-${task.id}`}>
                         <p className="text-xs font-medium truncate" title={task.title}>{task.title}</p>
-                        <p className={`text-[10px] ${overdue ? "text-red-400" : dueToday ? "text-amber-400" : "text-muted-foreground"}`}>
-                          {overdue ? "Overdue · " : dueToday ? "Due today · " : "Due "}
-                          {format(due, "MMM d")}
-                        </p>
+                        <div className="flex items-center justify-between gap-1">
+                          <p className={`text-[10px] ${overdue ? "text-red-400" : dueToday ? "text-amber-400" : "text-muted-foreground"}`}>
+                            {overdue ? "Overdue · " : dueToday ? "Due today · " : "Due "}
+                            {format(due, "MMM d")}
+                          </p>
+                          {todayWindows.length > 0 && (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button className="text-[10px] text-primary hover:underline shrink-0" data-testid={`button-schedule-task-${task.id}`}>Schedule</button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-52 p-2" side="left" align="start">
+                                <p className="text-xs font-medium mb-2">Schedule focus block</p>
+                                <p className="text-[10px] text-muted-foreground mb-2 truncate">Focus: {task.title}</p>
+                                <div className="space-y-1">
+                                  {todayWindows.map((w, i) => (
+                                    <Button
+                                      key={i}
+                                      variant="outline"
+                                      size="sm"
+                                      className="w-full h-7 text-[11px] justify-start gap-1.5"
+                                      data-testid={`button-schedule-window-${i}`}
+                                      onClick={() => {
+                                        createMutation.mutate({
+                                          title: `Focus: ${task.title}`,
+                                          startTime: w.start.toISOString(),
+                                          endTime: w.end.toISOString(),
+                                          eventType: "task",
+                                          status: "scheduled",
+                                          description: `Focus block for: ${task.title}\nOriginal due: ${format(due, "MMM d, yyyy")}\nCreated from VoltSafe CMS`,
+                                        });
+                                      }}
+                                      disabled={createMutation.isPending}
+                                    >
+                                      <Zap className="h-3 w-3 text-primary shrink-0" />
+                                      {format(w.start, "h:mm")}–{format(w.end, "h:mm a")}
+                                    </Button>
+                                  ))}
+                                </div>
+                                <p className="text-[10px] text-muted-foreground mt-2 text-center">Creates a calendar block</p>
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1474,14 +1716,21 @@ function DayView({
                       <span className="opacity-60">· {ev.calendarName}</span>
                     )}
                     {!ev._team && (() => {
-                      const extCount = Array.isArray(ev.attendeeDetails)
-                        ? (ev.attendeeDetails as any[]).filter(a => !a.self && !(a.email || "").toLowerCase().endsWith("@voltsafe.com")).length
-                        : 0;
-                      return extCount > 0 ? (
-                        <span className="px-1 py-0 rounded bg-foreground/10 border border-border/50 text-[10px]">
-                          {extCount} ext
-                        </span>
-                      ) : null;
+                      const cls = classifyCalendarEvent(ev);
+                      return (
+                        <>
+                          {cls.externalCount > 0 && (
+                            <span className="px-1 py-0 rounded bg-foreground/10 border border-border/50 text-[10px]">
+                              {cls.externalCount} ext
+                            </span>
+                          )}
+                          {cls.hasBusinessDomain && (
+                            <span className="px-1 py-0 rounded bg-primary/15 border border-primary/25 text-[10px] text-primary font-medium">
+                              CRM
+                            </span>
+                          )}
+                        </>
+                      );
                     })()}
                   </div>
                 </button>
@@ -2843,6 +3092,9 @@ function EventDetailDialog({
   isDeleting: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  const [showFollowUpForm, setShowFollowUpForm] = useState(false);
+  const [followUpTitle, setFollowUpTitle] = useState(() => `Follow up: ${event.title}`);
+  const [followUpDue, setFollowUpDue] = useState<"today" | "tomorrow">("tomorrow");
   const { toast } = useToast();
 
   const now = new Date();
@@ -2892,18 +3144,21 @@ function EventDetailDialog({
   // Follow-up task creation
   const createFollowUpMutation = useMutation({
     mutationFn: async () => {
+      const baseDate = followUpDue === "today" ? new Date() : new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const dueDate = baseDate.toISOString().split("T")[0];
       const res = await apiRequest("POST", "/api/tasks", {
-        title: `Follow up: ${event.title}`,
+        title: followUpTitle.trim() || `Follow up: ${event.title}`,
         status: "pending",
         priority: "medium",
-        dueDate: event.endTime ? new Date(new Date(event.endTime).getTime() + 24 * 60 * 60 * 1000).toISOString().split("T")[0] : null,
+        dueDate,
         notes: `Created from calendar event on ${format(new Date(event.startTime), "MMM d, yyyy")}`,
       });
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Follow-up task created", description: `"Follow up: ${event.title}" added to your tasks.` });
+      toast({ title: "Follow-up task created", description: `"${followUpTitle.trim() || `Follow up: ${event.title}`}" added to your tasks.` });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      setShowFollowUpForm(false);
     },
     onError: () => toast({ title: "Could not create task", variant: "destructive" }),
   });
@@ -2971,7 +3226,7 @@ function EventDetailDialog({
               Relationships{crmCount > 0 ? ` (${crmCount})` : ""}
             </TabsTrigger>
             <TabsTrigger value="briefing" className="text-xs h-6 px-3" data-testid="tab-briefing">
-              <Sparkles className="h-3 w-3 mr-1" />Briefing
+              <Sparkles className="h-3 w-3 mr-1" />Prep
             </TabsTrigger>
             {isPast && (
               <TabsTrigger value="post-meeting" className="text-xs h-6 px-3" data-testid="tab-post-meeting">
@@ -3165,21 +3420,77 @@ function EventDetailDialog({
             {/* Footer actions inside scroll */}
             <div className="mt-5 pt-4 border-t border-border/30 flex flex-col gap-2">
               <MeetingNoteAction event={event} />
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full gap-2"
-                onClick={() => createFollowUpMutation.mutate()}
-                disabled={createFollowUpMutation.isPending || createFollowUpMutation.isSuccess}
-                data-testid="button-create-followup-task"
-              >
-                {createFollowUpMutation.isPending
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                  : createFollowUpMutation.isSuccess
-                    ? <CheckCheck className="h-3.5 w-3.5 shrink-0 text-green-500" />
-                    : <ClipboardList className="h-3.5 w-3.5 shrink-0" />}
-                {createFollowUpMutation.isSuccess ? "Task created" : "Create Follow-Up Task"}
-              </Button>
+
+              {/* Phase 3 — confirm-then-create follow-up */}
+              {!showFollowUpForm && !createFollowUpMutation.isSuccess && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={() => setShowFollowUpForm(true)}
+                  data-testid="button-create-followup-task"
+                >
+                  <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+                  Create Follow-Up Task
+                </Button>
+              )}
+              {createFollowUpMutation.isSuccess && (
+                <Button size="sm" variant="outline" className="w-full gap-2" disabled data-testid="button-create-followup-task">
+                  <CheckCheck className="h-3.5 w-3.5 shrink-0 text-green-500" /> Task created
+                </Button>
+              )}
+              {showFollowUpForm && !createFollowUpMutation.isSuccess && (
+                <div className="rounded-lg border border-border/50 bg-secondary/20 p-3 space-y-2.5" data-testid="followup-confirm-form">
+                  <p className="text-xs font-medium text-foreground">Create Follow-Up Task</p>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground block mb-1">Title</label>
+                    <Input
+                      value={followUpTitle}
+                      onChange={e => setFollowUpTitle(e.target.value)}
+                      className="h-7 text-xs"
+                      data-testid="input-followup-title"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground block mb-1">Due</label>
+                    <div className="flex gap-1.5">
+                      {(["today", "tomorrow"] as const).map(opt => (
+                        <button
+                          key={opt}
+                          className={`flex-1 text-[11px] rounded border px-2 py-1 capitalize transition-colors ${followUpDue === opt ? "bg-primary text-primary-foreground border-primary" : "border-border/50 text-muted-foreground hover:border-primary/40"}`}
+                          onClick={() => setFollowUpDue(opt)}
+                          data-testid={`button-followup-due-${opt}`}
+                        >
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="flex-1 h-7 text-xs"
+                      onClick={() => setShowFollowUpForm(false)}
+                      data-testid="button-followup-cancel"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 h-7 text-xs gap-1.5"
+                      onClick={() => createFollowUpMutation.mutate()}
+                      disabled={createFollowUpMutation.isPending || !followUpTitle.trim()}
+                      data-testid="button-followup-confirm"
+                    >
+                      {createFollowUpMutation.isPending
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <CircleCheck className="h-3 w-3" />}
+                      Confirm
+                    </Button>
+                  </div>
+                </div>
+              )}
               {event.invitees && event.invitees.length > 0 && (
                 <Button
                   size="sm"

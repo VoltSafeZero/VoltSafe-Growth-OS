@@ -1,0 +1,280 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Continue Calendar / Workday Intelligence so VoltSafe CMS starts feeling like a place the team can actually live out of daily.
+
+Context already completed:
+
+* Calendar module exists.
+* Google Calendar is connected.
+* Real events render in the Calendar day view.
+* All-day events render correctly.
+* Day view auto-scrolls to working/current hours.
+* Sync button works.
+* Calendar source picker exists.
+* Team free/busy exists and is privacy-safe.
+* Suggested Openings exists.
+* Event detail dialog exists with CRM intelligence tab.
+* Tasks Due Soon sidebar panel exists.
+* Calendar event cards show meeting URL icon and external attendee count.
+* Cancelled events are filtered.
+* No-calendar-connected state exists.
+
+Primary goal:
+Build the next intelligence layer:
+Calendar events should become work objects inside VoltSafe CMS:
+
+* What is this meeting?
+* Who is involved?
+* What CRM record does it relate to?
+* What should I know before joining?
+* What task/follow-up should happen after?
+* What can I schedule into open time today?
+
+Do NOT:
+
+* Do not rebuild the calendar.
+* Do not redesign the whole page.
+* Do not expose teammate private event details.
+* Do not create destructive migrations.
+* Do not create a full Fantastical clone.
+* Do not fake AI/context if no data exists.
+* Do not overbuild drag/drop yet.
+
+Audit first:
+Inspect current implementation for:
+
+1. Calendar page/component structure.
+2. EventDetailDialog and CRM intelligence tab.
+3. GET /api/calendar/events/:id/crm-context.
+4. Task model/routes.
+5. Follow-up/reminder model/routes.
+6. CRM activity/email association logic.
+7. Existing AI summary services.
+8. Existing contact/account/lead matching utilities.
+9. Existing meeting notes or activity creation flows.
+10. Existing task creation UI/components.
+11. Existing permissions/auth patterns.
+
+Report:
+
+* What already exists.
+* What is wired but underused.
+* What routes/components can be reused.
+* What minimal additions are needed.
+* Whether any DB migration is needed.
+
+Implementation Phase 1 — Workday Agenda sidebar
+
+Add or improve a “Today’s Workday” / “Workday Agenda” panel on the Calendar page.
+
+It should summarize today into useful buckets:
+
+1. Next Meeting
+
+* next upcoming calendar event today
+* title
+* time
+* meeting link if present
+* external attendee count
+* CRM match if available
+* “Open Prep” action
+
+2. Meetings Needing Prep
+
+* today’s events with external attendees or CRM matches
+* exclude internal-only VoltSafe meetings unless they have CRM context
+* show time, title, matched Account/Lead/Contact if available
+* action: “View Prep”
+
+3. Follow-ups Due
+
+* pending tasks/follow-ups due today or overdue
+* show related CRM record if available
+* action: “Open Task” or “Schedule”
+
+4. Open Focus Windows
+
+* use existing calendar events + selected teammate busy blocks if available
+* show top 3 open windows today
+* action: “Schedule Task”
+
+Keep this panel compact. It should not make the Calendar page noisy.
+
+Implementation Phase 2 — Meeting Prep Card
+
+Add a proper Meeting Prep experience inside the existing EventDetailDialog or as a drawer tab.
+
+For a clicked event, show:
+
+Meeting Prep:
+
+* Event title
+* Time
+* Meeting link
+* External attendees
+* Matched CRM records
+* Recent related emails/activity
+* Open tasks/follow-ups
+* Last touch date, if available
+* Suggested talking points
+* Suggested next step after the meeting
+
+Reuse existing CRM context route if possible:
+GET /api/calendar/events/:id/crm-context
+
+If AI summary/generation already exists:
+
+* Add a lightweight generated “Prep Summary”
+* Keep it grounded only in existing CRM/email/task context.
+* Do not invent details.
+* If no context exists, show:
+    “No CRM context found yet.”
+
+Suggested output format:
+
+* “Why this meeting matters”
+* “Recent context”
+* “Suggested talking points”
+* “Recommended follow-up”
+
+Important:
+Meeting prep must be grounded.
+No hallucinated facts.
+If there is no CRM match or activity, say so clearly.
+
+Implementation Phase 3 — One-click follow-up from meeting
+
+In EventDetailDialog, add “Create Follow-up Task” action.
+
+Behavior:
+
+* Pre-fill task title:
+    “Follow up: [Event Title]”
+* Pre-fill related CRM entity if the event has a high-confidence CRM match.
+* Pre-fill due date:
+    today or tomorrow
+* Pre-fill notes with:
+    event title
+    date/time
+    attendees
+    meeting link
+    CRM match reason if available
+* User should be able to confirm/save.
+* Reuse existing task creation APIs/components if possible.
+
+Do not auto-create tasks without user confirmation.
+
+Implementation Phase 4 — Schedule task into calendar block
+
+Improve the existing Tasks Due Soon panel so tasks can become calendar blocks.
+
+For each due/overdue task:
+
+* Show “Schedule”
+* On click, offer suggested open windows today/tomorrow.
+* User chooses a window.
+* Create Google Calendar event block only if write scope exists.
+* If write scope does not exist, show:
+    “Reconnect Google Calendar to enable task blocking.”
+
+Calendar block title:
+“Focus: [Task Title]”
+
+Calendar block description:
+
+* Task link/id
+* Related CRM record
+* Original due date
+* Created from VoltSafe CMS
+
+After scheduling:
+
+* Refresh calendar events.
+* Mark task as scheduled if the data model supports it.
+* If no task scheduled field exists, do not create a migration unless necessary; instead return clear final recommendation.
+
+Implementation Phase 5 — Better event card intelligence
+
+Enhance event cards lightly:
+
+* Show CRM matched badge if event has CRM match.
+* Show meeting link icon if meeting link exists.
+* Show external attendee count.
+* Show “Prep” action on hover/click menu if there is CRM context.
+* Do not clutter the grid.
+
+Implementation Phase 6 — Safe internal/external meeting classification
+
+Create or reuse helper:
+classifyCalendarEvent(event)
+
+Return:
+
+* internal_only
+* external
+* crm_matched
+* needs_prep
+* focus_block
+* all_day
+
+Rules:
+
+* If all attendees are @voltsafe.com → internal_only
+* If any attendee is external → external
+* If CRM match exists → crm_matched
+* If external or crm_matched and upcoming today → needs_prep
+* If title starts with Focus: or source is scheduled task block → focus_block
+
+Use this classification for:
+
+* Workday Agenda
+* Meeting Prep list
+* Event card badges
+
+Implementation Phase 7 — Privacy and permissions
+
+Maintain:
+
+* Current user can see their own full calendar event details.
+* Teammate overlays remain free/busy only.
+* Do not show teammate event titles.
+* Do not include full private event descriptions in logs.
+* Do not expose calendar data across users.
+
+Verification:
+Use a real day with meetings.
+
+Verify:
+
+1. Calendar still renders real events.
+2. Workday Agenda panel appears.
+3. Next Meeting is correct.
+4. Meetings Needing Prep includes external/CRM meetings only.
+5. Internal-only meetings do not clutter prep list.
+6. Event detail shows Meeting Prep.
+7. Meeting Prep uses CRM/email/task context where available.
+8. No CRM context produces honest empty state.
+9. Create Follow-up Task opens/pre-fills correctly.
+10. Task scheduling flow does not silently fail.
+11. Calendar write-scope missing state is clear, if applicable.
+12. Team busy overlays still expose only “Busy.”
+13. Suggested Openings still works.
+14. Typecheck/lint/tests pass if available.
+15. App boots cleanly.
+
+Final report:
+Include:
+
+* Audit findings.
+* Files changed.
+* Routes/components reused.
+* Routes/components added.
+* Whether DB migration was avoided.
+* What works now.
+* Known limitations.
+* Recommended next task.
+
+Product principle:
+Calendar is not just a date grid. It should answer:
+“What should I do next, what should I know before the next meeting, and what follow-up should happen after?”
