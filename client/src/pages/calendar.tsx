@@ -508,11 +508,13 @@ function getNowNextRecommendation({
   tasks,
   outcomeStatuses,
   now,
+  scheduledTaskIds = new Set(),
 }: {
   events: DisplayEvent[];
   tasks: any[];
   outcomeStatuses: Record<number, OutcomeStatus>;
   now: Date;
+  scheduledTaskIds?: Set<number>;
 }): NowNextResult {
   const todayOwn = events.filter(
     e => !e._team && !e.allDay && isSameDay(new Date(e.startTime), now) && e.status !== "cancelled"
@@ -520,11 +522,25 @@ function getNowNextRecommendation({
   const recs: NowNextRec[] = [];
 
   // 1. Current meeting — highest priority
-  const currentMeeting = todayOwn.find(e => {
-    const start = new Date(e.startTime);
-    const end = e.endTime ? new Date(e.endTime) : new Date(start.getTime() + 60 * 60_000);
-    return start <= now && end > now;
-  });
+  // Prefer: (a) external > (b) has meetingUrl > (c) earliest start
+  // Exclude: focus blocks, all-day (already excluded by todayOwn filter)
+  const PRIO_SCORE = (e: DisplayEvent) => {
+    const cls = classifyCalendarEvent(e);
+    return (cls.isExternal ? 4 : 0) + (detectMeetingProvider(e).joinUrl ? 2 : 0);
+  };
+  const currentMeeting = todayOwn
+    .filter(e => {
+      const cls = classifyCalendarEvent(e);
+      if (cls.isFocusBlock) return false;
+      const start = new Date(e.startTime);
+      const end = e.endTime ? new Date(e.endTime) : new Date(start.getTime() + 60 * 60_000);
+      return start <= now && end > now;
+    })
+    .sort((a, b) => {
+      const scoreDiff = PRIO_SCORE(b) - PRIO_SCORE(a);
+      if (scoreDiff !== 0) return scoreDiff;
+      return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+    })[0];
   if (currentMeeting) {
     const { joinUrl } = detectMeetingProvider(currentMeeting);
     const start = new Date(currentMeeting.startTime);
@@ -539,12 +555,12 @@ function getNowNextRecommendation({
     });
   }
 
-  // 2. Prep for next external meeting starting within 60 minutes
+  // 2. Prep for next external/CRM meeting starting within 60 minutes
   const sixtyMins = new Date(now.getTime() + 60 * 60_000);
   const nextExternal = todayOwn
     .filter(e => {
       const start = new Date(e.startTime);
-      if (start <= now || start > sixtyMins) return false;
+      if (start <= now || start > sixtyMins) return false; // already started → tier 1; > 60 min → not urgent
       const cls = classifyCalendarEvent(e);
       return (cls.isExternal || cls.hasBusinessDomain) && !cls.isFocusBlock;
     })
@@ -559,20 +575,21 @@ function getNowNextRecommendation({
     });
   }
 
-  // 3. Capture outcome for recently-finished external meeting with no outcome
+  // 3. Capture outcome for recently-finished external meeting with no outcome saved
   const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60_000);
   const captureNeeded = todayOwn
     .filter(e => {
       const end = e.endTime ? new Date(e.endTime) : new Date(new Date(e.startTime).getTime() + 60 * 60_000);
       if (end > now || end < twoHoursAgo) return false;
       const cls = classifyCalendarEvent(e);
+      if (cls.isFocusBlock) return false; // focus blocks never need outcome capture
       if (!cls.isExternal && !cls.hasBusinessDomain) return false;
       return !outcomeStatuses[e.id]?.hasOutcome;
     })
     .sort((a, b) => {
       const aEnd = a.endTime ? new Date(a.endTime) : new Date(a.startTime);
       const bEnd = b.endTime ? new Date(b.endTime) : new Date(b.startTime);
-      return bEnd.getTime() - aEnd.getTime();
+      return bEnd.getTime() - aEnd.getTime(); // most recently finished first
     })[0];
   if (captureNeeded) {
     recs.push({
@@ -585,43 +602,78 @@ function getNowNextRecommendation({
   }
 
   // 4. Overdue or due-today task
+  // Priority: overdue > due today; within each tier: high priority > medium > low; then earliest due date
+  const TASK_PRIO: Record<string, number> = { high: 0, medium: 1, low: 2 };
   const urgentTask = tasks
     .filter((t: any) => {
       if (!t.dueDate) return false;
+      if (t.status === "completed" || t.status === "done") return false;
+      if (scheduledTaskIds.has(t.id)) return false; // just scheduled this session
       const due = new Date(t.dueDate);
       const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
       return due < tomorrow;
     })
-    .sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
+    .sort((a: any, b: any) => {
+      const aOverdue = !isToday(new Date(a.dueDate)) && new Date(a.dueDate) < now;
+      const bOverdue = !isToday(new Date(b.dueDate)) && new Date(b.dueDate) < now;
+      if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+      const aPrio = TASK_PRIO[a.priority] ?? 1;
+      const bPrio = TASK_PRIO[b.priority] ?? 1;
+      if (aPrio !== bPrio) return aPrio - bPrio;
+      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    })[0];
   if (urgentTask) {
-    const isOverdue = new Date(urgentTask.dueDate) < now && !isToday(new Date(urgentTask.dueDate));
+    const due = new Date(urgentTask.dueDate);
+    const isOverdue = !isToday(due) && due < now;
     recs.push({
       type: "due_task",
-      title: isOverdue ? "Overdue follow-up" : "Due today",
-      subtitle: urgentTask.title,
+      title: urgentTask.title, // task name is prominent
+      subtitle: isOverdue
+        ? `Overdue · ${format(due, "MMM d")}`
+        : "Due today",
       actionLabel: "Schedule",
       taskId: urgentTask.id,
     });
   }
 
   // 5. Open focus window of ≥30 min
-  const windows = computeSuggestedOpenings(now, events.filter(e => !e._team), []).filter(
-    w => (w.end.getTime() - w.start.getTime()) / 60_000 >= 30 && w.start > now
-  );
-  if (windows.length > 0) {
-    const w = windows[0];
+  // Include windows that have already started if ≥30 min remain; skip past windows
+  const allWindows = computeSuggestedOpenings(now, events.filter(e => !e._team), []);
+  const validWindow = allWindows.find(w => {
+    const effectiveStart = Math.max(w.start.getTime(), now.getTime());
+    const remaining = (w.end.getTime() - effectiveStart) / 60_000;
+    return remaining >= 30;
+  });
+  if (validWindow) {
+    const effectiveStart = validWindow.start > now ? validWindow.start : now;
+    // Find a task to suggest scheduling into this window (first by due date)
+    const schedTask = tasks
+      .filter((t: any) => t.dueDate && !scheduledTaskIds.has(t.id) && t.status !== "completed" && t.status !== "done")
+      .sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
     recs.push({
       type: "focus_window",
       title: "Open focus window",
-      subtitle: `${format(w.start, "h:mm")} – ${format(w.end, "h:mm a")}`,
-      actionLabel: "Schedule Task",
+      subtitle: `${format(effectiveStart, "h:mm")} – ${format(validWindow.end, "h:mm a")}`,
+      actionLabel: schedTask ? "Schedule Task" : undefined,
+      taskId: schedTask?.id,
     });
   }
 
-  // 6. All clear
+  // 6. All clear — surface next upcoming event or task as secondary
   const allClear: NowNextRec = { type: "all_clear", title: "You're clear for now", subtitle: "" };
 
-  return { primary: recs[0] ?? allClear, secondary: recs[1] };
+  if (recs.length === 0) {
+    // Secondary: next event of the day (any type, not necessarily external)
+    const nextAnything = todayOwn
+      .filter(e => new Date(e.startTime) > now)
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0];
+    const allClearSecondary: NowNextRec | undefined = nextAnything
+      ? { type: "prep_next", title: nextAnything.title, subtitle: formatTime(new Date(nextAnything.startTime)) }
+      : undefined;
+    return { primary: allClear, secondary: allClearSecondary };
+  }
+
+  return { primary: recs[0], secondary: recs[1] };
 }
 
 // ── Icon + accent config per Now/Next type ────────────────────────────────────
@@ -651,6 +703,7 @@ function NowNextStrip({
   events,
   tasks,
   outcomeStatuses,
+  scheduledTaskIds,
   isLoading,
   calendarConnected,
   onJoin,
@@ -660,6 +713,7 @@ function NowNextStrip({
   events: DisplayEvent[];
   tasks: any[];
   outcomeStatuses: Record<number, OutcomeStatus>;
+  scheduledTaskIds: Set<number>;
   isLoading: boolean;
   calendarConnected: boolean;
   onJoin: (url: string) => void;
@@ -683,7 +737,7 @@ function NowNextStrip({
   }
 
   const now = new Date();
-  const { primary, secondary } = getNowNextRecommendation({ events, tasks, outcomeStatuses, now });
+  const { primary, secondary } = getNowNextRecommendation({ events, tasks, outcomeStatuses, now, scheduledTaskIds });
 
   const handleAction = (rec: NowNextRec) => {
     if (rec.joinUrl) { onJoin(rec.joinUrl); return; }
@@ -1414,6 +1468,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           events={ownEvents ?? []}
           tasks={pendingTasks ?? []}
           outcomeStatuses={mergedOutcomeStatuses}
+          scheduledTaskIds={scheduledTaskIds}
           isLoading={isLoading}
           calendarConnected={calIntegrations.length > 0 || !!(sourcesData?.sources?.length)}
           onJoin={(url) => window.open(url, "_blank", "noopener,noreferrer")}

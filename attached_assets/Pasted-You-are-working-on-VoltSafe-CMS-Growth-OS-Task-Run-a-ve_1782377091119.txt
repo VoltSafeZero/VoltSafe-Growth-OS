@@ -1,0 +1,213 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Run a verification and tuning pass for the new Calendar “Now / Next” command strip.
+
+Context:
+The previous task added:
+
+* getNowNextRecommendation() helper
+* NowNextStrip component
+* Full-width placement below MetricsBar
+* Today-only rendering
+* Recommendation priority:
+    1. Current meeting
+    2. Prep for next external/CRM meeting within 60 min
+    3. Capture outcome for recently finished meeting
+    4. Overdue/due task
+    5. Open focus window
+    6. Clear state
+* Uses ownEvents only, not team events
+* Uses mergedOutcomeStatuses so saved outcomes persist after refresh
+* No routes or migrations added
+
+Primary goal:
+Make sure the strip is accurate, calm, and useful. It should recommend the right next action without being noisy or misleading.
+
+Important:
+Audit first.
+Do not redesign the whole Calendar page.
+Do not create DB migrations.
+Do not expose teammate private event data.
+Do not add fake data.
+Do not add new routes unless absolutely necessary.
+Do not auto-create tasks/outcomes.
+
+Audit first:
+Inspect:
+
+1. getNowNextRecommendation()
+2. NowNextStrip component
+3. CalendarPage data passed into the helper
+4. ownEvents filtering
+5. pendingTasks / dueTasks filtering
+6. mergedOutcomeStatuses
+7. current meeting detection
+8. next meeting detection
+9. recently finished detection
+10. open focus window logic
+11. action handlers for Join / Open Prep / Add Outcome / Schedule
+12. loading/disconnected states
+
+Report:
+
+* Whether each priority tier is implemented correctly
+* Whether all-day events are excluded
+* Whether focus blocks are excluded from meeting recommendations
+* Whether internal-only meetings are excluded from prep/outcome prompts
+* Whether saved outcomes suppress Add Outcome after refresh
+* Whether task recommendation chooses the right task
+* Whether open focus windows are calculated correctly
+
+Implementation Phase 1 — Recommendation correctness
+
+Verify and fix if needed:
+
+Current meeting:
+
+* Must be a timed event.
+* Must not be all-day.
+* Must not be _team.
+* Must not be cancelled.
+* Must not be a Focus block.
+* If multiple active events overlap, prefer:
+    1. external/CRM event
+    2. event with meetingUrl
+    3. earliest start time
+
+Next meeting prep:
+
+* Only within 60 minutes.
+* Must be external or CRM-matched.
+* Must not be internal-only.
+* Must not be all-day.
+* Must not be focus block.
+* If meeting already started, it belongs in current meeting, not next.
+
+Recently finished:
+
+* Ended within last 2 hours.
+* Must be external or CRM-matched.
+* Must not already have outcome.
+* Must not be all-day.
+* Must not be _team.
+* Prefer most recently ended.
+
+Task:
+
+* Prefer overdue before due today.
+* Prefer high priority if task priority exists.
+* Prefer meeting follow-up tasks if tied.
+* Must not recommend already completed tasks.
+* Must not recommend already scheduled tasks if scheduled state exists or session scheduled set exists.
+
+Open focus window:
+
+* Minimum 30 minutes.
+* Prefer the next upcoming open window, not one that has already started unless currently open and still has >=30 minutes left.
+* Do not recommend open window if an urgent task exists.
+
+Implementation Phase 2 — Action reliability
+
+Verify:
+
+* Join opens meetingUrl in new tab with noopener/noreferrer.
+* Open Prep opens EventDetailDialog on Prep tab.
+* Add Outcome opens EventDetailDialog on Outcome tab.
+* Schedule task action opens the existing schedule popover or focuses the task in Tasks Due Soon.
+* If action is not possible, do not show a misleading button.
+
+If needed:
+
+* Add disabled state with clear reason.
+* Add toast when action cannot be completed.
+
+Implementation Phase 3 — Copy and calmness
+
+Tune text so it is clear and not robotic.
+
+Preferred examples:
+
+* “Now: Join Port of San Diego call”
+* “Next: Prep for Oak Bay Marina”
+* “Capture outcome from Oak Bay Marina intro”
+* “Follow-up due: Send pilot proposal”
+* “Open focus window: 2:30–3:15 PM”
+* “Clear for now”
+
+Avoid:
+
+* long titles that blow up the layout
+* repeated “Meeting meeting”
+* showing raw internal IDs
+* noisy badges
+
+If title is too long:
+
+* truncate cleanly.
+
+Implementation Phase 4 — Secondary recommendation
+
+Verify secondary recommendation adds value.
+
+Rules:
+
+* Secondary should not duplicate primary.
+* If primary is current meeting, secondary may be next prep or overdue task.
+* If primary is overdue task, secondary may be open focus window.
+* If primary is clear state, secondary can show next meeting/task if available.
+* Hide secondary if it creates clutter or duplicates.
+
+Implementation Phase 5 — Calendar disconnected/loading states
+
+Verify:
+
+* Loading state is visible and not jumpy.
+* Disconnected state clearly says:
+    “Connect Calendar to enable Now / Next.”
+* If calendar is connected but no events/tasks exist:
+    “You’re clear for now.”
+* Do not show scary empty errors when the user simply has no events.
+
+Implementation Phase 6 — Privacy/security
+
+Verify:
+
+* No team event titles ever feed into recommendations.
+* No teammate private event details appear.
+* Team busy blocks only influence open focus windows if intentionally included and only by busy start/end.
+* No event descriptions are shown in the strip.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing relevant tests
+* App boot check
+* Grep/structural checks for _team exclusion if useful
+
+Manual smoke scenarios:
+
+1. Active external meeting → shows Join/Open.
+2. Active internal-only meeting → shows Join but not Prep unless CRM-matched.
+3. External meeting in 45 minutes → shows Prep.
+4. External meeting ended 30 minutes ago, no outcome → shows Add Outcome.
+5. Same meeting after saved outcome + refresh → no Add Outcome.
+6. Overdue task and no urgent meeting → shows task.
+7. No urgent work + open 45-minute slot → shows open focus window.
+8. No work → clear state.
+9. Team busy overlay event never appears by title.
+
+Final report:
+Include:
+
+* Audit findings
+* Files changed
+* Recommendation logic adjustments
+* Action handling fixes
+* Verification results
+* Known limitations
+* Recommended next task
+
+Critical principle:
+The Now / Next strip earns trust by being boringly correct. One bad recommendation is a tiny UX crime scene.
