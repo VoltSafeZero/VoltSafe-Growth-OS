@@ -1,0 +1,198 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Run a verification and safety pass on the new Calendar / Workday Intelligence work.
+
+Context:
+The previous task added:
+
+* WorkdayAgendaPanel on today’s Calendar sidebar
+* Event classification helper
+* “Briefing” tab renamed to “Prep”
+* CRM badge on day-view event cards
+* Create Follow-Up Task inline confirmation form
+* Schedule action on Tasks Due Soon
+* Schedule popover uses existing open-window calculation
+* Clicking a suggested window creates a “Focus: [task title]” calendar block
+
+Primary goal:
+Verify the new workday intelligence behaves correctly, then tighten the task scheduling UX so it is safe and intentional.
+
+Important:
+Audit first.
+Do not create DB migrations.
+Do not redesign the whole calendar.
+Do not expose teammate private event details.
+Do not duplicate existing logic.
+Do not add fake data.
+
+Audit:
+Inspect:
+
+1. WorkdayAgendaPanel implementation
+2. classifyCalendarEvent helper
+3. EventDetailDialog Prep tab
+4. Follow-up task confirmation form
+5. Tasks Due Soon panel
+6. Task scheduling popover
+7. Calendar block creation route/mutation
+8. Existing Google Calendar write-scope handling
+9. Existing toast/error handling
+10. Team free/busy overlay logic
+
+Report:
+
+* What is working
+* What is only partially wired
+* Whether Schedule creates Google Calendar blocks immediately
+* Whether write-scope errors are handled clearly
+* Whether task scheduling has enough confirmation
+* Whether scheduled task state is tracked anywhere
+* Any privacy risks
+
+Implementation Phase 1 — Confirm before scheduling task blocks
+
+If Schedule currently creates a calendar block immediately after picking a window, change it to a safer confirmation step.
+
+Desired UX:
+
+1. User clicks “Schedule” on a task.
+2. Popover opens with suggested windows.
+3. User selects a window.
+4. Inline confirmation appears:
+    * Task title
+    * Selected date/time
+    * Duration
+    * Calendar destination if available
+    * Button: “Create Focus Block”
+    * Button: “Cancel”
+5. Only after confirming should the Google Calendar event be created.
+
+Do not make this a giant modal. Keep it compact.
+
+Implementation Phase 2 — Clear write-scope / reconnect handling
+
+Check whether the Google Calendar integration has write scope.
+
+If write scope is missing:
+
+* Do not show scheduling as if it will work.
+* Disable or soften the Schedule button.
+* Show:
+    “Reconnect Google Calendar to enable task blocking.”
+* Add action/link to Calendar Settings or Integrations.
+
+If write scope exists:
+
+* Scheduling may proceed.
+
+If the backend route returns write-scope error:
+
+* Show a clear toast.
+* Do not leave UI in loading state.
+* Do not create duplicate blocks on retry.
+
+Implementation Phase 3 — Prevent duplicate focus blocks
+
+Before creating a task calendar block:
+
+* Prevent double-click duplicate creation in the UI.
+* Disable confirm button while mutation is pending.
+* If the task already appears scheduled in local state or route response, show “Scheduled” instead of “Schedule.”
+* If no scheduledTask field exists, at least prevent duplicate creation during the current session using local component state keyed by task ID.
+
+Do not add a migration unless there is already a task scheduling/status field available and unused.
+
+Implementation Phase 4 — Better Focus Block details
+
+When creating the Google Calendar event block, ensure it includes:
+
+* Title: “Focus: [Task Title]”
+* Start/end from selected window
+* Description:
+    * Created from VoltSafe CMS
+    * Task title
+    * Task ID if available
+    * Related CRM record if available
+    * Original due date if available
+* Source/calendar: user’s primary or selected default calendar
+
+If the route already does this, verify and report.
+
+Implementation Phase 5 — Workday Agenda correctness
+
+Verify and adjust if needed:
+
+* Next Meeting should be the next upcoming event today, not an all-day event unless there are no timed events.
+* Meetings Needing Prep should include:
+    * external attendee events
+    * CRM-matched events
+* Internal-only @voltsafe.com meetings should not clutter prep unless they have CRM context.
+* Focus blocks should be classified separately.
+* All-day events should not dominate the agenda.
+
+Implementation Phase 6 — Prep tab grounding
+
+Verify:
+
+* Prep tab uses existing CRM/email/task context.
+* It does not invent details.
+* If no CRM context exists, it shows an honest empty state.
+* External attendees are shown clearly.
+* CRM match reason is visible if available.
+
+If the Prep tab still only shows raw CRM data and not a compact prep summary, add a small non-AI structured prep summary:
+
+* Why this matters
+* Recent context
+* Open tasks
+* Suggested follow-up
+
+Keep it grounded in existing data only.
+
+Implementation Phase 7 — Privacy regression check
+
+Verify:
+
+* Current user sees their own event details.
+* Team overlay still only shows “Busy.”
+* Suggested openings use only busy start/end times.
+* No teammate title/description/attendees are rendered.
+* No logs contain full private event descriptions.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing calendar tests if any
+* Relevant regression tests
+* App boot check
+* Manual screenshot of Calendar today view if feasible
+
+Specific manual checks:
+
+1. WorkdayAgendaPanel appears only for today.
+2. Next meeting is correct.
+3. Schedule task flow requires confirmation.
+4. Confirm button disables while creating.
+5. Successful scheduling refreshes calendar.
+6. Failed scheduling shows clear error.
+7. Clicking schedule twice does not create duplicate blocks.
+8. Follow-up task confirm form still works.
+9. Team busy overlays still show only “Busy.”
+10. No migrations created.
+
+Final report:
+Include:
+
+* Audit findings
+* Files changed
+* Confirmation behavior added
+* Write-scope handling status
+* Duplicate-prevention approach
+* Verification results
+* Any known limitations
+* Recommended next task
+
+Critical principle:
+Calendar actions that create real events must be intentional. Viewing can be instant. Writing to calendar should have a seatbelt.

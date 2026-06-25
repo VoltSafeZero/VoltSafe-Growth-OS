@@ -648,6 +648,10 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
     newEndTime: Date | null;
   } | null>(null);
   const [enabledOverlays, setEnabledOverlays] = useState<Set<number>>(new Set());
+  // Phase 1/2/3: task scheduling state
+  const [scheduledTaskIds, setScheduledTaskIds] = useState<Set<number>>(() => new Set());
+  const [confirmSchedule, setConfirmSchedule] = useState<{ taskId: number; task: any; window: OpenWindow } | null>(null);
+  const [popoverOpenTaskId, setPopoverOpenTaskId] = useState<number | null>(null);
   const { toast } = useToast();
 
   const [syncingAll, setSyncingAll] = useState(false);
@@ -808,6 +812,44 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
     },
     onError: (err: Error) => {
       toast({ title: "Failed to create event", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Phase 1/3/4: dedicated focus-block scheduler with confirmation + duplicate prevention
+  const scheduleFocusMutation = useMutation({
+    mutationFn: async ({ task, window: w }: { task: any; window: OpenWindow }) => {
+      const descParts = [
+        `Focus block for: ${task.title}`,
+        task.id ? `Task ID: ${task.id}` : null,
+        task.dueDate ? `Original due: ${format(new Date(task.dueDate), "MMM d, yyyy")}` : null,
+        task.linkedObjectType && task.linkedObjectId
+          ? `Linked: ${task.linkedObjectType} #${task.linkedObjectId}`
+          : null,
+        `Created from VoltSafe CMS`,
+      ].filter(Boolean).join("\n");
+      const res = await apiRequest("POST", "/api/calendar/events", {
+        title: `Focus: ${task.title}`,
+        startTime: w.start.toISOString(),
+        endTime: w.end.toISOString(),
+        eventType: "task",
+        status: "scheduled",
+        description: descParts,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message ?? "Failed to create focus block");
+      }
+      return res.json();
+    },
+    onSuccess: (_, { task }) => {
+      setScheduledTaskIds(prev => new Set([...prev, task.id]));
+      setConfirmSchedule(null);
+      setPopoverOpenTaskId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+      toast({ title: "Focus block created", description: `"Focus: ${task.title}" added to your calendar.` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not create focus block", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1223,78 +1265,151 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
             </Card>
           )}
 
-          {/* Tasks to Schedule (Phase 4) */}
-          {dueTasks.length > 0 && (
-            <Card className="border-border/50 w-52 shrink-0" data-testid="tasks-to-schedule-panel">
-              <CardContent className="p-3">
-                <div className="flex items-center gap-2 mb-3">
-                  <CheckSquare className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Tasks Due Soon</span>
-                </div>
-                <div className="space-y-2">
-                  {dueTasks.map((task: any) => {
-                    const due = new Date(task.dueDate);
-                    const overdue = due < new Date() && !isToday(due);
-                    const dueToday = isToday(due);
-                    const todayWindows = computeSuggestedOpenings(new Date(), ownEvents ?? [], []);
-                    return (
-                      <div key={task.id} className="space-y-1" data-testid={`due-task-${task.id}`}>
-                        <p className="text-xs font-medium truncate" title={task.title}>{task.title}</p>
-                        <div className="flex items-center justify-between gap-1">
-                          <p className={`text-[10px] ${overdue ? "text-red-400" : dueToday ? "text-amber-400" : "text-muted-foreground"}`}>
-                            {overdue ? "Overdue · " : dueToday ? "Due today · " : "Due "}
-                            {format(due, "MMM d")}
-                          </p>
-                          {todayWindows.length > 0 && (
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <button className="text-[10px] text-primary hover:underline shrink-0" data-testid={`button-schedule-task-${task.id}`}>Schedule</button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-52 p-2" side="left" align="start">
-                                <p className="text-xs font-medium mb-2">Schedule focus block</p>
-                                <p className="text-[10px] text-muted-foreground mb-2 truncate">Focus: {task.title}</p>
-                                <div className="space-y-1">
-                                  {todayWindows.map((w, i) => (
-                                    <Button
-                                      key={i}
-                                      variant="outline"
-                                      size="sm"
-                                      className="w-full h-7 text-[11px] justify-start gap-1.5"
-                                      data-testid={`button-schedule-window-${i}`}
-                                      onClick={() => {
-                                        createMutation.mutate({
-                                          title: `Focus: ${task.title}`,
-                                          startTime: w.start.toISOString(),
-                                          endTime: w.end.toISOString(),
-                                          eventType: "task",
-                                          status: "scheduled",
-                                          description: `Focus block for: ${task.title}\nOriginal due: ${format(due, "MMM d, yyyy")}\nCreated from VoltSafe CMS`,
-                                        });
-                                      }}
-                                      disabled={createMutation.isPending}
-                                    >
-                                      <Zap className="h-3 w-3 text-primary shrink-0" />
-                                      {format(w.start, "h:mm")}–{format(w.end, "h:mm a")}
-                                    </Button>
-                                  ))}
-                                </div>
-                                <p className="text-[10px] text-muted-foreground mt-2 text-center">Creates a calendar block</p>
-                              </PopoverContent>
-                            </Popover>
-                          )}
+          {/* Tasks to Schedule (Phase 1/2/3/4) */}
+          {dueTasks.length > 0 && (() => {
+            // Phase 2: check if any calendar is connected
+            const hasCalendarConnected = calIntegrations.length > 0 || (sourcesData && sourcesData.sources.length > 0);
+            // Compute windows once outside the map (perf fix)
+            const todayWindows = computeSuggestedOpenings(new Date(), ownEvents ?? [], []);
+            return (
+              <Card className="border-border/50 w-52 shrink-0" data-testid="tasks-to-schedule-panel">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 mb-3">
+                    <CheckSquare className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Tasks Due Soon</span>
+                  </div>
+                  <div className="space-y-2">
+                    {dueTasks.map((task: any) => {
+                      const due = new Date(task.dueDate);
+                      const overdue = due < new Date() && !isToday(due);
+                      const dueToday = isToday(due);
+                      const alreadyScheduled = scheduledTaskIds.has(task.id);
+                      const isConfirming = confirmSchedule?.taskId === task.id;
+                      const isPopoverOpen = popoverOpenTaskId === task.id;
+
+                      return (
+                        <div key={task.id} className="space-y-1" data-testid={`due-task-${task.id}`}>
+                          <p className="text-xs font-medium truncate" title={task.title}>{task.title}</p>
+                          <div className="flex items-center justify-between gap-1">
+                            <p className={`text-[10px] ${overdue ? "text-red-400" : dueToday ? "text-amber-400" : "text-muted-foreground"}`}>
+                              {overdue ? "Overdue · " : dueToday ? "Due today · " : "Due "}
+                              {format(due, "MMM d")}
+                            </p>
+                            {/* Phase 3: show "Scheduled" once done */}
+                            {alreadyScheduled ? (
+                              <span className="text-[10px] text-green-500 flex items-center gap-0.5 shrink-0" data-testid={`scheduled-badge-${task.id}`}>
+                                <CheckCheck className="h-3 w-3" /> Scheduled
+                              </span>
+                            ) : !hasCalendarConnected ? (
+                              /* Phase 2: soften when no calendar connected */
+                              <span className="text-[10px] text-muted-foreground/50 shrink-0" title="Connect a calendar to enable scheduling">
+                                Schedule
+                              </span>
+                            ) : todayWindows.length > 0 ? (
+                              /* Phase 1: two-step confirmation popover */
+                              <Popover
+                                open={isPopoverOpen}
+                                onOpenChange={(o) => {
+                                  setPopoverOpenTaskId(o ? task.id : null);
+                                  if (!o) setConfirmSchedule(null);
+                                }}
+                              >
+                                <PopoverTrigger asChild>
+                                  <button
+                                    className="text-[10px] text-primary hover:underline shrink-0"
+                                    data-testid={`button-schedule-task-${task.id}`}
+                                  >
+                                    Schedule
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-56 p-2" side="left" align="start">
+                                  {isConfirming && confirmSchedule ? (
+                                    /* Step 2: Confirm */
+                                    <div className="space-y-2.5" data-testid="schedule-confirm-step">
+                                      <div className="flex items-center gap-1.5">
+                                        <CalendarCheck className="h-3.5 w-3.5 text-primary shrink-0" />
+                                        <p className="text-xs font-medium">Confirm Focus Block</p>
+                                      </div>
+                                      <div className="rounded bg-secondary/30 border border-border/40 p-2 space-y-0.5">
+                                        <p className="text-xs font-medium truncate">Focus: {task.title}</p>
+                                        <p className="text-[10px] text-muted-foreground">{format(confirmSchedule.window.start, "EEE, MMM d")}</p>
+                                        <p className="text-[11px] text-foreground font-medium">
+                                          {format(confirmSchedule.window.start, "h:mm")}–{format(confirmSchedule.window.end, "h:mm a")}
+                                        </p>
+                                        <p className="text-[10px] text-muted-foreground">
+                                          {Math.round((confirmSchedule.window.end.getTime() - confirmSchedule.window.start.getTime()) / 60_000)} min focus block
+                                        </p>
+                                      </div>
+                                      <div className="flex gap-1.5">
+                                        <Button
+                                          size="sm" variant="ghost"
+                                          className="flex-1 h-7 text-xs"
+                                          onClick={() => setConfirmSchedule(null)}
+                                          data-testid="button-schedule-back"
+                                        >
+                                          ← Back
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          className="flex-1 h-7 text-xs gap-1"
+                                          onClick={() => scheduleFocusMutation.mutate({ task, window: confirmSchedule.window })}
+                                          disabled={scheduleFocusMutation.isPending}
+                                          data-testid="button-schedule-confirm"
+                                        >
+                                          {scheduleFocusMutation.isPending
+                                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                                            : <CircleCheck className="h-3 w-3" />}
+                                          Create
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* Step 1: Pick window */
+                                    <>
+                                      <p className="text-xs font-medium mb-1.5">Pick a time window</p>
+                                      <p className="text-[10px] text-muted-foreground mb-2 truncate">for: {task.title}</p>
+                                      <div className="space-y-1">
+                                        {todayWindows.map((w, i) => (
+                                          <Button
+                                            key={i}
+                                            variant="outline" size="sm"
+                                            className="w-full h-7 text-[11px] justify-start gap-1.5"
+                                            data-testid={`button-schedule-window-${i}`}
+                                            onClick={() => setConfirmSchedule({ taskId: task.id, task, window: w })}
+                                          >
+                                            <Zap className="h-3 w-3 text-primary shrink-0" />
+                                            {format(w.start, "h:mm")}–{format(w.end, "h:mm a")}
+                                          </Button>
+                                        ))}
+                                      </div>
+                                      <p className="text-[10px] text-muted-foreground mt-2 text-center">Select a window to continue</p>
+                                    </>
+                                  )}
+                                </PopoverContent>
+                              </Popover>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <Link href="/tasks">
-                  <Button variant="ghost" size="sm" className="w-full mt-3 h-7 text-xs text-muted-foreground" data-testid="button-view-all-tasks">
-                    View all tasks
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          )}
+                      );
+                    })}
+                  </div>
+                  {/* Phase 2: reconnect nudge */}
+                  {!hasCalendarConnected && (
+                    <div className="mt-2 pt-2 border-t border-border/30">
+                      <p className="text-[10px] text-muted-foreground text-center leading-tight">
+                        <Link href="/settings"><span className="text-primary hover:underline cursor-pointer">Connect a calendar</span></Link> to enable task scheduling.
+                      </p>
+                    </div>
+                  )}
+                  <Link href="/tasks">
+                    <Button variant="ghost" size="sm" className="w-full mt-3 h-7 text-xs text-muted-foreground" data-testid="button-view-all-tasks">
+                      View all tasks
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            );
+          })()}
         </div>
       </div>
 
@@ -3527,8 +3642,72 @@ function EventDetailDialog({
             <CRMContextTab eventId={event.id} crmCtx={crmCtx} isLoading={crmLoading} />
           </TabsContent>
 
-          {/* AI Briefing tab */}
-          <TabsContent value="briefing" className="flex-1 overflow-y-auto px-6 pb-6 mt-3">
+          {/* Prep tab — structured summary + AI briefing */}
+          <TabsContent value="briefing" className="flex-1 overflow-y-auto px-6 pb-6 mt-3 space-y-4">
+            {/* Phase 6: non-AI structured prep summary from existing data */}
+            {(() => {
+              const cls = classifyCalendarEvent(event as unknown as DisplayEvent);
+              const externalAttendees = Array.isArray(event.attendeeDetails)
+                ? (event.attendeeDetails as any[]).filter(a => !a.self && (a.email || "").includes("@") && !(a.email || "").toLowerCase().endsWith("@voltsafe.com"))
+                : [];
+              const hasAnyContext = cls.isExternal || crmCount > 0;
+              if (!hasAnyContext && !cls.needsPrep) return null;
+              return (
+                <div className="rounded-lg border border-border/40 bg-secondary/20 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-primary shrink-0" />
+                    <p className="text-sm font-medium">Prep Summary</p>
+                    <span className="text-[10px] text-muted-foreground ml-auto">from your CRM</span>
+                  </div>
+
+                  {/* Why this matters */}
+                  {crmCount > 0 && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Why this matters</p>
+                      <div className="text-xs text-foreground space-y-0.5">
+                        {crmCtx?.openOpportunities && crmCtx.openOpportunities.length > 0 && (
+                          <p>• {crmCtx.openOpportunities.length} open opportunit{crmCtx.openOpportunities.length === 1 ? "y" : "ies"} linked to attendees.</p>
+                        )}
+                        {crmCtx?.matchedAccounts && crmCtx.matchedAccounts.length > 0 && (
+                          <p>• Attendees from {crmCtx.matchedAccounts.map((a: any) => a.name || a.companyName).filter(Boolean).slice(0, 2).join(", ")}.</p>
+                        )}
+                        {crmCtx?.matchedLeads && crmCtx.matchedLeads.length > 0 && (
+                          <p>• {crmCtx.matchedLeads.length} active lead{crmCtx.matchedLeads.length === 1 ? "" : "s"} in pipeline.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* External attendees */}
+                  {externalAttendees.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">External Attendees</p>
+                      <div className="space-y-0.5">
+                        {externalAttendees.slice(0, 5).map((a: any, i: number) => (
+                          <div key={i} className="flex items-center gap-1.5">
+                            <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                              <span className="text-[8px] text-primary font-bold">{(a.displayName || a.email || "?")[0].toUpperCase()}</span>
+                            </div>
+                            <span className="text-xs text-foreground truncate">{a.displayName || a.email}</span>
+                            {a.email && a.displayName && <span className="text-[10px] text-muted-foreground truncate">{a.email}</span>}
+                            {cls.hasBusinessDomain && <span className="text-[9px] px-1 rounded bg-primary/10 border border-primary/20 text-primary">CRM</span>}
+                          </div>
+                        ))}
+                        {externalAttendees.length > 5 && (
+                          <p className="text-[10px] text-muted-foreground">+{externalAttendees.length - 5} more</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* No context honest state */}
+                  {crmCount === 0 && externalAttendees.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic">No CRM context found for this event's attendees.</p>
+                  )}
+                </div>
+              );
+            })()}
+
             <BriefingTab eventId={event.id} />
           </TabsContent>
 
