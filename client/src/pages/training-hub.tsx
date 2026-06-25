@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   GraduationCap, PlayCircle, Clock, ChevronRight,
   BookOpen, Lock, FileText, Sparkles, AlertTriangle,
-  CheckCircle2, VideoOff, Film, Radio,
+  CheckCircle2, VideoOff, Film, Radio, ListChecks,
+  ArrowRight, Check, X,
 } from "lucide-react";
 import { isDemoModeActive } from "@/lib/demo-mode";
 import {
@@ -352,6 +353,169 @@ function FutureVideoCard({
   );
 }
 
+// ── Publishing checklist (admin/demo only) ────────────────────────────────────
+
+const NEXT_ACTION_LABEL: Record<VideoStatus, string> = {
+  not_recorded:  "Run recording script",
+  raw_recorded:  "Edit into MP4",
+  edited:        "Upload & paste hosted URL",
+  hosted:        "Ready ✅",
+  needs_update:  "Re-record or update",
+};
+
+function PublishingChecklist() {
+  const total       = TRAINING_VIDEOS.length;
+  const hosted      = TRAINING_VIDEOS.filter((v) => v.status === "hosted").length;
+  const edited      = TRAINING_VIDEOS.filter((v) => v.status === "edited").length;
+  const rawRecorded = TRAINING_VIDEOS.filter((v) => v.status === "raw_recorded").length;
+  const notRecorded = TRAINING_VIDEOS.filter((v) => v.status === "not_recorded").length;
+  const needsUpdate = TRAINING_VIDEOS.filter((v) => v.status === "needs_update").length;
+
+  const progressPct = total > 0 ? Math.round((hosted / total) * 100) : 0;
+
+  let nextAction: string;
+  if (needsUpdate > 0)        nextAction = "Re-record or update stale videos first";
+  else if (rawRecorded > 0)   nextAction = "Edit raw recordings into final MP4s";
+  else if (edited > 0)        nextAction = "Upload edited MP4s and paste hosted URLs";
+  else if (notRecorded > 0)   nextAction = "Run npm recording scripts for remaining videos";
+  else                         nextAction = "All onboarding videos are hosted and ready.";
+
+  const allDone = hosted === total;
+
+  function hasRaw(v: TrainingVideo) {
+    return !!v.rawVideoPath && ["raw_recorded", "edited", "hosted", "needs_update"].includes(v.status);
+  }
+  function hasFinal(v: TrainingVideo) {
+    return !!v.finalVideoPath && ["edited", "hosted", "needs_update"].includes(v.status);
+  }
+  function hasUrl(v: TrainingVideo) {
+    return !!v.videoUrl && v.status === "hosted";
+  }
+  function hasStoryboard(v: TrainingVideo) {
+    return !!v.storyboardPath;
+  }
+
+  return (
+    <Card
+      data-testid="publishing-checklist"
+      className="border-amber-500/20 bg-amber-400/5"
+    >
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <ListChecks className="h-4 w-4 text-amber-400" />
+          <h2 className="text-sm font-semibold text-amber-300">Publishing Checklist</h2>
+          <span className="text-xs text-amber-400/60 ml-auto">admin only</span>
+        </div>
+      </CardHeader>
+
+      <CardContent className="pt-0 space-y-5">
+
+        {/* ── Count summary ── */}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+          {[
+            { label: "Total",       value: total,       cls: "text-foreground" },
+            { label: "Hosted",      value: hosted,      cls: "text-emerald-400" },
+            { label: "Edited",      value: edited,      cls: "text-blue-400" },
+            { label: "Raw",         value: rawRecorded, cls: "text-amber-400" },
+            { label: "Not started", value: notRecorded, cls: "text-muted-foreground" },
+            { label: "Stale",       value: needsUpdate, cls: "text-red-400" },
+          ].map(({ label, value, cls }) => (
+            <div key={label} className="bg-muted/20 rounded-lg px-2 py-2">
+              <div className={`text-lg font-bold ${cls}`}>{value}</div>
+              <div className="text-[10px] text-muted-foreground">{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Progress bar ── */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span data-testid="checklist-progress-label">
+              {hosted} of {total} video{total !== 1 ? "s" : ""} hosted
+            </span>
+            <span>{progressPct}%</span>
+          </div>
+          <div className="h-2 w-full rounded-full bg-muted/40 overflow-hidden">
+            <div
+              data-testid="checklist-progress-bar"
+              className="h-full rounded-full bg-emerald-500 transition-all"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        </div>
+
+        {/* ── Next action ── */}
+        <div className="flex items-start gap-2 rounded-md border border-border/30 bg-muted/20 px-3 py-2.5">
+          <ArrowRight className={`h-3.5 w-3.5 shrink-0 mt-px ${allDone ? "text-emerald-400" : "text-amber-400"}`} />
+          <div className="text-xs">
+            <span className="font-medium text-foreground">Next action: </span>
+            <span className="text-muted-foreground">{nextAction}</span>
+          </div>
+        </div>
+
+        {/* ── Per-video table ── */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs" data-testid="checklist-table">
+            <thead>
+              <tr className="border-b border-border/30 text-muted-foreground">
+                <th className="text-left py-2 pr-3 font-medium">Video</th>
+                <th className="text-left py-2 pr-3 font-medium">Status</th>
+                <th className="text-center py-2 px-2 font-medium">Raw</th>
+                <th className="text-center py-2 px-2 font-medium">MP4</th>
+                <th className="text-center py-2 px-2 font-medium">URL</th>
+                <th className="text-center py-2 px-2 font-medium">Script</th>
+                <th className="text-left py-2 pl-3 font-medium">Next action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/20">
+              {TRAINING_VIDEOS.map((v) => (
+                <tr key={v.id} data-testid={`checklist-row-${v.id}`}>
+                  <td className="py-2 pr-3 text-foreground whitespace-nowrap">
+                    {v.number}. {v.title}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <StatusBadge status={v.status} />
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    {hasRaw(v)
+                      ? <Check className="h-3.5 w-3.5 text-emerald-400 mx-auto" />
+                      : <X className="h-3.5 w-3.5 text-muted-foreground/40 mx-auto" />}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    {hasFinal(v)
+                      ? <Check className="h-3.5 w-3.5 text-emerald-400 mx-auto" />
+                      : <X className="h-3.5 w-3.5 text-muted-foreground/40 mx-auto" />}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    {hasUrl(v)
+                      ? <Check className="h-3.5 w-3.5 text-emerald-400 mx-auto" />
+                      : <X className="h-3.5 w-3.5 text-muted-foreground/40 mx-auto" />}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    {hasStoryboard(v)
+                      ? <Check className="h-3.5 w-3.5 text-emerald-400 mx-auto" />
+                      : <X className="h-3.5 w-3.5 text-muted-foreground/40 mx-auto" />}
+                  </td>
+                  <td className="py-2 pl-3 text-muted-foreground whitespace-nowrap">
+                    {NEXT_ACTION_LABEL[v.status]}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── Footer note ── */}
+        <p className="text-[11px] text-muted-foreground/60">
+          For publishing instructions, see{" "}
+          <code className="bg-muted/40 px-1 rounded">onboarding-videos/HOSTING.md</code>.
+        </p>
+
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function TrainingHubPage() {
@@ -434,6 +598,9 @@ export default function TrainingHubPage() {
             </div>
           )}
         </div>
+
+        {/* ── Publishing checklist (admin/demo only) ───────────────────────── */}
+        {canSeeDevLinks && <PublishingChecklist />}
 
         {/* ── Section tabs ──────────────────────────────────────────────────── */}
         <div
