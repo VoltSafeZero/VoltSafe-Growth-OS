@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, Newspaper, RefreshCw, Send, Sliders, Sparkles, X, Zap } from "lucide-react";
+import { AlertTriangle, Bookmark, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, Newspaper, RefreshCw, Send, Sliders, Sparkles, X, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setPendingCompose, type CrmReturnContext } from "@/lib/compose-handoff";
 import { plainTextToHtml } from "@/lib/email-format";
@@ -218,7 +218,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   const { data: newsItems = [] } = useQuery<Array<{
     id: number; title: string; source: string | null;
     publishedAt: string | null; aiRelevanceScore: number | null;
-    userNote: string | null; url: string;
+    useInEmailContext: boolean; userNote: string | null; url: string;
   }>>({
     queryKey: ["/api/crm/recent-news/for-email", entityType, entityId],
     queryFn: async () => {
@@ -232,13 +232,15 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     enabled: !!entityId,
     staleTime: 30_000,
   });
-  // Auto-select items with score >= 4 when news items load
+  // Auto-select: pinned items first, then high-score (>=4) as fallback
   useEffect(() => {
     if (newsItems.length > 0 && selectedNewsIds.length === 0) {
-      const autoIds = newsItems
-        .filter(n => (n.aiRelevanceScore ?? 0) >= 4)
+      const pinned = newsItems.filter(n => n.useInEmailContext).map(n => n.id);
+      const highScore = newsItems
+        .filter(n => !n.useInEmailContext && (n.aiRelevanceScore ?? 0) >= 4)
         .slice(0, 3)
         .map(n => n.id);
+      const autoIds = pinned.length > 0 ? pinned : highScore;
       if (autoIds.length > 0) {
         setSelectedNewsIds(autoIds);
         setNewsExpanded(true);
@@ -634,7 +636,12 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
                         data-testid={`checkbox-news-${item.id}`}
                       />
                       <div className="flex-1 min-w-0">
-                        <span className="line-clamp-1 font-medium">{item.title}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="line-clamp-1 font-medium flex-1">{item.title}</span>
+                          {item.useInEmailContext && (
+                            <Bookmark className="h-2.5 w-2.5 text-primary fill-primary flex-shrink-0" title="Pinned for email context" />
+                          )}
+                        </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {item.source && <span className="text-[10px] text-muted-foreground/60">{item.source}</span>}
                           {score && (

@@ -18,7 +18,7 @@ import {
 import {
   Newspaper, Plus, ExternalLink, RefreshCw, Trash2, ChevronDown, ChevronUp,
   Loader2, AlertTriangle, Edit3, Tag, Clock, Star, Check, X,
-  TrendingUp, Lightbulb, ListOrdered,
+  TrendingUp, Lightbulb, ListOrdered, Bookmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -49,6 +49,7 @@ interface NewsItem {
   aiStatus: "pending" | "processing" | "done" | "failed";
   processingError: string | null;
   isArchived: boolean;
+  useInEmailContext: boolean;
 }
 
 const RELEVANCE_TYPES = [
@@ -261,11 +262,13 @@ interface NewsCardProps {
   onRefresh: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onToggleEmailContext: () => void;
   isRefreshing: boolean;
   isDeleting: boolean;
+  isTogglingContext: boolean;
 }
 
-function NewsCard({ item, onRefresh, onDelete, onEdit, isRefreshing, isDeleting }: NewsCardProps) {
+function NewsCard({ item, onRefresh, onDelete, onEdit, onToggleEmailContext, isRefreshing, isDeleting, isTogglingContext }: NewsCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const hasAi = item.aiStatus === "done" && item.aiSummary;
@@ -357,6 +360,24 @@ function NewsCard({ item, onRefresh, onDelete, onEdit, isRefreshing, isDeleting 
               data-testid={`button-news-refresh-${item.id}`}
             >
               {isRefreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            </Button>
+            <Button
+              variant="ghost" size="icon"
+              className={cn(
+                "h-7 w-7",
+                item.useInEmailContext
+                  ? "text-primary hover:text-primary/70"
+                  : "text-muted-foreground hover:text-primary"
+              )}
+              onClick={onToggleEmailContext}
+              disabled={isTogglingContext}
+              title={item.useInEmailContext ? "Pinned for email context — click to unpin" : "Pin for email context"}
+              data-testid={`button-news-email-context-${item.id}`}
+            >
+              {isTogglingContext
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Bookmark className={cn("h-3.5 w-3.5", item.useInEmailContext && "fill-primary")} />
+              }
             </Button>
             <Button
               variant="ghost" size="icon"
@@ -470,6 +491,7 @@ export function RecentNewsPanel({ entityType, entityId }: Props) {
   const [editItem, setEditItem] = useState<NewsItem | null>(null);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [togglingContextId, setTogglingContextId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   const qKey = ["/api/crm/recent-news", entityType, entityId];
@@ -518,6 +540,21 @@ export function RecentNewsPanel({ entityType, entityId }: Props) {
       toast({ title: "Delete failed", description: err?.message, variant: "destructive" });
     },
     onSettled: () => setDeletingId(null),
+  });
+
+  const emailContextMutation = useMutation({
+    mutationFn: async (id: number) => {
+      setTogglingContextId(id);
+      return apiRequest("POST", `/api/crm/recent-news/${id}/use-in-email-context`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qKey });
+      queryClient.invalidateQueries({ queryKey: ["/api/crm/recent-news/for-email", entityType, entityId] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not update pin", description: err?.message, variant: "destructive" });
+    },
+    onSettled: () => setTogglingContextId(null),
   });
 
   const active = items.filter(i => !i.isArchived);
@@ -613,8 +650,10 @@ export function RecentNewsPanel({ entityType, entityId }: Props) {
                     onRefresh={() => refreshMutation.mutate(item.id)}
                     onDelete={() => deleteMutation.mutate(item.id)}
                     onEdit={() => setEditItem(item)}
+                    onToggleEmailContext={() => emailContextMutation.mutate(item.id)}
                     isRefreshing={refreshingId === item.id && refreshMutation.isPending}
                     isDeleting={deletingId === item.id && deleteMutation.isPending}
+                    isTogglingContext={togglingContextId === item.id && emailContextMutation.isPending}
                   />
                 ))}
               </div>
