@@ -1,0 +1,182 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Run a closed-loop verification and light hardening pass for Calendar → CRM Outcome → Follow-up Task → Workday Agenda.
+
+Context already completed:
+
+* Calendar events render.
+* EventDetailDialog has Prep and Outcome tabs.
+* Outcome tab can save calendar_meeting_outcome activities.
+* Meeting outcome activities render cleanly in CRM timelines.
+* Outcome rawContent now includes structured __meta with calendarEventId, providerEventId, eventStart/eventEnd, related CRM entity, and source marker.
+* Outcome tab detects already-saved outcomes across sessions.
+* Save + Task creates follow-up task.
+* Workday Agenda has Recently Finished.
+* Tasks Due Soon panel exists.
+* Task focus-block scheduling exists with confirmation.
+* Team free/busy remains privacy-safe.
+
+Primary goal:
+Verify and harden the full loop:
+Calendar meeting → outcome captured → CRM timeline updated → follow-up task created → task appears in workday/task surfaces → scheduled into calendar if needed.
+
+Important:
+Audit first.
+Do not create destructive migrations.
+Do not redesign the whole calendar.
+Do not expose teammate private event details.
+Do not add fake data.
+Do not auto-generate AI summaries unless existing safe pattern exists.
+
+Audit first:
+Inspect:
+
+1. Outcome save mutation.
+2. Save + Task mutation.
+3. POST /api/tasks shape and response.
+4. Tasks Due Soon query/filter logic on Calendar page.
+5. Main Tasks page/task list rendering.
+6. CRM timeline rendering for calendar_meeting_outcome.
+7. WorkdayAgendaPanel logic.
+8. Recently Finished logic.
+9. Outcome saved detection logic.
+10. AI/CRM intelligence context invalidation/refetch patterns.
+11. Any tests around calendar, activities, tasks, or permissions.
+
+Report:
+
+* Whether Save + Task links task correctly to CRM entity.
+* Whether created task appears in Tasks Due Soon.
+* Whether created task appears in the main Tasks page.
+* Whether created task can be scheduled into a calendar focus block.
+* Whether Workday Agenda reflects follow-up tasks.
+* Whether saved outcomes are excluded from Recently Finished, if reliable.
+* Whether CRM activity timeline updates without reload.
+
+Implementation Phase 1 — Ensure follow-up task appears everywhere useful
+
+After Save + Task:
+
+* Invalidate/refetch:
+    * tasks queries used by Calendar page
+    * task list page query key, if known
+    * CRM context query
+    * related CRM activity timeline query
+* Show success toast:
+    “Outcome saved and follow-up task created.”
+
+If currently only CRM context is invalidated, add missing invalidations.
+
+Verify the created task includes:
+
+* title: Follow up: [Event Title]
+* due date from selected option
+* linkedObjectType / linkedObjectId or equivalent CRM linkage
+* notes with outcome, next step, event title/time, attendees
+* priority/status if existing task API expects them
+
+Implementation Phase 2 — Recently Finished should respect saved outcomes
+
+If saved outcome detection is reliable from structured __meta:
+
+* Events with saved outcomes should either:
+    A) disappear from “Recently Finished,” or
+    B) show “Outcome saved” instead of “Add Outcome.”
+
+Preferred:
+Show them with a small green “Outcome saved” badge, not as an action item.
+
+Do not do risky overmatching.
+Use event ID/providerEventId/eventStart where available.
+If detection only works after opening dialog, report limitation and propose route-level support later.
+
+Implementation Phase 3 — Workday Agenda should surface follow-up tasks
+
+Make sure Workday Agenda’s task/action section includes:
+
+* overdue tasks
+* due today tasks
+* newly created meeting follow-up tasks
+* tasks linked to CRM records
+
+If the existing Workday Agenda task list is too generic, add a small label:
+“Meeting follow-up”
+when the task title starts with “Follow up:” or notes/source indicate calendar outcome.
+
+Implementation Phase 4 — Main Tasks Due Soon panel polish
+
+For follow-up tasks created from a meeting:
+
+* Show linked CRM record if available.
+* Show due date.
+* Show Schedule action.
+* Preserve duplicate-prevention and confirmation behavior.
+* If scheduled into focus block, show Scheduled badge for the session.
+
+Implementation Phase 5 — CRM timeline freshness
+
+After saving outcome:
+
+* Ensure related CRM timeline can show the new Meeting Outcome without a full page reload if the user navigates there.
+* If using React Query, invalidate the relevant activity/timeline query keys.
+* If exact query key is uncertain, invalidate broad activity queries safely.
+
+Implementation Phase 6 — AI context refresh readiness
+
+Do not auto-generate expensive AI summaries.
+
+But ensure:
+
+* CRM context/intelligence queries are invalidated after outcome save.
+* The next manual AI summary generation can see the newly saved Meeting Outcome.
+* If an existing “Refresh AI Summary” button exists on CRM records, leave it intact.
+
+Implementation Phase 7 — Privacy/security check
+
+Verify:
+
+* Team busy overlay events cannot create outcomes.
+* Outcome/task creation only uses current user’s own event details.
+* No teammate private calendar titles/descriptions are exposed.
+* Activity/task permissions are respected.
+* Private event descriptions are not stored unless intentionally included.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing relevant tests
+* App boot check
+* Activity/task/calendar smoke tests if available
+
+Manual smoke test:
+
+1. Open a recently finished external/CRM meeting.
+2. Save Outcome.
+3. Confirm timeline shows Meeting Outcome.
+4. Reopen same event and confirm Outcome saved is detected.
+5. Use Save + Task.
+6. Confirm task appears in Calendar Tasks Due Soon.
+7. Confirm task appears in main Tasks page.
+8. Schedule the task into a focus block.
+9. Confirm focus block appears on calendar.
+10. Confirm no duplicate task/block creation on repeated clicks.
+11. Confirm team busy overlays still only show Busy.
+
+Final report:
+Include:
+
+* Audit findings.
+* Files changed.
+* Query invalidations added.
+* Whether follow-up tasks appear in Calendar and Tasks page.
+* Whether Recently Finished respects saved outcomes.
+* Whether CRM timeline refresh works.
+* Whether AI context is ready to include outcomes.
+* Privacy verification.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+A captured meeting outcome should immediately become part of the operating system: CRM memory, next task, calendar focus time, and tomorrow’s workday agenda.
