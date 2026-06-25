@@ -5,8 +5,19 @@
  * AI-powered summarisation (summary, strategic relevance, outreach angle,
  * key points, relevance score) and compact context assembly for AI email
  * generation.
+ *
+ * SSRF protection layers (defence-in-depth):
+ *  L1 — Protocol allowlist: only http/https accepted
+ *  L2 — Hostname regex blocklist: catches literal private IPs / hostnames
+ *  L3 — DNS pre-resolution: resolves every hop's hostname; blocks if any
+ *        returned IP is private, loopback, link-local, multicast or reserved
+ *  L4 — Manual redirect following (max 3): re-runs L1–L3 on each Location
+ *        header before following the hop
+ *  L5 — Final URL re-check: the URL we actually read is verified again
  */
 
+import dns from "dns/promises";
+import net from "net";
 import OpenAI from "openai";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
@@ -23,7 +34,14 @@ function buildOpenAIClient(): OpenAI | null {
   return new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
 }
 
-// ─── SSRF guard ────────────────────────────────────────────────────────────────
+// ─── Allowed entity types ──────────────────────────────────────────────────────
+
+export const VALID_ENTITY_TYPES = new Set([
+  "lead", "account", "contact", "partner",
+  "marina", "utility", "port", "investor", "other",
+]);
+
+// ─── SSRF — L1/L2: protocol + hostname regex guard ────────────────────────────
 
 const PRIVATE_IP_RE = [
   /^localhost$/i,
@@ -35,14 +53,8 @@ const PRIVATE_IP_RE = [
   /^fc00:/i,
   /^fe80:/i,
   /^0\.0\.0\.0$/,
-  /^169\.254\.\d+\.\d+$/,  // link-local + AWS/GCP metadata service
+  /^169\.254\.\d+\.\d+$/,  // link-local + AWS/GCP/Azure metadata service
 ];
-
-// Allowed entity types — used as a whitelist to prevent SQL injection
-export const VALID_ENTITY_TYPES = new Set([
-  "lead", "account", "contact", "partner",
-  "marina", "utility", "port", "investor", "other",
-]);
 
 export function isUrlSafe(url: string): { ok: boolean; reason?: string } {
   let parsed: URL;
@@ -51,16 +63,100 @@ export function isUrlSafe(url: string): { ok: boolean; reason?: string } {
   } catch {
     return { ok: false, reason: "Invalid URL format" };
   }
+  // L1 — protocol allowlist
   if (!["http:", "https:"].includes(parsed.protocol)) {
-    return { ok: false, reason: "Only http and https URLs are allowed" };
+    return { ok: false, reason: `Protocol '${parsed.protocol}' is not allowed; only http and https are permitted` };
   }
+  // L2 — hostname regex (catches literal IPs and well-known private hostnames)
   const hostname = parsed.hostname;
   for (const re of PRIVATE_IP_RE) {
     if (re.test(hostname)) {
-      return { ok: false, reason: "Private/internal URLs are not allowed" };
+      return { ok: false, reason: "Private/internal hostnames and IPs are not allowed" };
     }
   }
   return { ok: true };
+}
+
+// ─── SSRF — L3: DNS pre-resolution IP check ───────────────────────────────────
+
+/**
+ * Returns true if the given IP address string (IPv4 or IPv6) falls in a
+ * private, loopback, link-local, multicast, or reserved range.
+ */
+export function isIpPrivate(ip: string): boolean {
+  // --- IPv4 ---
+  if (net.isIPv4(ip)) {
+    const parts = ip.split(".").map(Number);
+    const [a, b, c] = parts;
+    if (a === 0)                                    return true;  // 0.0.0.0/8      this-network
+    if (a === 10)                                   return true;  // 10.0.0.0/8     RFC-1918
+    if (a === 100 && b >= 64 && b <= 127)           return true;  // 100.64.0.0/10  CGNAT (RFC-6598)
+    if (a === 127)                                  return true;  // 127.0.0.0/8    loopback
+    if (a === 169 && b === 254)                     return true;  // 169.254.0.0/16 link-local / metadata
+    if (a === 172 && b >= 16 && b <= 31)            return true;  // 172.16.0.0/12  RFC-1918
+    if (a === 192 && b === 0 && c === 0)            return true;  // 192.0.0.0/24   IETF protocol assignments
+    if (a === 192 && b === 168)                     return true;  // 192.168.0.0/16 RFC-1918
+    if (a === 198 && (b === 18 || b === 19))        return true;  // 198.18.0.0/15  benchmarking
+    if (a === 198 && b === 51 && c === 100)         return true;  // 198.51.100.0/24 TEST-NET-2
+    if (a === 203 && b === 0 && c === 113)          return true;  // 203.0.113.0/24 TEST-NET-3
+    if (a >= 224)                                   return true;  // 224.0.0.0/4    multicast + reserved
+    return false;
+  }
+  // --- IPv6 ---
+  if (net.isIPv6(ip)) {
+    const norm = ip.toLowerCase();
+    if (norm === "::" || norm === "::1")            return true;  // unspecified / loopback
+    if (norm.startsWith("::ffff:"))                 return true;  // IPv4-mapped (check inner IPv4 below)
+    if (norm.startsWith("fc") || norm.startsWith("fd")) return true;  // fc00::/7 ULA
+    // fe80::/10 link-local covers fe80–febf
+    const prefix16 = norm.replace(/:/g, "").slice(0, 4);
+    const p = parseInt(prefix16, 16);
+    if (p >= 0xfe80 && p <= 0xfebf)                return true;  // fe80::/10 link-local
+    if (norm.startsWith("ff"))                      return true;  // ff00::/8  multicast
+    return false;
+  }
+  return false;  // neither IPv4 nor IPv6 — allow (shouldn't happen)
+}
+
+/**
+ * Resolve a hostname via DNS and confirm none of the returned addresses
+ * are private/internal.  For literal IP addresses the regex guard (L2)
+ * is the primary check; this function adds defence-in-depth.
+ */
+async function dnsCheckHostname(hostname: string): Promise<{ ok: boolean; reason?: string }> {
+  // If it's already a literal IP, isIpPrivate is enough.
+  if (net.isIP(hostname)) {
+    return isIpPrivate(hostname)
+      ? { ok: false, reason: `IP address ${hostname} is private/internal/reserved` }
+      : { ok: true };
+  }
+
+  try {
+    const addresses = await dns.lookup(hostname, { all: true, family: 0 });
+    for (const { address } of addresses) {
+      if (isIpPrivate(address)) {
+        return { ok: false, reason: `Hostname '${hostname}' resolves to private/internal IP (${address})` };
+      }
+    }
+    if (addresses.length === 0) {
+      return { ok: false, reason: `Hostname '${hostname}' did not resolve to any address` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, reason: `DNS resolution failed for '${hostname}': ${err?.message || "unknown"}` };
+  }
+}
+
+/**
+ * Full SSRF check for a URL string: protocol allowlist (L1) + hostname regex
+ * (L2) + DNS pre-resolution (L3).  Used on every hop of a redirect chain.
+ */
+async function fullSsrfCheck(url: string): Promise<{ ok: boolean; reason?: string }> {
+  const syntaxCheck = isUrlSafe(url);  // L1 + L2
+  if (!syntaxCheck.ok) return syntaxCheck;
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return { ok: false, reason: "Invalid URL" }; }
+  return dnsCheckHostname(parsed.hostname);  // L3
 }
 
 export function normalizeUrl(url: string): string {
@@ -129,7 +225,7 @@ function extractPlainText(html: string): string {
   return text.length > 6000 ? text.slice(0, 6000) + "…" : text;
 }
 
-// ─── Article fetch ─────────────────────────────────────────────────────────────
+// ─── Article fetch (with full SSRF protection) ─────────────────────────────────
 
 export interface ArticleMetadata {
   title: string | null;
@@ -141,53 +237,100 @@ export interface ArticleMetadata {
   fetchError: string | null;
 }
 
-const MAX_RESPONSE_BYTES = 2_000_000; // 2 MB
-const FETCH_TIMEOUT_MS   = 12_000;
+const MAX_RESPONSE_BYTES = 2_000_000;  // 2 MB
+const FETCH_TIMEOUT_MS   = 12_000;     // 12 s
+const MAX_REDIRECTS      = 3;          // max hops we'll follow
+
+const FETCH_HEADERS = {
+  "User-Agent": "VoltSafeBot/1.0 (news article context extraction)",
+  "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+};
 
 export async function fetchArticleMetadata(url: string): Promise<ArticleMetadata> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const EMPTY: ArticleMetadata = { title: null, source: null, author: null, publishedAt: null, description: null, extractedText: null, fetchError: null };
 
-    let res: Response;
-    try {
-      res = await fetch(url, {
+  // ── L1 + L2: syntax + hostname regex check ───────────────────────────────
+  const syntaxCheck = isUrlSafe(url);
+  if (!syntaxCheck.ok) {
+    return { ...EMPTY, fetchError: syntaxCheck.reason || "URL not allowed" };
+  }
+
+  // ── L3: DNS pre-resolution of the initial URL ─────────────────────────────
+  try {
+    const dnsCheck = await fullSsrfCheck(url);
+    if (!dnsCheck.ok) {
+      return { ...EMPTY, fetchError: dnsCheck.reason || "URL blocked by SSRF protection" };
+    }
+  } catch {
+    return { ...EMPTY, fetchError: "DNS pre-check failed" };
+  }
+
+  // ── L4: Manual redirect following (max 3 hops, per-hop SSRF check) ────────
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    let currentUrl = url;
+    let res!: Response;
+
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      res = await fetch(currentUrl, {
         signal: controller.signal,
-        // 'follow' is the default; we check the final URL below for SSRF protection
-        redirect: "follow",
-        headers: {
-          "User-Agent": "VoltSafeBot/1.0 (news article context extraction)",
-          "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-        },
+        redirect: "manual",   // we handle redirects ourselves
+        headers: FETCH_HEADERS,
       });
-    } finally {
-      clearTimeout(timer);
+
+      // Is this a redirect?
+      if (res.status >= 300 && res.status < 400) {
+        if (hop >= MAX_REDIRECTS) {
+          return { ...EMPTY, fetchError: `Too many redirects (max ${MAX_REDIRECTS})` };
+        }
+        const location = res.headers.get("location");
+        if (!location) {
+          return { ...EMPTY, fetchError: "Redirect with no Location header" };
+        }
+        // Resolve relative Location against the current URL
+        const nextUrl = new URL(location, currentUrl).toString();
+
+        // L1 + L2 + L3 on each hop
+        const hopCheck = await fullSsrfCheck(nextUrl);
+        if (!hopCheck.ok) {
+          return { ...EMPTY, fetchError: `Redirect blocked: ${hopCheck.reason}` };
+        }
+
+        currentUrl = nextUrl;
+        continue;  // follow the hop
+      }
+
+      // Non-redirect — we're done navigating
+      break;
     }
 
-    // ── SSRF redirect protection ────────────────────────────────────────────
-    // fetch() follows redirects automatically. Check the *final* URL so that
-    // a public URL redirecting to 169.254.169.254 (metadata service) is caught.
+    // ── L5: Final URL re-check ─────────────────────────────────────────────
+    // res.url on a manual-redirect fetch reflects the final URL we fetched
     if (res.url && res.url !== url) {
       const finalCheck = isUrlSafe(res.url);
       if (!finalCheck.ok) {
-        return { title: null, source: null, author: null, publishedAt: null, description: null, extractedText: null, fetchError: "Redirect to restricted URL blocked" };
+        return { ...EMPTY, fetchError: `Redirect to restricted URL blocked` };
       }
     }
 
     if (!res.ok) {
-      return { title: null, source: null, author: null, publishedAt: null, description: null, extractedText: null, fetchError: `HTTP ${res.status}` };
+      return { ...EMPTY, fetchError: `HTTP ${res.status}` };
     }
 
+    // ── Content-type guard ─────────────────────────────────────────────────
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) {
-      return { title: null, source: null, author: null, publishedAt: null, description: null, extractedText: null, fetchError: "Not an HTML page" };
+      return { ...EMPTY, fetchError: "Not an HTML page" };
     }
 
-    // ── Response size cap ───────────────────────────────────────────────────
+    // ── Max response size ──────────────────────────────────────────────────
     const buffer = await res.arrayBuffer();
     const slice = buffer.byteLength > MAX_RESPONSE_BYTES ? buffer.slice(0, MAX_RESPONSE_BYTES) : buffer;
     const html = new TextDecoder().decode(slice);
 
+    // ── Extract metadata — raw HTML is NEVER returned to clients ───────────
     const ogTitle      = extractOgTag(html, "og:title");
     const twitterTitle = extractOgTag(html, "twitter:title");
     const ogSiteName   = extractOgTag(html, "og:site_name");
@@ -208,6 +351,7 @@ export async function fetchArticleMetadata(url: string): Promise<ArticleMetadata
       author:        extractMetaTag(html, "author")?.slice(0, 200) ?? null,
       publishedAt:   ogPub?.slice(0, 100) ?? null,
       description:   (ogDesc || extractMetaTag(html, "description"))?.slice(0, 1000) ?? null,
+      // Stored for AI summarisation only. Never returned to clients, never used in email prompts.
       extractedText: extractPlainText(html) || null,
       fetchError:    null,
     };
@@ -215,7 +359,9 @@ export async function fetchArticleMetadata(url: string): Promise<ArticleMetadata
     const msg = err?.name === "AbortError"
       ? "Fetch timeout (12s)"
       : String(err?.message || "Unknown fetch error").slice(0, 200);
-    return { title: null, source: null, author: null, publishedAt: null, description: null, extractedText: null, fetchError: msg };
+    return { ...EMPTY, fetchError: msg };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -254,21 +400,19 @@ export async function generateNewsAiSummary(
   title: string | null,
   source: string | null,
   description: string | null,
-  extractedText: string | null,
+  extractedText: string | null,  // used ONLY for this summarisation step — never email prompts
   userNote: string | null,
   entityContext: string,
 ): Promise<NewsAiResult | null> {
   const openai = buildOpenAIClient();
   if (!openai) return null;
 
-  // extracted_text is used for AI summarisation input only — it is never
-  // passed to email generation prompts (see buildNewsContextBlock).
   const contentBlock = [
-    title       ? `Title: ${title}`                                        : null,
-    source      ? `Source: ${source}`                                      : null,
-    description ? `Description: ${description}`                            : null,
-    extractedText ? `Article text:\n${extractedText.slice(0, 4000)}`      : null,
-    userNote    ? `User note: ${userNote}`                                 : null,
+    title       ? `Title: ${title}`                                   : null,
+    source      ? `Source: ${source}`                                 : null,
+    description ? `Description: ${description}`                       : null,
+    extractedText ? `Article text:\n${extractedText.slice(0, 4000)}` : null,
+    userNote    ? `User note: ${userNote}`                            : null,
   ].filter(Boolean).join("\n\n");
 
   if (!contentBlock.trim()) return null;
@@ -277,8 +421,8 @@ export async function generateNewsAiSummary(
     const resp = await openai.chat.completions.create({
       ...buildOpenAIModelParams(),
       messages: [
-        { role: "system",  content: AI_SYSTEM_PROMPT },
-        { role: "user",    content: `CRM entity context: ${entityContext}\n\nArticle URL: ${url}\n\n${contentBlock}` },
+        { role: "system", content: AI_SYSTEM_PROMPT },
+        { role: "user",   content: `CRM entity context: ${entityContext}\n\nArticle URL: ${url}\n\n${contentBlock}` },
       ],
       response_format: { type: "json_object" },
       max_tokens: 800,
@@ -360,7 +504,7 @@ export async function processNewsItem(newsId: number): Promise<void> {
       meta.title || row.title,
       meta.source || row.source,
       meta.description,
-      meta.extractedText,
+      meta.extractedText,   // used here for AI summarisation only
       user_note,
       entityContext,
     );
@@ -378,7 +522,7 @@ export async function processNewsItem(newsId: number): Promise<void> {
     if (meta.author && !row.author) sets.push(`author = '${esc(meta.author)}'`);
     if (meta.publishedAt && !row.published_at) sets.push(`published_at = '${esc(meta.publishedAt)}'`);
     if (meta.description) sets.push(`raw_excerpt = '${esc(meta.description.slice(0, 2000))}'`);
-    // extracted_text stored for AI processing only; never returned to clients
+    // extracted_text stored server-side only — never returned to clients or AI email prompts
     if (meta.extractedText) sets.push(`extracted_text = '${esc(meta.extractedText.slice(0, 10000))}'`);
 
     if (aiResult) {
@@ -443,12 +587,12 @@ export async function getRecentNewsContext(
     if (selectedIds && selectedIds.length > 0) {
       where += ` AND id IN (${selectedIds.map(Number).join(",")})`;
     } else if (selectedIds !== undefined) {
-      // Empty array explicitly provided = caller deselected everything
       return [];
     }
+    // NOTE: extracted_text is intentionally excluded from this SELECT
     const rows = (await db.execute(sql.raw(`
-      SELECT id, title, source, published_at, ai_summary, strategic_relevance, suggested_outreach_angle,
-             ai_relevance_score, use_in_email_context, user_note, url
+      SELECT id, title, source, published_at, ai_summary, strategic_relevance,
+             suggested_outreach_angle, ai_relevance_score, use_in_email_context, user_note, url
       FROM crm_recent_news
       WHERE ${where}
       ORDER BY ${EMAIL_CONTEXT_ORDER}
@@ -480,9 +624,10 @@ export async function getNewsItemsForModal(
   try {
     if (!VALID_ENTITY_TYPES.has(entityType)) return [];
     const eid = Number(entityId);
+    // NOTE: extracted_text intentionally excluded — it is for server-side AI processing only
     const rows = (await db.execute(sql.raw(`
-      SELECT id, title, source, published_at, ai_summary, strategic_relevance, suggested_outreach_angle,
-             ai_relevance_score, use_in_email_context, user_note, url, added_at
+      SELECT id, title, source, published_at, ai_summary, strategic_relevance,
+             suggested_outreach_angle, ai_relevance_score, use_in_email_context, user_note, url, added_at
       FROM crm_recent_news
       WHERE entity_type = '${entityType}' AND entity_id = ${eid}
         AND is_archived = FALSE AND ai_status = 'done' AND ai_summary IS NOT NULL
@@ -510,14 +655,20 @@ export async function getNewsItemsForModal(
 }
 
 /**
- * Build compressed context block for AI email prompts.
+ * Build compressed Recent News context block for AI email prompts.
  *
- * Rules:
- * - extracted_text is NEVER included here (stored for AI summarisation only)
- * - First 3 items (pinned or highest score) get full detail
+ * HARD RULES:
+ * - extracted_text is NEVER included (it is stored server-side for
+ *   summarisation only and must never reach email generation prompts)
+ * - raw article HTML is never included
+ * - Full-detail treatment for first 3 items (sorted by pin → score → date)
  * - Items 4+ become compact one-line bullets
- * - Max 6 items total to avoid bloating the prompt
+ * - Hard cap: 4 000 characters total (≈ 1 000 tokens); block is truncated
+ *   at a safe word boundary if it exceeds this limit
  */
+
+const MAX_CONTEXT_CHARS = 4_000;
+
 export function buildNewsContextBlock(items: NewsContextItem[]): string {
   if (!items.length) return "";
 
@@ -531,15 +682,15 @@ export function buildNewsContextBlock(items: NewsContextItem[]): string {
     ``,
   ];
 
-  // Full-detail items
+  // Full-detail items — only AI-distilled summary fields, never raw scraped content
   detailed.forEach((item, i) => {
     lines.push(`📰 [News ${i + 1}] ${item.title}`);
-    if (item.source) lines.push(`Source: ${item.source}${item.publishedAt ? ` | Published: ${item.publishedAt}` : ""}`);
+    if (item.source)      lines.push(`Source: ${item.source}${item.publishedAt ? ` | Published: ${item.publishedAt}` : ""}`);
+    lines.push(`Relevance score: ${item.relevanceScore}/5`);
     lines.push(`Summary: ${item.summary}`);
     lines.push(`Why it matters to VoltSafe: ${item.strategicRelevance}`);
     lines.push(`Suggested outreach angle: ${item.suggestedOutreachAngle}`);
-    if (item.userNote) lines.push(`User context note: ${item.userNote}`);
-    lines.push(`Relevance score: ${item.relevanceScore}/5`);
+    if (item.userNote)    lines.push(`User context note: ${item.userNote}`);
     lines.push(``);
   });
 
@@ -548,11 +699,21 @@ export function buildNewsContextBlock(items: NewsContextItem[]): string {
     lines.push(`Additional context (lower priority):`);
     bullets.forEach(item => {
       const meta = [item.source, item.publishedAt].filter(Boolean).join(", ");
-      lines.push(`• ${item.title}${meta ? ` (${meta})` : ""} — ${item.summary.slice(0, 120)}${item.summary.length > 120 ? "…" : ""}`);
+      const snippet = item.summary.length > 120 ? item.summary.slice(0, 120) + "…" : item.summary;
+      lines.push(`• ${item.title}${meta ? ` (${meta})` : ""} — ${snippet}`);
     });
     lines.push(``);
   }
 
   lines.push(`Use this news context to write a more timely, relevant, and specific email. Reference the most impactful news item naturally in the opener or reason section.`);
-  return lines.join("\n");
+
+  const block = lines.join("\n");
+
+  // ── Hard character budget ────────────────────────────────────────────────
+  if (block.length <= MAX_CONTEXT_CHARS) return block;
+
+  // Truncate safely at the last newline before the limit, never mid-HTML
+  const cutoff = block.lastIndexOf("\n", MAX_CONTEXT_CHARS);
+  return (cutoff > 0 ? block.slice(0, cutoff) : block.slice(0, MAX_CONTEXT_CHARS))
+    + "\n[…news context truncated to stay within token budget]";
 }

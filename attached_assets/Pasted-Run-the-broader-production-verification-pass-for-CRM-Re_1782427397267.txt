@@ -1,0 +1,176 @@
+Run the broader production verification pass for CRM Recent News now that SSRF protection and prompt compression have been hardened.
+
+Do not add new features unless required to fix bugs.
+
+Verify the full user workflow across Leads, Accounts, Contacts, Partners, and AI email generation.
+
+1. Entity profile verification
+
+For each entity type:
+
+- Lead
+- Account
+- Contact
+- Partner
+
+Confirm:
+
+- Recent News panel appears.
+- Correct entityType is passed.
+- Correct entityId is passed.
+- Adding news to one entity does not show it on another.
+- Archived news does not show by default.
+- Panel has a useful empty state.
+- UI does not crash if there are no news items.
+- UI does not crash if processing failed.
+
+2. Add News workflow
+
+Test adding:
+
+- A normal valid news article URL
+- A URL with no OpenGraph metadata
+- A URL that returns 404
+- A URL that times out or fails
+- A paywalled article URL if practical
+- A duplicate URL on the same entity
+- The same URL on a different entity
+
+Confirm:
+
+- Valid URL saves.
+- Metadata is extracted where possible.
+- Failed fetch still saves a useful record.
+- Duplicate same-entity URL is blocked with a clear message.
+- Same URL on a different entity is allowed.
+- User note saves.
+- Relevance type saves.
+- Tags save.
+- Processing state displays correctly.
+- Refresh Summary retries processing.
+- No console errors.
+
+3. Recent News item display
+
+For each news item confirm the panel shows:
+
+- Title
+- Source
+- Published date if available
+- Added by / added date if implemented
+- User note
+- Relevance type
+- Tags
+- Relevance score
+- AI summary
+- Strategic relevance
+- Suggested outreach angle
+- Key points
+- Processing status
+- Processing error where applicable
+- Open Article button
+- Edit action
+- Refresh Summary action
+- Archive/Delete action
+- Use in email context toggle
+
+Confirm raw HTML is never rendered.
+
+4. Edit / refresh / archive verification
+
+Confirm:
+
+- User can edit note, relevance type, tags, and use_in_email_context.
+- Refresh Summary works and updates last_processed_at.
+- Archive/delete hides the item from the default panel.
+- Audit/activity log records:
+  - created
+  - updated
+  - archived/deleted
+  - summary refreshed
+  - use_in_email_context toggled
+- Server-side permissions are enforced.
+
+5. AI email generator verification
+
+From each entity type, open the Suggested Email modal.
+
+Confirm:
+
+- Recent News Context section appears.
+- High-relevance news is auto-selected.
+- use_in_email_context news is prioritized.
+- User can manually include/exclude news.
+- Selected news IDs are sent to the backend.
+- Backend uses compressed context only.
+- Generated email naturally references the selected news when relevant.
+- Generated email does not overuse news or sound creepy.
+- Generated email does not include raw article body text.
+- Existing email generation features still work:
+  - intent modifiers
+  - user inputs
+  - selected contacts/people
+  - existing CRM context
+  - previous activity context
+
+6. Error handling
+
+Confirm:
+
+- Invalid URL shows clear validation message.
+- Unsupported protocol is rejected.
+- Failed AI processing shows a useful failed state.
+- Refresh failure does not crash UI.
+- Network/API errors show user-friendly toasts.
+- Form cannot submit empty URL.
+- Long tags/notes do not break layout.
+- Long article titles do not break layout.
+
+7. Permissions
+
+Test as:
+
+- Regular user
+- Admin
+- Master admin
+
+Confirm:
+
+- All users can view/add news.
+- Regular users can edit their own notes/context.
+- Regular users cannot archive/delete others’ news if that is the intended rule.
+- Admin/master admin can archive/delete/refresh any item.
+- Permission checks happen server-side.
+
+8. Performance
+
+Confirm:
+
+- Profile page load remains fast.
+- Recent News fetch is scoped to entity only.
+- Polling every 4 seconds stops when processing completes.
+- No infinite polling.
+- Adding a news item does not block the UI while AI processing happens.
+- Email modal does not load huge article bodies.
+
+9. Tests
+
+Run:
+
+- Recent News tests
+- AI email generation tests
+- permissions tests
+- relevant smoke tests
+- TypeScript/build checks if available
+
+Confirm no new failures.
+
+10. Final report
+
+Return:
+
+- What passed
+- Bugs found and fixed
+- Files changed
+- Any remaining risks
+- Whether the feature is ready for real team use
