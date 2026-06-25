@@ -1,0 +1,65 @@
+Great work on the first scalability hardening pass.
+
+Now please complete the next phase with the explicit target of supporting 100 concurrent active users under realistic mixed load.
+
+Important:
+The previous pass improved estimated capacity to ~40–60 concurrent users. The goal now is to close the gap to 100 concurrent users with measured evidence, not just estimates.
+
+Phase 2 tasks:
+
+1. Run the new k6 load tests if possible
+- Run smoke.js
+- Run normal-load.js
+- Run scale-target.js
+- Run spike.js
+- Capture p50/p95/p99 latency, error rate, failed requests, and any server-side bottlenecks.
+- If k6 cannot run inside Replit, document the exact command I should run externally.
+
+2. Identify the actual bottleneck at 100 concurrent users
+Use the new `/api/admin/performance` endpoint and logs to determine whether the limiting factor is:
+- DB pool waiting count
+- slow queries
+- OpenAI latency / queueing
+- Gmail/calendar background jobs
+- Node event loop lag
+- CPU/memory
+- specific API endpoints
+- client-side overfetching
+
+3. Implement the next highest-impact fix based on evidence
+Likely candidates:
+- Node.js cluster mode / multi-worker support
+- full scheduler worker separation
+- OpenAI request queueing
+- endpoint-level caching for dashboard/revenue intelligence
+- query optimization for slow endpoints
+- DB pool tuning beyond 20 if safe
+- reducing oversized API payloads
+
+Do not guess. Use the measured bottleneck.
+
+4. Add 100-concurrent acceptance criteria
+Update `docs/scalability-audit.md` with:
+- measured test results
+- whether 100 concurrent passed or failed
+- bottleneck found
+- fix implemented
+- retest results
+- remaining risk
+
+5. Final target
+The system should pass or clearly report why it cannot yet pass:
+- 100 concurrent users
+- mixed realistic CRM/Mail/Dashboard/API usage
+- p95 normal API latency under 800ms
+- p95 heavy endpoint latency under 1500ms where practical
+- error rate under 1%
+- no DB pool starvation
+- no duplicate background jobs
+- no sensitive data in logs or admin performance endpoint
+
+Constraints:
+- No destructive schema changes.
+- No major rewrite unless clearly justified by load-test evidence.
+- Keep changes surgical and production-safe.
+- If the system cannot realistically hit 100 concurrent on current Replit infrastructure, say so plainly and identify the required hosting/infrastructure change.

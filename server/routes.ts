@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
+import { cacheFor, cacheInvalidate } from "./cache";
 import { pick } from "./utils";
 import { normalizeSource, buildNormalizeCaseExpr, BUCKET_LABELS, SOURCE_BUCKETS } from "./source-attribution";
 import {
@@ -1084,14 +1085,14 @@ export async function registerRoutes(
       getThreadAccountMomentum,
     } = await import("./services/revenue-intelligence");
 
-    app.get("/api/revenue-intelligence/command-center", requireAuth, heavyAnalyticsRateLimiter, async (req, res) => {
+    app.get("/api/revenue-intelligence/command-center", requireAuth, heavyAnalyticsRateLimiter, cacheFor(30), async (req, res) => {
       try {
         const data = await getCommandCenterData();
         res.json(data);
       } catch (err: any) { res.status(500).json({ message: err.message }); }
     });
 
-    app.get("/api/revenue-intelligence/heatmap", requireAuth, heavyAnalyticsRateLimiter, async (req, res) => {
+    app.get("/api/revenue-intelligence/heatmap", requireAuth, heavyAnalyticsRateLimiter, cacheFor(30), async (req, res) => {
       try {
         const limit = Math.min(Number(req.query.limit) || 50, 200);
         const data  = await getEngagementHeatmap(limit);
@@ -1160,7 +1161,7 @@ export async function registerRoutes(
       } catch (err: any) { res.status(500).json({ message: err.message }); }
     });
 
-    app.get("/api/revenue-intelligence/champions", requireAuth, async (req, res) => {
+    app.get("/api/revenue-intelligence/champions", requireAuth, cacheFor(60), async (req, res) => {
       try {
         const limit = Math.min(Number(req.query.limit) || 20, 100);
         res.json(await getChampionsLeaderboard(limit));
@@ -1742,7 +1743,7 @@ export async function registerRoutes(
   app.use("/api/pipeline/rep-performance", requireAuth, requireNotAdvisor);
   app.use("/api/geocode", requireAuth);
 
-  app.get("/api/metrics", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
+  app.get("/api/metrics", requireAuth, requirePermission("crm", "view"), cacheFor(30), async (_req, res) => {
     res.json(await storage.getMetrics());
   });
 
@@ -1994,7 +1995,7 @@ export async function registerRoutes(
     }));
   });
 
-  app.get("/api/dashboard/summary", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
+  app.get("/api/dashboard/summary", requireAuth, requirePermission("crm", "view"), cacheFor(30), async (_req, res) => {
     res.json(await storage.getDashboardSummary());
   });
 
@@ -10895,7 +10896,7 @@ export async function registerRoutes(
   });
 
   // ─── Pipeline Forecast (monthly/quarterly rollup) ────────────────────────
-  app.get("/api/pipeline/forecast", requireAuth, async (req, res) => {
+  app.get("/api/pipeline/forecast", requireAuth, cacheFor(30), async (req, res) => {
     try {
       const { months = "6", ownerId, forecastCategory } = req.query as Record<string, string>;
       const lookbackMonths = Math.min(parseInt(months) || 6, 24);
@@ -26947,7 +26948,7 @@ export function registerConfluenceRoutes(app: Express) {
 
   // GET /api/revenue/dashboard
   // Aggregated revenue dashboard across all accounts with commercial data
-  app.get("/api/revenue/dashboard", requireAuth, async (req, res) => {
+  app.get("/api/revenue/dashboard", requireAuth, cacheFor(30), async (req, res) => {
     try {
       const [
         mrrR, hardwareR, slipsR, topExpansionR, phaseCountR,
