@@ -24,6 +24,7 @@ import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { EmailIdentifiersPanel } from "@/components/email-identifiers-panel";
 import { AccountEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { MousePointerClick } from "lucide-react";
+import { RecentNewsPanel } from "@/components/crm/recent-news-panel";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -578,6 +579,8 @@ export default function AccountProfilePage() {
           document.getElementById(`account-${section}-section`)?.scrollIntoView({ behavior: "smooth" });
         }}
       />
+
+      <RecentNewsPanel entityType="account" entityId={id} />
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

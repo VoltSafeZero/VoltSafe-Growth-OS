@@ -32,6 +32,7 @@ import { SendBookingLinkButton, BookingLinkStatusInline } from "@/components/Sen
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
 import { ContactEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { MousePointerClick } from "lucide-react";
+import { RecentNewsPanel } from "@/components/crm/recent-news-panel";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -518,6 +519,8 @@ export default function ContactProfilePage() {
       />
 
       <AiSummaryCard entityType="contact" entityId={id} entityName={contact?.name} />
+
+      <RecentNewsPanel entityType="contact" entityId={id} />
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

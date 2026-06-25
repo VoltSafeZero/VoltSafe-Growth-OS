@@ -1,0 +1,505 @@
+Add a “Recent News” intelligence feature to VoltSafe CMS for Leads, Accounts, Contacts, Partners, and any other CRM entity profiles where strategic context matters.
+
+Purpose:
+Users need a place to paste/add relevant news article URLs connected to a Lead, Account, Contact, Partner, Marina, Utility, Port, Investor, or other CRM entity.
+
+The system should ingest the article URL, extract/summarize the relevant context, and make that information available to VoltSafe AI when generating emails, suggested next actions, outreach timing, account strategy, meeting prep, and lead prioritization.
+
+This feature should answer:
+
+- What recent news is happening around this lead/account/contact/partner?
+- Is there a timely reason to reach out?
+- Does this news create a strategic opening for VoltSafe?
+- How should this change our outreach angle?
+- Should this news influence the next email, call, meeting, or follow-up?
+
+Feature Name:
+Recent News
+
+Where to add it:
+Add a “Recent News” section/card inside the profile/detail views for:
+
+- Leads
+- Accounts
+- Contacts
+- Partners
+- Marinas, if applicable
+- Utilities, if applicable
+- Ports, if applicable
+- Investors, if applicable
+- Any shared CRM entity detail page that supports AI context
+
+If these entity types share a common profile component, build it once as a reusable RecentNewsPanel component.
+
+Core User Workflow:
+
+1. User opens a Lead/Account/Contact/Partner profile.
+2. User finds the “Recent News” section.
+3. User clicks “Add News”.
+4. User pastes a news article URL.
+5. User can optionally add a short note explaining why the article matters.
+6. System saves the URL.
+7. System fetches metadata and article text where possible.
+8. System creates an AI summary and strategic relevance summary.
+9. The summarized/compressed context becomes available to the AI when generating emails, next actions, lead strategy, account summaries, meeting prep, and suggested outreach.
+
+UI Requirements:
+
+Add a card/section titled:
+
+Recent News
+
+Subtitle:
+Relevant articles, announcements, or market updates connected to this relationship.
+
+Card should show:
+
+- Article title
+- Source/publication
+- Published date, if available
+- Added by
+- Added date
+- URL/open link
+- AI summary
+- Strategic relevance
+- Suggested outreach angle
+- Related tags
+- Optional user note
+
+Each news item should display compactly, with expandable details.
+
+Example display:
+
+Title:
+Port of San Diego expands clean marina infrastructure program
+
+Source:
+Port of San Diego
+
+Published:
+June 2026
+
+AI Summary:
+The Port is investing in marina electrification and infrastructure modernization, with a focus on safer shore power and cleaner waterfront operations.
+
+Strategic Relevance:
+Strong outreach trigger. This aligns directly with VoltSafe’s smart shore power, leakage detection, marina pedestal modernization, and energy management story.
+
+Suggested Outreach Angle:
+Reference the announcement and position VoltSafe as a safety-first, software-enabled shore power platform that can help modernize marina electrical infrastructure.
+
+User Note:
+Good reason to reconnect with Sarah before next budget planning cycle.
+
+Buttons/actions:
+
+- Add News
+- Open Article
+- Edit Note
+- Refresh Summary
+- Delete
+- Use in Email
+- Generate Outreach Angle
+
+Add News Modal:
+
+Fields:
+
+Required:
+- URL
+
+Optional:
+- User note
+- Tags
+- Relevance type
+
+Relevance type dropdown:
+- Funding / Grant
+- Infrastructure Upgrade
+- Marina Expansion
+- Sustainability / Clean Energy
+- Safety / Compliance
+- Leadership Change
+- New Project
+- Partnership
+- Regulatory Change
+- Customer Pain Signal
+- Competitive Signal
+- General Context
+
+Tags:
+Allow freeform tags, examples:
+
+- marina electrification
+- shore power
+- safety
+- utility program
+- funding
+- clean energy
+- port infrastructure
+- pilot opportunity
+- compliance
+- expansion
+
+Database Requirements:
+
+Create a reusable table:
+
+crm_recent_news
+
+Fields:
+
+- id
+- entity_type
+- entity_id
+- url
+- normalized_url
+- title
+- source
+- author
+- published_at
+- added_by_user_id
+- added_at
+- updated_at
+- user_note
+- relevance_type
+- tags
+- raw_excerpt
+- extracted_text
+- ai_summary
+- strategic_relevance
+- suggested_outreach_angle
+- ai_key_points
+- ai_relevance_score
+- ai_status
+- last_processed_at
+- processing_error
+- is_archived
+
+entity_type values should support:
+
+- lead
+- account
+- contact
+- partner
+- marina
+- utility
+- port
+- investor
+- other
+
+Use entity_type + entity_id so one reusable news system can work across all CRM objects.
+
+Indexes:
+
+- entity_type + entity_id
+- normalized_url
+- published_at
+- added_at
+- relevance_type
+- ai_relevance_score
+
+API Requirements:
+
+Create backend endpoints:
+
+GET /api/crm/recent-news?entityType=lead&entityId=123
+Returns recent news items for that entity.
+
+POST /api/crm/recent-news
+Creates a news item.
+
+Body:
+- entityType
+- entityId
+- url
+- userNote
+- relevanceType
+- tags
+
+PUT /api/crm/recent-news/:id
+Updates user note, tags, relevance type, archive status, etc.
+
+DELETE /api/crm/recent-news/:id
+Soft delete or archive preferred.
+
+POST /api/crm/recent-news/:id/refresh-summary
+Re-fetches article metadata/text and regenerates AI summary.
+
+POST /api/crm/recent-news/:id/generate-outreach-angle
+Generates a short suggested outreach angle using this news item and the CRM entity context.
+
+POST /api/crm/recent-news/:id/use-in-email-context
+Marks this news item as important for the next AI-generated email.
+
+Article Ingestion Requirements:
+
+When a user adds a URL:
+
+1. Normalize the URL.
+2. Check if the same URL already exists for the same entity.
+3. Fetch article metadata:
+   - title
+   - source/publication
+   - author, if available
+   - published date, if available
+   - description/meta excerpt, if available
+4. Extract readable article text where possible.
+5. If full article text cannot be extracted, use available metadata, page title, OpenGraph description, and user note.
+6. Generate AI summary.
+7. Generate strategic relevance.
+8. Generate suggested outreach angle.
+9. Generate key points.
+10. Assign AI relevance score from 1 to 5.
+
+AI Summary Requirements:
+
+For each article, generate:
+
+1. Brief Summary
+Plain-language summary of what happened.
+
+2. Why It Matters to VoltSafe
+Explain why this article may be relevant to VoltSafe’s marine shore power, smart pedestal, smart connector, safety, leakage detection, energy management, marina modernization, utility, port, or electrification strategy.
+
+3. Strategic Relevance
+Explain whether this creates a reason to:
+- reach out now
+- wait
+- monitor
+- escalate
+- prepare a proposal
+- reconnect with a dormant lead
+- mention in a follow-up email
+- use as meeting prep
+
+4. Suggested Outreach Angle
+A concise outreach angle that could be used in an email or call.
+
+Example:
+“Congrats on the recent marina infrastructure announcement — it looks like safety, modernization, and electrification are becoming priorities. VoltSafe may be relevant because we help marinas modernize shore power with safer smart pedestals, smart connectors, and software visibility.”
+
+5. Key Points
+3 to 5 bullet points.
+
+6. Relevance Score
+1 to 5:
+- 1 = General background only
+- 2 = Mildly relevant
+- 3 = Useful context
+- 4 = Strong outreach trigger
+- 5 = High-priority strategic trigger
+
+AI Context Integration:
+
+Recent News must be available to VoltSafe AI in these places:
+
+1. AI-generated emails
+When generating an email to a lead/account/contact/partner, include the most relevant Recent News items as context.
+
+2. Suggested next actions
+AI should consider Recent News when suggesting:
+- follow-up timing
+- outreach reason
+- meeting prep
+- sales angle
+- lead priority
+- partner strategy
+
+3. Lead/account/contact summaries
+Entity summary should include a compressed “Recent News Context” section.
+
+4. Meeting prep
+If preparing for a meeting with a company/person, include relevant news.
+
+5. Strategic account view
+If the account has high-relevance news, surface it as an insight.
+
+Context Compression Rules:
+
+Do not dump full article text into every AI prompt.
+
+Instead, compress news into a short structured format:
+
+Recent News Context:
+- Title
+- Source
+- Published date
+- AI summary
+- Why it matters
+- Suggested outreach angle
+- Relevance score
+- User note
+
+When multiple articles exist:
+- Prioritize highest relevance score
+- Then newest published date
+- Then newest added date
+- Include max 3 full news summaries
+- Compress older/lower relevance articles into 1-line bullets
+
+Add this to AI prompt context only when relevant.
+
+UI Placement:
+
+On each entity profile page, place Recent News near:
+
+- AI Summary
+- Activity
+- Notes
+- Suggested Next Actions
+- Email composer / AI Email Generator context
+
+Ideal placement:
+Below AI Summary and above Activity.
+
+Reason:
+Recent News is strategic context, not basic CRM admin metadata.
+
+AI Email Generator Integration:
+
+When composing or generating an email from a Lead/Account/Contact/Partner:
+
+Add a selectable context box:
+
+Recent News Context
+
+Show checkboxes for relevant news items:
+
+[ ] Port expands shore power infrastructure program
+[ ] Marina announces new dock modernization project
+[ ] Utility launches demand response funding program
+
+Default:
+Automatically select news items with relevance score 4 or 5 from the last 90 days.
+
+User can manually include/exclude items.
+
+The AI should use selected Recent News to create timely, relevant outreach.
+
+Example email use:
+
+“Hi Sarah — I saw the recent announcement about your marina modernization plans. Given the focus on safer shore power and infrastructure visibility, I thought it could be timely to reconnect...”
+
+Permissions:
+
+All authenticated VoltSafe CMS users can:
+- View Recent News
+- Add news
+- Edit their own notes
+- Refresh summaries
+
+Admins can:
+- Edit/delete/archive any news item
+- View processing errors
+- Force reprocess
+
+Audit logging:
+Log:
+- news item created
+- note updated
+- summary refreshed
+- item archived/deleted
+- used in email context
+
+Error Handling:
+
+If URL fetch fails:
+- Save the URL anyway
+- Show status: “Could not fetch article automatically”
+- Allow user to manually enter title/source/summary/note
+- AI can still summarize using user note and metadata if available
+
+If article is behind paywall:
+- Save metadata and URL
+- Show message: “Full article text may not be available. Add a note if there is specific context we should remember.”
+- Do not fail the entire workflow.
+
+If duplicate URL:
+- Warn user:
+“This article is already attached to this record.”
+- Allow user to add a new note if needed.
+
+Security Requirements:
+
+- Validate URL format
+- Only allow http/https URLs
+- Prevent script injection in title, notes, summary, and extracted text
+- Do not render raw HTML from articles
+- Use plain text only
+- Enforce server-side permissions
+- Rate limit article fetch/summary generation endpoints
+- Avoid SSRF risks:
+  - Block localhost/private IP ranges
+  - Block internal network addresses
+  - Follow redirects safely
+  - Enforce timeout
+  - Limit max response size
+
+MVP Scope:
+
+Build now:
+
+1. Database table crm_recent_news
+2. Reusable RecentNewsPanel component
+3. Add panel to Leads, Accounts, Contacts, Partners
+4. Add URL + note add flow
+5. Metadata/text extraction where safe
+6. AI summary generation
+7. Strategic relevance generation
+8. Suggested outreach angle generation
+9. Relevance score
+10. List, edit note, refresh summary, archive/delete
+11. Make Recent News available to AI email generation context
+12. Show Recent News checkboxes in AI Email Generator
+13. Default-select high-relevance news from last 90 days
+14. Basic audit logging
+15. Error handling for failed fetch/paywall/duplicate URL
+
+Do not build now:
+- Automatic web monitoring
+- Scheduled news scraping
+- Google Alerts integration
+- Browser extension
+- Slack notifications
+- External CRM sync
+- Full competitive intelligence dashboard
+
+Future Phase:
+- Auto-monitor companies for fresh news
+- Weekly “lead news digest”
+- AI alerts when a high-priority lead has relevant news
+- Competitor tracking
+- Funding/grant monitoring
+- Marina modernization monitoring
+- Utility program monitoring
+- Auto-suggest leads worth contacting this week
+- News-to-email one-click outreach
+- Relationship heat score influenced by news events
+
+Acceptance Criteria:
+
+- User can add a news article URL to a lead/account/contact/partner.
+- News item appears in that entity’s Recent News panel.
+- User can add/edit a note.
+- System fetches title/source/published date where available.
+- System creates AI summary, strategic relevance, suggested outreach angle, key points, and relevance score.
+- If fetch fails, URL still saves and user can add context manually.
+- Duplicate URLs are handled cleanly.
+- Recent News appears as selectable context in AI Email Generator.
+- AI Email Generator can use selected news to write timely outreach.
+- High-relevance news from last 90 days is selected by default.
+- Recent News context is compressed before being added to AI prompts.
+- Permissions are enforced server-side.
+- No unsafe raw HTML is rendered.
+- SSRF protections exist for URL fetching.
+- Audit log records create/update/archive/refresh/use-in-email actions.
+- No console errors.
+- UI is consistent with VoltSafe CMS.
+
+Important:
+This feature should turn pasted news URLs into usable CRM intelligence.
+
+The value is not just storing links.
+
+The value is helping VoltSafe understand why the news matters and whether it creates a smart reason to reach out.

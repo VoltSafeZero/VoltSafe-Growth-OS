@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { AttachmentsSection } from "@/components/attachments-section";
+import { RecentNewsPanel } from "@/components/crm/recent-news-panel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -693,6 +694,10 @@ function PartnerDetailDialog({
 
               <div className="border-t border-border/50 pt-3">
                 <AttachmentsSection objectType="partnership" objectId={partner.id} />
+              </div>
+
+              <div className="border-t border-border/50 pt-3">
+                <RecentNewsPanel entityType="partner" entityId={partner.id} />
               </div>
 
               {canEdit && (

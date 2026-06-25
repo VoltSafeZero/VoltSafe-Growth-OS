@@ -40,6 +40,7 @@ import { SavedViewsBar } from "@/components/saved-views-bar";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
 import { EmailIdentifiersPanel } from "@/components/email-identifiers-panel";
+import { RecentNewsPanel } from "@/components/crm/recent-news-panel";
 import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, shouldShowMarinaOps, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry } from "@/lib/crm-taxonomy";
 
 
@@ -1893,6 +1894,8 @@ function LeadDetailDialog({
             </div>
 
             <AiSummaryCard entityType="lead" entityId={lead.id} entityName={lead.company} />
+
+            <RecentNewsPanel entityType="lead" entityId={lead.id} />
 
             <div className="border-t border-border/50 pt-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Emails</p>

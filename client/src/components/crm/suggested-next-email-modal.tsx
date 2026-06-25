@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, RefreshCw, Send, Sliders, Sparkles, X, Zap } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, Loader2, Mail, Mic, Newspaper, RefreshCw, Send, Sliders, Sparkles, X, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setPendingCompose, type CrmReturnContext } from "@/lib/compose-handoff";
 import { plainTextToHtml } from "@/lib/email-format";
@@ -74,13 +74,15 @@ async function fetchSuggestedEmail(
   voiceProfileId?: number | null,
   ceoWattsonInfluenceLevel?: number,
   intentModifierIds?: string[],
-  userInputs?: string
+  userInputs?: string,
+  selectedNewsIds?: number[]
 ): Promise<SuggestedEmail> {
   const body: Record<string, unknown> = {};
   if (voiceProfileId) body.voice_profile_id = voiceProfileId;
   if (ceoWattsonInfluenceLevel !== undefined) body.ceo_wattson_influence_level = ceoWattsonInfluenceLevel;
   if (intentModifierIds && intentModifierIds.length > 0) body.selectedIntentModifiers = intentModifierIds;
   if (userInputs?.trim()) body.userInputs = userInputs.trim();
+  if (selectedNewsIds !== undefined) body.selectedNewsIds = selectedNewsIds;
   const res = await fetch(`/api/crm/ai-summary/${entityType}/${entityId}/suggest-next-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -210,6 +212,40 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
   // ── User Inputs — per-generation freetext steering ───────────────────────
   const [userInputs, setUserInputs] = useState("");
 
+  // ── Recent News Context ───────────────────────────────────────────────────
+  const [selectedNewsIds, setSelectedNewsIds] = useState<number[]>([]);
+  const [newsExpanded, setNewsExpanded] = useState(false);
+  const { data: newsItems = [] } = useQuery<Array<{
+    id: number; title: string; source: string | null;
+    publishedAt: string | null; aiRelevanceScore: number | null;
+    userNote: string | null; url: string;
+  }>>({
+    queryKey: ["/api/crm/recent-news/for-email", entityType, entityId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/crm/recent-news/for-email?entityType=${entityType}&entityId=${entityId}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!entityId,
+    staleTime: 30_000,
+  });
+  // Auto-select items with score >= 4 when news items load
+  useEffect(() => {
+    if (newsItems.length > 0 && selectedNewsIds.length === 0) {
+      const autoIds = newsItems
+        .filter(n => (n.aiRelevanceScore ?? 0) >= 4)
+        .slice(0, 3)
+        .map(n => n.id);
+      if (autoIds.length > 0) {
+        setSelectedNewsIds(autoIds);
+        setNewsExpanded(true);
+      }
+    }
+  }, [newsItems]);
+
   const atModifierLimit = selectedModifiers.length >= MAX_INTENT_MODIFIERS;
 
   function toggleModifier(id: string) {
@@ -253,7 +289,7 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
     // and Continue in Mail button remain visible even if generation fails.
     setGenerationAttempted(true);
     try {
-      const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers, userInputs);
+      const data = await fetchSuggestedEmail(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers, userInputs, selectedNewsIds.length > 0 ? selectedNewsIds : undefined);
       // Frontend guard: treat a blank body as a generation failure so the user
       // sees a real error instead of a blank-looking "successful" draft.
       if (!data.body?.trim()) {
@@ -539,6 +575,93 @@ export function SuggestedNextEmailModal({ entityType, entityId, entityName, onCl
             )}
           </div>
         </div>
+
+        {/* Recent News Context — shown only when there are processed news items */}
+        {newsItems.length > 0 && (
+          <div className="py-2 border-b border-border/40">
+            <button
+              type="button"
+              onClick={() => setNewsExpanded(prev => !prev)}
+              className="flex items-center gap-2 w-full group py-0.5"
+              data-testid="button-toggle-news-context"
+            >
+              <Newspaper className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+              <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                Recent News Context
+              </span>
+              {selectedNewsIds.length > 0 && (
+                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-primary/20 text-primary text-[10px] font-semibold" data-testid="badge-news-count">
+                  {selectedNewsIds.length}
+                </span>
+              )}
+              <span className="ml-auto text-[10px] text-muted-foreground/60">
+                {newsExpanded ? "hide" : `${newsItems.length} article${newsItems.length !== 1 ? "s" : ""} available`}
+              </span>
+              {newsExpanded
+                ? <ChevronUp className="h-3 w-3 text-muted-foreground shrink-0" />
+                : <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+              }
+            </button>
+
+            {newsExpanded && (
+              <div className="mt-2 space-y-1.5" data-testid="panel-news-context">
+                <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                  Select articles to use as outreach context. The AI will reference them to write a more timely, relevant email.
+                </p>
+                {newsItems.map(item => {
+                  const isChecked = selectedNewsIds.includes(item.id);
+                  const score = item.aiRelevanceScore;
+                  return (
+                    <label
+                      key={item.id}
+                      className={cn(
+                        "flex items-start gap-2 px-2 py-1.5 rounded-md border text-xs cursor-pointer select-none transition-colors",
+                        isChecked
+                          ? "border-primary/50 bg-primary/10 text-foreground"
+                          : "border-border/40 text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                      )}
+                      data-testid={`label-news-item-${item.id}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          setSelectedNewsIds(prev =>
+                            prev.includes(item.id) ? prev.filter(id => id !== item.id) : [...prev, item.id]
+                          );
+                        }}
+                        className="h-3 w-3 rounded border-border accent-primary cursor-pointer mt-0.5 flex-shrink-0"
+                        data-testid={`checkbox-news-${item.id}`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="line-clamp-1 font-medium">{item.title}</span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {item.source && <span className="text-[10px] text-muted-foreground/60">{item.source}</span>}
+                          {score && (
+                            <span className={cn(
+                              "text-[10px] px-1 rounded",
+                              score >= 4 ? "text-orange-400 bg-orange-500/10" : "text-muted-foreground"
+                            )}>
+                              {score}/5
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+                {selectedNewsIds.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground/60 pt-0.5">
+                    {suggestion
+                      ? <>Click <strong>Regenerate Email</strong> to apply updated news context.</>
+                      : <>Click <strong>Generate Email</strong> below to include this context.</>
+                    }
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="space-y-4 mt-1">
           {/* Empty state — shown before first generation */}

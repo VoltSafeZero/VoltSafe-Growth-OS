@@ -7229,6 +7229,49 @@ export async function registerRoutes(
     }
   })();
 
+  // ── CRM Recent News migration ─────────────────────────────────────────────
+  (async () => {
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS crm_recent_news (
+          id SERIAL PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id INTEGER NOT NULL,
+          url TEXT NOT NULL,
+          normalized_url TEXT NOT NULL,
+          title TEXT,
+          source TEXT,
+          author TEXT,
+          published_at TEXT,
+          added_by_user_id INTEGER NOT NULL,
+          added_by_name TEXT,
+          added_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          user_note TEXT,
+          relevance_type TEXT,
+          tags TEXT[],
+          raw_excerpt TEXT,
+          extracted_text TEXT,
+          ai_summary TEXT,
+          strategic_relevance TEXT,
+          suggested_outreach_angle TEXT,
+          ai_key_points JSONB,
+          ai_relevance_score INTEGER,
+          ai_status TEXT NOT NULL DEFAULT 'pending',
+          last_processed_at TIMESTAMPTZ,
+          processing_error TEXT,
+          is_archived BOOLEAN NOT NULL DEFAULT FALSE
+        )
+      `));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_entity ON crm_recent_news(entity_type, entity_id)`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_score  ON crm_recent_news(ai_relevance_score DESC NULLS LAST)`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_added  ON crm_recent_news(added_at DESC)`));
+      console.log("[migration] CRM Recent News schema ready.");
+    } catch (e) {
+      console.error("[migration] CRM Recent News error:", e);
+    }
+  })();
+
   app.get("/api/admin/role-definitions", requireAuth, requireAdmin, async (_req, res) => {
     try {
       const rows = await db.execute(sql.raw(
@@ -31759,8 +31802,30 @@ export function registerConfluenceRoutes(app: Express) {
       const userInputs: string = typeof rawUserInputs === "string"
         ? rawUserInputs.trim().slice(0, 2000)
         : "";
+      // Load recent news context if caller passed selectedNewsIds ([] = none; undefined = auto-select top 3)
+      let newsContextBlock = "";
+      try {
+        const rawNewsIds = req.body?.selectedNewsIds;
+        const selectedNewsIds: number[] | undefined = Array.isArray(rawNewsIds)
+          ? rawNewsIds.map(Number).filter((n: number) => n > 0)
+          : undefined;
+        // If selectedNewsIds is empty array, skip news (user deselected all)
+        if (selectedNewsIds === undefined || selectedNewsIds.length > 0) {
+          const { getRecentNewsContext, buildNewsContextBlock } = await import("./services/crm-recent-news");
+          const newsItems = await getRecentNewsContext(
+            entityType,
+            entityId,
+            3,
+            selectedNewsIds && selectedNewsIds.length > 0 ? selectedNewsIds : undefined,
+          );
+          if (newsItems.length > 0) {
+            newsContextBlock = buildNewsContextBlock(newsItems);
+          }
+        }
+      } catch { /* news context is non-fatal */ }
+
       const { generateSuggestedNextEmail } = await import("./services/crm-ai-summary");
-      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin, ceoWattsonInfluenceLevel, undefined, intentModifierIds, userInputs);
+      const suggestion = await generateSuggestedNextEmail(entityType as any, entityId, voiceProfileId, userId, isAdmin, ceoWattsonInfluenceLevel, undefined, intentModifierIds, userInputs, newsContextBlock || undefined);
       res.json(suggestion);
     } catch (err: any) {
       const msg: string = err?.message || "Could not generate suggested email";
@@ -32569,6 +32634,235 @@ export function registerConfluenceRoutes(app: Express) {
       dismissInsight(String(entityType), Number(entityId));
       res.json({ dismissed: true });
     } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // ─── CRM Recent News ─────────────────────────────────────────────────────────
+
+  // GET /api/crm/recent-news?entityType=lead&entityId=123
+  app.get("/api/crm/recent-news", requireAuth, async (req, res) => {
+    try {
+      const { entityType, entityId } = req.query as Record<string, string>;
+      if (!entityType || !entityId || isNaN(parseInt(entityId))) {
+        return res.status(400).json({ message: "entityType and entityId are required" });
+      }
+      const eid = parseInt(entityId);
+      const etype = entityType.replace(/'/g, "");
+      const rows = (await db.execute(sql.raw(`
+        SELECT n.*, u.name as added_by_name
+        FROM crm_recent_news n
+        LEFT JOIN users u ON u.id = n.added_by_user_id
+        WHERE n.entity_type = '${etype}' AND n.entity_id = ${eid} AND n.is_archived = FALSE
+        ORDER BY n.ai_relevance_score DESC NULLS LAST, n.added_at DESC
+        LIMIT 50
+      `))).rows as any[];
+      res.json(rows.map((r: any) => ({
+        id: Number(r.id),
+        entityType: r.entity_type,
+        entityId: Number(r.entity_id),
+        url: r.url,
+        title: r.title,
+        source: r.source,
+        author: r.author,
+        publishedAt: r.published_at,
+        addedByUserId: Number(r.added_by_user_id),
+        addedByName: r.added_by_name || r.added_by_name,
+        addedAt: r.added_at,
+        userNote: r.user_note,
+        relevanceType: r.relevance_type,
+        tags: r.tags,
+        aiSummary: r.ai_summary,
+        strategicRelevance: r.strategic_relevance,
+        suggestedOutreachAngle: r.suggested_outreach_angle,
+        aiKeyPoints: r.ai_key_points,
+        aiRelevanceScore: r.ai_relevance_score ? Number(r.ai_relevance_score) : null,
+        aiStatus: r.ai_status,
+        processingError: r.processing_error,
+        isArchived: r.is_archived,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/crm/recent-news/for-email?entityType=lead&entityId=123
+  // Returns only done items for news context selection in email modal
+  app.get("/api/crm/recent-news/for-email", requireAuth, async (req, res) => {
+    try {
+      const { entityType, entityId } = req.query as Record<string, string>;
+      if (!entityType || !entityId || isNaN(parseInt(entityId))) {
+        return res.status(400).json({ message: "entityType and entityId are required" });
+      }
+      const eid = parseInt(entityId);
+      const etype = entityType.replace(/'/g, "");
+      const rows = (await db.execute(sql.raw(`
+        SELECT id, title, source, published_at, ai_relevance_score, user_note, url, added_at
+        FROM crm_recent_news
+        WHERE entity_type = '${etype}' AND entity_id = ${eid}
+          AND is_archived = FALSE AND ai_status = 'done' AND ai_summary IS NOT NULL
+        ORDER BY ai_relevance_score DESC NULLS LAST, added_at DESC
+        LIMIT 20
+      `))).rows as any[];
+      res.json(rows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title || r.url,
+        source: r.source,
+        publishedAt: r.published_at,
+        aiRelevanceScore: r.ai_relevance_score ? Number(r.ai_relevance_score) : null,
+        userNote: r.user_note,
+        url: r.url,
+        addedAt: r.added_at,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/crm/recent-news
+  app.post("/api/crm/recent-news", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const userName = (req.session as any).name as string | undefined;
+      const { entityType, entityId, url, userNote, relevanceType, tags } = req.body;
+
+      if (!entityType || !entityId || !url) {
+        return res.status(400).json({ message: "entityType, entityId, and url are required" });
+      }
+
+      // SSRF guard
+      const { isUrlSafe, normalizeUrl } = await import("./services/crm-recent-news");
+      const safeCheck = isUrlSafe(String(url));
+      if (!safeCheck.ok) {
+        return res.status(400).json({ message: safeCheck.reason || "URL not allowed" });
+      }
+
+      const normalizedUrl = normalizeUrl(String(url));
+      const etype = String(entityType).replace(/'/g, "");
+      const eid = parseInt(String(entityId));
+      if (isNaN(eid) || eid <= 0) return res.status(400).json({ message: "Invalid entityId" });
+
+      // Duplicate check
+      const existing = (await db.execute(sql.raw(`
+        SELECT id FROM crm_recent_news
+        WHERE entity_type = '${etype}' AND entity_id = ${eid}
+          AND normalized_url = '${normalizedUrl.replace(/'/g, "''")}'
+          AND is_archived = FALSE
+        LIMIT 1
+      `))).rows as any[];
+      if (existing.length > 0) {
+        return res.status(409).json({ message: "This article is already attached to this record.", existingId: existing[0].id });
+      }
+
+      const esc = (s: string) => String(s || "").replace(/'/g, "''");
+      const tagsArr = Array.isArray(tags) ? tags.map((t: string) => esc(String(t))) : [];
+      const tagsSql = tagsArr.length > 0 ? `ARRAY[${tagsArr.map((t: string) => `'${t}'`).join(",")}]::TEXT[]` : "NULL";
+
+      const inserted = (await db.execute(sql.raw(`
+        INSERT INTO crm_recent_news
+          (entity_type, entity_id, url, normalized_url, added_by_user_id, added_by_name, user_note, relevance_type, tags, ai_status)
+        VALUES
+          ('${esc(etype)}', ${eid}, '${esc(String(url))}', '${esc(normalizedUrl)}',
+           ${userId}, ${userName ? `'${esc(userName)}'` : "NULL"},
+           ${userNote ? `'${esc(String(userNote))}'` : "NULL"},
+           ${relevanceType && relevanceType !== "none" ? `'${esc(String(relevanceType))}'` : "NULL"},
+           ${tagsSql}, 'pending')
+        RETURNING id
+      `))).rows as any[];
+
+      const newId = inserted[0]?.id;
+      if (!newId) return res.status(500).json({ message: "Insert failed" });
+
+      // Fire-and-forget background processing
+      import("./services/crm-recent-news").then(m => m.processNewsItem(Number(newId))).catch(e =>
+        console.error("[crm-recent-news] background process error:", e?.message)
+      );
+
+      // Audit log
+      try {
+        await db.execute(sql.raw(`
+          INSERT INTO activities (type, object_type, object_id, created_by_user_id, description)
+          VALUES ('news_added', '${esc(etype)}', ${eid}, ${userId}, 'News article added')
+        `));
+      } catch { /* non-fatal */ }
+
+      res.json({ id: Number(newId), ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PUT /api/crm/recent-news/:id
+  app.put("/api/crm/recent-news/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId as number;
+      const isAdmin = (req.session as any).globalRole === "admin" || (req.session as any).globalRole === "master_admin";
+
+      // Ownership check
+      const rows = (await db.execute(sql.raw(`SELECT added_by_user_id FROM crm_recent_news WHERE id = ${id} LIMIT 1`))).rows as any[];
+      if (!rows.length) return res.status(404).json({ message: "Not found" });
+      if (!isAdmin && Number(rows[0].added_by_user_id) !== userId) {
+        return res.status(403).json({ message: "You can only edit your own news items" });
+      }
+
+      const { userNote, relevanceType, tags, isArchived } = req.body;
+      const esc = (s: string) => String(s || "").replace(/'/g, "''");
+      const sets: string[] = ["updated_at = NOW()"];
+
+      if (userNote !== undefined) sets.push(`user_note = ${userNote ? `'${esc(String(userNote))}'` : "NULL"}`);
+      if (relevanceType !== undefined) sets.push(`relevance_type = ${relevanceType && relevanceType !== "none" ? `'${esc(String(relevanceType))}'` : "NULL"}`);
+      if (tags !== undefined) {
+        const tagsArr = Array.isArray(tags) ? tags.map((t: string) => `'${esc(String(t))}'`) : [];
+        sets.push(`tags = ${tagsArr.length > 0 ? `ARRAY[${tagsArr.join(",")}]::TEXT[]` : "NULL"}`);
+      }
+      if (isArchived !== undefined) sets.push(`is_archived = ${Boolean(isArchived)}`);
+
+      await db.execute(sql.raw(`UPDATE crm_recent_news SET ${sets.join(", ")} WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/crm/recent-news/:id (soft archive)
+  app.delete("/api/crm/recent-news/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId as number;
+      const isAdmin = (req.session as any).globalRole === "admin" || (req.session as any).globalRole === "master_admin";
+
+      const rows = (await db.execute(sql.raw(`SELECT added_by_user_id FROM crm_recent_news WHERE id = ${id} LIMIT 1`))).rows as any[];
+      if (!rows.length) return res.status(404).json({ message: "Not found" });
+      if (!isAdmin && Number(rows[0].added_by_user_id) !== userId) {
+        return res.status(403).json({ message: "You can only delete your own news items" });
+      }
+
+      await db.execute(sql.raw(`UPDATE crm_recent_news SET is_archived = TRUE, updated_at = NOW() WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/crm/recent-news/:id/refresh-summary
+  app.post("/api/crm/recent-news/:id/refresh-summary", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0) return res.status(400).json({ message: "Invalid id" });
+
+      const rows = (await db.execute(sql.raw(`SELECT id FROM crm_recent_news WHERE id = ${id} AND is_archived = FALSE LIMIT 1`))).rows as any[];
+      if (!rows.length) return res.status(404).json({ message: "Not found" });
+
+      // Fire-and-forget
+      import("./services/crm-recent-news").then(m => m.processNewsItem(id)).catch(e =>
+        console.error("[crm-recent-news] refresh error:", e?.message)
+      );
+
+      res.json({ ok: true, message: "Refresh started" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // ── Engagement scheduler + default rules ────────────────────────────────────

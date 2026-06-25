@@ -882,7 +882,8 @@ export async function generateSuggestedNextEmail(
   ceoWattsonInfluenceLevel: number = 75,
   engagementSummary?: EngagementContext,
   intentModifierIds?: string[],
-  userInputs?: string
+  userInputs?: string,
+  newsContextBlock?: string
 ): Promise<SuggestedEmail> {
   const id = Number(entityId);
 
@@ -1172,6 +1173,11 @@ export async function generateSuggestedNextEmail(
   }
 
   const userPrompt = [
+    // ── 0. Recent news context — timely outreach signal ────────────────
+    newsContextBlock?.trim() ? [
+      newsContextBlock.trim(),
+      ``,
+    ].join("\n") : "",
     // ── 1. User inputs FIRST — highest priority steering ───────────────
     userInputs?.trim() ? [
       `=== ⭐ USER INPUTS — HIGH-PRIORITY GUIDANCE — READ THIS FIRST ===`,
