@@ -74,12 +74,12 @@ interface ScheduleDefault {
 
 const STATUS_CONFIG: Record<WorkStatus, { label: string; color: string; bg: string; icon: any }> = {
   in_office:    { label: "In Office",      color: "text-emerald-400", bg: "bg-emerald-500/15 border-emerald-500/30 text-emerald-300",  icon: Building2 },
-  remote:       { label: "Remote / WFH",   color: "text-blue-400",    bg: "bg-blue-500/15 border-blue-500/30 text-blue-300",           icon: Home },
-  work_travel:  { label: "Work Travel",    color: "text-purple-400",  bg: "bg-purple-500/15 border-purple-500/30 text-purple-300",     icon: Plane },
+  remote:       { label: "Remote",         color: "text-blue-400",    bg: "bg-blue-500/15 border-blue-500/30 text-blue-300",           icon: Home },
+  work_travel:  { label: "Travelling",     color: "text-purple-400",  bg: "bg-purple-500/15 border-purple-500/30 text-purple-300",     icon: Plane },
   day_off:      { label: "Day Off",        color: "text-slate-400",   bg: "bg-slate-500/15 border-slate-500/30 text-slate-300",        icon: Coffee },
   sick:         { label: "Sick / Personal",color: "text-red-400",     bg: "bg-red-500/15 border-red-500/30 text-red-300",             icon: AlertCircle },
   hybrid:       { label: "Hybrid",         color: "text-orange-400",  bg: "bg-orange-500/15 border-orange-500/30 text-orange-300",    icon: RefreshCw },
-  flexible:     { label: "Flexible / TBD", color: "text-amber-400",   bg: "bg-amber-500/15 border-amber-500/30 text-amber-300",       icon: Clock },
+  flexible:     { label: "Flexible",       color: "text-amber-400",   bg: "bg-amber-500/15 border-amber-500/30 text-amber-300",       icon: Clock },
   not_updated:  { label: "Not Updated",    color: "text-slate-500",   bg: "bg-slate-500/10 border-slate-600/30 text-slate-400",       icon: AlertCircle },
 };
 
@@ -94,10 +94,10 @@ const LOCATION_TYPES: { value: LocationType; label: string }[] = [
 
 const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] = [
   { value: "available",    label: "Available" },
-  { value: "limited",      label: "Limited" },
-  { value: "deep_work",    label: "Deep Work (DND)" },
-  { value: "in_meetings",  label: "In Meetings" },
-  { value: "travel_day",   label: "Travel Day" },
+  { value: "limited",      label: "Limited availability" },
+  { value: "deep_work",    label: "Deep work (do not disturb)" },
+  { value: "in_meetings",  label: "In meetings most of the day" },
+  { value: "travel_day",   label: "Travel day" },
   { value: "unavailable",  label: "Unavailable" },
 ];
 
@@ -149,10 +149,19 @@ function initials(name: string): string {
 
 function StatusBadge({ status, isDefault }: { status: string; isDefault?: boolean }) {
   const cfg = STATUS_CONFIG[status as WorkStatus] ?? STATUS_CONFIG.not_updated;
+  if (isDefault) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed text-xs font-medium opacity-75 ${cfg.bg}`}>
+          {cfg.label}
+        </span>
+        <span className="text-[10px] text-slate-600 italic">recurring</span>
+      </span>
+    );
+  }
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium ${cfg.bg}`}>
       {cfg.label}
-      {isDefault && <span className="opacity-60 ml-0.5">(default)</span>}
     </span>
   );
 }
@@ -186,6 +195,7 @@ interface EntryFormProps {
 function EntryFormModal({ open, onClose, userId, date, entry, isAdmin, myUserId, allUsers }: EntryFormProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [showMore, setShowMore] = useState(!!entry?.id);
 
   const [form, setForm] = useState({
     userId: userId,
@@ -205,14 +215,14 @@ function EntryFormModal({ open, onClose, userId, date, entry, isAdmin, myUserId,
 
   const createMut = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/team-calendar/entries", data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/team-calendar/today"] }); qc.invalidateQueries({ queryKey: ["/api/team-calendar/week"] }); qc.invalidateQueries({ queryKey: ["/api/team-calendar/my-entries"] }); toast({ title: "Entry saved" }); onClose(); },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/team-calendar/today"] }); qc.invalidateQueries({ queryKey: ["/api/team-calendar/week"] }); qc.invalidateQueries({ queryKey: ["/api/team-calendar/my-entries"] }); toast({ title: "✓ Saved", description: "Your schedule is updated." }); onClose(); },
+    onError: (e: any) => toast({ title: "Couldn't save", description: e.message, variant: "destructive" }),
   });
 
   const updateMut = useMutation({
     mutationFn: (data: any) => apiRequest("PUT", `/api/team-calendar/entries/${entry!.id}`, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/team-calendar/today"] }); qc.invalidateQueries({ queryKey: ["/api/team-calendar/week"] }); qc.invalidateQueries({ queryKey: ["/api/team-calendar/my-entries"] }); toast({ title: "Entry updated" }); onClose(); },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/team-calendar/today"] }); qc.invalidateQueries({ queryKey: ["/api/team-calendar/week"] }); qc.invalidateQueries({ queryKey: ["/api/team-calendar/my-entries"] }); toast({ title: "✓ Updated", description: "Your schedule is updated." }); onClose(); },
+    onError: (e: any) => toast({ title: "Couldn't save", description: e.message, variant: "destructive" }),
   });
 
   const handleSubmit = () => {
@@ -222,18 +232,24 @@ function EntryFormModal({ open, onClose, userId, date, entry, isAdmin, myUserId,
   };
 
   const isPending = createMut.isPending || updateMut.isPending;
+  const isEditing = !!entry?.id;
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="bg-[#0f1623] border-slate-700/60 text-slate-100 max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-slate-100">{entry?.id ? "Edit Entry" : "Add Schedule Entry"}</DialogTitle>
+          <DialogTitle className="text-slate-100">
+            {isEditing ? "Edit schedule" : "Where are you working?"}
+          </DialogTitle>
+          {!isEditing && (
+            <p className="text-xs text-slate-500 mt-0.5">Pick your status for {new Date(form.date + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}</p>
+          )}
         </DialogHeader>
         <div className="space-y-4 py-2">
           {isAdmin && (
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-slate-300 text-xs mb-1 block">Team Member</Label>
+                <Label className="text-slate-300 text-xs mb-1 block">Team member</Label>
                 <Select value={String(form.userId)} onValueChange={v => setForm(f => ({ ...f, userId: Number(v) }))}>
                   <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-user">
                     <SelectValue />
@@ -256,91 +272,100 @@ function EntryFormModal({ open, onClose, userId, date, entry, isAdmin, myUserId,
             </div>
           )}
 
-          <div>
-            <Label className="text-slate-300 text-xs mb-1 block">Work Status</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {(Object.entries(STATUS_CONFIG) as [WorkStatus, any][]).filter(([k]) => k !== "not_updated").map(([k, cfg]) => (
-                <button key={k} type="button" data-testid={`status-btn-${k}`}
-                  onClick={() => set("status", k)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm text-left transition-all ${form.status === k ? `${cfg.bg} border-opacity-100 ring-1 ring-cyan-500/40` : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:bg-slate-800/80"}`}>
-                  <cfg.icon className="w-3.5 h-3.5 shrink-0" />
-                  {cfg.label}
-                </button>
-              ))}
-            </div>
+          {/* Status grid — always visible, the core of the form */}
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.entries(STATUS_CONFIG) as [WorkStatus, any][]).filter(([k]) => k !== "not_updated").map(([k, cfg]) => (
+              <button key={k} type="button" data-testid={`status-btn-${k}`}
+                onClick={() => set("status", k)}
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${form.status === k ? `${cfg.bg} border-opacity-100 ring-1 ring-cyan-500/40` : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:bg-slate-800/80"}`}>
+                <cfg.icon className="w-3.5 h-3.5 shrink-0" />
+                {cfg.label}
+              </button>
+            ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-slate-300 text-xs mb-1 block">Start Time</Label>
-              <Input type="time" value={form.startTime} onChange={e => set("startTime", e.target.value)} className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="input-start-time" />
-            </div>
-            <div>
-              <Label className="text-slate-300 text-xs mb-1 block">End Time</Label>
-              <Input type="time" value={form.endTime} onChange={e => set("endTime", e.target.value)} className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="input-end-time" />
-            </div>
-          </div>
+          {/* Collapsible details section */}
+          {!showMore ? (
+            <button type="button" onClick={() => setShowMore(true)}
+              className="text-xs text-slate-500 hover:text-cyan-400 flex items-center gap-1 transition-colors"
+              data-testid="btn-show-more-details">
+              <Plus className="w-3 h-3" /> Add hours, location & notes
+            </button>
+          ) : (
+            <div className="space-y-3 border-t border-slate-700/40 pt-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-slate-300 text-xs mb-1 block">Start time</Label>
+                  <Input type="time" value={form.startTime} onChange={e => set("startTime", e.target.value)} className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="input-start-time" />
+                </div>
+                <div>
+                  <Label className="text-slate-300 text-xs mb-1 block">End time</Label>
+                  <Input type="time" value={form.endTime} onChange={e => set("endTime", e.target.value)} className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="input-end-time" />
+                </div>
+              </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-slate-300 text-xs mb-1 block">Location Type</Label>
-              <Select value={form.locationType} onValueChange={v => set("locationType", v)}>
-                <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-location-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#0f1623] border-slate-700">
-                  {LOCATION_TYPES.map(l => <SelectItem key={l.value} value={l.value} className="text-slate-100">{l.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-slate-300 text-xs mb-1 block">Location Name</Label>
-              <Input value={form.locationName} onChange={e => set("locationName", e.target.value)} placeholder="e.g. VoltSafe HQ" className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-9" data-testid="input-location-name" />
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-slate-300 text-xs mb-1 block">Location</Label>
+                  <Select value={form.locationType} onValueChange={v => set("locationType", v)}>
+                    <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-location-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0f1623] border-slate-700">
+                      {LOCATION_TYPES.map(l => <SelectItem key={l.value} value={l.value} className="text-slate-100">{l.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-slate-300 text-xs mb-1 block">Specific place</Label>
+                  <Input value={form.locationName} onChange={e => set("locationName", e.target.value)} placeholder="e.g. VoltSafe HQ" className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-9" data-testid="input-location-name" />
+                </div>
+              </div>
 
-          <div>
-            <Label className="text-slate-300 text-xs mb-1 block">Focus Today</Label>
-            <Input value={form.workFocus} onChange={e => set("workFocus", e.target.value)} placeholder="e.g. Investor calls, marina leads" className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-9" data-testid="input-focus" />
-          </div>
+              <div>
+                <Label className="text-slate-300 text-xs mb-1 block">What are you working on? <span className="text-slate-600">(optional)</span></Label>
+                <Input value={form.workFocus} onChange={e => set("workFocus", e.target.value)} placeholder="e.g. Investor calls, marina leads" className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-9" data-testid="input-focus" />
+              </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-slate-300 text-xs mb-1 block">Availability</Label>
-              <Select value={form.availability} onValueChange={v => set("availability", v)}>
-                <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-availability">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#0f1623] border-slate-700">
-                  {AVAILABILITY_OPTIONS.map(a => <SelectItem key={a.value} value={a.value} className="text-slate-100">{a.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-slate-300 text-xs mb-1 block">Visibility</Label>
-              <Select value={form.visibility} onValueChange={v => set("visibility", v)}>
-                <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-visibility">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#0f1623] border-slate-700">
-                  <SelectItem value="team" className="text-slate-100">Team Visible</SelectItem>
-                  <SelectItem value="leadership" className="text-slate-100">Leadership Only</SelectItem>
-                  <SelectItem value="private" className="text-slate-100">Private</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-slate-300 text-xs mb-1 block">How reachable?</Label>
+                  <Select value={form.availability} onValueChange={v => set("availability", v)}>
+                    <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-availability">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0f1623] border-slate-700">
+                      {AVAILABILITY_OPTIONS.map(a => <SelectItem key={a.value} value={a.value} className="text-slate-100">{a.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-slate-300 text-xs mb-1 block">Visible to</Label>
+                  <Select value={form.visibility} onValueChange={v => set("visibility", v)}>
+                    <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-visibility">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0f1623] border-slate-700">
+                      <SelectItem value="team" className="text-slate-100">Everyone on the team</SelectItem>
+                      <SelectItem value="leadership" className="text-slate-100">Leadership only</SelectItem>
+                      <SelectItem value="private" className="text-slate-100">Just me</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
 
-          <div>
-            <Label className="text-slate-300 text-xs mb-1 block">Notes</Label>
-            <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Any additional notes…" className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 resize-none h-20" data-testid="input-notes" />
-          </div>
+              <div>
+                <Label className="text-slate-300 text-xs mb-1 block">Notes <span className="text-slate-600">(optional)</span></Label>
+                <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Anything the team should know…" className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 resize-none h-16" data-testid="input-notes" />
+              </div>
+            </div>
+          )}
         </div>
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={onClose} className="text-slate-400 hover:text-slate-100" data-testid="btn-cancel-entry">Cancel</Button>
           <Button onClick={handleSubmit} disabled={isPending} className="bg-cyan-600 hover:bg-cyan-500 text-white" data-testid="btn-save-entry">
-            {isPending ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-            {entry?.id ? "Save Changes" : "Add Entry"}
+            {isPending ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-4 h-4 mr-2" />}
+            {isEditing ? "Save changes" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -465,13 +490,13 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
         <table className="w-full text-sm" data-testid="today-table">
           <thead>
             <tr className="border-b border-slate-700/50 bg-slate-800/40">
-              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Team Member</th>
+              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Person</th>
               <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Status</th>
               <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Location</th>
               <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Hours</th>
-              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Focus Today</th>
-              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Availability</th>
-              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Notes</th>
+              <th className="hidden md:table-cell text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Focus</th>
+              <th className="hidden lg:table-cell text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Reachable</th>
+              <th className="hidden lg:table-cell text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Notes</th>
               <th className="px-4 py-2.5" />
             </tr>
           </thead>
@@ -494,18 +519,20 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
                   <td className="px-4 py-3">
                     <StatusBadge status={status} isDefault={row.source === "default"} />
                     {row.entries.length > 1 && (
-                      <span className="ml-1 text-xs text-slate-500">+{row.entries.length - 1} more</span>
+                      <div className="mt-0.5">
+                        {row.entries.slice(1).map((e, i) => <StatusBadge key={i} status={e.status} />)}
+                      </div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-slate-300 text-xs">{primary?.locationName || "—"}</td>
-                  <td className="px-4 py-3 text-slate-300 text-xs whitespace-nowrap">{formatHours(primary?.startTime, primary?.endTime) || "—"}</td>
-                  <td className="px-4 py-3 text-slate-300 text-xs max-w-[160px] truncate" title={primary?.workFocus ?? ""}>{primary?.workFocus || "—"}</td>
-                  <td className="px-4 py-3 text-xs">
+                  <td className="px-4 py-3 text-slate-300 text-xs">{primary?.locationName || <span className="text-slate-600">—</span>}</td>
+                  <td className="px-4 py-3 text-slate-300 text-xs whitespace-nowrap">{formatHours(primary?.startTime, primary?.endTime) || <span className="text-slate-600">—</span>}</td>
+                  <td className="hidden md:table-cell px-4 py-3 text-slate-300 text-xs max-w-[160px] truncate" title={primary?.workFocus ?? ""}>{primary?.workFocus || <span className="text-slate-600">—</span>}</td>
+                  <td className="hidden lg:table-cell px-4 py-3 text-xs">
                     {primary?.availability ? (
                       <span className="text-slate-300 capitalize">{primary.availability.replace(/_/g, " ")}</span>
-                    ) : "—"}
+                    ) : <span className="text-slate-600">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-slate-400 text-xs max-w-[160px] truncate" title={primary?.notes ?? ""}>{primary?.notes || "—"}</td>
+                  <td className="hidden lg:table-cell px-4 py-3 text-slate-400 text-xs max-w-[160px] truncate" title={primary?.notes ?? ""}>{primary?.notes || <span className="text-slate-600">—</span>}</td>
                   <td className="px-4 py-3">
                     {canEdit && (
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-500 hover:text-cyan-400"
@@ -518,8 +545,17 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
                 </tr>
               );
             })}
-            {filtered.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-500 text-sm">No team members match your filters</td></tr>
+            {filtered.length === 0 && data?.rows?.length === 0 && (
+              <tr><td colSpan={8} className="px-4 py-12 text-center">
+                <div className="text-slate-400 text-sm font-medium mb-1">No team members yet</div>
+                <div className="text-slate-600 text-xs">Add some users to start tracking schedules</div>
+              </td></tr>
+            )}
+            {filtered.length === 0 && (data?.rows?.length ?? 0) > 0 && (
+              <tr><td colSpan={8} className="px-4 py-8 text-center">
+                <div className="text-slate-400 text-sm">No one matches those filters.</div>
+                <button className="text-cyan-500 text-xs mt-1 hover:underline" onClick={() => setFilter({ person: "", status: "all", availability: "all", location: "" })}>Clear filters</button>
+              </td></tr>
             )}
           </tbody>
         </table>
@@ -547,6 +583,12 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
   if (isLoading) return <div className="space-y-3">{[1,2,3,4].map(i => <Skeleton key={i} className="h-14 w-full bg-slate-800/50" />)}</div>;
 
   const allUsers = data?.users ?? [];
+  if (!isLoading && allUsers.length === 0) return (
+    <div className="text-center py-16 text-slate-500">
+      <CalendarDays className="w-10 h-10 mx-auto mb-3 opacity-30" />
+      <p className="text-sm">No team members to show yet.</p>
+    </div>
+  );
 
   return (
     <div>
@@ -597,15 +639,18 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
                     const status: WorkStatus = (entry?.status as WorkStatus) ?? "not_updated";
                     const cfg = STATUS_CONFIG[status];
                     const canEdit = isAdmin || user.id === myUserId;
+                    const isRecurring = dayData?.source === "default";
                     return (
                       <td key={date} className="px-2 py-2 align-top">
                         <button
                           type="button"
                           onClick={() => canEdit && onEdit(user.id, date, entry ?? undefined)}
-                          className={`w-full text-left rounded-lg px-2 py-1.5 border transition-all min-h-[56px] ${
+                          className={`w-full text-left rounded-lg px-2 py-1.5 transition-all min-h-[52px] ${
                             status === "not_updated"
-                              ? "border-slate-700/30 bg-slate-800/20 hover:bg-slate-800/50"
-                              : `${cfg.bg} hover:opacity-90`
+                              ? "border border-slate-700/30 bg-slate-800/20 hover:bg-slate-800/50"
+                              : isRecurring
+                                ? `border border-dashed ${cfg.bg} opacity-65 hover:opacity-85`
+                                : `border ${cfg.bg} hover:opacity-90`
                           } ${canEdit ? "cursor-pointer" : "cursor-default"}`}
                           data-testid={`week-cell-${user.id}-${di}`}
                         >
@@ -614,10 +659,20 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
                           </div>
                           {entry?.locationName && <div className="text-xs opacity-70 truncate">{entry.locationName}</div>}
                           {(entry?.startTime || entry?.endTime) && <div className="text-xs opacity-60">{formatHours(entry.startTime, entry.endTime)}</div>}
-                          {dayData?.source === "default" && <div className="text-xs opacity-40 italic">default</div>}
                         </button>
                         {dayData?.entries && dayData.entries.length > 1 && (
-                          <div className="text-xs text-slate-500 mt-0.5 pl-1">+{dayData.entries.length - 1} split</div>
+                          <div className="flex flex-col gap-0.5 mt-1">
+                            {dayData.entries.slice(1).map((e, i) => {
+                              const eCfg = STATUS_CONFIG[e.status as WorkStatus] ?? STATUS_CONFIG.not_updated;
+                              return (
+                                <button key={i} type="button" onClick={() => canEdit && onEdit(user.id, date, e)}
+                                  className={`w-full text-left rounded px-2 py-1 border text-xs ${eCfg.bg} ${canEdit ? "cursor-pointer hover:opacity-90" : "cursor-default"}`}>
+                                  {eCfg.label}
+                                  {(e.startTime || e.endTime) && <span className="opacity-60 ml-1">{formatHours(e.startTime, e.endTime)}</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
                         )}
                       </td>
                     );
@@ -676,11 +731,11 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
   };
 
   const quickButtons: { status: WorkStatus; label: string; icon: any; color: string }[] = [
-    { status: "in_office",   label: "Office",  icon: Building2,   color: "bg-emerald-600/20 border-emerald-600/40 text-emerald-300 hover:bg-emerald-600/30" },
-    { status: "remote",      label: "Remote",  icon: Home,        color: "bg-blue-600/20 border-blue-600/40 text-blue-300 hover:bg-blue-600/30" },
-    { status: "work_travel", label: "Travel",  icon: Plane,       color: "bg-purple-600/20 border-purple-600/40 text-purple-300 hover:bg-purple-600/30" },
-    { status: "day_off",     label: "Day Off", icon: Coffee,      color: "bg-slate-600/20 border-slate-600/40 text-slate-300 hover:bg-slate-600/30" },
-    { status: "hybrid",      label: "Hybrid",  icon: RefreshCw,   color: "bg-orange-600/20 border-orange-600/40 text-orange-300 hover:bg-orange-600/30" },
+    { status: "in_office",   label: "In Office",   icon: Building2,   color: "bg-emerald-600/20 border-emerald-600/40 text-emerald-300 hover:bg-emerald-600/30" },
+    { status: "remote",      label: "Remote",      icon: Home,        color: "bg-blue-600/20 border-blue-600/40 text-blue-300 hover:bg-blue-600/30" },
+    { status: "work_travel", label: "Travelling",  icon: Plane,       color: "bg-purple-600/20 border-purple-600/40 text-purple-300 hover:bg-purple-600/30" },
+    { status: "day_off",     label: "Day Off",     icon: Coffee,      color: "bg-slate-600/20 border-slate-600/40 text-slate-300 hover:bg-slate-600/30" },
+    { status: "hybrid",      label: "Hybrid",      icon: RefreshCw,   color: "bg-orange-600/20 border-orange-600/40 text-orange-300 hover:bg-orange-600/30" },
   ];
 
   return (
@@ -688,20 +743,22 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
       {/* Quick update */}
       <Card className="bg-slate-800/40 border-slate-700/50" data-testid="quick-update-card">
         <CardHeader className="pb-3 pt-4 px-5">
-          <CardTitle className="text-sm font-semibold text-slate-200">Where are you working today?</CardTitle>
+          <CardTitle className="text-sm font-semibold text-slate-200">
+            {todayEntries.length > 0 ? "Your status today" : "Where are you working today?"}
+          </CardTitle>
           <p className="text-xs text-slate-500">{formatDisplayDate(today)}</p>
         </CardHeader>
         <CardContent className="px-5 pb-5">
-          {todayEntries.length > 0 ? (
+          {todayEntries.length > 0 && (
             <div className="space-y-2 mb-4">
               {todayEntries.map(e => (
                 <div key={e.id} className="flex items-center justify-between bg-slate-700/30 rounded-lg px-3 py-2" data-testid={`my-today-entry-${e.id}`}>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <StatusBadge status={e.status} />
-                    <span className="text-slate-300 text-xs">{e.locationName}</span>
-                    <span className="text-slate-500 text-xs">{formatHours(e.startTime, e.endTime)}</span>
+                    {e.locationName && <span className="text-slate-300 text-xs">{e.locationName}</span>}
+                    {(e.startTime || e.endTime) && <span className="text-slate-500 text-xs">{formatHours(e.startTime, e.endTime)}</span>}
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 shrink-0">
                     <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-500 hover:text-cyan-400" onClick={() => { setEditEntry(e); setShowForm(true); }} data-testid={`btn-edit-my-${e.id}`}>
                       <Edit2 className="w-3 h-3" />
                     </Button>
@@ -712,7 +769,10 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
                 </div>
               ))}
             </div>
-          ) : null}
+          )}
+          <p className="text-xs text-slate-500 mb-2.5">
+            {todayEntries.length === 0 ? "Tap to log where you're working — takes just a few seconds." : "Add another time block if your day is split:"}
+          </p>
           <div className="flex flex-wrap gap-2 mb-3">
             {quickButtons.map(({ status, label, icon: Icon, color }) => (
               <button key={status} type="button" data-testid={`quick-btn-${status}`}
@@ -724,7 +784,7 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
             ))}
           </div>
           <Button size="sm" variant="ghost" className="text-slate-400 hover:text-cyan-300 text-xs gap-1" onClick={() => { setEditEntry(null); setQuickStatus(null); setShowForm(true); }} data-testid="btn-add-entry">
-            <Plus className="w-3.5 h-3.5" /> Add schedule entry
+            <Plus className="w-3.5 h-3.5" /> Add more details or a custom time block
           </Button>
         </CardContent>
       </Card>
@@ -763,15 +823,24 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
       {/* Default schedule */}
       <Card className="bg-slate-800/40 border-slate-700/50" data-testid="default-schedule-card">
         <CardHeader className="pb-2 pt-4 px-5 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-semibold text-slate-200">My Default Weekly Schedule</CardTitle>
-          <Button size="sm" variant="ghost" className="text-slate-400 hover:text-cyan-300 h-7 gap-1 text-xs" onClick={() => setShowDefaults(v => !v)} data-testid="btn-toggle-defaults">
+          <div>
+            <CardTitle className="text-sm font-semibold text-slate-200">My weekly pattern</CardTitle>
+            <p className="text-xs text-slate-500 mt-0.5">Your usual schedule — shows automatically when you haven't logged for the day</p>
+          </div>
+          <Button size="sm" variant="ghost" className="text-slate-400 hover:text-cyan-300 h-7 gap-1 text-xs shrink-0" onClick={() => setShowDefaults(v => !v)} data-testid="btn-toggle-defaults">
             <Settings className="w-3.5 h-3.5" />
-            {showDefaults ? "Hide" : "Edit"}
+            {showDefaults ? "Done" : "Edit"}
           </Button>
         </CardHeader>
         <CardContent className="px-5 pb-4">
           {myDefaults.length === 0 && !showDefaults ? (
-            <p className="text-slate-500 text-xs">No default schedule set yet. Click Edit to configure your typical weekly pattern.</p>
+            <div className="py-3 text-center">
+              <p className="text-slate-500 text-sm mb-1">No weekly pattern set yet.</p>
+              <p className="text-slate-600 text-xs">Set your usual days so the team always knows where you'll be, even if you forget to log.</p>
+              <Button size="sm" variant="ghost" className="text-cyan-500 hover:text-cyan-300 text-xs gap-1 mt-2" onClick={() => setShowDefaults(true)} data-testid="btn-set-pattern">
+                <Settings className="w-3 h-3" /> Set my pattern
+              </Button>
+            </div>
           ) : (
             <div className="space-y-2">
               {DAYS_OF_WEEK.map((day, dow) => {

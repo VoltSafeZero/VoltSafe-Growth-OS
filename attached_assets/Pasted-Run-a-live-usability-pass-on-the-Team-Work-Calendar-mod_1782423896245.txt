@@ -1,0 +1,89 @@
+Run a live usability pass on the Team Work Calendar module.
+
+Do not add major new features. Focus only on small UX improvements that make the current module easier for VoltSafe team members to use daily.
+
+Test the module as three user types:
+
+1. Regular team member
+2. Admin
+3. Master admin
+
+Focus on the following workflows:
+
+1. Regular user morning update
+- Can a user update where they are working today in under 30 seconds?
+- Are the quick buttons obvious?
+- Does the form feel too long?
+- Are required fields clear?
+- Is the save confirmation obvious?
+
+2. Admin daily visibility
+- Can an admin quickly answer:
+  - Who is in office today?
+  - Who is remote today?
+  - Who is travelling?
+  - Who is off?
+  - Who has not updated?
+- Is the summary card useful enough at a glance?
+- Are filters fast and obvious?
+
+3. Weekly planning
+- Can someone quickly understand next week’s office coverage?
+- Are default schedule entries visually distinct enough from manually entered entries?
+- Are split-day schedules easy to understand?
+- Is the week grid too cramped?
+
+4. People view
+- Is it easy to click a person and understand their upcoming schedule?
+- Are upcoming travel/off days obvious?
+- Is the default weekly pattern easy to understand?
+
+5. Mobile/tablet quick check
+- Confirm a user can quickly update today’s work status on mobile.
+- Confirm Today View is readable on mobile.
+- Confirm Week View does not become unusable on smaller screens.
+
+6. Copy / labels
+Review all labels and button text.
+
+Make wording simple and human.
+
+Prefer:
+- “Working today”
+- “In office”
+- “Remote”
+- “Travelling”
+- “Day off”
+- “Not updated”
+
+Avoid overly technical wording.
+
+7. Empty states
+Confirm empty states are helpful:
+- No schedule entries yet
+- No default weekly pattern set
+- No matching filter results
+- No audit log entries
+
+8. Small polish only
+If needed, make small improvements such as:
+- Better button labels
+- Better empty state copy
+- Clearer save/delete confirmation
+- Better badge contrast
+- Better spacing
+- Clearer default vs manual schedule display
+- Better mobile stacking
+
+Do not build integrations.
+Do not add Google Calendar.
+Do not add Slack.
+Do not add notifications.
+Do not add AI queries yet.
+
+After the pass, provide:
+- What was tested
+- What was improved
+- Any files changed
+- Any remaining UX concerns
+- Confirmation whether the module is ready for the team to start using
