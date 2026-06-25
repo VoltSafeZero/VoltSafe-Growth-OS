@@ -546,7 +546,8 @@ export default function RevenueIntelligencePage() {
     queryKey: ["/api/dashboard/needs-reply-high-engagement"],
     queryFn: () =>
       fetch("/api/dashboard/needs-reply-high-engagement", { credentials: "include" })
-        .then(r => r.ok ? r.json() : []),
+        .then(r => r.ok ? r.json() : { items: [] })
+        .then((d: any) => Array.isArray(d) ? d : (d?.items ?? [])),
     staleTime: 60_000,
     retry: false,
   });

@@ -1,0 +1,147 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Bug:
+Insights → Revenue Intelligence page loads skeleton cards, then crashes about 1 second later with the app error boundary:
+
+“Something went wrong. An unexpected error occurred on this page.”
+
+URL:
+/revenue-intelligence
+
+Observed behavior:
+- Page initially loads.
+- Skeleton placeholders render.
+- After data begins loading, the page crashes.
+- This strongly suggests a frontend runtime exception after API/query data resolves.
+
+Screenshots show:
+- Revenue Intelligence selected under Insights.
+- Initial skeleton UI appears.
+- Then full page error boundary appears.
+
+Goal:
+Fix the Revenue Intelligence page crash.
+
+Important:
+Audit first.
+Do not redesign the page.
+Do not create migrations.
+Do not remove the page.
+Do not hide the crash with a generic try/catch unless the real cause is also fixed.
+Do not fake data.
+Do not break other Insights pages.
+
+Audit:
+Inspect all relevant files for the Revenue Intelligence page:
+1. Route registration for /revenue-intelligence.
+2. Revenue Intelligence page/component.
+3. Any child components/cards:
+   - Hot Accounts
+   - Champions
+   - Accelerating Relationships
+   - Needs Reply
+   - Follow-Up Opportunities
+   - At Risk
+4. Data fetching hooks / query keys.
+5. Backend API route(s) feeding the page.
+6. API response shape.
+7. Error boundary/logging around this route.
+8. Console/runtime errors if available.
+9. Recent changes that could affect shared CRM/activity/task/email/calendar data.
+
+Find the exact crash:
+- Check browser console/runtime stack trace.
+- Check Vite/client overlay logs.
+- Check server logs.
+- Add temporary local logging only if needed, then remove it.
+- Identify the exact component/line causing the crash.
+
+Likely causes to investigate:
+- Calling .map() on undefined/null.
+- Calling .filter() on undefined/null.
+- Calling .toLowerCase() on null.
+- Calling .split() on null.
+- Calling .length on undefined.
+- Calling new Date(undefined/null) and formatting invalid dates.
+- Assuming nested fields exist, such as:
+  - account.name
+  - contact.email
+  - lastEmail.subject
+  - activity.createdAt
+  - task.dueDate
+  - relationship.score
+  - champion.contacts
+- API now returning object instead of array.
+- Backend returning partial records.
+- Empty arrays not defaulted.
+- A renamed field from recent CRM cleanup, calendar outcome work, or AI email changes.
+- A bad enum/status value not handled in UI.
+
+Implementation requirements:
+1. Fix the root cause.
+2. Add safe defaults at the data boundary:
+   - arrays default to []
+   - strings default to ""
+   - optional nested objects are guarded
+   - invalid dates display as "Unknown" or are hidden
+3. Add resilient empty states for each card.
+4. Keep the skeleton/loading state.
+5. Keep the existing page design.
+6. Do not let one bad card crash the whole page.
+7. If one section has bad data, show that section as empty/error while rest of page renders if possible.
+
+Backend requirements:
+If the backend API is returning inconsistent shape:
+- Normalize the response server-side.
+- Keep response backward-compatible if other components use it.
+- Do not remove fields without checking consumers.
+- Do not create migrations.
+
+Frontend requirements:
+- Revenue Intelligence page must handle:
+  - loading
+  - empty data
+  - partial data
+  - malformed/null optional fields
+  - API error
+- Page should not crash when data is empty.
+- Page should not crash when any individual bucket is empty.
+
+Testing / verification:
+Run:
+- Typecheck
+- Existing relevant tests
+- App boot check
+- Navigate to /revenue-intelligence
+- Confirm skeleton appears
+- Confirm loaded page remains visible after data resolves
+- Confirm no console runtime errors
+- Confirm each section renders either real data or a calm empty state
+
+Specific manual checks:
+1. Open /revenue-intelligence.
+2. Wait 5 seconds.
+3. Page does not crash.
+4. Refresh page.
+5. Page does not crash.
+6. If API returns empty data, page shows empty states.
+7. Other Insights pages still load.
+
+If no existing test exists:
+Add a small regression test or structural check if feasible:
+- Revenue Intelligence handles empty arrays.
+- Revenue Intelligence handles null fields.
+- Revenue Intelligence does not assume every section exists.
+
+Final report:
+Include:
+- Exact root cause.
+- Stack trace or failing component/line.
+- Files changed.
+- Whether backend or frontend was fixed.
+- Tests run.
+- Verification that /revenue-intelligence no longer crashes.
+- Any known limitations.
+
+Critical principle:
+A dashboard should never crash because one record is weird. Weird records are CRM weather. Dress for it.
