@@ -1,0 +1,112 @@
+Add a hosted video URL handoff system for the VoltSafe CMS Training Hub.
+
+Goal:
+Make it easy to replace local/raw onboarding video references with hosted video URLs from Vimeo, YouTube unlisted, HubSpot, Loom, or another help center platform without touching the Training Hub UI logic.
+
+Context:
+The Training Hub currently uses static data in:
+
+client/src/data/training-hub.ts
+
+The Watch Video buttons are disabled until hosted URLs are added.
+
+Requirements:
+
+1. Refactor training-hub.ts so each video supports these fields:
+
+   videoUrl?: string
+   hostedProvider?: "vimeo" | "youtube" | "hubspot" | "loom" | "local" | "other"
+   rawVideoPath?: string
+   finalVideoPath?: string
+   storyboardPath?: string
+   playlistPath?: string
+   status: "not_recorded" | "raw_recorded" | "edited" | "hosted" | "needs_update"
+
+2. Update the existing six videos with:
+   - rawVideoPath pointing to onboarding-videos/outputs/raw/[video-name].webm
+   - finalVideoPath pointing to onboarding-videos/outputs/final/[video-name].mp4
+   - storyboardPath pointing to onboarding-videos/storyboards/[video-name].md
+   - status values based on current state:
+     01-dashboard-overview = raw_recorded
+     02-leads-accounts-contacts = not_recorded unless a raw file exists
+     03-marina-lead-pipeline = not_recorded unless a raw file exists
+     04-voltsafe-mail-overview = not_recorded unless a raw file exists
+     05-ai-email-generator = not_recorded unless a raw file exists
+     06-account-intelligence-view = not_recorded unless a raw file exists
+
+3. Update the Training Hub UI:
+   - If status is hosted and videoUrl exists:
+     Button text: Watch Video
+     Button enabled
+   - If status is edited and finalVideoPath exists:
+     Button text: Final MP4 Ready
+     Button disabled unless the file can be served by the app
+   - If status is raw_recorded:
+     Button text: Raw Recording Ready
+     Button disabled unless the file can be served by the app
+   - If status is not_recorded:
+     Button text: Not Recorded Yet
+     Button disabled
+   - If status is needs_update:
+     Button text: Needs Update
+     Button disabled or visibly marked
+
+4. Add clear status badges to each video card:
+   - Hosted
+   - Edited
+   - Raw Recorded
+   - Not Recorded
+   - Needs Update
+
+5. For admin/master_admin/demo users only:
+   - Show rawVideoPath
+   - Show finalVideoPath
+   - Show storyboardPath
+   - Show hostedProvider
+   - Show videoUrl if present
+   - Add a small “How to publish” note:
+     “Edit client/src/data/training-hub.ts and set videoUrl, hostedProvider, and status: 'hosted'.”
+
+6. For regular users:
+   - Only show clean user-facing info
+   - Do not show raw file paths
+   - Do not show repo paths
+   - Do not show implementation notes
+
+7. Add a new documentation file:
+
+   onboarding-videos/HOSTING.md
+
+   Include:
+   - Recommended hosting options
+   - Preferred option for VoltSafe
+   - How to export final MP4s
+   - How to upload to Vimeo/YouTube/HubSpot/Loom
+   - How to paste hosted URLs into training-hub.ts
+   - How to mark a video as hosted
+   - How to mark a video as needs_update when the UI changes
+   - Suggested naming convention:
+     VoltSafe CMS — 01 Dashboard Overview
+     VoltSafe CMS — 02 Leads, Accounts, Contacts
+     etc.
+
+8. Update onboarding-videos/README.md to link to HOSTING.md.
+
+9. Validation:
+   - Run the app
+   - Confirm /training still loads
+   - Confirm video cards show correct status badges
+   - Confirm regular users do not see internal paths
+   - Confirm admin/demo users see internal paths and publish instructions
+   - Confirm no CRM/Mail behavior changed
+
+Constraints:
+- Do not implement video uploading.
+- Do not connect to external APIs.
+- Do not add a database table yet.
+- Do not alter the Playwright recording scripts.
+- Do not expose internal paths to regular users.
+- Keep this additive and surgical.
+
+Expected result:
+The Training Hub now clearly shows whether each onboarding video is not recorded, raw recorded, edited, hosted, or stale, and admins have a simple documented process for publishing hosted video links.

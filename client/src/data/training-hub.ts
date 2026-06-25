@@ -1,9 +1,23 @@
 /**
  * Training Hub static data.
- * Playlists, videos, and future placeholders are defined here.
- * Swap `videoUrl` for a Vimeo / YouTube / HubSpot URL when ready —
- * the rest of the UI picks it up automatically.
+ *
+ * To publish a hosted video:
+ *   1. Set videoUrl to the Vimeo / YouTube / HubSpot / Loom URL
+ *   2. Set hostedProvider to the matching value
+ *   3. Set status to "hosted"
+ *   4. Save — the Watch Video button enables automatically.
+ *
+ * See onboarding-videos/HOSTING.md for the full step-by-step guide.
  */
+
+export type VideoStatus =
+  | "not_recorded"   // script exists, recording not yet started
+  | "raw_recorded"   // .webm raw capture done, needs narration/editing
+  | "edited"         // final .mp4 produced, not yet uploaded
+  | "hosted"         // live hosted URL available
+  | "needs_update";  // UI has changed since last recording
+
+export type HostedProvider = "vimeo" | "youtube" | "hubspot" | "loom" | "local" | "other";
 
 export interface TrainingPlaylist {
   id: string;
@@ -11,24 +25,28 @@ export interface TrainingPlaylist {
   audience: string;
   description: string;
   estimatedTime: string;
-  videoIds: string[];       // references Video.id
-  filePath: string;         // onboarding-videos/playlists/XX-name.md
-  icon: string;             // emoji used in cards
+  videoIds: string[];
+  filePath: string;
+  icon: string;
 }
 
 export interface TrainingVideo {
   id: string;
-  number: string;           // "01", "02", …
+  number: string;
   title: string;
   description: string;
   duration: string;
   audiences: string[];
-  /**
-   * Local raw path for when no hosted URL exists yet.
-   * Swap for a Vimeo/YouTube/HubSpot URL at any time.
-   */
-  videoUrl: string | null;
-  storyboardPath: string;   // onboarding-videos/storyboards/XX-name.md
+  status: VideoStatus;
+  /** Hosted URL — Vimeo, YouTube unlisted, HubSpot, Loom, etc. */
+  videoUrl?: string;
+  hostedProvider?: HostedProvider;
+  /** onboarding-videos/outputs/raw/[name].webm */
+  rawVideoPath?: string;
+  /** onboarding-videos/outputs/final/[name].mp4 */
+  finalVideoPath?: string;
+  /** onboarding-videos/storyboards/[name].md */
+  storyboardPath: string;
 }
 
 export interface FutureVideo {
@@ -36,7 +54,7 @@ export interface FutureVideo {
   title: string;
   description: string;
   targetAudiences: string[];
-  playlistIds: string[];    // which playlists this will join
+  playlistIds: string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,7 +127,9 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
       "A 3-minute tour of VoltSafe CMS — the Command Center, Executive Dashboard, Pipeline, Mail, and AI Copilot. Watch this first.",
     duration: "~3.5 min",
     audiences: ["All roles"],
-    videoUrl: null,
+    status: "raw_recorded",
+    rawVideoPath: "onboarding-videos/outputs/raw/01-dashboard-overview.webm",
+    finalVideoPath: "onboarding-videos/outputs/final/01-dashboard-overview.mp4",
     storyboardPath: "onboarding-videos/storyboards/01-dashboard-overview.md",
   },
   {
@@ -120,7 +140,9 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
       "How the CRM is structured — leads as prospects, accounts as active relationships, and contacts as the people behind each marina.",
     duration: "~4.5 min",
     audiences: ["Sales", "Support/Admin", "New Employee"],
-    videoUrl: null,
+    status: "not_recorded",
+    rawVideoPath: "onboarding-videos/outputs/raw/02-leads-accounts-contacts.webm",
+    finalVideoPath: "onboarding-videos/outputs/final/02-leads-accounts-contacts.mp4",
     storyboardPath: "onboarding-videos/storyboards/02-leads-accounts-contacts.md",
   },
   {
@@ -131,7 +153,9 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
       "How a marina moves from New Lead to Closed Won — kanban stages, deal cards, list view, and the forecast dashboard.",
     duration: "~4.5 min",
     audiences: ["Sales", "Exec", "New Employee"],
-    videoUrl: null,
+    status: "not_recorded",
+    rawVideoPath: "onboarding-videos/outputs/raw/03-marina-lead-pipeline.webm",
+    finalVideoPath: "onboarding-videos/outputs/final/03-marina-lead-pipeline.mp4",
     storyboardPath: "onboarding-videos/storyboards/03-marina-lead-pipeline.md",
   },
   {
@@ -142,7 +166,9 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
       "The CRM-connected inbox — Priority and People tabs, opening threads with full CRM context, and composing outbound email.",
     duration: "~4.5 min",
     audiences: ["Sales", "Support/Admin", "New Employee"],
-    videoUrl: null,
+    status: "not_recorded",
+    rawVideoPath: "onboarding-videos/outputs/raw/04-voltsafe-mail-overview.webm",
+    finalVideoPath: "onboarding-videos/outputs/final/04-voltsafe-mail-overview.mp4",
     storyboardPath: "onboarding-videos/storyboards/04-voltsafe-mail-overview.md",
   },
   {
@@ -153,7 +179,9 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
       "How Cortex AI generates personalised outreach from account context — reading the intelligence panel, triggering the generator, and reviewing the draft.",
     duration: "~4.5 min",
     audiences: ["Sales", "Exec", "New Employee"],
-    videoUrl: null,
+    status: "not_recorded",
+    rawVideoPath: "onboarding-videos/outputs/raw/05-ai-email-generator.webm",
+    finalVideoPath: "onboarding-videos/outputs/final/05-ai-email-generator.mp4",
     storyboardPath: "onboarding-videos/storyboards/05-ai-email-generator.md",
   },
   {
@@ -164,7 +192,9 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
       "The pre-call research workflow — activity timeline, champion contact, open deals, email history, and notes before any call or email.",
     duration: "~4.5 min",
     audiences: ["Sales", "Exec", "Support/Admin", "New Employee"],
-    videoUrl: null,
+    status: "not_recorded",
+    rawVideoPath: "onboarding-videos/outputs/raw/06-account-intelligence-view.webm",
+    finalVideoPath: "onboarding-videos/outputs/final/06-account-intelligence-view.mp4",
     storyboardPath: "onboarding-videos/storyboards/06-account-intelligence-view.md",
   },
 ];

@@ -169,6 +169,9 @@ Place the finished file in `onboarding-videos/outputs/final/`.
 
 ### Step 6 — Host and share
 
+See **[onboarding-videos/HOSTING.md](./HOSTING.md)** for the full step-by-step guide covering
+Vimeo, YouTube, HubSpot, and Loom — including how to paste the URL into the Training Hub.
+
 | Platform | Use case |
 |----------|---------|
 | **Vimeo (unlisted)** | Embedded in Help Center or sent to prospects |
