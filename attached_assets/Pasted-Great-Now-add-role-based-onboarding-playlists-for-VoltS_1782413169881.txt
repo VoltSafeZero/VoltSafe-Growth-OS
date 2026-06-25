@@ -1,0 +1,108 @@
+Great. Now add role-based onboarding playlists for VoltSafe CMS.
+
+Goal:
+Organize the onboarding videos into clear learning paths for different user types so we can onboard sales, executives, marina operators, support/admin users, and new internal team members without making everyone watch everything.
+
+Requirements:
+
+1. Add a new folder:
+
+   onboarding-videos/playlists/
+
+2. Create these playlist markdown files:
+
+   01-sales-team-playlist.md
+   02-executive-playlist.md
+   03-marina-operator-playlist.md
+   04-support-admin-playlist.md
+   05-new-employee-playlist.md
+
+3. Each playlist should include:
+   - Playlist title
+   - Target user
+   - What they should understand by the end
+   - Recommended viewing order
+   - Which existing videos to watch
+   - Estimated total time
+   - “Skip this if…” guidance
+   - “Watch this before doing…” guidance
+   - Follow-up action after watching
+
+4. Use the existing onboarding videos:
+
+   01-dashboard-overview
+   02-leads-accounts-contacts
+   03-marina-lead-pipeline
+   04-voltsafe-mail-overview
+   05-ai-email-generator
+   06-account-intelligence-view
+
+5. Suggested playlist logic:
+
+   Sales Team:
+   - Dashboard Overview
+   - Leads, Accounts, Contacts
+   - Marina Lead Pipeline
+   - Account Intelligence View
+   - AI Email Generator
+   - VoltSafe Mail Overview
+
+   Executives:
+   - Dashboard Overview
+   - Marina Lead Pipeline
+   - Account Intelligence View
+   - AI Email Generator
+   - Optional: VoltSafe Mail Overview
+
+   Marina Operators:
+   - Dashboard Overview
+   - VoltSafe Mail Overview if customer-facing communication is relevant
+   - Future placeholder: Marina Dashboard / Slip Management / Power Session Management / Boater App once those videos exist
+
+   Support/Admin:
+   - Dashboard Overview
+   - Leads, Accounts, Contacts
+   - VoltSafe Mail Overview
+   - Account Intelligence View
+   - Future placeholder: User Management / Settings / Issue Handling
+
+   New Employee:
+   - Dashboard Overview
+   - Leads, Accounts, Contacts
+   - Marina Lead Pipeline
+   - Account Intelligence View
+   - AI Email Generator
+   - VoltSafe Mail Overview
+
+6. Add a master index file:
+
+   onboarding-videos/PLAYLISTS.md
+
+   This should summarize all playlists in one table:
+   - Playlist
+   - Audience
+   - Videos included
+   - Estimated total time
+   - Best use case
+
+7. Update onboarding-videos/README.md to link to:
+   - storyboards/
+   - playlists/
+   - PLAYLISTS.md
+
+8. Add future-video placeholders in the relevant playlists for:
+   - Marina Dashboard
+   - Slip Management
+   - Power Session Management
+   - Boater App
+   - User Permissions
+   - Reporting / Analytics
+   - Issue / Support Workflow
+
+9. Do not create new recording scripts yet.
+10. Do not change app behavior.
+11. Do not alter existing video scripts.
+12. This is documentation/organization only.
+
+Expected result:
+VoltSafe CMS now has not only onboarding recordings and storyboards, but also role-based training paths that tell each type of user exactly what to watch and in what order.

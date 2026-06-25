@@ -78,6 +78,24 @@ Google Drive). The folder structure is committed via `.gitkeep` files.
 
 ---
 
+## Role-based training playlists
+
+Not everyone needs to watch all six videos. Each user role has a curated
+learning path in `onboarding-videos/playlists/`:
+
+| Playlist | Audience | Est. time |
+|----------|----------|----------|
+| [Sales Team](playlists/01-sales-team-playlist.md) | AEs, SDRs, BDRs | ~26 min |
+| [Executives](playlists/02-executive-playlist.md) | Founders, VP Sales, GMs | ~17–21 min |
+| [Marina Operators](playlists/03-marina-operator-playlist.md) | Harbour masters, dock staff | ~8 min + future |
+| [Support & Admin](playlists/04-support-admin-playlist.md) | CS, support reps, admins | ~17 min |
+| [New Employees](playlists/05-new-employee-playlist.md) | All new hires | ~26 min |
+
+See **[PLAYLISTS.md](PLAYLISTS.md)** for the master index, coverage map, and
+instructions for adding new playlists or videos.
+
+---
+
 ## Storyboards & voiceover scripts
 
 Each video has a matching storyboard in `onboarding-videos/storyboards/`:
