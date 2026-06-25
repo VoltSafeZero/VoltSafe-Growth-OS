@@ -2,7 +2,6 @@ import type { Express } from "express";
 import { db } from "./db";
 import { eq, and, gte, lte, inArray, desc } from "drizzle-orm";
 import { teamWorkScheduleEntries, teamWorkScheduleDefaults, teamWorkScheduleAuditLog, users } from "@shared/schema";
-import { sql } from "drizzle-orm";
 
 function requireAdmin(req: any, res: any, next: any) {
   if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
@@ -206,7 +205,7 @@ export function registerTeamCalendarRoutes(app: Express, requireAuth: any) {
 
       const { userId, date, startTime, endTime, status, locationType, locationName, workFocus, availability, notes, visibility } = req.body;
 
-      const targetUserId = userId ?? myId;
+      const targetUserId = (userId != null && Number(userId) > 0) ? Number(userId) : myId;
       if (targetUserId !== myId && !isAdmin) {
         return res.status(403).json({ message: "You can only create your own schedule entries" });
       }
@@ -292,37 +291,34 @@ export function registerTeamCalendarRoutes(app: Express, requireAuth: any) {
       const isAdmin = myRole === "admin" || myRole === "master_admin";
 
       const { userId, dayOfWeek, defaultStatus, defaultStartTime, defaultEndTime, defaultLocationType, defaultLocationName, defaultAvailability } = req.body;
-      const targetUserId = userId ?? myId;
+      const targetUserId = (userId != null && Number(userId) > 0) ? Number(userId) : myId;
       if (targetUserId !== myId && !isAdmin) return res.status(403).json({ message: "Cannot edit another person's defaults" });
 
-      const values = {
-        userId: targetUserId, dayOfWeek,
-        defaultStatus, defaultStartTime: defaultStartTime || null, defaultEndTime: defaultEndTime || null,
-        defaultLocationType: defaultLocationType || null, defaultLocationName: defaultLocationName || null,
+      const upsertValues = {
+        userId: Number(targetUserId),
+        dayOfWeek: Number(dayOfWeek),
+        defaultStatus: String(defaultStatus),
+        defaultStartTime: defaultStartTime || null,
+        defaultEndTime: defaultEndTime || null,
+        defaultLocationType: defaultLocationType || null,
+        defaultLocationName: defaultLocationName || null,
         defaultAvailability: defaultAvailability || null,
-        updatedAt: new Date(),
       };
 
-      await db.execute(sql.raw(`
-        INSERT INTO team_work_schedule_defaults
-          (user_id, day_of_week, default_status, default_start_time, default_end_time, default_location_type, default_location_name, default_availability, updated_at)
-        VALUES
-          (${targetUserId}, ${dayOfWeek}, '${defaultStatus.replace(/'/g, "''")}',
-           ${defaultStartTime ? `'${defaultStartTime}'` : 'NULL'},
-           ${defaultEndTime ? `'${defaultEndTime}'` : 'NULL'},
-           ${defaultLocationType ? `'${defaultLocationType.replace(/'/g, "''")}'` : 'NULL'},
-           ${defaultLocationName ? `'${defaultLocationName.replace(/'/g, "''")}'` : 'NULL'},
-           ${defaultAvailability ? `'${defaultAvailability.replace(/'/g, "''")}'` : 'NULL'},
-           NOW())
-        ON CONFLICT (user_id, day_of_week) DO UPDATE SET
-          default_status = EXCLUDED.default_status,
-          default_start_time = EXCLUDED.default_start_time,
-          default_end_time = EXCLUDED.default_end_time,
-          default_location_type = EXCLUDED.default_location_type,
-          default_location_name = EXCLUDED.default_location_name,
-          default_availability = EXCLUDED.default_availability,
-          updated_at = NOW()
-      `));
+      await db.insert(teamWorkScheduleDefaults)
+        .values(upsertValues)
+        .onConflictDoUpdate({
+          target: [teamWorkScheduleDefaults.userId, teamWorkScheduleDefaults.dayOfWeek],
+          set: {
+            defaultStatus: upsertValues.defaultStatus,
+            defaultStartTime: upsertValues.defaultStartTime,
+            defaultEndTime: upsertValues.defaultEndTime,
+            defaultLocationType: upsertValues.defaultLocationType,
+            defaultLocationName: upsertValues.defaultLocationName,
+            defaultAvailability: upsertValues.defaultAvailability,
+            updatedAt: new Date(),
+          },
+        });
 
       const [result] = await db.select().from(teamWorkScheduleDefaults)
         .where(and(eq(teamWorkScheduleDefaults.userId, targetUserId), eq(teamWorkScheduleDefaults.dayOfWeek, dayOfWeek)))

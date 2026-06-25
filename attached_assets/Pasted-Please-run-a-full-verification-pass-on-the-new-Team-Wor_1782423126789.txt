@@ -1,0 +1,123 @@
+Please run a full verification pass on the new Team Work Calendar module.
+
+Do not add new features yet unless required to fix bugs. Focus on confirming the existing build works correctly.
+
+Verify the following:
+
+1. Navigation
+- Confirm the Work Calendar nav entry appears in the correct sidebar location.
+- Confirm clicking it opens /work/team-calendar.
+- Confirm route refresh works directly at /work/team-calendar.
+- Confirm unauthenticated users are auth-gated correctly.
+
+2. Database / Migration
+- Confirm team_work_schedule_entries exists.
+- Confirm team_work_schedule_defaults exists.
+- Confirm team_work_schedule_audit_log exists.
+- Confirm migration is idempotent and does not fail on restart.
+- Confirm no destructive migration operations were added.
+
+3. Today View
+- Confirm Today View loads without crashing.
+- Confirm all active VoltSafe team members appear.
+- Confirm users with no entry show as Not Updated.
+- Confirm users with recurring defaults show default schedule clearly marked as default.
+- Confirm summary counts are accurate for:
+  - In Office
+  - Remote
+  - Travel
+  - Day Off
+  - Sick / Personal
+  - Hybrid / Flexible
+  - Not Updated
+
+4. Schedule Creation
+- Log in as a regular user.
+- Create a schedule entry for today.
+- Confirm it appears immediately in Today View.
+- Refresh the page and confirm it persists.
+- Confirm the audit log records the create action.
+
+5. Schedule Editing
+- Edit today’s schedule entry.
+- Confirm the updated status, location, hours, focus, availability, and notes save correctly.
+- Refresh and confirm the changes persist.
+- Confirm the audit log records the update action.
+
+6. Split-Day Support
+- Create two entries for the same user on the same date:
+  - Remote 8:00 AM–12:00 PM
+  - In Office 1:00 PM–5:00 PM
+- Confirm both display correctly in Today View.
+- Confirm both display correctly in Week View.
+- Confirm summary counts do not double-count the same person incorrectly unless intentionally designed that way. If a user has split-day Hybrid/Office/Remote entries, make sure the UI clearly represents that day as split/hybrid.
+
+7. Weekly View
+- Confirm Monday–Friday grid renders.
+- Confirm previous/next week navigation works.
+- Confirm explicit entries override recurring defaults.
+- Confirm default entries appear only when no explicit entry exists.
+- Confirm clicking a cell opens the correct edit form for that person/date.
+
+8. My Schedule
+- Confirm quick buttons work:
+  - Office
+  - Remote
+  - Travel
+  - Day Off
+  - Hybrid
+- Confirm clicking a quick button opens/pre-fills the form correctly.
+- Confirm a user can set a recurring weekly default.
+- Confirm a user can delete or update a recurring default.
+- Confirm one-off entries override defaults.
+
+9. People View
+- Confirm all team members appear.
+- Confirm each person’s current status appears correctly.
+- Confirm clicking a person opens their detail panel.
+- Confirm upcoming schedule and default weekly pattern display correctly.
+
+10. Permissions
+- Regular users can create/edit only their own schedule entries.
+- Regular users cannot edit another person’s schedule.
+- Admin users can create/edit anyone’s schedule.
+- Master admin users can create/edit anyone’s schedule.
+- Admin-only audit log access is protected.
+
+11. Filters
+- Confirm filters work for:
+  - Person
+  - Status
+  - Location
+  - Availability
+- Confirm filters work in Today View and Week View where applicable.
+- Confirm clearing filters restores the full view.
+
+12. Error Handling
+- Confirm failed saves show a useful error message.
+- Confirm invalid time ranges are prevented or handled cleanly.
+- Confirm empty required fields are blocked with clear validation.
+- Confirm delete actions do not crash the page.
+
+13. UI Polish
+- Confirm the page is visually consistent with the rest of VoltSafe CMS.
+- Confirm status badge colours match the spec.
+- Confirm desktop layout is clean.
+- Confirm mobile/tablet view is usable enough for quick updates.
+- Confirm no console errors appear during normal use.
+
+14. Backend/API
+- Confirm all new endpoints return correct status codes.
+- Confirm unauthorized requests are rejected.
+- Confirm permission checks are enforced server-side, not only in the UI.
+- Confirm deleted entries no longer appear.
+- Confirm audit log captures create, update, and delete.
+
+15. Final Report
+After verification, provide a concise report with:
+
+- What passed
+- What failed
+- Any bugs found
+- Files changed, if fixes were needed
+- Confirmation that the module is ready for production use or what remains before production

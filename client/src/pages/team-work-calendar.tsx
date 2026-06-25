@@ -234,7 +234,7 @@ function EntryFormModal({ open, onClose, userId, date, entry, isAdmin, myUserId,
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-slate-300 text-xs mb-1 block">Team Member</Label>
-                <Select value={String(form.userId)} onValueChange={v => set("userId", v)}>
+                <Select value={String(form.userId)} onValueChange={v => setForm(f => ({ ...f, userId: Number(v) }))}>
                   <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-user">
                     <SelectValue />
                   </SelectTrigger>
@@ -352,13 +352,13 @@ function EntryFormModal({ open, onClose, userId, date, entry, isAdmin, myUserId,
 
 function TodaySummaryCard({ summary }: { summary: Record<string, number> }) {
   const items = [
-    { key: "in_office",   label: "In Office",       color: "text-emerald-400" },
-    { key: "remote",      label: "Remote",          color: "text-blue-400" },
-    { key: "work_travel", label: "Travelling",      color: "text-purple-400" },
-    { key: "day_off",     label: "Day Off",         color: "text-slate-400" },
-    { key: "sick",        label: "Sick/Personal",   color: "text-red-400" },
-    { key: "hybrid",      label: "Hybrid/Flexible", color: "text-orange-400" },
-    { key: "not_updated", label: "Not Updated",     color: "text-slate-500" },
+    { key: "in_office",   label: "In Office",       color: "text-emerald-400", value: summary.in_office ?? 0 },
+    { key: "remote",      label: "Remote",          color: "text-blue-400",    value: summary.remote ?? 0 },
+    { key: "work_travel", label: "Travelling",      color: "text-purple-400",  value: summary.work_travel ?? 0 },
+    { key: "day_off",     label: "Day Off",         color: "text-slate-400",   value: summary.day_off ?? 0 },
+    { key: "sick",        label: "Sick/Personal",   color: "text-red-400",     value: summary.sick ?? 0 },
+    { key: "hybrid",      label: "Hybrid/Flexible", color: "text-orange-400",  value: (summary.hybrid ?? 0) + (summary.flexible ?? 0) },
+    { key: "not_updated", label: "Not Updated",     color: "text-slate-500",   value: summary.not_updated ?? 0 },
   ];
   return (
     <Card className="bg-slate-800/40 border-slate-700/50 mb-5" data-testid="today-summary-card">
@@ -370,9 +370,9 @@ function TodaySummaryCard({ summary }: { summary: Record<string, number> }) {
       </CardHeader>
       <CardContent className="px-5 pb-4">
         <div className="flex flex-wrap gap-4">
-          {items.map(({ key, label, color }) => (
+          {items.map(({ key, label, color, value }) => (
             <div key={key} className="flex items-center gap-1.5" data-testid={`summary-${key}`}>
-              <span className={`text-xl font-bold ${color}`}>{summary[key] ?? 0}</span>
+              <span className={`text-xl font-bold ${color}`}>{value}</span>
               <span className="text-xs text-slate-500 leading-tight max-w-[56px]">{label}</span>
             </div>
           ))}
@@ -385,7 +385,7 @@ function TodaySummaryCard({ summary }: { summary: Record<string, number> }) {
 // ── Today View ────────────────────────────────────────────────────────────────
 
 function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: boolean; onEdit: (userId: number, date: string, entry?: ScheduleEntry) => void }) {
-  const [filter, setFilter] = useState({ person: "", status: "all", availability: "all" });
+  const [filter, setFilter] = useState({ person: "", status: "all", availability: "all", location: "" });
 
   const { data, isLoading } = useQuery<{ date: string; rows: TodayRow[]; summary: Record<string, number> }>({
     queryKey: ["/api/team-calendar/today"],
@@ -399,6 +399,10 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
       if (filter.status !== "all" && primaryStatus !== filter.status) return false;
       const avail = row.entries[0]?.availability;
       if (filter.availability !== "all" && avail !== filter.availability) return false;
+      if (filter.location) {
+        const loc = (row.entries[0]?.locationName ?? "").toLowerCase();
+        if (!loc.includes(filter.location.toLowerCase())) return false;
+      }
       return true;
     });
   }, [data, filter]);
@@ -419,11 +423,11 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
           placeholder="Filter by name…"
           value={filter.person}
           onChange={e => setFilter(f => ({ ...f, person: e.target.value }))}
-          className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-8 text-sm w-44"
+          className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-8 text-sm w-40"
           data-testid="filter-person"
         />
         <Select value={filter.status} onValueChange={v => setFilter(f => ({ ...f, status: v }))}>
-          <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-8 text-sm w-40" data-testid="filter-status">
+          <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-8 text-sm w-36" data-testid="filter-status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent className="bg-[#0f1623] border-slate-700">
@@ -432,7 +436,7 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
           </SelectContent>
         </Select>
         <Select value={filter.availability} onValueChange={v => setFilter(f => ({ ...f, availability: v }))}>
-          <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-8 text-sm w-44" data-testid="filter-availability">
+          <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-8 text-sm w-40" data-testid="filter-availability">
             <SelectValue placeholder="All availability" />
           </SelectTrigger>
           <SelectContent className="bg-[#0f1623] border-slate-700">
@@ -440,6 +444,20 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
             {AVAILABILITY_OPTIONS.map(a => <SelectItem key={a.value} value={a.value} className="text-slate-100">{a.label}</SelectItem>)}
           </SelectContent>
         </Select>
+        <Input
+          placeholder="Filter by location…"
+          value={filter.location}
+          onChange={e => setFilter(f => ({ ...f, location: e.target.value }))}
+          className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-8 text-sm w-40"
+          data-testid="filter-location"
+        />
+        {(filter.person || filter.status !== "all" || filter.availability !== "all" || filter.location) && (
+          <Button size="sm" variant="ghost" className="h-8 text-slate-500 hover:text-slate-200 text-xs px-2"
+            onClick={() => setFilter({ person: "", status: "all", availability: "all", location: "" })}
+            data-testid="btn-clear-filters">
+            <X className="w-3 h-3 mr-1" /> Clear
+          </Button>
+        )}
       </div>
 
       {/* Team table */}
@@ -519,7 +537,11 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
 
   const { data, isLoading } = useQuery<{ users: TeamUser[]; dates: string[]; schedule: Record<string, { user: TeamUser; date: string; entries: ScheduleEntry[]; source: string }[]> }>({
     queryKey: ["/api/team-calendar/week", monday],
-    queryFn: () => fetch(`/api/team-calendar/week?startDate=${monday}`, { credentials: "include" }).then(r => r.json()),
+    queryFn: async () => {
+      const res = await fetch(`/api/team-calendar/week?startDate=${monday}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
   });
 
   if (isLoading) return <div className="space-y-3">{[1,2,3,4].map(i => <Skeleton key={i} className="h-14 w-full bg-slate-800/50" />)}</div>;
@@ -856,7 +878,11 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
 function PersonDetailModal({ user, open, onClose, isAdmin, myUserId, onEdit }: { user: TeamUser; open: boolean; onClose: () => void; isAdmin: boolean; myUserId: number; onEdit: (userId: number, date: string, entry?: ScheduleEntry) => void }) {
   const { data, isLoading } = useQuery<{ user: TeamUser; entries: ScheduleEntry[]; defaults: ScheduleDefault[] }>({
     queryKey: ["/api/team-calendar/user", user.id],
-    queryFn: () => fetch(`/api/team-calendar/user/${user.id}`, { credentials: "include" }).then(r => r.json()),
+    queryFn: async () => {
+      const res = await fetch(`/api/team-calendar/user/${user.id}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
     enabled: open,
   });
 
