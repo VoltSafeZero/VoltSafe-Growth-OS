@@ -912,7 +912,7 @@ export async function getChampionsLeaderboard(limit = 20): Promise<ChampionLeade
           et.primary_account_id                                                          AS account_id,
           a.name                                                                         AS account_name,
           LOWER(er.recipient_email)                                                      AS email,
-          COALESCE(c.name, er.recipient_email)                                           AS name,
+          COALESCE(c.name, LOWER(er.recipient_email))                                     AS name,
           c.title,
           COUNT(DISTINCT CASE WHEN ee.event_type='open'  AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE THEN ee.id END) AS opens,
           COUNT(DISTINCT CASE WHEN ee.event_type='click' AND ee.is_bot=FALSE AND ee.is_duplicate IS NOT TRUE AND ee.is_internal IS NOT TRUE THEN ee.id END) AS clicks,

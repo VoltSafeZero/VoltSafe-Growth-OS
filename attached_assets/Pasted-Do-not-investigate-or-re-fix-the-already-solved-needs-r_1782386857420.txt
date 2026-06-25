@@ -1,0 +1,87 @@
+Do not investigate or re-fix the already-solved needs-reply .items bug.
+
+That bug is already fixed:
+
+* /api/dashboard/needs-reply-high-engagement returns { items: [...] }
+* revenue-intelligence.tsx now unwraps it with:
+    Array.isArray(d) ? d : (d?.items ?? [])
+
+Do not repeat that work.
+
+New task:
+Run authenticated live verification of /revenue-intelligence.
+
+Goal:
+Prove that Insights → Revenue Intelligence no longer crashes after skeleton loading when logged in with real app data.
+
+Important:
+
+* Do not redesign the page.
+* Do not add more normalizers unless a new live crash is found.
+* Do not re-audit the already-fixed needs-reply shape issue.
+* Do not create migrations.
+* Do not change API contracts.
+* Do not code unless authenticated verification reveals a new bug.
+
+Verification steps:
+
+1. Start the app cleanly.
+2. Log in using the normal dev/admin test user.
+3. Navigate to:
+    /revenue-intelligence
+4. Wait at least 10 seconds after skeleton placeholders appear.
+5. Confirm:
+    * The page stays mounted.
+    * The error boundary does not appear.
+    * “Something went wrong” does not appear.
+    * No browser console runtime errors.
+    * No slice is not a function.
+    * No map is not a function.
+    * No not iterable.
+    * No undefined className issue.
+    * No backend 500s from Revenue Intelligence endpoints.
+6. Check every visible section:
+    * Summary metric cards
+    * Hot Accounts
+    * Champions
+    * Accelerating Relationships
+    * Needs Reply
+    * Follow-Up Opportunities
+    * At Risk
+    * Heatmap / lower panel
+7. Click the page Refresh button if present.
+    Confirm:
+    * Loading state appears.
+    * Data reloads.
+    * No crash.
+    * No stuck loading state.
+    * No duplicate error toasts.
+8. Capture evidence:
+    * Screenshot of the loaded Revenue Intelligence page after data resolves.
+    * Browser console result.
+    * Server log result.
+9. Run:
+    * tests/revenue-intelligence-shapes.test.cjs
+    * app boot check
+    * typecheck if feasible
+
+Only if a new bug is found:
+
+* Identify the exact failing component/line.
+* Fix surgically.
+* Add/update a regression test.
+* Report the root cause.
+
+Final report must include:
+
+* Whether authenticated /revenue-intelligence loaded successfully.
+* Whether it survived 10+ seconds after skeleton loading.
+* Whether Refresh worked.
+* Browser console result.
+* Server log result.
+* Screenshot/visual verification notes.
+* Tests run.
+* Any new bugs found/fixed.
+
+Critical:
+Skeleton success does not count. Only authenticated loaded-state stability counts.
