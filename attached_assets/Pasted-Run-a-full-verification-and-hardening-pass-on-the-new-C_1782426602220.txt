@@ -1,0 +1,295 @@
+Run a full verification and hardening pass on the new CRM Recent News Intelligence feature.
+
+Do not add new features unless required to fix bugs or security issues.
+
+Focus on verifying the feature is safe, reliable, and correctly wired into Leads, Accounts, Contacts, Partners, and the AI email generator.
+
+1. Database / migration verification
+
+Confirm:
+
+- crm_recent_news table exists.
+- All required columns exist:
+  - id
+  - entity_type
+  - entity_id
+  - url
+  - normalized_url
+  - title
+  - source
+  - author
+  - published_at
+  - added_by_user_id
+  - added_at
+  - updated_at
+  - user_note
+  - relevance_type
+  - tags
+  - raw_excerpt
+  - extracted_text
+  - ai_summary
+  - strategic_relevance
+  - suggested_outreach_angle
+  - ai_key_points
+  - ai_relevance_score
+  - ai_status
+  - last_processed_at
+  - processing_error
+  - is_archived
+  - use_in_email_context
+
+Confirm migration is:
+
+- Idempotent
+- Non-destructive
+- Safe on restart
+- Uses CREATE TABLE IF NOT EXISTS
+- Uses CREATE INDEX IF NOT EXISTS
+
+Confirm indexes exist for:
+
+- entity_type + entity_id
+- normalized_url
+- published_at
+- added_at
+- relevance_type
+- ai_relevance_score
+- use_in_email_context
+
+2. Entity mounting verification
+
+Confirm RecentNewsPanel is visible and working on:
+
+- Lead detail/profile
+- Account detail/profile
+- Contact detail/profile
+- Partner detail/profile
+
+For each entity type, verify:
+
+- Correct entityType is passed.
+- Correct entityId is passed.
+- The panel fetches only that entity’s news.
+- News added to one entity does not leak into another entity.
+- Archived/deleted news does not show by default.
+
+3. API endpoint verification
+
+Verify all endpoints:
+
+GET /api/crm/recent-news?entityType=lead&entityId=123
+
+POST /api/crm/recent-news
+
+PUT /api/crm/recent-news/:id
+
+DELETE /api/crm/recent-news/:id
+
+POST /api/crm/recent-news/:id/refresh-summary
+
+POST /api/crm/recent-news/:id/use-in-email-context
+
+For each endpoint confirm:
+
+- Auth is required.
+- Invalid entityType is rejected.
+- Missing entityId is rejected.
+- Invalid URL is rejected.
+- Regular users cannot modify records they should not modify, if ownership/admin rules apply.
+- Admin users can archive/delete/refresh as intended.
+- Errors return useful status codes and useful messages.
+- No endpoint returns raw article HTML.
+
+4. SSRF and URL fetch security verification
+
+This is critical.
+
+Test and confirm the article fetcher blocks:
+
+- localhost
+- 127.0.0.1
+- 0.0.0.0
+- ::1
+- 10.0.0.0/8
+- 172.16.0.0/12
+- 192.168.0.0/16
+- link-local IPs
+- metadata service IPs such as 169.254.169.254
+- private/internal IPv6 ranges
+- file:// URLs
+- ftp:// URLs
+- javascript: URLs
+- data: URLs
+
+Confirm redirect handling is safe:
+
+- If a public URL redirects to a private/internal URL, the request is blocked.
+- Redirect count is limited.
+- Timeout is enforced.
+- Max response size is enforced.
+- Content is treated as plain text only.
+- Raw HTML is never rendered in the UI.
+
+If any SSRF gap exists, fix it before doing anything else.
+
+5. Duplicate URL handling
+
+Verify:
+
+- Same normalized URL cannot be added twice to the same entity.
+- Same URL can be added to a different entity if relevant.
+- Query params/trailing slashes are normalized consistently.
+- Duplicate attempt returns a clear user-facing message:
+  “This article is already attached to this record.”
+
+6. Article ingestion failure handling
+
+Test:
+
+- Valid normal article URL
+- Paywalled article URL
+- 404 URL
+- Timeout URL
+- Non-HTML URL
+- Article with missing OpenGraph metadata
+- Article with no published date
+
+Confirm:
+
+- URL still saves when metadata extraction fails.
+- ai_status becomes failed or processed appropriately.
+- processing_error is saved for admins/debugging.
+- User can add a note manually.
+- UI does not crash.
+- Refresh Summary can retry processing.
+- Failed items still remain useful as saved context.
+
+7. AI summary generation verification
+
+For a successful article, confirm the AI creates:
+
+- ai_summary
+- strategic_relevance
+- suggested_outreach_angle
+- ai_key_points
+- ai_relevance_score from 1 to 5
+- ai_status = processed
+- last_processed_at
+
+Confirm the AI output is relevant to VoltSafe’s business context:
+
+- shore power
+- smart marina pedestals
+- smart connectors
+- marina electrification
+- safety
+- leakage detection
+- energy management
+- ports
+- utilities
+- infrastructure upgrades
+- grants/funding
+- sustainability
+- compliance
+- customer pain signals
+
+Confirm AI failures do not crash the request or UI.
+
+8. AI email generator integration verification
+
+Verify the Suggested Email modal now shows a Recent News Context section.
+
+Confirm:
+
+- News with relevance score 4 or 5 is auto-selected by default.
+- Lower relevance news is visible but not auto-selected unless explicitly marked use_in_email_context.
+- User can manually include/exclude news.
+- Selected news IDs are passed to backend generation.
+- Backend uses compressed Recent News context only.
+- Full extracted article text is NOT dumped into the email prompt.
+- Generated email uses news naturally as a timely reason to reach out.
+- The news context does not overpower the rest of the CRM context.
+
+9. AI context compression verification
+
+Find and verify the helper that builds compressed Recent News context.
+
+Confirm rules:
+
+- Prioritize use_in_email_context = true.
+- Then highest ai_relevance_score.
+- Then newest published_at.
+- Then newest added_at.
+- Include max 3 detailed news items.
+- Older/lower-relevance items become one-line bullets.
+- extracted_text is never included in final email prompts.
+- Context block includes:
+  - Title
+  - Source
+  - Published date
+  - AI summary
+  - Strategic relevance
+  - Suggested outreach angle
+  - Relevance score
+  - User note, if present
+
+10. UI verification
+
+Verify RecentNewsPanel:
+
+- Looks consistent with VoltSafe CMS.
+- Has clear empty state.
+- Add News modal works.
+- URL field validation is clear.
+- Optional note/tags/relevance type work.
+- Processing state is clear.
+- Done/failed state is clear.
+- Refresh Summary works.
+- Edit note/tags/relevance type works.
+- Archive/delete works.
+- Open Article opens the URL safely in a new tab.
+- Polling every 4s stops when all items are processed.
+- No infinite polling.
+- No console errors.
+
+11. Permissions and audit logging
+
+Confirm:
+
+- Authenticated users can view/add/edit their own notes.
+- Admin users can archive/delete/refresh any item.
+- Permission checks are server-side, not just UI.
+- Audit/activity log records:
+  - created
+  - updated
+  - archived/deleted
+  - summary refreshed
+  - use_in_email_context toggled
+
+If audit logging was not wired because no clean existing pattern exists, add a TODO with exact file/location for follow-up and report it clearly.
+
+12. Tests
+
+Run relevant validation/tests.
+
+At minimum:
+
+- Existing AI email generator tests still pass.
+- Existing user input/context tests still pass.
+- Recent News API smoke tests pass if available.
+- No TypeScript errors in modified files.
+- No runtime server errors on startup.
+- No console errors in the browser.
+
+13. Final report
+
+Provide a concise report with:
+
+- What passed
+- What failed
+- Bugs found
+- Security issues found
+- Files changed
+- Whether SSRF protection is confirmed safe
+- Whether AI email context avoids full article text
+- Whether the feature is ready for production use

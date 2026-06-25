@@ -1,0 +1,172 @@
+Before doing any more UX or feature work on CRM Recent News, run a targeted hardening pass on the two highest-risk areas:
+
+1. SSRF protection for user-pasted URLs
+2. Prompt compression for AI email/context generation
+
+Do not add new features.
+Do not polish UI.
+Do not refactor unrelated code.
+Only inspect, verify, and fix these two areas.
+
+PART 1 — SSRF PROTECTION
+
+Find the article URL fetching logic for CRM Recent News.
+
+Verify and harden it so user-submitted URLs cannot be used to access internal/private infrastructure.
+
+Requirements:
+
+- Only allow http:// and https:// URLs.
+- Reject all other protocols:
+  - file:
+  - ftp:
+  - gopher:
+  - javascript:
+  - data:
+  - blob:
+  - chrome:
+  - about:
+  - anything else non-http/https
+
+Block these hosts/IPs before fetch:
+
+- localhost
+- 127.0.0.1
+- 0.0.0.0
+- ::1
+- IPv4 private ranges:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+- Link-local:
+  - 169.254.0.0/16
+- Cloud metadata:
+  - 169.254.169.254
+- IPv6 private/local ranges:
+  - fc00::/7
+  - fe80::/10
+  - ::1/128
+- Any hostname that resolves to a private/internal IP.
+
+DNS requirements:
+
+- Resolve hostname before fetch.
+- Block if any resolved IP is private, loopback, link-local, multicast, or reserved.
+- Re-check every redirect target before following it.
+- If a public URL redirects to localhost/private/internal IP, block it.
+- Limit redirects to a small number, e.g. max 3.
+- Enforce timeout, e.g. 10–12 seconds.
+- Enforce max response size, e.g. 1–2 MB.
+- Only process text/html or safe text content.
+- Never render raw article HTML in the frontend.
+- Store extracted text as plain text only.
+
+Test cases to add or run manually:
+
+Blocked:
+- http://localhost:5000
+- http://127.0.0.1:5000
+- http://0.0.0.0
+- http://[::1]
+- http://10.0.0.1
+- http://172.16.0.1
+- http://192.168.1.1
+- http://169.254.169.254
+- file:///etc/passwd
+- ftp://example.com/file
+- javascript:alert(1)
+- data:text/html,<script>alert(1)</script>
+
+Allowed:
+- Normal https news article URL
+- Normal http public article URL, if allowed by app policy
+
+If any SSRF gap exists, fix it now.
+
+PART 2 — PROMPT COMPRESSION
+
+Find every place CRM Recent News is passed into AI prompts, especially:
+
+- AI email generation
+- suggested next email
+- CRM context builder
+- lead/account/contact/partner AI summary
+- any helper like buildRecentNewsContext or similar
+
+Hard rule:
+
+Never include full extracted_text in AI email prompts.
+
+The AI email generator must only receive compressed/distilled news context.
+
+Allowed fields in email-generation prompt:
+
+- title
+- source
+- published_at
+- ai_summary
+- strategic_relevance
+- suggested_outreach_angle
+- ai_key_points
+- ai_relevance_score
+- user_note
+- relevance_type
+- tags
+- use_in_email_context
+
+Forbidden in email-generation prompt:
+
+- extracted_text
+- raw full article HTML
+- full article body
+- long uncompressed scraped page text
+
+Compression rules:
+
+- Prioritize use_in_email_context = true.
+- Then highest ai_relevance_score.
+- Then newest published_at.
+- Then newest added_at.
+- Include max 3 detailed Recent News items.
+- Older/lower-priority items should be reduced to one-line bullets.
+- Each detailed item should be concise.
+- Put a hard character/token budget on the Recent News context block.
+- If the block gets too large, truncate safely at summary/key-point level, not mid-HTML or raw article text.
+
+Suggested format:
+
+Recent News Context:
+1. Title:
+Source:
+Published:
+Relevance Score:
+Summary:
+Why it matters:
+Suggested outreach angle:
+User note:
+
+Older/lower-priority news:
+- Title — one-line relevance summary
+
+Verification:
+
+- Search the codebase for extracted_text.
+- Confirm extracted_text is used only for initial AI summarization/processing, not downstream email generation.
+- Search generated AI prompt construction.
+- Confirm no raw article body is included.
+- Confirm no full article HTML is included.
+- Confirm selected news IDs passed from the modal resolve to compressed summaries only.
+
+Add tests or code-level assertions if practical.
+
+Final report:
+
+Return a concise report with:
+
+- SSRF protections confirmed
+- SSRF gaps found and fixed
+- Prompt compression confirmed
+- Any places extracted_text was removed from prompts
+- Files changed
+- Remaining risks, if any
+- Whether it is safe to proceed to broader feature verification

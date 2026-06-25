@@ -7263,9 +7263,16 @@ export async function registerRoutes(
           is_archived BOOLEAN NOT NULL DEFAULT FALSE
         )
       `));
-      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_entity ON crm_recent_news(entity_type, entity_id)`));
-      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_score  ON crm_recent_news(ai_relevance_score DESC NULLS LAST)`));
-      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_added  ON crm_recent_news(added_at DESC)`));
+      // Additive column — safe to run repeatedly (IF NOT EXISTS is idempotent)
+      await db.execute(sql.raw(`ALTER TABLE crm_recent_news ADD COLUMN IF NOT EXISTS use_in_email_context BOOLEAN NOT NULL DEFAULT FALSE`));
+      // Required indexes (all idempotent)
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_entity         ON crm_recent_news(entity_type, entity_id)`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_score          ON crm_recent_news(ai_relevance_score DESC NULLS LAST)`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_added          ON crm_recent_news(added_at DESC)`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_normalized_url ON crm_recent_news(normalized_url)`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_published_at   ON crm_recent_news(published_at DESC NULLS LAST)`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_relevance_type ON crm_recent_news(relevance_type)`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crn_use_in_email   ON crm_recent_news(use_in_email_context)`));
       console.log("[migration] CRM Recent News schema ready.");
     } catch (e) {
       console.error("[migration] CRM Recent News error:", e);
@@ -32645,16 +32652,28 @@ export function registerConfluenceRoutes(app: Express) {
       if (!entityType || !entityId || isNaN(parseInt(entityId))) {
         return res.status(400).json({ message: "entityType and entityId are required" });
       }
+      const { VALID_ENTITY_TYPES } = await import("./services/crm-recent-news");
+      if (!VALID_ENTITY_TYPES.has(String(entityType))) {
+        return res.status(400).json({ message: "Invalid entityType" });
+      }
       const eid = parseInt(entityId);
-      const etype = entityType.replace(/'/g, "");
+      const etype = String(entityType);
       const rows = (await db.execute(sql.raw(`
-        SELECT n.*, u.name as added_by_name
+        SELECT n.id, n.entity_type, n.entity_id, n.url, n.title, n.source, n.author,
+               n.published_at, n.added_by_user_id, n.added_at, n.updated_at,
+               n.user_note, n.relevance_type, n.tags,
+               n.ai_summary, n.strategic_relevance, n.suggested_outreach_angle,
+               n.ai_key_points, n.ai_relevance_score, n.ai_status,
+               n.use_in_email_context, n.processing_error, n.is_archived,
+               u.name as added_by_name
         FROM crm_recent_news n
         LEFT JOIN users u ON u.id = n.added_by_user_id
         WHERE n.entity_type = '${etype}' AND n.entity_id = ${eid} AND n.is_archived = FALSE
-        ORDER BY n.ai_relevance_score DESC NULLS LAST, n.added_at DESC
+        ORDER BY n.use_in_email_context DESC, n.ai_relevance_score DESC NULLS LAST, n.added_at DESC
         LIMIT 50
       `))).rows as any[];
+      // NOTE: extracted_text is intentionally excluded — it is for server-side
+      // AI processing only and must never be sent to clients.
       res.json(rows.map((r: any) => ({
         id: Number(r.id),
         entityType: r.entity_type,
@@ -32665,8 +32684,9 @@ export function registerConfluenceRoutes(app: Express) {
         author: r.author,
         publishedAt: r.published_at,
         addedByUserId: Number(r.added_by_user_id),
-        addedByName: r.added_by_name || r.added_by_name,
+        addedByName: r.added_by_name,
         addedAt: r.added_at,
+        updatedAt: r.updated_at,
         userNote: r.user_note,
         relevanceType: r.relevance_type,
         tags: r.tags,
@@ -32676,6 +32696,7 @@ export function registerConfluenceRoutes(app: Express) {
         aiKeyPoints: r.ai_key_points,
         aiRelevanceScore: r.ai_relevance_score ? Number(r.ai_relevance_score) : null,
         aiStatus: r.ai_status,
+        useInEmailContext: Boolean(r.use_in_email_context),
         processingError: r.processing_error,
         isArchived: r.is_archived,
       })));
@@ -32692,14 +32713,18 @@ export function registerConfluenceRoutes(app: Express) {
       if (!entityType || !entityId || isNaN(parseInt(entityId))) {
         return res.status(400).json({ message: "entityType and entityId are required" });
       }
+      const { VALID_ENTITY_TYPES } = await import("./services/crm-recent-news");
+      if (!VALID_ENTITY_TYPES.has(String(entityType))) {
+        return res.status(400).json({ message: "Invalid entityType" });
+      }
       const eid = parseInt(entityId);
-      const etype = entityType.replace(/'/g, "");
+      const etype = String(entityType);
       const rows = (await db.execute(sql.raw(`
-        SELECT id, title, source, published_at, ai_relevance_score, user_note, url, added_at
+        SELECT id, title, source, published_at, ai_relevance_score, use_in_email_context, user_note, url, added_at
         FROM crm_recent_news
         WHERE entity_type = '${etype}' AND entity_id = ${eid}
           AND is_archived = FALSE AND ai_status = 'done' AND ai_summary IS NOT NULL
-        ORDER BY ai_relevance_score DESC NULLS LAST, added_at DESC
+        ORDER BY use_in_email_context DESC, ai_relevance_score DESC NULLS LAST, added_at DESC
         LIMIT 20
       `))).rows as any[];
       res.json(rows.map((r: any) => ({
@@ -32708,6 +32733,7 @@ export function registerConfluenceRoutes(app: Express) {
         source: r.source,
         publishedAt: r.published_at,
         aiRelevanceScore: r.ai_relevance_score ? Number(r.ai_relevance_score) : null,
+        useInEmailContext: Boolean(r.use_in_email_context),
         userNote: r.user_note,
         url: r.url,
         addedAt: r.added_at,
@@ -32728,8 +32754,13 @@ export function registerConfluenceRoutes(app: Express) {
         return res.status(400).json({ message: "entityType, entityId, and url are required" });
       }
 
+      // Entity-type whitelist (prevents SQL injection via entityType)
+      const { isUrlSafe, normalizeUrl, VALID_ENTITY_TYPES } = await import("./services/crm-recent-news");
+      if (!VALID_ENTITY_TYPES.has(String(entityType))) {
+        return res.status(400).json({ message: "Invalid entityType" });
+      }
+
       // SSRF guard
-      const { isUrlSafe, normalizeUrl } = await import("./services/crm-recent-news");
       const safeCheck = isUrlSafe(String(url));
       if (!safeCheck.ok) {
         return res.status(400).json({ message: safeCheck.reason || "URL not allowed" });
@@ -32798,8 +32829,8 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = (req.session as any).userId as number;
       const isAdmin = (req.session as any).globalRole === "admin" || (req.session as any).globalRole === "master_admin";
 
-      // Ownership check
-      const rows = (await db.execute(sql.raw(`SELECT added_by_user_id FROM crm_recent_news WHERE id = ${id} LIMIT 1`))).rows as any[];
+      // Ownership check — also fetch entity for audit log
+      const rows = (await db.execute(sql.raw(`SELECT added_by_user_id, entity_type, entity_id FROM crm_recent_news WHERE id = ${id} LIMIT 1`))).rows as any[];
       if (!rows.length) return res.status(404).json({ message: "Not found" });
       if (!isAdmin && Number(rows[0].added_by_user_id) !== userId) {
         return res.status(403).json({ message: "You can only edit your own news items" });
@@ -32818,6 +32849,17 @@ export function registerConfluenceRoutes(app: Express) {
       if (isArchived !== undefined) sets.push(`is_archived = ${Boolean(isArchived)}`);
 
       await db.execute(sql.raw(`UPDATE crm_recent_news SET ${sets.join(", ")} WHERE id = ${id}`));
+
+      // Audit log
+      try {
+        const etype = esc(String(rows[0].entity_type || ""));
+        const eid = Number(rows[0].entity_id);
+        await db.execute(sql.raw(`
+          INSERT INTO activities (type, object_type, object_id, created_by_user_id, description)
+          VALUES ('news_updated', '${etype}', ${eid}, ${userId}, 'News item updated (note/tags/relevance)')
+        `));
+      } catch { /* non-fatal */ }
+
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -32832,13 +32874,25 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = (req.session as any).userId as number;
       const isAdmin = (req.session as any).globalRole === "admin" || (req.session as any).globalRole === "master_admin";
 
-      const rows = (await db.execute(sql.raw(`SELECT added_by_user_id FROM crm_recent_news WHERE id = ${id} LIMIT 1`))).rows as any[];
+      const rows = (await db.execute(sql.raw(`SELECT added_by_user_id, entity_type, entity_id FROM crm_recent_news WHERE id = ${id} LIMIT 1`))).rows as any[];
       if (!rows.length) return res.status(404).json({ message: "Not found" });
       if (!isAdmin && Number(rows[0].added_by_user_id) !== userId) {
         return res.status(403).json({ message: "You can only delete your own news items" });
       }
 
       await db.execute(sql.raw(`UPDATE crm_recent_news SET is_archived = TRUE, updated_at = NOW() WHERE id = ${id}`));
+
+      // Audit log
+      try {
+        const esc = (s: string) => String(s || "").replace(/'/g, "''");
+        const etype = esc(String(rows[0].entity_type || ""));
+        const eid = Number(rows[0].entity_id);
+        await db.execute(sql.raw(`
+          INSERT INTO activities (type, object_type, object_id, created_by_user_id, description)
+          VALUES ('news_archived', '${etype}', ${eid}, ${userId}, 'News item archived')
+        `));
+      } catch { /* non-fatal */ }
+
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -32850,16 +32904,64 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id) || id <= 0) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId as number;
 
-      const rows = (await db.execute(sql.raw(`SELECT id FROM crm_recent_news WHERE id = ${id} AND is_archived = FALSE LIMIT 1`))).rows as any[];
+      const rows = (await db.execute(sql.raw(`SELECT id, entity_type, entity_id FROM crm_recent_news WHERE id = ${id} AND is_archived = FALSE LIMIT 1`))).rows as any[];
       if (!rows.length) return res.status(404).json({ message: "Not found" });
 
-      // Fire-and-forget
+      // Fire-and-forget background reprocessing
       import("./services/crm-recent-news").then(m => m.processNewsItem(id)).catch(e =>
         console.error("[crm-recent-news] refresh error:", e?.message)
       );
 
+      // Audit log
+      try {
+        const esc = (s: string) => String(s || "").replace(/'/g, "''");
+        const etype = esc(String(rows[0].entity_type || ""));
+        const eid = Number(rows[0].entity_id);
+        await db.execute(sql.raw(`
+          INSERT INTO activities (type, object_type, object_id, created_by_user_id, description)
+          VALUES ('news_refresh', '${etype}', ${eid}, ${userId}, 'AI summary refresh triggered')
+        `));
+      } catch { /* non-fatal */ }
+
       res.json({ ok: true, message: "Refresh started" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/crm/recent-news/:id/use-in-email-context
+  // Toggle (or set) the use_in_email_context pin for a news item
+  app.post("/api/crm/recent-news/:id/use-in-email-context", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0) return res.status(400).json({ message: "Invalid id" });
+      const userId = (req.session as any).userId as number;
+      const isAdmin = (req.session as any).globalRole === "admin" || (req.session as any).globalRole === "master_admin";
+
+      const rows = (await db.execute(sql.raw(`SELECT added_by_user_id, entity_type, entity_id, use_in_email_context FROM crm_recent_news WHERE id = ${id} AND is_archived = FALSE LIMIT 1`))).rows as any[];
+      if (!rows.length) return res.status(404).json({ message: "Not found" });
+      if (!isAdmin && Number(rows[0].added_by_user_id) !== userId) {
+        return res.status(403).json({ message: "You can only update your own news items" });
+      }
+
+      // If value provided in body use it; otherwise toggle
+      const newValue = req.body.value !== undefined ? Boolean(req.body.value) : !rows[0].use_in_email_context;
+      await db.execute(sql.raw(`UPDATE crm_recent_news SET use_in_email_context = ${newValue}, updated_at = NOW() WHERE id = ${id}`));
+
+      // Audit log
+      try {
+        const esc = (s: string) => String(s || "").replace(/'/g, "''");
+        const etype = esc(String(rows[0].entity_type || ""));
+        const eid = Number(rows[0].entity_id);
+        await db.execute(sql.raw(`
+          INSERT INTO activities (type, object_type, object_id, created_by_user_id, description)
+          VALUES ('news_email_context_toggled', '${etype}', ${eid}, ${userId}, 'use_in_email_context set to ${newValue}')
+        `));
+      } catch { /* non-fatal */ }
+
+      res.json({ ok: true, useInEmailContext: newValue });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

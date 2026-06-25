@@ -35,8 +35,14 @@ const PRIVATE_IP_RE = [
   /^fc00:/i,
   /^fe80:/i,
   /^0\.0\.0\.0$/,
-  /^169\.254\.\d+\.\d+$/,
+  /^169\.254\.\d+\.\d+$/,  // link-local + AWS/GCP metadata service
 ];
+
+// Allowed entity types — used as a whitelist to prevent SQL injection
+export const VALID_ENTITY_TYPES = new Set([
+  "lead", "account", "contact", "partner",
+  "marina", "utility", "port", "investor", "other",
+]);
 
 export function isUrlSafe(url: string): { ok: boolean; reason?: string } {
   let parsed: URL;
@@ -135,18 +141,38 @@ export interface ArticleMetadata {
   fetchError: string | null;
 }
 
+const MAX_RESPONSE_BYTES = 2_000_000; // 2 MB
+const FETCH_TIMEOUT_MS   = 12_000;
+
 export async function fetchArticleMetadata(url: string): Promise<ArticleMetadata> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "VoltSafeBot/1.0 (news article context extraction)",
-        "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-      },
-    });
-    clearTimeout(timeout);
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        signal: controller.signal,
+        // 'follow' is the default; we check the final URL below for SSRF protection
+        redirect: "follow",
+        headers: {
+          "User-Agent": "VoltSafeBot/1.0 (news article context extraction)",
+          "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // ── SSRF redirect protection ────────────────────────────────────────────
+    // fetch() follows redirects automatically. Check the *final* URL so that
+    // a public URL redirecting to 169.254.169.254 (metadata service) is caught.
+    if (res.url && res.url !== url) {
+      const finalCheck = isUrlSafe(res.url);
+      if (!finalCheck.ok) {
+        return { title: null, source: null, author: null, publishedAt: null, description: null, extractedText: null, fetchError: "Redirect to restricted URL blocked" };
+      }
+    }
 
     if (!res.ok) {
       return { title: null, source: null, author: null, publishedAt: null, description: null, extractedText: null, fetchError: `HTTP ${res.status}` };
@@ -157,8 +183,9 @@ export async function fetchArticleMetadata(url: string): Promise<ArticleMetadata
       return { title: null, source: null, author: null, publishedAt: null, description: null, extractedText: null, fetchError: "Not an HTML page" };
     }
 
+    // ── Response size cap ───────────────────────────────────────────────────
     const buffer = await res.arrayBuffer();
-    const slice = buffer.byteLength > 2_000_000 ? buffer.slice(0, 2_000_000) : buffer;
+    const slice = buffer.byteLength > MAX_RESPONSE_BYTES ? buffer.slice(0, MAX_RESPONSE_BYTES) : buffer;
     const html = new TextDecoder().decode(slice);
 
     const ogTitle      = extractOgTag(html, "og:title");
@@ -218,7 +245,9 @@ Relevance score scale:
 2 = Mildly relevant, worth knowing
 3 = Useful context — could inform outreach timing or messaging
 4 = Strong outreach trigger — timely reason to reach out now
-5 = High-priority strategic trigger — very strong sales or partnership signal`;
+5 = High-priority strategic trigger — very strong sales or partnership signal
+
+Domain context for scoring: shore power, smart marina pedestals, smart connectors, marina electrification, safety, leakage detection, energy management, ports, utilities, infrastructure upgrades, grants/funding, sustainability, compliance, customer pain signals.`;
 
 export async function generateNewsAiSummary(
   url: string,
@@ -232,12 +261,14 @@ export async function generateNewsAiSummary(
   const openai = buildOpenAIClient();
   if (!openai) return null;
 
+  // extracted_text is used for AI summarisation input only — it is never
+  // passed to email generation prompts (see buildNewsContextBlock).
   const contentBlock = [
-    title       ? `Title: ${title}`                               : null,
-    source      ? `Source: ${source}`                             : null,
-    description ? `Description: ${description}`                   : null,
-    extractedText ? `Article text:\n${extractedText.slice(0, 4000)}` : null,
-    userNote    ? `User note: ${userNote}`                        : null,
+    title       ? `Title: ${title}`                                        : null,
+    source      ? `Source: ${source}`                                      : null,
+    description ? `Description: ${description}`                            : null,
+    extractedText ? `Article text:\n${extractedText.slice(0, 4000)}`      : null,
+    userNote    ? `User note: ${userNote}`                                 : null,
   ].filter(Boolean).join("\n\n");
 
   if (!contentBlock.trim()) return null;
@@ -347,6 +378,7 @@ export async function processNewsItem(newsId: number): Promise<void> {
     if (meta.author && !row.author) sets.push(`author = '${esc(meta.author)}'`);
     if (meta.publishedAt && !row.published_at) sets.push(`published_at = '${esc(meta.publishedAt)}'`);
     if (meta.description) sets.push(`raw_excerpt = '${esc(meta.description.slice(0, 2000))}'`);
+    // extracted_text stored for AI processing only; never returned to clients
     if (meta.extractedText) sets.push(`extracted_text = '${esc(meta.extractedText.slice(0, 10000))}'`);
 
     if (aiResult) {
@@ -381,20 +413,33 @@ export interface NewsContextItem {
   strategicRelevance: string;
   suggestedOutreachAngle: string;
   relevanceScore: number;
+  useInEmailContext: boolean;
   userNote: string | null;
   url: string;
 }
 
+// Priority ordering for email context:
+// 1. use_in_email_context = TRUE (user-pinned)
+// 2. ai_relevance_score DESC
+// 3. published_at DESC (newer first)
+// 4. added_at DESC
+const EMAIL_CONTEXT_ORDER = `
+  use_in_email_context DESC,
+  ai_relevance_score DESC NULLS LAST,
+  published_at DESC NULLS LAST,
+  added_at DESC
+`.trim();
+
 export async function getRecentNewsContext(
   entityType: string,
   entityId: number,
-  maxItems = 3,
+  maxItems = 6,
   selectedIds?: number[],
 ): Promise<NewsContextItem[]> {
   try {
+    if (!VALID_ENTITY_TYPES.has(entityType)) return [];
     const eid = Number(entityId);
-    const etype = entityType.replace(/'/g, "");
-    let where = `entity_type = '${etype}' AND entity_id = ${eid} AND is_archived = FALSE AND ai_status = 'done' AND ai_summary IS NOT NULL`;
+    let where = `entity_type = '${entityType}' AND entity_id = ${eid} AND is_archived = FALSE AND ai_status = 'done' AND ai_summary IS NOT NULL`;
     if (selectedIds && selectedIds.length > 0) {
       where += ` AND id IN (${selectedIds.map(Number).join(",")})`;
     } else if (selectedIds !== undefined) {
@@ -402,10 +447,11 @@ export async function getRecentNewsContext(
       return [];
     }
     const rows = (await db.execute(sql.raw(`
-      SELECT id, title, source, published_at, ai_summary, strategic_relevance, suggested_outreach_angle, ai_relevance_score, user_note, url
+      SELECT id, title, source, published_at, ai_summary, strategic_relevance, suggested_outreach_angle,
+             ai_relevance_score, use_in_email_context, user_note, url
       FROM crm_recent_news
       WHERE ${where}
-      ORDER BY ai_relevance_score DESC NULLS LAST, added_at DESC
+      ORDER BY ${EMAIL_CONTEXT_ORDER}
       LIMIT ${Math.min(10, maxItems)}
     `))).rows as any[];
 
@@ -418,6 +464,7 @@ export async function getRecentNewsContext(
       strategicRelevance:     String(r.strategic_relevance || ""),
       suggestedOutreachAngle: String(r.suggested_outreach_angle || ""),
       relevanceScore:         Number(r.ai_relevance_score || 3),
+      useInEmailContext:       Boolean(r.use_in_email_context),
       userNote:               r.user_note ? String(r.user_note) : null,
       url:                    String(r.url || ""),
     }));
@@ -431,13 +478,15 @@ export async function getNewsItemsForModal(
   entityId: number,
 ): Promise<Array<NewsContextItem & { addedAt: string }>> {
   try {
+    if (!VALID_ENTITY_TYPES.has(entityType)) return [];
     const eid = Number(entityId);
-    const etype = entityType.replace(/'/g, "");
     const rows = (await db.execute(sql.raw(`
-      SELECT id, title, source, published_at, ai_summary, strategic_relevance, suggested_outreach_angle, ai_relevance_score, user_note, url, added_at
+      SELECT id, title, source, published_at, ai_summary, strategic_relevance, suggested_outreach_angle,
+             ai_relevance_score, use_in_email_context, user_note, url, added_at
       FROM crm_recent_news
-      WHERE entity_type = '${etype}' AND entity_id = ${eid} AND is_archived = FALSE AND ai_status = 'done' AND ai_summary IS NOT NULL
-      ORDER BY ai_relevance_score DESC NULLS LAST, added_at DESC
+      WHERE entity_type = '${entityType}' AND entity_id = ${eid}
+        AND is_archived = FALSE AND ai_status = 'done' AND ai_summary IS NOT NULL
+      ORDER BY ${EMAIL_CONTEXT_ORDER}
       LIMIT 20
     `))).rows as any[];
 
@@ -450,6 +499,7 @@ export async function getNewsItemsForModal(
       strategicRelevance:     String(r.strategic_relevance || ""),
       suggestedOutreachAngle: String(r.suggested_outreach_angle || ""),
       relevanceScore:         Number(r.ai_relevance_score || 3),
+      useInEmailContext:       Boolean(r.use_in_email_context),
       userNote:               r.user_note ? String(r.user_note) : null,
       url:                    String(r.url || ""),
       addedAt:                String(r.added_at || ""),
@@ -459,14 +509,30 @@ export async function getNewsItemsForModal(
   }
 }
 
+/**
+ * Build compressed context block for AI email prompts.
+ *
+ * Rules:
+ * - extracted_text is NEVER included here (stored for AI summarisation only)
+ * - First 3 items (pinned or highest score) get full detail
+ * - Items 4+ become compact one-line bullets
+ * - Max 6 items total to avoid bloating the prompt
+ */
 export function buildNewsContextBlock(items: NewsContextItem[]): string {
   if (!items.length) return "";
+
+  const DETAIL_LIMIT = 3;
+  const detailed = items.slice(0, DETAIL_LIMIT);
+  const bullets  = items.slice(DETAIL_LIMIT);
+
   const lines: string[] = [
     `=== RECENT NEWS CONTEXT ===`,
     `The following news articles are relevant to this lead/account and should inform the outreach angle, timing, and tone of the email.`,
     ``,
   ];
-  items.forEach((item, i) => {
+
+  // Full-detail items
+  detailed.forEach((item, i) => {
     lines.push(`📰 [News ${i + 1}] ${item.title}`);
     if (item.source) lines.push(`Source: ${item.source}${item.publishedAt ? ` | Published: ${item.publishedAt}` : ""}`);
     lines.push(`Summary: ${item.summary}`);
@@ -476,6 +542,17 @@ export function buildNewsContextBlock(items: NewsContextItem[]): string {
     lines.push(`Relevance score: ${item.relevanceScore}/5`);
     lines.push(``);
   });
+
+  // Compact one-line bullets for lower-priority items
+  if (bullets.length > 0) {
+    lines.push(`Additional context (lower priority):`);
+    bullets.forEach(item => {
+      const meta = [item.source, item.publishedAt].filter(Boolean).join(", ");
+      lines.push(`• ${item.title}${meta ? ` (${meta})` : ""} — ${item.summary.slice(0, 120)}${item.summary.length > 120 ? "…" : ""}`);
+    });
+    lines.push(``);
+  }
+
   lines.push(`Use this news context to write a more timely, relevant, and specific email. Reference the most impactful news item naturally in the opener or reason section.`);
   return lines.join("\n");
 }
