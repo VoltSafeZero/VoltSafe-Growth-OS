@@ -1,0 +1,103 @@
+Add a Training Hub admin checklist to make onboarding video maintenance idiot-proof.
+
+Goal:
+Give admin/demo users a clear checklist inside /training showing what needs to happen before a video is considered fully published.
+
+Context:
+The Training Hub now supports video statuses:
+- not_recorded
+- raw_recorded
+- edited
+- hosted
+- needs_update
+
+We also have HOSTING.md for publishing instructions.
+
+Requirements:
+
+1. In client/src/pages/training-hub.tsx, add an admin-only section called:
+
+   Publishing Checklist
+
+   This section should only be visible to:
+   - admin
+   - master_admin
+   - demo mode users
+
+2. The checklist should summarize counts:
+   - Total videos
+   - Hosted
+   - Edited
+   - Raw recorded
+   - Not recorded
+   - Needs update
+
+3. Add a compact progress bar:
+   - Published progress = hosted / total videos
+   - Label example: “1 of 6 videos hosted”
+
+4. Add a “Next Actions” list:
+   - If any video is needs_update:
+     First priority: update stale videos
+   - Else if any video is raw_recorded:
+     Next priority: edit raw recordings into final MP4s
+   - Else if any video is edited:
+     Next priority: upload edited MP4s and paste hosted URLs
+   - Else if any video is not_recorded:
+     Next priority: run npm recording scripts
+   - Else if all videos are hosted:
+     Show: “All onboarding videos are hosted and ready.”
+
+5. Add a per-video checklist table for admin/demo users:
+
+   Columns:
+   - Video
+   - Status
+   - Raw recording
+   - Final MP4
+   - Hosted URL
+   - Storyboard
+   - Next action
+
+   Rules:
+   - Raw recording = ✅ if rawVideoPath exists and status is raw_recorded, edited, hosted, or needs_update
+   - Final MP4 = ✅ if finalVideoPath exists and status is edited, hosted, or needs_update
+   - Hosted URL = ✅ if videoUrl exists and status is hosted
+   - Storyboard = ✅ if storyboardPath exists
+   - Next action:
+     not_recorded → Run recording script
+     raw_recorded → Edit into MP4
+     edited → Upload and paste hosted URL
+     hosted → Ready
+     needs_update → Re-record or update video
+
+6. Add a small admin note:
+   “For publishing instructions, see onboarding-videos/HOSTING.md.”
+
+7. Keep regular user UI clean:
+   - Regular users should not see the checklist
+   - Regular users should not see repo paths or internal publishing notes
+
+8. Keep styling consistent with the current Training Hub page.
+   - Use existing card/table/badge styles where possible
+   - Avoid a massive new UI pattern
+
+9. Do not change training-hub.ts data structure unless absolutely needed.
+10. Do not add a backend or database.
+11. Do not change video recording scripts.
+12. Do not change CRM/Mail behavior.
+
+Validation:
+- Run the app
+- Confirm /training loads
+- Confirm admin/demo users see Publishing Checklist
+- Confirm regular users do not see it
+- Confirm the counts match the current six videos:
+  - total: 6
+  - raw_recorded: 1
+  - not_recorded: 5
+  - hosted: 0
+  - edited: 0
+  - needs_update: 0
+- Confirm progress shows 0 of 6 videos hosted
+- Confirm next action prioritizes editing the raw recording first
