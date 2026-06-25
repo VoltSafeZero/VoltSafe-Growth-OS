@@ -972,21 +972,21 @@ function PersonDetailModal({ user, open, onClose, isAdmin, myUserId, onEdit }: {
         ) : (
           <div className="space-y-5 py-2">
             <div>
-              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Upcoming Schedule</h4>
+              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Upcoming schedule</h4>
               {(!data?.entries || data.entries.length === 0) ? (
-                <p className="text-slate-500 text-sm">No upcoming entries.</p>
+                <p className="text-slate-500 text-sm italic">Nothing logged ahead yet.</p>
               ) : (
                 <div className="space-y-1.5">
                   {data.entries.slice(0, 10).map(e => (
                     <div key={e.id} className="flex items-center justify-between py-1.5 border-b border-slate-700/30 last:border-0" data-testid={`person-entry-${e.id}`}>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-slate-400 text-xs w-20 shrink-0">{formatDisplayDate(e.date)}</span>
                         <StatusBadge status={e.status} />
                         {e.locationName && <span className="text-slate-400 text-xs">{e.locationName}</span>}
                         {(e.startTime || e.endTime) && <span className="text-slate-500 text-xs">{formatHours(e.startTime, e.endTime)}</span>}
                       </div>
                       {(isAdmin || user.id === myUserId) && e.id && (
-                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-500 hover:text-cyan-400" onClick={() => { onClose(); onEdit(user.id, e.date, e); }} data-testid={`btn-edit-person-${e.id}`}>
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-500 hover:text-cyan-400 shrink-0" onClick={() => { onClose(); onEdit(user.id, e.date, e); }} data-testid={`btn-edit-person-${e.id}`}>
                           <Edit2 className="w-3 h-3" />
                         </Button>
                       )}
@@ -998,7 +998,7 @@ function PersonDetailModal({ user, open, onClose, isAdmin, myUserId, onEdit }: {
 
             {data?.defaults && data.defaults.length > 0 && (
               <div>
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Default Weekly Pattern</h4>
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Usual weekly pattern</h4>
                 <div className="space-y-1.5">
                   {data.defaults.map(d => (
                     <div key={d.id} className="flex items-center gap-3 py-1 border-b border-slate-700/20 last:border-0" data-testid={`person-default-${d.dayOfWeek}`}>
@@ -1012,9 +1012,13 @@ function PersonDetailModal({ user, open, onClose, isAdmin, myUserId, onEdit }: {
               </div>
             )}
 
+            {(!data?.defaults || data.defaults.length === 0) && (
+              <p className="text-slate-600 text-xs italic">No weekly pattern set — they haven't configured their usual days yet.</p>
+            )}
+
             {(isAdmin || user.id === myUserId) && (
               <Button size="sm" className="bg-cyan-700/40 hover:bg-cyan-600/50 text-cyan-200 gap-1 text-xs" onClick={() => { onClose(); onEdit(user.id, todayISO()); }} data-testid="btn-add-entry-person">
-                <Plus className="w-3.5 h-3.5" /> Add entry for {user.name.split(" ")[0]}
+                <Plus className="w-3.5 h-3.5" /> Log a day for {user.name.split(" ")[0]}
               </Button>
             )}
           </div>
@@ -1080,8 +1084,18 @@ function PeopleView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: 
               </button>
             );
           })}
-          {filtered.length === 0 && (
-            <div className="col-span-4 text-center text-slate-500 py-8 text-sm">No team members found</div>
+          {filtered.length === 0 && allUsers.length === 0 && (
+            <div className="col-span-4 text-center py-12">
+              <Users2 className="w-10 h-10 mx-auto mb-3 text-slate-700" />
+              <p className="text-slate-400 text-sm font-medium">No team members yet</p>
+              <p className="text-slate-600 text-xs mt-1">Team members will appear here once they're added to the system</p>
+            </div>
+          )}
+          {filtered.length === 0 && allUsers.length > 0 && (
+            <div className="col-span-4 text-center py-8">
+              <p className="text-slate-500 text-sm">No one found matching "{search}"</p>
+              <button className="text-cyan-500 text-xs mt-1 hover:underline" onClick={() => setSearch("")}>Clear search</button>
+            </div>
           )}
         </div>
       )}
@@ -1159,7 +1173,7 @@ export default function TeamWorkCalendarPage() {
             data-testid="btn-add-entry-header"
           >
             <Plus className="w-3.5 h-3.5" />
-            Add Entry
+            Log my day
           </Button>
         </div>
 
