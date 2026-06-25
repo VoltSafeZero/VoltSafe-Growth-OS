@@ -1174,7 +1174,7 @@ export async function generateSuggestedNextEmail(
   const userPrompt = [
     // ── 1. User inputs FIRST — highest priority steering ───────────────
     userInputs?.trim() ? [
-      `=== ⭐ USER INSTRUCTIONS — READ THIS FIRST. HIGHEST PRIORITY. ===`,
+      `=== ⭐ USER INPUTS — HIGH-PRIORITY GUIDANCE — READ THIS FIRST ===`,
       `The user has provided specific instructions for this email. Follow them precisely.`,
       `If the user says "make it 3 sentences" — write exactly 3 sentences.`,
       `If the user mentions a specific fact or topic — include it (but only if it doesn't contradict verified CRM data).`,
