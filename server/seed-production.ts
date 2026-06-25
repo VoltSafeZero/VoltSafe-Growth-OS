@@ -1029,6 +1029,24 @@ export async function migrateChangelogSchema(): Promise<void> {
       )
       ON CONFLICT (version) DO NOTHING
     `));
+    const v13Items = JSON.stringify([
+      "Open any Lead, Account, Contact, or Partner profile and click Add News to paste a relevant article URL.",
+      "VoltSafe fetches the article and creates a plain-language summary, a strategic relevance note, a suggested outreach angle, key points, and a relevance score — automatically.",
+      "Use this to spot timely reasons to reach out: funding rounds, infrastructure upgrades, electrification plans, leadership changes, safety initiatives, or new projects.",
+      "Pin any article with the bookmark button to prioritise it when generating a suggested email — the AI will use it to write a more timely, relevant opener.",
+      "Articles are private to the profile they are added to — adding the same link to a different record creates a separate entry for that context."
+    ]);
+    await db.execute(sql.raw(`
+      INSERT INTO app_changelogs (version, title, summary, items, published_at)
+      VALUES (
+        'v1.3',
+        'Recent News on CRM Profiles',
+        'Paste a news article URL into any Lead, Account, Contact, or Partner profile. VoltSafe turns it into account intelligence — summary, outreach angle, and relevance score — so you can reach out at exactly the right moment.',
+        '${v13Items.replace(/'/g, "''")}',
+        '2026-06-25 10:00:00+00'
+      )
+      ON CONFLICT (version) DO NOTHING
+    `));
     console.log("[migration] Changelog schema migration complete.");
   } catch (err) {
     console.error("[migration] Changelog schema migration error (non-fatal):", err);
