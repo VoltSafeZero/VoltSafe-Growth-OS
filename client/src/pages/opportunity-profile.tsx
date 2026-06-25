@@ -534,8 +534,8 @@ export default function OpportunityProfilePage() {
                 { label: "Hardware", value: opp.value_hardware ? `$${Number(opp.value_hardware).toLocaleString()}` : null },
                 { label: "Software", value: opp.value_software ? `$${Number(opp.value_software).toLocaleString()}` : null },
                 { label: "Services", value: opp.value_services ? `$${Number(opp.value_services).toLocaleString()}` : null },
-                { label: "Slips", value: opp.estimated_slips_impacted ? String(opp.estimated_slips_impacted) : null },
-                { label: "Pedestals", value: opp.estimated_pedestal_count ? String(opp.estimated_pedestal_count) : null },
+                { label: "Slip Count", value: opp.slip_count_int != null ? String(opp.slip_count_int) : (opp.estimated_slips_impacted ? String(opp.estimated_slips_impacted) : null) },
+                { label: "Est. Pedestals", value: opp.estimated_pedestal_count ? String(opp.estimated_pedestal_count) : null },
                 { label: "Forecast", value: opp.forecast_category },
               ].filter(d => d.value).map(d => (
                 <div key={d.label} className="flex items-center justify-between text-sm">

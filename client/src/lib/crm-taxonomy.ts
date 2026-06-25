@@ -347,3 +347,75 @@ export function shouldShowMarinaOps(
   if (marketSegment && NON_OPERATING_SEGMENTS.has(marketSegment)) return false;
   return true;
 }
+
+// ─── Canonical field resolver helpers ────────────────────────────────────────
+// One canonical value per business concept — use these everywhere instead of
+// reading raw DB fields directly. Never mix slip count with pedestal estimates.
+
+/**
+ * Returns the best available slip count for a lead or account record.
+ * Priority: slipCountInt (integer) → slipCount → slips (legacy text) → null.
+ * Do NOT fall back to estimatedSlipsImpacted — that is a VoltSafe deployment
+ * estimate, not a marina property.
+ */
+export function getCanonicalSlipCount(
+  record: Record<string, any> | null | undefined,
+): number | string | null {
+  if (!record) return null;
+  if (record.slipCountInt != null) return record.slipCountInt;
+  if (record.slipCount   != null) return record.slipCount;
+  if (record.slips && record.slips !== "-") return record.slips;
+  return null;
+}
+
+/**
+ * Returns the best available estimated pedestal count.
+ * Priority: estimatedPedestalCount → estimated_pedestal_count → null.
+ */
+export function getCanonicalEstimatedPedestals(
+  record: Record<string, any> | null | undefined,
+): number | null {
+  if (!record) return null;
+  if (record.estimatedPedestalCount   != null) return record.estimatedPedestalCount;
+  if (record.estimated_pedestal_count != null) return record.estimated_pedestal_count;
+  return null;
+}
+
+/**
+ * Returns the canonical market segment value.
+ * Priority: marketSegment → market_segment → mapped legacy segment → null.
+ */
+export function getCanonicalMarketSegment(
+  record: Record<string, any> | null | undefined,
+): string | null {
+  if (!record) return null;
+  if (record.marketSegment)   return record.marketSegment;
+  if (record.market_segment)  return record.market_segment;
+  const LEGACY_MAP: Record<string, string> = {
+    marina: "marina",
+    corp:    "marina_parent_group",
+    partner: "distributor",
+    other:   "other",
+  };
+  if (record.segment && LEGACY_MAP[record.segment]) return LEGACY_MAP[record.segment];
+  return null;
+}
+
+/**
+ * Normalises a lead/account update payload so canonical fields are always
+ * written and legacy aliases stay in sync as a compatibility shim.
+ * Call this before dispatching a PUT /api/leads/:id or PUT /api/accounts/:id body.
+ */
+export function normalizeMarinaUpdatePayload(
+  payload: Record<string, any>,
+): Record<string, any> {
+  const out = { ...payload };
+  const canonicalSlips =
+    out.slipCountInt != null ? out.slipCountInt
+    : out.slipCount  != null ? out.slipCount
+    : null;
+  if (canonicalSlips != null && out.estimatedSlipsImpacted == null) {
+    out.estimatedSlipsImpacted = canonicalSlips;
+  }
+  return out;
+}
