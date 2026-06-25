@@ -1,0 +1,178 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Run a verification-only audit for the marina field cleanup that was just implemented.
+
+Important:
+Do not write code unless you find a real regression or missed duplicate.
+Do not create migrations.
+Do not rename database columns.
+Do not remove legacy backend fields.
+This is primarily a consistency and regression sweep.
+
+Context:
+The previous work cleaned up duplicate marina fields in the Lead UI and added canonical helpers.
+
+Known completed changes:
+- client/src/pages/leads.tsx
+  - Lead edit form removed duplicate “Slips” text input.
+  - Lead edit form removed free-text “Segment.”
+  - “Slip Count (exact)” renamed to “Slip Count.”
+  - Deal section removed duplicate “Est. Slips.”
+  - Save payload mirrors slipCountInt → estimatedSlipsImpacted for compatibility.
+  - Read view tile renamed “Slips” → “Slip Count.”
+  - Deal panel removed “Est. Slips Impacted.”
+  - List table header renamed “Slips” → “Slip Count.”
+- client/src/pages/opportunity-profile.tsx
+  - “Slips” → “Slip Count.”
+  - “Pedestals” → “Est. Pedestals.”
+- server/routes.ts
+  - Opportunity shape includes slip_count_int.
+  - CSV export header “Slips” → “Slip Count.”
+  - CSV export header “Segment” → “Market Segment.”
+  - CSV export removed “Est. Slips Impacted.”
+- client/src/lib/crm-taxonomy.ts
+  - getCanonicalSlipCount(record)
+  - getCanonicalEstimatedPedestals(record)
+  - getCanonicalMarketSegment(record)
+  - normalizeMarinaUpdatePayload(payload)
+- No DB migrations.
+- Legacy columns remain hidden behind the curtain.
+
+Verification goal:
+Confirm the user-facing CRM now has one visible field per business concept.
+
+Canonical visible model:
+1. Slip Count
+   - actual marina slip count
+   - example: 412
+
+2. Slip Range
+   - bucket/category
+   - example: 300–500
+
+3. Market Segment
+   - dropdown/category
+   - example: Marina
+
+4. Shore Power?
+   - Yes / No / Unknown
+
+5. Source
+   - example: marina_directory
+
+6. Est. Pedestals
+   - estimated VoltSafe deployment opportunity
+   - example: 150
+
+Audit surfaces:
+Search the full repo for these visible labels and field references:
+- "Slips"
+- "Slip Count"
+- "Slip Count (exact)"
+- "Est. Slips"
+- "Est. Slips Impacted"
+- "Estimated Slips"
+- "Pedestals"
+- "Est. Pedestals"
+- "Segment"
+- "Market Segment"
+- "slips"
+- "slip_count"
+- "slipCountInt"
+- "estimatedSlipsImpacted"
+- "estimated_pedestal_count"
+- "estimatedPedestalCount"
+- "segment"
+- "marketSegment"
+
+Inspect these areas:
+1. Lead read view
+2. Lead edit form
+3. Lead list table
+4. Account read view
+5. Account edit form
+6. Account list table, if relevant
+7. Opportunity profile
+8. Opportunity/profile sidebars
+9. Enrich Lead
+10. AI Summary card
+11. AI prompt/context builder
+12. CSV export
+13. Import/enrichment/parsing code
+14. Mobile/responsive lead/account views, if separate
+15. Tests/snapshots, if any
+
+Specific checks:
+1. No user-facing form should show both “Slips” and “Slip Count.”
+2. No user-facing form should show both “Est. Slips” and “Slip Count.”
+3. No user-facing form should show both “Est. Slips Impacted” and “Slip Count.”
+4. No user-facing form should show both free-text “Segment” and dropdown “Market Segment.”
+5. “Pedestals” should be labeled “Est. Pedestals” when it means estimated deployment count.
+6. AI summaries should say “412 slips” and “estimated 150 pedestals,” not duplicate both slip fields.
+7. CSV export should not include duplicate slip columns.
+8. Opportunity profile should prefer slip_count_int over old slips field.
+9. Account views should be consistent with Lead views.
+10. Enrichment should not reintroduce duplicate visible fields.
+
+Use Oak Bay Marina as the primary test record.
+
+Expected Oak Bay Marina display:
+Marina Snapshot:
+- Slip Count: 412
+- Slip Range: 300–500
+- Shore Power: Yes
+- Country: Canada
+- Source: marina_directory
+
+Deal Information:
+- Value Driver: Infrastructure Modernization
+- Est. Pedestals: 150
+- ROI Story: existing story
+
+Expected Oak Bay Marina edit form:
+Marina Details:
+- Slip Count
+- Slip Range
+- Market Segment
+- Shore Power?
+- Source
+
+Deal / Financial:
+- Deal Amount
+- Probability
+- Est. Close Date
+- Hardware
+- Software
+- Services
+- Primary Value Driver
+- Est. Pedestals
+- Competitors
+- ROI Story
+
+If you find missed duplicates:
+- Fix only the missed duplicate UI labels/fields.
+- Prefer using canonical helpers.
+- Do not drop DB columns.
+- Do not add migrations unless absolutely required.
+- Keep compatibility shims centralized.
+
+Verification:
+Run:
+- Typecheck
+- Existing relevant tests
+- App boot check
+- Screenshot Oak Bay Marina read view
+- Screenshot Oak Bay Marina edit form
+- Screenshot Account equivalent if available
+- CSV export smoke check if feasible
+
+Final report:
+Provide:
+1. Duplicate labels still found, if any
+2. Files changed, if any
+3. Confirmation that no destructive migration was added
+4. Verification results
+5. Screenshots/notes for Oak Bay Marina
+6. Remaining legacy fields that are backend-only
+7. Recommended next cleanup task

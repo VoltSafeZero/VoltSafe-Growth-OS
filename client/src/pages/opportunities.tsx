@@ -662,7 +662,7 @@ function DealDetailDialog({ deal, accountName, onUpdate, onClose }: {
                 <p className="text-sm">{deal.estimatedPedestalCount ?? "—"}</p>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Est. Slips Impacted</Label>
+                <Label className="text-xs text-muted-foreground">Slip Count</Label>
                 <p className="text-sm">{deal.estimatedSlipsImpacted ?? "—"}</p>
               </div>
             </div>
