@@ -803,6 +803,311 @@ function NowNextStrip({
   );
 }
 
+// ── Daily Rollup helper ──────────────────────────────────────────────────────
+type DailyRollupResult = {
+  meetingCount: number;
+  externalMeetingCount: number;
+  outcomesSavedCount: number;
+  missingOutcomeEvents: DisplayEvent[];
+  overdueTaskCount: number;
+  dueTodayTaskCount: number;
+  meetingFollowUpTaskCount: number;
+  followUpsCreatedTodayCount: number | null; // null when createdAt not in data
+  tomorrowPreviewEvents: DisplayEvent[];
+};
+
+function getDailyRollup({
+  events,
+  tasks,
+  outcomeStatuses,
+  now,
+  scheduledTaskIds = new Set(),
+}: {
+  events: DisplayEvent[];
+  tasks: any[];
+  outcomeStatuses: Record<number, OutcomeStatus>;
+  now: Date;
+  scheduledTaskIds?: Set<number>;
+}): DailyRollupResult {
+  const todayOwn = events.filter(
+    e => !e._team && !e.allDay && isSameDay(new Date(e.startTime), now) && e.status !== "cancelled"
+  );
+
+  // Meetings — exclude focus blocks
+  const timedMeetings = todayOwn.filter(e => !classifyCalendarEvent(e).isFocusBlock);
+  const externalMeetings = timedMeetings.filter(e => {
+    const cls = classifyCalendarEvent(e);
+    return cls.isExternal || cls.hasBusinessDomain;
+  });
+
+  const meetingCount = timedMeetings.length;
+  const externalMeetingCount = externalMeetings.length;
+  const outcomesSavedCount = externalMeetings.filter(e => outcomeStatuses[e.id]?.hasOutcome).length;
+
+  // Missing outcomes — external meetings that already ended, no outcome saved
+  const missingOutcomeEvents = externalMeetings
+    .filter(e => {
+      const end = e.endTime ? new Date(e.endTime) : new Date(new Date(e.startTime).getTime() + 60 * 60_000);
+      return end <= now && !outcomeStatuses[e.id]?.hasOutcome;
+    })
+    .sort((a, b) => {
+      const aEnd = a.endTime ? new Date(a.endTime) : new Date(a.startTime);
+      const bEnd = b.endTime ? new Date(b.endTime) : new Date(b.startTime);
+      return bEnd.getTime() - aEnd.getTime(); // most recently ended first
+    })
+    .slice(0, 3);
+
+  // Task counts
+  const activeTasks = tasks.filter((t: any) => t.status !== "completed" && t.status !== "done");
+
+  const overdueTaskCount = activeTasks.filter((t: any) => {
+    if (!t.dueDate) return false;
+    const due = new Date(t.dueDate);
+    return due < now && !isToday(due);
+  }).length;
+
+  const dueTodayTaskCount = activeTasks.filter((t: any) => {
+    if (!t.dueDate) return false;
+    return isToday(new Date(t.dueDate));
+  }).length;
+
+  // Meeting follow-up tasks (open, any due date)
+  const meetingFollowUpTaskCount = activeTasks.filter((t: any) =>
+    typeof t.title === "string" && t.title.startsWith("Follow up:")
+  ).length;
+
+  // Follow-ups created today — only if createdAt field is present in the data
+  const hasCreatedAt = tasks.some((t: any) => !!t.createdAt);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const followUpsCreatedTodayCount = hasCreatedAt
+    ? tasks.filter((t: any) => {
+        if (!t.createdAt || typeof t.title !== "string" || !t.title.startsWith("Follow up:")) return false;
+        return new Date(t.createdAt) >= todayStart;
+      }).length
+    : null;
+
+  // Tomorrow preview — only available when events for tomorrow are already loaded (week view)
+  const tomorrowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const tomorrowPreviewEvents = events
+    .filter(e => !e._team && !e.allDay && isSameDay(new Date(e.startTime), tomorrowDate) && e.status !== "cancelled")
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    .slice(0, 3);
+
+  return {
+    meetingCount,
+    externalMeetingCount,
+    outcomesSavedCount,
+    missingOutcomeEvents,
+    overdueTaskCount,
+    dueTodayTaskCount,
+    meetingFollowUpTaskCount,
+    followUpsCreatedTodayCount,
+    tomorrowPreviewEvents,
+  };
+}
+
+// ── Daily Rollup card ─────────────────────────────────────────────────────────
+function DailyRollupCard({
+  events,
+  tasks,
+  outcomeStatuses,
+  scheduledTaskIds,
+  onOpenEvent,
+}: {
+  events: DisplayEvent[];
+  tasks: any[];
+  outcomeStatuses: Record<number, OutcomeStatus>;
+  scheduledTaskIds: Set<number>;
+  onOpenEvent: (eventId: number, tab: "prep" | "outcome") => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const now = new Date();
+  const {
+    meetingCount,
+    externalMeetingCount,
+    outcomesSavedCount,
+    missingOutcomeEvents,
+    overdueTaskCount,
+    dueTodayTaskCount,
+    meetingFollowUpTaskCount,
+    followUpsCreatedTodayCount,
+    tomorrowPreviewEvents,
+  } = getDailyRollup({ events, tasks, outcomeStatuses, now, scheduledTaskIds });
+
+  const urgentTaskCount = overdueTaskCount + dueTodayTaskCount;
+  const noMeetings = meetingCount === 0;
+  // Clean day: meetings happened, all have outcomes, no urgent tasks due
+  const isCleanDay = !noMeetings && missingOutcomeEvents.length === 0 && urgentTaskCount === 0;
+
+  return (
+    <Card className="border-border/50 w-52 shrink-0" data-testid="daily-rollup-card">
+      <CardContent className="p-3">
+        {/* Header — click to collapse */}
+        <button
+          className="flex items-center justify-between w-full mb-2.5"
+          onClick={() => setExpanded(e => !e)}
+          data-testid="daily-rollup-toggle"
+        >
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Daily Rollup</span>
+          </div>
+          <ChevronDown
+            className={`h-3.5 w-3.5 text-muted-foreground/60 transition-transform duration-150 ${expanded ? "" : "-rotate-90"}`}
+          />
+        </button>
+
+        {expanded && (
+          <div className="space-y-3" data-testid="daily-rollup-body">
+
+            {/* No meetings today */}
+            {noMeetings && (
+              <p className="text-xs text-muted-foreground" data-testid="rollup-no-meetings">
+                No meetings today.
+              </p>
+            )}
+
+            {/* ── Section 1: Meeting stats ── */}
+            {!noMeetings && (
+              <div data-testid="rollup-meetings">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-1.5">Meetings</p>
+                <div className="space-y-0.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Today</span>
+                    <span className="font-medium tabular-nums" data-testid="rollup-meeting-count">{meetingCount}</span>
+                  </div>
+                  {externalMeetingCount > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">External / CRM</span>
+                      <span className="font-medium tabular-nums" data-testid="rollup-external-count">{externalMeetingCount}</span>
+                    </div>
+                  )}
+                  {externalMeetingCount > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Outcomes saved</span>
+                      <span
+                        className={`font-medium tabular-nums ${outcomesSavedCount >= externalMeetingCount ? "text-emerald-400" : "text-amber-400"}`}
+                        data-testid="rollup-outcomes-saved"
+                      >
+                        {outcomesSavedCount}/{externalMeetingCount}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Section 2: Missing outcomes ── */}
+            {missingOutcomeEvents.length > 0 && (
+              <div data-testid="rollup-missing-outcomes">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-1.5">Missing Outcomes</p>
+                <div className="space-y-2.5">
+                  {missingOutcomeEvents.map(ev => {
+                    const end = ev.endTime ? new Date(ev.endTime) : null;
+                    return (
+                      <div key={ev.id} className="space-y-1" data-testid={`missing-outcome-${ev.id}`}>
+                        <p className="text-[11px] font-medium truncate leading-tight" title={ev.title}>
+                          {ev.title}
+                        </p>
+                        <div className="flex items-center justify-between gap-1">
+                          {end && (
+                            <span className="text-[10px] text-muted-foreground shrink-0">
+                              Ended {formatTime(end)}
+                            </span>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-5 text-[10px] px-1.5 ml-auto shrink-0"
+                            onClick={() => onOpenEvent(ev.id, "outcome")}
+                            data-testid={`btn-add-outcome-${ev.id}`}
+                          >
+                            Add Outcome
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Section 3: Open tasks OR clean-day confirmation ── */}
+            {isCleanDay ? (
+              <div
+                className="rounded-md bg-emerald-500/5 border border-emerald-500/20 p-2.5 text-center"
+                data-testid="rollup-clean-day"
+              >
+                <CheckCheck className="h-3.5 w-3.5 text-emerald-400 mx-auto mb-1" />
+                <p className="text-[11px] font-semibold">Today is closed out.</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                  All external meetings have outcomes and no urgent tasks are due.
+                </p>
+              </div>
+            ) : !noMeetings ? (
+              <div data-testid="rollup-tasks">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-1.5">Open Tasks</p>
+                {urgentTaskCount === 0 && meetingFollowUpTaskCount === 0 ? (
+                  <p className="text-xs text-muted-foreground" data-testid="rollup-no-urgent-tasks">No urgent tasks.</p>
+                ) : (
+                  <div className="space-y-0.5">
+                    {overdueTaskCount > 0 && (
+                      <div className="flex items-center justify-between text-xs" data-testid="rollup-overdue">
+                        <span className="text-red-400">Overdue</span>
+                        <span className="font-medium tabular-nums text-red-400">{overdueTaskCount}</span>
+                      </div>
+                    )}
+                    {dueTodayTaskCount > 0 && (
+                      <div className="flex items-center justify-between text-xs" data-testid="rollup-due-today">
+                        <span className="text-amber-400">Due today</span>
+                        <span className="font-medium tabular-nums text-amber-400">{dueTodayTaskCount}</span>
+                      </div>
+                    )}
+                    {meetingFollowUpTaskCount > 0 && (
+                      <div className="flex items-center justify-between text-xs" data-testid="rollup-followups-open">
+                        <span className="text-muted-foreground">Follow-ups open</span>
+                        <span className="font-medium tabular-nums">{meetingFollowUpTaskCount}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {/* ── Section 4: Follow-ups created today ── */}
+            {followUpsCreatedTodayCount !== null && followUpsCreatedTodayCount > 0 && (
+              <div className="flex items-center justify-between text-xs" data-testid="rollup-followups-created">
+                <span className="text-muted-foreground">Follow-ups created today</span>
+                <span className="font-medium tabular-nums text-emerald-400">{followUpsCreatedTodayCount}</span>
+              </div>
+            )}
+
+            {/* ── Section 5: Tomorrow preview ── */}
+            <div data-testid="rollup-tomorrow">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-1.5">Tomorrow</p>
+              {tomorrowPreviewEvents.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground/60 italic leading-tight" data-testid="rollup-tomorrow-placeholder">
+                  Switch to week view to preview tomorrow.
+                </p>
+              ) : (
+                <div className="space-y-1" data-testid="rollup-tomorrow-events">
+                  {tomorrowPreviewEvents.map(ev => (
+                    <div key={ev.id} className="flex items-center gap-1.5 text-[11px]" data-testid={`tomorrow-event-${ev.id}`}>
+                      <span className="text-muted-foreground shrink-0">{formatTime(new Date(ev.startTime))}</span>
+                      <span className="truncate text-foreground/80">{ev.title}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Workday Agenda panel (Phase 1) ────────────────────────────────────────────
 function WorkdayAgendaPanel({
   events,
@@ -1608,6 +1913,20 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 setEventInitialTab("outcome");
               }}
               outcomeStatuses={mergedOutcomeStatuses}
+            />
+          )}
+
+          {/* Daily Rollup — today only, compact sidebar card */}
+          {isToday(currentDate) && (
+            <DailyRollupCard
+              events={ownEvents ?? []}
+              tasks={pendingTasks ?? []}
+              outcomeStatuses={mergedOutcomeStatuses}
+              scheduledTaskIds={scheduledTaskIds}
+              onOpenEvent={(eventId, tab) => {
+                const ev = (ownEvents ?? []).find(e => e.id === eventId);
+                if (ev) { setSelectedEvent(ev as CalendarEvent); setEventInitialTab(tab); }
+              }}
             />
           )}
 

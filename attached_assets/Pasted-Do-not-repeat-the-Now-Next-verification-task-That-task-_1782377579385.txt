@@ -1,0 +1,245 @@
+Do not repeat the Now / Next verification task. That task is already complete. Start the new Daily Rollup task below.
+
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Build the next Calendar / Workday Intelligence layer: Daily Rollup.
+
+Context already completed:
+
+* Calendar events render correctly.
+* Team free/busy is privacy-safe.
+* Workday Agenda exists.
+* Now / Next command strip exists and was verified/tuned.
+* Prep tab exists.
+* Outcome tab exists.
+* Meeting outcomes save to CRM activities.
+* Meeting outcomes persist across refresh using /api/calendar/outcome-status.
+* Follow-up tasks can be created from meeting outcomes.
+* Tasks Due Soon can be scheduled into calendar focus blocks.
+* CRM timelines render Meeting Outcome cleanly.
+* Now / Next excludes team events, all-day events, focus blocks, cancelled events, and already-scheduled tasks correctly.
+
+Goal:
+Add a compact “Daily Rollup” card so users can quickly understand:
+
+* what happened today
+* what still needs action
+* which meetings are missing outcomes
+* which follow-ups were created
+* what is next tomorrow, if available
+
+Product principle:
+The Calendar should guide the day, then close the loop at the end of the day.
+
+Do NOT:
+
+* Do not re-audit or rewrite Now / Next unless directly needed for Daily Rollup.
+* Do not redesign the whole calendar.
+* Do not create destructive migrations.
+* Do not expose teammate private event details.
+* Do not auto-generate expensive AI summaries.
+* Do not fake missing data.
+* Do not build a giant reporting dashboard.
+* Do not create a new route unless absolutely necessary.
+
+Audit first:
+Inspect:
+
+1. CalendarPage layout.
+2. WorkdayAgendaPanel.
+3. NowNextStrip.
+4. Recently Finished logic.
+5. outcome-status query and mergedOutcomeStatuses.
+6. pendingTasks / dueTasks query shape.
+7. calendar events data shape.
+8. task creation and scheduledTaskIds state.
+9. existing sidebar card patterns.
+10. existing AI/summary components, if any.
+
+Report:
+
+* Best insertion point for Daily Rollup.
+* Whether it should be a sidebar card, collapsible panel, or small full-width card.
+* What data is already available.
+* Whether any new route is needed.
+* Whether DB migration can be avoided.
+
+Implementation Phase 1 — Add Daily Rollup card
+
+Add a compact Daily Rollup card on today’s Calendar page.
+
+Preferred placement:
+
+* Sidebar below Workday Agenda, above Tasks Due Soon.
+* Keep it compact.
+* Do not create another huge full-width strip.
+
+The card should show:
+
+1. Today’s Meetings
+
+* Count of own timed meetings today.
+* Count of external/CRM meetings.
+* Count with outcomes saved.
+
+2. Missing Outcomes
+
+* Meetings from today that:
+    * are own events
+    * are timed
+    * ended already
+    * had external attendees or CRM context
+    * do not have a saved outcome
+* Show top 3.
+* Action: “Add Outcome.”
+
+3. Open Tasks
+
+* Count of overdue + due today tasks.
+* Count of meeting follow-up tasks.
+
+4. Follow-ups Created
+
+* Count of follow-up tasks created today if task.createdAt is available.
+* If createdAt is not available, omit this metric and report limitation.
+
+5. Tomorrow Preview
+
+* If tomorrow events are already loaded in existing data, show next 1–3 meetings tomorrow.
+* If tomorrow events are not available, do not add a new route in this pass.
+* Show “Tomorrow preview coming next” as a calm placeholder.
+
+Implementation Phase 2 — Helper function
+
+Create a pure helper if practical:
+getDailyRollup({
+events,
+tasks,
+outcomeStatuses,
+now,
+scheduledTaskIds
+})
+
+Return:
+{
+meetingCount,
+externalMeetingCount,
+outcomesSavedCount,
+missingOutcomeEvents,
+overdueTaskCount,
+dueTodayTaskCount,
+meetingFollowUpTaskCount,
+followUpsCreatedTodayCount,
+tomorrowPreviewEvents
+}
+
+Rules:
+
+* Exclude _team events.
+* Exclude all-day events from meeting counts.
+* Exclude focus blocks from meeting counts.
+* Exclude cancelled events.
+* Missing outcome requires external or CRM context.
+* Missing outcome only applies to meetings that already ended.
+* Use mergedOutcomeStatuses so refresh persistence works.
+* Tasks already scheduled this session should not count as unscheduled urgent tasks if that distinction exists.
+
+Implementation Phase 3 — Missing Outcomes actions
+
+Each missing outcome item should show:
+
+* meeting title
+* end time
+* CRM/external badge if available
+* button: “Add Outcome”
+
+Click opens EventDetailDialog on Outcome tab using existing handler:
+
+* setSelectedEvent(event)
+* setEventInitialTab(“outcome”)
+
+Implementation Phase 4 — Open tasks summary
+
+Show:
+
+* Overdue count
+* Due today count
+* Meeting follow-up count
+
+If no urgent tasks:
+
+* “No urgent tasks.”
+
+Do not clutter with a long task list because Tasks Due Soon already exists.
+
+Implementation Phase 5 — Follow-ups created today
+
+If task data includes createdAt:
+
+* Count tasks where:
+    * title starts with “Follow up:”
+    * createdAt is today
+
+If createdAt is missing or unreliable:
+
+* Do not fake it.
+* Omit the metric and report limitation.
+
+Implementation Phase 6 — Calm empty states
+
+If everything is clean:
+Show:
+“Today is closed out.”
+
+Subcopy:
+“All external meetings have outcomes and no urgent tasks are due.”
+
+If no meetings today:
+Show:
+“No meetings today.”
+
+Implementation Phase 7 — Privacy/security
+
+Verify:
+
+* Only own events are included.
+* Team busy overlays are excluded.
+* No teammate event titles are shown.
+* No event descriptions are displayed.
+* Missing outcomes only uses own event title/time/attendees already visible to the user.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing relevant tests
+* App boot check
+* Structural grep checks if useful.
+
+Manual smoke scenarios:
+
+1. External meeting ended with no outcome → appears in Missing Outcomes.
+2. Save outcome → disappears from Missing Outcomes.
+3. Outcome persists after refresh → still hidden.
+4. Internal-only meeting → not counted as missing outcome.
+5. Focus block → not counted as meeting.
+6. Overdue task → counted.
+7. Meeting follow-up task → counted.
+8. No urgent items → calm “Today is closed out” state.
+9. Team busy overlay event never appears.
+
+Final report:
+Include:
+
+* Audit findings.
+* Files changed.
+* Helper logic added.
+* Rollup metrics implemented.
+* Whether any route or migration was avoided.
+* Verification results.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+The Workday system should not just help users act in the moment; it should help them finish the day cleanly.
