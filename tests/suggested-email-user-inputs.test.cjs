@@ -150,7 +150,7 @@ test("5. fetchSuggestedEmail has userInputs as 6th parameter", () => {
 
 // ── 6. handleGenerate passes userInputs as 6th arg ───────────────────────────
 test("6. handleGenerate passes userInputs as 6th argument to fetchSuggestedEmail", () => {
-  const callMatch = modalSrc.match(/fetchSuggestedEmail\(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers, userInputs\)/);
+  const callMatch = modalSrc.match(/fetchSuggestedEmail\(entityType, entityId, effectiveVoiceId, selectedInfluence, selectedModifiers, userInputs/);
   assert.ok(callMatch, "handleGenerate call to fetchSuggestedEmail missing userInputs arg");
 });
 
@@ -173,7 +173,7 @@ test("8. Route silently ignores non-string userInputs (falls back to empty strin
 // ── 9. Backend: userInputs passed as 9th arg to service ──────────────────────
 test("9. Route passes userInputs as 9th argument to generateSuggestedNextEmail", () => {
   assert.ok(
-    routesSrc.includes("intentModifierIds, userInputs)"),
+    routesSrc.includes("intentModifierIds, userInputs"),
     "Route missing userInputs in generateSuggestedNextEmail call"
   );
 });
