@@ -385,6 +385,37 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
     refetchInterval: 60_000,
   });
 
+  // Calendar sources — which Google calendars to show
+  const { data: sourcesData, refetch: refetchSources } = useQuery<{
+    sources: { id: string; name: string; color: string | null; accessRole: string; primary: boolean }[];
+    selectedIds: string[] | null;
+    connectionId: number;
+  }>({
+    queryKey: ["/api/calendar/sources"],
+    staleTime: 5 * 60_000,
+  });
+
+  const sourceSelectionMutation = useMutation({
+    mutationFn: async ({ connectionId, selectedIds }: { connectionId: number; selectedIds: string[] | null }) => {
+      const res = await apiRequest("POST", "/api/calendar/sources/select", { connectionId, selectedIds });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchSources();
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/events"] });
+    },
+  });
+
+  const toggleCalendarSource = (sourceId: string) => {
+    if (!sourcesData) return;
+    const all = sourcesData.sources.map(s => s.id);
+    const current = sourcesData.selectedIds ?? all;
+    const next = current.includes(sourceId)
+      ? current.filter(id => id !== sourceId)
+      : [...current, sourceId];
+    sourceSelectionMutation.mutate({ connectionId: sourcesData.connectionId, selectedIds: next.length === all.length ? null : next });
+  };
+
   const lastSyncTime = calIntegrations
     .map((c) => (c.lastSyncedAt ? new Date(c.lastSyncedAt).getTime() : 0))
     .reduce((a, b) => Math.max(a, b), 0);
@@ -614,7 +645,25 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
 
       <MetricsBar />
 
-      <div className={showOverlayPanel && permittedMembers.length > 0 ? "flex gap-4 items-start" : undefined}>
+      {/* Sync error / reconnect banner */}
+      {calIntegrations.some(c => c.syncError) && (
+        <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm">
+          <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <span className="font-medium text-destructive">Calendar sync issue — </span>
+            <span className="text-muted-foreground">
+              {calIntegrations.find(c => c.syncError)?.syncError}
+            </span>
+          </div>
+          <Link href="/settings">
+            <Button variant="outline" size="sm" className="h-7 text-xs shrink-0">
+              Reconnect
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      <div className={(showOverlayPanel && permittedMembers.length > 0) || (sourcesData && sourcesData.sources.length > 0) ? "flex gap-4 items-start" : undefined}>
         <Card className="border-border/50 flex-1 min-w-0">
           <CardContent className="p-3 sm:p-4">
             <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
@@ -694,48 +743,91 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           </CardContent>
         </Card>
 
-        {showOverlayPanel && permittedMembers.length > 0 && (
-          <Card className="border-border/50 w-52 shrink-0" data-testid="team-overlay-panel">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-2 mb-3">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Team Calendars</span>
-              </div>
-              <div className="space-y-2">
-                {permittedMembers.map((member) => {
-                  const colors = TEAM_OVERLAY_COLORS[member.colorIdx];
-                  const checked = enabledOverlays.has(member.id);
-                  return (
-                    <label
-                      key={member.id}
-                      className="flex items-center gap-2 cursor-pointer group"
-                      data-testid={`overlay-member-${member.id}`}
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={() => toggleOverlay(member.id)}
-                        data-testid={`checkbox-overlay-${member.id}`}
-                      />
-                      <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colors.dot}`} />
-                      <span className="text-xs truncate group-hover:text-foreground text-muted-foreground transition-colors">
-                        {member.name}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-              {enabledOverlays.size > 0 && (
-                <button
-                  className="mt-3 text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => setEnabledOverlays(new Set())}
-                  data-testid="button-clear-overlays"
-                >
-                  Clear all
-                </button>
-              )}
-            </CardContent>
-          </Card>
-        )}
+        <div className="flex flex-col gap-3">
+          {/* My Calendars — sources selector */}
+          {sourcesData && sourcesData.sources.length > 0 && (
+            <Card className="border-border/50 w-52 shrink-0" data-testid="my-calendars-panel">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">My Calendars</span>
+                </div>
+                <div className="space-y-2">
+                  {sourcesData.sources.map((src) => {
+                    const allIds = sourcesData.sources.map(s => s.id);
+                    const current = sourcesData.selectedIds ?? allIds;
+                    const checked = current.includes(src.id);
+                    return (
+                      <label
+                        key={src.id}
+                        className="flex items-center gap-2 cursor-pointer group"
+                        data-testid={`source-cal-${src.id}`}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggleCalendarSource(src.id)}
+                          data-testid={`checkbox-source-${src.id}`}
+                        />
+                        <span
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: src.color || "#14b8a6" }}
+                        />
+                        <span className="text-xs truncate group-hover:text-foreground text-muted-foreground transition-colors" title={src.name}>
+                          {src.name}
+                          {src.primary && <span className="ml-1 opacity-50">(primary)</span>}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Team Calendars — overlay */}
+          {showOverlayPanel && permittedMembers.length > 0 && (
+            <Card className="border-border/50 w-52 shrink-0" data-testid="team-overlay-panel">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Team Calendars</span>
+                </div>
+                <div className="space-y-2">
+                  {permittedMembers.map((member) => {
+                    const colors = TEAM_OVERLAY_COLORS[member.colorIdx];
+                    const checked = enabledOverlays.has(member.id);
+                    return (
+                      <label
+                        key={member.id}
+                        className="flex items-center gap-2 cursor-pointer group"
+                        data-testid={`overlay-member-${member.id}`}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggleOverlay(member.id)}
+                          data-testid={`checkbox-overlay-${member.id}`}
+                        />
+                        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colors.dot}`} />
+                        <span className="text-xs truncate group-hover:text-foreground text-muted-foreground transition-colors">
+                          {member.name}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {enabledOverlays.size > 0 && (
+                  <button
+                    className="mt-3 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setEnabledOverlays(new Set())}
+                    data-testid="button-clear-overlays"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
 
       {createOpen && (
@@ -1070,6 +1162,9 @@ function DayView({
                   <div className="text-muted-foreground mt-0.5">
                     {formatTime(new Date(ev.startTime))}
                     {ev.endTime && ` - ${formatTime(new Date(ev.endTime))}`}
+                    {!ev._team && ev.calendarName && (
+                      <span className="ml-1 opacity-60">· {ev.calendarName}</span>
+                    )}
                   </div>
                 </button>
               ))}

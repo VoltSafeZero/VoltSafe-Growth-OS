@@ -196,10 +196,39 @@ const GOOGLE_CALENDAR_COLORS: Record<string, string> = {
   "9": "#5484ed", "10": "#51b749", "11": "#dc2127",
 };
 
+// Fetch and return the user's full Google calendar list, updating calendarsDiscovered in DB.
+export async function listGoogleCalendars(
+  connectionId: number,
+  userId: number
+): Promise<{ id: string; name: string; color: string | null; accessRole: string; primary: boolean }[]> {
+  const [conn] = await db.select().from(calendarConnections)
+    .where(and(eq(calendarConnections.id, connectionId), eq(calendarConnections.userId, userId)))
+    .limit(1);
+  if (!conn?.refreshToken) throw new Error("Calendar connection not found or no token");
+
+  const calendar = await getCalendarClient(conn);
+  const listResp = await calendar.calendarList.list({ showHidden: false });
+  const items = listResp.data.items || [];
+
+  const discovered = items.map((cal: any) => ({
+    id: cal.id,
+    name: cal.summary || cal.id,
+    color: cal.backgroundColor || null,
+    accessRole: cal.accessRole || "reader",
+    primary: !!cal.primary,
+  }));
+
+  await db.update(calendarConnections)
+    .set({ calendarsDiscovered: discovered as any, updatedAt: new Date() })
+    .where(eq(calendarConnections.id, connectionId));
+
+  return discovered;
+}
+
 export async function syncGoogleCalendar(
   connectionId: number,
   userId: number
-): Promise<{ imported: number; updated: number; pushed: number; errors: string[] }> {
+): Promise<{ imported: number; updated: number; pushed: number; errors: string[]; calendars: string[] }> {
   const [conn] = await db
     .select()
     .from(calendarConnections)
@@ -212,75 +241,119 @@ export async function syncGoogleCalendar(
   let imported = 0;
   let updated = 0;
   let pushed = 0;
+  const syncedCalendars: string[] = [];
 
   try {
     const calendar = await getCalendarClient(conn);
-    const calendarId = conn.defaultCalendarId || "primary";
+
+    // ── Step 1: discover all calendars and update the connection record ──
+    let allCalendars: { id: string; name: string; color: string | null; accessRole: string; primary: boolean }[] = [];
+    try {
+      const listResp = await calendar.calendarList.list({ showHidden: false });
+      const items = listResp.data.items || [];
+      allCalendars = items.map((cal: any) => ({
+        id: cal.id,
+        name: cal.summary || cal.id,
+        color: cal.backgroundColor || null,
+        accessRole: cal.accessRole || "reader",
+        primary: !!cal.primary,
+      }));
+      await db.update(calendarConnections)
+        .set({ calendarsDiscovered: allCalendars as any, updatedAt: new Date() })
+        .where(eq(calendarConnections.id, connectionId));
+    } catch (e: any) {
+      errors.push(`Calendar list: ${e.message}`);
+      // Fall back to primary only
+      allCalendars = [{ id: "primary", name: "Primary", color: null, accessRole: "owner", primary: true }];
+    }
+
+    // ── Step 2: determine which calendars to sync ────────────────────────
+    const selectedIds = Array.isArray(conn.selectedCalendarIds) && (conn.selectedCalendarIds as string[]).length > 0
+      ? (conn.selectedCalendarIds as string[])
+      : allCalendars.map(c => c.id);
+
+    const calendarMap = new Map(allCalendars.map(c => [c.id, c]));
 
     const timeMin = new Date();
     timeMin.setMonth(timeMin.getMonth() - 2);
     const timeMax = new Date();
     timeMax.setMonth(timeMax.getMonth() + 6);
 
-    // ── PULL: import Google events into Cortex ───────────────────────────
-    let pageToken: string | undefined;
-    const googleEvents: any[] = [];
+    // ── Step 3: pull events from each selected calendar ──────────────────
+    for (const calId of selectedIds) {
+      const calMeta = calendarMap.get(calId) || { id: calId, name: calId, color: null, accessRole: "reader", primary: false };
+      let pageToken: string | undefined;
+      const googleEvents: any[] = [];
 
-    do {
-      const resp = await calendar.events.list({
-        calendarId,
-        timeMin: timeMin.toISOString(),
-        timeMax: timeMax.toISOString(),
-        singleEvents: true,
-        orderBy: "startTime",
-        maxResults: 250,
-        pageToken,
-      });
-      googleEvents.push(...(resp.data.items || []));
-      pageToken = resp.data.nextPageToken || undefined;
-    } while (pageToken);
+      try {
+        do {
+          const resp = await calendar.events.list({
+            calendarId: calId,
+            timeMin: timeMin.toISOString(),
+            timeMax: timeMax.toISOString(),
+            singleEvents: true,
+            orderBy: "startTime",
+            maxResults: 250,
+            pageToken,
+          });
+          googleEvents.push(...(resp.data.items || []));
+          pageToken = resp.data.nextPageToken || undefined;
+        } while (pageToken);
 
-    for (const gEvent of googleEvents) {
-      if (!gEvent.id || !gEvent.summary) continue;
+        syncedCalendars.push(calMeta.name);
+      } catch (e: any) {
+        errors.push(`Fetch "${calMeta.name}": ${friendlyCalendarError(e)}`);
+        continue;
+      }
 
-      const startTime = gEvent.start?.dateTime
-        ? new Date(gEvent.start.dateTime)
-        : gEvent.start?.date
-        ? new Date(gEvent.start.date + "T00:00:00")
-        : null;
+      for (const gEvent of googleEvents) {
+        if (!gEvent.id || !gEvent.summary) continue;
+        if (gEvent.status === "cancelled") continue;
 
-      if (!startTime) continue;
+        const startTime = gEvent.start?.dateTime
+          ? new Date(gEvent.start.dateTime)
+          : gEvent.start?.date
+          ? new Date(gEvent.start.date + "T00:00:00")
+          : null;
+        if (!startTime) continue;
 
-      const endTime = gEvent.end?.dateTime
-        ? new Date(gEvent.end.dateTime)
-        : gEvent.end?.date
-        ? new Date(gEvent.end.date + "T00:00:00")
-        : null;
+        const endTime = gEvent.end?.dateTime
+          ? new Date(gEvent.end.dateTime)
+          : gEvent.end?.date
+          ? new Date(gEvent.end.date + "T00:00:00")
+          : null;
 
-      const allDay = !gEvent.start?.dateTime;
-      const invitees = (gEvent.attendees || [])
-        .map((a: any) => a.email)
-        .filter(Boolean);
-      const meetingUrl =
-        gEvent.conferenceData?.entryPoints?.find(
-          (ep: any) => ep.entryPointType === "video"
-        )?.uri || gEvent.hangoutLink || null;
+        const allDay = !gEvent.start?.dateTime;
 
-      const [existing] = await db
-        .select({ id: calendarEvents.id })
-        .from(calendarEvents)
-        .where(
-          and(
+        // Structured attendees: name, email, responseStatus, organizer
+        const attendeeDetails = (gEvent.attendees || []).map((a: any) => ({
+          email: a.email || "",
+          name: a.displayName || null,
+          responseStatus: a.responseStatus || "needsAction",
+          organizer: !!a.organizer,
+          self: !!a.self,
+        })).filter((a: any) => a.email);
+
+        const invitees = attendeeDetails.map((a: any) => a.email);
+
+        const meetingUrl =
+          gEvent.conferenceData?.entryPoints?.find((ep: any) => ep.entryPointType === "video")?.uri
+          || gEvent.hangoutLink
+          || null;
+
+        const [existing] = await db
+          .select({ id: calendarEvents.id })
+          .from(calendarEvents)
+          .where(and(
             eq(calendarEvents.externalId, gEvent.id),
             eq(calendarEvents.externalProvider, "google")
-          )
-        )
-        .limit(1);
+          ))
+          .limit(1);
 
-      if (existing) {
-        await db
-          .update(calendarEvents)
-          .set({
+        const eventColor = gEvent.colorId ? GOOGLE_CALENDAR_COLORS[gEvent.colorId] || calMeta.color || null : calMeta.color || null;
+
+        if (existing) {
+          await db.update(calendarEvents).set({
             title: gEvent.summary,
             description: gEvent.description || null,
             location: gEvent.location || null,
@@ -289,48 +362,49 @@ export async function syncGoogleCalendar(
             allDay,
             meetingUrl,
             invitees,
-            status: gEvent.status === "cancelled" ? "cancelled" : "scheduled",
-            externalCalendarId: calendarId,
+            attendeeDetails: attendeeDetails as any,
+            calendarName: calMeta.name,
+            color: eventColor,
+            status: "scheduled",
+            externalCalendarId: calId,
             updatedAt: new Date(),
-          })
-          .where(eq(calendarEvents.id, existing.id));
-        updated++;
-      } else {
-        await db.insert(calendarEvents).values({
-          userId,
-          title: gEvent.summary,
-          description: gEvent.description || null,
-          location: gEvent.location || null,
-          eventType: "meeting",
-          startTime,
-          endTime,
-          allDay,
-          meetingUrl,
-          invitees,
-          status: gEvent.status === "cancelled" ? "cancelled" : "scheduled",
-          externalId: gEvent.id,
-          externalProvider: "google",
-          externalCalendarId: calendarId,
-          color: gEvent.colorId ? GOOGLE_CALENDAR_COLORS[gEvent.colorId] || null : null,
-        });
-        imported++;
+          }).where(eq(calendarEvents.id, existing.id));
+          updated++;
+        } else {
+          await db.insert(calendarEvents).values({
+            userId,
+            title: gEvent.summary,
+            description: gEvent.description || null,
+            location: gEvent.location || null,
+            eventType: "meeting",
+            startTime,
+            endTime,
+            allDay,
+            meetingUrl,
+            invitees,
+            attendeeDetails: attendeeDetails as any,
+            calendarName: calMeta.name,
+            color: eventColor,
+            status: "scheduled",
+            externalId: gEvent.id,
+            externalProvider: "google",
+            externalCalendarId: calId,
+          });
+          imported++;
+        }
       }
     }
 
-    // ── PUSH: send Cortex-native events to Google Calendar ───────────────
+    // ── Step 4: push Cortex-native events to primary calendar ────────────
+    const primaryCalId = allCalendars.find(c => c.primary)?.id || "primary";
     if (conn.syncDirection === "both" || conn.syncDirection === "push") {
       const toPush = await db
         .select()
         .from(calendarEvents)
-        .where(
-          and(
-            eq(calendarEvents.userId, userId),
-            or(
-              isNull(calendarEvents.externalId),
-              isNull(calendarEvents.externalProvider)
-            )
-          )
-        );
+        .where(and(
+          eq(calendarEvents.userId, userId),
+          or(isNull(calendarEvents.externalId), isNull(calendarEvents.externalProvider))
+        ));
 
       for (const ev of toPush) {
         if (ev.status === "cancelled") continue;
@@ -343,32 +417,16 @@ export async function syncGoogleCalendar(
               ? { date: ev.startTime.toISOString().split("T")[0] }
               : { dateTime: ev.startTime.toISOString() },
             end: ev.endTime
-              ? ev.allDay
-                ? { date: ev.endTime.toISOString().split("T")[0] }
-                : { dateTime: ev.endTime.toISOString() }
-              : ev.allDay
-              ? { date: ev.startTime.toISOString().split("T")[0] }
-              : { dateTime: new Date(ev.startTime.getTime() + 3_600_000).toISOString() },
+              ? ev.allDay ? { date: ev.endTime.toISOString().split("T")[0] } : { dateTime: ev.endTime.toISOString() }
+              : ev.allDay ? { date: ev.startTime.toISOString().split("T")[0] } : { dateTime: new Date(ev.startTime.getTime() + 3_600_000).toISOString() },
           };
-          if (ev.invitees?.length) {
-            body.attendees = ev.invitees.map((email) => ({ email }));
-          }
-
-          const created = await calendar.events.insert({
-            calendarId,
-            requestBody: body,
-          });
-
+          if (ev.invitees?.length) body.attendees = ev.invitees.map((email) => ({ email }));
+          const created = await calendar.events.insert({ calendarId: primaryCalId, requestBody: body });
           if (created.data.id) {
-            await db
-              .update(calendarEvents)
-              .set({
-                externalId: created.data.id,
-                externalProvider: "google",
-                externalCalendarId: calendarId,
-                updatedAt: new Date(),
-              })
-              .where(eq(calendarEvents.id, ev.id));
+            await db.update(calendarEvents).set({
+              externalId: created.data.id, externalProvider: "google",
+              externalCalendarId: primaryCalId, updatedAt: new Date(),
+            }).where(eq(calendarEvents.id, ev.id));
             pushed++;
           }
         } catch (e: any) {
@@ -377,20 +435,18 @@ export async function syncGoogleCalendar(
       }
     }
 
-    await db
-      .update(calendarConnections)
+    await db.update(calendarConnections)
       .set({ lastSyncedAt: new Date(), syncError: null, updatedAt: new Date() })
       .where(eq(calendarConnections.id, connectionId));
   } catch (err: any) {
     const friendly = friendlyCalendarError(err);
-    await db
-      .update(calendarConnections)
+    await db.update(calendarConnections)
       .set({ syncError: friendly, updatedAt: new Date() })
       .where(eq(calendarConnections.id, connectionId));
     throw new Error(friendly);
   }
 
-  return { imported, updated, pushed, errors };
+  return { imported, updated, pushed, errors, calendars: syncedCalendars };
 }
 
 // ─── CalDAV Sync (Apple iCloud / Generic) ────────────────────────────────────

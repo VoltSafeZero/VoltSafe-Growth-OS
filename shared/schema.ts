@@ -1003,6 +1003,9 @@ export const calendarEvents = pgTable("calendar_events", {
   externalEtag: text("external_etag"),
   externalProvider: text("external_provider"),
   externalCalendarId: text("external_calendar_id"),
+  // Enrichment: calendar source and structured attendees
+  calendarName: text("calendar_name"),
+  attendeeDetails: jsonb("attendee_details"),
   // Booking link traceback — nullable; set when event was created via a booking link
   bookingLinkRecipientId: integer("booking_link_recipient_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -1036,7 +1039,8 @@ export const calendarConnections = pgTable("calendar_connections", {
   syncDirection: text("sync_direction").default("both"), // 'both' | 'pull' | 'push'
   syncFrequencyMinutes: integer("sync_frequency_minutes").default(15),
   conflictResolution: text("conflict_resolution").default("latest_wins"), // 'provider_wins' | 'cortex_wins' | 'latest_wins'
-  calendarsDiscovered: jsonb("calendars_discovered"), // [{ id, name, url }]
+  calendarsDiscovered: jsonb("calendars_discovered"), // [{ id, name, url, color, accessRole }]
+  selectedCalendarIds: jsonb("selected_calendar_ids"), // string[] — null means sync all
   lastSyncedAt: timestamp("last_synced_at"),
   syncToken: text("sync_token"),
   syncError: text("sync_error"),

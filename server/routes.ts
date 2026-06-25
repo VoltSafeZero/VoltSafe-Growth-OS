@@ -121,6 +121,7 @@ import {
   exchangeCalendarCode,
   syncGoogleCalendar,
   syncCalDav,
+  listGoogleCalendars,
   testCalDavConnection,
   getCalendarIntegrations,
   disconnectCalendarIntegration,
@@ -8395,11 +8396,39 @@ export async function registerRoutes(
   });
 
   app.get("/api/calendar/events", requireAuth, async (req, res) => {
-    const userId = req.session.userId!;
-    const start = req.query.start ? new Date(req.query.start as string) : new Date();
-    const end = req.query.end ? new Date(req.query.end as string) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    const events = await storage.getCalendarEvents(userId, start, end);
-    res.json(events);
+    try {
+      const userId = req.session.userId!;
+      const start = req.query.start ? new Date(req.query.start as string) : new Date();
+      const end = req.query.end ? new Date(req.query.end as string) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      // Auto-sync: if the user has an active Google connection that has never synced,
+      // trigger an inline sync so the first page-load shows real events.
+      // Subsequent loads read from DB directly (fast).
+      const [googleConn] = await db
+        .select({ id: calendarConnections.id, lastSyncedAt: calendarConnections.lastSyncedAt })
+        .from(calendarConnections)
+        .where(and(
+          eq(calendarConnections.userId, userId),
+          eq(calendarConnections.provider, "google"),
+          eq(calendarConnections.isActive, true)
+        ))
+        .limit(1);
+
+      if (googleConn && !googleConn.lastSyncedAt) {
+        // First-time sync: run inline so events are ready immediately.
+        try {
+          await syncGoogleCalendar(googleConn.id, userId);
+        } catch (syncErr: any) {
+          // Sync failure recorded in DB; return empty array — UI shows sync error.
+          console.error("[calendar/events] Initial sync failed:", syncErr.message);
+        }
+      }
+
+      const events = await storage.getCalendarEvents(userId, start, end);
+      res.json(events);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
   // GET /api/calendar/events/team — fetch permitted team members' events
   app.get("/api/calendar/events/team", requireAuth, async (req, res) => {
@@ -8663,6 +8692,68 @@ export async function registerRoutes(
   // ── Calendar integrations (sync providers) ─────────────────────────────────
 
   // List connected calendar providers for the current user
+  // GET /api/calendar/sources — list available calendars for the user's Google connection
+  app.get("/api/calendar/sources", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const [conn] = await db
+        .select()
+        .from(calendarConnections)
+        .where(and(
+          eq(calendarConnections.userId, userId),
+          eq(calendarConnections.provider, "google"),
+          eq(calendarConnections.isActive, true)
+        ))
+        .limit(1);
+
+      if (!conn) return res.json({ sources: [], selectedIds: [] });
+
+      // Use cached discovery if available; otherwise fetch live
+      let sources: any[] = Array.isArray(conn.calendarsDiscovered) ? (conn.calendarsDiscovered as any[]) : [];
+      if (sources.length === 0 && conn.refreshToken) {
+        try {
+          sources = await listGoogleCalendars(conn.id, userId);
+        } catch (e: any) {
+          console.error("[calendar/sources] list failed:", e.message);
+        }
+      }
+
+      const selectedIds = Array.isArray(conn.selectedCalendarIds)
+        ? (conn.selectedCalendarIds as string[])
+        : null;
+
+      res.json({ sources, selectedIds, connectionId: conn.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/calendar/sources/select — save selected calendar IDs
+  app.post("/api/calendar/sources/select", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { connectionId, selectedIds } = req.body as { connectionId: number; selectedIds: string[] | null };
+
+      const [conn] = await db
+        .select({ id: calendarConnections.id, userId: calendarConnections.userId })
+        .from(calendarConnections)
+        .where(eq(calendarConnections.id, connectionId))
+        .limit(1);
+
+      if (!conn || conn.userId !== userId) {
+        return res.status(404).json({ message: "Connection not found" });
+      }
+
+      await db.update(calendarConnections)
+        .set({ selectedCalendarIds: selectedIds as any, updatedAt: new Date() })
+        .where(eq(calendarConnections.id, connectionId));
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/calendar/integrations", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
