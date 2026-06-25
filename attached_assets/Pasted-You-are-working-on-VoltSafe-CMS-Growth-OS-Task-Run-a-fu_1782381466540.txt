@@ -1,0 +1,168 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Run a full end-to-end regression verification pass for AI Suggested Email.
+
+Context already completed:
+
+* Suggested Email context builder uses:
+    * user inputs first
+    * recent meeting outcomes
+    * last outbound email boundary
+    * new activity since last touch
+    * open tasks
+    * CRM/deal context
+    * compressed earlier context
+* Prompt enforces concise 5-part email structure.
+* Activities summary bug fixed.
+* Meeting outcomes labelled as MEETING OUTCOME.
+* Weak-context warning exists.
+* Composer handoff is hardened:
+    * first selected external contact → TO
+    * additional selected external contacts → CC
+    * @voltsafe.com contacts excluded from auto recipients
+    * internal Key People show amber Internal badge
+    * no external TO blocks continuation with warning
+    * Suggested Email opens composer for review
+    * no auto-send
+    * signature appended once at send time
+    * return navigation to originating CRM record
+* Current test status:
+    * 52/52 ai-summary-key-people-email
+    * 58/58 ai-email-quality
+    * 85/85 crm-intelligence-context
+    * 26/26 suggested-email-user-inputs
+    * 71/71 permissions
+    * all other suites zero failures
+
+Primary goal:
+Verify the entire AI Suggested Email flow works end-to-end and does not regress manual compose, signatures, tracking, or CRM navigation.
+
+Important:
+Audit first.
+Do not build new features.
+Do not create migrations.
+Do not change database schema.
+Do not auto-send emails.
+Do not weaken recipient safety.
+Only fix real bugs found during verification.
+
+Audit surfaces:
+
+1. AI Summary card / Suggested Email button.
+2. Key People selection UI.
+3. SuggestedNextEmailModal.
+4. Generated email API route.
+5. Context builder.
+6. Prompt construction.
+7. Email composer.
+8. Signature insertion.
+9. Send/draft route.
+10. Tracking pixel/link injection.
+11. Return navigation.
+12. CRM timeline/email activity creation after send.
+13. Manual Compose New Email flow.
+
+Verification checklist:
+
+A) Context grounding
+
+* User Inputs appear first in prompt.
+* Meeting Outcomes are included and labelled.
+* Last outbound email boundary is included.
+* New activity since last outbound is separated from older context.
+* Open tasks appear.
+* Weak context warning appears when appropriate.
+* No hallucinated facts encouraged by prompt.
+
+B) Recipient safety
+
+* One selected external Key Person → TO only.
+* Two selected external Key People → first TO, second CC.
+* Internal @voltsafe.com Key People show Internal badge.
+* Internal contacts are excluded from auto TO/CC.
+* Only internal contacts selected → continuation blocked with warning.
+* No selected contact but clear primary external contact exists → uses primary external contact if this is current behavior.
+* No external contact exists → clear blocked state.
+
+C) Composer handoff
+
+* Composer opens with TO/CC/subject/body populated.
+* Generated body remains editable.
+* User must manually click Send.
+* Cancel returns to originating Lead/Account/Contact.
+* Send returns to originating Lead/Account/Contact.
+* Manual Compose New Email still works.
+
+D) Signature safety
+
+* Suggested email body does not include hardcoded full signature.
+* Signature is appended exactly once.
+* Reopening/regenerating does not stack duplicate signatures.
+* Manual composer signature still works.
+
+E) Tracking compatibility
+
+* Suggested Email uses the normal send pipeline.
+* Tracking pixel/link injection still occurs if enabled.
+* @voltsafe.com internal opens remain excluded if existing logic supports that.
+* No bypass of normal outbound email recording.
+
+F) CRM timeline after send
+
+* Outbound email is recorded in CRM activity/timeline.
+* Associated Lead/Account/Contact receives the email activity.
+* Return navigation does not lose entity context.
+* AI context can see this outbound email as future “last outbound” boundary.
+
+G) Error states
+
+* AI generation failure shows useful toast.
+* No recipient warning is clear.
+* Weak context warning is visible but not blocking unless no recipient.
+* Composer does not open with broken/partial email after failed generation.
+
+Testing:
+Run:
+
+* Typecheck
+* Full targeted AI email suites
+* Composer/email tests if available
+* Tracking tests if available
+* App boot check
+* test:grep if feasible now that permissions fixture is fixed
+
+Manual smoke scenarios:
+
+1. Lead with recent meeting outcome → generated email references meeting outcome naturally.
+2. Lead with prior outbound email → generated email uses new updates since that email.
+3. User Inputs: “make this three sentences” → generated email is three sentences.
+4. One selected external contact → composer TO only.
+5. Two selected external contacts → composer TO + CC.
+6. Internal-only selected contacts → blocked warning.
+7. No external recipient → blocked warning.
+8. Suggested Email cancel returns to original CRM record.
+9. Suggested Email send returns to original CRM record.
+10. Signature appears once.
+11. Manual Compose New Email still works.
+12. New outbound email becomes the future last outbound boundary.
+
+If bugs are found:
+
+* Fix only the bug.
+* Keep changes surgical.
+* No migrations.
+* No new feature scope.
+
+Final report:
+Include:
+
+* Verification results by section.
+* Bugs found and fixed.
+* Files changed.
+* Tests run.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+AI Suggested Email must be grounded enough to trust and safe enough to review, send, and record without surprises.
