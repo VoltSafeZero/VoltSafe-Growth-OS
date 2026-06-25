@@ -1186,8 +1186,8 @@ export async function generateSuggestedNextEmail(
     ].join("\n") : "",
     ``,
     // ── 2. Frame the generation task ───────────────────────────────────
-    `Generate a suggested next email for this ${entityType} "${intelligenceCtx.recordName}".`,
-    `Context is ordered: User Instructions (above) → Meeting Outcomes → New Since Last Touch → Historical.`,
+    `Generate a suggested next email for this ${entityType} "${intelligenceCtx.recordName}". The context is ordered so the NEWEST activity appears first.`,
+    `Context priority: User Instructions (above) → Meeting Outcomes → New Since Last Touch → Historical.`,
     `The email MUST be grounded in the newest context. Never produce a generic check-in if specific context exists.`,
     ``,
     // ── 3. Meeting outcomes (highest signal) ───────────────────────────
