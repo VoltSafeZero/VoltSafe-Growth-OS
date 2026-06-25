@@ -476,11 +476,13 @@ function WorkdayAgendaPanel({
   tasks,
   onEventClick,
   onAddOutcome,
+  savedOutcomeEventIds,
 }: {
   events: DisplayEvent[];
   tasks: any[];
   onEventClick: (ev: DisplayEvent) => void;
   onAddOutcome: (ev: DisplayEvent) => void;
+  savedOutcomeEventIds?: Set<number>;
 }) {
   const today = new Date();
 
@@ -597,6 +599,7 @@ function WorkdayAgendaPanel({
                 {followupsDue.map((t: any) => {
                   const due = new Date(t.dueDate);
                   const overdue = due < today && !isToday(due);
+                  const isMeetingFollowUp = typeof t.title === "string" && t.title.startsWith("Follow up:");
                   return (
                     <Link key={t.id} href="/tasks">
                       <div
@@ -604,9 +607,16 @@ function WorkdayAgendaPanel({
                         data-testid={`agenda-followup-${t.id}`}
                       >
                         <p className="text-xs font-medium truncate">{t.title}</p>
-                        <p className={`text-[10px] ${overdue ? "text-red-400" : "text-amber-400"}`}>
-                          {overdue ? "Overdue" : "Due today"}
-                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className={`text-[10px] ${overdue ? "text-red-400" : "text-amber-400"}`}>
+                            {overdue ? "Overdue" : "Due today"}
+                          </p>
+                          {isMeetingFollowUp && (
+                            <span className="text-[9px] px-1 rounded bg-primary/10 border border-primary/20 text-primary/70 flex items-center gap-0.5">
+                              <CalendarCheck className="h-2.5 w-2.5" /> Meeting follow-up
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </Link>
                   );
@@ -640,6 +650,7 @@ function WorkdayAgendaPanel({
                 {recentlyFinished.map(ev => {
                   const cls = classifyCalendarEvent(ev);
                   const endTime = ev.endTime ? new Date(ev.endTime) : new Date(ev.startTime);
+                  const outcomeSaved = savedOutcomeEventIds?.has(ev.id) ?? false;
                   return (
                     <div
                       key={ev.id}
@@ -653,13 +664,19 @@ function WorkdayAgendaPanel({
                           <span className="text-[9px] px-1 rounded bg-foreground/10 border border-border/40">ext</span>
                         )}
                       </div>
-                      <button
-                        className="mt-1 w-full text-[10px] text-primary hover:underline text-left flex items-center gap-1"
-                        onClick={() => onAddOutcome(ev)}
-                        data-testid={`agenda-add-outcome-${ev.id}`}
-                      >
-                        <ClipboardList className="h-3 w-3 shrink-0" /> Add Outcome
-                      </button>
+                      {outcomeSaved ? (
+                        <div className="mt-1 flex items-center gap-1 text-[10px] text-emerald-400" data-testid={`agenda-outcome-saved-${ev.id}`}>
+                          <CheckCheck className="h-3 w-3 shrink-0" /> Outcome saved
+                        </div>
+                      ) : (
+                        <button
+                          className="mt-1 w-full text-[10px] text-primary hover:underline text-left flex items-center gap-1"
+                          onClick={() => onAddOutcome(ev)}
+                          data-testid={`agenda-add-outcome-${ev.id}`}
+                        >
+                          <ClipboardList className="h-3 w-3 shrink-0" /> Add Outcome
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -706,6 +723,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   const [enabledOverlays, setEnabledOverlays] = useState<Set<number>>(new Set());
   // Phase 1/2/3: task scheduling state
   const [scheduledTaskIds, setScheduledTaskIds] = useState<Set<number>>(() => new Set());
+  const [savedOutcomeEventIds, setSavedOutcomeEventIds] = useState<Set<number>>(() => new Set());
   const [confirmSchedule, setConfirmSchedule] = useState<{ taskId: number; task: any; window: OpenWindow } | null>(null);
   const [popoverOpenTaskId, setPopoverOpenTaskId] = useState<number | null>(null);
   const { toast } = useToast();
@@ -1191,6 +1209,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 setSelectedEvent(ev as CalendarEvent);
                 setEventInitialTab("outcome");
               }}
+              savedOutcomeEventIds={savedOutcomeEventIds}
             />
           )}
 
@@ -1350,11 +1369,16 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                       return (
                         <div key={task.id} className="space-y-1" data-testid={`due-task-${task.id}`}>
                           <p className="text-xs font-medium truncate" title={task.title}>{task.title}</p>
-                          <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <p className={`text-[10px] ${overdue ? "text-red-400" : dueToday ? "text-amber-400" : "text-muted-foreground"}`}>
                               {overdue ? "Overdue · " : dueToday ? "Due today · " : "Due "}
                               {format(due, "MMM d")}
                             </p>
+                            {task.linkedObjectType && (
+                              <span className="text-[9px] px-1 rounded bg-foreground/8 border border-border/30 text-muted-foreground capitalize">{task.linkedObjectType}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between gap-1">
                             {/* Phase 3: show "Scheduled" once done */}
                             {alreadyScheduled ? (
                               <span className="text-[10px] text-green-500 flex items-center gap-0.5 shrink-0" data-testid={`scheduled-badge-${task.id}`}>
@@ -1492,6 +1516,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           isUpdating={updateMutation.isPending}
           isDeleting={deleteMutation.isPending}
           initialTab={eventInitialTab}
+          onOutcomeSaved={(eventId) => setSavedOutcomeEventIds(prev => new Set([...prev, eventId]))}
         />
       )}
 
@@ -3101,6 +3126,10 @@ function OutcomeTab({
     onSuccess: () => {
       setSaved(true);
       queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", event.id, "crm-context"] });
+      if (crmLink) {
+        queryClient.invalidateQueries({ queryKey: ["/api/timeline", crmLink.linkedObjectType, crmLink.linkedObjectId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/activities", crmLink.linkedObjectType, crmLink.linkedObjectId] });
+      }
       toast({ title: "Outcome saved", description: `Logged to ${crmLink?.typeLabel}: ${crmLink?.name}` });
       onSaved();
     },
@@ -3130,6 +3159,7 @@ function OutcomeTab({
         nextStep  ? `Next step: ${nextStep}` : null,
         `Event: ${event.title}`,
         `Time: ${format(new Date(event.startTime), "MMM d, yyyy")} ${formatTime(new Date(event.startTime))}`,
+        crmLink   ? `CRM: ${crmLink.typeLabel} — ${crmLink.name}` : null,
       ].filter(Boolean).join("\n");
 
       const taskPayload: Record<string, unknown> = {
@@ -3150,7 +3180,13 @@ function OutcomeTab({
     onSuccess: () => {
       setSaved(true);
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      if (crmLink) queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", event.id, "crm-context"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
+      if (crmLink) {
+        queryClient.invalidateQueries({ queryKey: ["/api/calendar/events", event.id, "crm-context"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/timeline", crmLink.linkedObjectType, crmLink.linkedObjectId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/activities", crmLink.linkedObjectType, crmLink.linkedObjectId] });
+      }
       const dueLabel = followUpDue === "today" ? "today" : followUpDue === "tomorrow" ? "tomorrow" : "next week";
       toast({ title: "Outcome saved + task created", description: `Follow-up task due ${dueLabel}.` });
       onSaved();
@@ -3642,6 +3678,7 @@ function EventDetailDialog({
   isUpdating,
   isDeleting,
   initialTab,
+  onOutcomeSaved,
 }: {
   event: CalendarEvent;
   onClose: () => void;
@@ -3650,6 +3687,7 @@ function EventDetailDialog({
   isUpdating: boolean;
   isDeleting: boolean;
   initialTab?: string;
+  onOutcomeSaved?: (eventId: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [showFollowUpForm, setShowFollowUpForm] = useState(false);
@@ -4167,7 +4205,7 @@ function EventDetailDialog({
               <OutcomeTab
                 event={event}
                 crmCtx={crmCtx}
-                onSaved={onClose}
+                onSaved={() => { onOutcomeSaved?.(event.id); onClose(); }}
               />
             </TabsContent>
           )}
