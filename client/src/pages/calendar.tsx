@@ -1725,9 +1725,10 @@ function EventFormDialog({
 // ─── CRM Context types ────────────────────────────────────────────────────────
 
 type CRMContext = {
-  matchedContacts: Array<{ id: number; name: string; title?: string | null; email?: string | null; accountId: number }>;
+  matchedContacts: Array<{ id: number; name: string; title?: string | null; email?: string | null; accountId: number; confidence: "high"; reason: string; matchedOn: "attendee_email" }>;
+  matchedLeads: Array<{ id: number; name: string; company: string; email?: string | null; status: string; confidence: "high" | "medium"; reason: string; matchedOn: "attendee_email" | "attendee_domain" }>;
   unmatchedEmails: string[];
-  matchedAccounts: Array<{ id: number; name: string; segment?: string | null; leadStatus?: string | null; city?: string | null; website?: string | null }>;
+  matchedAccounts: Array<{ id: number; name: string; segment?: string | null; leadStatus?: string | null; city?: string | null; website?: string | null; confidence: "high" | "medium"; reason: string; matchedOn: "attendee_email" | "attendee_domain" }>;
   openOpportunities: Array<{ id: number; title: string; stage: string; amount?: number | null; accountId: number }>;
   recentEmails: Array<{ id: number; subject?: string | null; fromEmail?: string | null; sentAt?: string | null; direction?: string | null; snippet?: string | null }>;
   openTasks: Array<{ id: number; title: string; dueDate?: string | null; priority?: string | null }>;
@@ -1834,8 +1835,8 @@ function CRMContextTab({ eventId, crmCtx, isLoading }: { eventId: number; crmCtx
 
   if (!crmCtx) return null;
 
-  const { matchedContacts, unmatchedEmails, matchedAccounts, openOpportunities, recentEmails, openTasks, recommendedAction } = crmCtx;
-  const hasAny = matchedContacts.length + matchedAccounts.length + openOpportunities.length + unmatchedEmails.length > 0;
+  const { matchedContacts, matchedLeads = [], unmatchedEmails, matchedAccounts, openOpportunities, recentEmails, openTasks, recommendedAction } = crmCtx;
+  const hasAny = matchedContacts.length + matchedLeads.length + matchedAccounts.length + openOpportunities.length + unmatchedEmails.length > 0;
 
   if (!hasAny && !recommendedAction) {
     return (
@@ -1875,8 +1876,39 @@ function CRMContextTab({ eventId, crmCtx, isLoading }: { eventId: number; crmCtx
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{c.name}</p>
                 {c.title && <p className="text-xs text-muted-foreground truncate">{c.title}</p>}
+                <p className="text-xs text-muted-foreground truncate">{c.reason}</p>
               </div>
-              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="flex items-center gap-1 shrink-0">
+                <Badge variant="outline" className="text-[9px] h-4 px-1 bg-emerald-500/10 text-emerald-400 border-emerald-400/20">High</Badge>
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {/* Matched leads */}
+      {matchedLeads.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <TrendingUp className="h-3.5 w-3.5" /> Leads in CRM ({matchedLeads.length})
+          </p>
+          {matchedLeads.map(l => (
+            <a key={l.id} href={`/leads`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/40 bg-card hover:bg-secondary/30 transition-colors group" data-testid={`crm-lead-${l.id}`}>
+              <div className="w-7 h-7 rounded-full bg-amber-500/10 flex items-center justify-center text-xs font-bold text-amber-400 shrink-0">
+                {l.name.charAt(0)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{l.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{l.company} · {l.status}</p>
+                <p className="text-xs text-muted-foreground/70 truncate">{l.reason}</p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Badge variant="outline" className={`text-[9px] h-4 px-1 ${l.confidence === "high" ? "bg-emerald-500/10 text-emerald-400 border-emerald-400/20" : "bg-amber-500/10 text-amber-400 border-amber-400/20"}`}>
+                  {l.confidence === "high" ? "High" : "Med"}
+                </Badge>
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
             </a>
           ))}
         </div>
@@ -1889,7 +1921,7 @@ function CRMContextTab({ eventId, crmCtx, isLoading }: { eventId: number; crmCtx
             <Building2 className="h-3.5 w-3.5" /> Accounts ({matchedAccounts.length})
           </p>
           {matchedAccounts.map(a => (
-            <div key={a.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/40 bg-card" data-testid={`crm-account-${a.id}`}>
+            <a key={a.id} href={`/accounts`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/40 bg-card hover:bg-secondary/30 transition-colors group" data-testid={`crm-account-${a.id}`}>
               <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{a.name}</p>
@@ -1897,8 +1929,15 @@ function CRMContextTab({ eventId, crmCtx, isLoading }: { eventId: number; crmCtx
                   {a.segment} {a.city ? `· ${a.city}` : ""}
                   {a.leadStatus ? ` · ${a.leadStatus}` : ""}
                 </p>
+                <p className="text-xs text-muted-foreground/70 truncate">{a.reason}</p>
               </div>
-            </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Badge variant="outline" className={`text-[9px] h-4 px-1 ${a.confidence === "high" ? "bg-emerald-500/10 text-emerald-400 border-emerald-400/20" : "bg-amber-500/10 text-amber-400 border-amber-400/20"}`}>
+                  {a.confidence === "high" ? "High" : "Med"}
+                </Badge>
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </a>
           ))}
         </div>
       )}
@@ -2529,8 +2568,27 @@ function EventDetailDialog({
   });
 
   const crmCount = crmCtx
-    ? crmCtx.matchedContacts.length + crmCtx.matchedAccounts.length + crmCtx.openOpportunities.length
+    ? crmCtx.matchedContacts.length + (crmCtx.matchedLeads?.length ?? 0) + crmCtx.matchedAccounts.length + crmCtx.openOpportunities.length
     : 0;
+
+  // Follow-up task creation
+  const createFollowUpMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/tasks", {
+        title: `Follow up: ${event.title}`,
+        status: "pending",
+        priority: "medium",
+        dueDate: event.endTime ? new Date(new Date(event.endTime).getTime() + 24 * 60 * 60 * 1000).toISOString().split("T")[0] : null,
+        notes: `Created from calendar event on ${format(new Date(event.startTime), "MMM d, yyyy")}`,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Follow-up task created", description: `"Follow up: ${event.title}" added to your tasks.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    },
+    onError: () => toast({ title: "Could not create task", variant: "destructive" }),
+  });
 
   if (editing) {
     return (
@@ -2702,29 +2760,108 @@ function EventDetailDialog({
                 <div className="flex justify-between"><span className="text-muted-foreground">show as</span><span>{showAsLabel}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">visibility</span><span>{visibilityLabel}</span></div>
               </div>
-              {event.invitees && event.invitees.length > 0 && (
-                <div className="border-t border-border/30 pt-2">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
-                    <Users className="h-3.5 w-3.5" /> Invitees
-                  </div>
-                  <div className="space-y-1">
-                    {event.invitees.map((email) => (
-                      <div key={email} className="text-xs bg-secondary/30 rounded px-2 py-1" data-testid={`detail-invitee-${email}`}>
-                        {email}
-                      </div>
-                    ))}
-                  </div>
+              {/* Source calendar */}
+              {event.calendarName && (
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground">Source: <span className="text-foreground">{event.calendarName}</span></span>
                 </div>
               )}
+
+              {/* Rich attendees — use attendeeDetails when available, fall back to invitees array */}
+              {(() => {
+                const details = Array.isArray((event as any).attendeeDetails)
+                  ? (event as any).attendeeDetails as Array<{ email: string; name?: string; responseStatus?: string; organizer?: boolean; self?: boolean }>
+                  : null;
+                const hasAttendees = (details && details.length > 0) || (event.invitees && event.invitees.length > 0);
+                if (!hasAttendees) return null;
+
+                const attendees = details ?? (event.invitees || []).map((e: string) => ({ email: e }));
+                const INTERNAL_DOMAIN = "voltsafe.com";
+                const statusColors: Record<string, string> = {
+                  accepted: "text-green-500",
+                  declined: "text-red-500",
+                  tentative: "text-amber-500",
+                  needsAction: "text-muted-foreground",
+                };
+                const statusLabels: Record<string, string> = {
+                  accepted: "Accepted",
+                  declined: "Declined",
+                  tentative: "Tentative",
+                  needsAction: "Awaiting",
+                };
+
+                return (
+                  <div className="border-t border-border/30 pt-2">
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+                      <Users className="h-3.5 w-3.5" /> Attendees ({attendees.length})
+                    </div>
+                    <div className="space-y-1.5">
+                      {attendees.map((att: any, i: number) => {
+                        const email = (att.email || "").toLowerCase();
+                        const isInternal = email.endsWith("@" + INTERNAL_DOMAIN);
+                        const name = att.name || email.split("@")[0];
+                        const status = att.responseStatus;
+                        const isOrganizer = att.organizer;
+                        const isSelf = att.self;
+                        return (
+                          <div
+                            key={`${email}-${i}`}
+                            className="flex items-center gap-2 text-xs rounded px-2 py-1.5 bg-secondary/20"
+                            data-testid={`detail-attendee-${email}`}
+                          >
+                            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
+                              {name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate">{name}{isSelf ? " (you)" : ""}{isOrganizer ? " · Organizer" : ""}</p>
+                              <p className="text-muted-foreground truncate">{email}</p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {isInternal && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1 bg-blue-500/10 text-blue-400 border-blue-400/20">
+                                  Internal
+                                </Badge>
+                              )}
+                              {status && (
+                                <span className={`text-[10px] font-medium ${statusColors[status] ?? "text-muted-foreground"}`}>
+                                  {statusLabels[status] ?? status}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {event.description && (
                 <div className="border-t border-border/30 pt-2">
-                  <p className="text-muted-foreground whitespace-pre-wrap">{event.description}</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
+                  <p className="text-muted-foreground whitespace-pre-wrap text-xs line-clamp-6">{event.description}</p>
                 </div>
               )}
             </div>
             {/* Footer actions inside scroll */}
             <div className="mt-5 pt-4 border-t border-border/30 flex flex-col gap-2">
               <MeetingNoteAction event={event} />
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() => createFollowUpMutation.mutate()}
+                disabled={createFollowUpMutation.isPending || createFollowUpMutation.isSuccess}
+                data-testid="button-create-followup-task"
+              >
+                {createFollowUpMutation.isPending
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                  : createFollowUpMutation.isSuccess
+                    ? <CheckCheck className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                    : <ClipboardList className="h-3.5 w-3.5 shrink-0" />}
+                {createFollowUpMutation.isSuccess ? "Task created" : "Create Follow-Up Task"}
+              </Button>
               {event.invitees && event.invitees.length > 0 && (
                 <Button
                   size="sm"

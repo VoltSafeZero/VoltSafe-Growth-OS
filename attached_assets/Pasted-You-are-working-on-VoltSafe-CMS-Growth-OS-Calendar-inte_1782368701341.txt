@@ -1,0 +1,200 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Calendar integration status:
+The Calendar module has now been connected to real Google events.
+
+Recently completed:
+- GET /api/calendar/events now triggers automatic inline sync on first load for users with connected Google Calendar.
+- GET /api/calendar/sources returns discovered Google calendars and selected state.
+- POST /api/calendar/sources/select saves selected calendars.
+- syncGoogleCalendar() discovers multiple Google calendars, respects selectedCalendarIds, and stores calendarName + structured attendeeDetails.
+- Calendar page now shows sync error banner.
+- Calendar event chips now show calendar name.
+- My Calendars panel now lists discovered calendars with color swatches and checkboxes.
+- Google Calendar no longer relies only on manual sync to populate the day view.
+
+Important:
+Do NOT rebuild the calendar page.
+Do NOT add another calendar shell.
+Do NOT fake team calendar data.
+Do NOT expose teammate private event details.
+Continue from the existing implementation.
+
+Goal of this task:
+Build the next useful layer: event detail + CRM meeting intelligence.
+
+Primary user outcome:
+When Trevor clicks a calendar event, VoltSafe CMS should show:
+- Event details
+- Attendees
+- Meeting link
+- Source calendar
+- CRM matches
+- Related Account / Lead / Contact / Person if found
+- Suggested prep/follow-up actions
+
+This should turn a calendar event into a useful VoltSafe work object.
+
+Audit first:
+Inspect the current implementation for:
+1. Calendar event rendering in client/src/pages/calendar.tsx
+2. Existing event click handlers or modal/dialog components
+3. Existing calendar_events DB shape
+4. Existing attendeeDetails storage
+5. Existing CRM context route mentioned in prior audit
+6. Existing CRM matching / email association utilities
+7. Existing entities:
+   - Accounts
+   - Leads
+   - Contacts
+   - People
+8. Existing activity/email summary components that can be reused
+9. Existing modal/dialog styling patterns
+10. Existing task creation/follow-up APIs
+
+Then report:
+- What exists
+- What can be reused
+- What needs to be added
+- Any data shape mismatches
+
+Implementation scope:
+
+Phase 1 — Event detail dialog
+Add an event detail dialog/modal when clicking any event chip in Day or Week view.
+
+The dialog should show:
+- Event title
+- Date/time
+- Source calendar name
+- All-day vs timed event
+- Location
+- Meeting link if available
+- Attendees
+- Description excerpt, not full giant private body by default
+- Last synced timestamp if available
+
+Attendees section:
+- Show attendee name if available
+- Show attendee email
+- Show response status if available
+- Visually distinguish internal @voltsafe.com attendees from external attendees
+- Do not treat internal @voltsafe.com as CRM targets
+
+Meeting link handling:
+- Detect Google Meet / Zoom / Teams links from:
+  - hangoutLink / conferenceData if available
+  - location
+  - description
+- Show a clear “Join Meeting” button if a meeting URL exists.
+- Do not show broken/empty buttons.
+
+Phase 2 — CRM matching utility
+Create or reuse a backend utility that matches calendar events to CRM records.
+
+Matching rules:
+1. External attendee email exact match to Contact/Person = highest confidence
+2. External attendee domain match to Account domain/website/email domain = high confidence
+3. Event title contains exact Account/Lead name = medium confidence
+4. Event title fuzzy match = low confidence only if safe
+5. Ignore common domains like gmail.com, outlook.com, yahoo.com, icloud.com unless there is an exact contact/person email match
+6. Always ignore @voltsafe.com as external CRM target
+7. Return match reason and confidence
+
+Suggested return shape:
+crmMatches: [
+  {
+    entityType: "account" | "lead" | "contact" | "person",
+    entityId: string,
+    entityName: string,
+    confidence: "high" | "medium" | "low",
+    reason: string,
+    matchedOn: "attendee_email" | "attendee_domain" | "event_title"
+  }
+]
+
+Implementation options:
+- Preferred: include crmMatches in GET /api/calendar/events response.
+- Acceptable: create GET /api/calendar/events/:id/context if cleaner.
+- Reuse existing CRM context route if already built and stable.
+
+Phase 3 — Show CRM context in dialog
+Inside the event detail dialog, show a “VoltSafe Context” section.
+
+If CRM matches exist:
+- Show matched Account / Lead / Contact / Person
+- Show confidence badge
+- Show reason
+- Link to the matched CRM record if route exists
+- Add a “View CRM Record” action
+
+If no CRM match exists:
+- Show honest empty state:
+  “No CRM match found from attendees or event title.”
+
+Do not fake CRM context.
+
+Phase 4 — Suggested meeting prep
+Add a simple first version of “Suggested Prep” in the event dialog.
+
+Rules:
+- If CRM match exists, show:
+  - “Review recent activity”
+  - “Check open tasks”
+  - “Prepare follow-up”
+- If no CRM match exists, show:
+  - “Add to CRM”
+  - “Create follow-up task”
+- These can be buttons or placeholder actions only if the route exists.
+- No broken buttons. If not implemented, mark as Coming next.
+
+Phase 5 — Follow-up task foundation
+If task creation API already exists:
+- Add “Create Follow-Up Task” button in event dialog.
+- Pre-fill task title:
+  “Follow up: [Event Title]”
+- Attach event ID and CRM match if available.
+- Keep it simple.
+
+If task creation API does not exist:
+- Do not build a full task system here.
+- Show disabled “Create Follow-Up Task — Coming next.”
+
+Phase 6 — Verification
+Test the following:
+1. Click a timed event — dialog opens.
+2. Click an all-day event — dialog opens.
+3. Event with attendees shows attendees.
+4. Internal VoltSafe attendees are visually marked internal.
+5. External attendees are eligible for CRM matching.
+6. Event with Zoom/Meet link shows Join Meeting.
+7. Event with no meeting link does not show Join Meeting.
+8. Event with CRM match shows VoltSafe Context.
+9. Event with no CRM match shows honest empty state.
+10. Day and Week event clicks both work.
+11. Calendar still loads real Google events after refresh.
+12. Calendar source checkboxes still work.
+13. Run typecheck/lint/tests if available.
+
+Privacy/security:
+- Do not expose other users’ private event details.
+- Do not log full event descriptions.
+- Do not send private calendar data to AI.
+- CRM matching must be deterministic for now, not AI-based.
+- Default to safe, clear, explainable matching.
+
+Expected deliverables:
+1. Audit summary.
+2. Event detail dialog.
+3. CRM matching utility/route integration.
+4. VoltSafe Context section in event dialog.
+5. Join Meeting button if meeting link exists.
+6. Follow-up task action only if safe/existing.
+7. Final report with files changed, routes updated, tests run, and limitations.
+
+Key principle:
+The calendar should not just show blocks of time.
+It should tell the user:
+“Who is this with, why does it matter, what CRM record is connected, and what should I do next?”
+
+Start by auditing the current calendar event click/detail support and the existing CRM context route.

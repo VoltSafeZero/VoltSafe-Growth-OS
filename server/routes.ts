@@ -8974,7 +8974,7 @@ export async function registerRoutes(
 
   // ── Calendar CRM Intelligence ─────────────────────────────────────────────
 
-  // CRM context for a calendar event — match invitees to contacts/accounts
+  // CRM context for a calendar event — match invitees to contacts/accounts/leads
   app.get("/api/calendar/events/:id/crm-context", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
@@ -8983,39 +8983,108 @@ export async function registerRoutes(
         .where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.userId, userId))).limit(1);
       if (!event) return res.status(404).json({ message: "Event not found" });
 
-      const invitees: string[] = (event.invitees || []).filter(Boolean);
-      const matchedContacts: any[] = [];
+      // Domains we never match on for domain-level CRM lookups
+      const GENERIC_DOMAINS = new Set([
+        "gmail.com","googlemail.com","outlook.com","hotmail.com","yahoo.com",
+        "icloud.com","me.com","mac.com","live.com","msn.com","protonmail.com",
+        "aol.com","ymail.com","pm.me","fastmail.com",
+      ]);
+      const INTERNAL_DOMAIN = "voltsafe.com";
+
+      // Build external attendee email list — prefer attendeeDetails (richer), fall back to invitees
+      const rawAttendees: Array<{ email: string; name?: string; responseStatus?: string; organizer?: boolean; self?: boolean }> =
+        Array.isArray(event.attendeeDetails)
+          ? (event.attendeeDetails as any[])
+          : (event.invitees || []).map((e: string) => ({ email: e }));
+
+      const externalAttendees = rawAttendees.filter(a => {
+        const em = (a.email || "").toLowerCase().trim();
+        if (!em || !em.includes("@")) return false;
+        const domain = em.split("@")[1] || "";
+        return domain !== INTERNAL_DOMAIN && !a.self;
+      });
+
+      const externalEmails = externalAttendees.map(a => a.email.toLowerCase().trim());
+
+      // ── Contact matching (exact email → highest confidence) ──
+      const matchedContacts: Array<{
+        id: number; name: string; title?: string | null; email?: string | null; accountId: number;
+        confidence: "high"; reason: string; matchedOn: "attendee_email";
+      }> = [];
       const unmatchedEmails: string[] = [];
       const accountIdSet = new Set<number>();
 
-      // Match each invitee email to a contact
-      for (const email of invitees) {
-        const [contact] = await db.select().from(contacts).where(eq(contacts.email, email.toLowerCase().trim())).limit(1);
+      for (const email of externalEmails) {
+        const [contact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
         if (contact) {
-          matchedContacts.push(contact);
+          matchedContacts.push({ ...contact, confidence: "high", reason: `Attendee email matches contact`, matchedOn: "attendee_email" });
           accountIdSet.add(contact.accountId);
         } else {
           unmatchedEmails.push(email);
         }
       }
 
-      // Domain → account fallback for unmatched
+      // ── Lead matching (exact email → high confidence; domain → medium confidence) ──
+      const matchedLeads: Array<{
+        id: number; name: string; company: string; email?: string | null; status: string;
+        confidence: "high" | "medium"; reason: string; matchedOn: "attendee_email" | "attendee_domain";
+      }> = [];
+      const leadAccountIdSet = new Set<number>();
+
+      for (const email of externalEmails) {
+        const [lead] = await db.select().from(leads)
+          .where(eq(leads.contactEmail, email)).limit(1);
+        if (lead) {
+          matchedLeads.push({
+            id: lead.id, name: lead.contactName, company: lead.company, email: lead.contactEmail,
+            status: lead.status, confidence: "high", reason: `Attendee email matches lead contact`,
+            matchedOn: "attendee_email",
+          });
+        }
+      }
+
+      // ── Domain → account fallback for unmatched (medium confidence) ──
+      const domainMatchedAccountIds = new Set<number>();
       for (const email of unmatchedEmails) {
         const domain = email.split("@")[1];
-        if (!domain || domain.includes("gmail.com") || domain.includes("outlook.com") || domain.includes("yahoo.com") || domain.includes("hotmail.com")) continue;
+        if (!domain || GENERIC_DOMAINS.has(domain)) continue;
         const domainAccounts = await db.select({ id: accounts.id }).from(accounts)
           .where(sql`website ILIKE ${"%" + domain + "%"}`).limit(2);
-        for (const a of domainAccounts) accountIdSet.add(a.id);
+        for (const a of domainAccounts) { accountIdSet.add(a.id); domainMatchedAccountIds.add(a.id); }
+
+        // Domain → lead fallback
+        const domainLeads = await db.select().from(leads)
+          .where(sql`contact_email ILIKE ${"%" + "@" + domain}`).limit(2);
+        for (const l of domainLeads) {
+          if (!matchedLeads.some(ml => ml.id === l.id)) {
+            matchedLeads.push({
+              id: l.id, name: l.contactName, company: l.company, email: l.contactEmail,
+              status: l.status, confidence: "medium", reason: `Attendee domain @${domain} matches lead`,
+              matchedOn: "attendee_domain",
+            });
+          }
+        }
       }
 
-      // Fetch matched accounts
-      const matchedAccounts: any[] = [];
+      // ── Fetch matched accounts (with confidence) ──
+      const matchedAccounts: Array<{
+        id: number; name: string; segment?: string | null; leadStatus?: string | null; city?: string | null; website?: string | null;
+        confidence: "high" | "medium"; reason: string; matchedOn: "attendee_email" | "attendee_domain";
+      }> = [];
       for (const id of accountIdSet) {
         const [acc] = await db.select().from(accounts).where(eq(accounts.id, id)).limit(1);
-        if (acc) matchedAccounts.push(acc);
+        if (acc) {
+          const isEmailMatch = !domainMatchedAccountIds.has(id);
+          matchedAccounts.push({
+            ...acc,
+            confidence: isEmailMatch ? "high" : "medium",
+            reason: isEmailMatch ? "Contact's account" : "Attendee email domain matches account website",
+            matchedOn: isEmailMatch ? "attendee_email" : "attendee_domain",
+          });
+        }
       }
 
-      // Open opportunities for matched accounts
+      // ── Open opportunities for matched accounts ──
       const openOpportunities: any[] = [];
       for (const id of accountIdSet) {
         const opps = await db.select().from(opportunities)
@@ -9024,9 +9093,9 @@ export async function registerRoutes(
         openOpportunities.push(...opps);
       }
 
-      // Recent emails involving these invitees
+      // ── Recent emails involving external attendees ──
       const recentEmails: any[] = [];
-      for (const email of invitees.slice(0, 3)) {
+      for (const email of externalEmails.slice(0, 3)) {
         const msgs = await db.select({
           id: emailMessages.id, subject: emailMessages.subject, fromEmail: emailMessages.fromEmail,
           sentAt: emailMessages.sentAt, direction: emailMessages.direction, snippet: emailMessages.snippet,
@@ -9039,7 +9108,7 @@ export async function registerRoutes(
         .sort((a: any, b: any) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime())
         .slice(0, 5);
 
-      // Open tasks for matched accounts
+      // ── Open tasks for matched accounts ──
       const openTasks: any[] = [];
       for (const id of accountIdSet) {
         const ts = await db.select().from(tasks)
@@ -9048,7 +9117,7 @@ export async function registerRoutes(
         openTasks.push(...ts);
       }
 
-      // Recommended action
+      // ── Recommended action ──
       let recommendedAction: any = null;
       const stageActions: Record<string, string> = {
         inbound_new: "Send intro email and schedule a discovery call",
@@ -9073,7 +9142,7 @@ export async function registerRoutes(
           working: "Deepen the relationship and uncover a deal opportunity",
         };
         recommendedAction = {
-          text: accountActions[acc.leadStatus] || "Continue relationship development",
+          text: accountActions[acc.leadStatus ?? ""] || "Continue relationship development",
           accountId: acc.id,
           accountName: acc.name,
         };
@@ -9084,7 +9153,16 @@ export async function registerRoutes(
         };
       }
 
-      res.json({ matchedContacts, unmatchedEmails, matchedAccounts, openOpportunities, recentEmails: dedupedEmails, openTasks, recommendedAction });
+      res.json({
+        matchedContacts,
+        matchedLeads,
+        unmatchedEmails,
+        matchedAccounts,
+        openOpportunities,
+        recentEmails: dedupedEmails,
+        openTasks,
+        recommendedAction,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
