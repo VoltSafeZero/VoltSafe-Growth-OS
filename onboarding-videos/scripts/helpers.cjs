@@ -74,11 +74,15 @@ async function safeClick(page, selector, options = {}) {
   }
 }
 
+// When RECORD_SPEED=fast, compress all pauses to 15% so scripts finish
+// within CI/tool time limits. Default (unset) preserves full narration timing.
+const SPEED_FACTOR = process.env.RECORD_SPEED === "fast" ? 0.15 : 1.0;
+
 /**
  * Intentional pause to give viewers time to read/register what is on screen.
  */
 async function pauseForViewer(ms = 2000) {
-  await new Promise((r) => setTimeout(r, ms));
+  await new Promise((r) => setTimeout(r, Math.round(ms * SPEED_FACTOR)));
 }
 
 /**
