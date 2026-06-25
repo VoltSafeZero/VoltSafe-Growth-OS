@@ -1,0 +1,200 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Calendar status:
+The Calendar module now has:
+- Real Google Calendar events syncing/displaying.
+- Multi-calendar source discovery and selection.
+- Calendar names shown on event chips.
+- Event detail dialog.
+- Rich attendee cards using attendeeDetails.
+- Meeting source calendar row.
+- Join/meeting context support where available.
+- CRM Context tab with matched Contacts, Accounts, and Leads.
+- CRM matching ignores internal @voltsafe.com attendees.
+- Matched entities include confidence, reason, and matchedOn.
+- Create Follow-Up Task button in event details.
+
+Next goal:
+Build the safe foundation for Team Availability / Free-Busy scheduling.
+
+Important product principle:
+Do NOT expose teammate private calendar event titles/details.
+Do NOT fake team availability.
+Do NOT build a full Calendly clone.
+Do NOT rebuild the calendar page.
+Do NOT break the existing personal Google Calendar sync.
+
+The goal is simple:
+Let a VoltSafe user select teammates in the Calendar right sidebar and see when those teammates are busy/free for the selected day, using safe free/busy blocks only.
+
+Primary user outcome:
+Trevor should be able to open Calendar, select teammates like Sana, Scott, Terri, etc., and see overlapping busy blocks or available windows so the team can book meetings together.
+
+Audit first:
+Before coding, inspect:
+1. Current Calendar page right sidebar Team Calendars UI.
+2. Existing team/user model used to populate Team Calendars.
+3. Existing Google calendar connection table/model.
+4. Existing calendar connections per user.
+5. Existing selected calendar sources model.
+6. Existing syncGoogleCalendar() service.
+7. Existing Google OAuth scopes.
+8. Whether freebusy Google API access is already available with current scopes.
+9. Existing backend routes under /api/calendar.
+10. Existing auth/session helper for current user.
+11. Existing DB schema/migration style.
+12. Existing privacy/role/permissions model.
+
+Then report:
+- What Team Calendars currently does.
+- Whether it is static or real.
+- Whether teammate Google Calendar connections exist.
+- Whether the current OAuth scopes support Google Calendar freebusy.
+- Whether new scopes / reconnect are needed.
+- Safest implementation path.
+
+Implementation scope:
+
+Phase 1 — Make Team Calendars honest
+If the right sidebar is currently static/fake:
+- Replace fake team data with real VoltSafe users where possible.
+- Only show users who are active team members.
+- Show connection status:
+  - Connected
+  - Not connected
+  - Calendar access needed
+- If a teammate cannot be queried, show a clear unavailable state.
+- Do not pretend availability exists when it does not.
+
+Phase 2 — Backend free/busy route
+Create or update a route:
+
+GET /api/calendar/team-availability?date=YYYY-MM-DD&userIds=user1,user2,...
+
+Behavior:
+- Authenticated only.
+- Current user can request availability for selected teammates.
+- For each teammate:
+  - If teammate has valid Google Calendar connection with calendar scope, query Google freebusy.
+  - If not connected, return status: "not_connected".
+  - If token expired/reconnect needed, return status: "reconnect_required".
+  - If permission unavailable, return status: "unavailable".
+- Return only busy blocks, never event titles/descriptions/attendees.
+- Use the selected date in the user’s timezone.
+- Include start/end ISO timestamps.
+- Include userId, userName, email, status, busyBlocks.
+
+Suggested response shape:
+{
+  date: "2026-06-24",
+  timezone: "America/Vancouver",
+  users: [
+    {
+      userId: "...",
+      name: "Sana",
+      email: "sana@voltsafe.com",
+      status: "available" | "not_connected" | "reconnect_required" | "unavailable",
+      busyBlocks: [
+        { start: "...", end: "..." }
+      ]
+    }
+  ]
+}
+
+Use Google Calendar freebusy endpoint if available.
+Do not pull full events for teammates.
+
+Phase 3 — Frontend overlay
+Update the existing Calendar page:
+- When teammate checkbox is selected, call team availability route.
+- Show loading state per teammate or global small spinner.
+- Render busy blocks in the day view as subtle background overlays or side-by-side lane blocks.
+- Label only teammate name and “Busy”.
+- Do not show event titles.
+- If multiple selected teammates are busy at the same time, visually stack or combine without making the calendar unreadable.
+- If a teammate is not connected, show small status text in the Team Calendars card.
+
+Phase 4 — Available windows
+Add a simple “Suggested Openings” section under Team Calendars or below the day grid.
+
+For selected users, calculate shared open windows:
+- Based on current user’s visible events + selected teammates’ busy blocks.
+- Workday default: 8:00 AM–6:00 PM local time.
+- Minimum meeting duration default: 30 minutes.
+- Return/display top 3 open windows.
+
+Example:
+Suggested Openings
+- 10:30–11:00 AM
+- 1:00–1:45 PM
+- 3:30–4:30 PM
+
+If no teammates selected:
+Show:
+“Select teammates to find shared openings.”
+
+If no common openings:
+Show:
+“No shared openings found today.”
+
+Keep this calculation simple and deterministic.
+
+Phase 5 — Privacy rules
+Hard requirements:
+- Never expose teammate event titles.
+- Never expose teammate descriptions.
+- Never expose teammate attendees.
+- Never expose location.
+- Only busy start/end ranges.
+- Default to free/busy only.
+- If future full-calendar sharing is added, it must be opt-in.
+
+Phase 6 — Optional DB support
+Only add DB tables if necessary.
+
+Possible table:
+calendar_availability_preferences:
+- id
+- user_id
+- share_free_busy boolean default true
+- allow_full_event_details boolean default false
+- workday_start
+- workday_end
+- timezone
+- created_at
+- updated_at
+
+But do not overbuild. If the current user model/Google permissions are enough, skip DB for now.
+
+Phase 7 — Verification
+Test:
+1. Team Calendars list uses real users or honest connection states.
+2. Selecting one teammate calls team availability route.
+3. Busy blocks render in day view.
+4. Multiple teammates selected works.
+5. Not connected teammate shows honest state.
+6. Reconnect-needed teammate shows honest state.
+7. No private event titles/details appear.
+8. Suggested Openings displays when teammates are selected.
+9. Calendar personal events still render.
+10. CRM event detail dialog still opens and works.
+11. Source calendar selection still works.
+12. Sync button still works.
+13. Run typecheck/lint/tests if available.
+
+Expected deliverables:
+1. Audit summary.
+2. Backend team availability route.
+3. Frontend Team Calendars wired to real availability states.
+4. Busy/free overlay on day view.
+5. Suggested Openings section.
+6. Privacy-safe implementation.
+7. Final report with files changed, tests run, limitations, and next steps.
+
+Key principle:
+Team Availability should answer:
+“Who is free when?”
+Not:
+“What is everyone doing?”
+
+Start by auditing the current Team Calendars sidebar and existing user/calendar connection models.

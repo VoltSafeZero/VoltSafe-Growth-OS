@@ -9251,6 +9251,88 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/calendar/team-availability — privacy-safe freebusy for selected teammates.
+  // Returns ONLY busy time blocks — never event titles, descriptions, or attendees.
+  app.get("/api/calendar/team-availability", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { date, userIds } = req.query;
+      if (!date || !userIds) return res.status(400).json({ message: "date and userIds required" });
+
+      const requestedIds = String(userIds).split(",").map(Number).filter(Boolean);
+      if (requestedIds.length === 0) return res.json({ date: String(date), users: [] });
+
+      // Same permission check as /api/calendar/events/team
+      const [requester] = await db
+        .select({ globalRole: users.globalRole, permissions: users.permissions })
+        .from(users).where(eq(users.id, userId)).limit(1);
+      if (!requester) return res.status(401).json({ message: "Not authenticated" });
+
+      const adminRoles = ["master_admin", "admin"];
+      let permittedIds: number[];
+      if (adminRoles.includes(requester.globalRole ?? "")) {
+        permittedIds = requestedIds;
+      } else {
+        const perms = (requester.permissions as Record<string, unknown>) || {};
+        const calTeam: number[] = Array.isArray(perms.calendar_team) ? (perms.calendar_team as number[]) : [];
+        permittedIds = requestedIds.filter((id) => calTeam.includes(id));
+      }
+      if (permittedIds.length === 0) return res.json({ date: String(date), users: [] });
+
+      const teamUsers = await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users).where(inArray(users.id, permittedIds));
+
+      const connections = await db
+        .select()
+        .from(calendarConnections)
+        .where(and(
+          inArray(calendarConnections.userId, permittedIds),
+          eq(calendarConnections.provider, "google"),
+          eq(calendarConnections.isActive, true)
+        ));
+
+      const connByUser = new Map(connections.map(c => [c.userId, c]));
+
+      const dateStr = String(date); // YYYY-MM-DD
+      const dayStart = new Date(`${dateStr}T00:00:00Z`);
+      const dayEnd = new Date(`${dateStr}T23:59:59Z`);
+
+      const results = await Promise.all(teamUsers.map(async (user) => {
+        const conn = connByUser.get(user.id);
+        if (!conn || !conn.refreshToken) {
+          return { userId: user.id, name: user.name, email: user.email ?? "", status: "not_connected", busyBlocks: [] };
+        }
+
+        try {
+          const calClient = await getCalendarClient(conn);
+          const calId = conn.accountEmail || "primary";
+          const fbRes = await (calClient as any).freebusy.query({
+            requestBody: {
+              timeMin: dayStart.toISOString(),
+              timeMax: dayEnd.toISOString(),
+              items: [{ id: calId }],
+            },
+          });
+          const cals = (fbRes.data.calendars || {}) as Record<string, { busy?: { start: string; end: string }[] }>;
+          const calEntry = cals[calId] ?? (Object.values(cals)[0] ?? {});
+          const busyBlocks = (calEntry.busy ?? []).map(b => ({ start: b.start, end: b.end }));
+          return { userId: user.id, name: user.name, email: user.email ?? "", status: "available" as const, busyBlocks };
+        } catch (err: any) {
+          const msg = String(err?.message ?? "");
+          const status = (msg.includes("invalid_grant") || msg.includes("Token has been expired") || msg.includes("refresh"))
+            ? "reconnect_required" as const
+            : "unavailable" as const;
+          return { userId: user.id, name: user.name, email: user.email ?? "", status, busyBlocks: [] };
+        }
+      }));
+
+      res.json({ date: dateStr, users: results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Calendar activity metrics for the current user
   app.get("/api/calendar/metrics", requireAuth, async (req, res) => {
     try {

@@ -212,6 +212,19 @@ type DisplayEvent = CalendarEvent & {
   _team?: { name: string; colorBg: string };
 };
 
+type BusyBlock = { start: string; end: string };
+type TeamMemberAvailability = {
+  userId: number;
+  name: string;
+  email: string;
+  status: "available" | "not_connected" | "reconnect_required" | "unavailable";
+  busyBlocks: BusyBlock[];
+};
+type TeamAvailabilityResponse = { date: string; users: TeamMemberAvailability[] };
+
+// Suggested opening window
+type OpenWindow = { start: Date; end: Date };
+
 function roundTo15(hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number);
   const rounded = Math.round(m / 15) * 15;
@@ -336,6 +349,80 @@ function useTeamCalendarEvents(currentDate: Date, view: ViewMode, enabledIds: nu
   });
 }
 
+function useTeamAvailability(date: Date, enabledIds: number[], view: ViewMode) {
+  const dateStr = format(date, "yyyy-MM-dd");
+  const idsStr = [...enabledIds].sort().join(",");
+  return useQuery<TeamAvailabilityResponse>({
+    queryKey: ["/api/calendar/team-availability", dateStr, idsStr],
+    queryFn: async () => {
+      if (enabledIds.length === 0) return { date: dateStr, users: [] };
+      const res = await fetch(`/api/calendar/team-availability?date=${dateStr}&userIds=${idsStr}`, { credentials: "include" });
+      if (!res.ok) return { date: dateStr, users: [] };
+      return res.json();
+    },
+    enabled: view === "day" && enabledIds.length > 0,
+    staleTime: 5 * 60_000,
+  });
+}
+
+// Compute suggested open windows for the day, given own events + teammates' busy blocks.
+// Workday 8am–6pm, minimum 30-minute slot, returns top 3.
+function computeSuggestedOpenings(
+  date: Date,
+  ownEvents: CalendarEvent[],
+  teamAvail: TeamMemberAvailability[]
+): OpenWindow[] {
+  const WORKDAY_START = 8;
+  const WORKDAY_END = 18;
+  const SLOT_MINUTES = 30;
+
+  // Collect all blocked ranges for this day
+  const blocked: { start: Date; end: Date }[] = [];
+
+  const dayEvents = ownEvents.filter(e => isSameDay(new Date(e.startTime), date));
+  for (const ev of dayEvents) {
+    const s = new Date(ev.startTime);
+    const e = ev.endTime ? new Date(ev.endTime) : new Date(s.getTime() + 30 * 60_000);
+    blocked.push({ start: s, end: e });
+  }
+
+  for (const member of teamAvail) {
+    if (member.status !== "available") continue;
+    for (const b of member.busyBlocks) {
+      blocked.push({ start: new Date(b.start), end: new Date(b.end) });
+    }
+  }
+
+  const workStart = new Date(date);
+  workStart.setHours(WORKDAY_START, 0, 0, 0);
+  const workEnd = new Date(date);
+  workEnd.setHours(WORKDAY_END, 0, 0, 0);
+
+  const windows: OpenWindow[] = [];
+  let cursor = workStart.getTime();
+
+  while (cursor + SLOT_MINUTES * 60_000 <= workEnd.getTime()) {
+    const slotEnd = cursor + SLOT_MINUTES * 60_000;
+    const overlaps = blocked.some(b => b.start.getTime() < slotEnd && b.end.getTime() > cursor);
+    if (!overlaps) {
+      // Extend this window as long as possible
+      let extEnd = slotEnd;
+      while (extEnd + SLOT_MINUTES * 60_000 <= workEnd.getTime()) {
+        const nextEnd = extEnd + SLOT_MINUTES * 60_000;
+        const nextOverlaps = blocked.some(b => b.start.getTime() < nextEnd && b.end.getTime() > extEnd);
+        if (nextOverlaps) break;
+        extEnd = nextEnd;
+      }
+      windows.push({ start: new Date(cursor), end: new Date(extEnd) });
+      cursor = extEnd;
+    } else {
+      cursor += SLOT_MINUTES * 60_000;
+    }
+  }
+
+  return windows.slice(0, 3);
+}
+
 type CalendarPageProps = {
   permissions?: { calendar_team?: number[]; [k: string]: unknown };
   currentUserId?: number;
@@ -458,8 +545,26 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
 
   const enabledIdsList = [...enabledOverlays].filter((id) => permittedMembers.some((m) => m.id === id));
   const { data: teamEvents } = useTeamCalendarEvents(currentDate, view, enabledIdsList);
+  const { data: availability, isLoading: availLoading } = useTeamAvailability(currentDate, enabledIdsList, view);
 
   const { data: ownEvents, isLoading } = useCalendarEvents(currentDate, view);
+
+  // Build busy block overlays for DayView (privacy-safe: no event titles)
+  const teamBusyOverlays = useMemo(() => {
+    if (!availability) return [];
+    return availability.users
+      .filter(u => u.status === "available" && u.busyBlocks.length > 0)
+      .map(u => {
+        const member = permittedMembers.find(m => m.id === u.userId);
+        return { ...u, colorIdx: member?.colorIdx ?? 0 };
+      });
+  }, [availability, permittedMembers]);
+
+  // Suggested openings (only in day view with teammates selected)
+  const suggestedOpenings = useMemo(() => {
+    if (view !== "day" || enabledIdsList.length === 0 || !availability) return [];
+    return computeSuggestedOpenings(currentDate, ownEvents ?? [], availability.users);
+  }, [view, enabledIdsList, availability, currentDate, ownEvents]);
 
   const allEvents: DisplayEvent[] = [
     ...(ownEvents ?? []),
@@ -738,6 +843,8 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 onSlotClick={handleSlotClick}
                 onEventClick={(ev) => { if (!ev._team) setSelectedEvent(ev); }}
                 onReschedule={handleReschedule}
+                busyOverlays={teamBusyOverlays}
+                availLoading={availLoading && enabledIdsList.length > 0}
               />
             )}
           </CardContent>
@@ -796,22 +903,32 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                   {permittedMembers.map((member) => {
                     const colors = TEAM_OVERLAY_COLORS[member.colorIdx];
                     const checked = enabledOverlays.has(member.id);
+                    const memberAvail = availability?.users.find(u => u.userId === member.id);
+                    const connStatus = checked && memberAvail ? memberAvail.status : null;
                     return (
-                      <label
-                        key={member.id}
-                        className="flex items-center gap-2 cursor-pointer group"
-                        data-testid={`overlay-member-${member.id}`}
-                      >
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={() => toggleOverlay(member.id)}
-                          data-testid={`checkbox-overlay-${member.id}`}
-                        />
-                        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colors.dot}`} />
-                        <span className="text-xs truncate group-hover:text-foreground text-muted-foreground transition-colors">
-                          {member.name}
-                        </span>
-                      </label>
+                      <div key={member.id} className="space-y-0.5">
+                        <label
+                          className="flex items-center gap-2 cursor-pointer group"
+                          data-testid={`overlay-member-${member.id}`}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={() => toggleOverlay(member.id)}
+                            data-testid={`checkbox-overlay-${member.id}`}
+                          />
+                          <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colors.dot}`} />
+                          <span className="text-xs truncate group-hover:text-foreground text-muted-foreground transition-colors">
+                            {member.name}
+                          </span>
+                        </label>
+                        {connStatus && connStatus !== "available" && (
+                          <p className="text-[10px] pl-7 text-amber-400/80" data-testid={`overlay-status-${member.id}`}>
+                            {connStatus === "not_connected" ? "No calendar connected" :
+                             connStatus === "reconnect_required" ? "Reconnect needed" :
+                             "Unavailable"}
+                          </p>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -823,6 +940,43 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                   >
                     Clear all
                   </button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Suggested Openings */}
+          {view === "day" && enabledIdsList.length > 0 && (
+            <Card className="border-border/50 w-52 shrink-0" data-testid="suggested-openings-panel">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Suggested Openings</span>
+                </div>
+                {availLoading ? (
+                  <div className="space-y-1.5">
+                    <div className="h-4 bg-muted/40 rounded animate-pulse" />
+                    <div className="h-4 bg-muted/40 rounded animate-pulse w-3/4" />
+                  </div>
+                ) : suggestedOpenings.length === 0 ? (
+                  <p className="text-xs text-muted-foreground" data-testid="no-openings-text">
+                    No shared openings found today.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {suggestedOpenings.map((w, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 text-xs px-2 py-1 rounded bg-primary/8 border border-primary/15"
+                        data-testid={`opening-slot-${i}`}
+                      >
+                        <Zap className="h-3 w-3 text-primary shrink-0" />
+                        <span className="font-medium text-foreground">
+                          {format(w.start, "h:mm")}–{format(w.end, "h:mm a")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -1088,16 +1242,41 @@ function DayView({
   onSlotClick,
   onEventClick,
   onReschedule,
+  busyOverlays = [],
+  availLoading = false,
 }: {
   currentDate: Date;
   events: DisplayEvent[];
   onSlotClick: (date: Date, hour: number) => void;
   onEventClick: (event: DisplayEvent) => void;
   onReschedule?: (event: DisplayEvent, newStart: Date, newEnd: Date | null) => void;
+  busyOverlays?: (TeamMemberAvailability & { colorIdx: number })[];
+  availLoading?: boolean;
 }) {
   const dayEvents = events.filter((e) => isSameDay(new Date(e.startTime), currentDate));
   const dragRef = useRef<DisplayEvent | null>(null);
   const [dragOverHour, setDragOverHour] = useState<number | null>(null);
+
+  // Pre-index busy blocks per hour for fast lookup
+  const busyByHour = useMemo(() => {
+    const map = new Map<number, (TeamMemberAvailability & { colorIdx: number })[]>();
+    for (const member of busyOverlays) {
+      for (const block of member.busyBlocks) {
+        const blockStart = new Date(block.start);
+        const blockEnd = new Date(block.end);
+        for (let h = getHours(blockStart); h <= Math.min(getHours(blockEnd), 23); h++) {
+          const slotStart = h * 60 * 60_000 + Math.floor(blockStart.getTime() / (24 * 60 * 60_000)) * 24 * 60 * 60_000;
+          const slotEnd = (h + 1) * 60 * 60_000 + Math.floor(blockStart.getTime() / (24 * 60 * 60_000)) * 24 * 60 * 60_000;
+          if (blockStart.getTime() < slotEnd && blockEnd.getTime() > slotStart) {
+            if (!map.has(h)) map.set(h, []);
+            const arr = map.get(h)!;
+            if (!arr.find(m => m.userId === member.userId)) arr.push(member);
+          }
+        }
+      }
+    }
+    return map;
+  }, [busyOverlays]);
 
   const handleDrop = useCallback((hour: number) => {
     const ev = dragRef.current;
@@ -1118,9 +1297,14 @@ function DayView({
 
   return (
     <div className="max-h-[600px] overflow-y-auto">
+      {/* Loading shimmer when fetching availability */}
+      {availLoading && (
+        <div className="h-1 w-full bg-primary/20 animate-pulse rounded-full mb-1" data-testid="avail-loading-bar" />
+      )}
       {HOURS.map((hour) => {
         const hourEvents = dayEvents.filter((e) => getHours(new Date(e.startTime)) === hour);
         const isDropTarget = dragOverHour === hour;
+        const busyMembers = busyByHour.get(hour) ?? [];
 
         return (
           <div
@@ -1138,6 +1322,21 @@ function DayView({
               {format(setHours(new Date(), hour), "h a")}
             </div>
             <div className="p-1 space-y-1">
+              {/* Privacy-safe teammate busy strips — no event titles */}
+              {busyMembers.map((m) => {
+                const dotColors = TEAM_OVERLAY_COLORS[m.colorIdx];
+                return (
+                  <div
+                    key={`busy-${m.userId}-${hour}`}
+                    className={`w-full text-xs px-2 py-1 rounded border opacity-70 select-none ${dotColors.bg}`}
+                    data-testid={`busy-block-${m.userId}-${hour}`}
+                    title={`${m.name} is busy`}
+                  >
+                    <span className="font-medium">{m.name.split(" ")[0]}</span>
+                    <span className="ml-1 opacity-70">· Busy</span>
+                  </div>
+                );
+              })}
               {hourEvents.map((ev) => (
                 <button
                   key={`${ev.id}-${ev._team?.name ?? "own"}`}
