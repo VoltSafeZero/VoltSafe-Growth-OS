@@ -1,0 +1,218 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Build the next Calendar / Workday Intelligence layer: “Now / Next” command strip.
+
+Context already completed:
+
+* Calendar events render correctly.
+* Team free/busy is privacy-safe.
+* Suggested openings exist.
+* Workday Agenda exists.
+* Recently Finished exists.
+* EventDetailDialog has Prep and Outcome tabs.
+* Meeting outcomes are saved as calendar_meeting_outcome activities.
+* Outcome status now persists across refresh using POST /api/calendar/outcome-status.
+* Follow-up tasks can be created from outcomes.
+* Tasks Due Soon can be scheduled into focus blocks.
+* CRM timelines render Meeting Outcome cleanly.
+
+Goal:
+Add a compact “Now / Next” command strip at the top of the Calendar page or Workday Agenda that tells the user the most useful immediate action.
+
+Product principle:
+The Calendar should not just show the day. It should guide the day.
+
+Do NOT:
+
+* Do not redesign the entire Calendar page.
+* Do not create destructive migrations.
+* Do not expose teammate private event details.
+* Do not add fake data.
+* Do not auto-create tasks or outcomes.
+* Do not auto-generate expensive AI summaries.
+* Do not make this noisy.
+
+Audit first:
+Inspect:
+
+1. CalendarPage layout.
+2. WorkdayAgendaPanel layout.
+3. Existing event classification helper.
+4. Outcome status query and mergedOutcomeStatuses.
+5. Tasks Due Soon filtering.
+6. Suggested openings logic.
+7. EventDetailDialog open handlers.
+8. Existing meeting URL detection.
+9. Existing task scheduling mutation.
+10. Existing toast/loading patterns.
+
+Report:
+
+* Best insertion point for Now / Next strip.
+* Which existing data can power it.
+* Whether any new route is needed.
+* Whether any DB migration is needed.
+
+Implementation Phase 1 — Add “Now / Next” strip
+
+Add a compact card/strip near the top of Calendar page, preferably above the day grid or at the top of the sidebar.
+
+The strip should show one primary recommendation and one secondary recommendation.
+
+Recommendation priority order:
+
+1. Join current meeting
+    If current time falls within a calendar event:
+
+* Show: “Now: [Meeting Title]”
+* Show meeting time range.
+* If meetingUrl exists, show “Join”
+* If CRM context exists, show “Open Prep”
+* Do not show for all-day events.
+* Do not show team overlay events.
+
+2. Prep for next external/CRM meeting
+    If next meeting starts within 60 minutes and has external attendees or CRM match:
+
+* Show: “Next: Prep for [Meeting Title]”
+* Show start time.
+* Action: “Open Prep”
+
+3. Capture outcome for recently finished meeting
+    If a meeting ended within the last 2 hours, has external/CRM context, and no outcome saved:
+
+* Show: “Capture outcome: [Meeting Title]”
+* Action: “Add Outcome”
+
+4. Work overdue/due follow-up task
+    If no meeting action is urgent:
+
+* Show highest priority overdue/due task.
+* If task is unscheduled, action: “Schedule”
+* If task is linked to CRM, show linked type badge.
+
+5. Use open focus window
+    If there is an open window of at least 30 minutes:
+
+* Show: “Open focus window: [time range]”
+* Action: “Schedule Task”
+
+6. All clear
+    If nothing needs action:
+
+* Show: “You’re clear for now.”
+* Secondary: next meeting or next task if available.
+
+Implementation Phase 2 — Action buttons
+
+Actions should reuse existing handlers:
+
+* Join → opens meetingUrl in new tab.
+* Open Prep → opens EventDetailDialog on Prep tab.
+* Add Outcome → opens EventDetailDialog on Outcome tab.
+* Schedule → uses existing task scheduling flow/popover if feasible.
+* Schedule Task → scroll/focus Tasks Due Soon panel or open schedule popover if simple.
+
+Do not duplicate modal logic if existing handlers already exist.
+
+Implementation Phase 3 — Recommendation helper
+
+Create a pure helper if practical:
+getNowNextRecommendation({
+events,
+tasks,
+outcomeStatuses,
+now,
+suggestedOpenings
+})
+
+Return:
+{
+primary: {
+type,
+title,
+subtitle,
+actionLabel,
+eventId/taskId/windowId
+},
+secondary: …
+}
+
+Keep this helper local to calendar.tsx unless a shared utility already exists.
+
+Classification rules:
+
+* Exclude all-day events.
+* Exclude _team events.
+* Internal-only meetings do not need prep unless CRM-matched.
+* Focus blocks should not trigger Prep.
+* Outcome prompt only appears if hasOutcome is false.
+* Overdue tasks beat non-urgent open windows.
+* Current meeting beats everything.
+
+Implementation Phase 4 — Visual design
+
+Keep it compact and executive-friendly.
+
+Recommended copy examples:
+
+* “Now: Join Port of San Diego call”
+* “Next: Prep for Oak Bay Marina”
+* “Capture outcome from Oak Bay Marina intro”
+* “Follow-up due: Send pilot proposal”
+* “Open focus window: 2:30–3:15 PM”
+* “Clear for now”
+
+Use existing VoltSafe card styling.
+
+Implementation Phase 5 — Loading and empty states
+
+If events/tasks are loading:
+
+* Show skeleton/loading shimmer.
+    If Calendar disconnected:
+* Show “Connect Calendar to enable Now / Next.”
+    If no data:
+* Show “You’re clear for now.”
+
+Implementation Phase 6 — Privacy/security
+
+Verify:
+
+* No team overlay event titles shown.
+* No teammate private event data used.
+* Join/Open Prep/Add Outcome only for current user’s own events.
+* No private event descriptions shown in the strip.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing relevant tests
+* App boot check
+
+Manual smoke test:
+
+1. During an active meeting, Now / Next shows Join.
+2. Before an external meeting, it shows Prep.
+3. After a meeting with no outcome, it shows Add Outcome.
+4. After outcome saved, Add Outcome disappears.
+5. With overdue tasks and no urgent meeting, task is shown.
+6. With no urgent items, open focus window or clear state appears.
+7. Team busy overlays do not appear as recommendations.
+8. Refresh page and outcome status still affects recommendations.
+
+Final report:
+Include:
+
+* Audit findings.
+* Files changed.
+* Helper logic added.
+* Recommendation priority logic.
+* Verification results.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+The user should be able to glance at VoltSafe Calendar and know the next highest-value action without thinking.

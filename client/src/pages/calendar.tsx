@@ -481,6 +481,274 @@ const OUTCOME_OPTIONS: { value: OutcomeValue; label: string }[] = [
 ];
 type OutcomeStatus = { hasOutcome: boolean; outcome?: string | null };
 
+// ── Now / Next command strip ──────────────────────────────────────────────────
+
+type NowNextType =
+  | "current_meeting"
+  | "prep_next"
+  | "capture_outcome"
+  | "due_task"
+  | "focus_window"
+  | "all_clear";
+
+type NowNextRec = {
+  type: NowNextType;
+  title: string;
+  subtitle: string;
+  actionLabel?: string;
+  eventId?: number;
+  taskId?: number;
+  joinUrl?: string;
+};
+
+type NowNextResult = { primary: NowNextRec; secondary?: NowNextRec };
+
+function getNowNextRecommendation({
+  events,
+  tasks,
+  outcomeStatuses,
+  now,
+}: {
+  events: DisplayEvent[];
+  tasks: any[];
+  outcomeStatuses: Record<number, OutcomeStatus>;
+  now: Date;
+}): NowNextResult {
+  const todayOwn = events.filter(
+    e => !e._team && !e.allDay && isSameDay(new Date(e.startTime), now) && e.status !== "cancelled"
+  );
+  const recs: NowNextRec[] = [];
+
+  // 1. Current meeting — highest priority
+  const currentMeeting = todayOwn.find(e => {
+    const start = new Date(e.startTime);
+    const end = e.endTime ? new Date(e.endTime) : new Date(start.getTime() + 60 * 60_000);
+    return start <= now && end > now;
+  });
+  if (currentMeeting) {
+    const { joinUrl } = detectMeetingProvider(currentMeeting);
+    const start = new Date(currentMeeting.startTime);
+    const end = currentMeeting.endTime ? new Date(currentMeeting.endTime) : new Date(start.getTime() + 60 * 60_000);
+    recs.push({
+      type: "current_meeting",
+      title: `Now: ${currentMeeting.title}`,
+      subtitle: `${formatTime(start)} – ${formatTime(end)}`,
+      actionLabel: joinUrl ? "Join" : "Open",
+      eventId: currentMeeting.id,
+      joinUrl: joinUrl ?? undefined,
+    });
+  }
+
+  // 2. Prep for next external meeting starting within 60 minutes
+  const sixtyMins = new Date(now.getTime() + 60 * 60_000);
+  const nextExternal = todayOwn
+    .filter(e => {
+      const start = new Date(e.startTime);
+      if (start <= now || start > sixtyMins) return false;
+      const cls = classifyCalendarEvent(e);
+      return (cls.isExternal || cls.hasBusinessDomain) && !cls.isFocusBlock;
+    })
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0];
+  if (nextExternal) {
+    recs.push({
+      type: "prep_next",
+      title: `Next: ${nextExternal.title}`,
+      subtitle: `Starts ${formatTime(new Date(nextExternal.startTime))}`,
+      actionLabel: "Open Prep",
+      eventId: nextExternal.id,
+    });
+  }
+
+  // 3. Capture outcome for recently-finished external meeting with no outcome
+  const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60_000);
+  const captureNeeded = todayOwn
+    .filter(e => {
+      const end = e.endTime ? new Date(e.endTime) : new Date(new Date(e.startTime).getTime() + 60 * 60_000);
+      if (end > now || end < twoHoursAgo) return false;
+      const cls = classifyCalendarEvent(e);
+      if (!cls.isExternal && !cls.hasBusinessDomain) return false;
+      return !outcomeStatuses[e.id]?.hasOutcome;
+    })
+    .sort((a, b) => {
+      const aEnd = a.endTime ? new Date(a.endTime) : new Date(a.startTime);
+      const bEnd = b.endTime ? new Date(b.endTime) : new Date(b.startTime);
+      return bEnd.getTime() - aEnd.getTime();
+    })[0];
+  if (captureNeeded) {
+    recs.push({
+      type: "capture_outcome",
+      title: "Capture outcome",
+      subtitle: captureNeeded.title,
+      actionLabel: "Add Outcome",
+      eventId: captureNeeded.id,
+    });
+  }
+
+  // 4. Overdue or due-today task
+  const urgentTask = tasks
+    .filter((t: any) => {
+      if (!t.dueDate) return false;
+      const due = new Date(t.dueDate);
+      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      return due < tomorrow;
+    })
+    .sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
+  if (urgentTask) {
+    const isOverdue = new Date(urgentTask.dueDate) < now && !isToday(new Date(urgentTask.dueDate));
+    recs.push({
+      type: "due_task",
+      title: isOverdue ? "Overdue follow-up" : "Due today",
+      subtitle: urgentTask.title,
+      actionLabel: "Schedule",
+      taskId: urgentTask.id,
+    });
+  }
+
+  // 5. Open focus window of ≥30 min
+  const windows = computeSuggestedOpenings(now, events.filter(e => !e._team), []).filter(
+    w => (w.end.getTime() - w.start.getTime()) / 60_000 >= 30 && w.start > now
+  );
+  if (windows.length > 0) {
+    const w = windows[0];
+    recs.push({
+      type: "focus_window",
+      title: "Open focus window",
+      subtitle: `${format(w.start, "h:mm")} – ${format(w.end, "h:mm a")}`,
+      actionLabel: "Schedule Task",
+    });
+  }
+
+  // 6. All clear
+  const allClear: NowNextRec = { type: "all_clear", title: "You're clear for now", subtitle: "" };
+
+  return { primary: recs[0] ?? allClear, secondary: recs[1] };
+}
+
+// ── Icon + accent config per Now/Next type ────────────────────────────────────
+function NowNextIcon({ type }: { type: NowNextType }) {
+  switch (type) {
+    case "current_meeting":  return <Video className="h-4 w-4 text-teal-400" />;
+    case "prep_next":        return <CalendarCheck className="h-4 w-4 text-blue-400" />;
+    case "capture_outcome":  return <ClipboardList className="h-4 w-4 text-amber-400" />;
+    case "due_task":         return <AlertTriangle className="h-4 w-4 text-orange-400" />;
+    case "focus_window":     return <Zap className="h-4 w-4 text-purple-400" />;
+    case "all_clear":        return <CheckCheck className="h-4 w-4 text-emerald-400" />;
+  }
+}
+
+function nowNextAccent(type: NowNextType): string {
+  switch (type) {
+    case "current_meeting":  return "border-teal-500/40 bg-teal-500/5";
+    case "prep_next":        return "border-blue-500/30 bg-blue-500/5";
+    case "capture_outcome":  return "border-amber-500/40 bg-amber-500/5";
+    case "due_task":         return "border-orange-500/40 bg-orange-500/5";
+    case "focus_window":     return "border-purple-500/30 bg-purple-500/5";
+    case "all_clear":        return "border-emerald-500/20 bg-emerald-500/5";
+  }
+}
+
+function NowNextStrip({
+  events,
+  tasks,
+  outcomeStatuses,
+  isLoading,
+  calendarConnected,
+  onJoin,
+  onOpenEvent,
+  onScheduleTask,
+}: {
+  events: DisplayEvent[];
+  tasks: any[];
+  outcomeStatuses: Record<number, OutcomeStatus>;
+  isLoading: boolean;
+  calendarConnected: boolean;
+  onJoin: (url: string) => void;
+  onOpenEvent: (eventId: number, tab: "prep" | "outcome") => void;
+  onScheduleTask: (taskId: number) => void;
+}) {
+  if (!calendarConnected) {
+    return (
+      <div
+        className="flex items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-2.5 text-sm"
+        data-testid="now-next-strip-disconnected"
+      >
+        <Sparkles className="h-4 w-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground">Connect Calendar to enable Now / Next intelligence.</span>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return <Skeleton className="h-11 w-full rounded-lg" data-testid="now-next-strip-skeleton" />;
+  }
+
+  const now = new Date();
+  const { primary, secondary } = getNowNextRecommendation({ events, tasks, outcomeStatuses, now });
+
+  const handleAction = (rec: NowNextRec) => {
+    if (rec.joinUrl) { onJoin(rec.joinUrl); return; }
+    if (rec.type === "current_meeting" && rec.eventId) { onOpenEvent(rec.eventId, "prep"); return; }
+    if (rec.type === "prep_next"       && rec.eventId) { onOpenEvent(rec.eventId, "prep"); return; }
+    if (rec.type === "capture_outcome" && rec.eventId) { onOpenEvent(rec.eventId, "outcome"); return; }
+    if ((rec.type === "due_task" || rec.type === "focus_window") && rec.taskId) {
+      onScheduleTask(rec.taskId);
+    }
+  };
+
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-lg border px-4 py-2.5 ${nowNextAccent(primary.type)}`}
+      data-testid="now-next-strip"
+    >
+      {/* Icon */}
+      <div className="shrink-0" data-testid={`now-next-icon-${primary.type}`}>
+        <NowNextIcon type={primary.type} />
+      </div>
+
+      {/* Primary text */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold leading-tight truncate" data-testid="now-next-primary-title">
+          {primary.title}
+        </p>
+        {primary.subtitle && (
+          <p className="text-[11px] text-muted-foreground leading-tight truncate mt-0.5" data-testid="now-next-primary-subtitle">
+            {primary.subtitle}
+          </p>
+        )}
+      </div>
+
+      {/* Secondary — hidden on small screens */}
+      {secondary && (
+        <div className="hidden md:flex items-center gap-1.5 shrink-0 mr-2" data-testid="now-next-secondary">
+          <ArrowRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+          <div className="text-right max-w-[180px]">
+            <p className="text-[11px] text-muted-foreground/80 leading-tight truncate">{secondary.title}</p>
+            {secondary.subtitle && (
+              <p className="text-[10px] text-muted-foreground/50 leading-tight truncate">{secondary.subtitle}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Primary action button */}
+      {primary.actionLabel && primary.type !== "all_clear" && (
+        <Button
+          size="sm"
+          variant={primary.type === "current_meeting" ? "default" : "outline"}
+          className="h-7 text-xs shrink-0 gap-1"
+          onClick={() => handleAction(primary)}
+          data-testid="now-next-action-btn"
+        >
+          {primary.type === "current_meeting" && primary.joinUrl && (
+            <Video className="h-3 w-3 shrink-0" />
+          )}
+          {primary.actionLabel}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // ── Workday Agenda panel (Phase 1) ────────────────────────────────────────────
 function WorkdayAgendaPanel({
   events,
@@ -1139,6 +1407,23 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
       </div>
 
       <MetricsBar />
+
+      {/* Now / Next command strip — today only */}
+      {isToday(currentDate) && (
+        <NowNextStrip
+          events={ownEvents ?? []}
+          tasks={pendingTasks ?? []}
+          outcomeStatuses={mergedOutcomeStatuses}
+          isLoading={isLoading}
+          calendarConnected={calIntegrations.length > 0 || !!(sourcesData?.sources?.length)}
+          onJoin={(url) => window.open(url, "_blank", "noopener,noreferrer")}
+          onOpenEvent={(eventId, tab) => {
+            const ev = (ownEvents ?? []).find(e => e.id === eventId);
+            if (ev) { setSelectedEvent(ev as CalendarEvent); setEventInitialTab(tab); }
+          }}
+          onScheduleTask={(taskId) => setPopoverOpenTaskId(taskId)}
+        />
+      )}
 
       {/* Sync error / reconnect banner */}
       {calIntegrations.some(c => c.syncError) && (
