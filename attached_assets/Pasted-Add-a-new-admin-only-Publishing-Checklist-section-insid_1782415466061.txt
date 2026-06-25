@@ -1,0 +1,144 @@
+Add a new admin-only Publishing Checklist section inside the existing VoltSafe CMS Training Hub at /training.
+
+Important:
+Do not rebuild the Training Hub. Do not redo the hosted video URL handoff system. Those already exist.
+
+Goal:
+Give admin/demo users a clear operational checklist showing which onboarding videos are recorded, edited, hosted, stale, or missing, and what the next action is for each video.
+
+Current context:
+The Training Hub already exists at /training.
+The video data already lives in:
+
+client/src/data/training-hub.ts
+
+Each video already supports:
+- status: "not_recorded" | "raw_recorded" | "edited" | "hosted" | "needs_update"
+- videoUrl
+- hostedProvider
+- rawVideoPath
+- finalVideoPath
+- storyboardPath
+
+Current expected video statuses:
+- 01-dashboard-overview = raw_recorded
+- 02-leads-accounts-contacts = not_recorded
+- 03-marina-lead-pipeline = not_recorded
+- 04-voltsafe-mail-overview = not_recorded
+- 05-ai-email-generator = not_recorded
+- 06-account-intelligence-view = not_recorded
+
+Requirements:
+
+1. In client/src/pages/training-hub.tsx, add a new admin/demo-only section called:
+
+   Publishing Checklist
+
+2. This section should only be visible to:
+   - admin users
+   - master_admin users
+   - demo mode users
+
+3. Add summary counts:
+   - Total videos
+   - Hosted
+   - Edited
+   - Raw recorded
+   - Not recorded
+   - Needs update
+
+4. Add a compact progress bar:
+   - Published progress = hosted / total videos
+   - Label example:
+     “0 of 6 videos hosted”
+
+5. Add a “Next Actions” panel.
+
+   Priority logic:
+   - If any video has status needs_update:
+     Show: “First priority: update stale videos.”
+   - Else if any video has status raw_recorded:
+     Show: “Next priority: edit raw recordings into final MP4s.”
+   - Else if any video has status edited:
+     Show: “Next priority: upload edited MP4s and paste hosted URLs.”
+   - Else if any video has status not_recorded:
+     Show: “Next priority: run the missing recording scripts.”
+   - Else if all videos are hosted:
+     Show: “All onboarding videos are hosted and ready.”
+
+6. Add a per-video checklist table visible only to admin/demo users.
+
+   Columns:
+   - Video
+   - Status
+   - Raw recording
+   - Final MP4
+   - Hosted URL
+   - Storyboard
+   - Next action
+
+7. Per-video table rules:
+
+   Raw recording:
+   - ✅ if rawVideoPath exists and status is one of:
+     raw_recorded, edited, hosted, needs_update
+   - Otherwise show —
+
+   Final MP4:
+   - ✅ if finalVideoPath exists and status is one of:
+     edited, hosted, needs_update
+   - Otherwise show —
+
+   Hosted URL:
+   - ✅ if videoUrl exists and status is hosted
+   - Otherwise show —
+
+   Storyboard:
+   - ✅ if storyboardPath exists
+   - Otherwise show —
+
+8. Next action rules:
+   - not_recorded → Run recording script
+   - raw_recorded → Edit into MP4
+   - edited → Upload and paste hosted URL
+   - hosted → Ready
+   - needs_update → Re-record or update video
+
+9. Add a small admin note:
+   “For publishing instructions, see onboarding-videos/HOSTING.md.”
+
+10. Keep regular user UI clean:
+   - Regular users should not see the Publishing Checklist
+   - Regular users should not see repo paths
+   - Regular users should not see internal publishing notes
+
+11. Keep styling consistent with the existing Training Hub page.
+   - Use existing cards, badges, tables, and progress styling where possible.
+   - Do not create a new design system.
+
+12. Do not change:
+   - training-hub.ts data structure unless absolutely necessary
+   - onboarding recording scripts
+   - demo mode behavior
+   - CRM behavior
+   - Mail behavior
+   - routing, unless needed for this section
+
+Validation:
+- Run the app
+- Confirm /training loads
+- Confirm admin/demo users see the Publishing Checklist
+- Confirm regular users do not see it
+- Confirm counts match current data:
+  - total: 6
+  - hosted: 0
+  - edited: 0
+  - raw_recorded: 1
+  - not_recorded: 5
+  - needs_update: 0
+- Confirm progress shows “0 of 6 videos hosted”
+- Confirm Next Actions prioritizes editing the raw recording first
+- Confirm no existing Training Hub tabs break
+
+Expected result:
+The existing Training Hub now has an admin-only Publishing Checklist that makes video maintenance obvious and prevents the onboarding video system from turning into a repo scavenger hunt.
