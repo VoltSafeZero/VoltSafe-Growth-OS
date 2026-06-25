@@ -1,0 +1,209 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Run a full Calendar / Workday Intelligence regression verification pass.
+
+Context:
+The Calendar module now includes:
+
+* Real Google Calendar events
+* Calendar source picker
+* Sync button
+* Day grid with all-day band
+* Team free/busy overlays
+* Suggested openings
+* Workday Agenda
+* Now / Next command strip
+* Prep tab
+* Outcome tab
+* Meeting outcome CRM activities
+* Outcome status persistence via /api/calendar/outcome-status
+* Follow-up task creation from outcomes
+* Tasks Due Soon
+* Task scheduling into calendar focus blocks
+* Daily Rollup card
+* CRM timeline rendering for Meeting Outcome activities
+
+Primary goal:
+Verify the entire Calendar / Workday Intelligence system works as one connected loop without regressions, duplicate actions, privacy leaks, or broken UX.
+
+Important:
+Audit first.
+Do not build new features.
+Do not redesign the page.
+Do not create migrations.
+Do not change database schema.
+Do not expose teammate private event details.
+Only fix real bugs found during verification.
+
+Audit surfaces:
+
+1. CalendarPage layout
+2. MetricsBar
+3. NowNextStrip
+4. WorkdayAgendaPanel
+5. DailyRollupCard
+6. My Calendars source selector
+7. Team Calendars/free-busy sidebar
+8. Suggested Openings
+9. Tasks Due Soon
+10. EventDetailDialog
+11. Prep tab
+12. Outcome tab
+13. POST /api/calendar/outcome-status
+14. POST /api/activities meeting outcome flow
+15. POST /api/tasks follow-up flow
+16. Task focus-block scheduling flow
+17. CRM timeline Meeting Outcome rendering
+18. Query invalidations after save/schedule actions
+
+Verification checklist:
+
+A) Calendar rendering
+
+* Real events render.
+* All-day events render in all-day band.
+* Timed events render in correct slots.
+* Cancelled events do not render.
+* Focus blocks render as focus blocks, not meetings.
+* Day view auto-scroll still works.
+
+B) Now / Next
+
+* Current meeting beats all other actions.
+* Focus blocks are excluded from current-meeting recommendations.
+* Next external/CRM meeting within 60 minutes shows Prep.
+* Recently finished external/CRM meeting without outcome shows Add Outcome.
+* Saved outcome suppresses Add Outcome after refresh.
+* Overdue/due tasks show when no urgent meeting action exists.
+* Scheduled tasks do not reappear as recommended tasks.
+* Open focus window recommendation does not silently fail.
+* Team events never appear by title.
+
+C) Workday Agenda
+
+* Next Meeting is correct.
+* Meetings Needing Prep excludes internal-only meetings unless CRM-matched.
+* Recently Finished excludes team/free-busy events.
+* Recently Finished shows Outcome saved when status exists.
+* Follow-ups Due shows meeting follow-up badge where appropriate.
+
+D) Daily Rollup
+
+* Counts own timed meetings only.
+* Excludes all-day events, team events, focus blocks, and cancelled events.
+* Counts external/CRM meetings correctly.
+* Counts outcomes saved using mergedOutcomeStatuses.
+* Missing Outcomes shows ended external/CRM meetings without outcomes.
+* Add Outcome opens EventDetailDialog on Outcome tab.
+* Open Tasks counts overdue, due today, and meeting follow-up tasks.
+* Clean day state appears only when appropriate.
+* Tomorrow preview does not fake data.
+
+E) Prep tab
+
+* Prep tab opens correctly.
+* Prep Summary is grounded in CRM/email/task context.
+* No hallucinated facts.
+* No CRM context produces honest empty state.
+
+F) Outcome tab
+
+* Outcome tab appears only for own events.
+* Team overlay events cannot capture outcomes.
+* Saved outcomes are detected across sessions.
+* Save Outcome creates calendar_meeting_outcome activity.
+* Save + Create Follow-Up Task creates both activity and task.
+* Buttons disable while pending.
+* Duplicate creation is prevented as much as current state allows.
+
+G) CRM timeline
+
+* Meeting Outcome renders as “Meeting Outcome,” not generic Activity.
+* Shows outcome, notes, next step, attendees, source Calendar.
+* Does not dump raw JSON.
+* Timeline updates after save without full reload if possible.
+
+H) Tasks
+
+* Follow-up task appears in Tasks Due Soon if due soon.
+* Follow-up task appears in main Tasks page.
+* Linked CRM type/name appears where available.
+* Schedule action requires confirmation.
+* Scheduled focus block appears on calendar.
+* Scheduled badge appears for session.
+* Duplicate focus blocks are prevented during pending/session state.
+
+I) Team/privacy
+
+* Team overlays show only Busy.
+* Team event titles/descriptions/attendees never render.
+* Suggested openings use only busy start/end.
+* Outcome/prep/actions are blocked for team overlay events.
+* No private event descriptions are logged.
+
+J) Error/loading states
+
+* Calendar disconnected state is clear.
+* Loading skeletons do not flicker excessively.
+* Write-scope/reconnect errors are clear.
+* Failed saves/schedules show useful toast.
+* No silent failures.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing relevant tests
+* App boot check
+* Structural grep checks for:
+    * _team exclusion
+    * isFocusBlock exclusion
+    * outcome-status invalidation
+    * no rawContent dump in UI
+    * no direct team event titles in recommendations
+
+Manual smoke test:
+Use a real or seeded day with:
+
+* one all-day event
+* one internal meeting
+* one external meeting
+* one recently finished meeting
+* one saved outcome
+* one unsaved outcome
+* one overdue task
+* one meeting follow-up task
+* one focus block
+* one selected teammate busy overlay
+
+Verify the entire loop:
+
+1. Prep before meeting.
+2. Outcome after meeting.
+3. CRM timeline updates.
+4. Follow-up task appears.
+5. Task schedules into focus block.
+6. Now / Next updates.
+7. Daily Rollup updates.
+8. Refresh page and saved outcome still persists.
+
+If bugs are found:
+
+* Fix only the bug.
+* Keep changes surgical.
+* No migrations.
+* No new features.
+
+Final report:
+Include:
+
+* Verification results by section.
+* Bugs found and fixed.
+* Files changed.
+* Tests run.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+This system should feel calm, accurate, and safe enough that the team can actually live out of it daily.

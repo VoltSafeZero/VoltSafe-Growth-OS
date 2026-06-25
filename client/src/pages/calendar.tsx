@@ -1131,7 +1131,7 @@ function WorkdayAgendaPanel({
   );
 
   const nextMeeting = todayEvents
-    .filter(e => !e.allDay && new Date(e.startTime) > today)
+    .filter(e => !e.allDay && !classifyCalendarEvent(e).isFocusBlock && new Date(e.startTime) > today)
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0] ?? null;
 
   const needsPrepEvents = todayEvents
@@ -1159,7 +1159,7 @@ function WorkdayAgendaPanel({
   const twoHoursAgo = new Date(today.getTime() - 2 * 60 * 60 * 1000);
   const recentlyFinished = todayEvents
     .filter(e => {
-      if (e.allDay || e._team) return false;
+      if (e.allDay || e._team || classifyCalendarEvent(e).isFocusBlock) return false;
       const end = e.endTime ? new Date(e.endTime) : new Date(e.startTime);
       return end <= today && end >= twoHoursAgo;
     })
