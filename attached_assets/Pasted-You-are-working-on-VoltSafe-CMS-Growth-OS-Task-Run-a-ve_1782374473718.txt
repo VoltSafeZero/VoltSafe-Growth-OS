@@ -1,0 +1,225 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Run a verification and hardening pass on the new Calendar Post-Meeting Outcome workflow.
+
+Context:
+The previous task added:
+
+* Outcome tab in EventDetailDialog
+* Meeting outcome fields
+* Save Outcome action
+* Save + Create Follow-Up Task action
+* CRM activity creation via POST /api/activities
+* Follow-up task creation via POST /api/tasks
+* Recently Finished section in WorkdayAgendaPanel
+* Add Outcome button
+* CRM context invalidation after save
+* Team overlay events gated from outcome capture
+
+Primary goal:
+Verify that meeting outcomes are not just saved from the Calendar UI, but are actually visible and useful across VoltSafe CMS CRM surfaces.
+
+Important:
+Audit first.
+Do not create destructive migrations.
+Do not redesign the whole calendar.
+Do not expose teammate private event details.
+Do not auto-generate AI summaries unless an existing safe pattern supports it.
+Do not add a new DB table unless absolutely necessary.
+
+Audit first:
+Inspect:
+
+1. POST /api/activities behavior.
+2. Activities table schema.
+3. Activity timeline rendering in Lead / Account / Contact / Opportunity views.
+4. Supported activity types and icons/labels.
+5. How tasks are linked to CRM records.
+6. How tasks appear in Tasks list/sidebar.
+7. Whether calendar_meeting_outcome appears in CRM activity timelines.
+8. Whether rawContent, summary, outcome, attendees are displayed or hidden.
+9. Whether EventDetailDialog can detect previously saved outcome activity.
+10. Whether outcome status persists after page reload.
+11. Permissions around activity creation and visibility.
+
+Report:
+
+* Whether outcome activity is actually stored.
+* Whether it appears in Account/Lead/Contact timelines.
+* Whether the activity label is readable.
+* Whether task creation is linked correctly.
+* Whether saved outcome status persists after reload.
+* What is missing.
+
+Implementation Phase 1 — Make meeting outcome activities readable in CRM timelines
+
+If calendar_meeting_outcome activities appear generically or poorly, add a clean display mapping.
+
+User-facing label:
+“Meeting Outcome”
+
+Icon suggestion:
+CalendarCheck / ClipboardCheck / CheckCircle, whichever is already imported/consistent.
+
+Display should show:
+
+* Outcome value
+* Meeting title
+* Meeting time
+* Notes summary
+* Next step
+* Attendees if available
+* Source: Calendar
+
+Do not dump raw JSON onto the screen.
+
+Surfaces to check/update:
+
+* Lead activity timeline
+* Account activity timeline
+* Contact/person activity timeline
+* Opportunity activity timeline if applicable
+* Any unified Activity component used across CRM
+
+Implementation Phase 2 — Persist outcome status in EventDetailDialog
+
+When opening an event that already has a saved calendar_meeting_outcome activity linked to the same CRM record/event title/time, the Outcome tab should show:
+
+* “Outcome saved”
+* Outcome value
+* Notes/summary
+* Next step
+* Created time
+* Link/button to open related CRM record if available
+
+If precise event ID is not stored in activity yet:
+
+* Use safest available matching:
+    * source/type = calendar_meeting_outcome
+    * same CRM record
+    * same event title
+    * same event date
+* Do not over-match unrelated events.
+* If too risky, leave as known limitation and report it.
+
+If adding event ID to rawContent or metadata is possible without migration, do it for new outcomes:
+
+* providerEventId
+* calendarEventId
+* eventStart
+* eventEnd
+
+Implementation Phase 3 — Improve saved outcome payload
+
+When saving outcome, ensure the activity contains enough structured data to be useful later.
+
+Include:
+
+* source: calendar_meeting_outcome
+* providerEventId / event ID if available
+* event title
+* event start/end
+* event calendar/source
+* outcome
+* notes
+* next step
+* attendees
+* related CRM entity type/id/name
+* created from VoltSafe Calendar
+
+Use existing columns like rawContent/json if available.
+Do not add DB columns unless necessary.
+
+Implementation Phase 4 — Follow-up task linkage verification
+
+When Save + Create Follow-Up Task is used:
+
+* Confirm task appears in Tasks list.
+* Confirm task is linked to the CRM entity.
+* Confirm task notes include outcome context.
+* Confirm due date matches selected option.
+* Confirm task appears in Calendar page Tasks Due Soon if due soon.
+* Confirm there are no duplicate tasks if user double-clicks.
+
+If needed:
+
+* Disable Save + Create Follow-Up button while pending.
+* Add success toast:
+    “Outcome saved and follow-up task created.”
+
+Implementation Phase 5 — Recently Finished correctness
+
+Verify:
+
+* Recently Finished only shows today’s own events.
+* It excludes team overlay busy blocks.
+* It excludes all-day events.
+* It prioritizes external/CRM events.
+* It does not show events that already have saved outcomes, if detection is reliable.
+* Add Outcome opens dialog on Outcome tab.
+
+If saved outcome detection is not reliable yet, report as known limitation.
+
+Implementation Phase 6 — Empty/no CRM match behavior
+
+Currently, if no CRM match exists, Save Outcome may be hidden.
+
+Verify this UX is clear.
+
+Preferred behavior:
+
+* If no CRM match exists, show:
+    “Link this meeting to a CRM record before saving an outcome.”
+* Provide a low-effort option only if existing CRM search/link UI exists.
+* If no link UI exists yet, do not build a huge one in this pass.
+
+Implementation Phase 7 — Privacy/security regression
+
+Verify:
+
+* User can save outcome only for own events.
+* Team busy overlay events cannot open Outcome.
+* Outcome save does not include teammate private event data.
+* Activity creation respects CRM edit permissions.
+* Full private event descriptions are not logged.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing relevant tests
+* App boot check
+* Any activity/task tests available
+* Manual smoke test if possible
+
+Manual smoke test:
+
+1. Open a past event with CRM match.
+2. Add outcome: Completed.
+3. Add notes and next step.
+4. Save Outcome.
+5. Confirm success toast/state.
+6. Open related CRM record.
+7. Confirm Meeting Outcome appears in activity timeline.
+8. Repeat with Save + Create Follow-Up Task.
+9. Confirm task appears and is linked.
+10. Reload Calendar page.
+11. Reopen event.
+12. Confirm saved outcome state is detectable or report limitation.
+
+Final report:
+Include:
+
+* Audit findings.
+* Files changed.
+* Whether DB migration was avoided.
+* Whether Meeting Outcome appears in CRM timelines.
+* Whether saved outcome persists after reload.
+* Follow-up task linkage results.
+* Privacy verification.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+A post-meeting outcome only matters if it leaves the calendar dialog and becomes durable CRM memory.

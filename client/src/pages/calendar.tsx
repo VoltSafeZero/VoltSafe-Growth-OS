@@ -3004,6 +3004,7 @@ function OutcomeTab({
   const [nextStep, setNextStep] = useState("");
   const [followUpDue, setFollowUpDue] = useState<"today" | "tomorrow" | "next_week">("tomorrow");
   const [saved, setSaved] = useState(false);
+  const [showNewForm, setShowNewForm] = useState(false);
 
   // Determine best CRM match — priority: contact > lead > account
   const bestContact = crmCtx?.matchedContacts[0] ?? null;
@@ -3044,6 +3045,43 @@ function OutcomeTab({
     return ((event as any).invitees ?? []).join(", ");
   }
 
+  function buildRawContent(): string {
+    const structuredMeta = JSON.stringify({
+      calendarEventId: event.id,
+      providerEventId: (event as any).externalId ?? null,
+      eventStart:      event.startTime,
+      eventEnd:        (event as any).endTime ?? null,
+      crmEntityType:   crmLink?.linkedObjectType ?? null,
+      crmEntityId:     crmLink?.linkedObjectId   ?? null,
+      crmEntityName:   crmLink?.name             ?? null,
+      source:          "voltSafe_calendar",
+    });
+    return [
+      notes || null,
+      nextStep ? `Next step: ${nextStep}` : null,
+      `__meta:${structuredMeta}`,
+    ].filter(Boolean).join("\n");
+  }
+
+  // Phase 2: detect previously saved outcome for this event + CRM record
+  const { data: existingActivities } = useQuery<any[]>({
+    queryKey: ["/api/activities", crmLink?.linkedObjectType, crmLink?.linkedObjectId],
+    queryFn: () =>
+      fetch(`/api/activities?objectType=${crmLink!.linkedObjectType}&objectId=${crmLink!.linkedObjectId}`, {
+        credentials: "include",
+      }).then(r => r.json()),
+    enabled: !!crmLink,
+    staleTime: 30_000,
+  });
+
+  const eventDateStr = format(new Date(event.startTime), "MMM d, yyyy");
+  const savedOutcome = existingActivities?.find(
+    a => a.type === "calendar_meeting_outcome" &&
+         a.subject === event.title &&
+         (a.rawContent?.includes(`"calendarEventId":${event.id}`) ||
+          (a.summary ?? "").includes(eventDateStr))
+  ) ?? null;
+
   const saveOutcomeMutation = useMutation({
     mutationFn: async () => {
       if (!crmLink) throw new Error("No CRM record to link outcome to.");
@@ -3055,7 +3093,7 @@ function OutcomeTab({
         summary:          buildSummary(),
         outcome:          outcome || null,
         attendees:        buildAttendeeStr() || null,
-        rawContent:       [notes, nextStep ? `Next step: ${nextStep}` : null].filter(Boolean).join("\n") || null,
+        rawContent:       buildRawContent(),
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message ?? "Failed to save"); }
       return res.json();
@@ -3081,7 +3119,7 @@ function OutcomeTab({
           summary:          buildSummary(),
           outcome:          outcome || null,
           attendees:        buildAttendeeStr() || null,
-          rawContent:       [notes, nextStep ? `Next step: ${nextStep}` : null].filter(Boolean).join("\n") || null,
+          rawContent:       buildRawContent(),
         });
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message ?? "Failed to save activity"); }
       }
@@ -3122,6 +3160,7 @@ function OutcomeTab({
 
   const isPending = saveOutcomeMutation.isPending || saveAndTaskMutation.isPending;
 
+  // Show just-saved confirmation
   if (saved) {
     return (
       <div className="flex flex-col items-center gap-3 py-10 text-center">
@@ -3130,6 +3169,60 @@ function OutcomeTab({
         </div>
         <p className="text-sm font-medium">Outcome saved</p>
         <p className="text-xs text-muted-foreground">CRM activity recorded.</p>
+      </div>
+    );
+  }
+
+  // Phase 2: show previously saved outcome detected from CRM activities
+  if (savedOutcome && !showNewForm) {
+    const parsedOutcome = savedOutcome.outcome as string | null;
+    const outcomeLabel = parsedOutcome
+      ? (OUTCOME_OPTIONS.find(o => o.value === parsedOutcome)?.label ?? parsedOutcome)
+      : null;
+    const outcomeColor =
+      parsedOutcome === "completed"     ? "text-emerald-400 border-emerald-400/30"
+      : parsedOutcome === "no_show" || parsedOutcome === "cancelled" ? "text-red-400 border-red-400/30"
+      : "text-amber-400 border-amber-400/40";
+    const lines = (savedOutcome.summary ?? "").split("\n");
+    const savedNotes    = lines.find((l: string) => l.startsWith("Notes: "))?.slice(7) ?? null;
+    const savedNextStep = lines.find((l: string) => l.startsWith("Next step: "))?.slice(11) ?? null;
+    const savedAt = savedOutcome.createdAt
+      ? format(new Date(savedOutcome.createdAt), "MMM d 'at' h:mm a")
+      : null;
+
+    return (
+      <div className="space-y-4 text-sm">
+        <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <CheckCheck className="h-4 w-4 text-emerald-500 shrink-0" />
+            <span className="text-xs font-semibold text-emerald-400">Outcome already saved</span>
+            {savedAt && <span className="text-[10px] text-muted-foreground ml-auto">{savedAt}</span>}
+          </div>
+          {outcomeLabel && (
+            <Badge variant="outline" className={`text-[10px] ${outcomeColor}`}>{outcomeLabel}</Badge>
+          )}
+          {savedNotes && <p className="text-xs text-muted-foreground line-clamp-3">{savedNotes}</p>}
+          {savedNextStep && (
+            <div className="flex items-start gap-1 text-xs">
+              <ArrowRight className="h-3 w-3 text-primary shrink-0 mt-0.5" />
+              <span className="text-primary/80">{savedNextStep}</span>
+            </div>
+          )}
+          {crmLink && (
+            <p className="text-[10px] text-muted-foreground/60">
+              Logged to {crmLink.typeLabel}: {crmLink.name}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full gap-1.5"
+          onClick={() => setShowNewForm(true)}
+          data-testid="button-save-another-outcome"
+        >
+          <Plus className="h-3.5 w-3.5" /> Save another outcome
+        </Button>
       </div>
     );
   }

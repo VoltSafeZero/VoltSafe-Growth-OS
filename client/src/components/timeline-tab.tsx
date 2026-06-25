@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   StickyNote, Zap, Paperclip, Mail, Pin, Download, Shield, Link as LinkIcon,
   AlertTriangle, ChevronDown, ChevronUp, Unlink, Clock, Filter,
-  CheckSquare, FileText, ArrowRight, Plus, X,
+  CheckSquare, FileText, ArrowRight, Plus, X, CalendarCheck,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 
@@ -133,8 +133,63 @@ function NoteCard({ item }: { item: TimelineItem }) {
   );
 }
 
+const MEETING_OUTCOME_LABELS: Record<string, string> = {
+  completed:       "Completed",
+  rescheduled:     "Rescheduled",
+  no_show:         "No-show",
+  cancelled:       "Cancelled",
+  followup_needed: "Follow-up needed",
+};
+
+function parseMeetingOutcomeBody(body: string) {
+  const result: { time?: string; notes?: string; nextStep?: string } = {};
+  for (const line of body.split("\n")) {
+    if (line.startsWith("Time: "))       result.time     = line.slice(6);
+    else if (line.startsWith("Notes: "))     result.notes    = line.slice(7);
+    else if (line.startsWith("Next step: ")) result.nextStep = line.slice(11);
+  }
+  return result;
+}
+
 function ActivityCard({ item }: { item: TimelineItem }) {
   const meta = item.metadata;
+  const isMeetingOutcome = meta?.activityType === "calendar_meeting_outcome";
+
+  if (isMeetingOutcome) {
+    const parsed  = parseMeetingOutcomeBody(item.body ?? "");
+    const outcome = meta.outcome as string | undefined;
+    const outcomeLabel = outcome ? (MEETING_OUTCOME_LABELS[outcome] ?? outcome) : null;
+    const outcomeColor =
+      outcome === "completed"       ? "text-emerald-400 border-emerald-400/30"
+      : outcome === "no_show" || outcome === "cancelled" ? "text-red-400 border-red-400/30"
+      : "text-amber-400 border-amber-400/40";
+
+    return (
+      <div className="min-w-0 space-y-1.5">
+        <p className="text-sm font-medium truncate">{item.title}</p>
+        {parsed.time && <p className="text-xs text-muted-foreground">{parsed.time}</p>}
+        {outcomeLabel && (
+          <Badge variant="outline" className={`text-[10px] ${outcomeColor}`}>{outcomeLabel}</Badge>
+        )}
+        {parsed.notes && (
+          <p className="text-xs text-muted-foreground line-clamp-3">{parsed.notes}</p>
+        )}
+        {parsed.nextStep && (
+          <div className="flex items-start gap-1 text-xs">
+            <ArrowRight className="h-3 w-3 text-primary shrink-0 mt-0.5" />
+            <span className="text-primary/80 line-clamp-2">{parsed.nextStep}</span>
+          </div>
+        )}
+        {meta.attendees && (
+          <p className="text-[10px] text-muted-foreground/60 truncate">
+            Attendees: {meta.attendees}
+          </p>
+        )}
+        <p className="text-[10px] text-muted-foreground/50">Source: Calendar</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0">
       <p className="text-sm font-medium">{item.title}</p>
@@ -360,14 +415,18 @@ function NoteComposer({ objectType, objectId, onAdded }: { objectType: string; o
 }
 
 function TimelineItemCard({ item, onUnlinkEmail }: { item: TimelineItem; onUnlinkEmail: (id: number) => void }) {
-  const meta = TYPE_META[item.type] ?? TYPE_META.note;
-  const { Icon, iconColor, ringColor, bgColor } = meta;
+  const baseMeta = TYPE_META[item.type] ?? TYPE_META.note;
+  const isMeetingOutcome = item.type === "activity" && item.metadata?.activityType === "calendar_meeting_outcome";
+  // Override label + icon for calendar_meeting_outcome activities
+  const displayLabel = isMeetingOutcome ? "Meeting Outcome" : baseMeta.label;
+  const { iconColor, ringColor, bgColor } = baseMeta;
+  const DisplayIcon = isMeetingOutcome ? CalendarCheck : baseMeta.Icon;
 
   return (
     <div className="flex gap-3 group" data-testid={`timeline-item-${item.timeline_id}`}>
       <div className="flex flex-col items-center shrink-0">
         <div className={`w-7 h-7 rounded-full flex items-center justify-center ring-1 ${bgColor} ${ringColor}`}>
-          <Icon className={`h-3.5 w-3.5 ${iconColor}`} />
+          <DisplayIcon className={`h-3.5 w-3.5 ${iconColor}`} />
         </div>
         <div className="flex-1 w-px bg-border/30 mt-1" />
       </div>
@@ -375,7 +434,7 @@ function TimelineItemCard({ item, onUnlinkEmail }: { item: TimelineItem; onUnlin
       <div className="flex-1 min-w-0 pb-4">
         <div className="flex items-start justify-between gap-2 mb-1">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-            {meta.label}
+            {displayLabel}
           </span>
           <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">
             {formatTimelineDate(item.created_at)}
