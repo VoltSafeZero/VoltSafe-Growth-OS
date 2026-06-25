@@ -1,0 +1,228 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Fix cross-session outcome detection for Calendar Recently Finished and Workday Agenda.
+
+Context already completed:
+
+* Calendar events render correctly.
+* EventDetailDialog has Prep and Outcome tabs.
+* Outcome saving creates calendar_meeting_outcome activities.
+* rawContent includes structured __meta with:
+    * calendarEventId
+    * providerEventId
+    * eventStart
+    * eventEnd
+    * related CRM entity type/id/name
+    * source marker
+* Outcome tab can detect previously saved outcomes when an event is reopened.
+* Recently Finished shows “Outcome saved” after saving during the same browser session.
+* Known limitation: Recently Finished outcome status is session-local only and resets after refresh.
+
+Goal:
+Make Recently Finished / Workday Agenda detect saved outcomes across sessions without needing to open each event first.
+
+Important:
+Audit first.
+Do not create destructive migrations.
+Avoid DB migrations if possible.
+Do not expose teammate private calendar data.
+Do not redesign the calendar.
+Do not duplicate expensive per-event queries in the frontend.
+Do not load full private calendar descriptions.
+Do not auto-generate AI summaries.
+
+Audit first:
+Inspect:
+
+1. Existing OutcomeTab saved-outcome query.
+2. Existing activities GET route.
+3. Existing timeline/activity query helpers.
+4. Activity table fields:
+    * type
+    * rawContent
+    * externalId
+    * linkedObjectType
+    * linkedObjectId
+    * createdAt
+5. Calendar event data shape:
+    * id
+    * providerEventId
+    * start/end
+    * title
+    * CRM match info
+6. WorkdayAgendaPanel props and Recently Finished logic.
+7. Query invalidations added in the previous pass.
+
+Report:
+
+* How OutcomeTab currently detects saved outcomes.
+* Whether that logic can be reused at list level.
+* Whether rawContent.__meta can be parsed server-side.
+* Best route shape for batched detection.
+* Whether DB migration can be avoided.
+
+Implementation Phase 1 — Add batched outcome-status route
+
+Add a lightweight authenticated backend route.
+
+Suggested route:
+POST /api/calendar/outcome-status
+
+Request body:
+{
+“events”: [
+{
+“id”: “…”,
+“providerEventId”: “…”,
+“start”: “…”,
+“end”: “…”,
+“title”: “…”,
+“crmMatches”: […]
+}
+]
+}
+
+Response:
+{
+“statuses”: {
+“[eventId]”: {
+“hasOutcome”: true,
+“activityId”: 123,
+“outcome”: “completed”,
+“createdAt”: “…”,
+“linkedObjectType”: “account”,
+“linkedObjectId”: 456,
+“linkedObjectName”: “Oak Bay Marina”
+}
+}
+}
+
+Requirements:
+
+* Authenticated current user.
+* Own calendar events only.
+* Do not support team overlay events.
+* Query activities where type = calendar_meeting_outcome.
+* Prefer matching by rawContent.__meta.calendarEventId or providerEventId.
+* Fallback only if safe:
+    * same linked CRM entity
+    * same event title
+    * same event date/start
+* Do not overmatch unrelated meetings.
+* Return only minimal status data.
+* Do not return full notes/rawContent unless needed.
+
+If rawContent is stored as text:
+
+* Parse safely.
+* Handle malformed rawContent without throwing.
+* Ignore records that cannot be parsed.
+
+No migration unless absolutely necessary.
+
+Implementation Phase 2 — Frontend hook for outcome statuses
+
+On Calendar page:
+
+* For today’s own events only, request outcome statuses in one batched query.
+* Do not query status for team busy overlay events.
+* Do not fire one query per event.
+* Cache by date/event IDs.
+* Invalidate this query after outcome save and Save + Task.
+
+Use the status map to:
+
+* Mark Recently Finished events as “Outcome saved” after page reload.
+* Prevent Add Outcome from showing when a saved outcome already exists.
+* Optionally show outcome value badge.
+
+Implementation Phase 3 — Merge with session state
+
+Keep existing session-level savedOutcomeEventIds for instant UI feedback.
+
+Final status should be:
+hasOutcome = sessionSavedOutcomeEventIds.has(event.id) OR serverOutcomeStatus[event.id]?.hasOutcome
+
+This gives immediate update after save and persistence after refresh.
+
+Implementation Phase 4 — WorkdayAgendaPanel update
+
+Update Recently Finished section:
+
+* If hasOutcome:
+    * show green “Outcome saved”
+    * show outcome value if available
+    * do not show Add Outcome button
+* If no outcome:
+    * show Add Outcome button
+
+Do not clutter the UI.
+
+Implementation Phase 5 — EventDetailDialog consistency
+
+When opening an event:
+
+* OutcomeTab should still do its detailed detection/query as needed.
+* But if parent already knows outcome status, pass it in as initial status if easy.
+* Avoid duplicate UI contradictions where panel says Outcome saved but dialog shows blank.
+
+If passing status is too invasive, leave OutcomeTab’s existing query in place and ensure it detects the same rawContent.__meta.
+
+Implementation Phase 6 — Query invalidation
+
+After saving outcome or Save + Task:
+Invalidate:
+
+* outcome-status query
+* activities
+* timeline
+* CRM context
+* tasks queries
+
+Ensure the Workday Agenda updates immediately and also survives reload.
+
+Implementation Phase 7 — Privacy/security
+
+Verify:
+
+* Team overlay busy blocks are excluded.
+* Outcome status route does not expose teammate event details.
+* Status route only checks activities visible to the current user.
+* No full private event descriptions are returned.
+* No logs dump rawContent or event body.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing relevant tests
+* App boot check
+* Any activity/calendar route tests available
+
+Manual smoke test:
+
+1. Save outcome for a recently finished event.
+2. Confirm Recently Finished shows Outcome saved.
+3. Refresh browser.
+4. Confirm Recently Finished still shows Outcome saved.
+5. Confirm Add Outcome is hidden after refresh.
+6. Confirm opening event still shows saved Outcome tab.
+7. Confirm team busy overlays are unaffected.
+8. Confirm no DB migration was created.
+
+Final report:
+Include:
+
+* Audit findings.
+* Route added/updated.
+* Files changed.
+* Matching logic used.
+* Whether DB migration was avoided.
+* Whether Recently Finished outcome status persists after refresh.
+* Privacy verification.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+If the CMS remembers the outcome in CRM, the Workday Agenda should remember it too — even after refresh.
