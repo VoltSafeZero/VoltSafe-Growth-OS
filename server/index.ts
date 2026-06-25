@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import helmet from "helmet";
+import compression from "compression";
+import { recordRequest } from "./performance";
 import { csrfOriginGuard } from "./csrf";
 import { registerRoutes, registerJiraRoutes, registerConfluenceRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -47,6 +49,11 @@ app.use(
     hsts: process.env.NODE_ENV === "production" ? { maxAge: 31536000, includeSubDomains: true } : false,
   })
 );
+
+// HTTP response compression — reduces JSON/HTML payloads by 60–80%.
+// Skips already-compressed formats (zip, gzip, images) automatically.
+// Must be placed before route registration and static serving.
+app.use(compression());
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });
@@ -203,6 +210,9 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
+      // Record into the in-process performance ring buffer.
+      recordRequest(req.method, path, res.statusCode, duration);
+
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (!sensitive && capturedJsonResponse) {
         // Cap body excerpt to avoid massive log lines and accidental PII spillover.
@@ -330,14 +340,21 @@ app.use((req, res, next) => {
         console.error("Seed error (non-fatal):", err);
       }
 
-      startHourlySyncScheduler();
-      startHelpCenterRefreshScheduler();
-      // Phase 2A: Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
-      const { startWatchRenewalScheduler } = await import("./services/gmail-watch");
-      startWatchRenewalScheduler();
-      // Calendar auto-sync (15-min interval; no-op when no connections are configured)
-      const { startCalendarSyncScheduler } = await import("./calendar-sync");
-      startCalendarSyncScheduler();
+      // Background schedulers — gated by ENABLE_BACKGROUND_JOBS (default: enabled).
+      // Set ENABLE_BACKGROUND_JOBS=false on replica instances to prevent duplicate
+      // sync jobs when running multiple app instances behind a load balancer.
+      if (process.env.ENABLE_BACKGROUND_JOBS !== "false") {
+        startHourlySyncScheduler();
+        startHelpCenterRefreshScheduler();
+        // Phase 2A: Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
+        const { startWatchRenewalScheduler } = await import("./services/gmail-watch");
+        startWatchRenewalScheduler();
+        // Calendar auto-sync (15-min interval; no-op when no connections are configured)
+        const { startCalendarSyncScheduler } = await import("./calendar-sync");
+        startCalendarSyncScheduler();
+      } else {
+        log("[schedulers] ENABLE_BACKGROUND_JOBS=false — skipping background job startup");
+      }
       // Phase 2B: ensure local search indexes exist (idempotent, non-blocking)
       import("./services/email-search")
         .then(({ ensureSearchIndexes }) => ensureSearchIndexes())

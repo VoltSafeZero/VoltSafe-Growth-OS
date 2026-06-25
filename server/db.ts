@@ -12,7 +12,10 @@ if (!process.env.DATABASE_URL) {
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 10,
+  // 20 connections supports ~100 concurrent active users with mixed CRM/AI/sync load.
+  // 4 background scheduler tasks consume up to 4 connections; the remaining 16 serve
+  // user-facing requests. Raise to 30 before exceeding 200 concurrent users.
+  max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 });

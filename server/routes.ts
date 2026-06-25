@@ -191,6 +191,38 @@ const resetTokenRateLimiter = rateLimit({
   message: { message: "Too many reset attempts. Please wait 15 minutes and try again." },
 });
 
+// ── Expensive-route rate limiters ────────────────────────────────────────────
+// Keyed by userId so one heavy user does not starve others.
+// Normal CRM browsing (reads, list pages) is not limited here.
+
+const aiGenerationRateLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 10,              // 10 AI generation calls per user per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Keyed by userId — all callers are behind requireAuth, so userId is always set.
+  keyGenerator: (req: any) => `uid:${req.session?.userId ?? "anon"}`,
+  message: { message: "AI generation rate limit reached. Please wait a moment before generating another email." },
+});
+
+const heavyAnalyticsRateLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 30,              // 30 analytics requests per user per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `uid:${req.session?.userId ?? "anon"}`,
+  message: { message: "Too many analytics requests. Please wait a moment." },
+});
+
+const exportRateLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 10,                  // 10 exports per user per 5 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `uid:${req.session?.userId ?? "anon"}`,
+  message: { message: "Export rate limit reached. Please wait 5 minutes before exporting again." },
+});
+
 const UPLOADS_DIR = path.resolve("uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
@@ -1052,14 +1084,14 @@ export async function registerRoutes(
       getThreadAccountMomentum,
     } = await import("./services/revenue-intelligence");
 
-    app.get("/api/revenue-intelligence/command-center", requireAuth, async (req, res) => {
+    app.get("/api/revenue-intelligence/command-center", requireAuth, heavyAnalyticsRateLimiter, async (req, res) => {
       try {
         const data = await getCommandCenterData();
         res.json(data);
       } catch (err: any) { res.status(500).json({ message: err.message }); }
     });
 
-    app.get("/api/revenue-intelligence/heatmap", requireAuth, async (req, res) => {
+    app.get("/api/revenue-intelligence/heatmap", requireAuth, heavyAnalyticsRateLimiter, async (req, res) => {
       try {
         const limit = Math.min(Number(req.query.limit) || 50, 200);
         const data  = await getEngagementHeatmap(limit);
@@ -1735,7 +1767,7 @@ export async function registerRoutes(
     res.send(fs.readFileSync(filePath, "utf-8"));
   });
 
-  app.get("/api/marinas/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/marinas/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
     const { search, state } = req.query;
     const result = await storage.getMarinas({ search: search as string, state: state as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -1746,7 +1778,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/leads/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/leads/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
     const { search, status, country, state } = req.query;
     const result = await storage.getLeads({
       search: search as string, status: status as string,
@@ -1774,7 +1806,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/accounts/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/accounts/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
     const { search, segment } = req.query;
     const result = await storage.getAccounts({ search: search as string, segment: segment as string, page: 1, limit: 100000, onlyPromoted: true });
     const cols: CsvColumn[] = [
@@ -1787,7 +1819,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/contacts/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/contacts/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
     const { accountId } = req.query;
     const data = await storage.getContacts({ accountId: accountId ? Number(accountId) : undefined });
     const cols: CsvColumn[] = [
@@ -1799,7 +1831,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/opportunities/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/opportunities/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
     const { stage, owner } = req.query;
     const result = await storage.getOpportunities({ stage: stage as string, owner: owner as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -19698,6 +19730,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   await seedDatabase();
   await seedUsers();
 
+  // ── Performance monitoring endpoint ─────────────────────────────────────────
+  // Admin-only: returns live performance metrics — no sensitive data included.
+  app.get("/api/admin/performance", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const { getPerformanceSnapshot } = await import("./performance");
+      res.json(getPerformanceSnapshot());
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Could not retrieve performance data" });
+    }
+  });
+
   return httpServer;
 }
 
@@ -31621,7 +31664,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/crm/ai-summary/:entityType/:entityId/suggest-next-email", requireAuth, async (req, res) => {
+  app.post("/api/crm/ai-summary/:entityType/:entityId/suggest-next-email", requireAuth, aiGenerationRateLimiter, async (req, res) => {
     const entityType = req.params.entityType;
     const entityId = parseInt(req.params.entityId);
     if (!_VALID_AI_ENTITY_TYPES.includes(entityType) || isNaN(entityId) || entityId <= 0) {

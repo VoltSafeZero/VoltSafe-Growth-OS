@@ -1,0 +1,136 @@
+Implement the VoltSafe Growth OS scalability hardening package with the target of supporting up to 100 concurrent active users.
+
+Important framing:
+The goal is not merely 100 daily users. The goal is robust performance for 100 simultaneous active users, including realistic mixed usage: CRM browsing, VoltSafe Mail, dashboards, AI email generation, Gmail sync, and admin workflows.
+
+Target performance:
+- Normal CRM/API requests: p95 under 800ms
+- Heavy dashboard/API requests: p95 under 1500ms where practical
+- AI email generation: stable, queued or rate-limited if needed, no system-wide slowdown
+- Error rate under 1% during load tests
+- No DB pool starvation
+- No duplicate background jobs if multiple app instances are deployed
+
+Tasks:
+
+1. Add HTTP compression
+- Install and configure `compression`.
+- Add it in `server/index.ts` before route registration.
+- Compress JSON, HTML, JS, CSS, and large API responses.
+- Verify auth, CSRF, file downloads, tracking pixels, and mail rendering still work.
+
+2. Increase Postgres pool capacity safely
+- In `server/db.ts`, raise pg.Pool max connections from 10 to an appropriate value for 100 concurrent users.
+- Start with 20–25 unless the DB provider limit says otherwise.
+- Keep sensible connection and idle timeouts.
+- Add a short code comment explaining the chosen limit.
+- Do not exceed the practical database connection limit.
+
+3. Add performance instrumentation
+Track:
+- API request duration
+- p50 / p95 / p99 latency
+- slow requests over 800ms
+- DB pool usage, idle count, waiting count
+- slow DB queries over 500ms where practical
+- OpenAI request latency
+- Gmail sync duration
+- Node memory usage
+- CPU/event loop lag
+
+Expose a master-admin-only endpoint:
+`GET /api/admin/performance`
+
+Return compact JSON for:
+- current health
+- recent request latency
+- slow endpoints
+- DB pool state
+- background job timing
+- OpenAI timing
+- memory/event loop lag
+
+Do not expose secrets, tokens, private email bodies, prompts, customer data, or raw message content.
+
+4. Add protection for expensive routes
+Add user/IP-level rate limits or lightweight queuing for:
+- AI email generation
+- bulk CRM writes
+- revenue intelligence / heavy dashboard endpoints
+- large exports
+- manual Gmail sync endpoints, if any exist
+
+Do not aggressively rate-limit normal CRM browsing.
+
+5. Separate background jobs from user-facing request capacity
+Audit Gmail/calendar schedulers currently started in the main web process.
+
+Preferred implementation:
+- Move scheduler startup into `server/workers/scheduler.ts` or equivalent.
+- Add `ENABLE_BACKGROUND_JOBS=true`.
+- Main web process should not accidentally start duplicate schedulers.
+- Scheduler worker should be separately runnable.
+- Add safe locking or singleton protection if multiple instances are possible.
+
+If full worker separation is risky:
+- First isolate scheduler startup behind `ENABLE_BACKGROUND_JOBS`.
+- Report the remaining worker-separation work clearly.
+
+6. Add load testing for 100 concurrent users
+Create `/load-tests/` with k6 scripts:
+
+A. Smoke test
+- 5 users
+- 2 minutes
+- verifies basic stability
+
+B. Normal team load
+- 25 concurrent users
+- 10 minutes
+- CRM, Accounts, Leads, Contacts, Mail list, Dashboard
+
+C. Scale target test
+- 100 concurrent users
+- 10 minutes
+- mixed realistic usage
+
+D. Spike test
+- 0 → 100 users over 60 seconds
+- hold for 3 minutes
+- ramp down
+
+Use thresholds:
+- http_req_failed < 1%
+- normal API p95 < 800ms
+- heavy API p95 < 1500ms where practical
+
+Include README instructions for running tests against staging/production safely.
+
+7. Add a scalability audit report
+Create `docs/scalability-audit.md` documenting:
+- current architecture
+- changes implemented
+- measured limits if load tests can be run
+- estimated safe concurrent user capacity
+- remaining bottlenecks
+- next steps for 250, 500, and 1000 concurrent users
+
+8. Verification
+After implementation:
+- Run typecheck/build/tests if available.
+- Start the app.
+- Verify login.
+- Verify core CRM pages.
+- Verify VoltSafe Mail opens messages.
+- Verify AI email generation.
+- Verify Gmail/calendar sync still works or is correctly gated.
+- Verify `/api/admin/performance` is master-admin-only.
+- Verify logs and performance endpoint do not leak sensitive data.
+
+Constraints:
+- No destructive schema changes.
+- No major rewrite.
+- Keep changes surgical and production-safe.
+- Prefer measurable improvements over theoretical claims.
+- If a step is risky, stop and explain before proceeding.
+- Final response should include files changed, tests run, measured results if available, and remaining risks.
