@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -15,8 +15,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   CalendarDays, MapPin, Clock, Briefcase, Users2, Plus, Edit2, Trash2,
   Building2, Home, Plane, Coffee, RefreshCw, ChevronLeft, ChevronRight,
-  X, Save, Check, AlertCircle, User, Settings,
+  X, Save, Check, AlertCircle, User, Settings, Zap,
 } from "lucide-react";
+
+// ── Launch banner config ───────────────────────────────────────────────────────
+const BANNER_EXPIRY_MS = new Date("2026-07-09T00:00:00Z").getTime();
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1135,6 +1138,20 @@ export default function TeamWorkCalendarPage() {
     setEntryModal({ open: true, userId, date, entry });
   }, []);
 
+  // Banner: hidden until userId is resolved, then check localStorage + expiry
+  const [bannerVisible, setBannerVisible] = useState(false);
+  useEffect(() => {
+    if (!myUserId) return;
+    if (Date.now() > BANNER_EXPIRY_MS) return;
+    const key = `wc_launch_banner_v1_${myUserId}`;
+    if (localStorage.getItem(key) !== "1") setBannerVisible(true);
+  }, [myUserId]);
+
+  const handleDismissBanner = useCallback(() => {
+    if (myUserId) localStorage.setItem(`wc_launch_banner_v1_${myUserId}`, "1");
+    setBannerVisible(false);
+  }, [myUserId]);
+
   const today = todayISO();
   const dateLabel = new Date(today + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
@@ -1148,6 +1165,55 @@ export default function TeamWorkCalendarPage() {
         </div>
         <p className="text-sm text-slate-400">{dateLabel} · Who's in, who's remote, who's off</p>
       </div>
+
+      {/* Launch banner */}
+      {bannerVisible && (
+        <div
+          className="mb-5 flex items-start gap-3 rounded-xl border border-cyan-700/30 bg-cyan-900/15 px-4 py-3.5"
+          data-testid="launch-banner"
+        >
+          <Zap className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-cyan-300 text-sm font-semibold">New: Team Work Calendar</span>
+              <span className="text-[10px] bg-cyan-700/40 text-cyan-300 px-1.5 py-0.5 rounded font-medium tracking-wide">NEW</span>
+            </div>
+            <p className="text-slate-400 text-xs leading-relaxed mb-3">
+              Quickly log where you are working today — In Office, Remote, Travelling, Day Off, or Hybrid.
+              Helps the team see office coverage, availability, and travel days without asking around in Slack.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs h-7 px-3 gap-1.5"
+                onClick={() => { handleDismissBanner(); setEntryModal({ open: true, userId: myUserId, date: today }); }}
+                data-testid="banner-log-day"
+              >
+                <Plus className="w-3 h-3" />
+                Log my day
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-slate-400 hover:text-slate-200 text-xs h-7 px-2"
+                onClick={handleDismissBanner}
+                data-testid="banner-dismiss"
+              >
+                Got it
+              </Button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleDismissBanner}
+            className="text-slate-600 hover:text-slate-400 transition-colors shrink-0 mt-0.5"
+            aria-label="Dismiss"
+            data-testid="banner-close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
