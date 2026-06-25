@@ -10,7 +10,14 @@
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "test": "node",
-    "test:grep": "for f in tests/*.test.cjs; do echo \"\\n▶ $f\" && node \"$f\" || exit 1; done"
+    "test:grep": "for f in tests/*.test.cjs; do echo \"\\n▶ $f\" && node \"$f\" || exit 1; done",
+    "video:dashboard": "node onboarding-videos/scripts/01-dashboard-overview.cjs",
+    "video:crm": "node onboarding-videos/scripts/02-leads-accounts-contacts.cjs",
+    "video:pipeline": "node onboarding-videos/scripts/03-marina-lead-pipeline.cjs",
+    "video:mail": "node onboarding-videos/scripts/04-voltsafe-mail-overview.cjs",
+    "video:ai-email": "node onboarding-videos/scripts/05-ai-email-generator.cjs",
+    "video:account": "node onboarding-videos/scripts/06-account-intelligence-view.cjs",
+    "video:all": "npm run video:dashboard && npm run video:crm && npm run video:pipeline && npm run video:mail && npm run video:ai-email && npm run video:account"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -84,6 +91,7 @@
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
     "pg": "^8.16.3",
+    "playwright": "^1.61.1",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",

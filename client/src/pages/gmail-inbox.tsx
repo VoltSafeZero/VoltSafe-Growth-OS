@@ -2055,6 +2055,10 @@ function ComposeDialog({
                   <Button
                     size="sm"
                     onClick={() => {
+                      if (typeof localStorage !== "undefined" && localStorage.getItem("voltSafeDemoMode") === "1") {
+                        toast({ title: "Demo mode active", description: "Email sending is disabled in demo mode. No emails will be sent." });
+                        return;
+                      }
                       if (!threadId && !subject.trim()) {
                         setSubjectError(true);
                         subjectRef.current?.focus();

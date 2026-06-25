@@ -1,0 +1,162 @@
+Create a repeatable onboarding video recording system for VoltSafe CMS using Playwright.
+
+Goal:
+Generate browser-recorded walkthrough videos that show users how to navigate the VoltSafe CMS ecosystem. These videos should double as QA smoke tests, meaning if a recording script fails, we know a key user journey may be broken.
+
+Important:
+This is for onboarding/training videos, not just technical test recordings. The output should be clean, watchable, and safe to share with users or internal team members.
+
+Core Requirements:
+1. Add a new folder:
+
+   onboarding-videos/
+
+2. Inside it, create:
+
+   onboarding-videos/scripts/
+   onboarding-videos/outputs/
+   onboarding-videos/README.md
+
+3. Create Playwright recording scripts for the following videos:
+
+   01-dashboard-overview
+   02-leads-accounts-contacts
+   03-marina-lead-pipeline
+   04-voltsafe-mail-overview
+   05-ai-email-generator
+   06-account-intelligence-view
+
+4. Each script must:
+   - Launch the VoltSafe CMS app in a real browser context
+   - Log in using existing dev/test credentials from environment variables
+   - Use viewport size 1440x900
+   - Enable video recording
+   - Navigate step-by-step through the target workflow
+   - Pause briefly at important screens so the video is watchable
+   - Save the recording to onboarding-videos/outputs/
+   - Use stable selectors wherever possible
+   - Add data-testid attributes where needed
+   - Avoid changing production behavior
+
+5. Add package.json scripts:
+
+   npm run video:dashboard
+   npm run video:crm
+   npm run video:pipeline
+   npm run video:mail
+   npm run video:ai-email
+   npm run video:account
+   npm run video:all
+
+6. Create a safe demo mode if one does not already exist.
+
+   Suggested approach:
+   - Support ?demoMode=true or an equivalent non-production demo flag
+   - Use clean fake/demo data
+   - Hide or mask real customer names, real emails, and sensitive CRM/mail content
+   - Disable real sending, deleting, archiving, or destructive actions
+   - Keep the normal UI layout intact
+   - Do not expose production customer or email data in recordings
+
+7. The videos should cover these flows:
+
+   Video 01 — Dashboard Overview
+   - Log in
+   - Show the main dashboard
+   - Show high-level navigation
+   - Briefly highlight CRM, Mail, AI, Accounts, Leads, Contacts, and pipeline areas
+
+   Video 02 — Leads, Accounts, Contacts
+   - Open Leads
+   - Open an example marina lead
+   - Show key company/person fields
+   - Navigate to Accounts
+   - Open an example account
+   - Navigate to Contacts
+   - Show how people relate to accounts/leads
+
+   Video 03 — Marina Lead Pipeline
+   - Open the pipeline/funnel view
+   - Show a marina lead moving through stages such as:
+     New Lead
+     Qualified
+     Discovery
+     Pilot Candidate
+     Proposal
+     Closed Won / Closed Lost
+   - Do not permanently alter real data
+   - Use demo data only
+
+   Video 04 — VoltSafe Mail Overview
+   - Open VoltSafe Mail
+   - Show inbox/category navigation
+   - Show unread/read behavior
+   - Open a message
+   - Show reply/forward area
+   - Show tracking/priority/star behavior if available
+   - Do not send real emails
+
+   Video 05 — AI Email Generator
+   - Open a lead/account/contact
+   - Show AI summary/context area
+   - Select relevant people if that feature exists
+   - Click Compose New Email or Suggested AI Email
+   - Show generated email draft
+   - Show how the user can review/edit before sending
+   - Do not send a real email
+
+   Video 06 — Account Intelligence View
+   - Open an account
+   - Show activity timeline
+   - Show related people
+   - Show email history
+   - Show notes/next steps
+   - Show how this gives the user context before outreach
+
+8. Add a reusable helper file for shared actions:
+   - login
+   - enableDemoMode
+   - waitForAppReady
+   - safeClick
+   - pauseForViewer
+   - saveVideoWithReadableName
+
+9. Make the recordings resilient:
+   - Prefer data-testid selectors
+   - Avoid brittle selectors based only on visible copy when possible
+   - Wait for elements properly instead of using blind timeouts, except for intentional viewer pauses
+   - If a section is missing, fail with a clear message explaining what navigation step failed
+
+10. Add README.md instructions explaining:
+   - What the onboarding video system does
+   - How to run one video
+   - How to run all videos
+   - Where output files are saved
+   - What environment variables are required
+   - How demoMode protects sensitive data
+   - How these scripts also act as QA smoke tests
+
+11. After implementation:
+   - Run one sample recording, preferably 01-dashboard-overview
+   - Confirm that the video file is created in onboarding-videos/outputs/
+   - Report:
+     - Files created
+     - Package scripts added
+     - Any selectors/data-testid attributes added
+     - Whether demo mode already existed or was added
+     - The exact command to run all onboarding videos
+
+Constraints:
+- Do not expose production data.
+- Do not send real emails.
+- Do not delete, archive, or mutate real records.
+- Do not break existing tests.
+- Do not make broad unrelated UI changes.
+- Keep this implementation surgical and clean.
+
+Expected final result:
+A developer can run:
+
+npm run video:all
+
+and produce a set of safe, repeatable VoltSafe CMS onboarding walkthrough videos in onboarding-videos/outputs/.

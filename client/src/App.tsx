@@ -14,6 +14,7 @@ import { GlobalCreateContact } from "@/components/contacts/global-create-contact
 import { isAdvisorRole } from "@/lib/nav-config";
 import BookingPublicPage from "@/pages/booking-public";
 import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
+import { DemoModeBanner } from "@/lib/demo-mode";
 import { ChunkErrorBoundary } from "@/components/chunk-error-boundary";
 import { TimezoneContext, TimezoneContextValue, detectBrowserTimezone } from "@/lib/timezone";
 
@@ -519,6 +520,7 @@ function App() {
                   <QuickCapture />
                 </Suspense>
                 <UpcomingMeetingBanner currentUserId={user.id} isAdmin={isAdmin(user.globalRole || "sales")} />
+                <DemoModeBanner />
                 <Toaster />
               </>
             )}
