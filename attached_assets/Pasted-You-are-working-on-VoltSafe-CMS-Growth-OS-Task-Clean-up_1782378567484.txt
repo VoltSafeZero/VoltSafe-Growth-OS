@@ -1,0 +1,98 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Clean up the recurring unrelated test failure in permissions.test.js.
+
+Context:
+Multiple recent Calendar/CRM tasks have passed their targeted checks, but validation keeps reporting a failure in permissions.test.js.
+
+Observed failure:
+
+* viewer@voltsafe.com login returns 401.
+* The failure appears unrelated to recent feature work.
+* It likely happens because the test fixture user viewer@voltsafe.com is not seeded in the current dev/test DB.
+* Existing note mentions scripts/seed-low-perm-user.ts.
+
+Goal:
+Fix the test infrastructure so permissions.test.js can run reliably without polluting unrelated validation reports.
+
+Important:
+Audit first.
+Do not weaken the permission test.
+Do not bypass assertions.
+Do not mark the test skipped unless there is a clear documented reason.
+Do not create production users.
+Do not alter production auth behavior.
+Do not make destructive DB changes.
+
+Audit:
+Inspect:
+
+1. permissions.test.js
+2. Test setup/bootstrap files
+3. Auth/login test helper
+4. scripts/seed-low-perm-user.ts
+5. User/permissions schema
+6. Existing seed scripts
+7. How other test users are created
+8. Whether tests run against dev DB or isolated test DB
+9. Any CI/test environment config
+
+Report:
+
+* Why viewer@voltsafe.com is missing.
+* Whether the test expects pre-seeded data.
+* Whether the seed script runs automatically.
+* Best fix path.
+
+Implementation options, in order of preference:
+
+Option A — Seed inside test setup
+If the test suite has a setup/bootstrap hook, ensure viewer@voltsafe.com is created idempotently before permissions.test.js runs.
+
+Requirements:
+
+* Idempotent upsert.
+* Test-only/dev-only.
+* Correct low-permission role.
+* Password/hash matches test login helper.
+* Does not affect production.
+
+Option B — Add test-local fixture creation
+If no global setup exists, update permissions.test.js to create its required viewer fixture before login.
+
+Requirements:
+
+* Do not weaken permission assertions.
+* Use same factories/helpers as other tests if available.
+* Clean up after test if existing pattern does so.
+
+Option C — Fix seed script invocation
+If scripts/seed-low-perm-user.ts is meant to be part of test setup, wire it into the test command or documented pretest step.
+
+Requirements:
+
+* Idempotent.
+* Safe for dev/test only.
+* Does not run in production.
+
+Verification:
+Run:
+
+* permissions.test.js
+* full relevant test suite if feasible
+* test:grep
+* app boot check if any code touched runtime paths
+
+Final report:
+Include:
+
+* Root cause.
+* Fix chosen.
+* Files changed.
+* Confirmation that permission assertions remain intact.
+* Tests run.
+* Any remaining test infrastructure limitations.
+
+Critical principle:
+Feature validation should not be polluted by missing seed users. Fix the test fixture, not the permission rules.

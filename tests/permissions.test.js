@@ -4,7 +4,26 @@
  * Tests that backend API endpoints enforce section-level permissions correctly.
  * Run with: node tests/permissions.test.js
  * Requires: server running at localhost:5000
+ *
+ * Self-seeding: idempotently creates viewer@voltsafe.com + mixed@voltsafe.com
+ * before assertions run, so the suite is not broken by a fresh or reset DB.
  */
+
+import { execSync } from "child_process";
+
+// ── Idempotent fixture seed ────────────────────────────────────────────────────
+// Runs scripts/seed-test-users.ts before any login attempt.
+// Safe: the seed script does INSERT-or-UPDATE only, never touches production
+// data, and is a no-op if the users already exist with correct permissions.
+try {
+  execSync("npx tsx scripts/seed-test-users.ts", {
+    stdio: "inherit",
+    timeout: 30_000,
+  });
+} catch (e) {
+  console.error("Failed to seed test fixture users:", e.message);
+  process.exit(1);
+}
 
 const BASE = "http://localhost:5000";
 let passed = 0;
