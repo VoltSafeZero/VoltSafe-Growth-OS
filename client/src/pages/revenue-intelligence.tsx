@@ -92,30 +92,53 @@ interface CommandCenterData {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function trendColor(t: MomentumStatus) {
+/** Coerce any value to a typed array. Guards against wrapped `{ items: [] }` responses. */
+function asArray<T>(v: unknown): T[] {
+  if (Array.isArray(v)) return v as T[];
+  return [];
+}
+
+/** Normalize a raw command-center API response into a guaranteed-shape CommandCenterData. */
+function normalizeCommandCenter(d: any): CommandCenterData {
+  return {
+    hotAccounts:           asArray<AccountEngagement>(d?.hotAccounts),
+    accelerating:          asArray<AccountEngagement>(d?.accelerating),
+    followUpOpportunities: asArray<FollowUpOpportunity>(d?.followUpOpportunities),
+    atRisk:                asArray<AccountEngagement>(d?.atRisk),
+    heatmap:               asArray<AccountEngagement>(d?.heatmap),
+    champions:             asArray<ChampionLeader>(d?.champions),
+    summary: {
+      hotCount:            Number(d?.summary?.hotCount ?? 0),
+      totalActiveAccounts: Number(d?.summary?.totalActiveAccounts ?? 0),
+      avgScore:            Number(d?.summary?.avgScore ?? 0),
+    },
+  };
+}
+
+function trendColor(t: MomentumStatus | null | undefined): string {
   switch (t) {
     case "accelerating": return "text-emerald-400";
     case "stable":       return "text-amber-400";
     case "cooling":      return "text-orange-400";
-    case "dormant":      return "text-muted-foreground/50";
+    default:             return "text-muted-foreground/50";
   }
 }
 
-function trendBg(t: MomentumStatus) {
+function trendBg(t: MomentumStatus | null | undefined): string {
   switch (t) {
     case "accelerating": return "bg-emerald-500/10 border-emerald-500/20";
     case "stable":       return "bg-amber-500/10 border-amber-500/20";
     case "cooling":      return "bg-orange-500/10 border-orange-500/20";
-    case "dormant":      return "bg-muted/20 border-border/30";
+    default:             return "bg-muted/20 border-border/30";
   }
 }
 
-function trendLabel(t: MomentumStatus, pct: number) {
+function trendLabel(t: MomentumStatus | null | undefined, pct: number): string {
   switch (t) {
     case "accelerating": return `↑ ${pct > 0 ? pct + "%" : "Rising"}`;
     case "stable":       return "→ Stable";
     case "cooling":      return `↓ ${Math.abs(pct) > 0 ? Math.abs(pct) + "%" : "Cooling"}`;
-    case "dormant":      return "Dormant";
+    default:             return "Dormant";
   }
 }
 
@@ -537,7 +560,8 @@ export default function RevenueIntelligencePage() {
     queryKey: ["/api/revenue-intelligence/command-center"],
     queryFn: () =>
       fetch("/api/revenue-intelligence/command-center", { credentials: "include" })
-        .then(r => r.ok ? r.json() : Promise.reject(r)),
+        .then(r => r.ok ? r.json() : Promise.reject(r))
+        .then(normalizeCommandCenter),
     staleTime: 120_000,
     retry: false,
   });

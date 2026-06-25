@@ -1,0 +1,104 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Run a focused API shape-guard sweep for Insights → Revenue Intelligence.
+
+Context:
+A crash was just fixed on /revenue-intelligence.
+
+Root cause:
+The /api/needs-reply-high-engagement endpoint returns:
+{ items: [...] }
+
+But revenue-intelligence.tsx treated it as:
+[...]
+
+Then the page called .slice() on the wrapped object and crashed after skeleton load.
+
+Fix already applied:
+The needs-reply query now defensively unwraps:
+Array.isArray(d) ? d : (d?.items ?? [])
+
+Goal:
+Audit the rest of Revenue Intelligence for similar API shape assumptions and add defensive guards where needed.
+
+Important:
+Do not redesign the page.
+Do not create migrations.
+Do not change API routes unless clearly necessary.
+Do not fake data.
+Do not hide real API errors.
+Do not swallow exceptions silently.
+Only fix real unsafe assumptions.
+
+Audit:
+Inspect revenue-intelligence.tsx and any child components it uses.
+
+Check every query/data source used by the page:
+- command center data
+- hot accounts
+- champions
+- accelerating relationships
+- needs reply
+- follow-up opportunities
+- at risk
+- any stats/summary cards
+- any intelligence panel data
+
+For each query:
+1. Identify the API route.
+2. Identify the actual response shape from the backend.
+3. Identify what the frontend expects.
+4. Confirm whether arrays are actually arrays before .map/.slice/.filter.
+5. Confirm optional nested fields are guarded.
+
+Look for unsafe usage:
+- .slice on possibly non-array
+- .map on possibly non-array
+- .filter on possibly non-array
+- .length on possibly undefined
+- .toLowerCase on possibly null
+- date formatting on invalid/null dates
+- nested access without guards
+
+Implementation:
+If unsafe assumptions are found:
+- Add small defensive normalizers near the query boundary.
+- Prefer helper functions like:
+  - asArray(value)
+  - unwrapItems(value)
+  - safeString(value)
+  - safeDate(value)
+if useful, but do not overbuild.
+
+Expected behavior:
+- Bad or empty section data should show that section empty.
+- One malformed endpoint should not crash the whole page.
+- API errors should still show a real error or empty/error card where appropriate.
+- Skeleton loading should remain.
+
+Testing:
+Run:
+- Typecheck
+- Existing relevant tests
+- App boot check
+- Navigate to /revenue-intelligence
+- Wait at least 5 seconds after skeletons render
+- Refresh page
+- Confirm no crash
+
+If feasible, add a small regression test:
+- needs-reply wrapped response does not crash Revenue Intelligence
+- array sections default to []
+- malformed optional fields do not crash card rendering
+
+Final report:
+Include:
+- Every API shape checked
+- Any additional unsafe assumptions found
+- Files changed
+- Tests run
+- Verification that /revenue-intelligence stays mounted after data resolves
+
+Critical principle:
+Dashboards must tolerate ugly data. One weird response shape should not take down the cockpit.
