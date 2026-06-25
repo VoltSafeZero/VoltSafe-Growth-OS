@@ -1,0 +1,84 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Run an Insights-wide smoke verification pass.
+
+Context:
+Insights → Revenue Intelligence had a crash that is now fixed and live-verified.
+
+Fixed issues:
+
+* needs-reply wrapped response { items: [...] } was unwrapped defensively
+* command-center arrays normalized with asArray()
+* trend helper defaults added
+* Champions leaderboard SQL GROUP BY bug fixed
+* authenticated /revenue-intelligence verification passed
+* tests/revenue-intelligence-shapes.test.cjs passes 22/22
+
+Goal:
+Verify the rest of the Insights section does not have similar loaded-state crashes or API shape mismatches.
+
+Important:
+Do not redesign any page.
+Do not create migrations.
+Do not change API contracts unless a real bug is found.
+Do not add broad normalizers everywhere without evidence.
+Only fix actual bugs discovered during verification.
+
+Audit / verify these Insights pages:
+
+1. Revenue Intelligence
+2. Any other pages under Insights in the sidebar
+3. Any shared widgets used by Insights pages
+4. Any pages using /api/dashboard/*
+5. Any pages using wrapped responses like { items: [...] }
+
+For each page:
+
+* Navigate while authenticated.
+* Wait at least 5–10 seconds after skeletons render.
+* Confirm no error boundary.
+* Confirm no console runtime errors.
+* Confirm no backend 500s.
+* Confirm cards render real data or calm empty states.
+* Click refresh buttons if present.
+
+Look specifically for:
+
+* .map is not a function
+* .slice is not a function
+* not iterable
+* toLowerCase of null
+* invalid date formatting
+* undefined class names
+* nested optional fields missing
+* sections assuming arrays when backend returns wrapped objects
+
+If a bug is found:
+
+* Identify exact component/line.
+* Fix surgically.
+* Add/update a regression test if feasible.
+* Keep the page design unchanged.
+
+Testing:
+Run:
+
+* existing shape/regression tests
+* app boot check
+* authenticated browser smoke checks
+* typecheck if feasible
+
+Final report:
+Include:
+
+* Every Insights page checked
+* Any crashes found
+* Any API shape mismatches found
+* Files changed
+* Tests run
+* Verification screenshots/notes
+* Known limitations
+
+Critical principle:
+Insights pages must survive live CRM data. Loaded-state stability matters more than pretty skeletons.
