@@ -26,6 +26,7 @@ const DailyCommandCenter = lazy(() => import("@/pages/daily-command-center"));
 const RoleCommandCenter = lazy(() => import("@/pages/role-command-center"));
 const TodayPage = lazy(() => import("@/pages/today"));
 const MyTravelPage = lazy(() => import("@/pages/my-travel"));
+const TeamWorkCalendarPage = lazy(() => import("@/pages/team-work-calendar"));
 const PipelinePage = lazy(() => import("@/pages/pipeline"));
 const MarinasPage = lazy(() => import("@/pages/marinas"));
 const LeadsPage = lazy(() => import("@/pages/leads"));
@@ -263,6 +264,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/dashboard">{() => wrap(<Dashboard />)}</Route>
       <Route path="/today">{() => wrap(<TodayPage />)}</Route>
       <Route path="/my-travel">{() => wrap(<MyTravelPage />)}</Route>
+      <Route path="/work/team-calendar">{() => wrap(<TeamWorkCalendarPage />)}</Route>
       <Route path="/field/nearby">{() => wrap(<FieldNearbyPage />)}</Route>
       <Route path="/field">{() => wrap(<FieldPage />)}</Route>
       <Route path="/pipeline">{() => guard("crm", isAdvisor ? <AccessDenied /> : <PipelinePage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>

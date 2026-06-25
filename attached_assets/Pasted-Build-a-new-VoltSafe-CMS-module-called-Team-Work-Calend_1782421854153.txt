@@ -1,0 +1,392 @@
+Build a new VoltSafe CMS module called “Team Work Calendar”.
+
+Purpose:
+VoltSafe team members need a shared calendar where everyone can keep their work location, work hours, availability, and daily work focus up to date. The goal is to quickly see who is in the office, who is remote, who is travelling, who is off, what hours they are working, where they are working from, and what they are focused on that day.
+
+Add this module to the CMS sidebar as:
+
+Team → Work Calendar
+
+If there is no Team section, add it under:
+
+Operations → Team Work Calendar
+
+Core Views Required:
+
+1. Today View
+This should be the default view.
+
+Show all VoltSafe team members in a clean table or card layout.
+
+Each person should show:
+
+- Name
+- Work Status
+- Location
+- Working Hours
+- Focus Today
+- Availability
+- Notes
+
+Example:
+
+Trevor Burgess
+Status: In Office
+Location: VoltSafe HQ
+Hours: 9:00 AM – 5:30 PM
+Focus: Investor calls, marina leads
+Availability: Available after 1 PM
+Notes: In office after 10 AM
+
+Supported status values:
+
+- In Office
+- Remote / Work From Home
+- Work Travel
+- Booked Day Off
+- Sick / Personal
+- Hybrid
+- Flexible / TBD
+- Not Updated
+
+Use clear badges/colours:
+
+- Green = In Office
+- Blue = Remote / Work From Home
+- Purple = Work Travel
+- Grey = Booked Day Off
+- Red = Sick / Personal
+- Orange = Hybrid / Flexible / TBD
+- Muted grey = Not Updated
+
+At the top of Today View, add a summary card:
+
+Today at a glance
+
+- In Office: X
+- Remote: X
+- Travelling: X
+- Off: X
+- Sick / Personal: X
+- Hybrid / Flexible: X
+- Not Updated: X
+
+2. Weekly View
+Add a Monday-to-Friday weekly grid.
+
+Rows = team members.
+Columns = weekdays.
+
+Each cell should show:
+
+- Status badge
+- Location
+- Working hours
+- short Focus Today note, if available
+
+Example:
+
+| Team Member | Monday | Tuesday | Wednesday | Thursday | Friday |
+|---|---|---|---|---|---|
+| Trevor | Office, HQ, 9–5 | Remote, Home, 8–4 | Travel, San Diego | Office, HQ | Off |
+| Alex | Remote, Home | Remote, Home | Office, HQ | Office, HQ | Remote |
+
+Clicking any cell should open/edit the full schedule entry for that person/day.
+
+3. My Schedule View
+Each logged-in user needs a “My Schedule” area.
+
+They can:
+
+- Add today’s work schedule
+- Edit today’s work schedule
+- Add future schedule entries
+- Set default weekly work pattern
+- Override a specific day
+
+The daily update UX should be fast.
+
+Add a quick prompt/card:
+
+“Where are you working today?”
+
+Buttons:
+
+- Office
+- Remote
+- Travel
+- Off
+- Hybrid
+
+After clicking one, show fields for:
+
+- Date
+- Start time
+- End time
+- Location
+- Focus Today
+- Availability
+- Notes
+
+A user should be able to update today’s status in under 30 seconds.
+
+4. Person View
+Clicking a person should show their upcoming schedule.
+
+Show:
+
+- Today
+- This week
+- Next week
+- Upcoming travel/off days
+- Default weekly pattern, if set
+
+Entry Fields:
+
+Each schedule entry should support:
+
+Required:
+
+- User
+- Date
+- Work Status
+- Start Time
+- End Time
+- Location Type
+- Location Name
+
+Optional:
+
+- Focus Today
+- Availability
+- Notes
+- Visibility
+
+Work Status dropdown:
+
+- In Office
+- Remote / Work From Home
+- Work Travel
+- Booked Day Off
+- Sick / Personal
+- Hybrid
+- Flexible / TBD
+
+Location Type dropdown:
+
+- VoltSafe Office
+- Home
+- Customer Site
+- Marina Site
+- Travel
+- Other
+
+Location Name examples:
+
+- VoltSafe HQ
+- Home
+- San Diego
+- Port of San Diego
+- Customer Site
+- Airport / Travel
+- Other
+
+Availability dropdown:
+
+- Available
+- Limited
+- Deep Work
+- In Meetings
+- Travel Day
+- Unavailable
+
+Visibility dropdown:
+
+- Team Visible
+- Leadership Only
+- Private Note Hidden
+
+Default visibility should be Team Visible.
+
+Split-Day Support:
+
+The tool must support multiple entries for the same person on the same date.
+
+Example:
+
+Trevor | 2026-06-25 | 8:00 AM – 12:00 PM | Remote | Home
+Trevor | 2026-06-25 | 1:00 PM – 5:00 PM | In Office | VoltSafe HQ
+
+This allows hybrid days where someone works remotely in the morning and in-office in the afternoon.
+
+Recurring Default Schedule:
+
+Each user should be able to set a default weekly work pattern.
+
+Example:
+
+Monday: Office, 9 AM – 5 PM, VoltSafe HQ
+Tuesday: Remote, 8:30 AM – 4:30 PM, Home
+Wednesday: Office, 9 AM – 5 PM, VoltSafe HQ
+Thursday: Office, 9 AM – 5 PM, VoltSafe HQ
+Friday: Remote, 8:30 AM – 3:30 PM, Home
+
+Daily entries should override the recurring default for that specific day.
+
+Permissions:
+
+Regular Team Member:
+- Can view the Team Work Calendar
+- Can create/edit their own schedule entries
+- Can set their own recurring weekly pattern
+- Cannot edit another person’s schedule
+
+Admin:
+- Can view all schedules
+- Can create/edit schedule entries for anyone
+- Can create/edit team-wide entries
+- Can view audit log
+
+Master Admin:
+- Can do everything Admin can do
+- Can configure dropdown values later if needed
+- Can manage visibility rules later if needed
+
+Database Requirements:
+
+Create table:
+
+team_work_schedule_entries
+
+Fields:
+
+- id
+- user_id
+- date
+- start_time
+- end_time
+- status
+- location_type
+- location_name
+- work_focus
+- availability
+- notes
+- visibility
+- is_recurring_override
+- created_by
+- updated_by
+- created_at
+- updated_at
+
+Create table:
+
+team_work_schedule_defaults
+
+Fields:
+
+- id
+- user_id
+- day_of_week
+- default_status
+- default_start_time
+- default_end_time
+- default_location_type
+- default_location_name
+- default_availability
+- created_at
+- updated_at
+
+Create table:
+
+team_work_schedule_audit_log
+
+Fields:
+
+- id
+- entry_id
+- changed_by
+- change_type
+- old_value
+- new_value
+- created_at
+
+API Requirements:
+
+Create backend endpoints for:
+
+- Get today’s full team schedule
+- Get weekly team schedule
+- Get one person’s schedule
+- Create schedule entry
+- Update schedule entry
+- Delete schedule entry
+- Create/update default weekly schedule
+- Get default weekly schedule
+- Get audit log, admin only
+
+Important:
+If no entry exists for a person on a day, show their status as “Not Updated” unless a recurring default schedule exists. If a recurring default exists, show the default schedule but visually mark it as “Default”.
+
+UI Requirements:
+
+Top navigation inside the module:
+
+- Today
+- Week
+- My Schedule
+- People
+- Add Entry
+
+Filters:
+
+- Person
+- Department, if available
+- Status
+- Location
+- Availability
+
+Today View should be optimized for quick executive visibility.
+
+Weekly View should be optimized for planning.
+
+Mobile should be usable, but desktop is priority.
+
+Acceptance Criteria:
+
+- A logged-in user can update their own work location and hours for today.
+- Updating today’s status takes under 30 seconds.
+- Admin can view all team schedules for today.
+- Admin can view all team schedules for the current week.
+- Admin can edit another person’s schedule.
+- Regular users cannot edit another person’s schedule.
+- A person can set a recurring weekly work pattern.
+- A one-off daily entry overrides the recurring default for that day.
+- Split-day schedules display correctly.
+- Today summary counts are accurate.
+- Filters work by person, status, location, and availability.
+- Not Updated users are clearly shown.
+- Data persists after page refresh.
+- Audit log records who created or changed entries.
+- UI is clean, fast, and consistent with the rest of VoltSafe CMS.
+
+Do not add Google Calendar, Outlook, Slack, Teams, or email notification integrations in this first version.
+
+Future phase only:
+- Google Calendar sync
+- Outlook sync
+- Slack/Teams reminder
+- iCal export
+- “Who is in office today?” AI query support
+- “Find best day for team meeting” AI query support
+- PTO approval workflow
+
+Build this as a simple, useful internal operating tool. The first version should help VoltSafe quickly answer:
+
+- Who is in the office today?
+- Who is remote today?
+- Who is travelling?
+- Who is off?
+- What hours is each person working?
+- Where are they working from?
+- What are they focused on?
+- Who is available right now?

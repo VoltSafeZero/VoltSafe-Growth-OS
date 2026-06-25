@@ -2807,3 +2807,55 @@ export const crmEmailAddresses = pgTable("crm_email_addresses", {
 export const insertCrmEmailAddressSchema = createInsertSchema(crmEmailAddresses).omit({ id: true, createdAt: true, updatedAt: true });
 export type CrmEmailAddress = typeof crmEmailAddresses.$inferSelect;
 export type InsertCrmEmailAddress = z.infer<typeof insertCrmEmailAddressSchema>;
+
+// ── Team Work Calendar ────────────────────────────────────────────────────────
+export const teamWorkScheduleEntries = pgTable("team_work_schedule_entries", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  date: text("date").notNull(),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  status: text("status").notNull().default("not_updated"),
+  locationType: text("location_type"),
+  locationName: text("location_name"),
+  workFocus: text("work_focus"),
+  availability: text("availability"),
+  notes: text("notes"),
+  visibility: text("visibility").notNull().default("team"),
+  isRecurringOverride: boolean("is_recurring_override").notNull().default(false),
+  createdBy: integer("created_by").notNull(),
+  updatedBy: integer("updated_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+export const insertTeamWorkScheduleEntrySchema = createInsertSchema(teamWorkScheduleEntries).omit({ id: true, createdAt: true, updatedAt: true });
+export type TeamWorkScheduleEntry = typeof teamWorkScheduleEntries.$inferSelect;
+export type InsertTeamWorkScheduleEntry = z.infer<typeof insertTeamWorkScheduleEntrySchema>;
+
+export const teamWorkScheduleDefaults = pgTable("team_work_schedule_defaults", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  dayOfWeek: integer("day_of_week").notNull(),
+  defaultStatus: text("default_status").notNull(),
+  defaultStartTime: text("default_start_time"),
+  defaultEndTime: text("default_end_time"),
+  defaultLocationType: text("default_location_type"),
+  defaultLocationName: text("default_location_name"),
+  defaultAvailability: text("default_availability"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+export const insertTeamWorkScheduleDefaultSchema = createInsertSchema(teamWorkScheduleDefaults).omit({ id: true, createdAt: true, updatedAt: true });
+export type TeamWorkScheduleDefault = typeof teamWorkScheduleDefaults.$inferSelect;
+export type InsertTeamWorkScheduleDefault = z.infer<typeof insertTeamWorkScheduleDefaultSchema>;
+
+export const teamWorkScheduleAuditLog = pgTable("team_work_schedule_audit_log", {
+  id: serial("id").primaryKey(),
+  entryId: integer("entry_id"),
+  changedBy: integer("changed_by").notNull(),
+  changeType: text("change_type").notNull(),
+  oldValue: jsonb("old_value"),
+  newValue: jsonb("new_value"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+export type TeamWorkScheduleAuditLog = typeof teamWorkScheduleAuditLog.$inferSelect;
