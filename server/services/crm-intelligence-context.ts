@@ -36,7 +36,7 @@ export interface KeyPerson {
 }
 
 export interface RawActivityItem {
-  type: "email" | "note" | "activity" | "comment";
+  type: "email" | "note" | "activity" | "comment" | "meeting_outcome";
   direction: "inbound" | "outbound" | "internal" | string;
   timestamp: string;
   author: string;
@@ -45,6 +45,10 @@ export interface RawActivityItem {
   /** Full content for latest items; truncated snippet for older items */
   content: string;
   sourceId: string;
+  /** For meeting_outcome type: the outcome label (e.g. "completed", "no_show") */
+  meetingOutcome?: string;
+  /** For meeting_outcome type: next-step text extracted from the saved notes */
+  meetingNextSteps?: string;
 }
 
 export interface SourceCoverage {
@@ -76,6 +80,27 @@ export interface CrmIntelligenceContext {
   updatedAt: string;
 }
 
+export interface OpenTask {
+  title: string;
+  status: string;
+  dueDate: string | null;
+  priority: string | null;
+}
+
+export interface MeetingOutcomeSummary {
+  subject: string;
+  outcome: string;
+  notes: string;
+  timestamp: string;
+}
+
+export interface LastOutboundEmail {
+  timestamp: string;
+  subject: string;
+  recipients: string;
+  snippet: string;
+}
+
 export interface SuggestedEmailContext {
   /** Latest 5 items in full — HIGH PRIORITY, drives the email */
   highPriorityRecentActivity: RawActivityItem[];
@@ -97,6 +122,12 @@ export interface SuggestedEmailContext {
   cutoffUsed: string | null;
   estimatedPromptChars: number;
   hasIntelligenceContext: boolean;
+  /** Most recent outbound email we sent — defines the "new since last touch" boundary */
+  lastOutboundEmail: LastOutboundEmail | null;
+  /** Open/pending tasks linked to this CRM record */
+  openTasks: OpenTask[];
+  /** Meeting outcomes recorded against this CRM record in the last 90 days */
+  recentMeetingOutcomes: MeetingOutcomeSummary[];
 }
 
 // ─── DB helper ─────────────────────────────────────────────────────────────
@@ -210,29 +241,142 @@ export async function getNewCrmActivitySince(
     });
   });
 
-  // New activities (newest first)
+  // New activities (newest first) — includes calendar_meeting_outcome entries
   const actRows = await safeRows(`
-    SELECT id, type, description, created_at FROM activities
+    SELECT id, type, summary, outcome, subject, raw_content, created_at FROM activities
     WHERE linked_object_type = '${recordType}' AND linked_object_id = ${id}
       AND created_at > '${sinceIso}'
     ORDER BY created_at DESC
     LIMIT ${Math.floor(limit / 2)}
   `);
   actRows.forEach((r: any) => {
+    const isMeetingOutcome = String(r.type || "") === "calendar_meeting_outcome";
+    let content: string;
+    let meetingOutcome: string | undefined;
+    let meetingNextSteps: string | undefined;
+
+    if (isMeetingOutcome) {
+      meetingOutcome = r.outcome ? String(r.outcome) : undefined;
+      // Parse next-step text from raw_content if present
+      if (r.raw_content) {
+        try {
+          const metaIdx = String(r.raw_content).lastIndexOf("__meta:");
+          const jsonStr = metaIdx !== -1
+            ? String(r.raw_content).slice(0, metaIdx).trim()
+            : String(r.raw_content);
+          const parsed = JSON.parse(jsonStr);
+          if (parsed.nextStep || parsed.next_step || parsed.nextSteps || parsed.next_steps) {
+            meetingNextSteps = String(parsed.nextStep || parsed.next_step || parsed.nextSteps || parsed.next_steps).substring(0, 300);
+          }
+        } catch { /* non-fatal */ }
+      }
+      const parts = [
+        meetingOutcome ? `Outcome: ${meetingOutcome}` : "",
+        String(r.summary || "").substring(0, 300),
+        meetingNextSteps ? `Next step: ${meetingNextSteps}` : "",
+      ].filter(Boolean);
+      content = parts.join(" | ");
+    } else {
+      content = String(r.summary || "").substring(0, 400);
+    }
+
     items.push({
-      type: "activity",
+      type: isMeetingOutcome ? "meeting_outcome" : "activity",
       direction: "internal",
       timestamp: String(r.created_at || ""),
       author: "CRM",
-      subject: String(r.type || ""),
-      content: String(r.description || "").substring(0, 400),
+      subject: String(r.subject || r.type || ""),
+      content,
       sourceId: `activity:${r.id}`,
+      meetingOutcome,
+      meetingNextSteps,
     });
   });
 
   // Sort all items newest-first
   items.sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
   return items.slice(0, limit);
+}
+
+// ─── New context helpers (last outbound, open tasks, meeting outcomes) ────────
+
+/** Most recent outbound email sent to this CRM entity's contacts. */
+async function getLastOutboundEmail(
+  recordType: CrmEntityType,
+  recordId: number
+): Promise<LastOutboundEmail | null> {
+  const id = Number(recordId);
+  const rows = await safeRows(`
+    SELECT em.subject, em.sent_at, em.to_recipients, em.snippet, em.body_text
+    FROM email_associations ea
+    JOIN email_messages em ON ea.email_message_id = em.id
+    WHERE ea.object_type = '${recordType}' AND ea.object_id = ${id}
+      AND em.direction = 'outbound'
+    ORDER BY em.sent_at DESC NULLS LAST
+    LIMIT 1
+  `);
+  if (!rows[0]) return null;
+  const r = rows[0];
+  return {
+    timestamp: String(r.sent_at || ""),
+    subject: String(r.subject || ""),
+    recipients: String(r.to_recipients || "").substring(0, 200),
+    snippet: String(r.body_text || r.snippet || "").substring(0, 400),
+  };
+}
+
+/** Open/pending tasks linked to this CRM record (newest due-date first). */
+async function getOpenTasksForRecord(
+  recordType: CrmEntityType,
+  recordId: number
+): Promise<OpenTask[]> {
+  const id = Number(recordId);
+  // Match by linked_object_type+id OR (for accounts) by account_id
+  const accountClause = recordType === "account"
+    ? `OR (account_id = ${id} AND linked_object_type IS NULL)`
+    : "";
+  const rows = await safeRows(`
+    SELECT title, status, due_date, priority
+    FROM tasks
+    WHERE (
+      (linked_object_type = '${recordType}' AND linked_object_id = ${id})
+      ${accountClause}
+    )
+    AND status NOT IN ('completed', 'cancelled', 'dismissed')
+    AND (archived = false OR archived IS NULL)
+    ORDER BY COALESCE(due_date, '9999-12-31'::timestamp) ASC
+    LIMIT 10
+  `);
+  return rows.map((r: any) => ({
+    title: String(r.title || ""),
+    status: String(r.status || "pending"),
+    dueDate: r.due_date ? String(r.due_date) : null,
+    priority: r.priority ? String(r.priority) : null,
+  }));
+}
+
+/** Meeting outcomes (calendar_meeting_outcome activities) for this record — last 90 days. */
+async function getRecentMeetingOutcomes(
+  recordType: CrmEntityType,
+  recordId: number
+): Promise<MeetingOutcomeSummary[]> {
+  const id = Number(recordId);
+  const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const rows = await safeRows(`
+    SELECT subject, outcome, summary, created_at
+    FROM activities
+    WHERE linked_object_type = '${recordType}' AND linked_object_id = ${id}
+      AND type = 'calendar_meeting_outcome'
+      AND created_at >= '${esc(cutoff)}'
+    ORDER BY created_at DESC
+    LIMIT 5
+  `);
+  return rows.map((r: any) => ({
+    subject: String(r.subject || ""),
+    outcome: String(r.outcome || ""),
+    notes: String(r.summary || "").substring(0, 500),
+    timestamp: String(r.created_at || ""),
+  }));
 }
 
 // ─── Build / update context ─────────────────────────────────────────────────
@@ -512,9 +656,14 @@ export async function buildSuggestedEmailContext(
   // Ensure the context is up to date (lazy build / incremental refresh)
   const ctx = await buildOrUpdateCrmIntelligenceContext(recordType, id);
 
-  // Load current CRM state and contacts (always fresh)
-  const entityFields = await getEntityFields(recordType, id);
-  const contacts = await getContactsForRecord(recordType, id);
+  // Load current CRM state, contacts, and supplemental context in parallel
+  const [entityFields, contacts, lastOutboundEmail, openTasks, recentMeetingOutcomes] = await Promise.all([
+    getEntityFields(recordType, id),
+    getContactsForRecord(recordType, id),
+    getLastOutboundEmail(recordType, id),
+    getOpenTasksForRecord(recordType, id),
+    getRecentMeetingOutcomes(recordType, id),
+  ]);
 
   // Key people: merge intelligence context + fresh contacts
   const keyPeople: KeyPerson[] = ctx?.keyPeople?.length
@@ -548,7 +697,7 @@ export async function buildSuggestedEmailContext(
       nextSteps: ctx.nextSteps,
     };
 
-    const promptText = JSON.stringify({ combined, durableContext, keyPeople, entityFields });
+    const promptText = JSON.stringify({ combined, durableContext, keyPeople, entityFields, lastOutboundEmail, openTasks, recentMeetingOutcomes });
     return {
       highPriorityRecentActivity: combined,
       recentActivityDigest: combinedDigest,
@@ -559,6 +708,9 @@ export async function buildSuggestedEmailContext(
       cutoffUsed: ctx.lastContextBuildAt,
       estimatedPromptChars: promptText.length,
       hasIntelligenceContext: true,
+      lastOutboundEmail,
+      openTasks,
+      recentMeetingOutcomes,
     };
   }
 
@@ -581,6 +733,9 @@ export async function buildSuggestedEmailContext(
     cutoffUsed: null,
     estimatedPromptChars: JSON.stringify(fallbackActivity).length + JSON.stringify(entityFields).length,
     hasIntelligenceContext: false,
+    lastOutboundEmail,
+    openTasks,
+    recentMeetingOutcomes,
   };
 }
 

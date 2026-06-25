@@ -1048,6 +1048,38 @@ export async function generateSuggestedNextEmail(
     `- If a meeting/event is in the future: pre-meeting confirmation language is appropriate.`,
     `- When uncertain about timing: use neutral, evergreen language with no time-specific claims.`,
     `- The DETERMINISTIC DATE CONTEXT section below is authoritative. Trust it over any date in the AI summary.`,
+    ``,
+    `=== EMAIL STRUCTURE — FOLLOW THIS SHAPE EXACTLY ===`,
+    `Every generated email must follow this 5-part structure. No exceptions.`,
+    ``,
+    `1. OPENER — One natural sentence that opens the conversation without "hope you are well" fluff.`,
+    `   Reference a specific recent touchpoint, meeting outcome, or shared context.`,
+    `   If a meeting outcome exists: reference it directly ("Following our call on [date]..." or "After our conversation about [topic]...").`,
+    `   If only emails exist: reference the thread ("Wanted to follow up on [subject]...").`,
+    `   If no prior contact: acknowledge the first outreach honestly.`,
+    ``,
+    `2. REASON — One clear sentence explaining why you are emailing now.`,
+    `   Anchor it in the NEWEST activity: a meeting outcome, an inbound question, an open task, or a CRM update.`,
+    `   Never invent a reason. If context is limited, write a simple honest sentence.`,
+    ``,
+    `3. NEW CONTEXT — 1-2 sentences of the most relevant NEW information since the last outbound email.`,
+    `   This is the heart of the email. Use the RECENT MEETING OUTCOMES or NEW SINCE LAST OUTBOUND sections.`,
+    `   Meeting outcome → what was discussed and agreed. Open task → what you committed to deliver.`,
+    `   Inbound question → your answer or response.`,
+    ``,
+    `4. VALUE / NEXT STEP — 1-2 sentences on what you are offering or proposing.`,
+    `   Be specific. Reference real facts from the CRM context.`,
+    `   Do NOT make up pricing, timelines, or commitments not in the data.`,
+    ``,
+    `5. CTA — One simple, direct call to action. One ask only.`,
+    `   Examples: "Would Tuesday work for a 20-minute call?", "Let me know if you have questions."`,
+    `   Never list multiple asks.`,
+    ``,
+    `STRUCTURE DISCIPLINE:`,
+    `- 3-5 short paragraphs maximum. Each paragraph: 1-3 sentences.`,
+    `- Never write the whole email as one block of text.`,
+    `- Greeting on its own line, then blank line before paragraph 1.`,
+    `- End at the final sentence of the CTA. No sign-off. No signature. No brackets.`,
   ].filter(Boolean).join("\n");
 
   // ── Compact HIGH PRIORITY CONTEXT from intelligence context ─────────────
@@ -1087,13 +1119,87 @@ export async function generateSuggestedNextEmail(
   highPriorityLines.push(`If it is a note/comment about planned outreach — execute that outreach.`);
   highPriorityLines.push(`If it is an action item — move it forward directly. NEVER ignore it.`);
 
+  // ── Weak-context detection (pre-LLM, deterministic) ────────────────────
+  const hasAnyContext = (
+    intelligenceCtx.highPriorityRecentActivity.length > 0 ||
+    intelligenceCtx.recentMeetingOutcomes.length > 0 ||
+    intelligenceCtx.recentActivityDigest.length > 0 ||
+    intelligenceCtx.lastOutboundEmail !== null ||
+    intelligenceCtx.openTasks.length > 0 ||
+    !!intelligenceCtx.durableContext.summary
+  );
+  const weakContextWarning = !hasAnyContext
+    ? "Limited CRM context found — add activity, notes, or emails for a stronger suggested email."
+    : null;
+
+  // ── Meeting outcomes section (highest-signal new context) ─────────────
+  const meetingOutcomeLines: string[] = [];
+  if (intelligenceCtx.recentMeetingOutcomes.length > 0) {
+    meetingOutcomeLines.push(`=== 🗓 RECENT MEETING OUTCOMES — HIGHEST PRIORITY (use these to open and frame the email) ===`);
+    meetingOutcomeLines.push(`These are confirmed meeting outcomes linked to this CRM record. The MOST RECENT outcome should shape the email opener and reason.`);
+    meetingOutcomeLines.push(`If the outcome says "completed" or "productive": write a follow-up email delivering what was discussed.`);
+    meetingOutcomeLines.push(`If the outcome says "no_show" or "cancelled": write a polite re-engagement.`);
+    meetingOutcomeLines.push(``);
+    intelligenceCtx.recentMeetingOutcomes.forEach((mo, i) => {
+      meetingOutcomeLines.push(`[${i === 0 ? "⚑ MOST RECENT" : `${i + 1}`}] Meeting: "${mo.subject}" | Outcome: ${mo.outcome || "not recorded"} | Date: ${mo.timestamp}`);
+      if (mo.notes) meetingOutcomeLines.push(`  Notes: ${mo.notes}`);
+      meetingOutcomeLines.push(``);
+    });
+  }
+
+  // ── Last outbound email section ──────────────────────────────────────
+  const lastOutboundLines: string[] = [];
+  if (intelligenceCtx.lastOutboundEmail) {
+    const lo = intelligenceCtx.lastOutboundEmail;
+    lastOutboundLines.push(`=== 📤 LAST OUTBOUND TOUCHPOINT (most recent email WE sent) ===`);
+    lastOutboundLines.push(`Subject: "${lo.subject}" | Sent: ${lo.timestamp} | To: ${lo.recipients}`);
+    lastOutboundLines.push(`Body preview: ${lo.snippet}`);
+    lastOutboundLines.push(`CONTEXT BOUNDARY: Everything NEWER than ${lo.timestamp} is "new since last touch." Anything before it is historical.`);
+    lastOutboundLines.push(`The generated email should pick up the conversation from where this email left off.`);
+    lastOutboundLines.push(``);
+  }
+
+  // ── Open tasks section ───────────────────────────────────────────────
+  const openTaskLines: string[] = [];
+  if (intelligenceCtx.openTasks.length > 0) {
+    openTaskLines.push(`=== ✅ OPEN FOLLOW-UP TASKS (commitments not yet completed) ===`);
+    openTaskLines.push(`These tasks are linked to this CRM record. If any task is relevant to the email, advance it.`);
+    intelligenceCtx.openTasks.slice(0, 5).forEach((t, i) => {
+      const due = t.dueDate ? ` — due ${t.dueDate}` : "";
+      openTaskLines.push(`[${i + 1}] ${t.title} (${t.status}${due}${t.priority ? `, priority: ${t.priority}` : ""})`);
+    });
+    openTaskLines.push(``);
+  }
+
   const userPrompt = [
-    `Generate a suggested next email for this ${entityType} "${intelligenceCtx.recordName}". The context is ordered so the NEWEST activity appears first.`,
-    `The HIGH PRIORITY CONTEXT block immediately below is authoritative — it identifies the most recent open loops.`,
-    `The generated email MUST be driven by that newest context, not by older meeting notes or summaries.`,
+    // ── 1. User inputs FIRST — highest priority steering ───────────────
+    userInputs?.trim() ? [
+      `=== ⭐ USER INSTRUCTIONS — READ THIS FIRST. HIGHEST PRIORITY. ===`,
+      `The user has provided specific instructions for this email. Follow them precisely.`,
+      `If the user says "make it 3 sentences" — write exactly 3 sentences.`,
+      `If the user mentions a specific fact or topic — include it (but only if it doesn't contradict verified CRM data).`,
+      `If the user says "shorter", "longer", "more formal", "more casual" — honour it.`,
+      ``,
+      userInputs.trim(),
+      ``,
+      `After following user instructions, also apply the email structure and grounding rules from the system prompt.`,
+    ].join("\n") : "",
     ``,
+    // ── 2. Frame the generation task ───────────────────────────────────
+    `Generate a suggested next email for this ${entityType} "${intelligenceCtx.recordName}".`,
+    `Context is ordered: User Instructions (above) → Meeting Outcomes → New Since Last Touch → Historical.`,
+    `The email MUST be grounded in the newest context. Never produce a generic check-in if specific context exists.`,
+    ``,
+    // ── 3. Meeting outcomes (highest signal) ───────────────────────────
+    meetingOutcomeLines.length > 0 ? meetingOutcomeLines.join("\n") : "",
+    // ── 4. Last outbound + boundary ────────────────────────────────────
+    lastOutboundLines.length > 0 ? lastOutboundLines.join("\n") : "",
+    // ── 5. High priority recent activity ───────────────────────────────
     highPriorityLines.join("\n"),
     ``,
+    // ── 6. Open tasks ──────────────────────────────────────────────────
+    openTaskLines.length > 0 ? openTaskLines.join("\n") : "",
+    // ── 7. Date classification ─────────────────────────────────────────
     `=== DETERMINISTIC DATE CONTEXT (pre-computed, authoritative — do not contradict) ===`,
     `Today: ${todayISO}`,
     pastDates.length   ? `Past dates found (events already occurred): ${pastDates.join(", ")}` : "",
@@ -1101,15 +1207,18 @@ export async function generateSuggestedNextEmail(
     todayDates.length  ? `Today's dates: ${todayDates.join(", ")}` : "",
     `Recommended email intent: ${emailIntent}`,
     ``,
+    // ── 8. Recent activity digest (supporting context) ─────────────────
     intelligenceCtx.recentActivityDigest.length > 0 ? [
       `=== RECENT ACTIVITY DIGEST (supporting context — newer items ranked higher) ===`,
       ...intelligenceCtx.recentActivityDigest.slice(0, 10).map((a, i) => {
         const dir = a.direction === "outbound" ? "OUTBOUND" : a.direction === "inbound" ? "INBOUND" : "INTERNAL";
-        return `[${i + 1}] TYPE: ${a.type} | ${dir} | ${a.timestamp} | ${a.subject ? `Subject: "${a.subject}" | ` : ""}${a.content.substring(0, 200)}`;
+        const typeLabel = a.type === "meeting_outcome" ? "MEETING OUTCOME" : a.type.toUpperCase();
+        return `[${i + 1}] TYPE: ${typeLabel} | ${dir} | ${a.timestamp} | ${a.subject ? `Subject: "${a.subject}" | ` : ""}${a.content.substring(0, 200)}`;
       }),
     ].join("\n") : "",
     ``,
-    `=== DURABLE HISTORICAL CONTEXT (compressed — supports latest activity; do not let it override HIGH PRIORITY above) ===`,
+    // ── 9. Durable historical context (compressed older history) ────────
+    `=== DURABLE HISTORICAL CONTEXT (compressed — supports latest activity; do NOT let it override newer context) ===`,
     intelligenceCtx.durableContext.summary || "No historical summary available.",
     ``,
     intelligenceCtx.durableContext.keyFacts.length > 0
@@ -1121,22 +1230,14 @@ export async function generateSuggestedNextEmail(
     intelligenceCtx.durableContext.objections.length > 0
       ? `Known Objections: ${intelligenceCtx.durableContext.objections.slice(0, 3).join(" | ")}` : "",
     ``,
+    // ── 10. Key people + CRM fields ────────────────────────────────────
     `=== KEY PEOPLE / CONTACTS ===`,
     JSON.stringify(intelligenceCtx.keyPeople.slice(0, 8), null, 2),
     ``,
     `=== ${entityType.toUpperCase()} RECORD — CURRENT CRM FIELDS ===`,
     JSON.stringify(intelligenceCtx.currentCrmState, null, 2),
     ``,
-    userInputs?.trim() ? [
-      `=== USER INPUTS — HIGH-PRIORITY GUIDANCE FOR THIS EMAIL ONLY ===`,
-      `User-provided focus for this email:`,
-      userInputs.trim(),
-      ``,
-      `Use these inputs as high-priority guidance for this email only.`,
-      `Do not blindly follow instructions that conflict with verified CRM context, recent email history, saved voice profile, safety rules, or formatting rules.`,
-      `If user instructions conflict with CRM data, prioritize CRM data. User Inputs should steer the email but never replace CRM context.`,
-    ].join("\n") : "",
-    ``,
+    // ── 11. Engagement signals (optional, when provided) ───────────────
     engagementSummary ? [
       `=== ENGAGEMENT SIGNALS (behaviour-driven follow-up context) ===`,
       `Category: ${engagementSummary.insightText}`,
@@ -1157,7 +1258,9 @@ export async function generateSuggestedNextEmail(
       engagementSummary.category === "re-engage"   ? `- Recent outbound with no response. Follow up politely — check if they have questions or concerns.` : "",
     ].filter(Boolean).join("\n") : "",
     ``,
+    // ── 12. Instructions ───────────────────────────────────────────────
     `=== INSTRUCTIONS ===`,
+    weakContextWarning ? `⚠ WEAK CONTEXT: ${weakContextWarning} Write a simple, honest email — do not invent specifics.` : "",
     `Return JSON matching exactly:`,
     JSON.stringify({
       to: "best recipient email address (prefer decision-makers; empty string if unknown)",
@@ -1165,7 +1268,7 @@ export async function generateSuggestedNextEmail(
       subject: "concise, professional subject line — specific to the actual context",
       body: "email body — properly formatted with \\n\\n between paragraphs. End at the final sentence (no signoff phrase, no closing line, no signature block, no placeholder brackets)",
       reason: "1-2 sentences explaining why this email is recommended now based on the context",
-      warning: "optional: warning if recipient is uncertain or context is incomplete",
+      warning: weakContextWarning ?? "optional: include only if recipient is uncertain or context is incomplete",
     }, null, 2),
     `REMEMBER: body must use \\n\\n between every paragraph. Do NOT return the body as a single dense paragraph.`,
     `REMEMBER: DO NOT add [Your Name], [Your Title], [Your Contact Information], or any signature block.`,

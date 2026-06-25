@@ -1,0 +1,255 @@
+Do not repeat the permissions.test.js task. That task is already complete and verified 71/71 passing. Start the new AI Email Workflow task below.
+
+You are working on VoltSafe CMS / Growth OS.
+
+Task:
+Audit and improve the AI Email workflow so suggested emails are grounded, concise, and based on what changed since the last email.
+
+Context:
+VoltSafe CMS now has strong Calendar / Workday Intelligence:
+
+* Calendar events
+* Prep
+* Outcomes
+* Follow-up tasks
+* CRM timeline updates
+* Workday Agenda
+* Now / Next
+* Daily Rollup
+
+Next priority:
+Improve AI Suggested Email so it becomes the revenue execution layer.
+
+Primary product goal:
+When a user is viewing a Lead / Account / Contact, the AI email generator should help them send the right next email using:
+
+* new updates since the last email
+* a short summary of earlier important context
+* relevant CRM fields
+* recent meeting outcomes
+* open follow-up tasks
+* recent emails/activity
+* user-provided instructions
+
+Do NOT:
+
+* Do not re-audit permissions.test.js.
+* Do not touch test seed users.
+* Do not generate generic fluffy emails.
+* Do not hallucinate facts.
+* Do not use stale context as if it just happened.
+* Do not dump the whole CRM history into the email.
+* Do not hardcode “Best regards.”
+* Do not create destructive migrations.
+* Do not break existing email sending/composer flows.
+* Do not auto-send emails.
+
+Audit first:
+Inspect:
+
+1. Lead / Account / Contact detail pages.
+2. Existing AI email generator components.
+3. “Suggested Email” button behavior.
+4. Compose New Email behavior.
+5. Existing email composer.
+6. Existing AI summary / CRM intelligence context route.
+7. Email/activity timeline data.
+8. Calendar meeting outcome activities.
+9. Task/follow-up data.
+10. Existing email send/draft routes.
+11. Existing signature handling.
+12. Existing tracking/open/click logic.
+13. Existing return navigation after send.
+14. Existing “Key People” selection, if implemented.
+
+Report:
+
+* Where AI Suggested Email is generated.
+* What context it currently uses.
+* Whether it includes too much old context.
+* Whether it includes meeting outcomes.
+* Whether it includes latest emails.
+* Whether it uses user input instructions.
+* Whether selected people determine TO/CC.
+* What should be reused.
+* Whether any migration is needed.
+
+Implementation Phase 1 — Context window logic
+
+Build or improve a context builder for suggested emails.
+
+Desired rule:
+Use “new updates since last outbound email” as the main body context, plus a short compressed summary of earlier important history.
+
+Context priority:
+
+1. User-provided instructions from the text box.
+2. Latest meeting outcome activities.
+3. Latest emails since last outbound email.
+4. Latest CRM activity since last outbound email.
+5. Open follow-up tasks.
+6. Deal/opportunity context.
+7. Key CRM fields.
+8. Short earlier-context summary.
+
+Important:
+
+* Find the most recent outbound email to the selected recipient/company.
+* Treat anything after that as “new since last touch.”
+* Anything before that should be summarized briefly, not re-listed.
+
+If no previous outbound email exists:
+
+* Use latest meaningful CRM/email/activity context, newest first.
+* Still keep it concise.
+
+Implementation Phase 2 — Email structure
+
+Suggested email should follow this shape:
+
+1. Natural opener
+2. Reason for reaching out
+3. Relevant new update/context
+4. Clear value/next step
+5. Simple CTA
+
+Avoid:
+
+* long paragraphs
+* generic “hope you are well” bloat
+* exaggerated claims
+* unsupported ROI numbers
+* repeating every historical detail
+
+Tone:
+
+* CEO-level
+* concise
+* warm
+* confident
+* specific
+* not salesy-generic
+
+Implementation Phase 3 — User Inputs / Intent Modifier
+
+Make sure the AI email generator has:
+
+* User Inputs textarea
+* Optional intent modifier, if already present:
+    * follow up
+    * book meeting
+    * send proposal
+    * thank you
+    * re-engage
+    * answer question
+    * custom
+
+User Inputs should be heavily weighted.
+If user says “make it shorter,” it should be shorter.
+If user says “mention Port of San Diego pilot,” include it only if true in context or user explicitly supplied it.
+
+Implementation Phase 4 — Recipient selection behavior
+
+If Key People / selected people checkboxes exist:
+
+* 1 selected person → TO
+* more than 1 selected person → first selected goes TO, others go CC
+* no selected person → use best primary contact if available, otherwise ask user to choose
+* never email internal @voltsafe.com as the external recipient unless user explicitly selects them
+
+Implementation Phase 5 — Compose flow
+
+The Suggested Email button should:
+
+* Generate email draft content.
+* Open existing composer with:
+    * To / CC populated
+    * Subject populated
+    * Body populated
+    * Signature handled by existing signature system
+* User must review before sending.
+* Do not auto-send.
+
+After Send:
+
+* Return user to originating Lead / Account / Contact.
+* Preserve navigation context.
+
+Implementation Phase 6 — Grounding/debug context
+
+For internal debug/dev visibility only:
+
+* Log or expose a compact “context used” summary in dev mode if existing pattern exists.
+* Do not expose raw private context in the user-facing email.
+* The generation logic should distinguish facts from:
+    * email
+    * activity
+    * meeting outcome
+    * task
+    * CRM field
+
+Implementation Phase 7 — Meeting outcome integration
+
+Make sure recently saved calendar Meeting Outcomes influence suggested emails.
+
+Example:
+If a meeting outcome says:
+
+* Outcome: Completed
+* Next step: send marina pilot pricing
+
+Then Suggested Email should naturally draft:
+“Following up from our call today, I wanted to send over the pilot pricing structure we discussed…”
+
+But only if that outcome is linked to the same CRM entity/contact/account.
+
+Implementation Phase 8 — Safety and empty states
+
+If context is weak:
+
+* Generate a simple, honest email.
+* Do not invent specifics.
+* Optionally show:
+    “Limited CRM context found — add details for a stronger email.”
+
+If no recipient:
+
+* Do not generate into a blank unknown recipient silently.
+* Ask/select recipient in UI.
+
+Testing:
+Run:
+
+* Typecheck
+* Existing relevant tests
+* App boot check
+* Any email/composer tests
+* Any AI context tests
+
+Manual smoke scenarios:
+
+1. Lead with recent meeting outcome → suggested email references meeting outcome.
+2. Lead with last outbound email → suggested email uses only new updates plus short earlier summary.
+3. Lead with no history → suggested email stays simple and honest.
+4. User Inputs says “make this 3 sentences” → generated email is 3 sentences.
+5. Two selected contacts → first TO, second CC.
+6. No selected contact → clear recipient empty state.
+7. Send returns to originating CRM record.
+8. Signature is not duplicated.
+9. No unsupported claims appear.
+
+Final report:
+Include:
+
+* Audit findings.
+* Context builder changes.
+* Prompt/generation changes.
+* Files changed.
+* Routes/components reused.
+* Whether migration was avoided.
+* Verification results.
+* Known limitations.
+* Recommended next task.
+
+Critical principle:
+Suggested Email should not be a generic writer. It should be a grounded follow-up engine that knows what changed, what matters, and what action should happen next.
