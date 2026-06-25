@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
@@ -57,6 +57,7 @@ import {
   Zap,
   UserPlus,
   CheckCheck,
+  CheckSquare,
   ExternalLink,
   ArrowRight,
   ClipboardList,
@@ -549,6 +550,17 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
 
   const { data: ownEvents, isLoading } = useCalendarEvents(currentDate, view);
 
+  // Pending tasks due within the next 7 days (for Tasks to Schedule panel)
+  const { data: pendingTasks } = useQuery<any[]>({
+    queryKey: ["/api/tasks", "pending", "calendar"],
+    queryFn: async () => {
+      const res = await fetch("/api/tasks?status=pending", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 5 * 60_000,
+  });
+
   // Build busy block overlays for DayView (privacy-safe: no event titles)
   const teamBusyOverlays = useMemo(() => {
     if (!availability) return [];
@@ -565,6 +577,17 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
     if (view !== "day" || enabledIdsList.length === 0 || !availability) return [];
     return computeSuggestedOpenings(currentDate, ownEvents ?? [], availability.users);
   }, [view, enabledIdsList, availability, currentDate, ownEvents]);
+
+  // Tasks due within 7 days or overdue (for Tasks to Schedule panel)
+  const dueTasks = useMemo(() => {
+    if (!pendingTasks) return [];
+    const now = Date.now();
+    const sevenDays = now + 7 * 24 * 60 * 60_000;
+    return pendingTasks
+      .filter((t: any) => t.dueDate && new Date(t.dueDate).getTime() <= sevenDays)
+      .sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+      .slice(0, 5);
+  }, [pendingTasks]);
 
   const allEvents: DisplayEvent[] = [
     ...(ownEvents ?? []),
@@ -768,7 +791,23 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
         </div>
       )}
 
-      <div className={(showOverlayPanel && permittedMembers.length > 0) || (sourcesData && sourcesData.sources.length > 0) ? "flex gap-4 items-start" : undefined}>
+      {/* No calendar connected info banner */}
+      {calIntegrations.length === 0 && !isLoading && (
+        <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm" data-testid="no-calendar-banner">
+          <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <span className="font-medium">No calendar connected — </span>
+            <span className="text-muted-foreground">Connect Google Calendar in Settings to see your events here.</span>
+          </div>
+          <Link href="/settings">
+            <Button variant="outline" size="sm" className="h-7 text-xs shrink-0">
+              Connect
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      <div className={(showOverlayPanel && permittedMembers.length > 0) || (sourcesData && sourcesData.sources.length > 0) || dueTasks.length > 0 ? "flex gap-4 items-start" : undefined}>
         <Card className="border-border/50 flex-1 min-w-0">
           <CardContent className="p-3 sm:p-4">
             <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
@@ -978,6 +1017,39 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                     ))}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Tasks to Schedule */}
+          {dueTasks.length > 0 && (
+            <Card className="border-border/50 w-52 shrink-0" data-testid="tasks-to-schedule-panel">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <CheckSquare className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Tasks Due Soon</span>
+                </div>
+                <div className="space-y-2">
+                  {dueTasks.map((task: any) => {
+                    const due = new Date(task.dueDate);
+                    const overdue = due < new Date() && !isToday(due);
+                    const dueToday = isToday(due);
+                    return (
+                      <div key={task.id} className="space-y-0.5" data-testid={`due-task-${task.id}`}>
+                        <p className="text-xs font-medium truncate" title={task.title}>{task.title}</p>
+                        <p className={`text-[10px] ${overdue ? "text-red-400" : dueToday ? "text-amber-400" : "text-muted-foreground"}`}>
+                          {overdue ? "Overdue · " : dueToday ? "Due today · " : "Due "}
+                          {format(due, "MMM d")}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <Link href="/tasks">
+                  <Button variant="ghost" size="sm" className="w-full mt-3 h-7 text-xs text-muted-foreground" data-testid="button-view-all-tasks">
+                    View all tasks
+                  </Button>
+                </Link>
               </CardContent>
             </Card>
           )}
@@ -1254,8 +1326,20 @@ function DayView({
   availLoading?: boolean;
 }) {
   const dayEvents = events.filter((e) => isSameDay(new Date(e.startTime), currentDate));
+  const allDayEvents = dayEvents.filter(e => e.allDay);
+  const timedDayEvents = dayEvents.filter(e => !e.allDay);
   const dragRef = useRef<DisplayEvent | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [dragOverHour, setDragOverHour] = useState<number | null>(null);
+
+  // Auto-scroll to current working hour on mount / date change
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const now = new Date();
+    const targetHour = isSameDay(now, currentDate) ? Math.max(7, Math.min(getHours(now), 20)) : 8;
+    el.scrollTop = (targetHour - 1) * 56;
+  }, [currentDate]);
 
   // Pre-index busy blocks per hour for fast lookup
   const busyByHour = useMemo(() => {
@@ -1296,13 +1380,35 @@ function DayView({
   }, [onReschedule, currentDate]);
 
   return (
-    <div className="max-h-[600px] overflow-y-auto">
+    <div className="max-h-[600px] overflow-y-auto" ref={scrollRef}>
+      {/* All-day event band */}
+      {allDayEvents.length > 0 && (
+        <div className="sticky top-0 z-10 border-b border-border/40 bg-background/95 backdrop-blur-sm px-2 py-1.5" data-testid="allday-band">
+          <div className="grid grid-cols-[60px_1fr] items-start">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide pt-1 text-right pr-3">All day</div>
+            <div className="flex flex-wrap gap-1">
+              {allDayEvents.map(ev => (
+                <button
+                  key={ev.id}
+                  className={`text-xs px-2 py-0.5 rounded border font-medium truncate max-w-[200px] ${ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting}`}
+                  onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
+                  data-testid={`event-allday-${ev.id}`}
+                  title={ev.title}
+                >
+                  {ev._team && <span className="opacity-70 mr-1">{ev._team.name.split(" ")[0]}:</span>}
+                  {ev.title}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Loading shimmer when fetching availability */}
       {availLoading && (
         <div className="h-1 w-full bg-primary/20 animate-pulse rounded-full mb-1" data-testid="avail-loading-bar" />
       )}
       {HOURS.map((hour) => {
-        const hourEvents = dayEvents.filter((e) => getHours(new Date(e.startTime)) === hour);
+        const hourEvents = timedDayEvents.filter((e) => getHours(new Date(e.startTime)) === hour);
         const isDropTarget = dragOverHour === hour;
         const busyMembers = busyByHour.get(hour) ?? [];
 
@@ -1354,16 +1460,29 @@ function DayView({
                   data-testid={`event-day-${ev.id}`}
                   title={!ev._team ? "Drag to reschedule" : undefined}
                 >
-                  <div className="font-medium flex items-center gap-1">
+                  <div className="font-medium flex items-center gap-1 min-w-0">
                     {!ev._team && <GripVertical className="h-3 w-3 opacity-40 shrink-0" />}
-                    {ev._team && <span className="opacity-70">{ev._team.name.split(" ")[0]}: </span>}{ev.title}
+                    <span className="truncate">{ev._team && <span className="opacity-70">{ev._team.name.split(" ")[0]}: </span>}{ev.title}</span>
+                    {!ev._team && ev.meetingUrl && <Video className="h-3 w-3 shrink-0 text-blue-400 ml-auto" title="Meeting link" />}
                   </div>
-                  <div className="text-muted-foreground mt-0.5">
-                    {formatTime(new Date(ev.startTime))}
-                    {ev.endTime && ` - ${formatTime(new Date(ev.endTime))}`}
+                  <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap text-[11px]">
+                    <span>
+                      {formatTime(new Date(ev.startTime))}
+                      {ev.endTime && ` – ${formatTime(new Date(ev.endTime))}`}
+                    </span>
                     {!ev._team && ev.calendarName && (
-                      <span className="ml-1 opacity-60">· {ev.calendarName}</span>
+                      <span className="opacity-60">· {ev.calendarName}</span>
                     )}
+                    {!ev._team && (() => {
+                      const extCount = Array.isArray(ev.attendeeDetails)
+                        ? (ev.attendeeDetails as any[]).filter(a => !a.self && !(a.email || "").toLowerCase().endsWith("@voltsafe.com")).length
+                        : 0;
+                      return extCount > 0 ? (
+                        <span className="px-1 py-0 rounded bg-foreground/10 border border-border/50 text-[10px]">
+                          {extCount} ext
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                 </button>
               ))}

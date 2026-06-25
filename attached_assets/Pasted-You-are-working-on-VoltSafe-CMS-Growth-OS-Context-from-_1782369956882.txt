@@ -1,0 +1,298 @@
+You are working on VoltSafe CMS / Growth OS.
+
+Context from previous completed work:
+Team Availability / Free-Busy was implemented successfully.
+- GET /api/calendar/team-availability exists.
+- It uses Google freebusy.
+- It only returns busy start/end blocks.
+- It does not expose teammate event titles/descriptions/attendees.
+- Day view now shows teammate busy overlays.
+- Suggested Openings card exists.
+- Calendar permission gating exists.
+- Regression tests passed.
+
+Now continue with the next priority.
+
+Primary goal:
+Make Trevor’s own Calendar page fully useful by rendering his real selected Google Calendar events in the existing day view, then attach VoltSafe CMS intelligence to those events.
+
+Do NOT rebuild the calendar page.
+Do NOT redesign the whole UI.
+Do NOT duplicate the team free/busy work.
+Do NOT expose teammate private calendar details.
+Do NOT fake event data.
+
+Focus:
+The current Calendar page shell exists, but the main day grid is still mostly empty / underpowered. The top priority is to make the current user’s own connected Google calendars populate the day view correctly.
+
+Audit first:
+Before coding, inspect the current state of:
+
+1. Existing personal calendar event routes
+   - Search for /api/calendar/events
+   - Search for /api/calendar/today
+   - Search for calendar sync routes
+   - Search for calendar events cache/import logic
+
+2. Existing frontend Calendar page event loading
+   - What route does Calendar page currently call?
+   - What shape does it expect?
+   - Why are events not rendering in the day grid?
+
+3. Existing Google Calendar connection
+   - Confirm getCalendarClient() works for current logged-in user
+   - Confirm calendar scope is present
+   - Confirm token refresh works
+   - Confirm primary calendar can be fetched
+
+4. Existing calendar source/calendar list support
+   - Are selected calendars stored?
+   - Is there a calendar source picker already?
+   - Are shared calendars available?
+   - Does the UI only default to primary calendar?
+
+5. Existing CRM association utilities
+   - Email/domain matching
+   - Account/contact/person matching
+   - Activity association engine
+   - Existing “ignore @voltsafe.com” rules
+
+Then report:
+- What route currently feeds the main Calendar day grid
+- Why the grid is empty or incomplete
+- What event data already exists
+- What needs to be wired
+- Whether a DB migration is needed
+
+Implementation Phase 1 — Real personal events in day view
+
+Implement or fix an authenticated route for current user calendar events.
+
+Preferred route:
+GET /api/calendar/events?start=ISO&end=ISO&calendarIds=optional
+
+If another route already exists, reuse it instead of creating duplicate routes.
+
+Route requirements:
+- Authenticated current user only
+- Uses existing Google Calendar connection/client
+- Uses selected calendars if available
+- Defaults to primary calendar if no selected calendars exist
+- Supports date range start/end
+- Correctly handles user timezone
+- Returns both timed and all-day events
+- Includes recurring event instances
+- Sorts by start time
+- Does not return deleted/cancelled events unless explicitly needed
+- Includes:
+  - id
+  - provider
+  - providerEventId
+  - calendarId
+  - calendarName
+  - title
+  - start
+  - end
+  - isAllDay
+  - location
+  - meetingUrl
+  - attendees
+  - sourceColor if available
+  - status
+  - descriptionExcerpt only, not full private body unless already used safely
+
+Frontend requirements:
+- Wire existing Calendar page to the real route.
+- Day view must show:
+  - all-day events at top
+  - timed events in correct hour slots
+  - event title
+  - event time
+  - calendar/source label or color
+  - meeting icon/link if Zoom/Google Meet exists
+- Empty state should only show when there are genuinely no events.
+- Loading state should be visible.
+- Error state should be useful:
+  - “Calendar needs reconnect”
+  - “No calendars selected”
+  - “Google Calendar unavailable”
+  - “No events today”
+
+Sync button:
+Make the existing Sync button refresh the personal calendar events.
+- Show loading state.
+- Update “Synced X minutes ago.”
+- Show toast or inline success/error.
+- Do not silently fail.
+
+Implementation Phase 2 — Calendar source selection
+
+Implement or complete:
+GET /api/calendar/sources
+POST /api/calendar/sources/selection
+
+GET /api/calendar/sources should:
+- Fetch the user’s Google Calendar calendarList
+- Return calendars visible to the user
+- Include:
+  - calendarId
+  - name
+  - summary
+  - description if available
+  - primary boolean
+  - selected boolean
+  - accessRole
+  - color/backgroundColor if available
+  - provider account
+  - readOnly boolean
+
+POST /api/calendar/sources/selection should:
+- Persist selected calendar IDs per user
+- Never affect other users
+- Allow selecting multiple calendars
+- Default to primary if user deselects everything, unless product already allows empty
+- Use existing DB table if one exists
+- If no table exists, add a safe additive migration only
+
+Suggested table if needed:
+calendar_selected_sources:
+- id
+- user_id
+- provider
+- provider_account_id
+- calendar_id
+- calendar_name
+- color
+- access_role
+- selected
+- created_at
+- updated_at
+
+Frontend:
+- Add or complete “Select Calendars” UI.
+- This can live in Settings → Calendar Integrations and/or the Calendar page.
+- The UI should show Google calendars with checkboxes.
+- It should clearly show read-only calendars.
+- Selected calendars should directly control what appears on the Calendar page.
+
+Implementation Phase 3 — CRM meeting intelligence
+
+Add lightweight CRM matching to the user’s own events.
+
+Create or reuse a utility:
+matchCalendarEventToCrm(event)
+
+Matching rules:
+1. Ignore internal attendees:
+   - @voltsafe.com should never be treated as the external CRM target.
+2. Highest confidence:
+   - external attendee email exactly matches Contact/Person email.
+3. High confidence:
+   - external attendee domain matches Account domain/website/email domain.
+4. Medium confidence:
+   - event title contains exact Account/Lead name.
+5. Low confidence:
+   - fuzzy title match only if existing CRM utility already supports safe matching.
+
+Return:
+- matched entity type: account / lead / contact / person
+- matched entity id
+- matched entity name
+- confidence: high / medium / low
+- reason
+- matched attendee/domain if relevant
+
+Frontend:
+- Display a small badge on event cards:
+  - “CRM matched”
+  - “Account: Oak Bay Marina”
+  - “Contact: Jane Smith”
+- Clicking or expanding an event should show:
+  - matched CRM record
+  - match reason
+  - link to open related Account/Lead/Contact
+- If no match, do not clutter the event card.
+
+Important:
+Do not auto-write CRM links permanently unless there is already a safe association pattern. For this phase, returning computed matches is acceptable. If storing links, use additive migration and confidence/reason fields.
+
+Implementation Phase 4 — Event detail drawer/modal
+
+Add a simple event detail drawer/modal using existing UI patterns.
+
+When clicking an event, show:
+- Title
+- Time
+- Calendar source
+- Location
+- Meeting link
+- Attendees
+- CRM matches
+- Related tasks/follow-ups if available
+- Button/link to open Google Calendar event if available
+
+Do not overbuild editing yet.
+
+Implementation Phase 5 — Task scheduling foundation
+
+The Calendar page has task stats. Make this real enough to be useful.
+
+Audit existing tasks/follow-ups model first.
+
+Then:
+- Add a “Tasks to Schedule” panel below or beside the calendar if not already present.
+- Show unscheduled tasks/follow-ups due soon or overdue.
+- Each task should have:
+  - title
+  - due date
+  - related CRM record if available
+  - estimated duration if available, otherwise default 30 minutes
+  - “Schedule” action
+
+If Google Calendar write scope exists:
+- POST /api/calendar/task-block creates a Google Calendar event block.
+- The created event should reference the task title and CRM record.
+- After success, refresh the calendar.
+
+If write scope does not exist:
+- Do not fake it.
+- Show “Reconnect Google Calendar to enable task blocking.”
+
+Keep this minimal. No drag-and-drop yet.
+
+Privacy/security:
+- Personal calendar events are only visible to the logged-in user.
+- Team calendar overlay remains free/busy only.
+- Never expose teammate titles/descriptions.
+- Do not log private calendar descriptions.
+- Do not store unnecessary full event bodies.
+- Respect selected calendar access roles.
+- Ignore @voltsafe.com for CRM external matching.
+
+Verification:
+After implementation, verify:
+1. Today’s real events render.
+2. All-day events render at the top.
+3. Timed events render in correct time slots.
+4. Recurring events appear.
+5. Selected calendar changes affect displayed events.
+6. Sync button refreshes data.
+7. CRM matches appear only when confidence exists.
+8. Internal @voltsafe.com attendees are ignored for external CRM matching.
+9. Event detail drawer opens and closes.
+10. Team busy overlays still show only “Busy.”
+11. Suggested Openings still works.
+12. Typecheck/lint/tests pass if available.
+
+Final report required:
+- What was already built
+- Why personal events were not showing or were incomplete
+- Files changed
+- Routes added/updated
+- DB migration added, if any
+- Screenshots or verification notes
+- Known limitations
+- Next recommended task
+
+Critical priority:
+Make the existing Calendar page trustworthy. Real events first, intelligence second, polish third.

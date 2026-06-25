@@ -56,7 +56,7 @@ import {
   tradeshowEvents,
   type TradeshowEvent, type InsertTradeshowEvent,
 } from "@shared/schema";
-import { ilike, eq, or, sql, asc, desc, and, inArray, type AnyColumn, type SQL } from "drizzle-orm";
+import { ilike, eq, or, sql, asc, desc, and, inArray, ne, type AnyColumn, type SQL } from "drizzle-orm";
 
 function getSortOrder(column: AnyColumn, order: string) {
   return order === "asc" ? asc(column) : desc(column);
@@ -1401,7 +1401,8 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         eq(calendarEvents.userId, userId),
         sql`${calendarEvents.startTime} >= ${start}`,
-        sql`${calendarEvents.startTime} <= ${end}`
+        sql`${calendarEvents.startTime} <= ${end}`,
+        ne(calendarEvents.status, "cancelled")
       ))
       .orderBy(asc(calendarEvents.startTime));
   }
