@@ -119,8 +119,8 @@ check("setHighlight() helper clears previous timer before setting new one",
   page.includes("function setHighlight"));
 check("deep-link effect uses setHighlight() not raw setTimeout",
   page.includes("if (msgId > 0) setHighlight(msgId)"));
-check("MentionsPanel onNavigate uses setHighlight()",
-  page.includes("setHighlight(messageId)"));
+check("MentionsPanel onNavigate uses setHighlight() with thread-root fallback",
+  page.includes("setHighlight(threadId ?? messageId)"));
 check("postMutation.onSuccess calls mainMention.closeMention()",
   page.includes("mainMention.closeMention()") &&
   page.includes("onSuccess: () => {") &&
