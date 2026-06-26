@@ -1,0 +1,174 @@
+Current Phase 3B is shipped. Before adding attachments or any new features, please perform a Phase 3B audit and polish pass only.
+
+Do not add Guest Currents, direct messages, attachments, search, AI summaries, slash commands, or external collaborators yet.
+
+Goal
+
+Verify that Record Current completion features are stable, polished, and correctly integrated across Account, Contact, Opportunity, and Lead records.
+
+Audit only:
+
+1. Pin UI inside RecordCurrentFeed
+2. Reply count chip inside RecordCurrentFeed
+3. Deep-link highlight behavior
+4. Lead Current integration
+5. Existing channel /current behavior after Phase 3B changes
+
+Audit checklist
+
+1. Record pin UI
+
+Verify for Account, Contact, Opportunity, and Lead Current feeds:
+
+* Pin button appears on message hover.
+* Pinning a message works.
+* Unpinning a message works.
+* Pinned bar appears only when pins exist.
+* Multiple pins display cleanly.
+* Expand/collapse works.
+* Hover-reveal unpin X works.
+* Deleted pinned messages are handled gracefully.
+* Pin icon state is correct after polling/refetch.
+* Record pins do not interfere with channel pins.
+* Channel pins still work in /current.
+
+2. Thread reply pins
+
+Verify:
+
+* Thread replies can be pinned if intended.
+* Thread reply pins show correctly in the record pinned bar.
+* Unpinning thread reply pins works.
+* Pinning a deleted thread reply is blocked or handled gracefully.
+* No duplicate record pins are created.
+
+3. Reply count chip
+
+Verify inside Record Current:
+
+* 1 reply grammar is correct.
+* N replies grammar is correct.
+* Latest reply timestamp suffix displays correctly.
+* Clicking reply chip opens the correct thread.
+* Reply count updates after adding a reply.
+* Deleted replies do not count if that is the intended behavior.
+* Chip does not clutter message layout.
+* Dark mode looks polished.
+
+4. Deep-link highlight behavior
+
+Verify for Account, Contact, Opportunity, and Lead record Current feeds:
+
+* ?tab=current&message=ID scrolls/highlights the message once.
+* Highlight clears cleanly.
+* Polling does not retrigger highlight every 8 seconds.
+* Auto-scroll to bottom is suppressed when opening a target message.
+* Invalid message IDs fail gracefully.
+* Thread deep-link opens the correct thread if supported:
+    * ?tab=current&thread=ROOT_ID&message=REPLY_ID
+
+5. Lead Current integration
+
+Audit Lead Current carefully.
+
+Verify:
+
+* Lead Current section appears in the right location inside Lead detail/dialog.
+* It does not crowd the Lead UI.
+* It does not break lead editing, notes, activity, status, or existing lead actions.
+* Posting works.
+* Threads work.
+* Reactions work.
+* Edit/delete works.
+* Pins work.
+* @mentions work.
+* Mention notifications work.
+* Mention notification deep-link points to the correct Lead view.
+
+Important:
+Please specifically audit whether buildRecordCurrentUrl correctly maps objectType="lead" to the actual Lead route/view. The recent implementation summary said lead maps to /opportunities/${id}. Confirm whether that is correct. If it is wrong, fix it. If there is no stable Lead detail URL, document the safest fallback.
+
+6. Existing CRM page regression
+
+Verify:
+
+* Account profile still works.
+* Contact profile still works.
+* Opportunity profile still works.
+* Lead detail/dialog still works.
+* Existing Timeline/Emails/Tasks sections still work.
+* No layout overflow.
+* No nested scroll traps.
+* Mention dropdown is not clipped.
+* Emoji picker is not clipped.
+* Thread panel is not clipped.
+* Dark mode looks polished.
+
+7. Existing /current regression
+
+Verify:
+
+* /current still loads.
+* All 9 Currents still appear.
+* Channel posting still works.
+* Channel threads still work.
+* Channel reactions still work.
+* Channel pins still work.
+* Channel @mentions still work.
+* Mentions panel still works.
+* Channel deep-links still work.
+* /execution/communications remains unaffected.
+
+8. Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React key warnings
+* Vite/build errors
+* Failed notification inserts
+* Bad route/deep-link errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 3B.
+
+Allowed:
+
+* Record pin UI bugs
+* Reply chip bugs
+* Deep-link bugs
+* Lead Current route/link bugs
+* Layout/overflow bugs
+* Dropdown/popup clipping bugs
+* Query invalidation bugs
+* Console/server error fixes
+
+Not allowed:
+
+* Attachments
+* Search
+* Guest Currents
+* Direct messages
+* AI summaries
+* Slash commands
+* External collaborators
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. API checks performed
+5. CRM pages visually verified
+6. Deep-link checks performed
+7. Existing /current regression results
+8. Final pass/fail status
+9. Recommended next feature order
+
+Keep scope tight: audit and polish Phase 3B only.

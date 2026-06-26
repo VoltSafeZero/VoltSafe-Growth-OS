@@ -97,6 +97,8 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   });
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [selectedLeadInitMsg, setSelectedLeadInitMsg] = useState<number | undefined>();
+  const [selectedLeadInitThread, setSelectedLeadInitThread] = useState<number | undefined>();
   const [selectedOrg, setSelectedOrg] = useState<Account | null>(null);
   const [pendingOrgId, setPendingOrgId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -131,8 +133,17 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     const selectedId = params.get("selected");
     const statusParam = params.get("status");
     if (selectedId) {
+      const tabParam = params.get("tab");
+      const msgParam = params.get("message");
+      const threadParam = params.get("thread");
       fetch(`/api/leads/${selectedId}`).then(r => r.ok ? r.json() : null).then(lead => {
-        if (lead) setSelectedLead(lead);
+        if (lead) {
+          setSelectedLead(lead);
+          if (tabParam === "current") {
+            if (msgParam) setSelectedLeadInitMsg(Number(msgParam));
+            if (threadParam) setSelectedLeadInitThread(Number(threadParam));
+          }
+        }
       });
     }
     if (statusParam) {
@@ -739,7 +750,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
       {selectedLead && (
         <LeadDetailDialog
           lead={selectedLead}
-          onClose={() => setSelectedLead(null)}
+          onClose={() => { setSelectedLead(null); setSelectedLeadInitMsg(undefined); setSelectedLeadInitThread(undefined); }}
           onConvert={() => setConvertDialogLead(selectedLead)}
           onUnconvert={() => unconvertMutation.mutate(selectedLead.id)}
           onDelete={() => deleteMutation.mutate(selectedLead.id)}
@@ -749,12 +760,16 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
           }}
           onOpenOrg={(orgId) => {
             setSelectedLead(null);
+            setSelectedLeadInitMsg(undefined);
+            setSelectedLeadInitThread(undefined);
             setPendingOrgId(orgId);
           }}
           isConverting={convertMutation.isPending}
           isUnconverting={unconvertMutation.isPending}
           isDeleting={deleteMutation.isPending}
           canEdit={canEdit}
+          initialMessageId={selectedLeadInitMsg}
+          initialThreadId={selectedLeadInitThread}
         />
       )}
 
@@ -1461,6 +1476,8 @@ function LeadDetailDialog({
   isUnconverting,
   isDeleting,
   canEdit = true,
+  initialMessageId,
+  initialThreadId,
 }: {
   lead: Lead;
   onClose: () => void;
@@ -1473,6 +1490,8 @@ function LeadDetailDialog({
   isUnconverting: boolean;
   isDeleting: boolean;
   canEdit?: boolean;
+  initialMessageId?: number;
+  initialThreadId?: number;
 }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
@@ -1913,7 +1932,12 @@ function LeadDetailDialog({
                 <span className="text-[10px] font-normal normal-case text-muted-foreground/50">— team discussion</span>
               </p>
               <div className="h-[320px]">
-                <RecordCurrentFeed objectType="lead" objectId={lead.id} />
+                <RecordCurrentFeed
+                  objectType="lead"
+                  objectId={lead.id}
+                  initialMessageId={initialMessageId}
+                  initialThreadId={initialThreadId}
+                />
               </div>
             </div>
 

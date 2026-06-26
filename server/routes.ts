@@ -33497,16 +33497,18 @@ export function registerConfluenceRoutes(app: Express) {
   function buildRecordCurrentUrl(
     objectType: string, objectId: number, messageId: number, parentId?: number | null
   ): string {
+    const suffix = `tab=current&message=${messageId}${parentId ? `&thread=${parentId}` : ""}`;
+    if (objectType === "lead") {
+      return `/opportunities?selected=${objectId}&${suffix}`;
+    }
     const recordBase: Record<string, string> = {
       account: `/accounts/${objectId}`,
       contact: `/contacts/${objectId}`,
       opportunity: `/opportunities/${objectId}`,
-      lead: `/opportunities/${objectId}`,
       task: `/tasks`,
     };
     const base = recordBase[objectType] ?? `/`;
-    const params = `tab=current&message=${messageId}${parentId ? `&thread=${parentId}` : ""}`;
-    return `${base}?${params}`;
+    return `${base}?${suffix}`;
   }
 
   async function syncCurrentMentions(
