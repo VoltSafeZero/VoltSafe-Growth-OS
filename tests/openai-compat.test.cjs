@@ -143,8 +143,8 @@ assert(countSpread(meeting, "buildOpenAIModelParams") === 1,
        "meeting-notes: spread ×1");
 assert(countSpread(voice,   "buildOpenAIModelParams") === 1,
        "ai-voice-profiles: spread ×1");
-assert(countSpread(routes,  "buildOpenAIModelParams") === 1,
-       "routes: spread ×1");
+assert(countSpread(routes,  "buildOpenAIModelParams") === 2,
+       "routes: spread ×2 (sales-briefing + current-summary)");
 assert(countSpread(va,      "buildOpenAIModelParams") === 5,
        "voice-assistant: spread ×5 (tool-loop ×2, summary ×2, stream ×1)");
 
@@ -185,6 +185,8 @@ assert(voice.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 800, t
        "Voice profiles: tokenLimit 800, temperature 0.2");
 assert(routes.includes('buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 600, temperature: 0.5 })'),
        "Sales briefing: tokenLimit 600, temperature 0.5");
+assert(routes.includes('buildOpenAIModelParams(model, { tokenLimit: 1200 })'),
+       "Current summary: model variable, tokenLimit 1200");
 
 // Voice assistant token limits
 assert(va.includes('buildOpenAIModelParams("gpt-5-nano", { tokenLimit: 4096 })'),
