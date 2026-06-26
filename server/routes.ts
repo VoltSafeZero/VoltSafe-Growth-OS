@@ -33980,6 +33980,207 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // POST /api/current/summary — AI-powered summary of a thread, channel, or record Current
+  app.post("/api/current/summary", requireAuth, async (req, res) => {
+    try {
+      const apiKey =
+        process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+        process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ message: "AI service not configured" });
+      }
+
+      const scope = String(req.body?.scope || "");
+      if (!["thread", "channel", "record"].includes(scope)) {
+        return res.status(400).json({ message: "scope must be thread, channel, or record" });
+      }
+      const msgLimit = Math.min(100, Math.max(5, Number(req.body?.maxMessages) || 60));
+
+      interface MsgRow {
+        userName: string;
+        body: string | null;
+        createdAt: string;
+        attachmentNames: string[];
+      }
+
+      let rows: MsgRow[] = [];
+      let contextLabel = "";
+
+      if (scope === "thread") {
+        const rootId = Number(req.body?.messageId);
+        if (!rootId || rootId <= 0) {
+          return res.status(400).json({ message: "messageId required for thread scope" });
+        }
+        const { rows: dbRows } = await db.execute(sql.raw(`
+          SELECT
+            m.id,
+            m.parent_message_id,
+            CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
+            m.created_at,
+            u.name AS user_name,
+            COALESCE((
+              SELECT json_agg(a.original_name ORDER BY a.created_at)
+              FROM attachments a
+              WHERE a.object_type = 'current_message' AND a.object_id = m.id
+            ), '[]'::json) AS att_names
+          FROM current_messages m
+          JOIN users u ON u.id = m.user_id
+          WHERE (m.id = ${rootId} OR m.parent_message_id = ${rootId})
+            AND m.deleted_at IS NULL
+          ORDER BY m.parent_message_id NULLS FIRST, m.created_at ASC
+          LIMIT ${msgLimit}
+        `));
+        rows = (dbRows as any[]).map(r => ({
+          userName: r.user_name,
+          body: r.body,
+          createdAt: r.created_at,
+          attachmentNames: Array.isArray(r.att_names) ? r.att_names : [],
+        }));
+        contextLabel = "thread";
+      } else if (scope === "channel") {
+        const channelParam = String(req.body?.channel || "");
+        if (!channelParam) return res.status(400).json({ message: "channel required for channel scope" });
+        const safeSlug = channelParam.replace(/[^a-zA-Z0-9_\-]/g, "").replace(/'/g, "");
+        const { rows: dbRows } = await db.execute(sql.raw(`
+          SELECT
+            CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
+            m.created_at,
+            u.name AS user_name,
+            COALESCE((
+              SELECT json_agg(a.original_name ORDER BY a.created_at)
+              FROM attachments a
+              WHERE a.object_type = 'current_message' AND a.object_id = m.id
+            ), '[]'::json) AS att_names
+          FROM current_messages m
+          JOIN users u ON u.id = m.user_id
+          JOIN current_channels cc ON cc.id = m.channel_id
+          WHERE cc.slug = '${safeSlug}'
+            AND m.parent_message_id IS NULL
+            AND m.deleted_at IS NULL
+          ORDER BY m.created_at DESC
+          LIMIT ${msgLimit}
+        `));
+        rows = (dbRows as any[]).reverse().map(r => ({
+          userName: r.user_name,
+          body: r.body,
+          createdAt: r.created_at,
+          attachmentNames: Array.isArray(r.att_names) ? r.att_names : [],
+        }));
+        contextLabel = `#${safeSlug}`;
+      } else {
+        // record scope
+        const objectType = String(req.body?.objectType || "").replace(/[^a-zA-Z0-9_]/g, "");
+        const objectId = Number(req.body?.objectId);
+        const allowed = new Set(["account", "contact", "opportunity", "lead", "project", "deployment", "install_workflow", "customer_success", "partnership", "quote", "tradeshow_event"]);
+        if (!allowed.has(objectType) || !objectId || objectId <= 0) {
+          return res.status(400).json({ message: "objectType and valid objectId required for record scope" });
+        }
+        const { rows: dbRows } = await db.execute(sql.raw(`
+          SELECT
+            CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
+            m.created_at,
+            u.name AS user_name,
+            COALESCE((
+              SELECT json_agg(a.original_name ORDER BY a.created_at)
+              FROM attachments a
+              WHERE a.object_type = 'current_message' AND a.object_id = m.id
+            ), '[]'::json) AS att_names
+          FROM current_messages m
+          JOIN users u ON u.id = m.user_id
+          WHERE m.object_type = '${objectType}'
+            AND m.object_id = ${objectId}
+            AND m.parent_message_id IS NULL
+            AND m.deleted_at IS NULL
+          ORDER BY m.created_at ASC
+          LIMIT ${msgLimit}
+        `));
+        rows = (dbRows as any[]).map(r => ({
+          userName: r.user_name,
+          body: r.body,
+          createdAt: r.created_at,
+          attachmentNames: Array.isArray(r.att_names) ? r.att_names : [],
+        }));
+        contextLabel = `${objectType} #${objectId}`;
+      }
+
+      if (rows.length < 2) {
+        return res.status(400).json({ message: "Not enough conversation yet to summarize." });
+      }
+
+      const transcript = rows
+        .map(m => {
+          const when = m.createdAt ? new Date(m.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+          const att = m.attachmentNames.length > 0 ? `\n[Attachments: ${m.attachmentNames.slice(0, 5).join(", ")}]` : "";
+          return `${m.userName} (${when}): ${(m.body || "").trim()}${att}`;
+        })
+        .join("\n\n")
+        .slice(0, 20000);
+
+      const { default: OpenAI } = await import("openai");
+      const { buildOpenAIModelParams } = await import("./services/openai-compat");
+      const oai = new OpenAI({
+        apiKey,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const model = "gpt-5.1";
+      const systemPrompt =
+        `You are an expert at summarizing team conversations for a marina sales operations platform.\n` +
+        `Analyze the conversation and return ONLY a valid JSON object (no markdown fences, no commentary) with these exact keys:\n` +
+        `{\n` +
+        `  "summary": ["2-4 brief bullet points covering what the conversation is about and key outcomes"],\n` +
+        `  "decisions": ["decisions explicitly made or clearly implied; empty array if none"],\n` +
+        `  "openQuestions": ["unresolved questions raised; empty array if none"],\n` +
+        `  "actionItems": [{"owner": "Name or Unassigned", "task": "description", "due": "date string or null"}],\n` +
+        `  "risks": ["explicit risks, blockers, or concerns; empty array if none"],\n` +
+        `  "nextSteps": ["1-3 actionable next steps based on the conversation"]\n` +
+        `}\n` +
+        `Keep each item concise (under 120 characters). Return ONLY the JSON — no extra text.`;
+
+      const completion = await oai.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Conversation (${contextLabel}, ${rows.length} messages):\n\n${transcript}` },
+        ],
+        ...buildOpenAIModelParams(model, { tokenLimit: 1200 }),
+      });
+
+      const raw = completion.choices?.[0]?.message?.content?.trim() || "{}";
+
+      let parsed: any = {};
+      try {
+        // Strip optional markdown code fences the model might emit despite instructions
+        const clean = raw.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
+        parsed = JSON.parse(clean);
+      } catch {
+        // Fallback: put raw text as summary bullet
+        parsed = { summary: [raw.slice(0, 300)], decisions: [], openQuestions: [], actionItems: [], risks: [], nextSteps: [] };
+      }
+
+      const result = {
+        summary: Array.isArray(parsed.summary) ? (parsed.summary as string[]).slice(0, 8) : [],
+        decisions: Array.isArray(parsed.decisions) ? (parsed.decisions as string[]).slice(0, 10) : [],
+        openQuestions: Array.isArray(parsed.openQuestions) ? (parsed.openQuestions as string[]).slice(0, 10) : [],
+        actionItems: Array.isArray(parsed.actionItems)
+          ? (parsed.actionItems as any[]).slice(0, 10).map(a => ({
+              owner: String(a?.owner || "Unassigned").slice(0, 60),
+              task: String(a?.task || "").slice(0, 200),
+              due: a?.due ? String(a.due).slice(0, 40) : null,
+            }))
+          : [],
+        risks: Array.isArray(parsed.risks) ? (parsed.risks as string[]).slice(0, 8) : [],
+        nextSteps: Array.isArray(parsed.nextSteps) ? (parsed.nextSteps as string[]).slice(0, 6) : [],
+        sourceMessageCount: rows.length,
+        generatedAt: new Date().toISOString(),
+      };
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(503).json({ message: err?.message || "AI summary failed" });
+    }
+  });
+
   // ── Training Hub video routes ────────────────────────────────────────────────
 
   const TRAINING_FINAL_DIR = path.resolve("onboarding-videos/outputs/final");

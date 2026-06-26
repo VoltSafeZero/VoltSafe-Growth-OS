@@ -1,0 +1,275 @@
+Proceed with Currents Phase 5B only: AI Summaries.
+
+Goal:
+Add AI-powered summaries to Currents so users can quickly understand long channel threads, CRM record conversations, and specific message threads.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, or unrelated CRM features yet.
+
+Phase 5B scope
+
+Add only:
+
+1. AI summary for a message thread
+2. AI summary for a channel Current
+3. AI summary for a CRM Record Current
+4. Structured summary output:
+    * Key decisions
+    * Open questions
+    * Action items
+    * Owners
+    * Risks/blockers
+    * Suggested next steps
+5. Safe backend AI route(s)
+6. Clean UI buttons/panels to request summaries
+
+Existing systems to reuse
+
+Please first audit existing AI integration patterns in VoltSafe CMS.
+
+Look for existing:
+
+* AI email generation routes
+* account summary routes
+* lead summary routes
+* Cortex/AI helper functions
+* OpenAI/client wrapper utilities
+* permission/auth patterns for AI endpoints
+* loading/error UI patterns
+
+Reuse existing AI infrastructure if available. Do not create a second AI stack unless absolutely necessary.
+
+Backend requirements
+
+1. Add summary endpoint(s)
+
+Preferred route:
+
+* POST /api/current/summary
+
+Request body:
+
+{
+  "scope": "thread" | "channel" | "record",
+  "channel": "general",
+  "messageId": 123,
+  "objectType": "account",
+  "objectId": 456,
+  "maxMessages": 100
+}
+
+Supported scopes:
+
+Thread summary
+
+* scope = "thread"
+* Requires root messageId
+* Summarizes root message + replies
+* Should include attachments by filename only, not file contents unless existing system safely supports that
+
+Channel summary
+
+* scope = "channel"
+* Requires channel
+* Summarizes recent channel messages, default last 50–100 non-deleted messages
+* Include thread reply context if easy; otherwise summarize only top-level messages and document limitation
+
+Record summary
+
+* scope = "record"
+* Requires objectType and objectId
+* Summarizes recent messages for that CRM record
+* Should work for:
+    * account
+    * contact
+    * opportunity
+    * lead
+
+2. Data safety
+
+The endpoint must:
+
+* Require authentication
+* Exclude soft-deleted message bodies
+* Exclude attachments from deleted messages
+* Include attachment filenames only, not raw file contents
+* Not expose raw filesystem paths
+* Respect existing internal-user access assumptions
+* Use bounded message limits
+* Avoid huge prompts
+* Fail gracefully if AI provider/env key is unavailable
+
+3. Prompt shape
+
+The AI output should be structured and practical.
+
+Ask for this structure:
+
+Summary:
+- Brief overview in 2–4 bullets
+Key Decisions:
+- Decision made
+- Decision made
+Open Questions:
+- Question
+- Question
+Action Items:
+- Owner — task — suggested due date if implied
+Risks / Blockers:
+- Risk
+- Blocker
+Suggested Next Steps:
+- Next step
+- Next step
+
+If any section has no content, return:
+
+None identified.
+
+4. Response payload
+
+Return a structured JSON response if possible:
+
+{
+  "summary": ["..."],
+  "decisions": ["..."],
+  "openQuestions": ["..."],
+  "actionItems": [
+    {
+      "owner": "Trevor",
+      "task": "...",
+      "due": null
+    }
+  ],
+  "risks": ["..."],
+  "nextSteps": ["..."],
+  "sourceMessageCount": 42,
+  "generatedAt": "..."
+}
+
+If structured JSON parsing is too risky with existing AI utilities, return markdown plus metadata.
+
+5. Optional persistence
+
+For Phase 5B, do not persist summaries unless there is an existing safe pattern.
+
+Generated summaries can be on-demand only.
+
+If persistence is easy and safe, propose it as a follow-up, but do not implement unless needed.
+
+Frontend requirements
+
+1. Thread summary UI
+
+Inside the thread panel:
+
+* Add a small button:
+    * Summarize Thread
+* Show loading state.
+* Show summary in a clean panel/card.
+* Allow regenerate if simple.
+* Do not clutter the thread panel.
+
+2. Channel summary UI
+
+Inside /current channel view:
+
+* Add a button near the channel header:
+    * Summarize
+    * or Summarize Channel
+* It should summarize the current channel.
+* Show result in a side panel, modal, or inline card.
+* Keep it premium and compact.
+
+3. Record Currents summary UI
+
+Inside RecordCurrentFeed:
+
+* Add a compact button:
+    * Summarize
+    * or Summarize Record Current
+* It should summarize only that record’s Currents.
+* Show result inline above the feed or in a small panel.
+* Do not make CRM pages feel crowded.
+
+4. Summary display component
+
+Create reusable UI if practical:
+
+* CurrentSummaryPanel
+* or similar
+
+It should display sections clearly:
+
+* Summary
+* Key Decisions
+* Open Questions
+* Action Items
+* Risks / Blockers
+* Suggested Next Steps
+
+Use polished styling:
+
+* good dark mode
+* subtle borders
+* section icons if existing icon set supports it
+* clear empty states
+* copy-to-clipboard button if low-risk
+
+5. UX requirements
+
+* Loading state should feel deliberate.
+* Error state should be helpful:
+    * “Could not generate summary. Try again.”
+* If there are too few messages:
+    * “Not enough conversation yet to summarize.”
+* Do not auto-generate summaries on page load.
+* User must click a button.
+* Do not spam the AI endpoint every poll.
+* Do not block normal posting/reading while summary loads.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current still loads.
+3. Channel summary button appears.
+4. Channel summary works on #general.
+5. Thread summary button appears.
+6. Thread summary works for a thread with replies.
+7. Record Currents summary button appears.
+8. Account Currents summary works.
+9. Contact Currents summary works if enough messages exist.
+10. Opportunity Currents summary works if enough messages exist.
+11. Lead Currents summary works if enough messages exist.
+12. Deleted messages are excluded.
+13. Deleted attachments are excluded.
+14. Attachment filenames may appear, but not file contents.
+15. AI unavailable/env missing fails gracefully.
+16. Existing channel posting still works.
+17. Existing record posting still works.
+18. Search still works.
+19. Attachments still work.
+20. Mentions/notifications still work.
+21. Pins/reactions/edit/delete still work.
+22. No browser console errors.
+23. No server errors.
+24. No SQL errors.
+25. /execution/communications remains unaffected.
+26. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing AI system audit summary
+2. Files changed
+3. Routes added/changed
+4. Frontend components changed/added
+5. Summary scopes supported
+6. AI prompt/response format
+7. Verification results
+8. Known issues
+9. Recommended next step
+
+Keep scope tight: Currents AI summaries only.
