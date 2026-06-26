@@ -1,0 +1,96 @@
+Let me locate all the calendar Zoom link code simultaneously:
+
+
+3 actions
+Let me read the three key files in parallel — the calendar widget, the meeting banner, and the cal-parse core:
+
+
+4 actions
+I can see the issue clearly. Let me now look at the Google Calendar sync code where meetingUrl is populated, and the exact Join Zoom button render:
+
+
+4 actions
+Found it. The key is in server/calendar-sync.ts lines 339-341. Let me read that section plus the full detectMeetingProvider function:
+
+
+3 actions
+Root cause is clear. Two bugs working together:
+
+Backend (calendar-sync.ts): If conferenceData is absent (manually-added Zoom links), meetingUrl is stored as null. Then detectMeetingProvider falls through to check event.location, which Google Calendar populates with a display-masked version (us02web.zoom.us/j/******617) — no https prefix, asterisked meeting ID.
+
+Frontend (detectMeetingProvider): The regex https?:\/\/...zoom\.us\/[^\s"'<>)]+ never validates the meeting ID is numeric — so if meetingUrl itself is a masked URL with asterisks, it passes through unchanged and becomes the href.
+
+Fix: (a) backend extracts valid Zoom URLs (full numeric ID) from location/description as fallback; (b) detectMeetingProvider rejects any Zoom URL with a non-numeric meeting ID; (c) UI shows "Zoom link unavailable" instead of opening Zoom with a bad ID.
+
+
+3 actions
+I have everything I need. Writing all three fixes in parallel:
+
+
+3 actions
+Now fix the frontend detectMeetingProvider to validate Zoom URLs and update the button to show "unavailable" for masked links:
+
+
+2 actions
+Now update the Join Zoom button to handle the zoomMasked case, then write the regression test:
+
+
+2 actions
+Now write the regression test and check for the unused hasMaskedZoomUrl function:
+
+
+3 actions
+The hasMaskedZoomUrl helper is unused — remove it, then write the regression test:
+
+
+2 actions
+Now write the regression test and restart the app:
+
+
+5 actions
+Two failures to fix: (1) the regex matches a 13-digit ID by greedily taking the first 12 digits, and (2) the href test needs a different search window. Let me check the actual button code and fix both:
+
+
+3 actions
+Two things to fix: (1) regex allows 13-digit IDs by greedy-matching first 12 digits; (2) check what's around the button testid that's causing the href test to fail:
+
+
+2 actions
+The test failure makes sense now — the long className string on line 4588 pushes href={mUrl} about 324 chars before the testid, so the -300 window misses it. Also need to fix the regex to truly block 13-digit IDs. Both fixes:
+
+
+3 actions
+Now fix the test's window size to reach href={mUrl} which is ~324 chars before the testid:
+
+
+4 actions
+The test's own hardcoded regex copy doesn't have the (?!\d) fix yet — it's what the test itself uses for section 6 contract checks:
+
+
+4 actions
+38/38 passing. Let me write the commit message and finish:
+
+
+2 actions
+
+Ran validation · 2 passed
+
+Planning final merge confirmation
+All done. The fix is in place and all 38 regression tests pass.
+
+What was fixed:
+
+Root cause — Google Calendar populates event.location with a display-masked Zoom URL (us02web.zoom.us/j/******617) instead of the real meeting ID. When an event lacked conferenceData, the backend stored null for meetingUrl, so the frontend fell back to event.location, picked up the masked URL, and used it as the href — which Zoom rejects with "Invalid meeting ID (3,000)".
+
+Two layers of defence added:
+
+server/calendar-sync.ts — a new VALID_ZOOM_RE (requires /j/\d{9,12}(?!\d)/) and helper functions. The meetingUrl extraction now:
+
+Validates the conferenceData URI has a full numeric meeting ID (rejects masked ones)
+Falls back to hangoutLink (Google Meet)
+Extracts a valid Zoom URL from event.location as a fallback
+Extracts from event.description as a last resort
+Never stores a masked URL
+client/src/pages/calendar.tsx — detectMeetingProvider now validates any Zoom URL it finds has a numeric-only meeting ID. If masked, it returns { provider: "zoom", joinUrl: null, zoomMasked: true }. The Join Zoom button renders a grey "Zoom link unavailable" pill instead of a broken anchor when this happens.
+
+Existing events with masked URLs already in the DB will now correctly show "Zoom link unavailable" — better than silently opening Zoom with an invalid ID. They'll self-heal on the next calendar sync once Google provides the full conferenceData.
