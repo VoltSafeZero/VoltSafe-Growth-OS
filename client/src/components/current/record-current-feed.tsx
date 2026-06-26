@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow } from "date-fns";
 import {
   MessageSquare, Send, Smile, Pencil, Trash2, X, Check,
-  AtSign, MessagesSquare, ChevronLeft, Pin,
+  AtSign, MessagesSquare, ChevronLeft, Pin, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -30,6 +30,17 @@ interface RecordMessage {
   reactions: Array<{ emoji: string; count: number; reacted: boolean }>;
   replyCount: number;
   latestReplyAt: string | null;
+}
+
+interface PinnedRecord {
+  id: number;
+  messageId: number;
+  pinnedBy: number | null;
+  pinnedByName: string | null;
+  pinnedAt: string;
+  messageBody: string | null;
+  messageUserName: string;
+  messageCreatedAt: string;
 }
 
 interface MentionUser {
@@ -316,7 +327,7 @@ function MessageComposer({
 // ── MessageItem ───────────────────────────────────────────────────────────────
 
 function MessageItem({
-  msg, myUserId, onReact, onEdit, onDelete, onOpenThread, highlighted,
+  msg, myUserId, onReact, onEdit, onDelete, onOpenThread, onPin, isPinned, highlighted,
 }: {
   msg: RecordMessage;
   myUserId: number;
@@ -324,6 +335,8 @@ function MessageItem({
   onEdit: (msgId: number, body: string) => void;
   onDelete: (msgId: number) => void;
   onOpenThread: (msgId: number) => void;
+  onPin: (msgId: number, currentlyPinned: boolean) => void;
+  isPinned: boolean;
   highlighted: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -372,6 +385,7 @@ function MessageItem({
             {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
           </span>
           {msg.isEdited && <span className="text-[9px] text-muted-foreground/50">(edited)</span>}
+          {isPinned && <Pin className="h-2.5 w-2.5 text-primary/50 ml-0.5" />}
         </div>
 
         {editing ? (
@@ -421,7 +435,7 @@ function MessageItem({
           </div>
         )}
 
-        {/* Thread count */}
+        {/* Reply count chip */}
         {msg.replyCount > 0 && (
           <button
             onClick={() => onOpenThread(msg.id)}
@@ -430,6 +444,11 @@ function MessageItem({
           >
             <MessagesSquare className="h-3 w-3" />
             {msg.replyCount} {msg.replyCount === 1 ? "reply" : "replies"}
+            {msg.latestReplyAt && (
+              <span className="text-muted-foreground/60 ml-0.5">
+                · {formatDistanceToNow(new Date(msg.latestReplyAt), { addSuffix: true })}
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -451,6 +470,18 @@ function MessageItem({
           data-testid={`thread-icon-btn-${msg.id}`}
         >
           <MessageSquare className="h-3 w-3" />
+        </button>
+        <button
+          onClick={() => onPin(msg.id, isPinned)}
+          className={`h-5 w-5 flex items-center justify-center rounded transition-colors ${
+            isPinned
+              ? "text-primary hover:text-primary/70 hover:bg-primary/10"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+          }`}
+          title={isPinned ? "Unpin" : "Pin"}
+          data-testid={`pin-btn-${msg.id}`}
+        >
+          <Pin className={`h-3 w-3 ${isPinned ? "fill-primary/30" : ""}`} />
         </button>
         {isOwn && (
           <>
@@ -482,15 +513,68 @@ function MessageItem({
   );
 }
 
+// ── PinnedBar ─────────────────────────────────────────────────────────────────
+
+function PinnedBar({
+  pins, onUnpin,
+}: {
+  pins: PinnedRecord[];
+  onUnpin: (messageId: number) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (pins.length === 0) return null;
+  const shown = expanded ? pins : [pins[0]];
+
+  return (
+    <div className="px-3 py-1.5 border-b border-border/40 bg-primary/[0.02] shrink-0" data-testid="record-pinned-bar">
+      <div className="flex items-start gap-1.5">
+        <Pin className="w-2.5 h-2.5 text-primary/50 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0 space-y-0.5">
+          {shown.map(pin => (
+            <div key={pin.id} className="flex items-center gap-1.5 group/pin min-w-0">
+              <div className="flex-1 min-w-0 flex items-baseline gap-1 overflow-hidden">
+                <span className="text-[10px] font-medium text-primary/70 shrink-0">{pin.messageUserName}</span>
+                <span className="text-[11px] text-foreground/55 truncate">
+                  {(pin.messageBody ?? "").slice(0, 80)}{(pin.messageBody ?? "").length > 80 ? "…" : ""}
+                </span>
+              </div>
+              <button
+                onClick={() => onUnpin(pin.messageId)}
+                title="Unpin"
+                className="opacity-0 group-hover/pin:opacity-100 shrink-0 w-3.5 h-3.5 flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground transition-all rounded"
+                data-testid={`unpin-btn-${pin.messageId}`}
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        {pins.length > 1 && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="shrink-0 flex items-center gap-0.5 text-[10px] text-primary/60 hover:text-primary transition-colors"
+            data-testid="pinned-bar-toggle"
+          >
+            {expanded ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+            <span>{expanded ? "less" : `+${pins.length - 1}`}</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── ThreadPanel ───────────────────────────────────────────────────────────────
 
 function ThreadPanel({
-  rootId, myUserId, objectType, objectId, onClose,
+  rootId, myUserId, objectType, objectId, pinnedIds, onPin, onClose,
 }: {
   rootId: number;
   myUserId: number;
   objectType: string;
   objectId: number;
+  pinnedIds: Set<number>;
+  onPin: (msgId: number, isPinned: boolean) => void;
   onClose: () => void;
 }) {
   const { toast } = useToast();
@@ -572,10 +656,12 @@ function ThreadPanel({
                   msg={m}
                   myUserId={myUserId}
                   highlighted={false}
+                  isPinned={pinnedIds.has(m.id)}
                   onReact={(msgId, emoji) => reactMutation.mutate({ msgId, emoji })}
                   onEdit={(msgId, body) => editMutation.mutate({ msgId, body })}
                   onDelete={msgId => deleteMutation.mutate(msgId)}
                   onOpenThread={() => {}}
+                  onPin={onPin}
                 />
                 {i === 0 && allMsgs.length > 1 && (
                   <div className="ml-8 my-1 border-l-2 border-border/30 pl-2 text-[10px] text-muted-foreground">
@@ -608,6 +694,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
   const [threadRootId, setThreadRootId] = useState<number | null>(initialThreadId ?? null);
   const [highlightedMsgId, setHighlightedMsgId] = useState<number | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasHighlightedRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Session user
@@ -627,32 +714,54 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
     refetchInterval: 8000,
   });
 
+  // Pins
+  const { data: pins = [] } = useQuery<PinnedRecord[]>({
+    queryKey: [apiBase + "/pins"],
+    queryFn: async () => {
+      const r = await fetch(apiBase + "/pins", { credentials: "include" });
+      return r.json();
+    },
+    refetchInterval: 15000,
+  });
+
+  const pinnedIds = new Set(pins.map(p => p.messageId));
+
   // Mark read on mount + whenever messages load
   useEffect(() => {
     if (!messages.length) return;
     fetch(apiBase + "/read", { method: "POST", credentials: "include" }).catch(() => {});
   }, [messages.length, apiBase]);
 
-  // Auto-scroll on new messages (bottom)
+  // Auto-scroll on new messages (bottom) — only when no initial message target
   useEffect(() => {
+    if (initialMessageId) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
-  // Deep-link: highlight + open thread
+  // Deep-link: highlight target message once when it becomes available
   function setHighlight(msgId: number) {
     clearTimeout(highlightTimerRef.current ?? undefined);
     setHighlightedMsgId(msgId);
-    highlightTimerRef.current = setTimeout(() => setHighlightedMsgId(null), 3000);
+    highlightTimerRef.current = setTimeout(() => setHighlightedMsgId(null), 3500);
   }
 
   useEffect(() => {
-    if (initialMessageId && messages.some(m => m.id === initialMessageId)) {
-      const el = document.getElementById(`record-msg-${initialMessageId}`);
-      el?.scrollIntoView({ behavior: "smooth", block: "center" });
-      setHighlight(initialMessageId);
+    if (!initialMessageId || hasHighlightedRef.current) return;
+    if (messages.some(m => m.id === initialMessageId)) {
+      hasHighlightedRef.current = true;
+      setTimeout(() => {
+        const el = document.getElementById(`record-msg-${initialMessageId}`);
+        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlight(initialMessageId);
+      }, 150);
     }
-    if (initialThreadId) setThreadRootId(initialThreadId);
   }, [messages.length]);
+
+  // Deep-link: open thread if initialThreadId provided (already in useState initial value)
+  // but also handle late open if thread param arrives after render
+  useEffect(() => {
+    if (initialThreadId && threadRootId === null) setThreadRootId(initialThreadId);
+  }, [initialThreadId]);
 
   // Mutations
   const postMutation = useMutation({
@@ -688,8 +797,33 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] }),
   });
 
+  const pinMutation = useMutation({
+    mutationFn: async ({ msgId, isPinned }: { msgId: number; isPinned: boolean }) => {
+      if (isPinned) {
+        return apiRequest("DELETE", `/api/current/messages/${msgId}/pin`);
+      } else {
+        return apiRequest("POST", `/api/current/messages/${msgId}/pin`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [apiBase + "/pins"] });
+      queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] });
+    },
+    onError: () => toast({ title: "Failed to update pin", variant: "destructive" }),
+  });
+
+  function handlePin(msgId: number, isPinned: boolean) {
+    pinMutation.mutate({ msgId, isPinned });
+  }
+
   return (
     <div className="flex flex-col h-full min-h-[320px]" data-testid={`record-current-feed-${objectType}-${objectId}`}>
+      {/* Pinned bar */}
+      <PinnedBar
+        pins={pins}
+        onUnpin={msgId => pinMutation.mutate({ msgId, isPinned: true })}
+      />
+
       {/* Message list */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-0.5">
         {isLoading && (
@@ -720,10 +854,12 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
             msg={msg}
             myUserId={myUserId}
             highlighted={highlightedMsgId === msg.id}
+            isPinned={pinnedIds.has(msg.id)}
             onReact={(msgId, emoji) => reactMutation.mutate({ msgId, emoji })}
             onEdit={(msgId, body) => editMutation.mutate({ msgId, body })}
             onDelete={msgId => deleteMutation.mutate(msgId)}
             onOpenThread={msgId => setThreadRootId(msgId)}
+            onPin={handlePin}
           />
         ))}
         <div ref={bottomRef} />
@@ -744,6 +880,8 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
           myUserId={myUserId}
           objectType={objectType}
           objectId={objectId}
+          pinnedIds={pinnedIds}
+          onPin={handlePin}
           onClose={() => setThreadRootId(null)}
         />
       )}

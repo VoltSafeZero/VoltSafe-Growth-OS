@@ -21,6 +21,7 @@ import {
   CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
 } from "lucide-react";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
+import { RecordCurrentFeed } from "@/components/current/record-current-feed";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { ScoreBadge } from "@/components/scores/score-badge";
 import { SendBookingLinkButton, BookingLinkStatusInline } from "@/components/SendBookingLinkButton";
@@ -1904,6 +1905,16 @@ function LeadDetailDialog({
 
             <div className="border-t border-border/50 pt-4">
               <CommentsFeed objectType="lead" objectId={lead.id} />
+            </div>
+
+            <div className="border-t border-border/50 pt-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <span>Current</span>
+                <span className="text-[10px] font-normal normal-case text-muted-foreground/50">— team discussion</span>
+              </p>
+              <div className="h-[320px]">
+                <RecordCurrentFeed objectType="lead" objectId={lead.id} />
+              </div>
             </div>
 
             <div className="flex gap-2 justify-end pt-4 border-t border-border/50">

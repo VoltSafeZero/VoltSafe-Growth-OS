@@ -1,0 +1,144 @@
+Proceed with Current Phase 3B only: Record Current Completion + Polish.
+
+Goal:
+Finish the record-specific Current experience so it feels complete and consistent across CRM records.
+
+Do not add Guest Currents, direct messages, attachments, search, AI summaries, slash commands, or external collaborators yet.
+
+Phase 3B scope
+
+Add only:
+
+1. Pin UI inside RecordCurrentFeed
+2. Reply count badge/chip inside RecordCurrentFeed
+3. Polish notification/deep-link highlighting for record Current messages
+4. Add Record Current to Lead profile/detail if the existing Lead UI structure supports it cleanly
+5. Regression check existing /current channel behavior
+
+1. Pin UI in RecordCurrentFeed
+
+Backend is already working for record pins.
+
+Frontend requirements:
+
+* Add Pin / Unpin action to record messages.
+* Use the same or similar hover action pattern as the main /current channel feed.
+* Add a compact pinned-message bar inside RecordCurrentFeed.
+* Pinned bar should be subtle and not dominate the CRM page.
+* Multiple pins should be handled cleanly.
+* Pin/unpin should invalidate the record pins query and record messages query if needed.
+* Deleted messages should not create ugly pin states.
+* Dark mode must look polished.
+
+Verify:
+
+* Pin record message.
+* Pinned bar appears.
+* Unpin record message.
+* Pinned bar clears.
+* Multiple pins do not clutter the page.
+* Record pins do not interfere with channel pins.
+
+2. Reply count badge/chip in RecordCurrentFeed
+
+Add a compact reply count chip beneath record messages when replies exist.
+
+Examples:
+
+* 1 reply
+* 3 replies
+
+Optional if already available from API:
+
+* latest reply timestamp
+
+Requirements:
+
+* Clicking the reply chip opens the correct thread.
+* Reply count updates after adding a reply.
+* Deleted replies should not count if that is the existing intended behavior.
+* Chip should look subtle but discoverable.
+* It should not clutter messages with reactions.
+
+3. Record notification deep-link polish
+
+Audit and polish record Current deep-links.
+
+Target behavior:
+
+* Record page opens.
+* Current section/tab is activated or scrolled into view.
+* Target message scrolls into view.
+* Highlight ring appears briefly and clears cleanly.
+* If thread param exists, thread panel opens.
+* Invalid message/thread params fail gracefully.
+
+Verify for:
+
+* Account Current deep-link
+* Contact Current deep-link
+* Opportunity Current deep-link
+* Lead Current deep-link if implemented
+
+Preferred URL pattern should follow whatever already exists:
+
+* /accounts/:id?tab=current&message=123
+* /accounts/:id?tab=current&thread=456&message=789
+
+Do not invent unsupported route structures.
+
+4. Add Lead Current if clean
+
+If the Lead detail/profile/drawer structure can support it cleanly, add:
+
+Lead → Current
+
+Requirements:
+
+* Reuse RecordCurrentFeed
+* objectType="lead"
+* Correct objectId
+* Posting works
+* Threads work
+* Reactions work
+* Edit/delete works
+* Pins work if record pins are now in the UI
+* @mentions work
+* Mention notifications deep-link back to the Lead if supported
+* Existing Lead page/drawer behavior must not break
+
+If the Lead UI structure is too messy or risky, do not force it. Document why and stop.
+
+5. Regression check existing behavior
+
+Verify:
+
+* /current still loads.
+* Channel messages still work.
+* Channel threads still work.
+* Channel reactions still work.
+* Channel pins still work.
+* Channel @mentions still work.
+* Mentions panel still works.
+* Account Current still works.
+* Contact Current still works.
+* Opportunity Current still works.
+* /execution/communications remains unaffected.
+* No browser console errors.
+* No server errors.
+* No SQL errors.
+* No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Files changed
+2. Frontend components changed
+3. Backend/routes changed, if any
+4. CRM pages integrated
+5. Verification results
+6. Known issues
+7. Recommended next step
+
+Keep scope tight: Record Current completion and polish only.
