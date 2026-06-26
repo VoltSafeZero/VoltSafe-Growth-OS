@@ -134,6 +134,7 @@ type NoteCapture = {
   endedAt: string | null;
   durationSeconds: number | null;
   processingError: string | null;
+  processingStepText?: string | null;
 };
 
 function fmtSecs(total: number): string {
@@ -356,7 +357,7 @@ export function MeetingNoteCapturePanel({
           data-testid="status-processing"
         >
           <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-          Processing transcript…
+          <span>{note.processingStepText ?? "Processing transcript…"}</span>
         </div>
       )}
 

@@ -2599,6 +2599,7 @@ export const meetingNotes = pgTable("meeting_notes", {
   actionItemsText: text("action_items_text"),
   followupDraftText: text("followup_draft_text"),
   processingError: text("processing_error"),
+  processingStepText: text("processing_step"),
   consentNoted: boolean("consent_noted").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -2611,6 +2612,30 @@ export const insertMeetingNoteSchema = createInsertSchema(meetingNotes).omit({
 });
 export type InsertMeetingNote = z.infer<typeof insertMeetingNoteSchema>;
 export type MeetingNote = typeof meetingNotes.$inferSelect;
+
+// meeting_note_audio_splits — one row per ffmpeg-split audio segment (Phase B.4c)
+// status lifecycle: pending → transcribing → done | failed
+export const meetingNoteAudioSplits = pgTable("meeting_note_audio_splits", {
+  id: serial("id").primaryKey(),
+  meetingNoteId: integer("meeting_note_id").notNull(),
+  splitIndex: integer("split_index").notNull(),
+  startMs: integer("start_ms"),
+  endMs: integer("end_ms"),
+  filePath: text("file_path"),
+  status: text("status").notNull().default("pending"),
+  transcriptText: text("transcript_text"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertMeetingNoteAudioSplitSchema = createInsertSchema(meetingNoteAudioSplits).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertMeetingNoteAudioSplit = z.infer<typeof insertMeetingNoteAudioSplitSchema>;
+export type MeetingNoteAudioSplit = typeof meetingNoteAudioSplits.$inferSelect;
 
 // meeting_note_transcript_chunks — one row per audio transcription chunk
 export const meetingNoteTranscriptChunks = pgTable("meeting_note_transcript_chunks", {

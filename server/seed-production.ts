@@ -2124,3 +2124,36 @@ export async function migrateCurrentSchema(): Promise<void> {
     console.error("[migration] migrateCurrentSchema error (non-fatal):", err);
   }
 }
+
+export async function migrateMeetingNoteAudioSplits(): Promise<void> {
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE meeting_notes ADD COLUMN IF NOT EXISTS processing_step TEXT
+    `));
+
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS meeting_note_audio_splits (
+        id               SERIAL PRIMARY KEY,
+        meeting_note_id  INTEGER NOT NULL REFERENCES meeting_notes(id) ON DELETE CASCADE,
+        split_index      INTEGER NOT NULL,
+        start_ms         INTEGER,
+        end_ms           INTEGER,
+        file_path        TEXT,
+        status           TEXT NOT NULL DEFAULT 'pending',
+        transcript_text  TEXT,
+        error_message    TEXT,
+        created_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `));
+
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_mnast_meeting_note_id
+        ON meeting_note_audio_splits(meeting_note_id)
+    `));
+
+    console.log("[migration] Meeting note audio splits schema ready.");
+  } catch (err) {
+    console.error("[migration] migrateMeetingNoteAudioSplits error (non-fatal):", err);
+  }
+}

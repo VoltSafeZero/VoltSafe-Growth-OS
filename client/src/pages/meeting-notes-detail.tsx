@@ -75,6 +75,7 @@ type MeetingNoteDetail = {
   linkedObjectType: string | null;
   linkedObjectId: number | null;
   processingError: string | null;
+  processingStepText: string | null;
   createdAt: string;
   updatedAt: string;
   chunks: TranscriptChunk[];
@@ -601,8 +602,8 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
     enabled: !!noteId,
     // Poll every 2.5s while processing — stop once done or failed
     refetchInterval: (query) => {
-      const status = (query.state.data as MeetingNoteDetail | undefined)?.status;
-      return status === "processing" ? 2500 : false;
+      const d = query.state.data as MeetingNoteDetail | undefined;
+      return d?.status === "processing" ? 2500 : false;
     },
   });
 
@@ -928,8 +929,10 @@ export default function MeetingNotesDetailPage({ params }: { params: { id: strin
           <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/20" data-testid="banner-processing">
             <Loader2 className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Analyzing meeting…</p>
-              <p className="text-xs text-amber-600/70">Transcribing and extracting insights. This usually takes under a minute.</p>
+              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                {note.processingStepText ?? "Analyzing meeting…"}
+              </p>
+              <p className="text-xs text-amber-600/70">Transcribing and extracting insights. This may take a few minutes for longer recordings.</p>
             </div>
           </div>
         )}
