@@ -67,16 +67,19 @@ function truncateTitle(text: string, max = 90): string {
 function buildDescription(source: CreateTaskSource): string {
   if (source.kind === "channel_message") {
     const body = source.body ? stripMentionTokens(source.body) : "(no text)";
+    const msgKind = source.threadRootId != null ? "thread reply" : "message";
     return (
-      `Created from Currents message in #${source.channelSlug}.\n\n` +
+      `Created from Currents ${msgKind} in #${source.channelSlug}.\n\n` +
       `"${body}"\n\n` +
       `— ${source.userName}, ${format(new Date(source.createdAt), "MMM d, yyyy 'at' h:mm a")}`
     );
   }
   if (source.kind === "record_message") {
     const body = source.body ? stripMentionTokens(source.body) : "(no text)";
+    const msgKind = source.threadRootId != null ? "thread reply" : "message";
+    const label = source.objectType.charAt(0).toUpperCase() + source.objectType.slice(1);
     return (
-      `Created from Currents message on ${source.objectType} record.\n\n` +
+      `Created from Currents ${msgKind} on ${label} record.\n\n` +
       `"${body}"\n\n` +
       `— ${source.userName}, ${format(new Date(source.createdAt), "MMM d, yyyy 'at' h:mm a")}`
     );
@@ -149,17 +152,34 @@ export function CreateTaskFromCurrentDialog({ open, source, onClose }: Props) {
       source.kind === "summary_action_item" && source.due
         ? (() => {
             try {
-              return format(new Date(source.due), "yyyy-MM-dd");
+              const d = new Date(source.due);
+              if (isNaN(d.getTime())) return "";
+              return format(d, "yyyy-MM-dd");
             } catch {
               return "";
             }
           })()
         : ""
     );
-    setAssigneeId(me ? String(me.id) : "_none");
+    // For summary action items: try to match the AI-provided owner name to a
+    // user. Only pre-select if we find a confident (case-insensitive exact)
+    // match — otherwise leave unassigned so the user can choose.
+    if (source.kind === "summary_action_item") {
+      const ownerName = source.owner?.trim();
+      if (ownerName && ownerName !== "Unassigned" && users.length > 0) {
+        const matched = users.find(
+          u => u.name.toLowerCase() === ownerName.toLowerCase()
+        );
+        setAssigneeId(matched ? String(matched.id) : "_none");
+      } else {
+        setAssigneeId("_none");
+      }
+    } else {
+      setAssigneeId(me ? String(me.id) : "_none");
+    }
     setSuccess(false);
     setCreatedTaskId(null);
-  }, [open, source, me]);
+  }, [open, source, me, users]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -193,6 +213,8 @@ export function CreateTaskFromCurrentDialog({ open, source, onClose }: Props) {
       setSuccess(true);
       setCreatedTaskId(task?.id ?? null);
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
     },
     onError: (err: Error) => {
       toast({ title: "Could not create task", description: err.message, variant: "destructive" });
@@ -245,10 +267,10 @@ export function CreateTaskFromCurrentDialog({ open, source, onClose }: Props) {
                 <MessageSquare className="w-3 h-3 shrink-0 mt-0.5 text-primary/50" />
                 <span className="leading-relaxed">
                   {source.kind === "channel_message" && (
-                    <>From <span className="font-medium text-foreground/80">#{source.channelSlug}</span> · {source.userName}</>
+                    <>From <span className="font-medium text-foreground/80">#{source.channelSlug}</span>{source.threadRootId != null ? " · thread reply" : ""} · {source.userName}</>
                   )}
                   {source.kind === "record_message" && (
-                    <>From <span className="font-medium text-foreground/80">{source.objectType}</span> record Currents · {source.userName}</>
+                    <>From <span className="font-medium text-foreground/80">{source.objectType.charAt(0).toUpperCase() + source.objectType.slice(1)}</span> record Currents{source.threadRootId != null ? " · thread reply" : ""} · {source.userName}</>
                   )}
                   {source.kind === "summary_action_item" && (
                     <>From AI Summary — <span className="font-medium text-foreground/80">Action Item</span></>

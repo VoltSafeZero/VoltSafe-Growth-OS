@@ -1026,6 +1026,7 @@ function ThreadPanel({
   selectedSlug,
   onClose,
   onCreateTaskMsg,
+  onCreateSummaryTask,
 }: {
   rootMessageId: number;
   currentUserId: number;

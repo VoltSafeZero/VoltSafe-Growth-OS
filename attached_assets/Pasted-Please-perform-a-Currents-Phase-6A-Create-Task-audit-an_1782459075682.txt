@@ -1,0 +1,245 @@
+Please perform a Currents Phase 6A Create Task audit and polish pass only.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, task automation, or unrelated CRM features yet.
+
+Goal
+
+Verify that creating tasks from Currents messages, thread replies, record messages, and AI summary action items is stable, accurate, polished, and correctly linked into the existing VoltSafe CMS task system.
+
+Audit scope
+
+Audit only:
+
+1. Create Task from channel Currents messages
+2. Create Task from channel thread replies
+3. Create Task from Record Currents messages
+4. Create Task from Record Currents thread replies
+5. Create Task from AI summary action items
+6. Task dialog behavior
+7. Task source linking
+8. Existing Currents regressions caused by Phase 6A
+
+Backend/task system checks
+
+Verify the implementation reuses the existing task system correctly.
+
+Check:
+
+1. No duplicate task system was created.
+2. Existing POST /api/tasks is used correctly.
+3. Auth is required.
+4. Invalid task title is rejected.
+5. Invalid due date is rejected or handled safely.
+6. Invalid assignee is rejected or handled safely.
+7. Invalid linked contact/account is rejected or handled safely.
+8. Created task appears in the existing Tasks Hub.
+9. Created task appears in relevant CRM record task list if linked.
+10. Query cache invalidation makes the task visible without hard refresh where possible.
+11. Source metadata is stored safely if supported.
+12. No SQL errors.
+
+Message-to-task checks
+
+Verify task creation from:
+
+Channel top-level message
+
+Check:
+
+* Create Task button appears only on hover or in a clean action area.
+* Button is not visually cluttered.
+* Dialog opens.
+* Title is pre-filled from message body.
+* Description includes source context:
+    * author
+    * channel
+    * message preview
+    * source URL or source metadata if supported
+* Task creates successfully.
+* Task links back to Currents message if supported.
+
+Channel thread reply
+
+Check:
+
+* Create Task button appears on thread reply.
+* Dialog opens.
+* Title/description use reply text, not root text by mistake.
+* Source context includes root/thread relationship if supported.
+* Task creates successfully.
+* Task does not break thread panel.
+
+Record Currents message
+
+Check for:
+
+* Account Currents
+* Contact Currents
+* Opportunity Currents
+* Lead Currents
+
+Verify:
+
+* Create Task button appears.
+* Task dialog opens.
+* Task auto-links to the record if supported.
+* Task appears in that record’s task list if supported.
+* Description includes record context.
+* Source URL/deep-link points back to the correct record Currents message.
+
+Record Currents thread reply
+
+Verify:
+
+* Create Task works from record thread reply.
+* Task links to the parent record.
+* Description/source context includes thread/reply info.
+* No channel/record context mixups.
+
+AI summary action item checks
+
+Verify:
+
+1. Summary panel action items show a Task button.
+2. Clicking Task opens the same task dialog.
+3. Title is pre-filled from the action item.
+4. Owner is mapped to a user only if confidently matched.
+5. Due date is set only if valid.
+6. Description includes summary/source context.
+7. Task creates successfully.
+8. If owner cannot be matched, assignee remains blank or user can choose.
+9. Empty/invalid action items do not break the UI.
+10. Summary panel still supports copy/regenerate/close.
+
+Task dialog UX checks
+
+Verify:
+
+1. Dialog looks polished in dark mode.
+2. Required fields are clear.
+3. User can edit title.
+4. User can edit description.
+5. User can choose assignee if supported.
+6. User can choose due date.
+7. User can choose priority.
+8. User can link contact/account if supported.
+9. Save button shows loading state.
+10. Success state appears.
+11. Error state is helpful.
+12. Dialog closes cleanly.
+13. Creating task does not navigate away from Currents.
+14. Creating task does not lose the current channel/thread/record state.
+
+Source-linking checks
+
+Verify source metadata/context for tasks created from:
+
+1. Channel message
+2. Channel thread reply
+3. Account Currents message
+4. Lead Currents message
+5. Summary action item
+
+Check whether task stores:
+
+* source type
+* source message id
+* source thread root id
+* source channel slug
+* source object type/object id
+* source URL/action URL
+* CRM linked object if applicable
+
+If current task schema cannot store some of this cleanly, document exactly what is stored and what should be added later.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Channel search
+* Channel summaries
+* Mentions panel
+* Account Currents
+* Contact Currents
+* Opportunity Currents
+* Lead Currents
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record search
+* Record summaries
+* Record deep-links
+* /execution/communications
+
+Verify existing task features still work:
+
+* Tasks Hub loads
+* Existing task creation still works
+* Existing task editing still works
+* Existing task completion/status still works
+* Existing task filters/lists still work
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React key warnings
+* Failed fetch handling
+* Vite/build errors
+* Task route errors
+* Cache invalidation warnings
+
+Allowed fixes
+
+Only fix issues directly related to Phase 6A Create Task.
+
+Allowed:
+
+* Task dialog bugs
+* Task source-link bugs
+* Bad defaults
+* Bad due-date/assignee handling
+* Query invalidation bugs
+* Missing CRM record link bugs
+* UI polish
+* Error handling
+* Console/server errors caused by create-task functionality
+
+Not allowed:
+
+* Guest Currents
+* Direct messages
+* Slash commands
+* External collaborators
+* Workflow automation
+* New unrelated task features
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend/task API checks performed
+5. Message-to-task checks performed
+6. Summary-action-item checks performed
+7. Source-linking checks performed
+8. Existing Currents regression results
+9. Existing task system regression results
+10. Final pass/fail status
+11. Recommended next feature order
+
+Keep scope tight: Currents Create Task audit only.
