@@ -1,0 +1,123 @@
+Please perform the safe product/UI rename for the VoltSafe CMS internal communications feature.
+
+Rename the user-facing product name from:
+
+Current
+
+to:
+
+Currents
+
+Important scope
+
+This is a UI/product language change only.
+
+Do not rename database tables, backend API routes, route paths, query keys, or core technical identifiers unless absolutely required.
+
+Keep these technical names as-is:
+
+* /current
+* /api/current/*
+* current_messages
+* current_channels
+* current_read_receipts
+* current_mentions
+* current_pins
+* current_reactions
+* existing component/file names if renaming them creates risk
+
+The goal is that users see Currents in the app, while the internal plumbing safely remains current.
+
+Update visible UI text
+
+Search the codebase for user-facing strings including:
+
+* Current
+* Search Current
+* Record Current
+* Account Current
+* Contact Current
+* Opportunity Current
+* Lead Current
+* Current — team discussion
+* Current mention
+* Open in Current
+* Search this Current
+
+Update visible labels, page titles, tabs, headings, empty states, tooltips, buttons, notification text, and display copy.
+
+Desired wording
+
+Use Currents for the product/module.
+
+Examples:
+
+* Sidebar: Currents
+* Page title: Currents
+* Search view: Search Currents
+* CRM tab/section: Currents
+* Record section: Currents — team discussion
+* Notification copy: Mentioned in Currents or more specifically Mentioned in #general
+
+Use Current only when referring naturally to one individual stream/conversation.
+
+Good:
+
+* No messages in this Current yet
+* Search this conversation
+* Open in Currents
+
+Avoid awkward wording:
+
+* No Currents messages
+* Current Currents
+* Currents Current
+* Currentss
+
+Areas to inspect
+
+Please inspect and update visible copy in:
+
+* client/src/pages/current.tsx
+* client/src/components/current/record-current-feed.tsx
+* CRM pages using RecordCurrentFeed
+* client/src/lib/nav-config.ts
+* notification title/body generation in backend routes
+* search result labels
+* empty states
+* tooltips/buttons
+* tests that assert visible labels
+
+Verification
+
+After the rename, verify:
+
+1. App starts successfully.
+2. Sidebar shows Currents.
+3. /current route still works.
+4. /api/current/* routes still work.
+5. Team channel page still works.
+6. Search still works.
+7. Mentions panel still works.
+8. Attachments still work.
+9. Account record feed displays Currents.
+10. Contact record feed displays Currents.
+11. Opportunity record feed displays Currents.
+12. Lead record feed displays Currents.
+13. Notification text uses Currents where appropriate.
+14. Existing tests still pass where relevant.
+15. No browser console errors.
+16. No server errors.
+17. No unrelated files changed unnecessarily.
+
+Deliverable
+
+Return:
+
+1. Files changed
+2. User-facing labels updated
+3. Technical identifiers intentionally left unchanged
+4. Verification results
+5. Any remaining visible strings that still say “Current” and why they were left as-is
+
+Keep this tight and safe. This is a naming polish pass, not a technical refactor.

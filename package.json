@@ -17,7 +17,8 @@
     "video:mail": "node onboarding-videos/scripts/04-voltsafe-mail-overview.cjs",
     "video:ai-email": "node onboarding-videos/scripts/05-ai-email-generator.cjs",
     "video:account": "node onboarding-videos/scripts/06-account-intelligence-view.cjs",
-    "video:all": "npm run video:dashboard && npm run video:crm && npm run video:pipeline && npm run video:mail && npm run video:ai-email && npm run video:account"
+    "video:all": "npm run video:dashboard && npm run video:crm && npm run video:pipeline && npm run video:mail && npm run video:ai-email && npm run video:account",
+    "training:convert": "tsx scripts/convert-training-videos.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

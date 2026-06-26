@@ -33980,6 +33980,124 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ── Training Hub video routes ────────────────────────────────────────────────
+
+  const TRAINING_FINAL_DIR = path.resolve("onboarding-videos/outputs/final");
+  const TRAINING_RAW_DIR   = path.resolve("onboarding-videos/outputs/raw");
+
+  // GET /api/training/video-status — returns list of MP4 filenames that exist on disk
+  app.get("/api/training/video-status", requireAuth, (_req, res) => {
+    try {
+      fs.mkdirSync(TRAINING_FINAL_DIR, { recursive: true });
+      const existingMp4s = fs.existsSync(TRAINING_FINAL_DIR)
+        ? fs.readdirSync(TRAINING_FINAL_DIR).filter((f) => f.endsWith(".mp4"))
+        : [];
+      res.json({ existingMp4s });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/training/videos/:filename — serve a final MP4 file (supports range requests for seeking)
+  app.get("/api/training/videos/:filename", requireAuth, (req, res) => {
+    const filename = req.params.filename;
+    if (!filename || !/^[\w\-]+\.mp4$/.test(filename)) {
+      return res.status(400).json({ message: "Invalid filename" });
+    }
+    const filePath = path.join(TRAINING_FINAL_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: "Video not found" });
+    }
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunkSize = end - start + 1;
+      const fileStream = fs.createReadStream(filePath, { start, end });
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunkSize,
+        "Content-Type": "video/mp4",
+      });
+      fileStream.pipe(res);
+    } else {
+      res.writeHead(200, {
+        "Content-Length": fileSize,
+        "Content-Type": "video/mp4",
+        "Accept-Ranges": "bytes",
+      });
+      fs.createReadStream(filePath).pipe(res);
+    }
+  });
+
+  // POST /api/training/convert — admin only, converts pending .webm → .mp4 via ffmpeg
+  app.post("/api/training/convert", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const { execFile } = await import("child_process");
+      const { promisify } = await import("util");
+      const execFileAsync = promisify(execFile);
+
+      fs.mkdirSync(TRAINING_FINAL_DIR, { recursive: true });
+
+      const rawFiles = fs.existsSync(TRAINING_RAW_DIR)
+        ? fs.readdirSync(TRAINING_RAW_DIR).filter((f) => f.endsWith(".webm")).sort()
+        : [];
+
+      let converted = 0;
+      let skipped   = 0;
+      const failures: string[] = [];
+
+      for (const file of rawFiles) {
+        const base       = path.basename(file, ".webm");
+        const inputPath  = path.join(TRAINING_RAW_DIR, file);
+        const outputPath = path.join(TRAINING_FINAL_DIR, `${base}.mp4`);
+
+        if (fs.existsSync(outputPath)) {
+          skipped++;
+          continue;
+        }
+
+        // Probe for audio
+        let hasAudio = false;
+        try {
+          const { stdout } = await execFileAsync("ffprobe", [
+            "-v", "quiet", "-print_format", "json", "-show_streams", inputPath,
+          ]);
+          const probe = JSON.parse(stdout) as { streams?: Array<{ codec_type: string }> };
+          hasAudio = probe.streams?.some((s) => s.codec_type === "audio") ?? false;
+        } catch { /* assume no audio */ }
+
+        const audioArgs = hasAudio
+          ? ["-c:a", "aac", "-b:a", "128k"]
+          : ["-an"];
+
+        try {
+          await execFileAsync("ffmpeg", [
+            "-y", "-i", inputPath,
+            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+            ...audioArgs,
+            "-movflags", "+faststart",
+            outputPath,
+          ], { timeout: 120_000 });
+          converted++;
+        } catch (err: any) {
+          failures.push(file);
+          if (fs.existsSync(outputPath)) {
+            try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
+          }
+        }
+      }
+
+      res.json({ converted, skipped, failed: failures.length, failures });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));

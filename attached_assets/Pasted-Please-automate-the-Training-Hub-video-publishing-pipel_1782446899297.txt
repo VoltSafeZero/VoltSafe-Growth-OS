@@ -1,0 +1,104 @@
+Please automate the Training Hub video publishing pipeline.
+
+Current issue:
+VoltSafe CMS Training Hub shows 6 raw recorded videos. The Publishing Checklist says the next action is “Edit into MP4,” but these videos should automatically convert into MP4 and become watchable whenever a raw recording exists. Users/admins should not need to manually convert every .webm recording.
+
+Goal:
+When a raw training video exists, the app should automatically produce an MP4 version and update the Training Hub status so the video becomes watchable inside VoltSafe CMS.
+
+Please investigate the current video file structure first, then implement a safe automated conversion pipeline.
+
+Requirements:
+
+1. Locate the raw training videos.
+   Expected raw paths look like:
+   onboarding-videos/outputs/raw/01-dashboard-overview.webm
+   onboarding-videos/outputs/raw/02-leads-accounts-contacts.webm
+   onboarding-videos/outputs/raw/03-marina-lead-pipeline.webm
+   onboarding-videos/outputs/raw/04-voltsafe-mail-overview.webm
+   onboarding-videos/outputs/raw/05-ai-email-generator.webm
+   onboarding-videos/outputs/raw/06-account-intelligence-view.webm
+
+2. Locate the expected final MP4 paths.
+   Expected final paths look like:
+   onboarding-videos/outputs/final/01-dashboard-overview.mp4
+   onboarding-videos/outputs/final/02-leads-accounts-contacts.mp4
+   onboarding-videos/outputs/final/03-marina-lead-pipeline.mp4
+   onboarding-videos/outputs/final/04-voltsafe-mail-overview.mp4
+   onboarding-videos/outputs/final/05-ai-email-generator.mp4
+   onboarding-videos/outputs/final/06-account-intelligence-view.mp4
+
+3. Add an automated conversion script using ffmpeg.
+   Create a script such as:
+   scripts/convert-training-videos.ts
+   or
+   scripts/convert-training-videos.mjs
+
+   It should:
+   - Scan onboarding-videos/outputs/raw for .webm files
+   - For each .webm file, check whether the matching .mp4 already exists in onboarding-videos/outputs/final
+   - If the MP4 does not exist, convert it using ffmpeg
+   - Skip files that already have an MP4
+   - Print a clear summary:
+     - converted count
+     - skipped count
+     - failed count
+
+4. Use safe ffmpeg settings:
+   - input: raw .webm
+   - output: .mp4
+   - video codec: libx264
+   - audio codec: aac, if audio exists
+   - faststart enabled for browser playback
+
+   Example command shape:
+   ffmpeg -y -i input.webm -c:v libx264 -preset medium -crf 23 -c:a aac -b:a 128k -movflags +faststart output.mp4
+
+   If some recordings have no audio track, handle that gracefully instead of failing the whole batch.
+
+5. Add an npm script to package.json:
+   "training:convert": "tsx scripts/convert-training-videos.ts"
+
+   If this repo does not use tsx, use the existing project script style.
+
+6. Wire conversion into the app workflow safely.
+   Preferred:
+   - Run conversion as part of the existing training video generation/publishing workflow.
+   - Also allow manual admin execution using npm run training:convert.
+
+   Do not run heavy ffmpeg conversion on every page load.
+
+7. Update Training Hub status logic.
+   If a final MP4 exists:
+   - status should become Hosted or Published
+   - MP4 column should show checkmark
+   - URL/playable column should show checkmark if the frontend can serve/play it
+   - action button should say “Watch Video”
+
+   If only raw .webm exists:
+   - status can remain Raw Recorded
+   - action should say “Converting Needed” or “Convert to MP4”
+   - but after running the script, it should become watchable automatically
+
+8. Ensure the MP4 files are served by the app.
+   The frontend should be able to play them through a stable internal URL, for example:
+   /training/videos/01-dashboard-overview.mp4
+   or whatever static asset route already exists.
+
+9. Add a lightweight admin-only button if appropriate:
+   “Convert Raw Videos”
+   This button should trigger the conversion process only for admins.
+   If that is too risky for the web process, skip the button and keep it as an npm/admin script only.
+
+10. Validate:
+   - Run npm run training:convert
+   - Confirm all 6 raw .webm files become .mp4 files
+   - Confirm Training Hub updates from 0 hosted to 6 hosted
+   - Confirm each video card shows “Watch Video”
+   - Confirm clicking Watch Video opens/plays the MP4 inside VoltSafe CMS
+   - Run TypeScript/build validation
+
+Important:
+Do not remove the raw .webm files. Keep them as source files.
+Do not manually hardcode the 6 videos as hosted. Status should be based on actual file existence/playable URL.
+Do not run ffmpeg automatically during normal page render.

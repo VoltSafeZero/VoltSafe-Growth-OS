@@ -1,14 +1,21 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   GraduationCap, PlayCircle, Clock, ChevronRight,
   BookOpen, Lock, FileText, Sparkles, AlertTriangle,
   CheckCircle2, VideoOff, Film, Radio, ListChecks,
-  ArrowRight, Check, X, ArrowLeft,
+  ArrowRight, Check, X, ArrowLeft, Loader2, RefreshCw,
 } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 import { isDemoModeActive } from "@/lib/demo-mode";
 import {
   TRAINING_PLAYLISTS,
@@ -183,10 +190,14 @@ function PlaylistViewer({
   playlistId,
   canSeeDevLinks,
   onBack,
+  videos: allVideos,
+  onWatch,
 }: {
   playlistId: string;
   canSeeDevLinks: boolean;
   onBack: () => void;
+  videos: TrainingVideo[];
+  onWatch: (v: TrainingVideo) => void;
 }) {
   const playlist = TRAINING_PLAYLISTS.find((p) => p.id === playlistId);
 
@@ -210,7 +221,7 @@ function PlaylistViewer({
   }
 
   const videos = playlist.videoIds
-    .map((id) => TRAINING_VIDEOS.find((v) => v.id === id))
+    .map((id) => allVideos.find((v) => v.id === id))
     .filter(Boolean) as TrainingVideo[];
 
   return (
@@ -298,7 +309,7 @@ function PlaylistViewer({
                       <Button
                         size="sm"
                         className="bg-cyan-600 hover:bg-cyan-500 text-white"
-                        onClick={() => window.open(video.videoUrl!, "_blank", "noopener")}
+                        onClick={() => onWatch(video)}
                         data-testid={`watch-video-${video.id}`}
                       >
                         <PlayCircle className="h-3 w-3 mr-1" />
@@ -352,9 +363,11 @@ function PlaylistViewer({
 function VideoRow({
   video,
   canSeeDevLinks,
+  onWatch,
 }: {
   video: TrainingVideo;
   canSeeDevLinks: boolean;
+  onWatch: (v: TrainingVideo) => void;
 }) {
   const meta = STATUS_META[video.status];
   const isEnabled = meta.buttonEnabled && !!video.videoUrl;
@@ -435,7 +448,7 @@ function VideoRow({
             data-testid={`button-watch-${video.id}`}
             size="sm"
             className={`${meta.buttonClass} text-xs whitespace-nowrap`}
-            onClick={() => window.open(video.videoUrl!, "_blank", "noopener")}
+            onClick={() => onWatch(video)}
           >
             <PlayCircle className="h-3.5 w-3.5 mr-1.5" />
             {meta.buttonLabel}
@@ -523,19 +536,34 @@ const NEXT_ACTION_LABEL: Record<VideoStatus, string> = {
   needs_update:  "Re-record or update",
 };
 
-function PublishingChecklist() {
-  const total       = TRAINING_VIDEOS.length;
-  const hosted      = TRAINING_VIDEOS.filter((v) => v.status === "hosted").length;
-  const edited      = TRAINING_VIDEOS.filter((v) => v.status === "edited").length;
-  const rawRecorded = TRAINING_VIDEOS.filter((v) => v.status === "raw_recorded").length;
-  const notRecorded = TRAINING_VIDEOS.filter((v) => v.status === "not_recorded").length;
-  const needsUpdate = TRAINING_VIDEOS.filter((v) => v.status === "needs_update").length;
+function PublishingChecklist({ videos }: { videos: TrainingVideo[] }) {
+  const queryClient = useQueryClient();
+  const [convertMsg, setConvertMsg] = useState<string | null>(null);
+
+  const convertMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/training/convert"),
+    onSuccess: async (res) => {
+      const data = await res.json() as { converted: number; skipped: number; failed: number };
+      setConvertMsg(`Done — ${data.converted} converted, ${data.skipped} already existed${data.failed ? `, ${data.failed} failed` : ""}.`);
+      await queryClient.invalidateQueries({ queryKey: ["/api/training/video-status"] });
+    },
+    onError: () => {
+      setConvertMsg("Conversion failed — check server logs.");
+    },
+  });
+
+  const total       = videos.length;
+  const hosted      = videos.filter((v) => v.status === "hosted").length;
+  const edited      = videos.filter((v) => v.status === "edited").length;
+  const rawRecorded = videos.filter((v) => v.status === "raw_recorded").length;
+  const notRecorded = videos.filter((v) => v.status === "not_recorded").length;
+  const needsUpdate = videos.filter((v) => v.status === "needs_update").length;
 
   const progressPct = total > 0 ? Math.round((hosted / total) * 100) : 0;
 
   let nextAction: string;
   if (needsUpdate > 0)        nextAction = "Re-record or update stale videos first";
-  else if (rawRecorded > 0)   nextAction = "Edit raw recordings into final MP4s";
+  else if (rawRecorded > 0)   nextAction = "Convert raw recordings to MP4 (button below)";
   else if (edited > 0)        nextAction = "Upload edited MP4s and paste hosted URLs";
   else if (notRecorded > 0)   nextAction = "Run npm recording scripts for remaining videos";
   else                         nextAction = "All onboarding videos are hosted and ready.";
@@ -613,6 +641,29 @@ function PublishingChecklist() {
           </div>
         </div>
 
+        {/* ── Convert raw videos (admin action) ── */}
+        {rawRecorded > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              data-testid="button-convert-videos"
+              size="sm"
+              variant="outline"
+              className="border-amber-500/40 text-amber-400 hover:bg-amber-400/10 hover:text-amber-300"
+              onClick={() => { setConvertMsg(null); convertMutation.mutate(); }}
+              disabled={convertMutation.isPending}
+            >
+              {convertMutation.isPending
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Converting…</>
+                : <><Film className="h-3.5 w-3.5 mr-1.5" /> Convert Raw Videos</>}
+            </Button>
+            {convertMsg && (
+              <span className="text-xs text-emerald-400 flex items-center gap-1">
+                <RefreshCw className="h-3 w-3" />{convertMsg}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* ── Per-video table ── */}
         <div className="overflow-x-auto">
           <table className="w-full text-xs" data-testid="checklist-table">
@@ -628,7 +679,7 @@ function PublishingChecklist() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/20">
-              {TRAINING_VIDEOS.map((v) => (
+              {videos.map((v) => (
                 <tr key={v.id} data-testid={`checklist-row-${v.id}`}>
                   <td className="py-2 pr-3 text-foreground whitespace-nowrap">
                     {v.number}. {v.title}
@@ -669,6 +720,7 @@ function PublishingChecklist() {
         <p className="text-[11px] text-muted-foreground/60">
           For publishing instructions, see{" "}
           <code className="bg-muted/40 px-1 rounded">onboarding-videos/HOSTING.md</code>.
+          {" "}Or run <code className="bg-muted/40 px-1 rounded">npm run training:convert</code> to batch-convert locally.
         </p>
 
       </CardContent>
@@ -683,10 +735,46 @@ export default function TrainingHubPage() {
     "playlists",
   );
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [watchingVideoId, setWatchingVideoId] = useState<string | null>(null);
 
   const { data: user } = useQuery<{ globalRole?: string; name?: string }>({
     queryKey: ["/api/auth/me"],
   });
+
+  const { data: videoStatus } = useQuery<{ existingMp4s: string[] }>({
+    queryKey: ["/api/training/video-status"],
+    staleTime: 30_000,
+  });
+
+  // Merge disk-checked MP4 existence into video status so the UI reflects reality
+  const effectiveVideos = useMemo<TrainingVideo[]>(() => {
+    const existingSet = new Set(videoStatus?.existingMp4s ?? []);
+    return TRAINING_VIDEOS.map((v) => {
+      if (!v.finalVideoPath) return v;
+      const fname = v.finalVideoPath.split("/").pop()!;
+      if (existingSet.has(fname)) {
+        return {
+          ...v,
+          status: "hosted" as const,
+          videoUrl: `/api/training/videos/${fname}`,
+          hostedProvider: "local" as const,
+        };
+      }
+      return v;
+    });
+  }, [videoStatus]);
+
+  const onWatchVideo = (video: TrainingVideo) => {
+    if (video.hostedProvider === "local") {
+      setWatchingVideoId(video.id);
+    } else {
+      window.open(video.videoUrl!, "_blank", "noopener");
+    }
+  };
+
+  const watchingVideo = watchingVideoId
+    ? effectiveVideos.find((v) => v.id === watchingVideoId)
+    : null;
 
   const canSeeDevLinks = isDemoModeActive() || isAdminRole(user?.globalRole);
 
@@ -697,8 +785,8 @@ export default function TrainingHubPage() {
   ] as const;
 
   // Summary counts for the library tab label
-  const hostedCount = TRAINING_VIDEOS.filter((v) => v.status === "hosted").length;
-  const totalCount = TRAINING_VIDEOS.length;
+  const hostedCount = effectiveVideos.filter((v) => v.status === "hosted").length;
+  const totalCount = effectiveVideos.length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -761,7 +849,7 @@ export default function TrainingHubPage() {
         </div>
 
         {/* ── Publishing checklist (admin/demo only) ───────────────────────── */}
-        {canSeeDevLinks && <PublishingChecklist />}
+        {canSeeDevLinks && <PublishingChecklist videos={effectiveVideos} />}
 
         {/* ── Section tabs ──────────────────────────────────────────────────── */}
         <div
@@ -798,6 +886,8 @@ export default function TrainingHubPage() {
                 playlistId={selectedPlaylistId}
                 canSeeDevLinks={canSeeDevLinks}
                 onBack={() => setSelectedPlaylistId(null)}
+                videos={effectiveVideos}
+                onWatch={onWatchVideo}
               />
             ) : (
               <>
@@ -855,13 +945,13 @@ export default function TrainingHubPage() {
             </div>
 
             <div className="space-y-3">
-              {TRAINING_VIDEOS.map((v) => (
-                <VideoRow key={v.id} video={v} canSeeDevLinks={canSeeDevLinks} />
+              {effectiveVideos.map((v) => (
+                <VideoRow key={v.id} video={v} canSeeDevLinks={canSeeDevLinks} onWatch={onWatchVideo} />
               ))}
             </div>
 
             {/* "No hosted videos yet" notice for regular users */}
-            {!TRAINING_VIDEOS.some((v) => v.status === "hosted") && !canSeeDevLinks && (
+            {!effectiveVideos.some((v) => v.status === "hosted") && !canSeeDevLinks && (
               <div className="flex items-start gap-3 bg-muted/20 border border-border/30 rounded-lg px-4 py-3">
                 <Lock className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                 <div className="text-sm text-muted-foreground">
@@ -875,7 +965,7 @@ export default function TrainingHubPage() {
             )}
 
             {/* Dev notice for admin/demo */}
-            {canSeeDevLinks && !TRAINING_VIDEOS.some((v) => v.status === "hosted") && (
+            {canSeeDevLinks && !effectiveVideos.some((v) => v.status === "hosted") && (
               <div className="flex items-start gap-3 bg-muted/20 border border-border/30 rounded-lg px-4 py-3">
                 <Lock className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                 <div className="text-sm text-muted-foreground">
@@ -935,6 +1025,35 @@ export default function TrainingHubPage() {
           </div>
         )}
       </div>
+
+      {/* ── Inline video player (local-hosted MP4s only) ─────────────────────── */}
+      <Dialog
+        open={!!watchingVideo}
+        onOpenChange={(open) => { if (!open) setWatchingVideoId(null); }}
+      >
+        <DialogContent
+          className="max-w-4xl w-full p-0 overflow-hidden bg-black border-border/50"
+          data-testid="video-player-dialog"
+        >
+          <DialogHeader className="px-5 pt-4 pb-2 bg-background/90">
+            <DialogTitle className="text-sm font-semibold text-foreground">
+              {watchingVideo?.number}. {watchingVideo?.title}
+            </DialogTitle>
+          </DialogHeader>
+          {watchingVideo?.videoUrl && (
+            <video
+              key={watchingVideo.id}
+              src={watchingVideo.videoUrl}
+              controls
+              autoPlay
+              className="w-full max-h-[70vh]"
+              data-testid="video-player-element"
+            >
+              Your browser does not support HTML5 video.
+            </video>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
