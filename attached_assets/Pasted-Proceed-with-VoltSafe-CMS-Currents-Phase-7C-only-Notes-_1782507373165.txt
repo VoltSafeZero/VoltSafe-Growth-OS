@@ -1,0 +1,219 @@
+Proceed with VoltSafe CMS Currents Phase 7C only: Notes when marking Decision / Risk / Requirement.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, AI classification, new task features, or unrelated CRM features.
+
+Goal
+
+When a user marks a Currents message as:
+
+* Decision
+* Risk
+* Requirement
+
+allow them to optionally add a short note explaining why the message was marked.
+
+Backend already supports a notes field. Phase 7C should add the frontend UX and ensure notes display consistently.
+
+Scope
+
+Add only:
+
+1. Optional note input when marking a message as Decision / Risk / Requirement
+2. Store note using existing notes field
+3. Display note:
+    * on the message badge area if clean
+    * in Structured Items Panel
+    * in Record Structured Panel
+4. Allow editing/updating the note when re-marking the same type if clean
+5. Preserve existing quick mark/unmark flow if possible
+
+Existing backend
+
+Use existing route:
+
+POST /api/current/messages/:id/structured
+
+Existing body supports:
+
+{
+  "itemType": "decision",
+  "notes": "Optional note"
+}
+
+Use existing delete route for unmark:
+
+DELETE /api/current/messages/:id/structured/:itemType
+
+Only change backend if a real bug is found.
+
+UX requirements
+
+Mark flow
+
+When user chooses:
+
+* Mark as Decision
+* Mark as Risk
+* Mark as Requirement
+
+Show a small popover/dialog/sheet allowing:
+
+* item type display
+* optional note textarea/input
+* Save button
+* Cancel button
+
+Suggested placeholder:
+
+* Decision: Why is this a decision?
+* Risk: What is the risk or concern?
+* Requirement: What requirement does this capture?
+
+Keep it quick and lightweight.
+
+Do not make users write a note. Notes are optional.
+
+Fast path
+
+If possible, allow one-click marking without a note or make the note dialog lightweight enough that it does not feel annoying.
+
+Acceptable options:
+
+Option A:
+
+* Dropdown item opens note popover.
+* User can save with empty note.
+
+Option B:
+
+* Dropdown has:
+    * Mark as Decision
+    * Mark as Decision with note
+        But avoid clutter if possible.
+
+Choose the cleanest implementation.
+
+Editing notes
+
+If a message is already marked as Decision/Risk/Requirement and user selects it again:
+
+Preferred:
+
+* Open the note editor with existing note pre-filled
+* User can update note or remove note
+* Include an Unmark option inside the editor
+
+Acceptable if simpler:
+
+* Existing selected item still toggles unmark, and editing notes is deferred to Phase 7D.
+* If so, document clearly.
+
+Display requirements
+
+Message display
+
+If a marked item has a note, display it subtly near the badge if clean.
+
+Examples:
+
+* small muted line under badge:
+    * Note: Final supplier choice confirmed.
+* or tooltip/popover on badge
+
+Avoid crowding message rows.
+
+If displaying notes inline makes the feed too noisy, show notes only in Structured Panels for Phase 7C and document that choice.
+
+Structured Items Panel
+
+Already displays notes after Phase 7B.
+
+Verify notes display in:
+
+* /current Structured Panel
+* Record Structured Panel
+
+If not consistent, fix it.
+
+Data behavior
+
+Verify:
+
+1. Notes save for channel top-level messages.
+2. Notes save for channel thread replies.
+3. Notes save for record top-level messages.
+4. Notes save for record thread replies.
+5. Empty notes save as null or empty string consistently.
+6. Updating a note works if implemented.
+7. Unmarking removes the structured item and its note.
+8. Notes survive refresh.
+9. Notes appear in structured panels.
+
+Validation
+
+Suggested note limits:
+
+* Max 500 characters
+* Trim whitespace
+* Empty string should be treated as null/blank
+* Do not allow extremely large notes
+
+If backend does not enforce this, add frontend guard at minimum.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Mark channel message as Decision with note.
+4. Note appears in Structured Panel.
+5. Note survives refresh.
+6. Mark channel message as Risk with note.
+7. Mark channel message as Requirement with note.
+8. Mark channel thread reply with note.
+9. Mark Account Currents message with note.
+10. Mark Lead Currents message with note.
+11. Mark record thread reply with note if data exists.
+12. Empty note works.
+13. Long note is limited or handled safely.
+14. Updating note works if implemented.
+15. Unmark removes the item and note.
+16. Existing badges still work.
+17. Structured filters still work.
+18. Structured deep-links still work.
+19. Record Structured Panel still works.
+20. Existing Currents features still work:
+    * posting
+    * threads
+    * reactions
+    * pins
+    * edit/delete
+    * mentions
+    * attachments
+    * search
+    * AI summaries
+    * create task
+    * View in Currents from tasks
+21. Task system still works.
+22. No browser console errors.
+23. No server errors.
+24. No SQL errors.
+25. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. UX approach chosen
+2. Files changed
+3. Backend changes, if any
+4. Frontend components changed
+5. Note validation behavior
+6. Note display behavior
+7. Update/edit behavior
+8. Verification results
+9. Known issues
+10. Recommended next step
+
+Keep scope tight: notes for Decision / Risk / Requirement only.

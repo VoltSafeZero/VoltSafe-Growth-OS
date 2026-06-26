@@ -37,6 +37,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
 } from "@/components/current/current-attachment-display";
 import type { CurrentAttachment } from "@/components/current/current-attachment-display";
@@ -627,6 +634,7 @@ function MessageActionBar({
   structuredItems,
   onMarkStructured,
   onUnmarkStructured,
+  onMarkWithNote,
 }: {
   isOwn: boolean;
   isAdmin: boolean;
@@ -640,11 +648,42 @@ function MessageActionBar({
   structuredItems?: StructuredItem[];
   onMarkStructured?: (itemType: string) => void;
   onUnmarkStructured?: (itemType: string) => void;
+  onMarkWithNote?: (itemType: string, notes: string | null) => void;
 }) {
   const canEdit = isOwn;
   const canDelete = isOwn || isAdmin;
 
+  const [noteDialog, setNoteDialog] = useState<{ type: string; currentNote: string } | null>(null);
+  const [noteText, setNoteText] = useState("");
+
+  const NOTE_PLACEHOLDER: Record<string, string> = {
+    decision:    "Why is this a decision?",
+    risk:        "What is the risk or concern?",
+    requirement: "What requirement does this capture?",
+  };
+
+  function openNoteDialog(type: string) {
+    const existing = structuredItems?.find((si) => si.itemType === type)?.notes ?? "";
+    setNoteText(existing ?? "");
+    setNoteDialog({ type, currentNote: existing ?? "" });
+  }
+
+  function closeNoteDialog() {
+    setNoteDialog(null);
+    setNoteText("");
+  }
+
+  function saveNote() {
+    if (!noteDialog) return;
+    const trimmed = noteText.trim().slice(0, 500) || null;
+    onMarkWithNote!(noteDialog.type, trimmed);
+    closeNoteDialog();
+  }
+
+  const isDialogMarked = noteDialog ? !!(structuredItems?.some((si) => si.itemType === noteDialog.type)) : false;
+
   return (
+    <>
     <div
       className={cn(
         "absolute right-2 -top-3 z-20",
@@ -673,7 +712,7 @@ function MessageActionBar({
           <CheckSquare className="w-3 h-3" />
         </button>
       )}
-      {(onMarkStructured || onUnmarkStructured) && (
+      {(onMarkStructured || onUnmarkStructured || onMarkWithNote) && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -697,7 +736,13 @@ function MessageActionBar({
                 <DropdownMenuItem
                   key={type}
                   data-testid={`mark-as-${type}`}
-                  onClick={() => isMarked ? onUnmarkStructured?.(type) : onMarkStructured?.(type)}
+                  onClick={() => {
+                    if (onMarkWithNote) {
+                      openNoteDialog(type);
+                    } else {
+                      isMarked ? onUnmarkStructured?.(type) : onMarkStructured?.(type);
+                    }
+                  }}
                   className="text-xs gap-2 cursor-pointer"
                 >
                   <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", STRUCTURED_DOT_STYLE[type])} />
@@ -709,6 +754,7 @@ function MessageActionBar({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+
       <button
         onClick={onPin}
         title={isPinned ? "Unpin" : "Pin"}
@@ -740,6 +786,51 @@ function MessageActionBar({
         </button>
       )}
     </div>
+
+    {/* Note dialog — outside action bar div so pointer-events work correctly */}
+    {noteDialog && (
+      <Dialog open onOpenChange={(o) => { if (!o) closeNoteDialog(); }}>
+        <DialogContent className="max-w-sm" data-testid="structured-note-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2">
+              <span className={cn("w-2 h-2 rounded-full shrink-0", STRUCTURED_DOT_STYLE[noteDialog.type])} />
+              {isDialogMarked ? `Edit ${noteDialog.type} note` : `Mark as ${noteDialog.type}`}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-1">
+            <Textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value.slice(0, 500))}
+              placeholder={NOTE_PLACEHOLDER[noteDialog.type] ?? "Add a note (optional)"}
+              className="text-sm resize-none min-h-[80px]"
+              autoFocus
+              data-testid="structured-note-textarea"
+            />
+            <p className="text-[10px] text-muted-foreground/50 mt-1 text-right">{noteText.length}/500</p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            {isDialogMarked && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10 mr-auto"
+                onClick={() => { onUnmarkStructured?.(noteDialog.type); closeNoteDialog(); }}
+                data-testid="structured-note-unmark-btn"
+              >
+                Unmark
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" className="text-xs" onClick={closeNoteDialog} data-testid="structured-note-cancel-btn">
+              Cancel
+            </Button>
+            <Button size="sm" className="text-xs" onClick={saveNote} data-testid="structured-note-save-btn">
+              {isDialogMarked ? "Update" : "Mark"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   );
 }
 
@@ -793,6 +884,7 @@ function MessageRow({
   onCreateTask,
   onMarkStructured,
   onUnmarkStructured,
+  onMarkWithNote,
 }: {
   message: Message;
   grouped: boolean;
@@ -807,6 +899,7 @@ function MessageRow({
   onCreateTask?: (message: Message) => void;
   onMarkStructured?: (messageId: number, itemType: string) => void;
   onUnmarkStructured?: (messageId: number, itemType: string) => void;
+  onMarkWithNote?: (messageId: number, itemType: string, notes: string | null) => void;
 }) {
   const isPinned = pinnedMessageIds.has(message.id);
   const isOwn = message.userId === currentUserId;
@@ -850,6 +943,7 @@ function MessageRow({
         structuredItems={message.structuredItems}
         onMarkStructured={onMarkStructured ? (t) => onMarkStructured(message.id, t) : undefined}
         onUnmarkStructured={onUnmarkStructured ? (t) => onUnmarkStructured(message.id, t) : undefined}
+        onMarkWithNote={onMarkWithNote ? (t, n) => onMarkWithNote(message.id, t, n) : undefined}
       />
 
       {/* Avatar / grouped spacer */}
@@ -913,6 +1007,7 @@ function MessageRow({
               <span
                 key={si.itemType}
                 data-testid={`structured-badge-${si.itemType}-${message.id}`}
+                title={si.notes ?? undefined}
                 className={cn(
                   "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border select-none",
                   STRUCTURED_BADGE_STYLE[si.itemType]
@@ -920,6 +1015,7 @@ function MessageRow({
               >
                 <Bookmark className="w-2 h-2" />
                 {si.itemType.charAt(0).toUpperCase() + si.itemType.slice(1)}
+                {si.notes && <span className="opacity-60 ml-0.5">·</span>}
               </span>
             ))}
           </div>
@@ -1420,6 +1516,9 @@ function ThreadPanel({
               onUnmarkStructured={(mid, itemType) =>
                 apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => { invalidateThread(); invalidateFeed(); })
               }
+              onMarkWithNote={(mid, itemType, notes) =>
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType, notes }).then(() => { invalidateThread(); invalidateFeed(); })
+              }
             />
           )}
         </div>
@@ -1477,6 +1576,9 @@ function ThreadPanel({
               }
               onUnmarkStructured={(mid, itemType) =>
                 apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => { invalidateThread(); invalidateFeed(); })
+              }
+              onMarkWithNote={(mid, itemType, notes) =>
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType, notes }).then(() => { invalidateThread(); invalidateFeed(); })
               }
             />
           );
@@ -2438,13 +2540,21 @@ export default function CurrentPage() {
 
   // Mark as Decision / Risk / Requirement
   const markStructuredMutation = useMutation({
-    mutationFn: ({ messageId, itemType }: { messageId: number; itemType: string }) =>
-      apiRequest("POST", `/api/current/messages/${messageId}/structured`, { itemType }),
+    mutationFn: ({ messageId, itemType, notes }: { messageId: number; itemType: string; notes?: string | null }) =>
+      apiRequest("POST", `/api/current/messages/${messageId}/structured`, { itemType, notes }),
     onSuccess: () => {
       invalidateFeed();
       queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] });
     },
   });
+
+  function handleConfirmMark(mid: number, itemType: string, notes: string | null) {
+    if (notes) {
+      markStructuredMutation.mutate({ messageId: mid, itemType, notes });
+    } else {
+      markStructuredMutation.mutate({ messageId: mid, itemType });
+    }
+  }
 
   // Unmark structured
   const unmarkStructuredMutation = useMutation({
@@ -2851,6 +2961,9 @@ export default function CurrentPage() {
                           }
                           onUnmarkStructured={(mid, itemType) =>
                             unmarkStructuredMutation.mutate({ messageId: mid, itemType })
+                          }
+                          onMarkWithNote={(mid, itemType, notes) =>
+                            handleConfirmMark(mid, itemType, notes)
                           }
                         />
                       </div>

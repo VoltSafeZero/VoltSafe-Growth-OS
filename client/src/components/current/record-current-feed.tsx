@@ -20,6 +20,13 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
@@ -412,7 +419,7 @@ function MessageComposer({
 
 function MessageItem({
   msg, myUserId, onReact, onEdit, onDelete, onOpenThread, onPin, isPinned, highlighted, onCreateTask,
-  onMarkStructured, onUnmarkStructured,
+  onMarkStructured, onUnmarkStructured, onMarkWithNote,
 }: {
   msg: RecordMessage;
   myUserId: number;
@@ -426,11 +433,14 @@ function MessageItem({
   onCreateTask?: (msg: RecordMessage) => void;
   onMarkStructured?: (msgId: number, itemType: string) => void;
   onUnmarkStructured?: (msgId: number, itemType: string) => void;
+  onMarkWithNote?: (msgId: number, itemType: string, notes: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
   const [emojiOpen, setEmojiOpen] = useState(false);
   const emojiAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const [recNoteDialogType, setRecNoteDialogType] = useState<string | null>(null);
+  const [recNoteText, setRecNoteText] = useState("");
   const isOwn = msg.userId === myUserId;
 
   if (msg.deletedAt) {
@@ -588,7 +598,8 @@ function MessageItem({
             <CheckSquare className="h-3 w-3" />
           </button>
         )}
-        {(onMarkStructured || onUnmarkStructured) && !msg.deletedAt && (
+        {(onMarkStructured || onUnmarkStructured || onMarkWithNote) && !msg.deletedAt && (
+          <>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -611,7 +622,15 @@ function MessageItem({
                   <DropdownMenuItem
                     key={type}
                     data-testid={`record-mark-as-${type}-${msg.id}`}
-                    onClick={() => isMarked ? onUnmarkStructured?.(msg.id, type) : onMarkStructured?.(msg.id, type)}
+                    onClick={() => {
+                      if (onMarkWithNote) {
+                        const existing = msg.structuredItems?.find((si) => si.itemType === type)?.notes ?? "";
+                        setRecNoteDialogType(type);
+                        setRecNoteText(existing ?? "");
+                      } else {
+                        isMarked ? onUnmarkStructured?.(msg.id, type) : onMarkStructured?.(msg.id, type);
+                      }
+                    }}
                     className="text-xs gap-2 cursor-pointer"
                   >
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${REC_STRUCTURED_DOT_STYLE[type]}`} />
@@ -622,6 +641,76 @@ function MessageItem({
               })}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {recNoteDialogType && (
+            <Dialog open onOpenChange={(o) => { if (!o) { setRecNoteDialogType(null); setRecNoteText(""); } }}>
+              <DialogContent className="max-w-sm" data-testid="rec-structured-note-dialog">
+                <DialogHeader>
+                  <DialogTitle className="text-sm flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${REC_STRUCTURED_DOT_STYLE[recNoteDialogType]}`} />
+                    {msg.structuredItems?.some((si) => si.itemType === recNoteDialogType)
+                      ? `Edit ${recNoteDialogType} note`
+                      : `Mark as ${recNoteDialogType}`}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="py-1">
+                  <Textarea
+                    value={recNoteText}
+                    onChange={(e) => setRecNoteText(e.target.value.slice(0, 500))}
+                    placeholder={
+                      recNoteDialogType === "decision" ? "Why is this a decision?" :
+                      recNoteDialogType === "risk" ? "What is the risk or concern?" :
+                      "What requirement does this capture?"
+                    }
+                    className="text-sm resize-none min-h-[80px]"
+                    autoFocus
+                    data-testid="rec-structured-note-textarea"
+                  />
+                  <p className="text-[10px] text-muted-foreground/50 mt-1 text-right">{recNoteText.length}/500</p>
+                </div>
+                <DialogFooter className="gap-2 sm:gap-2">
+                  {msg.structuredItems?.some((si) => si.itemType === recNoteDialogType) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10 mr-auto"
+                      onClick={() => {
+                        onUnmarkStructured?.(msg.id, recNoteDialogType);
+                        setRecNoteDialogType(null);
+                        setRecNoteText("");
+                      }}
+                      data-testid="rec-structured-note-unmark-btn"
+                    >
+                      Unmark
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => { setRecNoteDialogType(null); setRecNoteText(""); }}
+                    data-testid="rec-structured-note-cancel-btn"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => {
+                      const trimmed = recNoteText.trim().slice(0, 500) || null;
+                      onMarkWithNote!(msg.id, recNoteDialogType, trimmed);
+                      setRecNoteDialogType(null);
+                      setRecNoteText("");
+                    }}
+                    data-testid="rec-structured-note-save-btn"
+                  >
+                    {msg.structuredItems?.some((si) => si.itemType === recNoteDialogType) ? "Update" : "Mark"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          </>
         )}
         <button
           onClick={() => onPin(msg.id, isPinned)}
@@ -1213,8 +1302,8 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
   }
 
   const markStructuredMutation = useMutation({
-    mutationFn: async ({ messageId, itemType }: { messageId: number; itemType: string }) => {
-      const r = await apiRequest("POST", `/api/current/messages/${messageId}/structured`, { itemType });
+    mutationFn: async ({ messageId, itemType, notes }: { messageId: number; itemType: string; notes?: string | null }) => {
+      const r = await apiRequest("POST", `/api/current/messages/${messageId}/structured`, { itemType, notes });
       return r.json();
     },
     onSuccess: () => {
@@ -1408,6 +1497,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
                 onCreateTask={(m) => handleCreateTaskFromRecordMsg(m)}
                 onMarkStructured={(msgId, itemType) => markStructuredMutation.mutate({ messageId: msgId, itemType })}
                 onUnmarkStructured={(msgId, itemType) => unmarkStructuredMutation.mutate({ messageId: msgId, itemType })}
+                onMarkWithNote={(msgId, itemType, notes) => markStructuredMutation.mutate({ messageId: msgId, itemType, notes })}
               />
             ))}
             <div ref={bottomRef} />
