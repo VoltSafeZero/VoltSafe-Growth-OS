@@ -523,10 +523,12 @@ function MessageItem({
               <span
                 key={si.itemType}
                 data-testid={`record-structured-badge-${si.itemType}-${msg.id}`}
+                title={si.notes ?? undefined}
                 className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium ${REC_STRUCTURED_BADGE_STYLE[si.itemType]}`}
               >
                 <Bookmark className="w-2 h-2" />
                 {si.itemType.charAt(0).toUpperCase() + si.itemType.slice(1)}
+                {si.notes && <span className="opacity-60 ml-0.5">·</span>}
               </span>
             ))}
           </div>
@@ -928,6 +930,14 @@ function ThreadPanel({
                       .then(() => {
                         queryClient.invalidateQueries({ queryKey: ["/api/current/messages", rootId, "thread"] });
                         queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] });
+                      })
+                  }
+                  onMarkWithNote={(msgId, itemType, notes) =>
+                    apiRequest("POST", `/api/current/messages/${msgId}/structured`, { itemType, notes })
+                      .then(() => {
+                        queryClient.invalidateQueries({ queryKey: ["/api/current/messages", rootId, "thread"] });
+                        queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] });
+                        queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] });
                       })
                   }
                 />

@@ -1,0 +1,276 @@
+Please perform a VoltSafe CMS Currents Phase 7C Notes audit and polish pass only.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, AI classification, new task features, or unrelated CRM features.
+
+Goal
+
+Verify that optional notes for Decision / Risk / Requirement marks work cleanly across Currents.
+
+Phase 7C added:
+
+* note dialog when marking Decision / Risk / Requirement
+* optional 500-character note field
+* pre-filled existing note when editing
+* Update / Mark / Unmark flow
+* note dot indicator on inline badge
+* note tooltip on badge
+* notes displayed in Structured panels
+
+This audit should verify the feature is stable, polished, and regression-free.
+
+Audit scope
+
+Audit only:
+
+1. Mark-as note dialog in channel messages
+2. Mark-as note dialog in channel thread root/replies
+3. Mark-as note dialog in record messages
+4. Mark-as note dialog in record thread root/replies
+5. Notes saved to backend
+6. Notes displayed in Structured panels
+7. Inline badge note indicator/tooltip
+8. Unmark/update flow
+9. Query invalidation after note changes
+10. Existing Currents regressions caused by Phase 7C
+
+Backend/API checks
+
+Verify:
+
+1. POST /api/current/messages/:id/structured accepts notes.
+2. Notes are trimmed before storage or safely handled.
+3. Empty notes are stored consistently:
+    * preferably null or empty string, but be consistent.
+4. Notes update on existing item via upsert.
+5. Notes do not create duplicate structured items.
+6. Notes are returned in:
+    * message GET payloads
+    * thread GET payloads
+    * record GET payloads
+    * GET /api/current/structured
+7. Max-length handling is safe.
+8. Very long notes do not break backend or UI.
+9. Deleted messages cannot receive new notes/marks.
+10. Auth is still required.
+11. No SQL errors.
+
+Channel UI checks
+
+Verify for channel top-level messages:
+
+1. Clicking Mark as Decision opens the note dialog.
+2. Dialog title/type is clear.
+3. Placeholder is Decision-specific.
+4. User can save with an empty note.
+5. User can save with a note.
+6. Note persists after refresh.
+7. Badge shows note dot indicator if note exists.
+8. Badge tooltip shows the note.
+9. Reopening the mark dialog pre-fills existing note.
+10. Updating the note works.
+11. Clearing/removing the note works if supported.
+12. Unmark works from the dialog.
+13. Dialog Cancel does not save changes.
+14. Dialog does not break pin/edit/delete/reply buttons.
+15. Dialog does not get clipped by scroll containers.
+16. Dialog looks good in dark mode.
+
+Channel thread checks
+
+Verify for:
+
+* thread root message
+* thread reply
+
+Check:
+
+1. Mark as Decision with note works.
+2. Mark as Risk with note works.
+3. Mark as Requirement with note works.
+4. Updating note works.
+5. Unmark works.
+6. Badge updates immediately.
+7. Thread panel stays open.
+8. Parent channel feed updates where appropriate.
+9. No stale badge/note data remains after closing/reopening thread.
+
+Record Currents checks
+
+Verify for:
+
+* Account Currents message
+* Contact Currents message if data exists
+* Opportunity Currents message if data exists
+* Lead Currents message
+* Record thread reply if data exists
+
+Check:
+
+1. Mark dialog opens.
+2. Notes save.
+3. Notes update.
+4. Notes unmark cleanly.
+5. Badges update immediately.
+6. Record Structured Panel shows note.
+7. Record feed remains usable.
+8. Search/Summary/Structured toggles still work.
+9. Dialog does not crowd the record page.
+
+Structured Panel checks
+
+Verify notes display in:
+
+1. /current Structured Panel — current channel scope
+2. /current Structured Panel — all Currents scope
+3. Record Structured Panel
+
+Check:
+
+* Notes render only when present.
+* Notes are visually subtle.
+* Long notes truncate gracefully.
+* Missing notes do not leave awkward whitespace.
+* Notes are not shown for deleted message content.
+* Filtering by Decision/Risk/Requirement still works.
+* View in Currents still works.
+
+Note validation checks
+
+Verify:
+
+1. 0-character note works.
+2. Normal note works.
+3. 500-character note works.
+4. More than 500 characters is blocked, trimmed, or handled safely.
+5. Whitespace-only note is handled consistently.
+6. Special characters do not break rendering.
+7. Mention-like text in notes does not break rendering.
+8. HTML/script-like text is escaped and not executed.
+
+Query invalidation checks
+
+Verify after mark/update/unmark:
+
+1. Inline message badge updates.
+2. Thread panel badge updates.
+3. Parent feed badge updates.
+4. Structured Panel updates.
+5. Record Structured Panel updates.
+6. No full page refresh required.
+7. No stale data after switching views.
+8. No excessive refetch loop.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Channel search
+* Channel AI summaries
+* Channel Create Task
+* Channel View in Currents from Tasks
+* Mentions panel
+* Structured Panel
+* Account Currents
+* Contact Currents
+* Opportunity Currents
+* Lead Currents
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record search
+* Record summaries
+* Record Create Task
+* Record View in Currents from Tasks
+* Record Structured Panel
+* /execution/communications
+
+Verify task system still works:
+
+* Tasks Hub loads
+* Task drawer opens
+* Currents source block still renders
+* View in Currents still works
+* Non-Currents tasks still render normally
+
+UI/UX polish
+
+Check:
+
+1. Dialog title and copy are executive-friendly.
+2. Save/Update/Unmark button labels are clear.
+3. 500-character counter looks clean.
+4. The dialog does not feel too heavy for quick marking.
+5. Note tooltip does not obscure message controls.
+6. Badge note dot is visible but subtle.
+7. Dark mode contrast is good.
+8. Mobile/touch behavior is acceptable.
+9. No z-index issues.
+10. No awkward “Current” vs “Currents” naming regression.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React warnings
+* Failed fetch handling
+* Vite/build errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 7C.
+
+Allowed:
+
+* Note dialog bugs
+* Note save/update/unmark bugs
+* Tooltip/dot display bugs
+* Structured panel note display bugs
+* Query invalidation bugs
+* Note validation bugs
+* UI polish
+* Escaping/safety issues
+* Console/server errors caused by Phase 7C
+
+Not allowed:
+
+* Guest Currents
+* Direct messages
+* Slash commands
+* External collaborators
+* Workflow automation
+* AI classification
+* New task features
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend/API checks performed
+5. Channel note-dialog checks
+6. Thread note-dialog checks
+7. Record note-dialog checks
+8. Structured Panel note checks
+9. Note validation checks
+10. Query invalidation checks
+11. Existing Currents regression results
+12. Existing task regression results
+13. Final pass/fail status
+14. Recommended next feature order
+
+Keep scope tight: Currents Phase 7C Notes audit only.

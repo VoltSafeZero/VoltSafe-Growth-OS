@@ -34035,7 +34035,8 @@ export function registerConfluenceRoutes(app: Express) {
       if (!messageId) return res.status(400).json({ message: "Invalid message id" });
       const itemType = String(req.body?.itemType || "");
       if (!VALID_STRUCTURED_TYPES.has(itemType)) return res.status(400).json({ message: "itemType must be decision, risk, or requirement" });
-      const notes = req.body?.notes ? String(req.body.notes).slice(0, 1000) : null;
+      const notesRaw = req.body?.notes != null ? String(req.body.notes).trim().slice(0, 500) : null;
+      const notes = notesRaw || null;
 
       // Validate message exists and is not deleted
       const msgRows = await db.execute(sql.raw(
