@@ -1,0 +1,253 @@
+Please perform a Currents Phase 6B View in Currents audit and polish pass only.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, Mark as Decision/Risk/Requirement, or unrelated task features yet.
+
+Goal
+
+Verify that tasks created from Currents reliably show the correct source context and deep-link back to the exact Currents message/thread/record.
+
+Audit scope
+
+Audit only:
+
+1. Currents source block in the task detail drawer
+2. View in Currents link generation
+3. Task metadata interpretation
+4. Deep-links back to channel Currents
+5. Deep-links back to Record Currents
+6. Existing task and Currents regressions caused by Phase 6B
+
+Metadata audit
+
+Inspect real task records created from Phase 6A and verify how metadata is stored and returned by the task APIs.
+
+Check:
+
+* source
+* source_label
+* source_meta
+* sourceContext
+* messageId
+* channelSlug
+* threadRootId
+* objectType
+* objectId
+* summaryContext
+* linkedObjectType
+* linkedObjectId
+
+Confirm which fields are returned as snake_case vs camelCase in the frontend task drawer.
+
+Task drawer UI checks
+
+Verify:
+
+1. Tasks without Currents metadata do not show the source block.
+2. Tasks with Currents metadata show a compact source block.
+3. Source block appears in a sensible location.
+4. Source block looks good in dark mode.
+5. Channel task shows the channel name, e.g. #general.
+6. Channel thread reply task shows clear thread/reply context.
+7. Record task shows the record type and id/name if available.
+8. AI summary action item task shows useful context if supported.
+9. The link label is clear:
+    * View in Currents
+10. Link does not look like an external website link if it stays inside the app.
+11. No layout crowding inside the drawer.
+
+Deep-link rules to verify
+
+Channel top-level message
+
+Task metadata:
+
+* sourceContext = "currents_channel"
+* channelSlug
+* messageId
+* no threadRootId
+
+Expected link:
+
+/current?channel=CHANNEL_SLUG&message=MESSAGE_ID
+
+Verify it opens:
+
+* Correct channel
+* Correct message
+* Highlight target if supported
+
+Channel thread reply
+
+Task metadata:
+
+* sourceContext = "currents_channel"
+* channelSlug
+* messageId
+* threadRootId
+
+Expected link:
+
+/current?channel=CHANNEL_SLUG&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Verify it opens:
+
+* Correct channel
+* Thread panel
+* Correct reply context
+* Root highlight behavior works as intended
+
+Account Currents message
+
+Expected link:
+
+/accounts/OBJECT_ID?tab=current&message=MESSAGE_ID
+
+Verify:
+
+* Account page opens
+* Currents section/tab is visible
+* Target message highlights if supported
+
+Account Currents thread reply
+
+Expected link:
+
+/accounts/OBJECT_ID?tab=current&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Verify:
+
+* Account page opens
+* Thread panel opens if supported
+* Correct message/reply context is visible
+
+Contact Currents message/thread
+
+Use the actual existing Contact route.
+
+Verify:
+
+* Contact page opens
+* Currents tab/section opens
+* Message/thread context works
+
+Opportunity Currents message/thread
+
+Use the actual existing Opportunity route.
+
+Verify:
+
+* Opportunity page opens
+* Currents section opens
+* Message/thread context works
+
+Lead Currents message/thread
+
+Must use corrected Lead route:
+
+/opportunities?selected=LEAD_ID&tab=current&message=MESSAGE_ID
+
+Thread reply:
+
+/opportunities?selected=LEAD_ID&tab=current&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Verify:
+
+* Leads page opens
+* Correct lead detail/dialog opens
+* Currents view is active
+* Message/thread context works
+
+AI summary action item task
+
+If exact source metadata exists, verify the link uses it.
+
+If only summary context exists:
+
+* Show Created from Currents AI Summary
+* Do not show a broken View in Currents link
+* Optionally link to related channel/record only if metadata is sufficient
+
+Regression checks
+
+Verify existing task features still work:
+
+* Tasks Hub loads
+* Task detail drawer opens
+* Existing non-Currents task detail still works
+* Task edit still works
+* Task status/completion still works
+* Task filters/lists still work
+* Task BOLA/access tests still pass
+
+Verify existing Currents features still work:
+
+* /current loads
+* Channel posting
+* Threads
+* Reactions
+* Pins
+* Edit/delete
+* @mentions
+* Attachments
+* Search
+* AI summaries
+* Create Task from message
+* Record Currents
+* Record threads
+* Record search
+* Record summaries
+* Record deep-links
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React warnings
+* Broken navigation
+* Broken task drawer rendering
+* Vite/build errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 6B.
+
+Allowed:
+
+* Bad URL generation
+* Bad snake_case/camelCase handling
+* Missing/incorrect source block rendering
+* Broken deep-links
+* UI polish in the source block
+* Incorrect AI summary task source handling
+* Console/server errors caused by the source block/link
+
+Not allowed:
+
+* Guest Currents
+* Direct messages
+* Slash commands
+* External collaborators
+* Workflow automation
+* Mark as Decision/Risk/Requirement
+* New unrelated task features
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Metadata audit results
+5. Task drawer UI checks
+6. Deep-link checks by source type
+7. Existing task regression results
+8. Existing Currents regression results
+9. Final pass/fail status
+10. Recommended next feature order
+
+Keep scope tight: View in Currents audit only.
