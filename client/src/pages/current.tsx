@@ -2202,7 +2202,9 @@ export default function CurrentPage() {
               setSelectedSlug(slug);
               setView("channel");
               setThreadRootId(threadId ?? null);
-              setHighlight(messageId);
+              // Highlight the root message (visible in main list) when
+              // navigating to a reply; the reply itself is only in the thread panel.
+              setHighlight(threadId ?? messageId);
             }}
           />
         ) : view === "search" ? (
@@ -2212,7 +2214,9 @@ export default function CurrentPage() {
               setSelectedSlug(slug);
               setView("channel");
               setThreadRootId(threadId ?? null);
-              setHighlight(messageId);
+              // Highlight the root message (visible in main list) when
+              // navigating to a reply; the reply itself is only in the thread panel.
+              setHighlight(threadId ?? messageId);
             }}
           />
         ) : (

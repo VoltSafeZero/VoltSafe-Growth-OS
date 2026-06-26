@@ -833,12 +833,16 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
 
   useEffect(() => {
     if (!initialMessageId || hasHighlightedRef.current) return;
-    if (messages.some(m => m.id === initialMessageId)) {
+    // The main message list only contains top-level messages (parent_message_id IS NULL).
+    // When initialMessageId is a thread reply, it won't be in the list.
+    // Fall back to initialThreadId (the root) so the scroll/highlight still lands visibly.
+    const highlightTarget = initialThreadId ?? initialMessageId;
+    if (messages.some(m => m.id === highlightTarget)) {
       hasHighlightedRef.current = true;
       setTimeout(() => {
-        const el = document.getElementById(`record-msg-${initialMessageId}`);
+        const el = document.getElementById(`record-msg-${highlightTarget}`);
         el?.scrollIntoView({ behavior: "smooth", block: "center" });
-        setHighlight(initialMessageId);
+        setHighlight(highlightTarget);
       }, 150);
     }
   }, [messages.length]);

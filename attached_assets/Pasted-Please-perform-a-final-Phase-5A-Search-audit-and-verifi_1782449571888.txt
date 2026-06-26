@@ -1,0 +1,216 @@
+Please perform a final Phase 5A Search audit and verification pass for Currents.
+
+Do not add AI summaries, Guest Currents, direct messages, slash commands, external collaborators, or any new feature yet.
+
+Goal
+
+Confirm that Currents Search is safe, accurate, polished, and fully verified after the recent fixes to:
+
+1. Record search deep-links
+2. Record feed search keyword highlighting
+
+Audit scope
+
+Audit only:
+
+* /api/current/search
+* /current search UI
+* Record Currents inline search
+* Search result deep-links
+* Search result snippets/highlighting
+* Deleted-message safety
+* Channel/record isolation
+* Existing Currents regressions caused by search
+
+Backend checks
+
+Verify GET /api/current/search:
+
+1. Requires authentication.
+2. Rejects or safely handles missing/empty q.
+3. Uses parameterized queries.
+4. Enforces a limit cap.
+5. Handles invalid scope safely.
+6. Handles invalid channel safely.
+7. Handles invalid objectType/objectId safely.
+8. scope=all searches channel + record Currents.
+9. scope=channel returns only channel messages.
+10. scope=record returns only record messages.
+11. channel=general returns only #general.
+12. objectType=account&objectId=ID returns only that Account’s Currents.
+13. Thread replies are searchable.
+14. Top-level messages are searchable.
+15. Attachment filenames are searchable if implemented.
+
+Deleted data safety
+
+Verify:
+
+1. Soft-deleted message bodies do not appear in search.
+2. Soft-deleted thread replies do not appear.
+3. Attachment filenames from deleted messages do not appear.
+4. Search snippets never expose redacted/deleted body text.
+5. Search result links do not point to deleted messages unless intentionally handled.
+6. Deleted-message attachment redaction from Phase 4A still works.
+
+Deep-link checks
+
+Verify search result links:
+
+1. Channel top-level result:
+    * /current?channel=general&message=MESSAGE_ID
+2. Channel thread reply result:
+    * /current?channel=general&thread=ROOT_ID&message=REPLY_ID
+3. Account record result:
+    * Opens Account page
+    * Activates/scrolls to Currents
+    * Highlights target message if supported
+4. Contact record result:
+    * Opens Contact page
+    * Activates/scrolls to Currents
+    * Highlights target message if supported
+5. Opportunity record result:
+    * Opens Opportunity page
+    * Activates/scrolls to Currents
+    * Highlights target message if supported
+6. Lead record result:
+    * Uses the corrected Lead route:
+        * /opportunities?selected=LEAD_ID&tab=current&message=MESSAGE_ID
+    * Opens the Lead detail/dialog
+    * Shows Currents
+    * Highlights target message if supported
+7. Thread result inside record Currents:
+    * Opens the correct record
+    * Opens the thread panel if supported
+    * Highlights the reply if supported
+
+/current search UI
+
+Verify:
+
+1. Search sidebar item appears cleanly.
+2. Search view opens correctly.
+3. Debounced input works.
+4. Loading state looks polished.
+5. Empty state looks polished.
+6. Error state looks polished.
+7. Results are readable in dark mode.
+8. Highlighted text looks clean.
+9. Mention tokens do not show ugly raw syntax.
+10. Attachment filename hits are visible if implemented.
+11. Long snippets truncate gracefully.
+12. Clicking channel results navigates in-page correctly.
+13. Clicking record results opens the correct CRM page.
+14. Returning to Channels or Mentions works cleanly.
+15. Search does not break unread counts.
+
+Record Currents inline search UI
+
+Verify inside:
+
+* Account Currents
+* Contact Currents
+* Opportunity Currents
+* Lead Currents
+
+Check:
+
+1. Compact search bar appears in a good location.
+2. It does not clutter the record page.
+3. Search only returns results for that record.
+4. Results replace/overlay the message list cleanly.
+5. Keyword highlighting works.
+6. Clicking a result scrolls/highlights the message.
+7. Clicking a thread result opens the thread panel if supported.
+8. Clearing the query returns to normal message list.
+9. Search does not break composer.
+10. Search does not break auto-scroll.
+11. Search does not break pins/reactions/threads/attachments.
+12. Dark mode looks polished.
+
+Isolation checks
+
+Verify:
+
+1. Channel search does not return record messages.
+2. Record search does not return channel messages.
+3. Account search does not return Contact/Lead/Opportunity messages.
+4. Lead search does not return Opportunity messages with the same numeric ID.
+5. Search result links do not cross into the wrong entity.
+6. Currents search does not show unrelated CRM attachment records.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Mentions panel
+* Account Currents
+* Contact Currents
+* Opportunity Currents
+* Lead Currents
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record deep-links
+* /execution/communications
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React key warnings
+* Failed fetch handling
+* Vite/build errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 5A Search.
+
+Allowed:
+
+* Search route bugs
+* Search SQL bugs
+* Deleted-data leakage
+* Search result payload bugs
+* Deep-link bugs
+* Snippet/highlight bugs
+* Record/channel isolation bugs
+* Search UI polish
+* Console/server errors caused by search
+
+Not allowed:
+
+* AI summaries
+* Guest Currents
+* Direct messages
+* Slash commands
+* External collaborators
+* New unrelated CRM features
+
+Deliverable
+
+Return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend/API checks performed
+5. Frontend/UI checks performed
+6. Deleted-data safety checks
+7. Deep-link checks
+8. Existing Currents regression results
+9. Final pass/fail status
+10. Recommended next feature order
+
+Keep scope tight: final Phase 5A Search audit only.
