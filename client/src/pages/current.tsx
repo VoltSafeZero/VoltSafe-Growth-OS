@@ -1,10 +1,26 @@
 import { useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Hash, Send, MessageSquare, Loader2 } from "lucide-react";
+import {
+  Hash,
+  Send,
+  MessageSquare,
+  Loader2,
+  Pin,
+  Pencil,
+  Trash2,
+  X,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,18 +33,47 @@ interface Channel {
   unreadCount: number;
 }
 
+interface Reaction {
+  emoji: string;
+  count: number;
+  reacted: boolean;
+}
+
 interface Message {
   id: number;
   channelId: number;
   userId: number;
-  body: string;
+  body: string | null;
   isEdited: boolean;
+  editedAt: string | null;
+  deletedAt: string | null;
   createdAt: string;
   userName: string;
   userAvatarUrl: string | null;
+  reactions: Reaction[];
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+interface PinnedMessage {
+  id: number;
+  channelId: number;
+  messageId: number;
+  pinnedBy: number | null;
+  pinnedAt: string;
+  pinnedByName: string | null;
+  messageBody: string;
+  messageUserName: string;
+  messageCreatedAt: string;
+}
+
+interface Me {
+  id: number;
+  name: string;
+  globalRole: string;
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const PRESET_REACTIONS = ["👍", "❤️", "🔥", "✅", "😂", "👀"];
 
 const AVATAR_PALETTE = [
   "bg-teal-600",
@@ -40,6 +85,8 @@ const AVATAR_PALETTE = [
   "bg-emerald-600",
   "bg-sky-600",
 ];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function avatarBg(userId: number): string {
   return AVATAR_PALETTE[userId % AVATAR_PALETTE.length];
@@ -57,8 +104,7 @@ function initials(name: string): string {
 function formatTs(dateStr: string): string {
   const d = new Date(dateStr);
   const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
+  const diffMins = Math.floor((now.getTime() - d.getTime()) / 60_000);
   if (diffMins < 1) return "just now";
   if (diffMins < 60) return `${diffMins}m ago`;
   const diffHours = Math.floor(diffMins / 60);
@@ -73,7 +119,7 @@ function formatTs(dateStr: string): string {
 }
 
 function isContinuation(prev: Message | undefined, curr: Message): boolean {
-  if (!prev) return false;
+  if (!prev || prev.deletedAt) return false;
   if (prev.userId !== curr.userId) return false;
   return (
     new Date(curr.createdAt).getTime() - new Date(prev.createdAt).getTime() <
@@ -81,34 +127,231 @@ function isContinuation(prev: Message | undefined, curr: Message): boolean {
   );
 }
 
-// Non-breaking hyphens keep channel names like #customer-success on one line
 function displaySlug(slug: string): string {
   return slug.replace(/-/g, "\u2011");
 }
 
-// Adjust a textarea element's height to fit its content (capped at maxPx)
 function growTextarea(el: HTMLTextAreaElement, maxPx = 144) {
   el.style.height = "auto";
   el.style.height = `${Math.min(el.scrollHeight, maxPx)}px`;
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Emoji picker (compact preset strip) ──────────────────────────────────────
+
+function EmojiPickerPopover({
+  onReact,
+}: {
+  onReact: (emoji: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Add reaction"
+        className="w-6 h-6 flex items-center justify-center rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+      >
+        😊
+      </button>
+      {open && (
+        <div className="absolute right-0 top-7 flex gap-0.5 p-1 bg-popover border border-border/70 rounded-lg shadow-lg z-50">
+          {PRESET_REACTIONS.map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => {
+                onReact(emoji);
+                setOpen(false);
+              }}
+              className="w-7 h-7 flex items-center justify-center text-[15px] rounded-md hover:bg-muted/60 transition-colors"
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Message hover action bar ──────────────────────────────────────────────────
+
+function MessageActionBar({
+  message,
+  isOwn,
+  isAdmin,
+  isPinned,
+  onReact,
+  onEdit,
+  onDelete,
+  onPin,
+}: {
+  message: Message;
+  isOwn: boolean;
+  isAdmin: boolean;
+  isPinned: boolean;
+  onReact: (emoji: string) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onPin: () => void;
+}) {
+  const canEdit = isOwn;
+  const canDelete = isOwn || isAdmin;
+
+  return (
+    <div
+      className={cn(
+        "absolute right-2 -top-3 z-20",
+        "flex items-center gap-px p-0.5 rounded-lg",
+        "bg-background border border-border/70 shadow-sm",
+        "opacity-0 group-hover:opacity-100 transition-opacity duration-100 pointer-events-none group-hover:pointer-events-auto"
+      )}
+    >
+      <EmojiPickerPopover onReact={onReact} />
+      <button
+        onClick={onPin}
+        title={isPinned ? "Unpin" : "Pin"}
+        className={cn(
+          "w-6 h-6 flex items-center justify-center rounded-md transition-colors",
+          isPinned
+            ? "text-primary bg-primary/10 hover:bg-primary/20"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+        )}
+      >
+        <Pin className="w-3 h-3" />
+      </button>
+      {canEdit && (
+        <button
+          onClick={onEdit}
+          title="Edit"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+        >
+          <Pencil className="w-3 h-3" />
+        </button>
+      )}
+      {canDelete && (
+        <button
+          onClick={onDelete}
+          title="Delete"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Reaction strip ────────────────────────────────────────────────────────────
+
+function ReactionStrip({
+  reactions,
+  messageId,
+  onToggle,
+}: {
+  reactions: Reaction[];
+  messageId: number;
+  onToggle: (messageId: number, emoji: string) => void;
+}) {
+  if (!reactions || reactions.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1 mt-1.5">
+      {reactions.map((r) => (
+        <button
+          key={r.emoji}
+          onClick={() => onToggle(messageId, r.emoji)}
+          className={cn(
+            "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[12px]",
+            "border select-none transition-all duration-100",
+            r.reacted
+              ? "bg-primary/15 border-primary/30 text-foreground hover:bg-primary/20"
+              : "bg-muted/40 border-border/40 text-foreground/70 hover:bg-muted/60 hover:border-border/60"
+          )}
+        >
+          <span>{r.emoji}</span>
+          <span className="font-medium text-[11px] tabular-nums">{r.count}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Message row ───────────────────────────────────────────────────────────────
 
 function MessageRow({
   message,
   grouped,
+  currentUserId,
+  isAdmin,
+  pinnedMessageIds,
+  onToggleReaction,
+  onEdit,
+  onDelete,
+  onPin,
 }: {
   message: Message;
   grouped: boolean;
+  currentUserId: number;
+  isAdmin: boolean;
+  pinnedMessageIds: Set<number>;
+  onToggleReaction: (messageId: number, emoji: string) => void;
+  onEdit: (message: Message) => void;
+  onDelete: (messageId: number) => void;
+  onPin: (messageId: number, isPinned: boolean) => void;
 }) {
+  const isPinned = pinnedMessageIds.has(message.id);
+  const isOwn = message.userId === currentUserId;
+
+  // Soft-deleted placeholder
+  if (message.deletedAt) {
+    return (
+      <div
+        className={cn(
+          "flex gap-3 px-2 -mx-2 py-0.5",
+          grouped ? "mt-0.5" : "mt-4 first:mt-0"
+        )}
+        data-testid={`message-row-${message.id}`}
+      >
+        <div className="w-8 shrink-0" />
+        <p className="text-[12.5px] text-muted-foreground/40 italic select-none">
+          Message deleted
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
-        "flex gap-3 group hover:bg-white/[0.025] rounded-lg px-2 -mx-2 py-0.5 transition-colors",
+        "relative flex gap-3 group hover:bg-white/[0.025] rounded-lg px-2 -mx-2 py-0.5 transition-colors",
         grouped ? "mt-0.5" : "mt-4 first:mt-0"
       )}
       data-testid={`message-row-${message.id}`}
     >
+      {/* Hover action bar */}
+      <MessageActionBar
+        message={message}
+        isOwn={isOwn}
+        isAdmin={isAdmin}
+        isPinned={isPinned}
+        onReact={(emoji) => onToggleReaction(message.id, emoji)}
+        onEdit={() => onEdit(message)}
+        onDelete={() => onDelete(message.id)}
+        onPin={() => onPin(message.id, isPinned)}
+      />
+
+      {/* Avatar / grouped spacer */}
       {grouped ? (
         <div className="w-8 shrink-0" />
       ) : (
@@ -131,6 +374,7 @@ function MessageRow({
         </div>
       )}
 
+      {/* Content */}
       <div className="flex-1 min-w-0">
         {!grouped && (
           <div className="flex items-baseline gap-2 mb-0.5">
@@ -145,34 +389,174 @@ function MessageRow({
                 edited
               </span>
             )}
+            {isPinned && (
+              <span className="inline-flex items-center text-primary/50">
+                <Pin className="w-2.5 h-2.5" />
+              </span>
+            )}
           </div>
         )}
         <p className="text-[13.5px] text-foreground/90 leading-relaxed whitespace-pre-wrap break-words">
           {message.body}
         </p>
+        <ReactionStrip
+          reactions={message.reactions || []}
+          messageId={message.id}
+          onToggle={onToggleReaction}
+        />
       </div>
     </div>
   );
 }
 
-function EmptyFeed({ slug }: { slug: string }) {
+// ── Inline edit overlay ───────────────────────────────────────────────────────
+
+function InlineEditRow({
+  message,
+  onSave,
+  onCancel,
+}: {
+  message: Message;
+  onSave: (newBody: string) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(message.body ?? "");
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (taRef.current) {
+      taRef.current.focus();
+      const len = taRef.current.value.length;
+      taRef.current.setSelectionRange(len, len);
+      growTextarea(taRef.current, 192);
+    }
+  }, []);
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+    if (e.key === "Escape") onCancel();
+  }
+
+  function submit() {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    if (trimmed === (message.body ?? "").trim()) {
+      onCancel();
+      return;
+    }
+    onSave(trimmed);
+  }
+
   return (
-    <div className="flex flex-col items-center justify-center h-full text-center py-20 select-none">
-      <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-5 ring-1 ring-primary/10">
-        <Hash className="w-8 h-8 text-primary/50" />
+    <div
+      className={cn(
+        "flex gap-3 px-2 -mx-2 py-2 mt-4 first:mt-0",
+        "bg-primary/[0.03] rounded-lg border border-primary/15"
+      )}
+    >
+      <div className="w-8 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-[13px] font-semibold text-foreground">
+            {message.userName}
+          </span>
+          <span className="text-[11px] text-muted-foreground/60">
+            {formatTs(message.createdAt)}
+          </span>
+        </div>
+        <Textarea
+          ref={taRef}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            growTextarea(e.target, 192);
+          }}
+          onKeyDown={handleKeyDown}
+          className="border border-primary/20 bg-background shadow-none resize-none p-2 text-[13.5px] leading-relaxed focus-visible:ring-1 focus-visible:ring-primary/30 min-h-[36px] max-h-48 overflow-y-auto rounded-lg w-full"
+          rows={1}
+        />
+        <div className="flex items-center gap-2 mt-1.5">
+          <Button size="sm" onClick={submit} className="h-6 text-[11px] px-2.5">
+            Save
+          </Button>
+          <button
+            onClick={onCancel}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Cancel
+          </button>
+          <span className="text-[10px] text-muted-foreground/35 ml-1 select-none">
+            Esc to cancel · Enter to save
+          </span>
+        </div>
       </div>
-      <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
-        Start the conversation
-      </h3>
-      <p className="text-sm text-muted-foreground max-w-[240px]">
-        Be the first to post in{" "}
-        <span className="text-primary font-medium">
-          #{displaySlug(slug)}
-        </span>
-      </p>
     </div>
   );
 }
+
+// ── Pinned messages bar ───────────────────────────────────────────────────────
+
+function PinnedBar({
+  pins,
+  onUnpin,
+}: {
+  pins: PinnedMessage[];
+  onUnpin: (messageId: number) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (pins.length === 0) return null;
+
+  const shown = expanded ? pins : [pins[0]];
+
+  return (
+    <div className="px-5 py-2 border-b border-border/40 bg-primary/[0.02] shrink-0">
+      <div className="flex items-start gap-2">
+        <Pin className="w-3 h-3 text-primary/50 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0 space-y-0.5">
+          {shown.map((pin) => (
+            <div key={pin.id} className="flex items-center gap-2 group/pin min-w-0">
+              <div className="flex-1 min-w-0 flex items-baseline gap-1.5 overflow-hidden">
+                <span className="text-[11px] font-medium text-primary/70 shrink-0">
+                  {pin.messageUserName}
+                </span>
+                <span className="text-[12px] text-foreground/60 truncate">
+                  {(pin.messageBody ?? "").slice(0, 90)}
+                  {(pin.messageBody ?? "").length > 90 ? "…" : ""}
+                </span>
+              </div>
+              <button
+                onClick={() => onUnpin(pin.messageId)}
+                title="Unpin"
+                className="opacity-0 group-hover/pin:opacity-100 shrink-0 w-4 h-4 flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground transition-all rounded"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+        {pins.length > 1 && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="shrink-0 flex items-center gap-0.5 text-[11px] text-primary/60 hover:text-primary transition-colors"
+          >
+            {expanded ? (
+              <ChevronUp className="w-3 h-3" />
+            ) : (
+              <ChevronDown className="w-3 h-3" />
+            )}
+            <span>{expanded ? "less" : `+${pins.length - 1}`}</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Sidebar skeletons ─────────────────────────────────────────────────────────
 
 function ChannelSkeleton() {
   return (
@@ -188,28 +572,49 @@ function ChannelSkeleton() {
   );
 }
 
+// ── Empty feed ────────────────────────────────────────────────────────────────
+
+function EmptyFeed({ slug }: { slug: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center py-20 select-none">
+      <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-5 ring-1 ring-primary/10">
+        <Hash className="w-8 h-8 text-primary/50" />
+      </div>
+      <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
+        Start the conversation
+      </h3>
+      <p className="text-sm text-muted-foreground max-w-[240px]">
+        Be the first to post in{" "}
+        <span className="text-primary font-medium">#{displaySlug(slug)}</span>
+      </p>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CurrentPage() {
   const queryClient = useQueryClient();
   const [selectedSlug, setSelectedSlug] = useState<string>("general");
   const [draft, setDraft] = useState("");
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isAtBottom = useRef(true);
   const lastReadRef = useRef<number>(0);
 
-  // ── Data fetching ──────────────────────────────────────────────────────────
+  // ── Session ──────────────────────────────────────────────────────────────
+  const { data: me } = useQuery<Me>({ queryKey: ["/api/auth/me"] });
+  const currentUserId = me?.id ?? 0;
+  const isAdmin = ["admin", "master_admin"].includes(me?.globalRole ?? "");
 
-  // Channels list with per-user unread counts — 15s poll
+  // ── Queries ───────────────────────────────────────────────────────────────
+
   const { data: channels = [], isLoading: channelsLoading } = useQuery<Channel[]>({
     queryKey: ["/api/current/channels"],
     refetchInterval: 15_000,
   });
 
-  // Messages for the active channel — 5s poll.
-  // keepPreviousData means switching to a cached channel shows stale data
-  // immediately (no blank/spinner) while the fresh fetch completes.
   const {
     data: messages = [],
     isLoading: msgsLoading,
@@ -225,48 +630,48 @@ export default function CurrentPage() {
     placeholderData: keepPreviousData,
   });
 
-  // ── Scroll management ──────────────────────────────────────────────────────
+  const { data: pins = [] } = useQuery<PinnedMessage[]>({
+    queryKey: ["/api/current/channels", selectedSlug, "pins"],
+    queryFn: () =>
+      fetch(`/api/current/channels/${selectedSlug}/pins`, {
+        credentials: "include",
+      }).then((r) => r.json()),
+    refetchInterval: 30_000,
+    enabled: !!selectedSlug,
+  });
 
-  // Track whether the user is near the bottom so we don't force-scroll when
-  // they're reading history.
+  const pinnedMessageIds = new Set(pins.map((p) => p.messageId));
+
+  // ── Scroll ────────────────────────────────────────────────────────────────
+
   function handleScroll() {
     if (!feedRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = feedRef.current;
     isAtBottom.current = scrollHeight - scrollTop - clientHeight < 80;
   }
 
-  // Instant scroll to bottom helper — no CSS smooth-scroll animation so the
-  // 5-second poll doesn't cause visible jitter.
-  function scrollToBottom(instant = true) {
-    const el = feedRef.current;
-    if (!el) return;
-    if (instant) {
-      el.scrollTop = el.scrollHeight;
-    } else {
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    }
+  function scrollToBottom() {
+    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
   }
 
-  // Auto-scroll when new messages arrive (only when near the bottom)
   useEffect(() => {
     if (isAtBottom.current) scrollToBottom();
-  }, [messages.length]);                              // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When switching channels, always jump to the bottom immediately
   useEffect(() => {
     isAtBottom.current = true;
     lastReadRef.current = 0;
+    setEditingMessage(null);
     scrollToBottom();
-  }, [selectedSlug]);                                 // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Read receipts ──────────────────────────────────────────────────────────
+  // ── Read receipts ─────────────────────────────────────────────────────────
 
-  // Fire-and-forget mark-read whenever the open channel's message list grows.
-  // Uses lastReadRef to debounce — won't re-fire if the last message ID hasn't
-  // changed (e.g. on a poll cycle with no new messages).
   useEffect(() => {
     if (!selectedSlug || messages.length === 0) return;
-    const lastId = messages[messages.length - 1].id;
+    const lastMsg = [...messages].reverse().find((m) => !m.deletedAt);
+    if (!lastMsg) return;
+    const lastId = lastMsg.id;
     if (lastId === lastReadRef.current) return;
     lastReadRef.current = lastId;
     fetch(`/api/current/channels/${selectedSlug}/read`, {
@@ -281,8 +686,22 @@ export default function CurrentPage() {
       .catch(() => {});
   }, [selectedSlug, messages.length, queryClient]);
 
-  // ── Composer ───────────────────────────────────────────────────────────────
+  // ── Mutation helpers ──────────────────────────────────────────────────────
 
+  const invalidateFeed = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["/api/current/channels", selectedSlug, "messages"],
+    });
+    queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
+  };
+
+  const invalidatePins = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["/api/current/channels", selectedSlug, "pins"],
+    });
+  };
+
+  // Post
   const postMutation = useMutation({
     mutationFn: (body: string) =>
       apiRequest("POST", `/api/current/channels/${selectedSlug}/messages`, {
@@ -290,20 +709,63 @@ export default function CurrentPage() {
       }),
     onSuccess: () => {
       setDraft("");
-      // Reset textarea height back to one line
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
-      }
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
       isAtBottom.current = true;
-      // Refresh both messages and sidebar unread counts
+      invalidateFeed();
+    },
+  });
+
+  // Edit
+  const editMutation = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: string }) =>
+      apiRequest("PATCH", `/api/current/messages/${id}`, { body }),
+    onSuccess: () => {
+      setEditingMessage(null);
       queryClient.invalidateQueries({
         queryKey: ["/api/current/channels", selectedSlug, "messages"],
       });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/current/channels"],
-      });
     },
   });
+
+  // Delete
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/current/messages/${id}`),
+    onSuccess: () => invalidateFeed(),
+  });
+
+  // React (toggle)
+  const reactMutation = useMutation({
+    mutationFn: ({ messageId, emoji }: { messageId: number; emoji: string }) =>
+      apiRequest("POST", `/api/current/messages/${messageId}/reactions`, {
+        emoji,
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["/api/current/channels", selectedSlug, "messages"],
+      }),
+  });
+
+  // Pin
+  const pinMutation = useMutation({
+    mutationFn: (messageId: number) =>
+      apiRequest("POST", `/api/current/messages/${messageId}/pin`),
+    onSuccess: () => {
+      invalidateFeed();
+      invalidatePins();
+    },
+  });
+
+  // Unpin
+  const unpinMutation = useMutation({
+    mutationFn: (messageId: number) =>
+      apiRequest("DELETE", `/api/current/messages/${messageId}/pin`),
+    onSuccess: () => {
+      invalidateFeed();
+      invalidatePins();
+    },
+  });
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
 
   function handleSend() {
     const trimmed = draft.trim();
@@ -323,12 +785,13 @@ export default function CurrentPage() {
     growTextarea(e.target);
   }
 
-  // ── Derived ────────────────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
 
   const selectedChannel = channels.find((c) => c.slug === selectedSlug);
   const totalUnread = channels.reduce((s, c) => s + c.unreadCount, 0);
+  const nonDeletedCount = messages.filter((m) => !m.deletedAt).length;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-full overflow-hidden bg-background">
@@ -394,8 +857,8 @@ export default function CurrentPage() {
                   {channel.unreadCount > 0 && (
                     <span
                       className={cn(
-                        "min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full",
-                        "text-[10px] font-bold shrink-0",
+                        "min-w-[18px] h-[18px] px-1 flex items-center justify-center",
+                        "rounded-full text-[10px] font-bold shrink-0",
                         active
                           ? "bg-primary/20 text-primary"
                           : "bg-primary text-primary-foreground"
@@ -411,10 +874,10 @@ export default function CurrentPage() {
         </div>
       </aside>
 
-      {/* ── Main content area ───────────────────────────────────────────── */}
+      {/* ── Main content ────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-        {/* Channel header bar */}
+        {/* Channel header */}
         <div className="px-5 py-3 border-b border-border/60 flex items-center gap-2.5 shrink-0 min-w-0">
           <Hash className="w-4 h-4 text-muted-foreground/60 shrink-0" />
           <span className="font-semibold text-[14px] text-foreground shrink-0">
@@ -428,14 +891,15 @@ export default function CurrentPage() {
               </span>
             </div>
           )}
-          {/* Subtle refetch indicator — barely visible dot so the user knows
-              data is fresh without any layout shift */}
           {msgsFetching && !msgsLoading && (
             <div className="ml-auto shrink-0 w-1.5 h-1.5 rounded-full bg-primary/30 animate-pulse" />
           )}
         </div>
 
-        {/* Message feed — NO scroll-smooth to avoid animation jitter on polls */}
+        {/* Pinned bar — only rendered when there are pins */}
+        <PinnedBar pins={pins} onUnpin={(mid) => unpinMutation.mutate(mid)} />
+
+        {/* Message feed */}
         <div
           ref={feedRef}
           onScroll={handleScroll}
@@ -446,24 +910,50 @@ export default function CurrentPage() {
             <div className="flex items-center justify-center h-full">
               <Loader2 className="w-5 h-5 text-muted-foreground/40 animate-spin" />
             </div>
-          ) : messages.length === 0 ? (
+          ) : nonDeletedCount === 0 && messages.length === 0 ? (
             <EmptyFeed slug={selectedSlug} />
           ) : (
             <>
-              {messages.map((msg, i) => (
-                <MessageRow
-                  key={msg.id}
-                  message={msg}
-                  grouped={isContinuation(messages[i - 1], msg)}
-                />
-              ))}
-              {/* Bottom padding so the last message isn't flush against the composer */}
+              {messages.map((msg, i) => {
+                if (editingMessage?.id === msg.id) {
+                  return (
+                    <InlineEditRow
+                      key={msg.id}
+                      message={msg}
+                      onSave={(newBody) =>
+                        editMutation.mutate({ id: msg.id, body: newBody })
+                      }
+                      onCancel={() => setEditingMessage(null)}
+                    />
+                  );
+                }
+                return (
+                  <MessageRow
+                    key={msg.id}
+                    message={msg}
+                    grouped={isContinuation(messages[i - 1], msg)}
+                    currentUserId={currentUserId}
+                    isAdmin={isAdmin}
+                    pinnedMessageIds={pinnedMessageIds}
+                    onToggleReaction={(mid, emoji) =>
+                      reactMutation.mutate({ messageId: mid, emoji })
+                    }
+                    onEdit={(m) => setEditingMessage(m)}
+                    onDelete={(id) => deleteMutation.mutate(id)}
+                    onPin={(id, isPinned) =>
+                      isPinned
+                        ? unpinMutation.mutate(id)
+                        : pinMutation.mutate(id)
+                    }
+                  />
+                );
+              })}
               <div className="h-2" />
             </>
           )}
         </div>
 
-        {/* Composer — anchored at bottom, never overlaps the feed */}
+        {/* Composer */}
         <div className="px-5 pt-3 pb-4 border-t border-border/60 shrink-0">
           <div
             className={cn(

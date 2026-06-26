@@ -1,0 +1,151 @@
+Proceed with Current Phase 2A only.
+
+Goal:
+Add lightweight engagement and message-management features to Current while keeping the existing Phase 1 experience stable and premium.
+
+Do not add CRM record Currents, Guest Currents, direct messages, attachments, search, AI summaries, slash commands, or @mentions yet.
+
+Phase 2A scope
+
+Add only:
+
+1. Emoji reactions
+2. Message edit/delete
+3. Pinned messages
+
+1. Emoji reactions
+
+Add lightweight emoji reactions to messages.
+
+Use these preset reactions only:
+
+* 👍
+* ❤️
+* 🔥
+* ✅
+* 😂
+* 👀
+
+Backend:
+
+* Add a current_reactions table if it does not already exist:
+    * id
+    * message_id
+    * user_id
+    * emoji
+    * created_at
+    * unique constraint on (message_id, user_id, emoji)
+* Add route:
+    * POST /api/current/messages/:id/reactions
+* The route should toggle the reaction:
+    * If the user already reacted with that emoji, remove it.
+    * Otherwise, add it.
+* Message fetch responses should include grouped reaction counts and whether the current user reacted.
+
+Frontend:
+
+* Add a small reaction strip on each message.
+* Keep it elegant and compact.
+* Show reaction count beside emoji.
+* Highlight reactions used by the current user.
+* Avoid a full emoji picker.
+
+2. Message edit/delete
+
+Backend:
+
+* Use the existing is_edited, edited_at, and deleted_at fields if already present.
+* Add or complete routes:
+    * PATCH /api/current/messages/:id
+    * DELETE /api/current/messages/:id
+* Users can edit/delete only their own messages.
+* Admins can delete any message if the existing auth/role pattern supports that cleanly.
+* Soft-delete only. Do not hard-delete messages.
+
+Frontend:
+
+* Add a small message action menu on hover.
+* Allow message author to:
+    * Edit
+    * Delete
+* Edit should be inline if simple, or in the composer/modal if inline is awkward.
+* Deleted messages should show a subtle placeholder:
+    * “Message deleted”
+* Edited messages should show a small “edited” label.
+* Keep the UI premium and uncluttered.
+
+3. Pinned messages
+
+Backend:
+Option A preferred:
+
+* Add current_pins table:
+    * id
+    * channel_id
+    * message_id
+    * pinned_by
+    * pinned_at
+* Add routes:
+    * GET /api/current/channels/:slug/pins
+    * POST /api/current/messages/:id/pin
+    * DELETE /api/current/messages/:id/pin
+
+Frontend:
+
+* Add “Pin” / “Unpin” to the message action menu.
+* Add a compact pinned-message bar near the top of the feed.
+* The pinned bar should be collapsible or visually subtle.
+* Do not let pins dominate the UI.
+* If multiple messages are pinned, show the latest few or a clean count/expand pattern.
+
+UX requirements
+
+Maintain the premium feel from Phase 1:
+
+* No clutter
+* Smooth hover actions
+* Compact message controls
+* Excellent dark mode
+* No layout jumping during polling
+* No noisy animations
+* No ugly admin-panel styling
+* Keep the feed fast and stable
+
+Polling/query behavior
+
+After reactions, edits, deletes, or pins:
+
+* Invalidate the relevant message feed query.
+* Invalidate pins query if needed.
+* Do not introduce WebSockets/SSE.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Existing Phase 1 posting still works.
+4. Reactions toggle correctly.
+5. Reaction counts are accurate.
+6. A user can edit their own message.
+7. A user can delete their own message.
+8. Deleted messages display gracefully.
+9. A message can be pinned and unpinned.
+10. Pinned-message bar renders cleanly.
+11. Switching Currents still works.
+12. Unread counts still behave correctly.
+13. /execution/communications remains unaffected.
+14. No browser console errors.
+15. No server errors.
+16. No unrelated files changed unnecessarily.
+
+Please implement only Phase 2A, then stop and provide:
+
+1. Files changed
+2. Database migration/schema changes
+3. Routes added
+4. Frontend components changed/added
+5. Verification results
+6. Known issues
+7. Recommended next step

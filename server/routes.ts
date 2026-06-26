@@ -33008,20 +33008,35 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  // GET /api/current/channels/:slug/messages — latest 200 messages (asc)
+  // GET /api/current/channels/:slug/messages — latest 200 messages with reactions (asc)
   app.get("/api/current/channels/:slug/messages", requireAuth, async (req, res) => {
     try {
+      const userId = getSessionUserId(req);
       const { slug } = req.params;
+      const escapedSlug = String(slug).replace(/'/g, "''");
       const rows = await db.execute(sql.raw(`
         SELECT
-          m.id, m.channel_id, m.user_id, m.body, m.is_edited, m.edited_at, m.created_at,
-          u.name AS user_name, u.avatar_url AS user_avatar_url
+          m.id, m.channel_id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
+          CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
+          u.name AS user_name, u.avatar_url AS user_avatar_url,
+          COALESCE(rxn.reactions, '[]'::json) AS reactions
         FROM current_messages m
         JOIN users u ON u.id = m.user_id
+        LEFT JOIN LATERAL (
+          SELECT json_agg(
+            json_build_object('emoji', rg.emoji, 'count', rg.cnt::int, 'reacted', rg.reacted)
+            ORDER BY rg.first_at
+          ) AS reactions
+          FROM (
+            SELECT emoji, COUNT(*) AS cnt, BOOL_OR(user_id = ${userId}) AS reacted, MIN(created_at) AS first_at
+            FROM current_reactions
+            WHERE message_id = m.id
+            GROUP BY emoji
+          ) rg
+        ) rxn ON true
         WHERE m.channel_id = (
-          SELECT id FROM current_channels WHERE slug = '${String(slug).replace(/'/g, "''")}' AND archived_at IS NULL LIMIT 1
+          SELECT id FROM current_channels WHERE slug = '${escapedSlug}' AND archived_at IS NULL LIMIT 1
         )
-          AND m.deleted_at IS NULL
         ORDER BY m.created_at ASC
         LIMIT 200
       `));
@@ -33032,9 +33047,11 @@ export function registerConfluenceRoutes(app: Express) {
         body: r.body,
         isEdited: r.is_edited,
         editedAt: r.edited_at,
+        deletedAt: r.deleted_at,
         createdAt: r.created_at,
         userName: r.user_name,
         userAvatarUrl: r.user_avatar_url,
+        reactions: r.reactions || [],
       })));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -33149,6 +33166,157 @@ export function registerConfluenceRoutes(app: Express) {
         total += n;
       }
       res.json({ total, channels });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/messages/:id/reactions — toggle emoji reaction
+  app.post("/api/current/messages/:id/reactions", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const messageId = Number(req.params.id);
+      const emoji = String(req.body?.emoji || "").trim();
+      const ALLOWED = ["👍","❤️","🔥","✅","😂","👀"];
+      if (!messageId || !ALLOWED.includes(emoji))
+        return res.status(400).json({ message: "Invalid message or emoji" });
+      const msgRows = await db.execute(sql.raw(
+        `SELECT id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+      ));
+      if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
+      const escaped = emoji.replace(/'/g, "''");
+      const existing = await db.execute(sql.raw(
+        `SELECT id FROM current_reactions WHERE message_id = ${messageId} AND user_id = ${userId} AND emoji = '${escaped}' LIMIT 1`
+      ));
+      if (existing.rows.length) {
+        await db.execute(sql.raw(
+          `DELETE FROM current_reactions WHERE message_id = ${messageId} AND user_id = ${userId} AND emoji = '${escaped}'`
+        ));
+        res.json({ ok: true, added: false });
+      } else {
+        await db.execute(sql.raw(
+          `INSERT INTO current_reactions (message_id, user_id, emoji) VALUES (${messageId}, ${userId}, '${escaped}')`
+        ));
+        res.json({ ok: true, added: true });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/current/messages/:id — edit own message
+  app.patch("/api/current/messages/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const messageId = Number(req.params.id);
+      const body = String(req.body?.body || "").trim();
+      if (!messageId) return res.status(400).json({ message: "Invalid message id" });
+      if (!body) return res.status(400).json({ message: "Body is required" });
+      if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
+      const msgRows = await db.execute(sql.raw(
+        `SELECT id, user_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+      ));
+      if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
+      if (Number(msgRows.rows[0].user_id) !== userId)
+        return res.status(403).json({ message: "Cannot edit another user's message" });
+      const escaped = body.replace(/'/g, "''");
+      await db.execute(sql.raw(
+        `UPDATE current_messages SET body = '${escaped}', is_edited = TRUE, edited_at = NOW() WHERE id = ${messageId}`
+      ));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/current/messages/:id — soft-delete (own message or admin)
+  app.delete("/api/current/messages/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const messageId = Number(req.params.id);
+      const isAdminUser = ["admin", "master_admin"].includes(String((req.session as any).globalRole || ""));
+      if (!messageId) return res.status(400).json({ message: "Invalid message id" });
+      const msgRows = await db.execute(sql.raw(
+        `SELECT id, user_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+      ));
+      if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
+      if (Number(msgRows.rows[0].user_id) !== userId && !isAdminUser)
+        return res.status(403).json({ message: "Cannot delete another user's message" });
+      await db.execute(sql.raw(`UPDATE current_messages SET deleted_at = NOW() WHERE id = ${messageId}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/channels/:slug/pins — pinned messages for a channel
+  app.get("/api/current/channels/:slug/pins", requireAuth, async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const escapedSlug = String(slug).replace(/'/g, "''");
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          p.id, p.channel_id, p.message_id, p.pinned_by, p.pinned_at,
+          pinner.name AS pinned_by_name,
+          m.body AS message_body,
+          author.name AS message_user_name,
+          m.created_at AS message_created_at
+        FROM current_pins p
+        JOIN current_messages m ON m.id = p.message_id
+        JOIN users author ON author.id = m.user_id
+        LEFT JOIN users pinner ON pinner.id = p.pinned_by
+        WHERE p.channel_id = (
+          SELECT id FROM current_channels WHERE slug = '${escapedSlug}' AND archived_at IS NULL LIMIT 1
+        )
+          AND m.deleted_at IS NULL
+        ORDER BY p.pinned_at DESC
+        LIMIT 10
+      `));
+      res.json(rows.rows.map((r: any) => ({
+        id: r.id,
+        channelId: r.channel_id,
+        messageId: r.message_id,
+        pinnedBy: r.pinned_by,
+        pinnedAt: r.pinned_at,
+        pinnedByName: r.pinned_by_name,
+        messageBody: r.message_body,
+        messageUserName: r.message_user_name,
+        messageCreatedAt: r.message_created_at,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/messages/:id/pin — pin a message
+  app.post("/api/current/messages/:id/pin", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const messageId = Number(req.params.id);
+      if (!messageId) return res.status(400).json({ message: "Invalid message id" });
+      const msgRows = await db.execute(sql.raw(
+        `SELECT id, channel_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+      ));
+      if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
+      const channelId = Number(msgRows.rows[0].channel_id);
+      await db.execute(sql.raw(`
+        INSERT INTO current_pins (channel_id, message_id, pinned_by)
+        VALUES (${channelId}, ${messageId}, ${userId})
+        ON CONFLICT (channel_id, message_id) DO NOTHING
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/current/messages/:id/pin — unpin a message
+  app.delete("/api/current/messages/:id/pin", requireAuth, async (req, res) => {
+    try {
+      const messageId = Number(req.params.id);
+      if (!messageId) return res.status(400).json({ message: "Invalid message id" });
+      await db.execute(sql.raw(`DELETE FROM current_pins WHERE message_id = ${messageId}`));
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

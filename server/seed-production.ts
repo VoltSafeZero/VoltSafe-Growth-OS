@@ -1975,6 +1975,39 @@ export async function migrateCurrentSchema(): Promise<void> {
       `));
     }
 
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS current_reactions (
+        id          SERIAL PRIMARY KEY,
+        message_id  INTEGER NOT NULL REFERENCES current_messages(id) ON DELETE CASCADE,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        emoji       TEXT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(message_id, user_id, emoji)
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_current_reactions_message
+        ON current_reactions(message_id)
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS current_pins (
+        id          SERIAL PRIMARY KEY,
+        channel_id  INTEGER NOT NULL REFERENCES current_channels(id) ON DELETE CASCADE,
+        message_id  INTEGER NOT NULL REFERENCES current_messages(id) ON DELETE CASCADE,
+        pinned_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        pinned_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(channel_id, message_id)
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_current_pins_channel
+        ON current_pins(channel_id)
+    `);
+
     console.log("[migration] Current schema ready.");
   } catch (err) {
     console.error("[migration] migrateCurrentSchema error (non-fatal):", err);
