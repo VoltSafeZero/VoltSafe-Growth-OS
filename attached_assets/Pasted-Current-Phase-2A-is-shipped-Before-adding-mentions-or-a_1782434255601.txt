@@ -1,0 +1,145 @@
+Current Phase 2A is shipped. Before adding @mentions or any new features, please perform a Phase 2A audit and polish pass only.
+
+Do not add CRM record Currents, Guest Currents, direct messages, attachments, search, AI summaries, slash commands, or @mentions yet.
+
+Goal
+
+Verify that the new Phase 2A features feel premium, stable, and visually clean inside /current.
+
+Audit only these features:
+
+1. Emoji reactions
+2. Message edit/delete
+3. Pinned messages
+4. Existing Phase 1 channel/feed/composer behavior after Phase 2A changes
+
+Audit checklist
+
+1. Reactions
+
+Verify:
+
+* Reaction hover menu appears smoothly.
+* Reaction menu does not cover important message text awkwardly.
+* Reaction menu dismisses correctly on click-outside.
+* Each allowed emoji works:
+    * 👍
+    * ❤️
+    * 🔥
+    * ✅
+    * 😂
+    * 👀
+* Clicking once adds the reaction.
+* Clicking again removes the reaction.
+* Counts update correctly.
+* Current user’s reactions are visually highlighted.
+* Reaction strip does not clutter the message feed.
+* Reactions still look good in dark mode.
+* Invalid emoji is rejected by the API.
+
+2. Message edit
+
+Verify:
+
+* Only the message author can see/use edit.
+* Inline edit UI looks clean.
+* Auto-growing edit textarea works.
+* Enter saves.
+* Shift+Enter creates a newline if supported.
+* Esc cancels.
+* Empty/whitespace-only edits are rejected.
+* Edited label appears subtly.
+* Edited message preserves formatting/multi-line text.
+* Editing does not cause feed jump or scroll weirdness.
+
+3. Message delete
+
+Verify:
+
+* Only the author or admin can delete.
+* Soft-deleted messages show “Message deleted.”
+* Deleted message body is not returned to the frontend.
+* Deleted messages cannot be edited/reaction-added/pinned if that restriction is intended.
+* Delete state looks subtle, not ugly.
+* Feed spacing remains clean around deleted messages.
+
+4. Pinned messages
+
+Verify:
+
+* Pinning works.
+* Unpinning works.
+* Pinned bar appears only when pins exist.
+* Pinned bar is visually compact.
+* Multiple pins do not dominate the screen.
+* Collapsed/expanded behavior works.
+* Pin/unpin updates without stale UI.
+* Pinned deleted messages are handled gracefully.
+* Pins look good in dark mode.
+
+5. Existing Current behavior regression check
+
+Verify:
+
+* /current loads.
+* All 9 Currents still appear.
+* Posting still works.
+* Switching Currents still works.
+* Auto-scroll still works without jitter.
+* Composer still auto-grows and resets after send.
+* Unread counts still behave correctly.
+* Polling does not cause visible flicker.
+* Sidebar badges remain accurate.
+* /execution/communications remains unaffected.
+
+6. Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* TypeScript/build output
+* React key warnings
+* API errors
+
+Allowed fixes
+
+Only fix bugs or polish issues directly related to Phase 2A.
+
+Allowed:
+
+* Layout fixes
+* Hover state fixes
+* Overflow fixes
+* Reaction UI polish
+* Pin bar polish
+* Edit/delete edge cases
+* Query invalidation fixes
+* API guard fixes
+* Console/server error fixes
+
+Not allowed:
+
+* @mentions
+* Notifications
+* CRM record Currents
+* Guest Currents
+* Direct messages
+* Attachments
+* Search
+* AI summaries
+* Slash commands
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. API checks performed
+5. Visual verification notes
+6. Final pass/fail status
+7. Recommended next feature order
+
+Keep the scope tight: audit and polish Phase 2A only.

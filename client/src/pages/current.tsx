@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   useQuery,
   useMutation,
@@ -136,7 +137,7 @@ function growTextarea(el: HTMLTextAreaElement, maxPx = 144) {
   el.style.height = `${Math.min(el.scrollHeight, maxPx)}px`;
 }
 
-// ── Emoji picker (compact preset strip) ──────────────────────────────────────
+// ── Emoji picker — portal-based so it's never clipped by overflow-y: auto ────
 
 function EmojiPickerPopover({
   onReact,
@@ -144,51 +145,85 @@ function EmojiPickerPopover({
   onReact: (emoji: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
+  // Close on click-outside or scroll (scroll moves the anchor but picker stays fixed)
   useEffect(() => {
     if (!open) return;
-    function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node))
+    function onDown(e: MouseEvent) {
+      if (
+        pickerRef.current &&
+        !pickerRef.current.contains(e.target as Node) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
+      }
     }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    function onScroll() {
+      setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("scroll", onScroll, true); // capture phase catches all scrolls
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("scroll", onScroll, true);
+    };
   }, [open]);
 
+  function handleToggle() {
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      // Open below trigger; clamp so picker never goes off the right edge of viewport
+      setCoords({
+        top: rect.bottom + 4,
+        left: Math.max(4, rect.right - 166),
+      });
+    }
+    setOpen((v) => !v);
+  }
+
   return (
-    <div className="relative" ref={ref}>
+    <>
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={triggerRef}
+        onClick={handleToggle}
         title="Add reaction"
         className="w-6 h-6 flex items-center justify-center rounded-md text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
       >
         😊
       </button>
-      {open && (
-        <div className="absolute right-0 top-7 flex gap-0.5 p-1 bg-popover border border-border/70 rounded-lg shadow-lg z-50">
-          {PRESET_REACTIONS.map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => {
-                onReact(emoji);
-                setOpen(false);
-              }}
-              className="w-7 h-7 flex items-center justify-center text-[15px] rounded-md hover:bg-muted/60 transition-colors"
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      {open &&
+        createPortal(
+          <div
+            ref={pickerRef}
+            style={{ position: "fixed", top: coords.top, left: coords.left, zIndex: 9999 }}
+            className="flex gap-0.5 p-1 bg-popover border border-border/70 rounded-lg shadow-lg"
+          >
+            {PRESET_REACTIONS.map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => {
+                  onReact(emoji);
+                  setOpen(false);
+                }}
+                className="w-7 h-7 flex items-center justify-center text-[15px] rounded-md hover:bg-muted/60 transition-colors"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
 
 // ── Message hover action bar ──────────────────────────────────────────────────
 
 function MessageActionBar({
-  message,
   isOwn,
   isAdmin,
   isPinned,
@@ -197,7 +232,6 @@ function MessageActionBar({
   onDelete,
   onPin,
 }: {
-  message: Message;
   isOwn: boolean;
   isAdmin: boolean;
   isPinned: boolean;
@@ -341,7 +375,6 @@ function MessageRow({
     >
       {/* Hover action bar */}
       <MessageActionBar
-        message={message}
         isOwn={isOwn}
         isAdmin={isAdmin}
         isPinned={isPinned}
