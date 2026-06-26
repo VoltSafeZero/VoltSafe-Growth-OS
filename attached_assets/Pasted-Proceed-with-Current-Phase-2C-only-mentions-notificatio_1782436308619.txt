@@ -1,0 +1,255 @@
+Proceed with Current Phase 2C only: @mentions + notifications.
+
+Goal:
+Add teammate @mentions to Current so users can tag each other in channel messages and thread replies, and mentioned users receive notifications through the existing VoltSafe CMS notification system.
+
+Do not add CRM record Currents, Guest Currents, direct messages, attachments, search, AI summaries, slash commands, or new major features yet.
+
+Phase 2C scope
+
+Add only:
+
+1. @mention autocomplete in the message composer and thread reply composer
+2. Mention parsing/storage on send
+3. Mention highlighting in message bodies
+4. Notifications for mentioned users
+5. Basic “Mentions” entry/view if simple and low-risk
+
+Existing systems to reuse
+
+Please reuse existing VoltSafe CMS systems where possible:
+
+* Existing users table
+* Existing auth/session user
+* Existing notifications table
+* Existing notification header polling
+* Existing Current message APIs and UI
+* Existing query invalidation patterns
+
+Do not introduce WebSockets/SSE.
+
+Backend requirements
+
+1. User search endpoint
+
+If a suitable user search endpoint already exists, reuse it.
+
+If not, add a minimal authenticated endpoint:
+
+* GET /api/current/users?q=
+
+Return active users only, with:
+
+* id
+* name
+* email
+* avatarUrl
+* department if available
+
+Keep results limited, for example max 10.
+
+2. Mention storage
+
+Add mention storage in an idempotent migration.
+
+Preferred option:
+
+Create a table:
+
+current_mentions
+
+Fields:
+
+* id
+* message_id
+* mentioned_user_id
+* mentioned_by_user_id
+* created_at
+
+Add unique constraint:
+
+* (message_id, mentioned_user_id)
+
+This should work for both top-level messages and thread replies because both use current_messages.
+
+3. Message body mention format
+
+Use a safe structured token format internally when autocomplete is used.
+
+Preferred display token:
+
+@[Display Name](user:123)
+
+Example body:
+
+Can @[James Smith](user:42) review this?
+
+Backend should parse user:ID tokens from the body.
+
+Important:
+
+* Do not rely only on fuzzy plain-text @James parsing.
+* Autocomplete should insert structured mention tokens.
+* Plain @word text can remain normal text if not selected from autocomplete.
+
+4. Create mention records
+
+When posting or editing a message:
+
+* Parse mentioned user IDs from the body.
+* Insert rows into current_mentions.
+* On edit, sync mentions:
+    * Add new mention rows.
+    * Remove mention rows no longer present if simple.
+    * If sync removal is risky, at least add new ones and document limitation.
+* Do not create a self-notification if a user mentions themselves.
+
+5. Notifications
+
+For each mentioned user except the sender:
+
+Insert a row into the existing notifications table.
+
+Use:
+
+* userId: mentioned user
+* type: current_mention
+* title: something like Mentioned in #general
+* body: short preview of the message
+* linkedObjectType: current_message
+* linkedObjectId: message id
+* actionUrl: route to the relevant Current location
+
+Action URL should be useful:
+
+For top-level channel message:
+
+/current?channel=general&message=123
+
+For thread reply:
+
+/current?channel=general&thread=456&message=789
+
+Use the existing app routing/query-string style if there is a preferred pattern.
+
+Use a dedupe key if the notifications table supports it, for example:
+
+current_mention:${messageId}:${mentionedUserId}
+
+Do not spam duplicate notifications for the same message/user.
+
+6. Message fetch response
+
+Message responses should include parsed/known mentions if helpful, but do not overcomplicate.
+
+Minimum:
+
+* Body can remain the stored tokenized string.
+* Frontend renderer should convert mention tokens into styled mention chips.
+
+Frontend requirements
+
+1. Composer autocomplete
+
+Add @mention autocomplete to:
+
+* Main channel composer
+* Thread reply composer
+* Inline edit composer if reasonably simple; otherwise editing can preserve existing tokens and autocomplete can be deferred
+
+Behavior:
+
+* Typing @ opens teammate suggestions.
+* Typing letters filters users.
+* Arrow keys navigate suggestions.
+* Enter or click selects a user.
+* Esc closes suggestions.
+* Selected user inserts structured token:
+    * @[Display Name](user:ID)
+* Composer visually shows readable text while storing valid body text.
+* Keep it simple and stable. Do not build a giant rich-text editor.
+
+If building true rich text is too much, a plain textarea with token insertion is acceptable for Phase 2C.
+
+2. Mention rendering
+
+In message display:
+
+* Convert @[Display Name](user:ID) into a styled mention chip.
+* Mention chip should look premium and subtle.
+* Dark mode must look good.
+* Mentioned text should not break line wrapping.
+* Unknown/deleted user fallback should still display the name.
+
+3. Notifications UX
+
+Existing notification bell/header should pick up mention notifications through the existing polling system.
+
+If the user clicks a notification and lands on /current?...:
+
+* Open the right channel if possible.
+* If thread exists, open the thread panel.
+* Optionally highlight the target message briefly.
+* If deep-linking is too risky for this phase, at least route to /current and document the limitation.
+
+4. Optional Mentions view
+
+If simple, add a sidebar entry under Current:
+
+* Mentions
+
+This should show recent messages where the current user was mentioned.
+
+If this adds too much complexity, defer it and rely on the existing global notifications.
+
+UX requirements
+
+Keep it premium:
+
+* Autocomplete should feel fast.
+* No ugly dropdown clipping.
+* Dropdown should not be trapped inside scroll containers.
+* Use a portal if needed.
+* Keyboard behavior should feel natural.
+* No clutter in message rows.
+* Mention chips should be readable but not loud.
+* No visible raw @[Name](user:ID) syntax in rendered messages.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Existing posting still works.
+4. Existing threads still work.
+5. Existing reactions/edit/delete/pins still work.
+6. Typing @ opens autocomplete.
+7. Autocomplete filters users.
+8. Selecting a user inserts a structured mention token.
+9. Sending a message with a mention stores the message.
+10. Mention renders as a styled chip, not raw syntax.
+11. Mentioned user gets a notification.
+12. Sender does not get a self-mention notification.
+13. Duplicate notifications are not created for the same message/user.
+14. Mention inside a thread reply works.
+15. Notification action URL points to the correct channel/thread/message where possible.
+16. Editing a message with mentions does not break rendering.
+17. Invalid/fake user IDs do not crash the backend.
+18. Unread counts do not regress.
+19. Polling does not cause flicker.
+20. /execution/communications remains unaffected.
+21. No browser console errors.
+22. No server errors.
+23. No unrelated files changed unnecessarily.
+
+Please implement only Phase 2C @mentions + notifications, then stop and return:
+
+1. Files changed
+2. Database migration/schema changes
+3. Routes added/changed
+4. Frontend components changed/added
+5. Notification behavior implemented
+6. Verification results
+7. Known issues
+8. Recommended next step

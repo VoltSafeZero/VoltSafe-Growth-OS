@@ -2019,6 +2019,22 @@ export async function migrateCurrentSchema(): Promise<void> {
         ON current_messages(parent_message_id)
     `);
 
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS current_mentions (
+        id                    SERIAL PRIMARY KEY,
+        message_id            INTEGER NOT NULL REFERENCES current_messages(id) ON DELETE CASCADE,
+        mentioned_user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        mentioned_by_user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(message_id, mentioned_user_id)
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_current_mentions_user
+        ON current_mentions(mentioned_user_id)
+    `);
+
     console.log("[migration] Current schema ready.");
   } catch (err) {
     console.error("[migration] migrateCurrentSchema error (non-fatal):", err);

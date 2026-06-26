@@ -33112,6 +33112,8 @@ export function registerConfluenceRoutes(app: Express) {
         userName: u.name || "Unknown",
         userAvatarUrl: u.avatar_url || null,
       });
+      // Fire-and-forget mention sync
+      syncCurrentMentions(Number(msg.id), userId, body, String(slug), null).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33224,7 +33226,7 @@ export function registerConfluenceRoutes(app: Express) {
       if (!body) return res.status(400).json({ message: "Body is required" });
       if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
       const msgRows = await db.execute(sql.raw(
-        `SELECT id, user_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+        `SELECT id, user_id, channel_id, parent_message_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
       ));
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
       if (Number(msgRows.rows[0].user_id) !== userId)
@@ -33234,6 +33236,13 @@ export function registerConfluenceRoutes(app: Express) {
         `UPDATE current_messages SET body = '${escaped}', is_edited = TRUE, edited_at = NOW() WHERE id = ${messageId}`
       ));
       res.json({ ok: true });
+      // Fire-and-forget mention sync (re-sync on edit so new @mentions are notified)
+      const chanSlugRows = await db.execute(sql.raw(
+        `SELECT slug FROM current_channels WHERE id = ${Number(msgRows.rows[0].channel_id)} LIMIT 1`
+      )).catch(() => ({ rows: [] as any[] }));
+      const chanSlug = String(chanSlugRows.rows[0]?.slug || "");
+      const parentId = msgRows.rows[0].parent_message_id ? Number(msgRows.rows[0].parent_message_id) : null;
+      if (chanSlug) syncCurrentMentions(messageId, userId, body, chanSlug, parentId).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33423,6 +33432,131 @@ export function registerConfluenceRoutes(app: Express) {
         userName: u.name || "Unknown", userAvatarUrl: u.avatar_url || null,
         reactions: [], replyCount: 0, latestReplyAt: null,
       });
+      // Fire-and-forget mention sync for thread replies
+      const slugRows = await db.execute(sql.raw(
+        `SELECT slug FROM current_channels WHERE id = ${channelId} LIMIT 1`
+      )).catch(() => ({ rows: [] as any[] }));
+      const chanSlug = String(slugRows.rows[0]?.slug || "");
+      if (chanSlug) syncCurrentMentions(Number(msg.id), userId, body, chanSlug, rootId).catch(() => {});
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+
+  // ── Current mention helpers ─────────────────────────────────────────────────
+
+  function parseCurrentMentionIds(body: string): number[] {
+    const re = /@\[([^\]]+)\]\(user:(\d+)\)/g;
+    const ids: number[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(body)) !== null) {
+      const id = Number(m[2]);
+      if (id > 0 && !ids.includes(id)) ids.push(id);
+    }
+    return ids;
+  }
+
+  async function syncCurrentMentions(
+    messageId: number,
+    senderUserId: number,
+    body: string,
+    channelSlug: string,
+    parentMessageId: number | null
+  ): Promise<void> {
+    const mentionedIds = parseCurrentMentionIds(body);
+    for (const mid of mentionedIds) {
+      if (mid === senderUserId) continue;
+      const escapedSlug = channelSlug.replace(/'/g, "''");
+      // Validate user exists and is not inactive
+      const userCheck = await db.execute(sql.raw(
+        `SELECT id FROM users WHERE id = ${mid} AND global_role NOT IN ('inactive') LIMIT 1`
+      ));
+      if (!userCheck.rows.length) continue;
+      // Insert mention record (idempotent)
+      await db.execute(sql.raw(`
+        INSERT INTO current_mentions (message_id, mentioned_user_id, mentioned_by_user_id)
+        VALUES (${messageId}, ${mid}, ${senderUserId})
+        ON CONFLICT (message_id, mentioned_user_id) DO NOTHING
+      `));
+      // Build notification
+      const actionUrl = parentMessageId
+        ? `/current?channel=${escapedSlug}&thread=${parentMessageId}&message=${messageId}`
+        : `/current?channel=${escapedSlug}&message=${messageId}`;
+      const preview = body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@$1').slice(0, 100);
+      const escapedPreview = preview.replace(/'/g, "''");
+      const title = `Mentioned in #${channelSlug}`;
+      const escapedTitle = title.replace(/'/g, "''");
+      const escapedUrl = actionUrl.replace(/'/g, "''");
+      const dedupeKey = `current_mention:${messageId}:${mid}`;
+      await db.execute(sql.raw(`
+        INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
+        SELECT ${mid}, 'current_mention', '${escapedTitle}', '${escapedPreview}', 'medium', 'current_message', ${messageId}, '${escapedUrl}', FALSE, '${dedupeKey}'
+        WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE dedupe_key = '${dedupeKey}')
+      `));
+    }
+  }
+
+  // GET /api/current/users?q= — teammate search for @mention autocomplete
+  app.get("/api/current/users", requireAuth, async (req, res) => {
+    try {
+      const raw = String(req.query.q || "").trim();
+      const q = raw.replace(/'/g, "''");
+      const rows = await db.execute(sql.raw(`
+        SELECT id, name, email, avatar_url,
+          COALESCE(department, '') AS department
+        FROM users
+        WHERE global_role NOT IN ('inactive')
+          ${q ? `AND (name ILIKE '%${q}%' OR email ILIKE '%${q}%')` : ''}
+        ORDER BY name ASC
+        LIMIT 10
+      `));
+      res.json(rows.rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        avatarUrl: r.avatar_url || null,
+        department: r.department || null,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/mentions — messages where the current user was mentioned
+  app.get("/api/current/mentions", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          m.id, m.channel_id, m.user_id, m.body, m.is_edited, m.edited_at,
+          m.deleted_at, m.created_at, m.parent_message_id,
+          u.name AS user_name, u.avatar_url AS user_avatar_url,
+          c.slug AS channel_slug, c.name AS channel_name
+        FROM current_mentions cm
+        JOIN current_messages m ON m.id = cm.message_id
+        JOIN users u ON u.id = m.user_id
+        JOIN current_channels c ON c.id = m.channel_id
+        WHERE cm.mentioned_user_id = ${userId}
+          AND m.deleted_at IS NULL
+        ORDER BY m.created_at DESC
+        LIMIT 50
+      `));
+      res.json(rows.rows.map((r: any) => ({
+        id: r.id,
+        channelId: r.channel_id,
+        userId: r.user_id,
+        body: r.body,
+        isEdited: r.is_edited,
+        editedAt: r.edited_at,
+        deletedAt: r.deleted_at,
+        createdAt: r.created_at,
+        parentMessageId: r.parent_message_id,
+        userName: r.user_name,
+        userAvatarUrl: r.user_avatar_url,
+        channelSlug: r.channel_slug,
+        channelName: r.channel_name,
+      })));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
