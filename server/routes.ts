@@ -33575,7 +33575,7 @@ export function registerConfluenceRoutes(app: Express) {
       let title: string;
       if (objectType && objectId) {
         actionUrl = buildRecordCurrentUrl(objectType, objectId, messageId, parentMessageId);
-        title = `Mentioned you in Current`;
+        title = `Mentioned you in Currents`;
       } else {
         const slug = channelSlug || "";
         const escapedSlug = slug.replace(/'/g, "''");
