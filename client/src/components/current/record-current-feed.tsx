@@ -19,6 +19,27 @@ import {
 } from "./current-attachment-display";
 import type { CurrentAttachment, UploadResult } from "./current-attachment-display";
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function highlightSnippet(text: string, query: string): React.ReactNode {
+  if (!query.trim() || !text) return text;
+  try {
+    const esc = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const parts = text.split(new RegExp(`(${esc})`, "gi"));
+    return parts.map((p, i) =>
+      p.toLowerCase() === query.toLowerCase() ? (
+        <mark key={i} className="bg-primary/25 text-primary rounded-sm px-0.5 not-italic">
+          {p}
+        </mark>
+      ) : (
+        p
+      )
+    );
+  } catch {
+    return text;
+  }
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface RecordMessage {
@@ -965,7 +986,11 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
                   </span>
                 </div>
                 <p className="text-[11.5px] text-foreground/70 line-clamp-2 break-words">
-                  {r.snippet || (r.matchedAttachment ? "📎 Attached file" : "")}
+                  {r.snippet
+                    ? highlightSnippet(r.snippet, debouncedSearch)
+                    : r.matchedAttachment
+                    ? <span className="text-muted-foreground/50 italic flex items-center gap-1"><Paperclip className="w-2.5 h-2.5 shrink-0" />Matched in attached file</span>
+                    : ""}
                 </p>
               </button>
             ))

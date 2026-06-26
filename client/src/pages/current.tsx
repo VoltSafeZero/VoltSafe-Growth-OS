@@ -1451,10 +1451,16 @@ function SearchResultCard({
     ? `${result.objectType.replace(/_/g, " ")} · ${result.objectId}`
     : "Current";
 
-  const recordUrl =
-    !result.channelSlug && result.objectType && result.objectId
-      ? buildRecordUrl(result.objectType, result.objectId)
-      : null;
+  const recordUrl = (() => {
+    if (result.channelSlug || !result.objectType || !result.objectId) return null;
+    const threadPart = result.parentMessageId ? `&thread=${result.parentMessageId}` : "";
+    const msgPart = `&message=${result.id}`;
+    if (result.objectType === "lead") {
+      return `/opportunities?selected=${result.objectId}&tab=current${msgPart}${threadPart}`;
+    }
+    return buildRecordUrl(result.objectType, result.objectId) +
+      `?tab=current${msgPart}${threadPart}`;
+  })();
 
   const inner = (
     <div className="w-full text-left rounded-xl px-3.5 py-3 border border-border/40 hover:border-primary/30 hover:bg-muted/30 transition-all group/src">
