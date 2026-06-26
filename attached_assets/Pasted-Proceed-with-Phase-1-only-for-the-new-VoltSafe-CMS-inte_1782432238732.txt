@@ -1,0 +1,162 @@
+Proceed with Phase 1 only for the new VoltSafe CMS internal communications feature called Current.
+
+Important: Do not attempt the full roadmap yet. Build the smallest stable version first.
+
+Phase 1 scope
+
+1. Add the Current database schema and default channel seed
+
+Add the minimum required schema for team hashtag-style feeds:
+
+* current_channels
+* current_messages
+* current_read_receipts
+
+Seed these default Currents:
+
+* general
+* sales
+* marina-pilots
+* engineering
+* fundraising
+* customer-success
+* product
+* installations
+* support
+
+Use the existing VoltSafe CMS migration/seed pattern. Make the migration idempotent using CREATE TABLE IF NOT EXISTS, ALTER TABLE ... ADD COLUMN IF NOT EXISTS where needed, and ON CONFLICT DO NOTHING for seeds.
+
+2. Add backend API routes under /api/current
+
+Implement only these routes:
+
+* GET /api/current/channels
+* GET /api/current/channels/:slug/messages
+* POST /api/current/channels/:slug/messages
+* POST /api/current/channels/:slug/read
+* GET /api/current/unread-counts
+
+All routes should require authentication.
+
+For Phase 1, messages only need:
+
+* author
+* timestamp
+* body
+* channel
+* read/unread support
+
+Do not add threads, reactions, pins, attachments, direct messages, Guest Currents, CRM record feeds, or AI summaries yet.
+
+3. Add the main frontend page
+
+Create a new page:
+
+* Route: /current
+* Page name: Current
+
+The page should include:
+
+* Left sidebar/list of Currents using hashtag-style names:
+    * #general
+    * #sales
+    * #marina-pilots
+    * #engineering
+    * #fundraising
+    * #customer-success
+    * #product
+    * #installations
+    * #support
+* Main feed area showing messages for the selected Current.
+* Message composer at the bottom.
+* Message display with:
+    * author name
+    * avatar if available
+    * timestamp
+    * message body
+* Auto-scroll to newest message when opening a Current.
+* Clean empty state when a Current has no messages.
+
+Use existing VoltSafe CMS frontend conventions, including existing UI components, Tailwind styling, shadcn/Radix patterns, and TanStack Query patterns.
+
+4. Add navigation
+
+Add Current to the main sidebar under the Work section, preferably near Inbox and Tasks.
+
+Use a clean icon such as MessageSquare or similar.
+
+Do not interfere with the existing /execution/communications page. Current should be separate.
+
+5. Use polling, not WebSockets
+
+Do not introduce WebSockets, SSE, or new real-time infrastructure.
+
+Use polling:
+
+* Active feed refetch: every 5 seconds
+* Unread counts refetch: every 15 seconds
+
+Respect existing app patterns for query invalidation and refetching.
+
+6. Keep Phase 1 intentionally simple
+
+Do not build the following yet:
+
+* CRM record Current tabs
+* Threads
+* Reactions
+* Pins
+* File attachments
+* Guest Currents
+* Direct messages
+* AI summaries
+* Private channel membership
+* Slash commands
+* Search
+
+This first phase is only to prove the core Current experience works cleanly.
+
+7. Premium UI/UX expectations
+
+The interface should feel polished, fast, and intentional.
+
+Focus on:
+
+* Clean layout
+* Beautiful dark mode
+* Clear selected Current state
+* Smooth hover states
+* Clean unread indicators
+* Elegant message rows or bubbles
+* Modern composer
+* No clutter
+* No “default admin panel” ugliness
+
+This should feel like a premium VoltSafe-native communication layer, not a cheap Slack clone.
+
+8. Verification after implementation
+
+After implementation, stop and provide a summary.
+
+Please verify:
+
+* App starts successfully
+* /current loads
+* Default Currents exist
+* User can post a message into #general
+* Switching Currents shows the correct messages
+* Read/unread counts do not break the page
+* Existing navigation still works
+* Existing /execution/communications page still works
+* No unrelated files were changed unnecessarily
+
+Return:
+
+1. Files changed
+2. Database migration/schema changes
+3. Routes added
+4. Frontend components/pages added
+5. Verification results
+6. Any known issues or follow-up recommendations
+
+Implement only this Phase 1 scope, then stop.

@@ -1905,3 +1905,78 @@ export async function migrateTimezoneColumns(): Promise<void> {
     console.error("[migration] migrateTimezoneColumns error (non-fatal):", err);
   }
 }
+
+/**
+ * Current — internal team communication layer.
+ * Creates current_channels, current_messages, and current_read_receipts tables,
+ * then seeds the 9 default team Currents.
+ */
+export async function migrateCurrentSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS current_channels (
+        id           SERIAL PRIMARY KEY,
+        name         TEXT NOT NULL,
+        slug         TEXT NOT NULL UNIQUE,
+        description  TEXT,
+        is_private   BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by   INTEGER REFERENCES users(id),
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        archived_at  TIMESTAMPTZ
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS current_messages (
+        id                SERIAL PRIMARY KEY,
+        channel_id        INTEGER NOT NULL REFERENCES current_channels(id),
+        user_id           INTEGER NOT NULL REFERENCES users(id),
+        body              TEXT NOT NULL,
+        is_edited         BOOLEAN NOT NULL DEFAULT FALSE,
+        edited_at         TIMESTAMPTZ,
+        deleted_at        TIMESTAMPTZ,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_current_messages_channel
+        ON current_messages(channel_id, created_at DESC)
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS current_read_receipts (
+        id                    SERIAL PRIMARY KEY,
+        user_id               INTEGER NOT NULL REFERENCES users(id),
+        channel_id            INTEGER NOT NULL REFERENCES current_channels(id),
+        last_read_message_id  INTEGER,
+        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, channel_id)
+      )
+    `);
+
+    const defaultChannels = [
+      { slug: "general",          name: "General",          description: "Company-wide announcements and general discussions" },
+      { slug: "sales",            name: "Sales",            description: "Pipeline updates, wins, and sales strategy" },
+      { slug: "marina-pilots",    name: "Marina Pilots",    description: "Active pilot site coordination and updates" },
+      { slug: "engineering",      name: "Engineering",      description: "Technical discussions, build updates, and specs" },
+      { slug: "fundraising",      name: "Fundraising",      description: "Investor relations, funding rounds, and pitch prep" },
+      { slug: "customer-success", name: "Customer Success", description: "Customer health, renewals, and expansion" },
+      { slug: "product",          name: "Product",          description: "Product roadmap, feature requests, and releases" },
+      { slug: "installations",    name: "Installations",    description: "Field deployment scheduling, blockers, and commissioning" },
+      { slug: "support",          name: "Support",          description: "Customer issues, escalations, and resolution tracking" },
+    ];
+
+    for (const ch of defaultChannels) {
+      await db.execute(sql.raw(`
+        INSERT INTO current_channels (name, slug, description)
+        VALUES ('${ch.name.replace(/'/g, "''")}', '${ch.slug}', '${ch.description.replace(/'/g, "''")}')
+        ON CONFLICT (slug) DO NOTHING
+      `));
+    }
+
+    console.log("[migration] Current schema ready.");
+  } catch (err) {
+    console.error("[migration] migrateCurrentSchema error (non-fatal):", err);
+  }
+}

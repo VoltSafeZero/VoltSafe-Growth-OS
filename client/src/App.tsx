@@ -104,6 +104,7 @@ const HelpCenterPage = lazy(() => import("@/pages/help-center"));
 const TrainingHubPage = lazy(() => import("@/pages/training-hub"));
 const MeetingNotesIndexPage = lazy(() => import("@/pages/meeting-notes-index"));
 const MeetingNotesDetailPage = lazy(() => import("@/pages/meeting-notes-detail"));
+const CurrentPage = lazy(() => import("@/pages/current"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
 const DemonAtmospherics = lazy(() => import("@/components/demon-atmospherics").then(m => ({ default: m.DemonAtmospherics })));
 
@@ -334,6 +335,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/operations/events">{() => wrap(<TradeshowEventsPage />)}</Route>
       <Route path="/execution/communications">{() => guard("communications", isAdvisor ? <AccessDenied /> : <CommunicationsPage />)}</Route>
       <Route path="/execution/team-workload">{() => guard("team_workload", <TeamWorkloadPage />)}</Route>
+      <Route path="/current">{() => wrap(<CurrentPage />)}</Route>
       <Route path="/execution/tasks">{() => wrap(<TasksHubPage />)}</Route>
 
       <Route path="/knowledge/assets">{() => guard("knowledge", <AssetsPage />)}</Route>

@@ -32967,6 +32967,193 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ── Current: internal team communication layer ───────────────────────────────
+
+  // GET /api/current/channels — list all channels with per-user unread counts
+  app.get("/api/current/channels", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          c.id, c.name, c.slug, c.description, c.is_private, c.created_at,
+          COALESCE(
+            (SELECT COUNT(*)::int
+             FROM current_messages m
+             WHERE m.channel_id = c.id
+               AND m.deleted_at IS NULL
+               AND m.id > COALESCE(
+                 (SELECT rr.last_read_message_id
+                  FROM current_read_receipts rr
+                  WHERE rr.user_id = ${userId} AND rr.channel_id = c.id
+                  LIMIT 1),
+                 0
+               )
+            ), 0
+          ) AS unread_count
+        FROM current_channels c
+        WHERE c.archived_at IS NULL
+        ORDER BY c.id ASC
+      `));
+      res.json(rows.rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        slug: r.slug,
+        description: r.description,
+        isPrivate: r.is_private,
+        createdAt: r.created_at,
+        unreadCount: Number(r.unread_count),
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/channels/:slug/messages — latest 200 messages (asc)
+  app.get("/api/current/channels/:slug/messages", requireAuth, async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          m.id, m.channel_id, m.user_id, m.body, m.is_edited, m.edited_at, m.created_at,
+          u.name AS user_name, u.avatar_url AS user_avatar_url
+        FROM current_messages m
+        JOIN users u ON u.id = m.user_id
+        WHERE m.channel_id = (
+          SELECT id FROM current_channels WHERE slug = '${String(slug).replace(/'/g, "''")}' AND archived_at IS NULL LIMIT 1
+        )
+          AND m.deleted_at IS NULL
+        ORDER BY m.created_at ASC
+        LIMIT 200
+      `));
+      res.json(rows.rows.map((r: any) => ({
+        id: r.id,
+        channelId: r.channel_id,
+        userId: r.user_id,
+        body: r.body,
+        isEdited: r.is_edited,
+        editedAt: r.edited_at,
+        createdAt: r.created_at,
+        userName: r.user_name,
+        userAvatarUrl: r.user_avatar_url,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/channels/:slug/messages — post a new message
+  app.post("/api/current/channels/:slug/messages", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { slug } = req.params;
+      const body = String(req.body?.body || "").trim();
+      if (!body) return res.status(400).json({ message: "Message body is required" });
+      if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
+
+      const chanRows = await db.execute(sql.raw(`
+        SELECT id FROM current_channels WHERE slug = '${String(slug).replace(/'/g, "''")}' AND archived_at IS NULL LIMIT 1
+      `));
+      if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
+      const channelId = chanRows.rows[0].id;
+
+      const escaped = body.replace(/'/g, "''");
+      const ins = await db.execute(sql.raw(`
+        INSERT INTO current_messages (channel_id, user_id, body)
+        VALUES (${channelId}, ${userId}, '${escaped}')
+        RETURNING id, channel_id, user_id, body, is_edited, created_at
+      `));
+      const msg = ins.rows[0];
+
+      // auto-mark as read for the sender
+      await db.execute(sql.raw(`
+        INSERT INTO current_read_receipts (user_id, channel_id, last_read_message_id, updated_at)
+        VALUES (${userId}, ${channelId}, ${msg.id}, NOW())
+        ON CONFLICT (user_id, channel_id) DO UPDATE SET
+          last_read_message_id = GREATEST(current_read_receipts.last_read_message_id, EXCLUDED.last_read_message_id),
+          updated_at = NOW()
+      `));
+
+      const userRows = await db.execute(sql.raw(`SELECT name, avatar_url FROM users WHERE id = ${userId} LIMIT 1`));
+      const u = userRows.rows[0] || {};
+      res.status(201).json({
+        id: msg.id,
+        channelId: msg.channel_id,
+        userId: msg.user_id,
+        body: msg.body,
+        isEdited: msg.is_edited,
+        createdAt: msg.created_at,
+        userName: u.name || "Unknown",
+        userAvatarUrl: u.avatar_url || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/channels/:slug/read — update read watermark
+  app.post("/api/current/channels/:slug/read", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { slug } = req.params;
+      const lastReadMessageId = Number(req.body?.lastReadMessageId);
+      if (!lastReadMessageId) return res.status(400).json({ message: "lastReadMessageId required" });
+
+      const chanRows = await db.execute(sql.raw(`
+        SELECT id FROM current_channels WHERE slug = '${String(slug).replace(/'/g, "''")}' AND archived_at IS NULL LIMIT 1
+      `));
+      if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
+      const channelId = chanRows.rows[0].id;
+
+      await db.execute(sql.raw(`
+        INSERT INTO current_read_receipts (user_id, channel_id, last_read_message_id, updated_at)
+        VALUES (${userId}, ${channelId}, ${lastReadMessageId}, NOW())
+        ON CONFLICT (user_id, channel_id) DO UPDATE SET
+          last_read_message_id = GREATEST(current_read_receipts.last_read_message_id, EXCLUDED.last_read_message_id),
+          updated_at = NOW()
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/unread-counts — quick summary for sidebar badge
+  app.get("/api/current/unread-counts", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          c.slug,
+          COALESCE(
+            (SELECT COUNT(*)::int
+             FROM current_messages m
+             WHERE m.channel_id = c.id
+               AND m.deleted_at IS NULL
+               AND m.id > COALESCE(
+                 (SELECT rr.last_read_message_id
+                  FROM current_read_receipts rr
+                  WHERE rr.user_id = ${userId} AND rr.channel_id = c.id
+                  LIMIT 1),
+                 0
+               )
+            ), 0
+          ) AS unread_count
+        FROM current_channels c
+        WHERE c.archived_at IS NULL
+      `));
+      const channels: Record<string, number> = {};
+      let total = 0;
+      for (const r of rows.rows) {
+        const n = Number(r.unread_count);
+        channels[r.slug as string] = n;
+        total += n;
+      }
+      res.json({ total, channels });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
