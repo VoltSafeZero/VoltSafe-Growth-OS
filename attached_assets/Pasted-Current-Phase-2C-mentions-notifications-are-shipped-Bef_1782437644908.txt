@@ -1,0 +1,183 @@
+Current Phase 2C @mentions + notifications are shipped. Before adding any new features, please perform a Phase 2C audit and polish pass only.
+
+Do not add CRM record Currents, Guest Currents, direct messages, attachments, search, AI summaries, slash commands, or any new major feature yet.
+
+Goal
+
+Verify that @mentions, notifications, mention rendering, and deep links are stable, polished, and production-ready inside /current.
+
+Audit only:
+
+1. @mention autocomplete
+2. Mention token storage/parsing
+3. Mention rendering
+4. Mention notifications
+5. Mentions panel
+6. Deep-link routing to channel/thread/message
+7. Existing Current behavior after Phase 2C changes
+
+Audit checklist
+
+1. Mention autocomplete
+
+Verify:
+
+* Typing @ opens the teammate dropdown.
+* Typing letters filters users correctly.
+* Dropdown handles no results gracefully.
+* Dropdown is not clipped by scroll containers.
+* Dropdown position is correct near the bottom of the composer.
+* Dropdown closes on Esc.
+* Arrow up/down navigation works.
+* Enter selects the highlighted user.
+* Mouse click selects a user.
+* Shift+Enter still creates a newline.
+* Enter still sends when the dropdown is closed.
+* Composer remains fast and responsive.
+* Dark mode looks polished.
+
+2. Mention token insertion
+
+Verify:
+
+* Selecting a user inserts the structured token:
+    * @[Display Name](user:ID)
+* Token insertion works in:
+    * main channel composer
+    * thread reply composer
+* Tokens do not corrupt surrounding text.
+* Multiple mentions in one message work.
+* Mentioning the same user twice does not create duplicate mention rows or duplicate notifications.
+* Plain text like @randomword does not crash or create fake mentions.
+* Invalid/fake user:ID tokens do not crash the backend.
+
+3. Mention rendering
+
+Verify:
+
+* Stored mention tokens render as styled mention chips.
+* Raw syntax is not visible in normal message display.
+* Mention chips wrap cleanly in long messages.
+* Mention chips look good in dark mode.
+* Unknown or deleted users fall back gracefully.
+* Mention rendering works in:
+    * main channel messages
+    * thread replies
+    * edited messages
+    * mention history panel
+
+4. Notifications
+
+Verify:
+
+* Mentioned user receives a current_mention notification.
+* Sender does not receive self-mention notifications.
+* Duplicate notifications are not created for the same message/user.
+* Notification title and body are useful.
+* Notification action URL points to the correct channel/thread/message.
+* Notification header/bell picks it up through existing polling.
+* Editing a message to add a mention creates a notification.
+* Editing a message without changing mentions does not spam duplicates.
+* Deleted mentioned messages do not cause broken notification behavior.
+
+5. Mentions panel
+
+Verify:
+
+* Mentions entry appears cleanly in the Current sidebar.
+* Mentions panel loads only current user’s mentions.
+* Empty state looks polished.
+* Mention history items show useful context:
+    * author
+    * channel
+    * timestamp
+    * preview
+* “Go to message” works.
+* Mentions panel does not confuse channel unread counts.
+* Returning from Mentions to a channel works cleanly.
+
+6. Deep-link behavior
+
+Verify these URL patterns:
+
+* /current?channel=general&message=123
+* /current?channel=general&thread=456&message=789
+
+Check:
+
+* Correct channel opens.
+* Correct thread opens if thread is present.
+* Target message scrolls into view.
+* Target message highlight appears and clears cleanly.
+* Invalid channel/message/thread params fail gracefully.
+* Deep-linking does not break normal channel switching.
+* Browser refresh on a deep-link URL works.
+
+7. Existing behavior regression check
+
+Verify:
+
+* /current loads.
+* All 9 Currents still appear.
+* Posting top-level messages still works.
+* Thread replies still work.
+* Reactions still work.
+* Edit/delete still work.
+* Pins still work.
+* Unread counts still behave correctly.
+* Polling does not cause visible flicker.
+* /execution/communications remains unaffected.
+
+8. Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* TypeScript/build output if available
+* React key warnings
+* API errors
+* Failed notification inserts
+
+Allowed fixes
+
+Only fix bugs or polish issues directly related to Phase 2C.
+
+Allowed:
+
+* Mention dropdown positioning
+* Keyboard behavior fixes
+* Token parsing fixes
+* Notification dedupe fixes
+* Deep-link routing fixes
+* Mention chip rendering polish
+* Mentions panel polish
+* Query invalidation fixes
+* Console/server error fixes
+
+Not allowed:
+
+* CRM record Currents
+* Guest Currents
+* Direct messages
+* Attachments
+* Search
+* AI summaries
+* Slash commands
+* New unrelated features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. API checks performed
+5. Notification checks performed
+6. Deep-link checks performed
+7. Visual verification notes
+8. Final pass/fail status
+9. Recommended next feature order
+
+Keep scope tight: audit and polish Phase 2C only.

@@ -214,7 +214,8 @@ function renderMentionBody(
       parts.push(<span key={key++}>{body.slice(last, match.index)}</span>);
     const name = match[1];
     const uid = Number(match[2]);
-    const isMe = myUserId !== undefined && uid === myUserId;
+    // myUserId=0 while session loads — never treat 0 as a valid match
+    const isMe = !!myUserId && uid === myUserId;
     parts.push(
       <span
         key={key++}
@@ -232,7 +233,8 @@ function renderMentionBody(
   }
   if (last < body.length)
     parts.push(<span key={key++}>{body.slice(last)}</span>);
-  if (parts.length === 0) return null;
+  // No mention tokens — return plain text as-is (avoids returning null for plain bodies)
+  if (parts.length === 0) return <>{body}</>;
   return <>{parts}</>;
 }
 
@@ -1025,6 +1027,7 @@ function ThreadPanel({
       apiRequest("POST", `/api/current/messages/${rootMessageId}/thread`, { body }),
     onSuccess: () => {
       setReplyDraft("");
+      replyMention.closeMention();
       if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
       threadAtBottom.current = true;
       invalidateThread();
@@ -1419,7 +1422,17 @@ export default function CurrentPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isAtBottom = useRef(true);
   const lastReadRef = useRef<number>(0);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainMention = useComposerMentions(textareaRef);
+
+  // Helper: set a highlight with automatic 3s clear — cancels any pending timer
+  function setHighlight(msgId: number | null) {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    setHighlightedMsgId(msgId);
+    if (msgId !== null) {
+      highlightTimerRef.current = setTimeout(() => setHighlightedMsgId(null), 3_000);
+    }
+  }
 
   // ── Session ──────────────────────────────────────────────────────────────
   const { data: me } = useQuery<Me>({ queryKey: ["/api/auth/me"] });
@@ -1436,8 +1449,7 @@ export default function CurrentPage() {
     if (thread) setThreadRootId(Number(thread));
     if (msg) {
       const msgId = Number(msg);
-      setHighlightedMsgId(msgId);
-      setTimeout(() => setHighlightedMsgId(null), 3_000);
+      if (msgId > 0) setHighlight(msgId);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1450,7 +1462,7 @@ export default function CurrentPage() {
       );
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     });
-  }, [highlightedMsgId, messages]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [highlightedMsgId, messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Queries ───────────────────────────────────────────────────────────────
 
@@ -1507,6 +1519,7 @@ export default function CurrentPage() {
     lastReadRef.current = 0;
     setEditingMessage(null);
     setThreadRootId(null); // close thread when switching channels
+    mainMention.closeMention(); // close mention dropdown when switching channels
     scrollToBottom();
   }, [selectedSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1554,6 +1567,7 @@ export default function CurrentPage() {
       }),
     onSuccess: () => {
       setDraft("");
+      mainMention.closeMention();
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       isAtBottom.current = true;
       invalidateFeed();
@@ -1790,8 +1804,7 @@ export default function CurrentPage() {
               setSelectedSlug(slug);
               setView("channel");
               setThreadRootId(threadId ?? null);
-              setHighlightedMsgId(messageId);
-              setTimeout(() => setHighlightedMsgId(null), 3_000);
+              setHighlight(messageId);
             }}
           />
         ) : (
