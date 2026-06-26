@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   Sparkles, X, RefreshCw, Loader2, Copy, Check,
   AlignLeft, CheckCircle2, HelpCircle, ListTodo,
-  AlertTriangle, ArrowRight,
+  AlertTriangle, ArrowRight, CheckSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +25,7 @@ interface Props {
   isError: boolean;
   onClose: () => void;
   onRegenerate: () => void;
+  onCreateTask?: (item: { task: string; owner: string; due: string | null }) => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ function Section({
 
 // ── CurrentSummaryPanel ───────────────────────────────────────────────────────
 
-export function CurrentSummaryPanel({ data, isLoading, isError, onClose, onRegenerate }: Props) {
+export function CurrentSummaryPanel({ data, isLoading, isError, onClose, onRegenerate, onCreateTask }: Props) {
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
@@ -176,16 +177,44 @@ export function CurrentSummaryPanel({ data, isLoading, isError, onClose, onRegen
               items={data.decisions}
               colorClass="text-teal-500/70"
             />
-            <Section
-              icon={ListTodo}
-              label="Action Items"
-              items={data.actionItems.map(a =>
-                a.owner && a.owner !== "Unassigned"
-                  ? `${a.owner} — ${a.task}${a.due ? ` · ${a.due}` : ""}`
-                  : `${a.task}${a.due ? ` · ${a.due}` : ""}`
+            {/* Action Items — rendered separately to support "Create Task" per item */}
+            <div className="mb-3.5">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <ListTodo className="w-3 h-3 shrink-0 text-cyan-500/70" />
+                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  Action Items
+                </span>
+              </div>
+              {data.actionItems.length === 0 ? (
+                <p className="text-[12px] text-muted-foreground/35 pl-3 italic">None identified</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {data.actionItems.map((item, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-2 pl-3 border-l border-border/40"
+                    >
+                      <span className="flex-1 text-[12.5px] text-foreground/80 leading-relaxed">
+                        {item.owner && item.owner !== "Unassigned"
+                          ? `${item.owner} — ${item.task}${item.due ? ` · ${item.due}` : ""}`
+                          : `${item.task}${item.due ? ` · ${item.due}` : ""}`}
+                      </span>
+                      {onCreateTask && (
+                        <button
+                          onClick={() => onCreateTask(item)}
+                          title="Create Task"
+                          data-testid={`btn-summary-create-task-${i}`}
+                          className="shrink-0 mt-0.5 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] text-muted-foreground/50 hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors border border-transparent hover:border-emerald-500/20"
+                        >
+                          <CheckSquare className="w-2.5 h-2.5" />
+                          <span>Task</span>
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
-              colorClass="text-cyan-500/70"
-            />
+            </div>
             <Section
               icon={HelpCircle}
               label="Open Questions"

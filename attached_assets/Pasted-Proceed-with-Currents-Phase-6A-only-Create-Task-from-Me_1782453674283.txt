@@ -1,0 +1,235 @@
+Proceed with Currents Phase 6A only: Create Task from Message / Summary Action Item.
+
+Goal:
+Allow users to turn useful Currents messages, thread replies, and AI summary action items into actionable VoltSafe CMS tasks.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, or unrelated CRM features yet.
+
+Phase 6A scope
+
+Add only:
+
+1. Create Task from a Currents message
+2. Create Task from a Currents thread reply
+3. Create Task from an AI summary action item
+4. Link created tasks back to the source Currents message/summary context
+5. Reuse existing VoltSafe CMS task infrastructure
+
+Existing systems to audit first
+
+Before writing code, inspect:
+
+* Existing task schema/table
+* Existing task creation API/routes
+* Existing task assignment logic
+* Existing due-date handling
+* Existing task UI components
+* Existing CRM-linked task behavior
+* Existing activity/timeline/task feed integrations
+* Existing permissions/auth for task creation
+
+Do not create a second task system.
+
+Backend requirements
+
+1. Reuse task creation
+
+If there is already a task creation route, reuse or wrap it.
+
+Preferred new route only if needed:
+
+* POST /api/current/messages/:id/create-task
+
+Request body:
+
+{
+  "title": "Review Oak Bay marina layout",
+  "description": "Created from Currents message...",
+  "assignedToUserId": 7,
+  "dueDate": "2026-06-30",
+  "priority": "normal"
+}
+
+For summary action items, preferred route if needed:
+
+* POST /api/current/summary/create-task
+
+Request body:
+
+{
+  "source": {
+    "scope": "channel" | "thread" | "record",
+    "messageId": 123,
+    "channel": "general",
+    "objectType": "account",
+    "objectId": 456
+  },
+  "actionItem": {
+    "owner": "James",
+    "task": "Review electrical layout",
+    "due": null
+  },
+  "assignedToUserId": 7,
+  "dueDate": null,
+  "priority": "normal"
+}
+
+2. Source linking
+
+Created tasks should link back to source context if the task schema supports it.
+
+Preferred metadata:
+
+* sourceType: current_message
+* sourceMessageId
+* sourceThreadRootId if applicable
+* sourceChannelSlug if channel message
+* sourceObjectType / sourceObjectId if record message
+* sourceUrl / actionUrl back to exact message/thread
+
+If the task schema has generic linked object fields, use those.
+
+Do not invent a large new schema unless needed.
+
+3. Task defaults
+
+When creating from a message:
+
+* Title should default from the message text, max reasonable length.
+* Description should include:
+    * source message preview
+    * author
+    * channel or record context
+    * link back to Currents message
+* If message is from a CRM Record Current, task should link to that record if existing task system supports CRM links.
+
+When creating from summary action item:
+
+* Title should default to the action item task.
+* Owner should be mapped to a user if possible.
+* If owner cannot be confidently mapped, leave assignee blank or let user choose.
+* Due date should use summary due if valid; otherwise blank.
+
+4. Security
+
+* Auth required.
+* Cannot create task from deleted message.
+* Cannot create task from inaccessible message.
+* Use existing task permissions.
+* Validate assignee.
+* Validate due date.
+* Validate priority.
+
+Frontend requirements
+
+1. Message action menu
+
+Add a small action to Currents messages:
+
+* Create Task
+
+Available on:
+
+* channel top-level messages
+* channel thread replies
+* record top-level messages
+* record thread replies
+
+Do not clutter the hover bar. If there is already an action menu, add it there.
+
+2. Task creation dialog
+
+Create/reuse a modal/dialog:
+
+Fields:
+
+* Task title
+* Assignee
+* Due date
+* Priority
+* Description / context
+* Linked source preview
+
+Requirements:
+
+* Pre-fill title from message text.
+* Pre-fill description with source context.
+* Assignee picker should use existing user search/list if available.
+* User can edit before creating.
+* Save button creates task.
+* Success state shows:
+    * “Task created”
+    * optional link to task
+* Error state is helpful.
+
+3. Summary action item task creation
+
+Inside CurrentSummaryPanel, each action item should have:
+
+* Create Task button
+
+Clicking it should open the same task dialog, pre-filled with:
+
+* title = action item task
+* owner = matched user if possible
+* due date = due if available
+* description = summary/source context
+
+If this is too large, implement backend and message-based task creation first, then summary action item task creation in same phase only if clean.
+
+4. UX requirements
+
+* Keep it premium and compact.
+* Do not overload message rows.
+* Task dialog should feel native to VoltSafe CMS.
+* No page navigation required to create a task.
+* Creating a task should not disrupt current channel/thread/record view.
+* Dark mode must look good.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current still loads.
+3. Create Task appears on channel message.
+4. Create Task works from channel message.
+5. Create Task works from channel thread reply.
+6. Create Task appears on record message.
+7. Create Task works from Account Currents message.
+8. Create Task works from Lead Currents message.
+9. Created task stores/links source context if supported.
+10. Created task appears in existing task system.
+11. Created task links back to source Currents message if supported.
+12. Cannot create task from deleted message.
+13. Invalid assignee rejected or handled.
+14. Invalid due date rejected or handled.
+15. Summary action item has Create Task button if implemented.
+16. Summary action item task creation works if implemented.
+17. Existing posting still works.
+18. Threads still work.
+19. Reactions/pins/edit/delete still work.
+20. Mentions/notifications still work.
+21. Attachments still work.
+22. Search still works.
+23. AI summaries still work.
+24. No browser console errors.
+25. No server errors.
+26. No SQL errors.
+27. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing task system audit summary
+2. Files changed
+3. Routes added/changed
+4. Frontend components changed/added
+5. Source linking behavior
+6. Summary action item task behavior
+7. Verification results
+8. Known issues
+9. Recommended next step
+
+Keep scope tight: Currents create-task functionality only.

@@ -26,6 +26,7 @@ import {
   Paperclip,
   Search,
   Sparkles,
+  CheckSquare,
 } from "lucide-react";
 import {
   CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
@@ -33,6 +34,8 @@ import {
 import type { CurrentAttachment } from "@/components/current/current-attachment-display";
 import { CurrentSummaryPanel } from "@/components/current/current-summary-panel";
 import type { CurrentSummaryData } from "@/components/current/current-summary-panel";
+import { CreateTaskFromCurrentDialog } from "@/components/current/create-task-from-current-dialog";
+import type { CreateTaskSource } from "@/components/current/create-task-from-current-dialog";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -585,6 +588,7 @@ function MessageActionBar({
   onDelete,
   onPin,
   onReply,
+  onCreateTask,
 }: {
   isOwn: boolean;
   isAdmin: boolean;
@@ -594,6 +598,7 @@ function MessageActionBar({
   onDelete: () => void;
   onPin: () => void;
   onReply?: () => void;
+  onCreateTask?: () => void;
 }) {
   const canEdit = isOwn;
   const canDelete = isOwn || isAdmin;
@@ -615,6 +620,16 @@ function MessageActionBar({
           className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
         >
           <MessageSquare className="w-3 h-3" />
+        </button>
+      )}
+      {onCreateTask && (
+        <button
+          onClick={onCreateTask}
+          title="Create Task"
+          data-testid="btn-create-task-from-message"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+        >
+          <CheckSquare className="w-3 h-3" />
         </button>
       )}
       <button
@@ -698,6 +713,7 @@ function MessageRow({
   onDelete,
   onPin,
   onOpenThread,
+  onCreateTask,
 }: {
   message: Message;
   grouped: boolean;
@@ -709,6 +725,7 @@ function MessageRow({
   onDelete: (messageId: number) => void;
   onPin: (messageId: number, isPinned: boolean) => void;
   onOpenThread?: () => void;
+  onCreateTask?: (message: Message) => void;
 }) {
   const isPinned = pinnedMessageIds.has(message.id);
   const isOwn = message.userId === currentUserId;
@@ -748,6 +765,7 @@ function MessageRow({
         onDelete={() => onDelete(message.id)}
         onPin={() => onPin(message.id, isPinned)}
         onReply={onOpenThread}
+        onCreateTask={onCreateTask ? () => onCreateTask(message) : undefined}
       />
 
       {/* Avatar / grouped spacer */}
@@ -1007,12 +1025,15 @@ function ThreadPanel({
   isAdmin,
   selectedSlug,
   onClose,
+  onCreateTaskMsg,
 }: {
   rootMessageId: number;
   currentUserId: number;
   isAdmin: boolean;
   selectedSlug: string;
   onClose: () => void;
+  onCreateTaskMsg?: (msg: Message, threadRootId?: number) => void;
+  onCreateSummaryTask?: (item: { task: string; owner: string; due: string | null }) => void;
 }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -1257,6 +1278,7 @@ function ThreadPanel({
             isError={threadSummaryMutation.isError}
             onClose={() => setThreadSummaryOpen(false)}
             onRegenerate={() => { setThreadSummaryData(null); threadSummaryMutation.mutate(rootMessageId); }}
+            onCreateTask={onCreateSummaryTask}
           />
           <div className="h-2.5" />
         </div>
@@ -1288,6 +1310,7 @@ function ThreadPanel({
               onEdit={(m) => setEditingReply(m)}
               onDelete={(id) => deleteReplyMutation.mutate(id)}
               onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
+              onCreateTask={onCreateTaskMsg ? () => onCreateTaskMsg(root, undefined) : undefined}
             />
           )}
         </div>
@@ -1339,6 +1362,7 @@ function ThreadPanel({
               onEdit={(m) => setEditingReply(m)}
               onDelete={(id) => deleteReplyMutation.mutate(id)}
               onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
+              onCreateTask={onCreateTaskMsg ? () => onCreateTaskMsg(reply, rootMessageId) : undefined}
             />
           );
         })}
@@ -1833,6 +1857,20 @@ export default function CurrentPage() {
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainMention = useComposerMentions(textareaRef);
 
+  const [createTaskSource, setCreateTaskSource] = useState<CreateTaskSource | null>(null);
+
+  function handleCreateTaskFromMsg(msg: Message, threadRootId?: number): void {
+    setCreateTaskSource({
+      kind: "channel_message",
+      messageId: msg.id,
+      body: msg.body,
+      userName: msg.userName,
+      createdAt: msg.createdAt,
+      channelSlug: selectedSlug,
+      threadRootId,
+    });
+  }
+
   // Channel AI summary
   const [channelSummaryOpen, setChannelSummaryOpen] = useState(false);
   const [channelSummaryData, setChannelSummaryData] = useState<CurrentSummaryData | null>(null);
@@ -2326,6 +2364,7 @@ export default function CurrentPage() {
                   isError={channelSummaryMutation.isError}
                   onClose={() => setChannelSummaryOpen(false)}
                   onRegenerate={() => { setChannelSummaryData(null); channelSummaryMutation.mutate(selectedSlug); }}
+                  onCreateTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `Channel: #${selectedSlug}` })}
                 />
               </div>
             )}
@@ -2390,6 +2429,7 @@ export default function CurrentPage() {
                               : pinMutation.mutate(id)
                           }
                           onOpenThread={() => setThreadRootId(msg.id)}
+                          onCreateTask={(m) => handleCreateTaskFromMsg(m)}
                         />
                       </div>
                     );
@@ -2488,6 +2528,12 @@ export default function CurrentPage() {
         )}
       </div>
 
+      <CreateTaskFromCurrentDialog
+        open={createTaskSource !== null}
+        source={createTaskSource}
+        onClose={() => setCreateTaskSource(null)}
+      />
+
       {/* ── Thread panel ────────────────────────────────────────────────── */}
       {threadRootId !== null && (
         <ThreadPanel
@@ -2496,6 +2542,8 @@ export default function CurrentPage() {
           isAdmin={isAdmin}
           selectedSlug={selectedSlug}
           onClose={() => setThreadRootId(null)}
+          onCreateTaskMsg={handleCreateTaskFromMsg}
+          onCreateSummaryTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `Thread in #${selectedSlug}` })}
         />
       )}
     </div>

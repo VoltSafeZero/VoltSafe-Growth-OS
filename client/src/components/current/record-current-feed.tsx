@@ -11,7 +11,7 @@ import { formatDistanceToNow } from "date-fns";
 import {
   MessageSquare, Send, Smile, Pencil, Trash2, X, Check,
   MessagesSquare, ChevronLeft, Pin, ChevronDown, ChevronUp, Paperclip,
-  Search, Loader2, Sparkles,
+  Search, Loader2, Sparkles, CheckSquare,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -20,6 +20,8 @@ import {
 import type { CurrentAttachment, UploadResult } from "./current-attachment-display";
 import { CurrentSummaryPanel } from "./current-summary-panel";
 import type { CurrentSummaryData } from "./current-summary-panel";
+import { CreateTaskFromCurrentDialog } from "./create-task-from-current-dialog";
+import type { CreateTaskSource } from "./create-task-from-current-dialog";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -381,7 +383,7 @@ function MessageComposer({
 // ── MessageItem ───────────────────────────────────────────────────────────────
 
 function MessageItem({
-  msg, myUserId, onReact, onEdit, onDelete, onOpenThread, onPin, isPinned, highlighted,
+  msg, myUserId, onReact, onEdit, onDelete, onOpenThread, onPin, isPinned, highlighted, onCreateTask,
 }: {
   msg: RecordMessage;
   myUserId: number;
@@ -392,6 +394,7 @@ function MessageItem({
   onPin: (msgId: number, currentlyPinned: boolean) => void;
   isPinned: boolean;
   highlighted: boolean;
+  onCreateTask?: (msg: RecordMessage) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
@@ -528,6 +531,16 @@ function MessageItem({
         >
           <MessageSquare className="h-3 w-3" />
         </button>
+        {onCreateTask && !msg.deletedAt && (
+          <button
+            onClick={() => onCreateTask(msg)}
+            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+            title="Create Task"
+            data-testid={`create-task-btn-${msg.id}`}
+          >
+            <CheckSquare className="h-3 w-3" />
+          </button>
+        )}
         <button
           onClick={() => onPin(msg.id, isPinned)}
           className={`h-5 w-5 flex items-center justify-center rounded transition-colors ${
@@ -624,7 +637,7 @@ function PinnedBar({
 // ── ThreadPanel ───────────────────────────────────────────────────────────────
 
 function ThreadPanel({
-  rootId, myUserId, objectType, objectId, pinnedIds, onPin, onClose,
+  rootId, myUserId, objectType, objectId, pinnedIds, onPin, onClose, onCreateTask,
 }: {
   rootId: number;
   myUserId: number;
@@ -633,6 +646,7 @@ function ThreadPanel({
   pinnedIds: Set<number>;
   onPin: (msgId: number, isPinned: boolean) => void;
   onClose: () => void;
+  onCreateTask?: (msg: RecordMessage, threadRootId: number) => void;
 }) {
   const { toast } = useToast();
   const apiBase = `/api/current/record/${objectType}/${objectId}`;
@@ -730,6 +744,7 @@ function ThreadPanel({
                   onDelete={msgId => deleteMutation.mutate(msgId)}
                   onOpenThread={() => {}}
                   onPin={onPin}
+                  onCreateTask={(m) => onCreateTask?.(m, rootId)}
                 />
                 {i === 0 && allMsgs.length > 1 && (
                   <div className="ml-8 my-1 border-l-2 border-border/30 pl-2 text-[10px] text-muted-foreground">
@@ -854,6 +869,21 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
   useEffect(() => {
     if (initialThreadId && threadRootId === null) setThreadRootId(initialThreadId);
   }, [initialThreadId]);
+
+  const [createTaskSource, setCreateTaskSource] = useState<CreateTaskSource | null>(null);
+
+  function handleCreateTaskFromRecordMsg(msg: RecordMessage, threadRootId?: number): void {
+    setCreateTaskSource({
+      kind: "record_message",
+      messageId: msg.id,
+      body: msg.body,
+      userName: msg.userName,
+      createdAt: msg.createdAt,
+      objectType,
+      objectId,
+      threadRootId,
+    });
+  }
 
   // Record AI summary
   const [recordSummaryOpen, setRecordSummaryOpen] = useState(false);
@@ -999,6 +1029,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
             isError={recordSummaryMutation.isError}
             onClose={() => setRecordSummaryOpen(false)}
             onRegenerate={() => { setRecordSummaryData(null); recordSummaryMutation.mutate(); }}
+            onCreateTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `${objectType} record Currents` })}
           />
         </div>
       )}
@@ -1091,6 +1122,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
                 onDelete={msgId => deleteMutation.mutate(msgId)}
                 onOpenThread={msgId => setThreadRootId(msgId)}
                 onPin={handlePin}
+                onCreateTask={(m) => handleCreateTaskFromRecordMsg(m)}
               />
             ))}
             <div ref={bottomRef} />
@@ -1106,6 +1138,12 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
         />
       </div>
 
+      <CreateTaskFromCurrentDialog
+        open={createTaskSource !== null}
+        source={createTaskSource}
+        onClose={() => setCreateTaskSource(null)}
+      />
+
       {/* Thread panel */}
       {threadRootId !== null && (
         <ThreadPanel
@@ -1116,6 +1154,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
           pinnedIds={pinnedIds}
           onPin={handlePin}
           onClose={() => setThreadRootId(null)}
+          onCreateTask={handleCreateTaskFromRecordMsg}
         />
       )}
     </div>
