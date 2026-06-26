@@ -4,6 +4,22 @@ import { db } from "./db";
 import { calendarConnections, calendarEvents } from "@shared/schema";
 import { eq, and, isNull, or } from "drizzle-orm";
 
+// ─── Zoom URL validation ──────────────────────────────────────────────────────
+// A valid Zoom join URL must contain a fully-numeric meeting ID (9-12 digits).
+// Google Calendar sometimes stores a *display-only* masked version in the
+// location field (e.g. us02web.zoom.us/j/******617) which contains asterisks
+// instead of the full ID.  We must never store or use that as a join link.
+const VALID_ZOOM_RE = /https?:\/\/[a-z0-9.-]*zoom\.us\/j\/(\d{9,12})(?!\d)(?:[/?][^\s"'<>)]*)*/i;
+
+function extractValidZoomUrl(text: string): string | null {
+  const m = text.match(VALID_ZOOM_RE);
+  return m ? m[0] : null;
+}
+
+function isValidZoomUrl(url: string | null | undefined): url is string {
+  return !!url && VALID_ZOOM_RE.test(url) && !url.includes("*");
+}
+
 // ─── Error Translation ────────────────────────────────────────────────────────
 
 function friendlyCalendarError(err: any): string {
@@ -336,9 +352,23 @@ export async function syncGoogleCalendar(
 
         const invitees = attendeeDetails.map((a: any) => a.email);
 
-        const meetingUrl =
-          gEvent.conferenceData?.entryPoints?.find((ep: any) => ep.entryPointType === "video")?.uri
+        // Preferred source order for meeting/conference URL:
+        //  1. conferenceData.entryPoints[video].uri — but only if it is a valid
+        //     unmasked URL (Google sometimes returns masked Zoom URIs here too).
+        //  2. hangoutLink — Google Meet shortlink; always a valid URI.
+        //  3. event.location — extract a full Zoom URL (digits-only meeting ID).
+        //     Google Calendar often stores a masked display URL here; the regex
+        //     rejects any URL that contains asterisks.
+        //  4. event.description — same extraction from raw description text.
+        const rawVideoUri: string | null =
+          gEvent.conferenceData?.entryPoints?.find((ep: any) => ep.entryPointType === "video")?.uri ?? null;
+
+        const meetingUrl: string | null =
+          (isValidZoomUrl(rawVideoUri) ? rawVideoUri : null)
+          || (!rawVideoUri?.includes("zoom.us") ? (rawVideoUri || null) : null) // non-Zoom conference URI
           || gEvent.hangoutLink
+          || extractValidZoomUrl(gEvent.location ?? "")
+          || extractValidZoomUrl(gEvent.description ?? "")
           || null;
 
         const [existing] = await db

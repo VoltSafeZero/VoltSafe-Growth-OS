@@ -4182,19 +4182,33 @@ function BriefingTab({ eventId }: { eventId: number }) {
 
 type MeetingProvider = "zoom" | "teams" | "meet" | "phone" | "other" | null;
 
+// A valid Zoom join URL requires a fully-numeric meeting ID (9-12 digits).
+// Google Calendar sometimes surfaces a masked display URL like
+// us02web.zoom.us/j/******617 — that must never be used as a clickable href.
+const VALID_ZOOM_URL_RE = /https?:\/\/[a-z0-9.-]*zoom\.us\/j\/(\d{9,12})(?!\d)(?:[/?][^\s"'<>)]*)*/i;
+
+function extractValidZoomJoinUrl(text: string): string | null {
+  const m = text.match(VALID_ZOOM_URL_RE);
+  // Double-check: captured group must be all digits (no asterisks leaked through)
+  if (m && m[1] && /^\d{9,12}$/.test(m[1]) && !m[0].includes("*")) return m[0];
+  return null;
+}
+
 /** Detects meeting provider from meetingUrl, location, and description fields. */
 function detectMeetingProvider(event: {
   meetingUrl?: string | null;
   location?: string | null;
   description?: string | null;
-}): { provider: MeetingProvider; joinUrl: string | null } {
+}): { provider: MeetingProvider; joinUrl: string | null; zoomMasked?: boolean } {
   const { meetingUrl, location, description } = event;
   const sources = [meetingUrl, location, description].filter(Boolean) as string[];
 
   for (const src of sources) {
     if (/zoom\.us\//i.test(src)) {
-      const m = src.match(/https?:\/\/[a-z0-9.-]*zoom\.us\/[^\s"'<>)]+/i);
-      return { provider: "zoom", joinUrl: m ? m[0] : (meetingUrl ?? null) };
+      const validUrl = extractValidZoomJoinUrl(src);
+      if (validUrl) return { provider: "zoom", joinUrl: validUrl };
+      // Zoom detected but URL is masked — flag it so UI can warn instead of linking
+      return { provider: "zoom", joinUrl: null, zoomMasked: true };
     }
     if (/teams\.microsoft\.com|teams\.live\.com/i.test(src)) {
       const m = src.match(/https?:\/\/teams\.[a-z.]+\/[^\s"'<>)]+/i);
@@ -4551,11 +4565,24 @@ function EventDetailDialog({
           <TabsContent value="details" className="flex-1 overflow-y-auto px-6 pb-4 mt-3">
             <div className="space-y-2.5 text-sm">
               {event.meetingUrl ? (() => {
-                const { provider: mp, joinUrl: mUrl } = detectMeetingProvider(event);
+                const { provider: mp, joinUrl: mUrl, zoomMasked } = detectMeetingProvider(event);
                 if (mp === "zoom") {
+                  // Masked/invalid meeting ID — never use as href, show warning instead
+                  if (!mUrl || zoomMasked) {
+                    return (
+                      <div
+                        className="flex items-center justify-center gap-2 w-full bg-muted/40 text-muted-foreground text-sm font-medium rounded-lg px-4 py-2.5 border border-border/50 cursor-not-allowed select-none"
+                        data-testid="zoom-link-unavailable"
+                        title="The Zoom link for this event is unavailable or could not be verified. Open the event in Google Calendar to join."
+                      >
+                        <Video className="h-4 w-4 shrink-0 opacity-50" />
+                        Zoom link unavailable
+                      </div>
+                    );
+                  }
                   return (
                     <a
-                      href={mUrl ?? event.meetingUrl!}
+                      href={mUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center justify-center gap-2 w-full bg-[#2D8CFF] hover:bg-[#2680f0] text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
