@@ -1449,7 +1449,7 @@ function SearchResultCard({
     ? `#${displaySlug(result.channelSlug)}`
     : result.objectType
     ? `${result.objectType.replace(/_/g, " ")} · ${result.objectId}`
-    : "Current";
+    : "Currents";
 
   const recordUrl = (() => {
     if (result.channelSlug || !result.objectType || !result.objectId) return null;
@@ -1616,7 +1616,7 @@ function SearchPanel({
               <Search className="w-6 h-6 text-primary/50" />
             </div>
             <p className="text-[13.5px] font-semibold text-foreground/70 mb-1.5">
-              Search Current
+              Search Currents
             </p>
             <p className="text-[12px] text-muted-foreground/60 max-w-[230px] leading-relaxed">
               Find messages, files, and people across all channels and records.

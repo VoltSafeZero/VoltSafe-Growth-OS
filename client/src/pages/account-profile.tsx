@@ -984,7 +984,7 @@ export default function AccountProfilePage() {
           <CardHeader className="pb-2 pt-4 px-4">
             <div className="flex items-center gap-2">
               <MessagesSquare className="h-4 w-4 text-primary" />
-              <CardTitle className="text-sm font-semibold">Current</CardTitle>
+              <CardTitle className="text-sm font-semibold">Currents</CardTitle>
               <span className="text-xs text-muted-foreground ml-1">· team messages on this account</span>
             </div>
           </CardHeader>

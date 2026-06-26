@@ -1928,7 +1928,7 @@ function LeadDetailDialog({
 
             <div className="border-t border-border/50 pt-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <span>Current</span>
+                <span>Currents</span>
                 <span className="text-[10px] font-normal normal-case text-muted-foreground/50">— team discussion</span>
               </p>
               <div className="h-[320px]">

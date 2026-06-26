@@ -928,7 +928,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
           <input
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search this feed…"
+            placeholder="Search this Current…"
             className="w-full pl-6 pr-6 py-1 text-[11.5px] rounded-md border bg-muted/20 border-border/30 text-foreground placeholder:text-muted-foreground/35 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all"
             data-testid="record-current-search-input"
           />
