@@ -1,0 +1,200 @@
+Current Phase 4A attachments are shipped. Before adding any new features, please perform a Phase 4A audit and polish pass only.
+
+Do not add Guest Currents, direct messages, search, AI summaries, slash commands, external collaborators, or any unrelated features yet.
+
+Goal
+
+Verify that attachments work safely and cleanly across:
+
+1. /current channel messages
+2. /current channel thread replies
+3. CRM Record Current messages
+4. CRM Record Current thread replies
+
+Audit only attachments and regressions caused by attachments.
+
+Audit checklist
+
+1. Backend upload behavior
+
+Verify:
+
+* objectType=current_message is accepted by /api/attachments.
+* Upload requires authentication.
+* Upload rejects missing objectId / invalid message id.
+* Upload rejects unsupported file types.
+* Upload rejects oversized files according to existing limit.
+* Upload stores:
+    * original filename
+    * stored filename/path
+    * mime type
+    * size
+    * uploaded by
+    * object type
+    * object id / message id
+* Uploading multiple files to the same message works.
+* Uploading to a deleted message is blocked or handled safely.
+* Uploading to a message the user should not access is blocked or handled safely.
+* Upload errors do not crash the server.
+
+2. Message fetch responses
+
+Verify attachments are returned correctly from:
+
+* GET /api/current/channels/:slug/messages
+* GET /api/current/messages/:id/thread
+* GET /api/current/record/:type/:id/messages
+
+Check:
+
+* Top-level channel message attachments appear.
+* Channel thread reply attachments appear.
+* Record message attachments appear.
+* Record thread reply attachments appear.
+* Deleted messages do not expose attachments if body is redacted.
+* Attachments are not duplicated by SQL joins.
+* Messages with no attachments return an empty array, not null/undefined if possible.
+
+3. Frontend composer behavior
+
+Verify paperclip upload works in:
+
+* Main /current composer
+* /current thread reply composer
+* Record Current composer
+* Record Current thread reply composer
+
+Check:
+
+* File picker opens.
+* Multiple file selection works.
+* Pending file chips appear.
+* Removing pending files works.
+* Sending message with files posts message first, then uploads files.
+* Sending message without files still works.
+* Composer clears only after successful send/upload.
+* If upload fails, typed message is not silently lost if possible.
+* Sending state/loading state is clear.
+* Attachment button does not clutter the composer.
+* Dark mode looks polished.
+
+4. Attachment display
+
+Verify:
+
+* Image attachments render as clean thumbnails/previews.
+* Non-image files render as compact file chips/cards.
+* Long filenames truncate gracefully.
+* File sizes display correctly.
+* Clicking image opens/downloads correctly.
+* Clicking file chip opens/downloads correctly.
+* Multiple images display cleanly.
+* Mixed images + files display cleanly.
+* Attachments do not cause message row layout explosions.
+* Attachments do not cause feed scroll jitter.
+* Attachment display works in both channel and record feeds.
+* Attachment display works in thread panels.
+* Dark mode looks polished.
+
+5. File type and size safety
+
+Test:
+
+* PNG image
+* JPG/JPEG image
+* WEBP image if supported
+* PDF
+* DOC/DOCX if supported
+* XLS/XLSX or CSV if supported
+* TXT
+* Unsupported file such as .exe or .js
+* Oversized file above limit
+
+Verify failure states are clear and not ugly.
+
+6. Security/access
+
+Verify:
+
+* Attachment URLs are not publicly accessible without auth unless that is the existing intentional app pattern.
+* A logged-out user cannot fetch private Current attachments.
+* Attachment route does not leak absolute server paths.
+* Attachment metadata does not expose sensitive filesystem details.
+* Current attachments do not appear in unrelated CRM attachment sections unless intentionally supported.
+* Existing non-Current attachments still work.
+
+7. Regression checks
+
+Verify existing Current features still work:
+
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Mentions panel
+* Account Current
+* Contact Current
+* Opportunity Current
+* Lead Current
+* Record threads
+* Record pins
+* Record @mentions
+* Record deep-links
+* /execution/communications
+
+8. Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Upload/multer errors
+* React key warnings
+* Failed fetch handling
+* Vite/build errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 4A attachments.
+
+Allowed:
+
+* Upload route bugs
+* Attachment SQL/query bugs
+* Attachment display bugs
+* File chip/image preview polish
+* Pending file state bugs
+* Upload error handling
+* Auth/access issues
+* Deleted-message attachment leakage
+* Console/server errors caused by attachments
+
+Not allowed:
+
+* Search
+* Guest Currents
+* Direct messages
+* AI summaries
+* Slash commands
+* External collaborators
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend/API checks performed
+5. Frontend/UI checks performed
+6. File types and size limits verified
+7. Security/access checks performed
+8. Existing Current regression results
+9. Final pass/fail status
+10. Recommended next feature order
+
+Keep scope tight: audit and polish Phase 4A attachments only.

@@ -33022,7 +33022,8 @@ export function registerConfluenceRoutes(app: Express) {
           COALESCE(rxn.reactions, '[]'::json) AS reactions,
           COALESCE(rep.reply_count, 0)::int AS reply_count,
           rep.latest_reply_at,
-          COALESCE(att.msg_attachments, '[]'::json) AS msg_attachments
+          CASE WHEN m.deleted_at IS NOT NULL THEN '[]'::json
+               ELSE COALESCE(att.msg_attachments, '[]'::json) END AS msg_attachments
         FROM current_messages m
         JOIN users u ON u.id = m.user_id
         LEFT JOIN LATERAL (
@@ -33401,7 +33402,8 @@ export function registerConfluenceRoutes(app: Express) {
           CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
           u.name AS user_name, u.avatar_url AS user_avatar_url,
           COALESCE(rxn.reactions, '[]'::json) AS reactions,
-          COALESCE(att.msg_attachments, '[]'::json) AS msg_attachments`;
+          CASE WHEN m.deleted_at IS NOT NULL THEN '[]'::json
+               ELSE COALESCE(att.msg_attachments, '[]'::json) END AS msg_attachments`;
 
       const lateralAttachments = `
         LEFT JOIN LATERAL (
@@ -33677,7 +33679,8 @@ export function registerConfluenceRoutes(app: Express) {
         COALESCE(rxn.reactions, '[]'::json) AS reactions,
         COALESCE(rep.reply_count, 0)::int AS reply_count,
         rep.latest_reply_at,
-        COALESCE(att.msg_attachments, '[]'::json) AS msg_attachments
+        CASE WHEN m.deleted_at IS NOT NULL THEN '[]'::json
+             ELSE COALESCE(att.msg_attachments, '[]'::json) END AS msg_attachments
       FROM current_messages m
       JOIN users u ON u.id = m.user_id
       LEFT JOIN LATERAL (

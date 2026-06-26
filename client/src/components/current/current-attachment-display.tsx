@@ -145,19 +145,36 @@ export function PendingFileChips({
   );
 }
 
-export async function uploadCurrentAttachments(messageId: number, files: File[]): Promise<void> {
+export interface UploadResult {
+  succeeded: number;
+  failed: string[];
+}
+
+export async function uploadCurrentAttachments(
+  messageId: number,
+  files: File[]
+): Promise<UploadResult> {
+  const failed: string[] = [];
   await Promise.all(
     files.map(async (file) => {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("objectType", "current_message");
-      fd.append("objectId", String(messageId));
-      fd.append("category", "general");
-      await fetch("/api/attachments", {
-        method: "POST",
-        body: fd,
-        credentials: "include",
-      }).catch(() => {});
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("objectType", "current_message");
+        fd.append("objectId", String(messageId));
+        fd.append("category", "general");
+        const res = await fetch("/api/attachments", {
+          method: "POST",
+          body: fd,
+          credentials: "include",
+        });
+        if (!res.ok) {
+          failed.push(file.name);
+        }
+      } catch {
+        failed.push(file.name);
+      }
     })
   );
+  return { succeeded: files.length - failed.length, failed };
 }

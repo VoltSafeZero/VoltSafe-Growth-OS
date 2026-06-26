@@ -10,13 +10,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow } from "date-fns";
 import {
   MessageSquare, Send, Smile, Pencil, Trash2, X, Check,
-  AtSign, MessagesSquare, ChevronLeft, Pin, ChevronDown, ChevronUp, Paperclip,
+  MessagesSquare, ChevronLeft, Pin, ChevronDown, ChevronUp, Paperclip,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
 } from "./current-attachment-display";
-import type { CurrentAttachment } from "./current-attachment-display";
+import type { CurrentAttachment, UploadResult } from "./current-attachment-display";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -627,7 +627,14 @@ function ThreadPanel({
       const r = await apiRequest("POST", `/api/current/messages/${rootId}/thread`, { body });
       const newMsg = await r.json();
       if (files.length > 0 && newMsg?.id) {
-        await uploadCurrentAttachments(newMsg.id, files);
+        const result: UploadResult = await uploadCurrentAttachments(newMsg.id, files);
+        if (result.failed.length > 0) {
+          toast({
+            title: "Some files failed to upload",
+            description: result.failed.join(", "),
+            variant: "destructive",
+          });
+        }
       }
       return newMsg;
     },
@@ -806,7 +813,14 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
       const r = await apiRequest("POST", apiBase + "/messages", { body });
       const newMsg = await r.json();
       if (files.length > 0 && newMsg?.id) {
-        await uploadCurrentAttachments(newMsg.id, files);
+        const result: UploadResult = await uploadCurrentAttachments(newMsg.id, files);
+        if (result.failed.length > 0) {
+          toast({
+            title: "Some files failed to upload",
+            description: result.failed.join(", "),
+            variant: "destructive",
+          });
+        }
       }
       return newMsg;
     },

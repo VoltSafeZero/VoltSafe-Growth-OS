@@ -7,6 +7,7 @@ import {
   keepPreviousData,
 } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -955,9 +956,11 @@ function ThreadPanel({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [replyDraft, setReplyDraft] = useState("");
   const [replyPendingFiles, setReplyPendingFiles] = useState<File[]>([]);
   const replyFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isReplyUploading, setIsReplyUploading] = useState(false);
   const [editingReply, setEditingReply] = useState<Message | null>(null);
   const threadFeedRef = useRef<HTMLDivElement>(null);
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1084,7 +1087,7 @@ function ThreadPanel({
 
   async function handleReplySend() {
     const trimmed = replyDraft.trim();
-    if (!trimmed || postReplyMutation.isPending) return;
+    if (!trimmed || postReplyMutation.isPending || isReplyUploading) return;
     try {
       const newMsg = await postReplyMutation.mutateAsync(trimmed);
       setReplyDraft("");
@@ -1094,7 +1097,19 @@ function ThreadPanel({
       const files = [...replyPendingFiles];
       setReplyPendingFiles([]);
       if (files.length > 0 && newMsg?.id) {
-        await uploadCurrentAttachments(newMsg.id, files);
+        setIsReplyUploading(true);
+        try {
+          const result = await uploadCurrentAttachments(newMsg.id, files);
+          if (result.failed.length > 0) {
+            toast({
+              title: "Some files failed to upload",
+              description: result.failed.join(", "),
+              variant: "destructive",
+            });
+          }
+        } finally {
+          setIsReplyUploading(false);
+        }
       }
       invalidateThread();
       invalidateFeed();
@@ -1305,11 +1320,11 @@ function ThreadPanel({
               <Button
                 size="sm"
                 onClick={handleReplySend}
-                disabled={!replyDraft.trim() || postReplyMutation.isPending}
+                disabled={!replyDraft.trim() || postReplyMutation.isPending || isReplyUploading}
                 className="shrink-0 h-7 w-7 p-0 rounded-lg transition-all"
                 data-testid="btn-send-reply"
               >
-                {postReplyMutation.isPending ? (
+                {(postReplyMutation.isPending || isReplyUploading) ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
                 ) : (
                   <Send className="w-3 h-3" />
@@ -1463,6 +1478,8 @@ export default function CurrentPage() {
   const [draft, setDraft] = useState("");
   const [mainPendingFiles, setMainPendingFiles] = useState<File[]>([]);
   const mainFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isMainUploading, setIsMainUploading] = useState(false);
+  const { toast } = useToast();
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [threadRootId, setThreadRootId] = useState<number | null>(null);
   const [view, setView] = useState<"channel" | "mentions">("channel");
@@ -1669,7 +1686,7 @@ export default function CurrentPage() {
 
   async function handleSend() {
     const trimmed = draft.trim();
-    if (!trimmed || postMutation.isPending) return;
+    if (!trimmed || postMutation.isPending || isMainUploading) return;
     try {
       const newMsg = await postMutation.mutateAsync(trimmed);
       setDraft("");
@@ -1679,7 +1696,19 @@ export default function CurrentPage() {
       const files = [...mainPendingFiles];
       setMainPendingFiles([]);
       if (files.length > 0 && newMsg?.id) {
-        await uploadCurrentAttachments(newMsg.id, files);
+        setIsMainUploading(true);
+        try {
+          const result = await uploadCurrentAttachments(newMsg.id, files);
+          if (result.failed.length > 0) {
+            toast({
+              title: "Some files failed to upload",
+              description: result.failed.join(", "),
+              variant: "destructive",
+            });
+          }
+        } finally {
+          setIsMainUploading(false);
+        }
       }
       invalidateFeed();
     } catch {}
@@ -2002,11 +2031,11 @@ export default function CurrentPage() {
                 <Button
                   size="sm"
                   onClick={handleSend}
-                  disabled={!draft.trim() || postMutation.isPending}
+                  disabled={!draft.trim() || postMutation.isPending || isMainUploading}
                   className="shrink-0 h-8 w-8 p-0 rounded-lg transition-all"
                   data-testid="btn-send-message"
                 >
-                  {postMutation.isPending ? (
+                  {(postMutation.isPending || isMainUploading) ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
                     <Send className="w-3.5 h-3.5" />
