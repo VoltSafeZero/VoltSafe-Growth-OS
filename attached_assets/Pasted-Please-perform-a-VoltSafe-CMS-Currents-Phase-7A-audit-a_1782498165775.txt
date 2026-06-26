@@ -1,0 +1,364 @@
+Please perform a VoltSafe CMS Currents Phase 7A audit and polish pass only.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, new task features, or unrelated CRM features.
+
+Goal
+
+Verify that Mark as Decision / Risk / Requirement is stable, useful, polished, and correctly wired across Currents.
+
+This is an audit/polish pass for the Phase 7A feature that was already implemented.
+
+Audit scope
+
+Audit only:
+
+1. current_structured_items table/migration
+2. Mark/unmark structured item backend routes
+3. Structured item list route
+4. Structured badges on messages
+5. Mark as dropdown/menu
+6. Channel Currents support
+7. Channel thread reply support
+8. Record Currents support
+9. Record thread reply support
+10. Deep-links from structured items
+11. Existing Currents regressions caused by Phase 7A
+
+Backend/API checks
+
+Verify:
+
+Table / migration
+
+1. current_structured_items is created idempotently.
+2. Required columns exist:
+    * id
+    * message_id
+    * item_type
+    * created_by
+    * created_at
+    * updated_at
+    * notes
+    * severity
+    * status
+    * object_type
+    * object_id
+    * channel_id
+    * thread_root_id
+    * source_meta
+3. item_type is constrained to:
+    * decision
+    * risk
+    * requirement
+4. Duplicate same-type marks are prevented.
+5. Same message can support multiple different structured item types if intended.
+6. Indexes are sensible for message lookup, channel lookup, record lookup, and list route performance.
+
+Mark route
+
+Verify:
+
+POST /api/current/messages/:id/structured
+
+1. Requires authentication.
+2. Validates message id.
+3. Rejects invalid itemType.
+4. Rejects deleted messages.
+5. Works for channel top-level messages.
+6. Works for channel thread replies.
+7. Works for record top-level messages.
+8. Works for record thread replies.
+9. Infers and stores correct source context:
+    * channel id / slug if channel message
+    * objectType / objectId if record message
+    * threadRootId if reply
+10. Upsert behavior is safe and does not create duplicates.
+11. Returns the structured item payload.
+
+Unmark route
+
+Verify:
+
+DELETE /api/current/messages/:id/structured/:itemType
+
+1. Requires authentication.
+2. Validates message id.
+3. Validates item type.
+4. Removes only the requested type.
+5. Does not remove other structured item types on the same message.
+6. Is safe if item is already absent.
+7. Updates frontend correctly after unmark.
+
+List route
+
+Verify:
+
+GET /api/current/structured
+
+Check filters:
+
+1. scope=channel&channel=general
+2. scope=record&objectType=account&objectId=ID
+3. itemType=decision
+4. itemType=risk
+5. itemType=requirement
+6. limit
+
+Verify returned payload includes:
+
+* item id
+* itemType
+* notes
+* severity/status if used
+* message id
+* threadRootId
+* message preview
+* message author
+* createdBy
+* createdAt
+* channel slug/name or record objectType/objectId
+* actionUrl/deep-link back to source message/thread
+
+Frontend checks
+
+Mark as dropdown/menu
+
+Verify on:
+
+1. Channel top-level message
+2. Channel thread reply
+3. Account Currents message
+4. Contact Currents message if data exists
+5. Opportunity Currents message if data exists
+6. Lead Currents message
+7. Record thread reply if data exists
+
+Check:
+
+* Dropdown appears in a clean place.
+* It does not clutter the hover/action bar.
+* Options are:
+    * Decision
+    * Risk
+    * Requirement
+* Already-selected types show a checkmark or selected state.
+* Clicking selected type unmarks it, or there is an obvious unmark path.
+* Menu works in dark mode.
+* Menu is not clipped by scroll containers.
+* Menu does not close the thread panel accidentally.
+* Menu does not trigger edit/delete/reply accidentally.
+
+Badges
+
+Verify:
+
+1. Marking as Decision shows a Decision badge.
+2. Marking as Risk shows a Risk badge.
+3. Marking as Requirement shows a Requirement badge.
+4. Multiple badges on one message render cleanly.
+5. Badges display on:
+    * main channel feed
+    * thread panel root message
+    * thread panel replies
+    * record feed messages
+    * record thread replies
+6. Badges use consistent labels and colors.
+7. Badges do not crowd message text.
+8. Badges survive refresh.
+9. Badges update immediately after mark/unmark.
+
+Structured Items view/list
+
+If a structured view/filter was implemented, audit it.
+
+Verify:
+
+1. It appears in a sensible location.
+2. It can filter/list Decisions, Risks, Requirements.
+3. It can filter by current channel.
+4. It can filter by current record.
+5. Items show message preview, type, author, date, and source.
+6. Items link back to the correct message/thread.
+7. Empty state is polished.
+8. Loading/error states are polished.
+9. It does not clutter Currents.
+
+If this view was not implemented, document that clearly and recommend whether it should be Phase 7B.
+
+Deep-link checks
+
+Verify structured item action URLs:
+
+Channel message
+
+Expected:
+
+/current?channel=CHANNEL_SLUG&message=MESSAGE_ID
+
+Channel thread reply
+
+Expected:
+
+/current?channel=CHANNEL_SLUG&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Account record message
+
+Expected:
+
+/accounts/OBJECT_ID?tab=current&message=MESSAGE_ID
+
+Account record thread reply
+
+Expected:
+
+/accounts/OBJECT_ID?tab=current&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Contact record message/thread
+
+Use the actual existing Contact route with:
+
+tab=current&message=MESSAGE_ID
+
+and thread param when applicable.
+
+Opportunity record message/thread
+
+Use the actual existing Opportunity route with:
+
+tab=current&message=MESSAGE_ID
+
+and thread param when applicable.
+
+Lead record message/thread
+
+Expected:
+
+/opportunities?selected=LEAD_ID&tab=current&message=MESSAGE_ID
+
+Thread reply:
+
+/opportunities?selected=LEAD_ID&tab=current&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Deleted/edit safety checks
+
+Verify:
+
+1. Deleted messages cannot be newly marked.
+2. Existing structured marks on deleted messages are handled safely.
+3. Search/list routes do not expose deleted message body text.
+4. Editing a marked message does not remove badges unless intended.
+5. Deleting a marked message does not crash the feed.
+6. Attachments on deleted messages are not exposed through structured item list payloads.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Channel search
+* Channel AI summaries
+* Channel Create Task
+* Channel View in Currents from Tasks
+* Mentions panel
+* Account Currents
+* Contact Currents
+* Opportunity Currents
+* Lead Currents
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record search
+* Record summaries
+* Record Create Task
+* Record View in Currents from Tasks
+* /execution/communications
+
+Verify task system still works:
+
+* Tasks Hub loads
+* Task drawer opens
+* Currents source block still renders
+* View in Currents still works
+* Existing non-Currents tasks still render normally
+
+UI/UX polish
+
+Check:
+
+1. Labels are clear and executive-friendly.
+2. “Requirement” is not too long/crowded in badges.
+3. Badge colors are readable in dark mode.
+4. Icons, if used, are consistent.
+5. The Mark as control does not feel like a hack bolted onto the message row.
+6. Hover actions remain easy to use.
+7. Keyboard/accessibility basics are reasonable.
+8. No weird wrapping on narrow screens.
+9. No z-index/dropdown clipping issues.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React warnings
+* Failed fetch handling
+* Vite/build errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 7A.
+
+Allowed:
+
+* Migration/idempotency bugs
+* Route validation bugs
+* Duplicate/unique constraint bugs
+* Deleted-message leakage
+* Structured item source context bugs
+* Badge rendering bugs
+* Dropdown/menu bugs
+* Deep-link bugs
+* UI polish
+* Query invalidation bugs
+* Console/server errors caused by structured items
+
+Not allowed:
+
+* Guest Currents
+* Direct messages
+* Slash commands
+* External collaborators
+* Workflow automation
+* New task features
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend/API checks performed
+5. Table/migration checks performed
+6. Frontend/UI checks performed
+7. Badge behavior checks
+8. Structured list/view status
+9. Deep-link verification
+10. Deleted/edit safety checks
+11. Existing Currents regression results
+12. Existing task regression results
+13. Final pass/fail status
+14. Recommended next feature order
+
+Keep scope tight: Currents Phase 7A audit and polish only.

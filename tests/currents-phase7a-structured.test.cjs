@@ -143,6 +143,25 @@ check("ThreadPanel MessageItem call passes onMarkStructured", (() => {
   return i > -1 && recordFeed.slice(i, i + 800).includes("onMarkStructured");
 })());
 
+// ── 9. Audit/Polish additions ──────────────────────────────────────────────────
+console.log("\n── 9. Audit/Polish additions ──");
+check("updated_at column added via ALTER TABLE in migration", seed.includes("ADD COLUMN IF NOT EXISTS updated_at"));
+check("GET /api/current/structured returns actionUrl", routes.includes("actionUrl:") && routes.includes("tab=current&message="));
+check("actionUrl handles channel messages (channel slug + message param)", routes.includes("/current?channel=") && routes.includes("&message="));
+check("actionUrl handles record messages (objectType routing)", routes.includes("/accounts/") && routes.includes("tab=current"));
+check("actionUrl handles lead messages (opportunities route)", routes.includes("/opportunities?selected=") && routes.includes("tab=current"));
+check("actionUrl includes thread param for thread replies", routes.includes("&thread=${threadId}") || routes.includes("&thread=${parentId}"));
+check("Record ThreadPanel mark uses correct queryKey [/api/current/messages, rootId, thread]", recordFeed.includes('"/api/current/messages", rootId, "thread"'));
+check("Record ThreadPanel unmark uses correct queryKey [/api/current/messages, rootId, thread]", recordFeed.includes('"/api/current/messages", rootId, "thread"'));
+check("Channel ThreadPanel root mark invalidates feed + thread", (() => {
+  const i = currentTsx.indexOf("onMarkStructured={(mid, itemType) =>\n                apiRequest(\"POST\", `/api/current/messages/${mid}/structured`");
+  return i > -1 && currentTsx.slice(i, i + 200).includes("invalidateFeed()");
+})() || currentTsx.includes("invalidateThread(); invalidateFeed();"));
+check("Channel ThreadPanel reply mark invalidates feed + thread", (() => {
+  const last = currentTsx.lastIndexOf("invalidateThread(); invalidateFeed()");
+  return last > -1;
+})());
+
 // ── Summary ────────────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(60)}`);
 console.log(`Phase 7A Structured Items: ${passed} passed, ${failed} failed`);

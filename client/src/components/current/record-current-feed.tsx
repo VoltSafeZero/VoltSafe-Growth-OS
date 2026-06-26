@@ -829,11 +829,17 @@ function ThreadPanel({
                   onCreateTask={(m) => onCreateTask?.(m, rootId)}
                   onMarkStructured={(msgId, itemType) =>
                     apiRequest("POST", `/api/current/messages/${msgId}/structured`, { itemType })
-                      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/current/record", objectType, objectId, "thread", rootId] }))
+                      .then(() => {
+                        queryClient.invalidateQueries({ queryKey: ["/api/current/messages", rootId, "thread"] });
+                        queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] });
+                      })
                   }
                   onUnmarkStructured={(msgId, itemType) =>
                     apiRequest("DELETE", `/api/current/messages/${msgId}/structured/${itemType}`)
-                      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/current/record", objectType, objectId, "thread", rootId] }))
+                      .then(() => {
+                        queryClient.invalidateQueries({ queryKey: ["/api/current/messages", rootId, "thread"] });
+                        queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] });
+                      })
                   }
                 />
                 {i === 0 && allMsgs.length > 1 && (

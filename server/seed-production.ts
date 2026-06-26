@@ -2114,6 +2114,10 @@ export async function migrateCurrentSchema(): Promise<void> {
     await db.execute(sql.raw(`
       CREATE INDEX IF NOT EXISTS idx_csi_message ON current_structured_items(message_id)
     `));
+    // Add updated_at if the column was added after initial migration
+    await db.execute(sql.raw(`
+      ALTER TABLE current_structured_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `));
 
     console.log("[migration] Current schema ready.");
   } catch (err) {

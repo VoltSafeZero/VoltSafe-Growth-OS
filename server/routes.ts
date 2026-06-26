@@ -34162,6 +34162,26 @@ export function registerConfluenceRoutes(app: Express) {
         messageCreatedAt: r.message_created_at,
         authorName: r.author_name ?? null,
         authorAvatar: r.author_avatar ?? null,
+        actionUrl: (() => {
+          const msgId = Number(r.message_id);
+          const threadId = r.thread_root_id ? Number(r.thread_root_id) : null;
+          if (r.object_type && r.object_id) {
+            const suffix = `tab=current&message=${msgId}${threadId ? `&thread=${threadId}` : ""}`;
+            if (r.object_type === "lead") return `/opportunities?selected=${Number(r.object_id)}&${suffix}`;
+            const bases: Record<string, string> = {
+              account: `/accounts/${Number(r.object_id)}`,
+              contact: `/contacts/${Number(r.object_id)}`,
+              opportunity: `/opportunities/${Number(r.object_id)}`,
+            };
+            return `${bases[r.object_type as string] ?? "/"}?${suffix}`;
+          }
+          if (r.channel_slug) {
+            return threadId
+              ? `/current?channel=${r.channel_slug}&thread=${threadId}&message=${msgId}`
+              : `/current?channel=${r.channel_slug}&message=${msgId}`;
+          }
+          return null;
+        })(),
       })));
     } catch (err: any) {
       res.status(500).json({ message: err.message });

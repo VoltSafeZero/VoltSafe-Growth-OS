@@ -1409,10 +1409,10 @@ function ThreadPanel({
               onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
               onCreateTask={onCreateTaskMsg ? () => onCreateTaskMsg(root, undefined) : undefined}
               onMarkStructured={(mid, itemType) =>
-                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => invalidateThread())
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => { invalidateThread(); invalidateFeed(); })
               }
               onUnmarkStructured={(mid, itemType) =>
-                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => invalidateThread())
+                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => { invalidateThread(); invalidateFeed(); })
               }
             />
           )}
@@ -1467,10 +1467,10 @@ function ThreadPanel({
               onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
               onCreateTask={onCreateTaskMsg ? () => onCreateTaskMsg(reply, rootMessageId) : undefined}
               onMarkStructured={(mid, itemType) =>
-                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => invalidateThread())
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => { invalidateThread(); invalidateFeed(); })
               }
               onUnmarkStructured={(mid, itemType) =>
-                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => invalidateThread())
+                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => { invalidateThread(); invalidateFeed(); })
               }
             />
           );
