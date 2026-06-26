@@ -1,0 +1,47 @@
+Bug: Training playlists do not load
+
+On the VoltSafe CMS Training page, role-based playlist cards show paths like:
+
+onboarding-videos/playlists/01-sales-team-playlist.md
+
+But clicking View Playlist does not open the playlist. It appears to route/search GitHub instead of loading the markdown file from the app. GitHub shows 0 results because the path is being treated as a repo search, not a file URL.
+
+Expected behavior:
+
+When clicking View Playlist, the CMS should load and render the playlist markdown inside VoltSafe CMS.
+
+Example cards:
+
+* Sales Team → onboarding-videos/playlists/01-sales-team-playlist.md
+* Executives → onboarding-videos/playlists/02-executive-playlist.md
+* Marina Operators → onboarding-videos/playlists/03-marina-operator-playlist.md
+* Support & Admin → onboarding-videos/playlists/04-support-admin-playlist.md
+* New Employees → onboarding-videos/playlists/05-new-employee-playlist.md
+
+Implementation requirements:
+
+1. Verify these files exist in the repo/deployed app:
+    * onboarding-videos/playlists/01-sales-team-playlist.md
+    * onboarding-videos/playlists/02-executive-playlist.md
+    * onboarding-videos/playlists/03-marina-operator-playlist.md
+    * onboarding-videos/playlists/04-support-admin-playlist.md
+    * onboarding-videos/playlists/05-new-employee-playlist.md
+    * onboarding-videos/PLAYLISTS.md
+2. Add an internal playlist viewer route, for example:
+    * /training/playlists/:playlistSlug
+3. Map each card to the internal route instead of GitHub/search/file path.
+4. Backend should read the markdown file safely from the approved playlist directory only.
+5. Frontend should render:
+    * playlist title
+    * video list
+    * duration
+    * description
+    * links/buttons to each video
+6. If the markdown file is missing, show a helpful CMS error:
+    * “Playlist file not found: 01-sales-team-playlist.md”
+    * Do not redirect to GitHub search.
+7. Remove or hide the dev-only file path block at the bottom of the Training page in production.
+
+Acceptance test:
+
+Clicking Sales Team → View Playlist opens the playlist inside VoltSafe CMS and shows the six sales training videos. No GitHub search page should open.

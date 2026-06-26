@@ -1,0 +1,209 @@
+Proceed with Current Phase 5A only: Search.
+
+Goal:
+Add useful search across Current messages so internal users can find past conversations, decisions, files, marina discussions, and record-linked context.
+
+Do not add Guest Currents, direct messages, AI summaries, slash commands, or external collaborators yet.
+
+Phase 5A scope
+
+Add only:
+
+1. Search within /current channel messages
+2. Search within CRM Record Current feeds
+3. Optional global Current search if low-risk
+4. Search result display with deep links back to the exact message/thread/record/channel
+5. Attachment filename search if the existing attachment metadata makes it easy
+
+Backend requirements
+
+1. Search route
+
+Add authenticated route:
+
+* GET /api/current/search?q=...
+
+Supported query params:
+
+* q — required search term
+* scope — optional:
+    * all
+    * channel
+    * record
+* channel — optional channel slug
+* objectType — optional record object type
+* objectId — optional record id
+* limit — optional, default 25, max 100
+
+Examples:
+
+* /api/current/search?q=oak
+* /api/current/search?q=pedestal&scope=channel&channel=general
+* /api/current/search?q=layout&scope=record&objectType=account&objectId=123
+
+2. Search logic
+
+Search should include:
+
+* current message body
+* author name if easy
+* channel name/slug if easy
+* record object type/id metadata
+* attachment original filename if easy
+
+Exclude:
+
+* soft-deleted message bodies
+* soft-deleted message attachments if deleted messages redact attachments
+* inaccessible/private future contexts
+
+For Phase 5A, simple Postgres ILIKE search is acceptable.
+
+If full-text search is easy and safe, add it, but do not overbuild.
+
+3. Search result payload
+
+Each result should include:
+
+* message id
+* parent/root message id if it is a thread reply
+* body preview/snippet
+* author name
+* createdAt
+* channel slug/name if channel message
+* objectType/objectId if record message
+* attachment filenames if matched
+* route/actionUrl back to exact location
+* whether result is top-level or thread reply
+
+For channel messages:
+
+* /current?channel=general&message=123
+
+For channel thread replies:
+
+* /current?channel=general&thread=456&message=789
+
+For record messages:
+
+* use the existing buildRecordCurrentUrl behavior
+
+4. Security
+
+* Auth required.
+* Do not expose deleted bodies.
+* Do not expose attachments from deleted messages.
+* Do not expose raw filesystem paths.
+* Use parameterized queries.
+* Enforce limit cap.
+
+Frontend requirements
+
+1. /current search UI
+
+Add a polished search affordance inside /current.
+
+Preferred:
+
+* Search input near the top of Current sidebar or header
+* Keyboard shortcut if easy:
+    * / or Cmd+K can be deferred if risky
+* Debounced search
+* Loading state
+* Empty state
+* Error state
+
+Search should feel fast and clean.
+
+2. Search results panel
+
+Show results in a clean panel/list:
+
+Each result should show:
+
+* source:
+    * #general
+    * #sales
+    * Account Current
+    * Lead Current
+    * etc.
+* author
+* timestamp
+* snippet
+* attachment match if relevant
+* button/link:
+    * “Go to message”
+
+Clicking result should:
+
+* Open the right channel or record page
+* Open thread panel if result is a thread reply
+* Scroll/highlight target message where supported
+
+3. Record Current search
+
+Inside RecordCurrentFeed, add a compact “Search this Current” field if feasible.
+
+Requirements:
+
+* Searches only that record feed.
+* Results deep-link/scroll to the message.
+* Should not clutter the CRM page.
+* If adding this to record feeds is too much for Phase 5A, implement backend support and defer UI with explanation.
+
+4. UX requirements
+
+* Search should not make the Current sidebar feel crowded.
+* Search results should be readable in dark mode.
+* Snippets should not show raw mention token syntax if possible.
+* Long snippets should truncate cleanly.
+* Clicking a result should not lose channel state awkwardly.
+* No scroll jitter.
+* No giant modal unless necessary.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current still loads.
+3. Searching channel messages works.
+4. Searching thread replies works.
+5. Searching record Current messages works.
+6. Searching record Current thread replies works.
+7. Searching attachment filenames works if implemented.
+8. Deleted messages do not appear.
+9. Deleted-message attachments do not appear.
+10. Empty query rejected or returns clean empty state.
+11. Limit cap works.
+12. SQL injection-style input is safe.
+13. Search result deep-link opens correct channel.
+14. Search result deep-link opens correct thread.
+15. Search result deep-link opens correct record page if implemented.
+16. Mention chips/snippets do not look broken.
+17. Existing channel posting still works.
+18. Existing record posting still works.
+19. Attachments still work.
+20. Mentions/notifications still work.
+21. Pins/reactions/edit/delete still work.
+22. No browser console errors.
+23. No server errors.
+24. No SQL errors.
+25. /execution/communications remains unaffected.
+26. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Files changed
+2. Routes added/changed
+3. Frontend components changed/added
+4. Search scopes supported
+5. Search result/deep-link behavior
+6. Attachment filename search support, if implemented
+7. Verification results
+8. Known issues
+9. Recommended next step
+
+Keep scope tight: Current search only.

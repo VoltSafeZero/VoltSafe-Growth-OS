@@ -24,6 +24,7 @@ import {
   ChevronUp,
   AtSign,
   Paperclip,
+  Search,
 } from "lucide-react";
 import {
   CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
@@ -111,6 +112,24 @@ interface MentionMessage {
   channelName: string;
 }
 
+// ── SearchResult ──────────────────────────────────────────────────────────────
+
+interface SearchResult {
+  id: number;
+  parentMessageId: number | null;
+  snippet: string;
+  userName: string;
+  createdAt: string;
+  channelSlug: string | null;
+  channelName: string | null;
+  objectType: string | null;
+  objectId: number | null;
+  attachmentNames: string[];
+  matchedAttachment: boolean;
+  actionUrl: string | null;
+  isReply: boolean;
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PRESET_REACTIONS = ["👍", "❤️", "🔥", "✅", "😂", "👀"];
@@ -130,6 +149,43 @@ const AVATAR_PALETTE = [
 
 function avatarBg(userId: number): string {
   return AVATAR_PALETTE[userId % AVATAR_PALETTE.length];
+}
+
+function buildRecordUrl(objectType: string, objectId: number): string {
+  const map: Record<string, string> = {
+    account: "accounts",
+    contact: "contacts",
+    opportunity: "opportunities",
+    lead: "opportunities",
+    project: "execution/projects",
+    deployment: "deployments",
+    install_workflow: "install-workflows",
+    customer_success: "customer-success",
+    partnership: "strategy/partnerships",
+    quote: "quotes",
+    tradeshow_event: "operations/events",
+  };
+  const seg = map[objectType] ?? objectType.replace(/_/g, "-") + "s";
+  return `/${seg}/${objectId}`;
+}
+
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  try {
+    const esc = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const parts = text.split(new RegExp(`(${esc})`, "gi"));
+    return parts.map((p, i) =>
+      p.toLowerCase() === query.toLowerCase() ? (
+        <mark key={i} className="bg-primary/25 text-primary rounded-sm px-0.5 not-italic">
+          {p}
+        </mark>
+      ) : (
+        p
+      )
+    );
+  } catch {
+    return text;
+  }
 }
 
 function initials(name: string): string {
@@ -1378,6 +1434,232 @@ function EmptyFeed({ slug }: { slug: string }) {
 
 // ── Mentions panel ────────────────────────────────────────────────────────────
 
+// ── SearchResultCard ──────────────────────────────────────────────────────────
+
+function SearchResultCard({
+  result,
+  query,
+  onNavigate,
+}: {
+  result: SearchResult;
+  query: string;
+  onNavigate?: () => void;
+}) {
+  const sourceLabel = result.channelSlug
+    ? `#${displaySlug(result.channelSlug)}`
+    : result.objectType
+    ? `${result.objectType.replace(/_/g, " ")} · ${result.objectId}`
+    : "Current";
+
+  const recordUrl =
+    !result.channelSlug && result.objectType && result.objectId
+      ? buildRecordUrl(result.objectType, result.objectId)
+      : null;
+
+  const inner = (
+    <div className="w-full text-left rounded-xl px-3.5 py-3 border border-border/40 hover:border-primary/30 hover:bg-muted/30 transition-all group/src">
+      <div className="flex items-center gap-1.5 mb-1.5 min-w-0">
+        {result.channelSlug ? (
+          <Hash className="w-3 h-3 text-primary/60 shrink-0" />
+        ) : (
+          <MessageSquare className="w-3 h-3 text-primary/60 shrink-0" />
+        )}
+        <span className="text-[10.5px] font-semibold text-primary/70 truncate">
+          {sourceLabel}
+        </span>
+        {result.isReply && (
+          <span className="text-[10px] text-muted-foreground/50 shrink-0">· thread</span>
+        )}
+        <span className="ml-auto text-[10.5px] text-muted-foreground/40 shrink-0 tabular-nums">
+          {formatTs(result.createdAt)}
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <div
+          className={cn(
+            "w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[7px] font-bold text-white",
+            avatarBg(result.id)
+          )}
+        >
+          {initials(result.userName)}
+        </div>
+        <span className="text-[11.5px] font-medium text-foreground/70">{result.userName}</span>
+      </div>
+      {result.snippet ? (
+        <p className="text-[12.5px] text-foreground/80 leading-relaxed line-clamp-2 break-words">
+          {highlightMatch(result.snippet, query)}
+        </p>
+      ) : result.matchedAttachment ? (
+        <p className="text-[12px] text-muted-foreground/50 italic">Matched in attached file</p>
+      ) : null}
+      {result.matchedAttachment && result.attachmentNames.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {result.attachmentNames.slice(0, 3).map((name, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted/50 text-muted-foreground border border-border/30 max-w-[160px] truncate"
+            >
+              <Paperclip className="w-2.5 h-2.5 shrink-0" />
+              <span className="truncate">{name}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 flex justify-end">
+        <span className="text-[10.5px] text-primary/50 font-medium group-hover/src:text-primary transition-colors">
+          Go to message →
+        </span>
+      </div>
+    </div>
+  );
+
+  if (recordUrl) {
+    return (
+      <a href={recordUrl} className="block no-underline" data-testid={`search-result-${result.id}`}>
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <button
+      onClick={onNavigate}
+      className="block w-full"
+      data-testid={`search-result-${result.id}`}
+    >
+      {inner}
+    </button>
+  );
+}
+
+// ── SearchPanel ───────────────────────────────────────────────────────────────
+
+function SearchPanel({
+  onNavigate,
+}: {
+  onNavigate: (slug: string, messageId: number, threadId?: number) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const {
+    data: results = [],
+    isLoading,
+    isError,
+  } = useQuery<SearchResult[]>({
+    queryKey: ["/api/current/search", debouncedQ],
+    queryFn: () =>
+      fetch(`/api/current/search?q=${encodeURIComponent(debouncedQ)}&limit=50`, {
+        credentials: "include",
+      }).then((r) => r.json()),
+    enabled: debouncedQ.length > 0,
+    staleTime: 30_000,
+  });
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Search bar */}
+      <div className="px-4 py-3 border-b border-border/60 shrink-0">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50 pointer-events-none" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search messages, files, people…"
+            className={cn(
+              "w-full pl-8 pr-8 py-1.5 text-[13px] rounded-lg border",
+              "bg-muted/30 border-border/40 text-foreground placeholder:text-muted-foreground/40",
+              "focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40 transition-all"
+            )}
+            data-testid="current-search-input"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              data-testid="current-search-clear"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+        {debouncedQ && !isLoading && (
+          <p className="text-[10.5px] text-muted-foreground/40 mt-1.5 px-0.5">
+            {results.length === 0
+              ? "No results"
+              : `${results.length} result${results.length === 1 ? "" : "s"}`}
+          </p>
+        )}
+      </div>
+
+      {/* Results */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        {!debouncedQ && (
+          <div className="flex flex-col items-center justify-center h-full py-20 text-center select-none">
+            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4 ring-1 ring-primary/10">
+              <Search className="w-6 h-6 text-primary/50" />
+            </div>
+            <p className="text-[13.5px] font-semibold text-foreground/70 mb-1.5">
+              Search Current
+            </p>
+            <p className="text-[12px] text-muted-foreground/60 max-w-[230px] leading-relaxed">
+              Find messages, files, and people across all channels and records.
+            </p>
+          </div>
+        )}
+
+        {debouncedQ && isLoading && (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-5 h-5 text-muted-foreground/40 animate-spin" />
+          </div>
+        )}
+
+        {debouncedQ && isError && (
+          <div className="text-center py-12">
+            <p className="text-sm text-muted-foreground/60">Search failed. Try again.</p>
+          </div>
+        )}
+
+        {debouncedQ && !isLoading && !isError && results.length === 0 && (
+          <div className="flex flex-col items-center py-16 text-center select-none">
+            <p className="text-[13px] text-muted-foreground/60">
+              No results for &ldquo;{debouncedQ}&rdquo;
+            </p>
+            <p className="text-[11.5px] text-muted-foreground/40 mt-1">
+              Try different keywords.
+            </p>
+          </div>
+        )}
+
+        {results.map((r) => (
+          <SearchResultCard
+            key={r.id}
+            result={r}
+            query={debouncedQ}
+            onNavigate={
+              r.channelSlug
+                ? () => onNavigate(r.channelSlug!, r.id, r.parentMessageId ?? undefined)
+                : undefined
+            }
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── MentionsPanel ─────────────────────────────────────────────────────────────
+
 function MentionsPanel({
   currentUserId,
   onNavigate,
@@ -1482,7 +1764,7 @@ export default function CurrentPage() {
   const { toast } = useToast();
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [threadRootId, setThreadRootId] = useState<number | null>(null);
-  const [view, setView] = useState<"channel" | "mentions">("channel");
+  const [view, setView] = useState<"channel" | "mentions" | "search">("channel");
   const [highlightedMsgId, setHighlightedMsgId] = useState<number | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1819,8 +2101,29 @@ export default function CurrentPage() {
           )}
         </div>
 
-        {/* Mentions entry */}
-        <div className="px-2 pb-3 shrink-0 border-t border-border/40 pt-2">
+        {/* Search + Mentions entry */}
+        <div className="px-2 pb-3 shrink-0 border-t border-border/40 pt-2 space-y-px">
+          <button
+            onClick={() => setView("search")}
+            data-testid="sidebar-search"
+            className={cn(
+              "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
+              "transition-all duration-100 group",
+              view === "search"
+                ? "bg-primary/15 text-primary font-medium"
+                : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            )}
+          >
+            <Search
+              className={cn(
+                "w-3.5 h-3.5 shrink-0 transition-opacity",
+                view === "search"
+                  ? "opacity-80"
+                  : "opacity-40 group-hover:opacity-60"
+              )}
+            />
+            <span className="flex-1 text-left">Search</span>
+          </button>
           <button
             onClick={() => setView("mentions")}
             data-testid="sidebar-mentions"
@@ -1857,6 +2160,13 @@ export default function CurrentPage() {
                 Mentions
               </span>
             </>
+          ) : view === "search" ? (
+            <>
+              <Search className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+              <span className="font-semibold text-[14px] text-foreground shrink-0">
+                Search
+              </span>
+            </>
           ) : (
             <>
               <Hash className="w-4 h-4 text-muted-foreground/60 shrink-0" />
@@ -1882,6 +2192,16 @@ export default function CurrentPage() {
           /* ── Mentions view ──────────────────────────────────────────── */
           <MentionsPanel
             currentUserId={currentUserId}
+            onNavigate={(slug, messageId, threadId) => {
+              setSelectedSlug(slug);
+              setView("channel");
+              setThreadRootId(threadId ?? null);
+              setHighlight(messageId);
+            }}
+          />
+        ) : view === "search" ? (
+          /* ── Search view ────────────────────────────────────────────── */
+          <SearchPanel
             onNavigate={(slug, messageId, threadId) => {
               setSelectedSlug(slug);
               setView("channel");

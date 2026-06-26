@@ -11,6 +11,7 @@ import { formatDistanceToNow } from "date-fns";
 import {
   MessageSquare, Send, Smile, Pencil, Trash2, X, Check,
   MessagesSquare, ChevronLeft, Pin, ChevronDown, ChevronUp, Paperclip,
+  Search, Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -741,6 +742,26 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
   const hasHighlightedRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Inline search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const { data: searchResults = [], isLoading: searchLoading } = useQuery<any[]>({
+    queryKey: ["/api/current/search", "record", objectType, objectId, debouncedSearch],
+    queryFn: () =>
+      fetch(
+        `/api/current/search?q=${encodeURIComponent(debouncedSearch)}&scope=record&objectType=${objectType}&objectId=${objectId}&limit=50`,
+        { credentials: "include" }
+      ).then((r) => r.json()),
+    enabled: debouncedSearch.length > 0,
+    staleTime: 30_000,
+  });
+
   // Session user
   const { data: me } = useQuery<{ id: number }>({
     queryKey: ["/api/auth/me"],
@@ -879,45 +900,118 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
         onUnpin={msgId => pinMutation.mutate({ msgId, isPinned: true })}
       />
 
-      {/* Message list */}
-      <div className="flex-1 overflow-y-auto min-h-0 pr-0.5">
-        {isLoading && (
-          <div className="flex flex-col gap-2 p-4">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="flex gap-2.5 animate-pulse">
-                <div className="h-6 w-6 rounded-full bg-muted flex-shrink-0" />
-                <div className="flex-1 space-y-1">
-                  <div className="h-2.5 bg-muted rounded w-24" />
-                  <div className="h-2.5 bg-muted rounded w-3/4" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!isLoading && messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-10 px-4 gap-2" data-testid="record-current-empty">
-            <MessageSquare className="h-7 w-7 text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">No messages yet</p>
-            <p className="text-xs text-muted-foreground/60">Start the conversation below</p>
-          </div>
-        )}
-
-        {messages.map(msg => (
-          <MessageItem
-            key={msg.id}
-            msg={msg}
-            myUserId={myUserId}
-            highlighted={highlightedMsgId === msg.id}
-            isPinned={pinnedIds.has(msg.id)}
-            onReact={(msgId, emoji) => reactMutation.mutate({ msgId, emoji })}
-            onEdit={(msgId, body) => editMutation.mutate({ msgId, body })}
-            onDelete={msgId => deleteMutation.mutate(msgId)}
-            onOpenThread={msgId => setThreadRootId(msgId)}
-            onPin={handlePin}
+      {/* Compact inline search bar */}
+      <div className="px-2 pt-1.5 pb-1 shrink-0">
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/40 pointer-events-none" />
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search this feed…"
+            className="w-full pl-6 pr-6 py-1 text-[11.5px] rounded-md border bg-muted/20 border-border/30 text-foreground placeholder:text-muted-foreground/35 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all"
+            data-testid="record-current-search-input"
           />
-        ))}
-        <div ref={bottomRef} />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              data-testid="record-current-search-clear"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Message list — or search results overlay */}
+      <div className="flex-1 overflow-y-auto min-h-0 pr-0.5">
+        {debouncedSearch ? (
+          /* ── Search results ── */
+          searchLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-4 h-4 text-muted-foreground/40 animate-spin" />
+            </div>
+          ) : searchResults.length === 0 ? (
+            <div className="flex flex-col items-center py-8 px-4 text-center select-none">
+              <p className="text-[12px] text-muted-foreground/60">
+                No results for &ldquo;{debouncedSearch}&rdquo;
+              </p>
+            </div>
+          ) : (
+            searchResults.map((r: any) => (
+              <button
+                key={r.id}
+                onClick={() => {
+                  setSearchQuery("");
+                  if (r.parentMessageId) setThreadRootId(r.parentMessageId);
+                  setHighlightedMsgId(r.id);
+                  setTimeout(() => {
+                    const el = document.getElementById(`record-msg-${r.id}`);
+                    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }, 120);
+                }}
+                className="w-full text-left px-2 py-1.5 hover:bg-muted/30 rounded-lg transition-colors border-b border-border/20 last:border-0"
+                data-testid={`record-search-result-${r.id}`}
+              >
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[11px] font-medium text-foreground/70 truncate flex-1">
+                    {r.userName}
+                  </span>
+                  {r.isReply && (
+                    <span className="text-[10px] text-muted-foreground/50 shrink-0">thread</span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground/40 tabular-nums shrink-0">
+                    {formatDistanceToNow(new Date(r.createdAt), { addSuffix: true })}
+                  </span>
+                </div>
+                <p className="text-[11.5px] text-foreground/70 line-clamp-2 break-words">
+                  {r.snippet || (r.matchedAttachment ? "📎 Attached file" : "")}
+                </p>
+              </button>
+            ))
+          )
+        ) : (
+          /* ── Normal message list ── */
+          <>
+            {isLoading && (
+              <div className="flex flex-col gap-2 p-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="flex gap-2.5 animate-pulse">
+                    <div className="h-6 w-6 rounded-full bg-muted flex-shrink-0" />
+                    <div className="flex-1 space-y-1">
+                      <div className="h-2.5 bg-muted rounded w-24" />
+                      <div className="h-2.5 bg-muted rounded w-3/4" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!isLoading && messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 px-4 gap-2" data-testid="record-current-empty">
+                <MessageSquare className="h-7 w-7 text-muted-foreground/30" />
+                <p className="text-sm text-muted-foreground">No messages yet</p>
+                <p className="text-xs text-muted-foreground/60">Start the conversation below</p>
+              </div>
+            )}
+
+            {messages.map(msg => (
+              <MessageItem
+                key={msg.id}
+                msg={msg}
+                myUserId={myUserId}
+                highlighted={highlightedMsgId === msg.id}
+                isPinned={pinnedIds.has(msg.id)}
+                onReact={(msgId, emoji) => reactMutation.mutate({ msgId, emoji })}
+                onEdit={(msgId, body) => editMutation.mutate({ msgId, body })}
+                onDelete={msgId => deleteMutation.mutate(msgId)}
+                onOpenThread={msgId => setThreadRootId(msgId)}
+                onPin={handlePin}
+              />
+            ))}
+            <div ref={bottomRef} />
+          </>
+        )}
       </div>
 
       {/* Composer */}

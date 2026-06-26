@@ -33862,6 +33862,124 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // GET /api/current/search — ILIKE search across Current messages, authors, attachments
+  app.get("/api/current/search", requireAuth, async (req, res) => {
+    try {
+      const q = String(req.query.q || "").trim();
+      if (!q) return res.json([]);
+      if (q.length > 200) return res.status(400).json({ message: "Query too long" });
+
+      const scope = String(req.query.scope || "all");
+      const channelParam = req.query.channel ? String(req.query.channel) : null;
+      const objectTypeParam = req.query.objectType ? String(req.query.objectType) : null;
+      const objectIdParam = req.query.objectId ? Number(req.query.objectId) : null;
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+
+      // Escape single-quotes for SQL safety; wrap in % for ILIKE
+      const safeQ = q.replace(/'/g, "''");
+      const like = `%${safeQ}%`;
+
+      let scopeClause = "";
+      if (scope === "channel") scopeClause = "AND m.channel_id IS NOT NULL AND m.object_type IS NULL";
+      else if (scope === "record") scopeClause = "AND m.object_type IS NOT NULL";
+
+      let channelClause = "";
+      if (channelParam) {
+        const safeSlug = channelParam.replace(/[^a-zA-Z0-9_\-]/g, "").replace(/'/g, "''");
+        channelClause = `AND cc.slug = '${safeSlug}'`;
+      }
+
+      let recordClause = "";
+      if (objectTypeParam && objectIdParam && objectIdParam > 0) {
+        const safeOT = objectTypeParam.replace(/[^a-zA-Z0-9_]/g, "");
+        recordClause = `AND m.object_type = '${safeOT}' AND m.object_id = ${objectIdParam}`;
+      }
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          m.id,
+          m.channel_id,
+          m.object_type,
+          m.object_id,
+          m.user_id,
+          m.parent_message_id,
+          m.created_at,
+          CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
+          u.name AS user_name,
+          cc.slug AS channel_slug,
+          cc.name AS channel_name,
+          CASE WHEN m.deleted_at IS NOT NULL THEN '[]'::json
+               ELSE COALESCE(att.att_list, '[]'::json) END AS att_list,
+          EXISTS (
+            SELECT 1 FROM attachments ax
+            WHERE ax.object_type = 'current_message' AND ax.object_id = m.id
+              AND ax.original_name ILIKE '${like}'
+          ) AS matched_attachment
+        FROM current_messages m
+        JOIN users u ON u.id = m.user_id
+        LEFT JOIN current_channels cc ON cc.id = m.channel_id
+        LEFT JOIN LATERAL (
+          SELECT json_agg(
+            json_build_object('name', a.original_name) ORDER BY a.created_at
+          ) AS att_list
+          FROM attachments a
+          WHERE a.object_type = 'current_message' AND a.object_id = m.id
+        ) att ON true
+        WHERE m.deleted_at IS NULL
+          AND (
+            m.body ILIKE '${like}'
+            OR u.name ILIKE '${like}'
+            OR EXISTS (
+              SELECT 1 FROM attachments ay
+              WHERE ay.object_type = 'current_message' AND ay.object_id = m.id
+                AND ay.original_name ILIKE '${like}'
+            )
+          )
+          ${scopeClause}
+          ${channelClause}
+          ${recordClause}
+        ORDER BY m.created_at DESC
+        LIMIT ${limit}
+      `));
+
+      const results = (rows.rows as any[]).map((r) => {
+        // Strip mention tokens from snippet for clean display
+        const raw = (r.body as string | null) || "";
+        const snippet = raw.replace(/@\[([^\]]+)\]\(user:\d+\)/g, "@$1").slice(0, 240);
+
+        // Build deep-link actionUrl for channel messages
+        let actionUrl: string | null = null;
+        if (r.channel_slug) {
+          actionUrl = r.parent_message_id
+            ? `/current?channel=${r.channel_slug}&thread=${r.parent_message_id}&message=${r.id}`
+            : `/current?channel=${r.channel_slug}&message=${r.id}`;
+        }
+
+        return {
+          id: Number(r.id),
+          parentMessageId: r.parent_message_id ? Number(r.parent_message_id) : null,
+          snippet,
+          userName: r.user_name,
+          createdAt: r.created_at,
+          channelSlug: r.channel_slug ?? null,
+          channelName: r.channel_name ?? null,
+          objectType: r.object_type ?? null,
+          objectId: r.object_id ? Number(r.object_id) : null,
+          attachmentNames: Array.isArray(r.att_list)
+            ? (r.att_list as any[]).map((a) => a.name as string)
+            : [],
+          matchedAttachment: Boolean(r.matched_attachment),
+          actionUrl,
+          isReply: !!r.parent_message_id,
+        };
+      });
+
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
