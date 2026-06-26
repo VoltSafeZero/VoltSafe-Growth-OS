@@ -2365,7 +2365,7 @@ export default function CurrentPage() {
                   isError={channelSummaryMutation.isError}
                   onClose={() => setChannelSummaryOpen(false)}
                   onRegenerate={() => { setChannelSummaryData(null); channelSummaryMutation.mutate(selectedSlug); }}
-                  onCreateTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `Channel: #${selectedSlug}` })}
+                  onCreateTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `Channel: #${selectedSlug}`, channelSlug: selectedSlug })}
                 />
               </div>
             )}
@@ -2544,7 +2544,7 @@ export default function CurrentPage() {
           selectedSlug={selectedSlug}
           onClose={() => setThreadRootId(null)}
           onCreateTaskMsg={handleCreateTaskFromMsg}
-          onCreateSummaryTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `Thread in #${selectedSlug}` })}
+          onCreateSummaryTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `Thread in #${selectedSlug}`, channelSlug: selectedSlug, threadRootId: threadRootId ?? undefined })}
         />
       )}
     </div>

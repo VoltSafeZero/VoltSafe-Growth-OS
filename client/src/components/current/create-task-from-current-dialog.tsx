@@ -44,6 +44,11 @@ export type CreateTaskSource =
       owner: string;
       due: string | null;
       summaryContext: string;
+      // Context fields — set when the summary came from a known channel / record
+      channelSlug?: string;
+      objectType?: string;
+      objectId?: number;
+      threadRootId?: number;
     };
 
 interface Props {
@@ -110,12 +115,32 @@ function buildSourceMeta(source: CreateTaskSource): Record<string, unknown> {
       objectId: source.objectId,
       threadRootId: source.threadRootId ?? null,
       sourceContext: "currents_record",
+      // Mirror CRM link fields so the drawer can display them without a DB join
+      linkedObjectType: source.objectType,
+      linkedObjectId: source.objectId,
     };
   }
-  return {
+  // summary_action_item — always set summaryContext; add channel/record context when known
+  const meta: Record<string, unknown> = {
     owner: source.owner,
     summaryContext: "currents_summary",
   };
+  if (source.channelSlug) {
+    meta.channelSlug = source.channelSlug;
+    meta.sourceContext = "currents_channel";
+  }
+  if (source.objectType && source.objectId != null) {
+    meta.objectType = source.objectType;
+    meta.objectId = source.objectId;
+    meta.linkedObjectType = source.objectType;
+    meta.linkedObjectId = source.objectId;
+    // Only set sourceContext from record if no channel context was set
+    if (!source.channelSlug) meta.sourceContext = "currents_record";
+  }
+  if (source.threadRootId != null) {
+    meta.threadRootId = source.threadRootId;
+  }
+  return meta;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -199,6 +224,11 @@ export function CreateTaskFromCurrentDialog({ open, source, onClose }: Props) {
         body.dueDate = new Date(dueDate).toISOString();
       }
       if (source.kind === "record_message") {
+        body.linkedObjectType = source.objectType;
+        body.linkedObjectId = source.objectId;
+      }
+      // Summary tasks from a record context should also link to that CRM object
+      if (source.kind === "summary_action_item" && source.objectType && source.objectId != null) {
         body.linkedObjectType = source.objectType;
         body.linkedObjectId = source.objectId;
       }

@@ -1,0 +1,217 @@
+Please perform Currents Phase 6C only: Source Metadata Completion for Create Task + View in Currents.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, Mark as Decision/Risk/Requirement, or unrelated task features yet.
+
+Goal
+
+Close the remaining source-linking gaps so every Currents-created task has reliable metadata and a working View in Currents experience.
+
+This is a completion/polish pass for Phase 6A + 6B, not a new feature.
+
+Audit findings to address
+
+The Phase 6B audit confirmed:
+
+* Channel message task metadata works.
+* Lead record task metadata works.
+* Task drawer source block works.
+* View in Currents works for existing tested examples.
+
+But it also noted missing real coverage / possible gaps for:
+
+1. Channel thread reply task metadata
+2. Record thread reply task metadata
+3. Account record task metadata
+4. Contact record task metadata
+5. Opportunity record task metadata
+6. AI summary action item task metadata
+
+Scope
+
+Fix and verify only:
+
+* Source metadata created by Create Task
+* Source metadata created by AI summary action item tasks
+* Task drawer View in Currents rendering for those metadata shapes
+* Deep-link behavior back to Currents
+
+Required metadata behavior
+
+Channel message task
+
+Must store:
+
+* sourceContext = "currents_channel"
+* messageId
+* channelSlug
+* threadRootId = null
+
+Channel thread reply task
+
+Must store:
+
+* sourceContext = "currents_channel"
+* messageId = reply message id
+* channelSlug
+* threadRootId = root message id
+
+Record message task
+
+Must store:
+
+* sourceContext = "currents_record"
+* messageId
+* objectType
+* objectId
+* threadRootId = null
+* linkedObjectType
+* linkedObjectId
+
+Record thread reply task
+
+Must store:
+
+* sourceContext = "currents_record"
+* messageId = reply message id
+* objectType
+* objectId
+* threadRootId = root message id
+* linkedObjectType
+* linkedObjectId
+
+AI summary action item task
+
+Must store:
+
+* sourceContext if exact channel/record context exists
+* summaryContext = "currents_summary"
+* source scope:
+    * channel / thread / record if available
+* channelSlug if summary came from a channel
+* objectType/objectId if summary came from a record
+* messageId/threadRootId if summary came from a thread or exact source
+* owner/task/due from the action item where available
+
+If exact message context is unavailable, do not fabricate one. The task drawer should show:
+
+Created from Currents AI Summary
+
+with no broken link.
+
+Implementation requirements
+
+1. Inspect create-task-from-current-dialog.tsx.
+2. Inspect current-summary-panel.tsx.
+3. Inspect all places that open the task dialog:
+    * channel message
+    * channel thread reply
+    * record message
+    * record thread reply
+    * channel summary action item
+    * thread summary action item
+    * record summary action item
+4. Ensure each path passes complete source metadata into the dialog.
+5. Ensure the dialog writes metadata into the existing task payload correctly.
+6. Ensure the task detail drawer reads and displays the metadata correctly.
+7. Avoid schema changes unless absolutely required.
+
+Verification
+
+Create or use real test tasks from each source type:
+
+1. Channel top-level message
+2. Channel thread reply
+3. Account Currents top-level message
+4. Account Currents thread reply
+5. Contact Currents message if data exists
+6. Opportunity Currents message if data exists
+7. Lead Currents message
+8. Lead Currents thread reply if data exists
+9. Channel AI summary action item
+10. Thread AI summary action item
+11. Record AI summary action item
+
+For each created task, verify:
+
+* Task is created successfully.
+* Task appears in Tasks Hub.
+* Task source metadata is stored.
+* Task drawer shows the correct Currents source block.
+* View in Currents appears only when a valid link can be built.
+* Link opens the correct channel/record.
+* Link opens thread panel if threadRootId exists.
+* Link highlights or scrolls to the correct source context where supported.
+* AI summary-only tasks show attribution and no broken link.
+
+Deep-link routes to verify
+
+Channel message:
+
+/current?channel=CHANNEL_SLUG&message=MESSAGE_ID
+
+Channel thread reply:
+
+/current?channel=CHANNEL_SLUG&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Account record:
+
+/accounts/OBJECT_ID?tab=current&message=MESSAGE_ID
+
+Account thread reply:
+
+/accounts/OBJECT_ID?tab=current&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Contact record:
+
+Use existing contact route with:
+
+tab=current&message=MESSAGE_ID
+
+Opportunity record:
+
+Use existing opportunity route with:
+
+tab=current&message=MESSAGE_ID
+
+Lead record:
+
+/opportunities?selected=LEAD_ID&tab=current&message=MESSAGE_ID
+
+Lead thread reply:
+
+/opportunities?selected=LEAD_ID&tab=current&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Regression checks
+
+Verify:
+
+* Create Task from message still works.
+* Create Task from summary action item still works.
+* Task drawer still works for non-Currents tasks.
+* Tasks Hub still works.
+* Task edit/status/filters still work.
+* Currents posting still works.
+* Currents threads still work.
+* Currents search still works.
+* Currents AI summaries still work.
+* Record Currents still work.
+* No browser console errors.
+* No server errors.
+* No SQL errors.
+* No unrelated files changed unnecessarily.
+
+Deliverable
+
+Return:
+
+1. Gaps found
+2. Fixes made
+3. Files changed
+4. Metadata shape for each task source type
+5. Real task IDs created/verified
+6. Deep-link verification results
+7. Regression results
+8. Final pass/fail status
+9. Recommended next feature
+
+Keep scope tight: source metadata completion only.

@@ -1029,7 +1029,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
             isError={recordSummaryMutation.isError}
             onClose={() => setRecordSummaryOpen(false)}
             onRegenerate={() => { setRecordSummaryData(null); recordSummaryMutation.mutate(); }}
-            onCreateTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `${objectType} record Currents` })}
+            onCreateTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `${objectType} record Currents`, objectType, objectId })}
           />
         </div>
       )}

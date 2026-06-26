@@ -502,13 +502,57 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
               {/* Currents Source */}
               {t.source === "current_message" && t.source_meta && (() => {
                 const sm = t.source_meta as any;
-                // AI summary action item — show attribution without a nav link
+                // AI summary action item — show attribution; add a soft context link if available
                 if (sm.summaryContext === "currents_summary") {
+                  // Build a "soft" link: no specific message, just channel / record tab
+                  let softUrl: string | null = null;
+                  if (sm.channelSlug) {
+                    softUrl = `/current?channel=${sm.channelSlug}${sm.threadRootId ? `&thread=${sm.threadRootId}` : ""}`;
+                  } else if (sm.objectType && sm.objectId) {
+                    const segMap: Record<string, string> = {
+                      account: "accounts", contact: "contacts", opportunity: "opportunities",
+                      project: "execution/projects", deployment: "deployments",
+                      install_workflow: "install-workflows", customer_success: "customer-success",
+                      partnership: "strategy/partnerships", quote: "quotes",
+                      tradeshow_event: "operations/events",
+                    };
+                    if (sm.objectType === "lead") {
+                      softUrl = `/opportunities?selected=${sm.objectId}&tab=current`;
+                    } else {
+                      const seg = segMap[sm.objectType] ?? (String(sm.objectType).replace(/_/g, "-") + "s");
+                      softUrl = `/${seg}/${sm.objectId}?tab=current`;
+                    }
+                  }
+                  const softLabel = sm.channelSlug
+                    ? `#${sm.channelSlug}`
+                    : sm.objectType
+                      ? `${String(sm.objectType).replace(/_/g, " ")} · ${sm.objectId}`
+                      : null;
                   return (
-                    <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs" data-testid="panel-currents-source">
+                    <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs space-y-1.5" data-testid="panel-currents-source">
                       <p className="flex items-center gap-1.5 font-medium text-primary/70">
                         <Radio className="h-3.5 w-3.5" /> Created from Currents AI Summary
                       </p>
+                      {softUrl && softLabel && (
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 text-muted-foreground min-w-0">
+                            {sm.channelSlug
+                              ? <Hash className="h-3 w-3 shrink-0" />
+                              : <MessageSquare className="h-3 w-3 shrink-0" />}
+                            <span className={`font-medium truncate${sm.channelSlug ? "" : " capitalize"}`}>{softLabel}</span>
+                            {sm.threadRootId && (
+                              <span className="text-muted-foreground/50 shrink-0">· thread</span>
+                            )}
+                          </div>
+                          <a
+                            href={softUrl}
+                            className="inline-flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors shrink-0"
+                            data-testid="link-view-in-currents"
+                          >
+                            View in Currents <ArrowRight className="h-3 w-3" />
+                          </a>
+                        </div>
+                      )}
                     </div>
                   );
                 }
