@@ -6,7 +6,12 @@
 !.gitignore
 raw/*.webm
 raw/*.mp4
-final/*.mp4
-final/*.webm
 archive/*.webm
 archive/*.mp4
+final/*.webm
+!final/01-dashboard-overview.mp4
+!final/02-leads-accounts-contacts.mp4
+!final/03-marina-lead-pipeline.mp4
+!final/04-voltsafe-mail-overview.mp4
+!final/05-ai-email-generator.mp4
+!final/06-account-intelligence-view.mp4
