@@ -1943,6 +1943,9 @@ export default function CurrentPage() {
     setThreadRootId(null); // close thread when switching channels
     mainMention.closeMention(); // close mention dropdown when switching channels
     scrollToBottom();
+    // Clear stale channel AI summary when switching channels
+    setChannelSummaryOpen(false);
+    setChannelSummaryData(null);
   }, [selectedSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Read receipts ─────────────────────────────────────────────────────────

@@ -34107,17 +34107,21 @@ export function registerConfluenceRoutes(app: Express) {
         return res.status(400).json({ message: "Not enough conversation yet to summarize." });
       }
 
+      // Strip @[Name](user:ID) mention tokens to just @Name so the AI reads readable names
+      const stripMentions = (text: string) =>
+        text.replace(/@\[([^\]]+)\]\([^)]+\)/g, "@$1");
+
       const transcript = rows
         .map(m => {
           const when = m.createdAt ? new Date(m.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
           const att = m.attachmentNames.length > 0 ? `\n[Attachments: ${m.attachmentNames.slice(0, 5).join(", ")}]` : "";
-          return `${m.userName} (${when}): ${(m.body || "").trim()}${att}`;
+          const body = stripMentions((m.body || "").trim());
+          return `${m.userName} (${when}): ${body}${att}`;
         })
         .join("\n\n")
         .slice(0, 20000);
 
       const { default: OpenAI } = await import("openai");
-      const { buildOpenAIModelParams } = await import("./services/openai-compat");
       const oai = new OpenAI({
         apiKey,
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,

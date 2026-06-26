@@ -1,0 +1,205 @@
+Please perform a Currents Phase 5B AI Summaries audit and polish pass only.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, or any unrelated CRM features yet.
+
+Goal
+
+Verify that Currents AI Summaries are safe, useful, reliable, and polished across:
+
+1. Channel Currents summaries
+2. Thread summaries
+3. CRM Record Currents summaries
+4. Summary UI states
+5. Deleted-data safety
+6. Existing Currents regressions
+
+Audit scope
+
+Audit only:
+
+* POST /api/current/summary
+* current-summary-panel.tsx
+* Channel summary UI in /current
+* Thread summary UI in /current
+* Record Currents summary UI
+* Existing OpenAI compatibility/test updates
+
+Backend checks
+
+Verify POST /api/current/summary:
+
+1. Requires authentication.
+2. Rejects invalid scope.
+3. Validates required fields for each scope:
+    * channel
+    * messageId
+    * objectType
+    * objectId
+4. Rejects or safely handles invalid channel slug.
+5. Rejects or safely handles invalid object type.
+6. Rejects or safely handles invalid object id.
+7. Rejects thin summaries cleanly if not enough messages.
+8. Enforces maxMessages bounds.
+9. Excludes soft-deleted message bodies.
+10. Excludes attachments from deleted messages.
+11. Includes attachment filenames only, not file contents.
+12. Does not expose raw filesystem paths.
+13. Returns 503 gracefully if AI/OpenAI is unavailable.
+14. Handles malformed AI JSON gracefully.
+15. Uses existing OpenAI client/wrapper correctly.
+16. Uses buildOpenAIModelParams correctly.
+17. Does not auto-run summaries on page load.
+
+Summary quality checks
+
+Run test summaries on:
+
+1. #general or another channel with enough messages.
+2. A thread with multiple replies.
+3. An Account Currents feed with enough messages.
+4. A Lead Currents feed if enough messages exist.
+
+Verify output has useful sections:
+
+* Summary
+* Key Decisions
+* Action Items
+* Open Questions
+* Risks / Blockers
+* Suggested Next Steps
+
+Check:
+
+* Empty sections say None identified.
+* Action items have owner/task/due where available.
+* Summary does not invent facts not present in messages.
+* Summary does not include deleted content.
+* Attachment references use filenames only.
+* Mention tokens are readable, not ugly raw syntax.
+
+Frontend UI checks
+
+Channel summary
+
+Verify:
+
+* Summarize button appears in channel header.
+* Clicking it triggers exactly one request.
+* Loading state appears.
+* Summary panel displays cleanly below header.
+* Close button works.
+* Copy-to-clipboard works if implemented.
+* Error state looks polished.
+* Channel posting still works while summary panel is open.
+* Search/Mentions navigation still works.
+
+Thread summary
+
+Verify:
+
+* Summarize button appears in thread panel header.
+* Thin thread returns helpful message.
+* Valid thread summary appears above root message.
+* Thread scrolling remains clean.
+* Closing thread clears or preserves summary intentionally.
+* Reactions/edit/delete/replies still work.
+
+Record Currents summary
+
+Verify inside:
+
+* Account Currents
+* Contact Currents if enough data
+* Opportunity Currents if enough data
+* Lead Currents if enough data
+
+Check:
+
+* Summary button sits cleanly near search.
+* Panel does not crowd CRM page.
+* Summary scope is only that record.
+* Record posting still works.
+* Record search still works.
+* Record attachments still work.
+* Record thread panel still works.
+* Dark mode looks polished.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Channel search
+* Mentions panel
+* Account Currents
+* Contact Currents
+* Opportunity Currents
+* Lead Currents
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record search
+* Record deep-links
+* /execution/communications
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* OpenAI/API errors
+* React key warnings
+* Failed fetch handling
+* Vite/build errors
+* Tests related to OpenAI compatibility
+
+Allowed fixes
+
+Only fix issues directly related to Phase 5B AI Summaries.
+
+Allowed:
+
+* Summary route bugs
+* Prompt/scope bugs
+* Deleted-data leakage
+* AI JSON parse fallback bugs
+* Loading/error UI bugs
+* Summary panel layout polish
+* Copy-to-clipboard bugs
+* OpenAI compatibility test fixes
+* Console/server errors caused by summaries
+
+Not allowed:
+
+* Guest Currents
+* Direct messages
+* Slash commands
+* External collaborators
+* Workflow automation
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend/API checks performed
+5. AI summary quality checks performed
+6. Frontend/UI checks performed
+7. Deleted-data safety checks
+8. Existing Currents regression results
+9. Final pass/fail status
+10. Recommended next feature order
+
+Keep scope tight: Currents AI Summaries audit only.

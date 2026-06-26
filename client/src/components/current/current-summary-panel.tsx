@@ -47,13 +47,15 @@ function Section({
   label,
   items,
   colorClass = "text-primary/70",
+  optional = false,
 }: {
   icon: React.ElementType;
   label: string;
   items: string[];
   colorClass?: string;
+  optional?: boolean;
 }) {
-  if (!items.length) return null;
+  if (optional && !items.length) return null;
   return (
     <div className="mb-3.5">
       <div className="flex items-center gap-1.5 mb-1.5">
@@ -62,16 +64,20 @@ function Section({
           {label}
         </span>
       </div>
-      <ul className="space-y-1">
-        {items.map((item, i) => (
-          <li
-            key={i}
-            className="text-[12.5px] text-foreground/80 leading-relaxed pl-3 border-l border-border/40"
-          >
-            {item}
-          </li>
-        ))}
-      </ul>
+      {items.length === 0 ? (
+        <p className="text-[12px] text-muted-foreground/35 pl-3 italic">None identified</p>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item, i) => (
+            <li
+              key={i}
+              className="text-[12.5px] text-foreground/80 leading-relaxed pl-3 border-l border-border/40"
+            >
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -197,14 +203,8 @@ export function CurrentSummaryPanel({ data, isLoading, isError, onClose, onRegen
               label="Suggested Next Steps"
               items={data.nextSteps}
               colorClass="text-violet-500/70"
+              optional
             />
-
-            {!data.summary.length && !data.decisions.length && !data.actionItems.length &&
-              !data.openQuestions.length && !data.risks.length && !data.nextSteps.length && (
-              <p className="text-[12px] text-muted-foreground/50 py-2 text-center">
-                Nothing significant found in this conversation.
-              </p>
-            )}
           </>
         )}
       </div>
