@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -12,7 +12,7 @@ import {
   ArrowLeft, Mail, Phone, Building2, Users, Zap, CheckSquare,
   CalendarDays, TrendingUp, TrendingDown, MessageSquare, AlertTriangle, RefreshCw,
   MapPin, Globe, Clock, ExternalLink, Send, Plus, User, Anchor, Pin,
-  DollarSign, Package, BarChart2, Pencil, Trophy, Activity,
+  DollarSign, Package, BarChart2, Pencil, Trophy, Activity, MessagesSquare,
 } from "lucide-react";
 import { AccountDetailDialog } from "./accounts";
 import { formatDistanceToNow, format, isPast } from "date-fns";
@@ -25,6 +25,7 @@ import { EmailIdentifiersPanel } from "@/components/email-identifiers-panel";
 import { AccountEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { MousePointerClick } from "lucide-react";
 import { RecentNewsPanel } from "@/components/crm/recent-news-panel";
+import { RecordCurrentFeed } from "@/components/current/record-current-feed";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -378,6 +379,20 @@ export default function AccountProfilePage() {
   const id = Number(params.id);
   const [, navigate] = useLocation();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [currentInitMsg, setCurrentInitMsg] = useState<number | undefined>();
+  const [currentInitThread, setCurrentInitThread] = useState<number | undefined>();
+  const currentSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("tab") === "current") {
+      const msgId = p.get("message");
+      const threadId = p.get("thread");
+      if (msgId) setCurrentInitMsg(Number(msgId));
+      if (threadId) setCurrentInitThread(Number(threadId));
+      setTimeout(() => currentSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
+    }
+  }, []);
 
   const { data, isLoading, isError, refetch } = useQuery<ProfileData>({
     queryKey: ["/api/accounts", id, "profile"],
@@ -959,6 +974,29 @@ export default function AccountProfilePage() {
           </CardHeader>
           <CardContent className="px-4 pb-4">
             <TimelineTab objectType="account" objectId={id} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Current Feed */}
+      <div ref={currentSectionRef} id="account-current-section" data-testid="account-current-section">
+        <Card className="border-border/50">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <div className="flex items-center gap-2">
+              <MessagesSquare className="h-4 w-4 text-primary" />
+              <CardTitle className="text-sm font-semibold">Current</CardTitle>
+              <span className="text-xs text-muted-foreground ml-1">· team messages on this account</span>
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="h-[420px] flex flex-col">
+              <RecordCurrentFeed
+                objectType="account"
+                objectId={id}
+                initialMessageId={currentInitMsg}
+                initialThreadId={currentInitThread}
+              />
+            </div>
           </CardContent>
         </Card>
       </div>

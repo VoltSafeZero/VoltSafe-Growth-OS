@@ -1,0 +1,261 @@
+Proceed with Current Phase 3A only: CRM Record Currents.
+
+Goal:
+Add record-specific Current feeds to VoltSafe CMS so team conversations can live directly inside CRM records such as Accounts, Leads, Contacts, Opportunities/Deals, and Tasks.
+
+This is not a new chat system. Reuse the existing Current infrastructure wherever possible.
+
+Do not add Guest Currents, direct messages, attachments, search, AI summaries, slash commands, or external collaborators yet.
+
+Phase 3A scope
+
+Add only:
+
+1. Record-specific Current feeds
+2. Current tab or section inside key CRM records
+3. Backend routes for record Current messages
+4. Reuse existing Current message features where practical:
+    * posting
+    * reactions
+    * edit/delete
+    * pins if easy
+    * threads
+    * @mentions
+    * notifications
+5. Deep-link support to record Current messages if reasonable
+
+Important product language
+
+Use the name Current consistently.
+
+Do not call the tab “Discussion” long-term.
+
+Examples:
+
+* Account → Current
+* Lead → Current
+* Contact → Current
+* Opportunity → Current
+* Task → Current
+
+Backend requirements
+
+1. Use existing current_messages
+
+If possible, use the existing object_type and object_id fields on current_messages.
+
+Record Current messages should have:
+
+* channel_id = null
+* object_type = 'account' | 'lead' | 'contact' | 'opportunity' | 'task'
+* object_id = record id
+* parent_message_id = null for root messages
+* parent_message_id = root message id for thread replies
+
+If object_type or object_id fields do not exist, add them idempotently.
+
+2. Add record routes
+
+Add routes under /api/current/record:
+
+* GET /api/current/record/:objectType/:objectId/messages
+* POST /api/current/record/:objectType/:objectId/messages
+* POST /api/current/record/:objectType/:objectId/read
+* GET /api/current/record/:objectType/:objectId/pins if pins are reused
+
+Messages should support:
+
+* author info
+* body
+* timestamp
+* edited/deleted state
+* reactions
+* reply count
+* latest reply timestamp
+* mention rendering/notification support
+
+3. Thread replies for record messages
+
+Existing thread routes should work for record Current messages too.
+
+Verify:
+
+* GET /api/current/messages/:id/thread
+* POST /api/current/messages/:id/thread
+
+For record messages, thread replies should inherit:
+
+* same object_type
+* same object_id
+* channel_id = null
+
+Do not accidentally require channel_id for thread replies.
+
+4. Mentions and notifications
+
+Record Current messages should support @mentions exactly like channel messages.
+
+Notification action URL should point back to the record Current location if possible.
+
+Example preferred URLs:
+
+* /accounts/123?tab=current&message=456
+* /accounts/123?tab=current&thread=456&message=789
+
+Use the actual existing route structure in VoltSafe CMS. Do not invent routes that do not exist.
+
+If deep-linking to the exact tab is risky, at minimum link to the record page and document the limitation.
+
+5. Unread/read support
+
+Add per-user read tracking for record Currents using the existing current_read_receipts table if possible.
+
+Record read receipts should use:
+
+* user_id
+* object_type
+* object_id
+* last_read_message_id
+
+Opening a record Current tab should mark it read.
+
+Frontend requirements
+
+1. Create reusable Current feed component
+
+Refactor carefully if needed.
+
+The same core feed should support two modes:
+
+1. Channel mode:
+    * /current
+    * channelSlug
+2. Record mode:
+    * embedded inside CRM record page
+    * objectType
+    * objectId
+
+Avoid duplicating a giant second copy of the Current UI. Keep it maintainable.
+
+2. Add CurrentTab component
+
+Create something like:
+
+<CurrentTab objectType="account" objectId={account.id} />
+
+It should show:
+
+* compact Current feed
+* messages
+* composer
+* reactions
+* edit/delete
+* threads
+* @mentions
+* pins if supported
+* clean empty state
+
+It should feel native inside the record page, not like an iframe dropped from space.
+
+3. Add Current tab/section to CRM records
+
+Add Current to the most important records first:
+
+* Account profile
+* Contact profile
+* Opportunity/Deal profile
+* Lead detail/drawer/page
+* Task detail/drawer/page if straightforward
+
+If all five are too much for one pass, prioritize:
+
+1. Account
+2. Lead
+3. Contact
+4. Opportunity/Deal
+5. Task
+
+Do not break existing tabs/pages.
+
+4. UI/UX requirements
+
+Record Current should feel slightly more compact than the main /current channel page.
+
+Requirements:
+
+* Premium dark mode
+* Clean empty state
+* Composer anchored cleanly
+* No layout overflow
+* No weird nested scroll traps
+* Thread panel/drawer works inside record context
+* Mention dropdown is not clipped
+* Emoji picker is not clipped
+* Pins do not dominate
+* Existing record page layout remains clean
+
+5. Deep-link behavior
+
+If feasible, support deep links to record Current messages.
+
+Examples depend on actual route structure.
+
+Desired behavior:
+
+* Record opens
+* Current tab becomes active
+* Target message scrolls into view
+* Highlight ring appears briefly
+* If thread param exists, thread panel opens
+
+If this is too risky, implement basic record link only and document follow-up.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current still works.
+3. Existing channel messages still work.
+4. Existing reactions still work.
+5. Existing edit/delete still works.
+6. Existing pins still work.
+7. Existing threads still work.
+8. Existing @mentions still work.
+9. Account Current tab/feed loads.
+10. Account Current can post a message.
+11. Lead Current tab/feed loads if implemented.
+12. Lead Current can post a message if implemented.
+13. Contact Current tab/feed loads if implemented.
+14. Opportunity/Deal Current loads if implemented.
+15. Task Current loads if implemented.
+16. Record Current messages do not appear in normal channel feeds.
+17. Channel messages do not appear in record Current feeds.
+18. Thread replies work for record messages.
+19. Reactions work for record messages.
+20. Edit/delete works for record messages.
+21. @mentions in record messages create notifications.
+22. Opening a record Current marks it read if read receipts are implemented.
+23. Mention dropdown and emoji picker are not clipped inside record layout.
+24. No browser console errors.
+25. No server errors.
+26. Existing CRM record pages still work.
+27. /execution/communications remains unaffected.
+28. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Files changed
+2. Database migration/schema changes
+3. Routes added/changed
+4. Frontend components changed/added
+5. CRM pages integrated
+6. Features supported inside record Current
+7. Features intentionally deferred
+8. Verification results
+9. Known issues
+10. Recommended next step
+
+Keep scope tight: CRM Record Currents only.

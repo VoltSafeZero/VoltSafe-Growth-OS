@@ -2035,6 +2035,52 @@ export async function migrateCurrentSchema(): Promise<void> {
         ON current_mentions(mentioned_user_id)
     `);
 
+    // ── Phase 3A: Record Current — idempotent schema additions ──────────────
+    // Make channel_id nullable so record messages can have channel_id = NULL
+    await db.execute(sql.raw(`
+      ALTER TABLE current_messages ALTER COLUMN channel_id DROP NOT NULL
+    `)).catch(() => {});
+
+    // Add object_type / object_id for CRM record context
+    await db.execute(sql.raw(`
+      ALTER TABLE current_messages ADD COLUMN IF NOT EXISTS object_type TEXT
+    `));
+    await db.execute(sql.raw(`
+      ALTER TABLE current_messages ADD COLUMN IF NOT EXISTS object_id INTEGER
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_current_messages_record
+        ON current_messages(object_type, object_id, created_at DESC)
+        WHERE object_type IS NOT NULL
+    `));
+
+    // Read receipts: nullable channel_id + record columns
+    await db.execute(sql.raw(`
+      ALTER TABLE current_read_receipts ALTER COLUMN channel_id DROP NOT NULL
+    `)).catch(() => {});
+    await db.execute(sql.raw(`
+      ALTER TABLE current_read_receipts ADD COLUMN IF NOT EXISTS object_type TEXT
+    `));
+    await db.execute(sql.raw(`
+      ALTER TABLE current_read_receipts ADD COLUMN IF NOT EXISTS object_id INTEGER
+    `));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS current_read_receipts_record_key
+        ON current_read_receipts(user_id, object_type, object_id)
+        WHERE object_type IS NOT NULL AND object_id IS NOT NULL
+    `));
+
+    // Pins: nullable channel_id + record columns
+    await db.execute(sql.raw(`
+      ALTER TABLE current_pins ALTER COLUMN channel_id DROP NOT NULL
+    `)).catch(() => {});
+    await db.execute(sql.raw(`
+      ALTER TABLE current_pins ADD COLUMN IF NOT EXISTS object_type TEXT
+    `));
+    await db.execute(sql.raw(`
+      ALTER TABLE current_pins ADD COLUMN IF NOT EXISTS object_id INTEGER
+    `));
+
     console.log("[migration] Current schema ready.");
   } catch (err) {
     console.error("[migration] migrateCurrentSchema error (non-fatal):", err);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -12,11 +12,12 @@ import {
   ArrowLeft, Mail, Phone, Building2, Users, Zap, CheckSquare,
   CalendarDays, TrendingUp, MessageSquare, AlertTriangle, RefreshCw,
   Clock, ExternalLink, Send, Plus, ChevronRight, DollarSign, Target, User, Pin,
-  FileText, CheckCircle2, XCircle,
+  FileText, CheckCircle2, XCircle, MessagesSquare,
 } from "lucide-react";
 import { formatDistanceToNow, format, isPast } from "date-fns";
 import { Link } from "wouter";
 import { TimelineTab } from "@/components/timeline-tab";
+import { RecordCurrentFeed } from "@/components/current/record-current-feed";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { SuggestedActionsCard } from "@/components/suggested-actions-card";
@@ -143,6 +144,20 @@ export default function OpportunityProfilePage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const [, navigate] = useLocation();
+  const [currentInitMsg, setCurrentInitMsg] = useState<number | undefined>();
+  const [currentInitThread, setCurrentInitThread] = useState<number | undefined>();
+  const currentSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("tab") === "current") {
+      const msgId = p.get("message");
+      const threadId = p.get("thread");
+      if (msgId) setCurrentInitMsg(Number(msgId));
+      if (threadId) setCurrentInitThread(Number(threadId));
+      setTimeout(() => currentSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
+    }
+  }, []);
 
   const { data, isLoading, isError, refetch } = useQuery<ProfileData>({
     queryKey: ["/api/opportunities", id, "profile"],
@@ -556,6 +571,29 @@ export default function OpportunityProfilePage() {
           <div className="flex-1 border-t border-border/30" />
         </div>
         <TimelineTab objectType="opportunity" objectId={id} />
+      </div>
+
+      {/* Current Feed */}
+      <div ref={currentSectionRef} id="opportunity-current-section" data-testid="opportunity-current-section">
+        <div className="flex items-center gap-2 my-3">
+          <div className="flex-1 border-t border-border/30" />
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
+            <MessagesSquare className="h-3 w-3" /> Current
+          </span>
+          <div className="flex-1 border-t border-border/30" />
+        </div>
+        <Card className="border-border/50">
+          <CardContent className="px-4 py-3">
+            <div className="h-[420px] flex flex-col">
+              <RecordCurrentFeed
+                objectType="opportunity"
+                objectId={id}
+                initialMessageId={currentInitMsg}
+                initialThreadId={currentInitThread}
+              />
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

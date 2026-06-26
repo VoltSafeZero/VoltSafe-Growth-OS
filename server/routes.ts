@@ -33226,7 +33226,7 @@ export function registerConfluenceRoutes(app: Express) {
       if (!body) return res.status(400).json({ message: "Body is required" });
       if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
       const msgRows = await db.execute(sql.raw(
-        `SELECT id, user_id, channel_id, parent_message_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+        `SELECT id, user_id, channel_id, parent_message_id, object_type, object_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
       ));
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
       if (Number(msgRows.rows[0].user_id) !== userId)
@@ -33237,12 +33237,18 @@ export function registerConfluenceRoutes(app: Express) {
       ));
       res.json({ ok: true });
       // Fire-and-forget mention sync (re-sync on edit so new @mentions are notified)
-      const chanSlugRows = await db.execute(sql.raw(
-        `SELECT slug FROM current_channels WHERE id = ${Number(msgRows.rows[0].channel_id)} LIMIT 1`
-      )).catch(() => ({ rows: [] as any[] }));
-      const chanSlug = String(chanSlugRows.rows[0]?.slug || "");
       const parentId = msgRows.rows[0].parent_message_id ? Number(msgRows.rows[0].parent_message_id) : null;
-      if (chanSlug) syncCurrentMentions(messageId, userId, body, chanSlug, parentId).catch(() => {});
+      const editObjType = msgRows.rows[0].object_type || null;
+      const editObjId = msgRows.rows[0].object_id ? Number(msgRows.rows[0].object_id) : null;
+      if (editObjType && editObjId) {
+        syncCurrentMentions(messageId, userId, body, null, parentId, editObjType, editObjId).catch(() => {});
+      } else {
+        const chanSlugRows = await db.execute(sql.raw(
+          `SELECT slug FROM current_channels WHERE id = ${Number(msgRows.rows[0].channel_id)} LIMIT 1`
+        )).catch(() => ({ rows: [] as any[] }));
+        const chanSlug = String(chanSlugRows.rows[0]?.slug || "");
+        if (chanSlug) syncCurrentMentions(messageId, userId, body, chanSlug, parentId).catch(() => {});
+      }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33410,18 +33416,28 @@ export function registerConfluenceRoutes(app: Express) {
       if (body.length > 10000) return res.status(400).json({ message: "Reply too long" });
 
       const rootRows = await db.execute(sql.raw(`
-        SELECT id, channel_id FROM current_messages
+        SELECT id, channel_id, object_type, object_id FROM current_messages
         WHERE id = ${rootId} AND deleted_at IS NULL AND parent_message_id IS NULL LIMIT 1
       `));
       if (!rootRows.rows.length) return res.status(404).json({ message: "Root message not found" });
-      const channelId = Number(rootRows.rows[0].channel_id);
+      const rootRow = rootRows.rows[0];
+      const channelId = rootRow.channel_id ? Number(rootRow.channel_id) : null;
+      const threadObjType: string | null = rootRow.object_type || null;
+      const threadObjId: number | null = rootRow.object_id ? Number(rootRow.object_id) : null;
 
       const escaped = body.replace(/'/g, "''");
-      const ins = await db.execute(sql.raw(`
-        INSERT INTO current_messages (channel_id, user_id, body, parent_message_id)
-        VALUES (${channelId}, ${userId}, '${escaped}', ${rootId})
-        RETURNING id, channel_id, user_id, body, is_edited, created_at, parent_message_id
-      `));
+      // Build INSERT: preserve channel_id OR object context from root
+      let insertSql: string;
+      if (channelId) {
+        insertSql = `INSERT INTO current_messages (channel_id, user_id, body, parent_message_id)
+          VALUES (${channelId}, ${userId}, '${escaped}', ${rootId})
+          RETURNING id, channel_id, object_type, object_id, user_id, body, is_edited, created_at, parent_message_id`;
+      } else {
+        insertSql = `INSERT INTO current_messages (channel_id, object_type, object_id, user_id, body, parent_message_id)
+          VALUES (NULL, '${threadObjType}', ${threadObjId}, ${userId}, '${escaped}', ${rootId})
+          RETURNING id, channel_id, object_type, object_id, user_id, body, is_edited, created_at, parent_message_id`;
+      }
+      const ins = await db.execute(sql.raw(insertSql));
       const msg = ins.rows[0];
       const userRows = await db.execute(sql.raw(`SELECT name, avatar_url FROM users WHERE id = ${userId} LIMIT 1`));
       const u = userRows.rows[0] || {};
@@ -33433,11 +33449,15 @@ export function registerConfluenceRoutes(app: Express) {
         reactions: [], replyCount: 0, latestReplyAt: null,
       });
       // Fire-and-forget mention sync for thread replies
-      const slugRows = await db.execute(sql.raw(
-        `SELECT slug FROM current_channels WHERE id = ${channelId} LIMIT 1`
-      )).catch(() => ({ rows: [] as any[] }));
-      const chanSlug = String(slugRows.rows[0]?.slug || "");
-      if (chanSlug) syncCurrentMentions(Number(msg.id), userId, body, chanSlug, rootId).catch(() => {});
+      if (threadObjType && threadObjId) {
+        syncCurrentMentions(Number(msg.id), userId, body, null, rootId, threadObjType, threadObjId).catch(() => {});
+      } else if (channelId) {
+        const slugRows = await db.execute(sql.raw(
+          `SELECT slug FROM current_channels WHERE id = ${channelId} LIMIT 1`
+        )).catch(() => ({ rows: [] as any[] }));
+        const chanSlug = String(slugRows.rows[0]?.slug || "");
+        if (chanSlug) syncCurrentMentions(Number(msg.id), userId, body, chanSlug, rootId).catch(() => {});
+      }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33457,17 +33477,34 @@ export function registerConfluenceRoutes(app: Express) {
     return ids;
   }
 
+  // Build a deep-link URL for a record Current mention notification
+  function buildRecordCurrentUrl(
+    objectType: string, objectId: number, messageId: number, parentId?: number | null
+  ): string {
+    const recordBase: Record<string, string> = {
+      account: `/accounts/${objectId}`,
+      contact: `/contacts/${objectId}`,
+      opportunity: `/opportunities/${objectId}`,
+      lead: `/opportunities/${objectId}`,
+      task: `/tasks`,
+    };
+    const base = recordBase[objectType] ?? `/`;
+    const params = `tab=current&message=${messageId}${parentId ? `&thread=${parentId}` : ""}`;
+    return `${base}?${params}`;
+  }
+
   async function syncCurrentMentions(
     messageId: number,
     senderUserId: number,
     body: string,
-    channelSlug: string,
-    parentMessageId: number | null
+    channelSlug: string | null,
+    parentMessageId: number | null,
+    objectType?: string | null,
+    objectId?: number | null
   ): Promise<void> {
     const mentionedIds = parseCurrentMentionIds(body);
     for (const mid of mentionedIds) {
       if (mid === senderUserId) continue;
-      const escapedSlug = channelSlug.replace(/'/g, "''");
       // Validate user exists and is not inactive
       const userCheck = await db.execute(sql.raw(
         `SELECT id FROM users WHERE id = ${mid} AND global_role NOT IN ('inactive') LIMIT 1`
@@ -33479,13 +33516,22 @@ export function registerConfluenceRoutes(app: Express) {
         VALUES (${messageId}, ${mid}, ${senderUserId})
         ON CONFLICT (message_id, mentioned_user_id) DO NOTHING
       `));
-      // Build notification
-      const actionUrl = parentMessageId
-        ? `/current?channel=${escapedSlug}&thread=${parentMessageId}&message=${messageId}`
-        : `/current?channel=${escapedSlug}&message=${messageId}`;
+      // Build notification URL and title
+      let actionUrl: string;
+      let title: string;
+      if (objectType && objectId) {
+        actionUrl = buildRecordCurrentUrl(objectType, objectId, messageId, parentMessageId);
+        title = `Mentioned you in Current`;
+      } else {
+        const slug = channelSlug || "";
+        const escapedSlug = slug.replace(/'/g, "''");
+        actionUrl = parentMessageId
+          ? `/current?channel=${escapedSlug}&thread=${parentMessageId}&message=${messageId}`
+          : `/current?channel=${escapedSlug}&message=${messageId}`;
+        title = `Mentioned in #${slug}`;
+      }
       const preview = body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@$1').slice(0, 100);
       const escapedPreview = preview.replace(/'/g, "''");
-      const title = `Mentioned in #${channelSlug}`;
       const escapedTitle = title.replace(/'/g, "''");
       const escapedUrl = actionUrl.replace(/'/g, "''");
       const dedupeKey = `current_mention:${messageId}:${mid}`;
@@ -33523,7 +33569,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  // GET /api/current/mentions — messages where the current user was mentioned
+  // GET /api/current/mentions — messages where the current user was mentioned (channel + record)
   app.get("/api/current/mentions", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
@@ -33531,12 +33577,13 @@ export function registerConfluenceRoutes(app: Express) {
         SELECT
           m.id, m.channel_id, m.user_id, m.body, m.is_edited, m.edited_at,
           m.deleted_at, m.created_at, m.parent_message_id,
+          m.object_type, m.object_id,
           u.name AS user_name, u.avatar_url AS user_avatar_url,
           c.slug AS channel_slug, c.name AS channel_name
         FROM current_mentions cm
         JOIN current_messages m ON m.id = cm.message_id
         JOIN users u ON u.id = m.user_id
-        JOIN current_channels c ON c.id = m.channel_id
+        LEFT JOIN current_channels c ON c.id = m.channel_id
         WHERE cm.mentioned_user_id = ${userId}
           AND m.deleted_at IS NULL
         ORDER BY m.created_at DESC
@@ -33552,10 +33599,193 @@ export function registerConfluenceRoutes(app: Express) {
         deletedAt: r.deleted_at,
         createdAt: r.created_at,
         parentMessageId: r.parent_message_id,
+        objectType: r.object_type || null,
+        objectId: r.object_id || null,
         userName: r.user_name,
         userAvatarUrl: r.user_avatar_url,
-        channelSlug: r.channel_slug,
-        channelName: r.channel_name,
+        channelSlug: r.channel_slug || null,
+        channelName: r.channel_name || null,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Record Current Routes ────────────────────────────────────────────────────
+
+  const ALLOWED_RECORD_TYPES = new Set(['account', 'lead', 'contact', 'opportunity', 'task']);
+
+  function buildRecordMsgQuery(objectType: string, objectId: number, userId: number): string {
+    return `
+      SELECT
+        m.id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
+        m.parent_message_id, m.object_type, m.object_id,
+        CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
+        u.name AS user_name, u.avatar_url AS user_avatar_url,
+        COALESCE(rxn.reactions, '[]'::json) AS reactions,
+        COALESCE(rep.reply_count, 0)::int AS reply_count,
+        rep.latest_reply_at
+      FROM current_messages m
+      JOIN users u ON u.id = m.user_id
+      LEFT JOIN LATERAL (
+        SELECT json_agg(
+          json_build_object('emoji', rg.emoji, 'count', rg.cnt::int, 'reacted', rg.reacted)
+          ORDER BY rg.first_at
+        ) AS reactions
+        FROM (
+          SELECT emoji, COUNT(*) AS cnt, BOOL_OR(user_id = ${userId}) AS reacted, MIN(created_at) AS first_at
+          FROM current_reactions
+          WHERE message_id = m.id
+          GROUP BY emoji
+        ) rg
+      ) rxn ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS reply_count, MAX(created_at) AS latest_reply_at
+        FROM current_messages
+        WHERE parent_message_id = m.id AND deleted_at IS NULL
+      ) rep ON true
+      WHERE m.object_type = '${objectType}'
+        AND m.object_id = ${objectId}
+        AND m.parent_message_id IS NULL
+      ORDER BY m.created_at ASC
+      LIMIT 300
+    `;
+  }
+
+  function mapRecordMsg(r: any) {
+    return {
+      id: r.id,
+      userId: r.user_id,
+      body: r.body,
+      isEdited: r.is_edited,
+      editedAt: r.edited_at,
+      deletedAt: r.deleted_at,
+      createdAt: r.created_at,
+      parentMessageId: r.parent_message_id,
+      objectType: r.object_type,
+      objectId: r.object_id,
+      userName: r.user_name,
+      userAvatarUrl: r.user_avatar_url || null,
+      reactions: r.reactions || [],
+      replyCount: Number(r.reply_count) || 0,
+      latestReplyAt: r.latest_reply_at ?? null,
+    };
+  }
+
+  // GET /api/current/record/:objectType/:objectId/messages
+  app.get("/api/current/record/:objectType/:objectId/messages", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const objectType = String(req.params.objectType);
+      const objectId = Number(req.params.objectId);
+      if (!ALLOWED_RECORD_TYPES.has(objectType) || !objectId)
+        return res.status(400).json({ message: "Invalid record type or id" });
+      const rows = await db.execute(sql.raw(buildRecordMsgQuery(objectType, objectId, userId)));
+      res.json(rows.rows.map(mapRecordMsg));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/record/:objectType/:objectId/messages
+  app.post("/api/current/record/:objectType/:objectId/messages", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const objectType = String(req.params.objectType);
+      const objectId = Number(req.params.objectId);
+      if (!ALLOWED_RECORD_TYPES.has(objectType) || !objectId)
+        return res.status(400).json({ message: "Invalid record type or id" });
+      const body = String(req.body?.body || "").trim();
+      if (!body) return res.status(400).json({ message: "Message body is required" });
+      if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
+
+      const escaped = body.replace(/'/g, "''");
+      const ins = await db.execute(sql.raw(`
+        INSERT INTO current_messages (channel_id, object_type, object_id, user_id, body)
+        VALUES (NULL, '${objectType}', ${objectId}, ${userId}, '${escaped}')
+        RETURNING id, object_type, object_id, user_id, body, is_edited, created_at
+      `));
+      const msg = ins.rows[0];
+      const userRows = await db.execute(sql.raw(
+        `SELECT name, avatar_url FROM users WHERE id = ${userId} LIMIT 1`
+      ));
+      const u = userRows.rows[0] || {};
+      res.status(201).json({
+        id: msg.id, objectType: msg.object_type, objectId: msg.object_id,
+        userId: msg.user_id, body: msg.body, isEdited: false, editedAt: null,
+        deletedAt: null, createdAt: msg.created_at, parentMessageId: null,
+        userName: u.name || "Unknown", userAvatarUrl: u.avatar_url || null,
+        reactions: [], replyCount: 0, latestReplyAt: null,
+      });
+      // Fire-and-forget mention sync
+      syncCurrentMentions(Number(msg.id), userId, body, null, null, objectType, objectId).catch(() => {});
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/record/:objectType/:objectId/read — mark read
+  app.post("/api/current/record/:objectType/:objectId/read", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const objectType = String(req.params.objectType);
+      const objectId = Number(req.params.objectId);
+      if (!ALLOWED_RECORD_TYPES.has(objectType) || !objectId)
+        return res.status(400).json({ message: "Invalid record type or id" });
+      // Find the latest message id for this record
+      const latestRows = await db.execute(sql.raw(`
+        SELECT id FROM current_messages
+        WHERE object_type = '${objectType}' AND object_id = ${objectId}
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC LIMIT 1
+      `));
+      const lastId = latestRows.rows[0]?.id ? Number(latestRows.rows[0].id) : null;
+      if (!lastId) return res.json({ ok: true });
+      await db.execute(sql.raw(`
+        INSERT INTO current_read_receipts (user_id, channel_id, object_type, object_id, last_read_message_id, updated_at)
+        VALUES (${userId}, NULL, '${objectType}', ${objectId}, ${lastId}, NOW())
+        ON CONFLICT (user_id, object_type, object_id) WHERE object_type IS NOT NULL AND object_id IS NOT NULL
+        DO UPDATE SET last_read_message_id = EXCLUDED.last_read_message_id, updated_at = NOW()
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/record/:objectType/:objectId/pins
+  app.get("/api/current/record/:objectType/:objectId/pins", requireAuth, async (req, res) => {
+    try {
+      const objectType = String(req.params.objectType);
+      const objectId = Number(req.params.objectId);
+      if (!ALLOWED_RECORD_TYPES.has(objectType) || !objectId)
+        return res.status(400).json({ message: "Invalid record type or id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          p.id, p.message_id, p.pinned_by, p.pinned_at,
+          pinner.name AS pinned_by_name,
+          m.body AS message_body,
+          author.name AS message_user_name,
+          m.created_at AS message_created_at
+        FROM current_pins p
+        JOIN current_messages m ON m.id = p.message_id
+        JOIN users author ON author.id = m.user_id
+        LEFT JOIN users pinner ON pinner.id = p.pinned_by
+        WHERE p.object_type = '${objectType}'
+          AND p.object_id = ${objectId}
+          AND m.deleted_at IS NULL
+        ORDER BY p.pinned_at DESC
+        LIMIT 20
+      `));
+      res.json(rows.rows.map((r: any) => ({
+        id: r.id,
+        messageId: r.message_id,
+        pinnedBy: r.pinned_by,
+        pinnedByName: r.pinned_by_name,
+        pinnedAt: r.pinned_at,
+        messageBody: r.message_body,
+        messageUserName: r.message_user_name,
+        messageCreatedAt: r.message_created_at,
       })));
     } catch (err: any) {
       res.status(500).json({ message: err.message });

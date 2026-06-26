@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -12,6 +12,7 @@ import {
   ArrowLeft, Mail, Phone, Building2, User, Zap, CheckSquare,
   CalendarDays, TrendingUp, MessageSquare, AlertTriangle, RefreshCw,
   Star, Clock, ExternalLink, Send, Plus, Pencil, Search, Link2, X, Loader2,
+  MessagesSquare,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -33,6 +34,7 @@ import { AiSummaryCard } from "@/components/crm/ai-summary-card";
 import { ContactEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { MousePointerClick } from "lucide-react";
 import { RecentNewsPanel } from "@/components/crm/recent-news-panel";
+import { RecordCurrentFeed } from "@/components/current/record-current-feed";
 
 const STAGE_LABEL: Record<string, string> = {
   inbound_new: "New", qualified: "Qualified", discovery: "Discovery",
@@ -207,6 +209,20 @@ export default function ContactProfilePage() {
   const { toast } = useToast();
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const [currentInitTab, setCurrentInitTab] = useState<string | undefined>();
+  const [currentInitMsg, setCurrentInitMsg] = useState<number | undefined>();
+  const [currentInitThread, setCurrentInitThread] = useState<number | undefined>();
+
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const tab = p.get("tab");
+    if (tab) setCurrentInitTab(tab);
+    const msgId = p.get("message");
+    if (msgId) setCurrentInitMsg(Number(msgId));
+    const threadId = p.get("thread");
+    if (threadId) setCurrentInitThread(Number(threadId));
+  }, []);
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -781,7 +797,12 @@ export default function ContactProfilePage() {
       </div>
 
       {/* Unified Timeline — full width */}
-      <TimelineSection contactId={id} />
+      <TimelineSection
+        contactId={id}
+        initialTab={currentInitTab}
+        initialMessageId={currentInitMsg}
+        initialThreadId={currentInitThread}
+      />
 
       <EditContactDialog
         open={editOpen}
@@ -818,19 +839,39 @@ export default function ContactProfilePage() {
   );
 }
 
-function TimelineSection({ contactId }: { contactId: number }) {
+function TimelineSection({
+  contactId, initialTab, initialMessageId, initialThreadId,
+}: {
+  contactId: number;
+  initialTab?: string;
+  initialMessageId?: number;
+  initialThreadId?: number;
+}) {
   return (
     <div className="mt-2">
-      <Tabs defaultValue="timeline">
+      <Tabs defaultValue={initialTab || "timeline"}>
         <TabsList className="mb-3 h-8 bg-secondary/30">
           <TabsTrigger value="timeline" className="text-xs" data-testid="tab-contact-timeline">Timeline</TabsTrigger>
           <TabsTrigger value="emails" className="text-xs" data-testid="tab-contact-emails">Emails</TabsTrigger>
+          <TabsTrigger value="current" className="text-xs flex items-center gap-1" data-testid="tab-contact-current">
+            <MessagesSquare className="h-3 w-3" /> Current
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="timeline">
           <TimelineTab objectType="contact" objectId={contactId} />
         </TabsContent>
         <TabsContent value="emails">
           <EmailsTab objectType="contact" objectId={contactId} />
+        </TabsContent>
+        <TabsContent value="current">
+          <div className="h-[420px] flex flex-col">
+            <RecordCurrentFeed
+              objectType="contact"
+              objectId={contactId}
+              initialMessageId={initialMessageId}
+              initialThreadId={initialThreadId}
+            />
+          </div>
         </TabsContent>
       </Tabs>
     </div>
