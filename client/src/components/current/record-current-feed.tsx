@@ -865,6 +865,150 @@ function ThreadPanel({
   );
 }
 
+
+// ── RecordStructuredPanel ─────────────────────────────────────────────────────
+
+interface RecStructuredItem {
+  id: number;
+  messageId: number;
+  itemType: "decision" | "risk" | "requirement";
+  notes: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  messageBody: string | null;
+  messageCreatedAt: string;
+  authorName: string | null;
+  actionUrl: string | null;
+}
+
+const REC_STRUCT_FILTER_ITEMS = [
+  { value: "all" as const, label: "All" },
+  { value: "decision" as const, label: "Decisions" },
+  { value: "risk" as const, label: "Risks" },
+  { value: "requirement" as const, label: "Requirements" },
+];
+
+function RecordStructuredPanel({ objectType, objectId }: { objectType: string; objectId: number }) {
+  const [filter, setFilter] = useState<"all" | "decision" | "risk" | "requirement">("all");
+
+  const params = new URLSearchParams({
+    scope: "record",
+    objectType,
+    objectId: String(objectId),
+    limit: "50",
+  });
+  if (filter !== "all") params.set("itemType", filter);
+
+  const { data = [], isLoading, isError } = useQuery<RecStructuredItem[]>({
+    queryKey: ["/api/current/structured", "record", objectType, objectId, filter],
+    queryFn: () =>
+      fetch(`/api/current/structured?${params}`, { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 30_000,
+  });
+
+  const filterLabel =
+    filter === "decision" ? "decisions" :
+    filter === "risk" ? "risks" :
+    filter === "requirement" ? "requirements" : "structured items";
+
+  const chipActive: Record<string, string> = {
+    all: "bg-foreground/10 text-foreground border-border/50",
+    decision: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+    risk: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+    requirement: "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Filter chips */}
+      <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-1.5 flex-wrap border-b border-border/30">
+        {REC_STRUCT_FILTER_ITEMS.map(({ value, label }) => (
+          <button
+            key={value}
+            onClick={() => setFilter(value)}
+            data-testid={`rec-structured-filter-${value}`}
+            className={`px-2 py-0.5 rounded-full text-[10.5px] font-medium border transition-colors ${
+              filter === value
+                ? chipActive[value]
+                : "text-muted-foreground border-border/20 hover:border-border/60 hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Items */}
+      <div className="flex-1 overflow-y-auto px-2 py-2" data-testid="rec-structured-items-list">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-4 h-4 text-muted-foreground/40 animate-spin" />
+          </div>
+        ) : isError ? (
+          <div className="flex items-center justify-center py-8 px-3 text-center">
+            <p className="text-[12px] text-muted-foreground/70">Could not load structured items. Try again.</p>
+          </div>
+        ) : data.length === 0 ? (
+          <div className="flex flex-col items-center py-8 px-3 text-center select-none">
+            <Bookmark className="w-6 h-6 text-muted-foreground/30 mb-2" />
+            <p className="text-[12px] font-medium text-foreground/60 mb-0.5">
+              {filter === "all" ? "No structured items yet" :
+               filter === "decision" ? "No decisions marked yet" :
+               filter === "risk" ? "No risks marked yet" :
+               "No requirements marked yet"}
+            </p>
+            <p className="text-[11px] text-muted-foreground/50 mt-0.5">
+              Mark messages as {filterLabel} using the bookmark icon.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {data.map((item) => (
+              <div
+                key={item.id}
+                data-testid={`rec-structured-item-${item.id}`}
+                className="rounded-lg border border-border/40 hover:border-border/70 bg-muted/[0.03] hover:bg-muted/15 transition-all p-2.5 group"
+              >
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium ${REC_STRUCTURED_BADGE_STYLE[item.itemType]}`}>
+                    <Bookmark className="w-2 h-2" />
+                    {item.itemType.charAt(0).toUpperCase() + item.itemType.slice(1)}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/40 ml-auto shrink-0 tabular-nums">
+                    {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
+                  </span>
+                </div>
+                {item.messageBody && (
+                  <p className="text-[11.5px] text-foreground/75 leading-relaxed line-clamp-2 mb-1.5">
+                    {item.messageBody}
+                  </p>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10.5px] text-muted-foreground/60 flex-1 min-w-0 truncate">
+                    {item.authorName ?? "Unknown"}
+                    {item.createdByName && item.createdByName !== item.authorName && (
+                      <span className="text-[10px] text-muted-foreground/40"> · marked by {item.createdByName}</span>
+                    )}
+                  </span>
+                  {item.actionUrl && (
+                    <button
+                      onClick={() => { window.location.href = item.actionUrl!; }}
+                      data-testid={`rec-structured-view-btn-${item.id}`}
+                      className="shrink-0 text-[10.5px] text-primary/60 hover:text-primary font-medium transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      View →
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── RecordCurrentFeed (main export) ──────────────────────────────────────────
 
 export function RecordCurrentFeed({ objectType, objectId, initialMessageId, initialThreadId }: RecordCurrentFeedProps) {
@@ -967,6 +1111,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
   }, [initialThreadId]);
 
   const [createTaskSource, setCreateTaskSource] = useState<CreateTaskSource | null>(null);
+  const [showStructured, setShowStructured] = useState(false);
 
   function handleCreateTaskFromRecordMsg(msg: RecordMessage, threadRootId?: number): void {
     setCreateTaskSource({
@@ -1067,14 +1212,20 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
       const r = await apiRequest("POST", `/api/current/messages/${messageId}/structured`, { itemType });
       return r.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] });
+    },
   });
 
   const unmarkStructuredMutation = useMutation({
     mutationFn: async ({ messageId, itemType }: { messageId: number; itemType: string }) => {
       return apiRequest("DELETE", `/api/current/messages/${messageId}/structured/${itemType}`);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] });
+    },
   });
 
   return (
@@ -1091,7 +1242,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/40 pointer-events-none" />
           <input
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => { setSearchQuery(e.target.value); if (showStructured) setShowStructured(false); }}
             placeholder="Search this Current…"
             className="w-full pl-6 pr-6 py-1 text-[11.5px] rounded-md border bg-muted/20 border-border/30 text-foreground placeholder:text-muted-foreground/35 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all"
             data-testid="record-current-search-input"
@@ -1106,6 +1257,19 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
             </button>
           )}
         </div>
+        <button
+          onClick={() => { setShowStructured(v => !v); if (!showStructured) setRecordSummaryOpen(false); }}
+          data-testid="btn-structured-record"
+          title="Structured items (Decisions, Risks, Requirements)"
+          className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+            showStructured
+              ? "bg-primary/10 text-primary/80 hover:bg-primary/15"
+              : "text-muted-foreground/40 hover:text-foreground hover:bg-muted/60"
+          }`}
+        >
+          <Bookmark className="w-3 h-3" />
+          <span className="hidden sm:inline">Structured</span>
+        </button>
         <button
           onClick={() => {
             if (recordSummaryOpen) {
@@ -1147,7 +1311,10 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
 
       {/* Message list — or search results overlay */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-0.5">
-        {debouncedSearch ? (
+        {showStructured ? (
+          /* ── Structured items ── */
+          <RecordStructuredPanel objectType={objectType} objectId={objectId} />
+        ) : debouncedSearch ? (
           /* ── Search results ── */
           searchLoading ? (
             <div className="flex items-center justify-center py-8">

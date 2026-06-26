@@ -1945,6 +1945,249 @@ function MentionsPanel({
   );
 }
 
+
+// ── StructuredListItem ────────────────────────────────────────────────────────
+
+interface StructuredListItem {
+  id: number;
+  messageId: number;
+  itemType: "decision" | "risk" | "requirement";
+  notes: string | null;
+  severity: string | null;
+  status: string | null;
+  createdBy: number | null;
+  createdByName: string | null;
+  createdAt: string;
+  channelId: number | null;
+  channelSlug: string | null;
+  channelName: string | null;
+  objectType: string | null;
+  objectId: number | null;
+  threadRootId: number | null;
+  messageBody: string | null;
+  messageCreatedAt: string;
+  authorName: string | null;
+  authorAvatar: string | null;
+  actionUrl: string | null;
+}
+
+const STRUCT_FILTER_ITEMS = [
+  { value: "all" as const, label: "All" },
+  { value: "decision" as const, label: "Decisions" },
+  { value: "risk" as const, label: "Risks" },
+  { value: "requirement" as const, label: "Requirements" },
+];
+
+// ── StructuredItemsPanel ─────────────────────────────────────────────────────
+
+function StructuredItemsPanel({
+  selectedSlug,
+  onChannelNavigate,
+}: {
+  selectedSlug: string;
+  onChannelNavigate: (slug: string, messageId: number, threadId?: number) => void;
+}) {
+  const [filter, setFilter] = useState<"all" | "decision" | "risk" | "requirement">("all");
+  const [scope, setScope] = useState<"channel" | "all">("channel");
+
+  const params = new URLSearchParams({ limit: "50" });
+  if (scope === "channel") {
+    params.set("scope", "channel");
+    params.set("channel", selectedSlug);
+  }
+  if (filter !== "all") params.set("itemType", filter);
+
+  const { data = [], isLoading, isError } = useQuery<StructuredListItem[]>({
+    queryKey: ["/api/current/structured", scope, selectedSlug, filter],
+    queryFn: () =>
+      fetch(`/api/current/structured?${params}`, { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 30_000,
+  });
+
+  function handleView(item: StructuredListItem) {
+    if (!item.actionUrl) return;
+    if (item.actionUrl.startsWith("/current?")) {
+      const url = new URL(item.actionUrl, window.location.origin);
+      const slug = url.searchParams.get("channel") ?? selectedSlug;
+      const msgId = Number(url.searchParams.get("message"));
+      const threadId = Number(url.searchParams.get("thread")) || undefined;
+      if (slug && msgId) onChannelNavigate(slug, msgId, threadId);
+    } else {
+      window.location.href = item.actionUrl;
+    }
+  }
+
+  const filterLabel =
+    filter === "decision" ? "decisions" :
+    filter === "risk" ? "risks" :
+    filter === "requirement" ? "requirements" : "structured items";
+
+  const chipActive: Record<string, string> = {
+    all: "bg-foreground/10 text-foreground border-border/60",
+    decision: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+    risk: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+    requirement: "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Scope + filter controls */}
+      <div className="px-5 pt-3 pb-2.5 shrink-0 space-y-2 border-b border-border/40">
+        {/* Scope pills */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setScope("channel")}
+            data-testid="structured-scope-channel"
+            className={cn(
+              "px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors",
+              scope === "channel"
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+            )}
+          >
+            #{displaySlug(selectedSlug)}
+          </button>
+          <button
+            onClick={() => setScope("all")}
+            data-testid="structured-scope-all"
+            className={cn(
+              "px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors",
+              scope === "all"
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+            )}
+          >
+            All Currents
+          </button>
+        </div>
+        {/* Filter chips */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {STRUCT_FILTER_ITEMS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setFilter(value)}
+              data-testid={`structured-filter-${value}`}
+              className={cn(
+                "px-2.5 py-0.5 rounded-full text-[11.5px] font-medium border transition-colors",
+                filter === value
+                  ? chipActive[value]
+                  : "text-muted-foreground border-border/30 hover:border-border/60 hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Items list */}
+      <div className="flex-1 overflow-y-auto px-5 py-3" data-testid="structured-items-list">
+        {isLoading ? (
+          <div className="flex items-center justify-center pt-16">
+            <Loader2 className="w-5 h-5 text-muted-foreground/40 animate-spin" />
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center pt-16 text-center px-6 select-none">
+            <p className="text-[13px] text-muted-foreground">Could not load structured items.</p>
+            <p className="text-[12px] text-muted-foreground/60 mt-1">Check your connection and try again.</p>
+          </div>
+        ) : data.length === 0 ? (
+          <div className="flex flex-col items-center justify-center pt-16 text-center px-6 select-none">
+            <div className="w-14 h-14 rounded-2xl bg-primary/[0.08] flex items-center justify-center mb-4 ring-1 ring-primary/10">
+              <Bookmark className="w-7 h-7 text-primary/40" />
+            </div>
+            <h3 className="text-[14px] font-semibold text-foreground mb-1.5">
+              {filter === "all" ? "No structured items yet" :
+               filter === "decision" ? "No decisions marked yet" :
+               filter === "risk" ? "No risks marked yet" :
+               "No requirements marked yet"}
+            </h3>
+            <p className="text-[13px] text-muted-foreground max-w-[240px] leading-relaxed">
+              {filter === "all"
+                ? "Mark important messages as Decisions, Risks, or Requirements using the bookmark icon on any message."
+                : `Mark messages as ${filterLabel} using the bookmark icon on any message.`}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2" data-testid="structured-items-grid">
+            {data.map((item) => (
+              <div
+                key={item.id}
+                data-testid={`structured-item-${item.id}`}
+                className="rounded-xl border border-border/50 hover:border-border/70 bg-card/30 hover:bg-muted/10 transition-all p-3.5 group"
+              >
+                {/* Top row: type badge + source + date */}
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className={cn(
+                    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border select-none shrink-0",
+                    STRUCTURED_BADGE_STYLE[item.itemType]
+                  )}>
+                    <Bookmark className="w-2 h-2" />
+                    {item.itemType.charAt(0).toUpperCase() + item.itemType.slice(1)}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground/50 truncate flex-1 min-w-0">
+                    {item.channelSlug
+                      ? `#${displaySlug(item.channelSlug)}`
+                      : item.objectType
+                      ? `${item.objectType.charAt(0).toUpperCase() + item.objectType.slice(1)} Currents`
+                      : "Currents"}
+                    {item.threadRootId ? " · thread" : ""}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground/40 shrink-0 tabular-nums">
+                    {formatTs(item.createdAt)}
+                  </span>
+                </div>
+
+                {/* Message preview */}
+                {item.messageBody && (
+                  <p className="text-[12.5px] text-foreground/80 leading-relaxed line-clamp-3 mb-2.5 whitespace-pre-wrap break-words">
+                    {item.messageBody}
+                  </p>
+                )}
+
+                {/* Notes */}
+                {item.notes && (
+                  <p className="text-[11.5px] text-muted-foreground/60 italic line-clamp-2 mb-2.5 border-t border-border/30 pt-2">
+                    {item.notes}
+                  </p>
+                )}
+
+                {/* Bottom row: author + marked by + View */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <div className={cn(
+                      "w-[18px] h-[18px] rounded-full flex items-center justify-center shrink-0",
+                      "text-[7px] font-bold text-white",
+                      avatarBg(item.messageId % 200)
+                    )}>
+                      {initials(item.authorName ?? "?")}
+                    </div>
+                    <span className="text-[11.5px] text-muted-foreground/70 truncate">
+                      {item.authorName ?? "Unknown"}
+                      {item.createdByName && item.createdByName !== item.authorName && (
+                        <span className="text-[10.5px] text-muted-foreground/40"> · marked by {item.createdByName}</span>
+                      )}
+                    </span>
+                  </div>
+                  {item.actionUrl && (
+                    <button
+                      onClick={() => handleView(item)}
+                      data-testid={`structured-view-btn-${item.id}`}
+                      className="shrink-0 text-[11.5px] text-primary/60 hover:text-primary font-medium transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      View →
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CurrentPage() {
@@ -1957,7 +2200,7 @@ export default function CurrentPage() {
   const { toast } = useToast();
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [threadRootId, setThreadRootId] = useState<number | null>(null);
-  const [view, setView] = useState<"channel" | "mentions" | "search">("channel");
+  const [view, setView] = useState<"channel" | "mentions" | "search" | "structured">("channel");
   const [highlightedMsgId, setHighlightedMsgId] = useState<number | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -2192,14 +2435,20 @@ export default function CurrentPage() {
   const markStructuredMutation = useMutation({
     mutationFn: ({ messageId, itemType }: { messageId: number; itemType: string }) =>
       apiRequest("POST", `/api/current/messages/${messageId}/structured`, { itemType }),
-    onSuccess: () => invalidateFeed(),
+    onSuccess: () => {
+      invalidateFeed();
+      queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] });
+    },
   });
 
   // Unmark structured
   const unmarkStructuredMutation = useMutation({
     mutationFn: ({ messageId, itemType }: { messageId: number; itemType: string }) =>
       apiRequest("DELETE", `/api/current/messages/${messageId}/structured/${itemType}`),
-    onSuccess: () => invalidateFeed(),
+    onSuccess: () => {
+      invalidateFeed();
+      queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] });
+    },
   });
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -2383,6 +2632,27 @@ export default function CurrentPage() {
             />
             <span className="flex-1 text-left">Mentions</span>
           </button>
+          <button
+            onClick={() => setView("structured")}
+            data-testid="sidebar-structured"
+            className={cn(
+              "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
+              "transition-all duration-100 group",
+              view === "structured"
+                ? "bg-primary/15 text-primary font-medium"
+                : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            )}
+          >
+            <Bookmark
+              className={cn(
+                "w-3.5 h-3.5 shrink-0 transition-opacity",
+                view === "structured"
+                  ? "opacity-80"
+                  : "opacity-40 group-hover:opacity-60"
+              )}
+            />
+            <span className="flex-1 text-left">Structured</span>
+          </button>
         </div>
       </aside>
 
@@ -2403,6 +2673,13 @@ export default function CurrentPage() {
               <Search className="w-4 h-4 text-muted-foreground/60 shrink-0" />
               <span className="font-semibold text-[14px] text-foreground shrink-0">
                 Search
+              </span>
+            </>
+          ) : view === "structured" ? (
+            <>
+              <Bookmark className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+              <span className="font-semibold text-[14px] text-foreground shrink-0">
+                Structured Items
               </span>
             </>
           ) : (
@@ -2472,6 +2749,17 @@ export default function CurrentPage() {
               setThreadRootId(threadId ?? null);
               // Highlight the root message (visible in main list) when
               // navigating to a reply; the reply itself is only in the thread panel.
+              setHighlight(threadId ?? messageId);
+            }}
+          />
+        ) : view === "structured" ? (
+          /* ── Structured Items view ───────────────────────────────────── */
+          <StructuredItemsPanel
+            selectedSlug={selectedSlug}
+            onChannelNavigate={(slug, messageId, threadId) => {
+              setSelectedSlug(slug);
+              setView("channel");
+              setThreadRootId(threadId ?? null);
               setHighlight(threadId ?? messageId);
             }}
           />

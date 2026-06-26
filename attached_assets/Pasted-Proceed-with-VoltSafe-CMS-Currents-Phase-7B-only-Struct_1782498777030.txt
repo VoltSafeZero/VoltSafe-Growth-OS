@@ -1,0 +1,272 @@
+Proceed with VoltSafe CMS Currents Phase 7B only: Structured Items Panel.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, new task features, or unrelated CRM features.
+
+Goal
+
+Add a clean UI for viewing all structured Currents items:
+
+* Decisions
+* Risks
+* Requirements
+
+This should make marked Currents messages easy to find, filter, and navigate back to.
+
+Phase 7A already added:
+
+* current_structured_items table
+* mark/unmark routes
+* badges
+* GET /api/current/structured
+* actionUrl deep-links
+
+Phase 7B should build the frontend view on top of that existing backend.
+
+Scope
+
+Add only:
+
+1. Structured Items panel/view in /current
+2. Structured Items panel/view inside Record Currents if clean
+3. Filters:
+    * All
+    * Decisions
+    * Risks
+    * Requirements
+4. Deep-link navigation back to source message/thread
+5. Polished loading/empty/error states
+
+Do not change
+
+Do not modify the structured table unless absolutely required.
+
+Do not add new structured item types.
+
+Do not add AI classification.
+
+Do not add workflows/automation.
+
+Do not add external sharing.
+
+Backend
+
+Prefer no backend changes.
+
+Use existing endpoint:
+
+GET /api/current/structured
+
+Supported filters already exist:
+
+* scope=channel&channel=general
+* scope=record&objectType=account&objectId=123
+* itemType=decision|risk|requirement
+* limit
+
+Only make backend fixes if the frontend reveals a real payload bug.
+
+/current UI requirements
+
+Add a new sidebar item or compact view selector:
+
+* Structured
+* or Decisions / Risks
+
+Recommended placement:
+
+* Near Search and Mentions in the /current sidebar.
+
+When selected, show a structured items view for the current channel or global Currents if current implementation supports it.
+
+Minimum acceptable scope:
+
+* Current selected channel only.
+
+Better if clean:
+
+* Toggle between:
+    * Current channel
+    * All Currents
+
+Structured view content
+
+Each item card/row should show:
+
+* Type badge:
+    * Decision
+    * Risk
+    * Requirement
+* Message preview
+* Original message author
+* Marked by / created by if available
+* Created date
+* Source context:
+    * #general
+    * Account Currents
+    * Lead Currents
+    * etc.
+* View in Currents link/button using actionUrl
+
+Filters
+
+Add filter chips/tabs:
+
+* All
+* Decisions
+* Risks
+* Requirements
+
+Behavior:
+
+* All shows all item types.
+* Decision filter shows only decisions.
+* Risk filter shows only risks.
+* Requirement filter shows only requirements.
+* Filters should update without page reload.
+* Selected state should be obvious.
+
+Record Currents UI
+
+Inside RecordCurrentFeed, add a compact structured items panel/filter if clean.
+
+Minimum acceptable:
+
+* Add a small button or tab:
+    * Structured
+* It lists only structured items for that record using:
+    * scope=record&objectType=...&objectId=...
+
+If this makes record pages too crowded, implement /current structured view first and document record view as Phase 7C.
+
+Deep-link behavior
+
+Clicking View in Currents should navigate using the backend-provided actionUrl.
+
+Verify:
+
+Channel message
+
+/current?channel=CHANNEL_SLUG&message=MESSAGE_ID
+
+Channel thread reply
+
+/current?channel=CHANNEL_SLUG&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Account record message/thread
+
+/accounts/OBJECT_ID?tab=current&message=MESSAGE_ID
+
+with thread=THREAD_ROOT_ID when applicable.
+
+Contact record message/thread
+
+Use existing Contact route with tab=current&message=MESSAGE_ID.
+
+Opportunity record message/thread
+
+Use existing Opportunity route with tab=current&message=MESSAGE_ID.
+
+Lead record message/thread
+
+/opportunities?selected=LEAD_ID&tab=current&message=MESSAGE_ID
+
+with thread=THREAD_ROOT_ID when applicable.
+
+UX requirements
+
+Keep it premium and compact.
+
+The panel should feel like an executive memory layer, not a developer debug list.
+
+Use clear labels:
+
+* “Decisions”
+* “Risks”
+* “Requirements”
+
+Good empty states:
+
+* “No decisions marked yet.”
+* “No risks marked yet.”
+* “No requirements marked yet.”
+* “No structured items yet. Mark important messages as Decisions, Risks, or Requirements.”
+
+Loading state should be subtle.
+
+Error state should be helpful:
+
+* “Could not load structured items. Try again.”
+
+Dark mode must look good.
+
+Long message previews should truncate gracefully.
+
+Query invalidation
+
+When a user marks/unmarks a message:
+
+* Existing badges should update.
+* Structured Items panel should refresh/invalidate.
+* Record structured panel should refresh if implemented.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Structured sidebar/view appears.
+4. All filter works.
+5. Decisions filter works.
+6. Risks filter works.
+7. Requirements filter works.
+8. Empty state works.
+9. Loading state works.
+10. Error state is handled.
+11. Channel structured items show correct message previews.
+12. Channel structured items show correct badges.
+13. View in Currents opens the correct channel message.
+14. View in Currents opens channel thread replies correctly.
+15. Record structured items work if implemented.
+16. Account structured deep-link works.
+17. Lead structured deep-link works.
+18. Marking a new Decision updates the panel.
+19. Unmarking removes or updates the panel.
+20. Existing badges still work.
+21. Channel posting still works.
+22. Threads still work.
+23. Reactions still work.
+24. Pins still work.
+25. Edit/delete still works.
+26. Mentions still work.
+27. Attachments still work.
+28. Search still works.
+29. AI summaries still work.
+30. Create Task still works.
+31. View in Currents from Tasks still works.
+32. Record Currents still work.
+33. /execution/communications remains unaffected.
+34. No browser console errors.
+35. No server errors.
+36. No SQL errors.
+37. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Files changed
+2. Backend changes, if any
+3. Frontend components added/changed
+4. Structured view scope implemented:
+    * channel only
+    * all Currents
+    * record Currents
+5. Filter behavior
+6. Deep-link behavior
+7. Query invalidation behavior
+8. Verification results
+9. Known issues
+10. Recommended next step
+
+Keep scope tight: Currents Structured Items Panel only.
