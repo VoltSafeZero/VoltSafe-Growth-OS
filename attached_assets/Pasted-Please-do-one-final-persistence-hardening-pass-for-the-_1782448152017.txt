@@ -1,0 +1,47 @@
+Please do one final persistence hardening pass for the Training Hub video pipeline.
+
+Current state:
+
+* Training Hub video conversion is working.
+* All 6 raw .webm files converted successfully to .mp4.
+* Training Hub now shows 6/6 hosted and videos play inline.
+* The MP4 files are only about 2.9 MB total.
+* Current warning: MP4s live on the local filesystem and may disappear if the Replit container restarts unless they are committed or persisted.
+
+Goal:
+Make the Training Hub videos durable so they remain playable after restart/redeploy.
+
+Please do the following:
+
+1. Check whether the generated MP4 files are tracked by git:
+    * onboarding-videos/outputs/final/01-dashboard-overview.mp4
+    * onboarding-videos/outputs/final/02-leads-accounts-contacts.mp4
+    * onboarding-videos/outputs/final/03-marina-lead-pipeline.mp4
+    * onboarding-videos/outputs/final/04-voltsafe-mail-overview.mp4
+    * onboarding-videos/outputs/final/05-ai-email-generator.mp4
+    * onboarding-videos/outputs/final/06-account-intelligence-view.mp4
+2. If .gitignore currently excludes these MP4 files, update it so these specific final training MP4s can be committed.
+3. Commit the 6 final MP4 files to the repo since they are small, approximately 2.9 MB total.
+4. Keep the raw .webm files as source recordings. Do not delete them.
+5. Confirm npm run training:convert remains idempotent:
+    * if MP4s already exist, it should skip them
+    * it should not overwrite unnecessarily
+    * it should report skipped count correctly
+6. Restart the app/server.
+7. Verify after restart:
+    * /training loads
+    * Publishing Checklist still shows 6/6 hosted
+    * all 6 videos still show “Watch Video”
+    * clicking Watch Video plays the MP4 inline
+    * /api/training/video-status still returns all 6 hosted MP4s
+    * /api/training/videos/01-dashboard-overview.mp4 returns 200 or 206 with range support
+8. Run build/type validation.
+
+Final report should include:
+
+* whether MP4 files are now tracked/committed
+* any .gitignore changes
+* conversion script idempotency result
+* restart verification result
+* final hosted count
+* validation result

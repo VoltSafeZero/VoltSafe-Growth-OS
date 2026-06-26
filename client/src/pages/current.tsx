@@ -2040,7 +2040,7 @@ export default function CurrentPage() {
               <MessageSquare className="w-3.5 h-3.5 text-primary" />
             </div>
             <span className="font-semibold text-[13px] text-foreground tracking-tight">
-              Current
+              Currents
             </span>
             {totalUnread > 0 && (
               <span className="ml-auto min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">
