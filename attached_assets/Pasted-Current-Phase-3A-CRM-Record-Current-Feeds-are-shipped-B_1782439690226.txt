@@ -1,0 +1,203 @@
+Current Phase 3A CRM Record Current Feeds are shipped. Before adding any new features, please perform a Phase 3A audit and polish pass only.
+
+Do not add Guest Currents, direct messages, attachments, search, AI summaries, slash commands, external collaborators, or any new major feature yet.
+
+Goal
+
+Verify that record-specific Current feeds are stable, polished, and production-ready inside CRM pages.
+
+Audit only:
+
+1. Account Current feed
+2. Contact Current feed
+3. Opportunity Current feed
+4. Record Current backend routes
+5. Record Current messages, threads, reactions, pins, edit/delete, @mentions
+6. Deep-links from notifications to record Current feeds
+7. Existing /current channel behavior after Phase 3A changes
+
+Audit checklist
+
+1. Backend record routes
+
+Verify:
+
+* GET /api/current/record/account/:id/messages
+* POST /api/current/record/account/:id/messages
+* POST /api/current/record/account/:id/read
+* GET /api/current/record/account/:id/pins
+
+Repeat equivalent checks for:
+
+* contact
+* opportunity
+
+Check:
+
+* Routes require authentication.
+* Invalid object type is rejected.
+* Invalid object id is handled safely.
+* Empty/whitespace-only messages are rejected.
+* Record messages store channel_id = null.
+* Record messages store correct object_type and object_id.
+* Channel messages do not leak into record feeds.
+* Record messages do not leak into channel feeds.
+
+2. Record message features
+
+For Account, Contact, and Opportunity record feeds, verify:
+
+* Posting works.
+* Messages display author, avatar/initials, timestamp, and body.
+* Empty state looks polished.
+* Reactions work.
+* Edit works.
+* Delete works.
+* Deleted messages show subtle placeholder.
+* Pins work if supported.
+* Pinned bar looks compact.
+* Unpin works.
+* @mention autocomplete works.
+* Mention chips render correctly.
+* Mention notifications are created.
+* Self-mentions do not notify the sender.
+* Duplicate mention notifications are not created.
+
+3. Threads inside record Current
+
+Verify:
+
+* Replying to a record message works.
+* Thread replies inherit the correct object_type and object_id.
+* Thread replies have channel_id = null.
+* Thread replies do not appear as top-level record messages.
+* Reply count updates.
+* Reactions work on thread replies.
+* Edit/delete works on thread replies.
+* Mention inside a record-thread reply creates notification.
+* Thread drawer/panel looks good inside record page layout.
+* Esc/X closes the thread panel correctly.
+* Switching away from the record page does not leave stale thread state.
+
+4. CRM page integration
+
+Verify visually:
+
+Account profile
+
+* Current section appears in the intended location.
+* It does not make the Account page feel cluttered.
+* It does not break Timeline, Emails, Tasks, or existing sections.
+* URL with ?tab=current scrolls to or opens Current correctly.
+* Deep-link with ?tab=current&message=ID highlights the message if implemented.
+* Deep-link with ?tab=current&thread=ID&message=ID opens the thread if implemented.
+
+Contact profile
+
+* Current tab appears cleanly in existing tab group.
+* Existing Timeline and Emails tabs still work.
+* Current tab activates from URL param if implemented.
+* Layout does not overflow.
+* Composer and dropdowns are not clipped.
+
+Opportunity profile
+
+* Current section appears in the intended location.
+* Unified Timeline still works.
+* Deep-link behavior works if implemented.
+* Layout remains clean and premium.
+
+5. Dropdown and popover clipping
+
+Inside each record Current feed, verify:
+
+* @mention dropdown is not clipped.
+* Emoji picker is not clipped.
+* Thread panel is not clipped.
+* Hover action bar appears in the right place.
+* No nested scroll trap makes the UI feel broken.
+* Dark mode looks polished.
+
+6. Read/unread behavior
+
+Verify:
+
+* Opening a record Current marks it read if implemented.
+* Posting your own record message does not create unread count for yourself.
+* Record read receipts do not interfere with channel read receipts.
+* Channel unread counts still work.
+* /api/current/unread-counts does not break with record messages present.
+* Record messages do not inflate channel unread counts.
+
+7. Existing /current regression check
+
+Verify:
+
+* /current loads.
+* All 9 Currents still appear.
+* Channel posting still works.
+* Channel threads still work.
+* Channel reactions still work.
+* Channel pins still work.
+* Channel edit/delete still works.
+* Channel @mentions still work.
+* Mentions panel still works.
+* Channel deep-links still work.
+* /execution/communications remains unaffected.
+
+8. Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* TypeScript/build output if feasible
+* React key warnings
+* API errors
+* SQL errors related to nullable channel_id
+* SQL errors related to record pins/read receipts
+* Failed notification inserts
+
+Allowed fixes
+
+Only fix bugs or polish issues directly related to Phase 3A.
+
+Allowed:
+
+* Record route bugs
+* Record query bugs
+* Layout/overflow fixes
+* Deep-link fixes
+* Thread inheritance fixes
+* Record mention notification fixes
+* Read receipt bugs
+* Dropdown/popup clipping fixes
+* Console/server error fixes
+* Small UI polish on Account/Contact/Opportunity Current sections
+
+Not allowed:
+
+* Guest Currents
+* Direct messages
+* Attachments
+* Search
+* AI summaries
+* Slash commands
+* External collaborators
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. API checks performed
+5. CRM pages visually verified
+6. Notification/deep-link checks performed
+7. Existing /current regression results
+8. Final pass/fail status
+9. Recommended next feature order
+
+Keep scope tight: audit and polish Phase 3A only.

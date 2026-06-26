@@ -33189,7 +33189,7 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = getSessionUserId(req);
       const messageId = Number(req.params.id);
       const emoji = String(req.body?.emoji || "").trim();
-      const ALLOWED = ["👍","❤️","🔥","✅","😂","👀"];
+      const ALLOWED = ["👍","❤️","🔥","✅","😂","👀","😄","🎉","🚀","💯","🙏","👏"];
       if (!messageId || !ALLOWED.includes(emoji))
         return res.status(400).json({ message: "Invalid message or emoji" });
       const msgRows = await db.execute(sql.raw(
@@ -33320,15 +33320,29 @@ export function registerConfluenceRoutes(app: Express) {
       const messageId = Number(req.params.id);
       if (!messageId) return res.status(400).json({ message: "Invalid message id" });
       const msgRows = await db.execute(sql.raw(
-        `SELECT id, channel_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+        `SELECT id, channel_id, object_type, object_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
       ));
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
-      const channelId = Number(msgRows.rows[0].channel_id);
-      await db.execute(sql.raw(`
-        INSERT INTO current_pins (channel_id, message_id, pinned_by)
-        VALUES (${channelId}, ${messageId}, ${userId})
-        ON CONFLICT (channel_id, message_id) DO NOTHING
-      `));
+      const channelId = msgRows.rows[0].channel_id ? Number(msgRows.rows[0].channel_id) : null;
+      const pinObjType: string | null = msgRows.rows[0].object_type || null;
+      const pinObjId: number | null = msgRows.rows[0].object_id ? Number(msgRows.rows[0].object_id) : null;
+
+      if (channelId) {
+        await db.execute(sql.raw(`
+          INSERT INTO current_pins (channel_id, message_id, pinned_by)
+          VALUES (${channelId}, ${messageId}, ${userId})
+          ON CONFLICT (channel_id, message_id) DO NOTHING
+        `));
+      } else if (pinObjType && pinObjId) {
+        await db.execute(sql.raw(`
+          INSERT INTO current_pins (channel_id, object_type, object_id, message_id, pinned_by)
+          VALUES (NULL, '${pinObjType}', ${pinObjId}, ${messageId}, ${userId})
+          ON CONFLICT (object_type, message_id) WHERE object_type IS NOT NULL
+          DO NOTHING
+        `));
+      } else {
+        return res.status(400).json({ message: "Message has no channel or record context" });
+      }
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -33367,14 +33381,16 @@ export function registerConfluenceRoutes(app: Express) {
         ) rxn ON true`;
 
       const selectCols = `
-          m.id, m.channel_id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
+          m.id, m.channel_id, m.object_type, m.object_id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
           m.parent_message_id,
           CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
           u.name AS user_name, u.avatar_url AS user_avatar_url,
           COALESCE(rxn.reactions, '[]'::json) AS reactions`;
 
       const mapRow = (r: any) => ({
-        id: r.id, channelId: r.channel_id, userId: r.user_id,
+        id: r.id, channelId: r.channel_id,
+        objectType: r.object_type || null, objectId: r.object_id ? Number(r.object_id) : null,
+        userId: r.user_id,
         body: r.body, isEdited: r.is_edited, editedAt: r.edited_at,
         deletedAt: r.deleted_at, createdAt: r.created_at,
         parentMessageId: r.parent_message_id,

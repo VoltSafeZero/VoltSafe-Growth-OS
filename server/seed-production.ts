@@ -2080,6 +2080,11 @@ export async function migrateCurrentSchema(): Promise<void> {
     await db.execute(sql.raw(`
       ALTER TABLE current_pins ADD COLUMN IF NOT EXISTS object_id INTEGER
     `));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS current_pins_record_key
+        ON current_pins(object_type, message_id)
+        WHERE object_type IS NOT NULL
+    `));
 
     console.log("[migration] Current schema ready.");
   } catch (err) {

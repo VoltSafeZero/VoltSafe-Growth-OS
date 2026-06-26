@@ -88,7 +88,7 @@ function renderMentionBody(body: string, myUserId: number): React.ReactNode {
   return <>{parts}</>;
 }
 
-const QUICK_EMOJIS = ["👍", "❤️", "😄", "🎉", "👀", "🚀"];
+const QUICK_EMOJIS = ["👍", "❤️", "🎉", "😄", "🚀", "👀"];
 
 function initials(name: string) {
   return name.split(" ").map(p => p[0]).join("").slice(0, 2).toUpperCase();
@@ -561,7 +561,7 @@ function ThreadPanel({
           </div>
         </SheetHeader>
 
-        <ScrollArea className="flex-1 overflow-y-auto min-h-0">
+        <ScrollArea className="flex-1 min-h-0">
           <div className="p-3 space-y-1">
             {isLoading && (
               <div className="py-8 text-center text-xs text-muted-foreground">Loading…</div>
