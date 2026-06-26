@@ -1,0 +1,137 @@
+Stop all other work and perform only this task:
+
+Rename VoltSafe CMS internal communications feature from “Current” to “Currents”
+
+This is a safe UI/product rename only.
+
+Do not work on Training Hub.
+Do not work on videos.
+Do not work on search.
+Do not work on attachments.
+Do not work on unrelated tests.
+Do not refactor technical plumbing.
+
+Goal
+
+Users should see the product/module name as:
+
+Currents
+
+not:
+
+Current
+
+Important: keep technical identifiers unchanged
+
+Do not rename:
+
+* /current
+* /api/current/*
+* current_messages
+* current_channels
+* current_read_receipts
+* current_mentions
+* current_pins
+* current_reactions
+* files or component names unless absolutely necessary
+
+This is a visible-text rename, not a database/API refactor.
+
+Update user-facing labels
+
+Search for visible text strings and update them where appropriate:
+
+* Current
+* Search Current
+* Record Current
+* Account Current
+* Contact Current
+* Opportunity Current
+* Lead Current
+* Current — team discussion
+* Current mention
+* Open in Current
+* Search this Current
+
+Change visible product/module labels to Currents.
+
+Examples:
+
+* Sidebar nav item: Current → Currents
+* Main page title: Current → Currents
+* Search page title: Search Current → Search Currents
+* CRM record section/tab: Current → Currents
+* Record section heading: Current — team discussion → Currents — team discussion
+* Notification text: Current mention → Currents mention or better, Mentioned in Currents
+
+Use natural wording
+
+Use Currents for the product/module.
+
+Use Current only if the sentence clearly refers to one individual stream/conversation and singular wording is natural.
+
+Good examples:
+
+* Currents
+* Search Currents
+* Open in Currents
+* Currents — team discussion
+* No messages in this Current yet
+* Search this conversation
+
+Avoid awkward copy:
+
+* No Currents messages
+* Current Currents
+* Currents Current
+* Currentss
+
+Files/areas to inspect
+
+At minimum inspect:
+
+* client/src/lib/nav-config.ts
+* client/src/pages/current.tsx
+* client/src/components/current/record-current-feed.tsx
+* Account profile page
+* Contact profile page
+* Opportunity profile page
+* Lead detail/dialog page
+* backend notification text in Current routes
+* search result display labels
+* empty states
+* buttons/tooltips
+* tests that assert visible labels
+
+Verification
+
+After the rename, verify:
+
+1. App starts successfully.
+2. Sidebar shows Currents.
+3. /current route still works.
+4. /api/current/* routes still work.
+5. Main Currents page still loads.
+6. Search still works.
+7. Mentions panel still works.
+8. Attachments still work.
+9. Account record feed displays Currents.
+10. Contact record feed displays Currents.
+11. Opportunity record feed displays Currents.
+12. Lead record feed displays Currents.
+13. Notification text uses Currents where appropriate.
+14. No browser console errors.
+15. No server errors.
+16. No unrelated files changed unnecessarily.
+
+Deliverable
+
+Return:
+
+1. Files changed
+2. Visible labels updated
+3. Technical identifiers intentionally left unchanged
+4. Verification results
+5. Any remaining visible strings that still say “Current” and why they were left unchanged
+
+Again: this task is only the Current → Currents visible rename.
