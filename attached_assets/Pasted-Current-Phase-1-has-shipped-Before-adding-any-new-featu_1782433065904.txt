@@ -1,0 +1,109 @@
+Current Phase 1 has shipped. Before adding any new features, please perform a Phase 1 audit and polish pass only.
+
+Do not add threads, reactions, pins, attachments, mentions, DMs, Guest Currents, CRM record feeds, search, or AI summaries yet.
+
+Goal
+
+Make sure the existing /current experience is stable, polished, and premium before we build Phase 2.
+
+Audit areas
+
+Please inspect and verify:
+
+1. Navigation
+    * Current appears correctly in the Work section.
+    * The icon and label align visually with the rest of the sidebar.
+    * The existing /execution/communications page is unaffected.
+    * Route /current works after refresh.
+2. Authentication
+    * Unauthenticated users are redirected appropriately.
+    * Authenticated users can access /current.
+    * All /api/current/* routes require auth.
+3. Channel list
+    * All 9 default Currents appear.
+    * Hashtag styling looks clean: #general, #sales, etc.
+    * Selected Current state is obvious.
+    * Unread badges/dots display cleanly and do not clutter.
+    * Long names like #customer-success and #marina-pilots do not overflow awkwardly.
+4. Message feed
+    * Empty state looks premium and useful.
+    * Messages display with author, timestamp, avatar/initials, and body.
+    * Consecutive messages from the same author group correctly.
+    * Feed auto-scrolls to newest message when opening a Current.
+    * Feed does not jump annoyingly during polling.
+    * Very long messages wrap correctly.
+    * Multi-line messages render correctly.
+    * The feed looks good in dark mode.
+5. Composer
+    * Composer is visually polished.
+    * Enter sends.
+    * Shift+Enter creates a newline.
+    * Empty messages cannot be sent.
+    * Send button/loading state behaves correctly.
+    * Composer stays anchored at the bottom.
+    * Composer does not overlap the feed.
+6. Unread/read behavior
+    * Opening a Current marks it read.
+    * Sender’s own posted message does not create unread count for themselves.
+    * Switching between Currents updates counts correctly.
+    * Polling does not cause flicker or stale badge issues.
+    * /api/current/unread-counts returns correct totals.
+7. Performance
+    * Active feed polling every 5 seconds does not cause visible UI flicker.
+    * Unread polling every 15 seconds does not cause layout shifts.
+    * Message posting feels instant enough.
+    * No obvious excessive API calls.
+8. Responsive layout
+    * Verify desktop layout.
+    * Verify laptop-width layout.
+    * Verify narrower widths if the CMS supports them.
+    * Make sure the page does not horizontal-scroll unnecessarily.
+9. Console/server errors
+    * Check browser console for errors.
+    * Check server logs for errors.
+    * Confirm no TypeScript/build errors.
+    * Confirm no React key warnings or hydration/render warnings.
+
+Allowed fixes
+
+Only fix issues directly related to the Phase 1 implementation, such as:
+
+* Styling polish
+* Layout issues
+* Overflow issues
+* Empty/loading/error states
+* Small unread-count bugs
+* Route refresh bugs
+* Query invalidation bugs
+* Auth guard issues
+* Console/server errors caused by Current
+
+Not allowed in this pass
+
+Do not add:
+
+* Threads
+* Reactions
+* Pins
+* Attachments
+* @mentions
+* CRM record Current tabs
+* Guest Currents
+* Direct messages
+* Search
+* AI summaries
+* Private channels
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Screenshots or visual verification notes
+5. API checks performed
+6. Final pass/fail status
+7. Recommended next Phase 2 feature order
+
+Please keep the scope tight: polish and verify Phase 1 only.
