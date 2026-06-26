@@ -1,0 +1,328 @@
+Please perform a VoltSafe CMS Currents Phase 7B Structured Items Panel audit and polish pass only.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, AI classification, new task features, or unrelated CRM features.
+
+Goal
+
+Verify that the Structured Items Panel is stable, useful, polished, and correctly wired across:
+
+1. /current channel view
+2. /current all-Currents structured view
+3. Record Currents structured view
+4. Filters
+5. Deep-links
+6. Query invalidation
+7. Existing Currents regressions
+
+Audit scope
+
+Audit only:
+
+* Structured sidebar/view in /current
+* StructuredItemsPanel
+* Record RecordStructuredPanel
+* GET /api/current/structured usage
+* Filter chips
+* Scope toggle
+* Item cards/rows
+* View in Currents links
+* Query invalidation after mark/unmark
+* Existing Phase 7A badges impacted by Phase 7B
+
+/current sidebar/view checks
+
+Verify:
+
+1. Structured sidebar button appears in a sensible position.
+2. Button label/icon look consistent with Search and Mentions.
+3. Clicking Structured opens the structured items view.
+4. Returning to Channels, Mentions, or Search works cleanly.
+5. The current selected channel remains stable when switching views.
+6. The view does not break unread counts.
+7. The view does not auto-scroll weirdly.
+8. Dark mode styling is polished.
+
+Scope toggle checks
+
+Verify if implemented:
+
+1. Current channel scope works.
+2. All Currents scope works.
+3. Toggle label is clear.
+4. Switching scope refreshes results correctly.
+5. No stale results remain when switching from All to current channel.
+6. Channel-specific results do not show unrelated record items unless intentionally included.
+7. All-Currents view clearly labels the source context.
+
+Filter checks
+
+Verify filters:
+
+* All
+* Decisions
+* Risks
+* Requirements
+
+Check:
+
+1. All shows all item types.
+2. Decisions shows only decisions.
+3. Risks shows only risks.
+4. Requirements shows only requirements.
+5. Filter selected state is obvious.
+6. Changing filters updates results without reload.
+7. Empty states are specific:
+    * “No decisions marked yet.”
+    * “No risks marked yet.”
+    * “No requirements marked yet.”
+8. Filters do not reset unexpectedly when switching views unless intentional.
+
+Item card/row checks
+
+Each structured item should show:
+
+* Type badge
+* Message preview
+* Original author
+* Marked by / created by if available
+* Created date
+* Source context
+* View in Currents action
+
+Verify:
+
+1. Long message previews truncate cleanly.
+2. Deleted message text is not exposed.
+3. Missing author/createdBy data does not crash UI.
+4. Source labels are readable:
+    * #general
+    * Account Currents
+    * Lead Currents
+5. Item type colors match badges from messages.
+6. Cards look good in dark mode.
+7. Cards do not feel like developer debug output.
+
+Deep-link checks
+
+Click View in Currents for each available source type.
+
+Verify:
+
+Channel message
+
+Expected:
+
+/current?channel=CHANNEL_SLUG&message=MESSAGE_ID
+
+Should open correct channel and highlight/scroll to message if supported.
+
+Channel thread reply
+
+Expected:
+
+/current?channel=CHANNEL_SLUG&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Should open correct channel, thread panel, and reply/root context.
+
+Account record message/thread
+
+Expected:
+
+/accounts/OBJECT_ID?tab=current&message=MESSAGE_ID
+
+and with thread param when applicable.
+
+Contact record message/thread
+
+Use existing contact route.
+
+Opportunity record message/thread
+
+Use existing opportunity route.
+
+Lead record message/thread
+
+Expected:
+
+/opportunities?selected=LEAD_ID&tab=current&message=MESSAGE_ID
+
+and with thread param when applicable.
+
+Check that record links navigate correctly even from /current all-Currents structured view.
+
+Record Currents structured panel checks
+
+Inside RecordCurrentFeed, verify:
+
+1. Structured toggle/button appears in a clean location.
+2. It does not crowd Search or Summary.
+3. Opening Structured closes or coexists with Summary intentionally.
+4. Typing in Search closes Structured if intended.
+5. Structured items are scoped only to that record.
+6. Filters work if implemented.
+7. Empty state works.
+8. View in Currents deep-link works.
+9. Marking/unmarking from record messages updates the panel.
+10. Record posting still works.
+11. Record search still works.
+12. Record summary still works.
+13. Record thread panel still works.
+
+Query invalidation checks
+
+Verify:
+
+1. Marking a message as Decision immediately updates badges.
+2. Marking immediately updates /current Structured panel.
+3. Marking immediately updates Record Structured panel.
+4. Unmarking removes badge immediately.
+5. Unmarking removes or updates item in Structured panel.
+6. Thread-panel mark/unmark updates both thread panel and parent feed.
+7. Record thread-panel mark/unmark updates both thread panel and record feed.
+8. No stale data remains after switching channel/scope/filter.
+
+Backend/API usage checks
+
+Verify frontend calls:
+
+* GET /api/current/structured?scope=channel&channel=...
+* GET /api/current/structured?scope=record&objectType=...&objectId=...
+* GET /api/current/structured?itemType=...
+* limit if used
+
+Check:
+
+1. Auth errors handled.
+2. Empty results handled.
+3. API errors handled.
+4. Response payload fields match frontend expectations.
+5. No unnecessary polling or excessive refetching.
+6. No duplicate requests on every render.
+
+Deleted/edit safety checks
+
+Verify:
+
+1. Deleted messages do not expose body text in structured panel.
+2. Deleted message rows do not crash the panel.
+3. Deleted-message View in Currents behavior is safe.
+4. Editing a marked message updates preview appropriately if refetched.
+5. Attachments from deleted messages are not exposed.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Channel search
+* Channel AI summaries
+* Channel Create Task
+* Channel View in Currents from Tasks
+* Mentions panel
+* Account Currents
+* Contact Currents
+* Opportunity Currents
+* Lead Currents
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record search
+* Record summaries
+* Record Create Task
+* Record View in Currents from Tasks
+* Mark/unmark badges
+* /execution/communications
+
+Verify task system still works:
+
+* Tasks Hub loads
+* Task drawer opens
+* Currents source block still renders
+* View in Currents still works
+* Non-Currents tasks still render normally
+
+UI/UX polish
+
+Check:
+
+1. Naming is consistent:
+    * “Structured”
+    * “Decisions”
+    * “Risks”
+    * “Requirements”
+2. There is no awkward “Current” vs “Currents” product naming regression.
+3. “View in Currents” is used consistently.
+4. Empty states are executive-friendly.
+5. Layout is not cramped.
+6. Icons are consistent.
+7. Dark mode contrast is good.
+8. Narrow-screen behavior is acceptable.
+9. No dropdown/panel clipping.
+10. No weird z-index issues.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React warnings
+* Failed fetch handling
+* Vite/build errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 7B.
+
+Allowed:
+
+* Structured panel UI polish
+* Filter bugs
+* Scope toggle bugs
+* Deep-link bugs
+* Query invalidation bugs
+* Deleted-message safety bugs
+* Missing/incorrect source labels
+* Empty/error/loading state polish
+* Excessive refetching
+* Console/server errors caused by Phase 7B
+
+Not allowed:
+
+* Guest Currents
+* Direct messages
+* Slash commands
+* External collaborators
+* Workflow automation
+* AI classification
+* New task features
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. /current structured view checks
+5. Record structured panel checks
+6. Filter/scope behavior
+7. Deep-link verification
+8. Query invalidation verification
+9. Deleted/edit safety checks
+10. Existing Currents regression results
+11. Existing task regression results
+12. Final pass/fail status
+13. Recommended next feature order
+
+Keep scope tight: Currents Phase 7B Structured Items Panel audit only.

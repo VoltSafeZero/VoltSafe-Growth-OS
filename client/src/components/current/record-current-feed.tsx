@@ -983,6 +983,11 @@ function RecordStructuredPanel({ objectType, objectId }: { objectType: string; o
                     {item.messageBody}
                   </p>
                 )}
+                {item.notes && (
+                  <p className="text-[10.5px] text-muted-foreground/55 italic line-clamp-1 mb-1.5 border-t border-border/20 pt-1.5">
+                    {item.notes}
+                  </p>
+                )}
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10.5px] text-muted-foreground/60 flex-1 min-w-0 truncate">
                     {item.authorName ?? "Unknown"}
@@ -994,7 +999,7 @@ function RecordStructuredPanel({ objectType, objectId }: { objectType: string; o
                     <button
                       onClick={() => { window.location.href = item.actionUrl!; }}
                       data-testid={`rec-structured-view-btn-${item.id}`}
-                      className="shrink-0 text-[10.5px] text-primary/60 hover:text-primary font-medium transition-colors opacity-0 group-hover:opacity-100"
+                      className="shrink-0 text-[10.5px] text-primary/40 hover:text-primary font-medium transition-colors group-hover:text-primary/70"
                     >
                       View →
                     </button>

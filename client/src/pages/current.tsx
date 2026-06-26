@@ -186,6 +186,12 @@ function avatarBg(userId: number): string {
   return AVATAR_PALETTE[userId % AVATAR_PALETTE.length];
 }
 
+function strHash(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) ^ s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
 function buildRecordUrl(objectType: string, objectId: number): string {
   const map: Record<string, string> = {
     account: "accounts",
@@ -1990,9 +1996,8 @@ function StructuredItemsPanel({
   const [filter, setFilter] = useState<"all" | "decision" | "risk" | "requirement">("all");
   const [scope, setScope] = useState<"channel" | "all">("channel");
 
-  const params = new URLSearchParams({ limit: "50" });
+  const params = new URLSearchParams({ scope: scope === "channel" ? "channel" : "all", limit: "50" });
   if (scope === "channel") {
-    params.set("scope", "channel");
     params.set("channel", selectedSlug);
   }
   if (filter !== "all") params.set("itemType", filter);
@@ -2158,7 +2163,7 @@ function StructuredItemsPanel({
                     <div className={cn(
                       "w-[18px] h-[18px] rounded-full flex items-center justify-center shrink-0",
                       "text-[7px] font-bold text-white",
-                      avatarBg(item.messageId % 200)
+                      avatarBg(strHash(item.authorName ?? "?"))
                     )}>
                       {initials(item.authorName ?? "?")}
                     </div>
@@ -2173,7 +2178,7 @@ function StructuredItemsPanel({
                     <button
                       onClick={() => handleView(item)}
                       data-testid={`structured-view-btn-${item.id}`}
-                      className="shrink-0 text-[11.5px] text-primary/60 hover:text-primary font-medium transition-colors opacity-0 group-hover:opacity-100"
+                      className="shrink-0 text-[11.5px] text-primary/40 hover:text-primary font-medium transition-colors group-hover:text-primary/70"
                     >
                       View →
                     </button>

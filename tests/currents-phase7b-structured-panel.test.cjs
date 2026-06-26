@@ -77,7 +77,7 @@ check("StructuredItemsPanel uses useQuery for /api/current/structured", (() => {
 })());
 check("StructuredItemsPanel scope=channel filter", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 800).includes('scope", "channel"');
+  return i > -1 && currentTsx.slice(i, i + 800).includes('"channel"') && currentTsx.slice(i, i + 800).includes('"all"');
 })());
 check("StructuredItemsPanel refetches every 30s", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
