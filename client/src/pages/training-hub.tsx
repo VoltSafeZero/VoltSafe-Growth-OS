@@ -301,18 +301,18 @@ function PlaylistViewer({
                         onClick={() => window.open(video.videoUrl!, "_blank", "noopener")}
                         data-testid={`watch-video-${video.id}`}
                       >
-                        Watch
-                        <ArrowRight className="h-3 w-3 ml-1" />
+                        <PlayCircle className="h-3 w-3 mr-1" />
+                        Watch Video
                       </Button>
                     ) : (
                       <Button
                         size="sm"
                         variant="outline"
                         disabled
-                        className="text-muted-foreground/50 border-border/30"
+                        className="text-muted-foreground/40 border-border/20 cursor-not-allowed"
                         data-testid={`watch-video-${video.id}`}
                       >
-                        Coming soon
+                        Not Published Yet
                       </Button>
                     )}
                   </div>

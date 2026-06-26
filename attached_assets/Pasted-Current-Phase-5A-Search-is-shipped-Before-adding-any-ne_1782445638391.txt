@@ -1,0 +1,219 @@
+Current Phase 5A Search is shipped. Before adding any new features, please perform a Phase 5A audit and polish pass only.
+
+Do not add AI summaries, Guest Currents, direct messages, slash commands, external collaborators, or any unrelated features yet.
+
+Goal
+
+Verify that Current search is safe, accurate, polished, and does not leak deleted/private data across:
+
+1. /current global/channel search
+2. Channel thread reply search
+3. CRM Record Current search
+4. Record thread reply search
+5. Attachment filename search
+6. Deep-link navigation from search results
+
+Audit checklist
+
+1. Backend search route
+
+Audit:
+
+* GET /api/current/search
+
+Verify:
+
+* Auth required.
+* Empty/missing q is rejected or returns a clean empty result.
+* Query is parameterized and safe from SQL injection.
+* limit defaults correctly.
+* limit max cap works.
+* Invalid scope is rejected safely.
+* Invalid channel is handled safely.
+* Invalid objectType / objectId is handled safely.
+* scope=all searches channel + record Current messages.
+* scope=channel only searches channel messages.
+* scope=record only searches record messages.
+* channel=<slug> only searches that channel.
+* objectType + objectId only searches that record.
+* Thread replies can be found.
+* Top-level messages can be found.
+* Attachment filenames can be found if implemented.
+
+2. Deleted data safety
+
+Verify:
+
+* Soft-deleted message bodies do not appear in search results.
+* Soft-deleted message attachment filenames do not appear.
+* Deleted thread replies do not appear.
+* Search snippets never expose redacted body text.
+* Search results do not link to deleted messages unless intentionally handled.
+* Deleted-message attachment redaction from Phase 4A still holds.
+
+3. Search result payload
+
+Verify every result includes correct:
+
+* message id
+* root/thread id if reply
+* body snippet
+* author name
+* createdAt
+* channel slug/name for channel messages
+* objectType/objectId for record messages
+* attachment filename data if matched
+* actionUrl
+* isReply
+
+Check:
+
+* Channel top-level result URL:
+    * /current?channel=X&message=Y
+* Channel thread reply result URL:
+    * /current?channel=X&thread=ROOT_ID&message=REPLY_ID
+* Record result URL uses the existing CRM route builder.
+* Lead result URL uses the fixed Lead route:
+    * /opportunities?selected=LEAD_ID&tab=current&message=Y
+    * or the correct existing Lead route if different.
+
+4. /current search UI
+
+Verify:
+
+* Search sidebar item appears cleanly.
+* Search view opens correctly.
+* Debounced input works.
+* Loading state looks polished.
+* Empty state looks polished.
+* Error state looks polished.
+* Results are readable in dark mode.
+* Highlighted text does not look ugly.
+* Mention tokens are stripped or rendered cleanly.
+* Attachment filename hits are visible.
+* Long snippets truncate gracefully.
+* Clicking a channel result opens the correct channel.
+* Clicking a thread result opens the correct thread.
+* Target message highlight works.
+* Returning to channel or Mentions view works cleanly.
+* Search does not break unread counts.
+
+5. Record Current search UI
+
+Verify inside:
+
+* Account Current
+* Contact Current
+* Opportunity Current
+* Lead Current
+
+Check:
+
+* Compact search bar appears in a good location.
+* It does not clutter the record page.
+* Searching only returns results for that record.
+* Results replace/overlay the message list cleanly.
+* Clicking a result scrolls/highlights the message.
+* Clicking a thread result opens the thread panel.
+* Clearing the query returns to the normal message list.
+* Search does not break the composer.
+* Search does not break auto-scroll.
+* Search does not break pins/reactions/threads/attachments.
+* Dark mode looks polished.
+
+6. Attachment filename search
+
+If implemented, verify:
+
+* Searching image filename works.
+* Searching PDF/document filename works.
+* Searching attachment names from deleted messages does not return results.
+* Attachment filename result shows enough context.
+* File metadata does not expose raw filesystem path.
+
+7. Isolation checks
+
+Verify:
+
+* Channel search does not return record messages.
+* Record search does not return channel messages.
+* Account record search does not return Contact/Lead/Opportunity messages.
+* Lead search does not return Opportunity messages with the same numeric ID.
+* Search result links do not cross into the wrong entity.
+* Current search does not show unrelated CRM attachment records.
+
+8. Regression checks
+
+Verify existing Current features still work:
+
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Mentions panel
+* Account Current
+* Contact Current
+* Opportunity Current
+* Lead Current
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record deep-links
+* /execution/communications
+
+9. Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React key warnings
+* Failed fetch handling
+* Vite/build errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 5A Search.
+
+Allowed:
+
+* Search route bugs
+* Search SQL bugs
+* Deleted-data leakage
+* Search result payload bugs
+* Deep-link bugs
+* Snippet/highlight bugs
+* Record/channel isolation bugs
+* Search UI polish
+* Console/server errors caused by search
+
+Not allowed:
+
+* AI summaries
+* Guest Currents
+* Direct messages
+* Slash commands
+* External collaborators
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend/API checks performed
+5. Frontend/UI checks performed
+6. Deleted-data safety checks
+7. Deep-link checks
+8. Existing Current regression results
+9. Final pass/fail status
+10. Recommended next feature order
+
+Keep scope tight: audit and polish Phase 5A Search only.
