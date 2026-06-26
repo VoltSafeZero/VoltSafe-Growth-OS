@@ -1,0 +1,212 @@
+Proceed with Currents Phase 6B only: View in Currents link from Tasks.
+
+Goal:
+When a task is created from a Currents message, thread reply, record message, record thread reply, or AI summary action item, the task detail UI should show a clear View in Currents link/button that navigates back to the exact source context.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, or unrelated task features yet.
+
+Phase 6B scope
+
+Add only:
+
+1. Show source Currents context on task detail/drawer/card where appropriate.
+2. Add View in Currents link/button for tasks created from Currents.
+3. Use existing stored source metadata from Phase 6A.
+4. Deep-link back to the exact source message/thread/record where possible.
+5. Gracefully handle summary action item tasks if no exact source message exists.
+
+Existing metadata to audit first
+
+Before writing code, inspect the task records created by Phase 6A.
+
+Audit what is actually stored, including:
+
+* sourceContext
+* messageId
+* channelSlug
+* threadRootId
+* objectType
+* objectId
+* summaryContext
+* linkedObjectType
+* linkedObjectId
+* any description/source URL fields
+
+Do not invent a new schema unless the existing metadata is insufficient.
+
+Deep-link rules
+
+1. Channel message task
+
+If task metadata has:
+
+* sourceContext = "currents_channel"
+* channelSlug
+* messageId
+* no threadRootId
+
+Link to:
+
+/current?channel=CHANNEL_SLUG&message=MESSAGE_ID
+
+2. Channel thread reply task
+
+If task metadata has:
+
+* sourceContext = "currents_channel"
+* channelSlug
+* messageId
+* threadRootId
+
+Link to:
+
+/current?channel=CHANNEL_SLUG&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+3. Record Currents message task
+
+If task metadata has:
+
+* sourceContext = "currents_record"
+* objectType
+* objectId
+* messageId
+* no threadRootId
+
+Use the existing record route builder logic.
+
+Examples:
+
+* Account:
+    * /accounts/OBJECT_ID?tab=current&message=MESSAGE_ID
+* Contact:
+    * use actual existing Contact route
+* Opportunity:
+    * use actual existing Opportunity route
+* Lead:
+    * use corrected Lead route:
+        * /opportunities?selected=LEAD_ID&tab=current&message=MESSAGE_ID
+
+4. Record Currents thread reply task
+
+If task metadata has:
+
+* sourceContext = "currents_record"
+* objectType
+* objectId
+* messageId
+* threadRootId
+
+Link to:
+
+* Same record URL as above, with:
+    * thread=THREAD_ROOT_ID
+    * message=MESSAGE_ID
+
+Example:
+
+/accounts/OBJECT_ID?tab=current&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+5. AI summary action item task
+
+If task metadata has:
+
+* summaryContext = "currents_summary"
+
+If exact message/thread/source metadata also exists, link back using the above rules.
+
+If no exact source message exists, show context text like:
+
+Created from Currents AI Summary
+
+and optionally link to the related channel/record if available.
+
+Do not fabricate a source link if metadata is missing.
+
+Frontend requirements
+
+1. Task detail/drawer UI
+
+Find the main task detail UI / task drawer / task card used in Tasks Hub.
+
+Add a compact source block when a task has Currents source metadata.
+
+Display:
+
+* Source label:
+    * Created from Currents
+    * Created from #general
+    * Created from Account Currents
+    * Created from Lead Currents
+* Message/thread context if available:
+    * Message
+    * Thread reply
+    * AI summary action item
+* Button/link:
+    * View in Currents
+
+The button should navigate to the correct deep-link.
+
+2. Task list/card UI
+
+If there is a compact task card/list row, add a small indicator if low-risk:
+
+* Currents
+* or small message icon
+
+Do not clutter the task list if this is risky. The task detail view is the priority.
+
+3. UX requirements
+
+* Keep it subtle and premium.
+* Do not make every task look noisy.
+* Only show the block for tasks with Currents source metadata.
+* Dark mode should look good.
+* Link should open in the same app, not a new browser tab, unless existing routing convention says otherwise.
+* If metadata is partial, show what is known and avoid broken links.
+
+Backend requirements
+
+Prefer no backend changes if task metadata is already returned by existing task APIs.
+
+If task APIs do not return needed metadata, minimally add those fields to the task response.
+
+Do not create new task tables unless absolutely necessary.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. Tasks Hub loads.
+3. A task created from a channel message shows source block.
+4. Its View in Currents link opens the correct channel/message.
+5. A task created from a channel thread reply opens the correct channel/thread/message.
+6. A task created from an Account Currents message opens the Account page and highlights the message.
+7. A task created from a Lead Currents message opens the Lead dialog via corrected route.
+8. A task created from a record thread reply opens the correct record/thread/message.
+9. A task created from an AI summary action item shows appropriate summary context.
+10. Tasks without Currents metadata do not show the Currents source block.
+11. Existing task creation still works.
+12. Existing task editing still works.
+13. Existing task completion/status changes still work.
+14. Existing task filters/lists still work.
+15. Existing Currents features still work.
+16. No browser console errors.
+17. No server errors.
+18. No SQL errors.
+19. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing task metadata audit summary
+2. Files changed
+3. Backend/API changes, if any
+4. Frontend components changed
+5. Deep-link rules implemented
+6. Verification results
+7. Known issues
+8. Recommended next step
+
+Keep scope tight: View in Currents from tasks only.

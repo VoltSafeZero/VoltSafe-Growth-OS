@@ -17,10 +17,38 @@ import {
   Tag, Calendar as CalendarIcon, ListChecks, User, Link2, MoveRight, AlertTriangle,
   Trash2, Plus, X, Check, MessageSquare, Activity, Lock, RotateCcw, ChevronDown, Flag,
   Paperclip, UploadCloud, Download, FileText, FileImage, FileVideo, File as FileIcon, Loader2,
-  Users, Building2, UserCircle, ExternalLink, Repeat,
+  Users, Building2, UserCircle, ExternalLink, Repeat, Hash, Radio,
 } from "lucide-react";
 import { format } from "date-fns";
 import { DatePicker } from "@/components/ui/date-picker";
+
+// ── Currents deep-link URL builder ───────────────────────────────────────────
+function buildCurrentsUrl(sm: any): string | null {
+  if (!sm) return null;
+  const { sourceContext, messageId, channelSlug, objectType, objectId, threadRootId } = sm;
+  if (sourceContext === "currents_channel") {
+    if (!channelSlug || !messageId) return null;
+    return `/current?channel=${channelSlug}&message=${messageId}${threadRootId ? `&thread=${threadRootId}` : ""}`;
+  }
+  if (sourceContext === "currents_record") {
+    if (!objectType || !objectId || !messageId) return null;
+    const msgPart = `&message=${messageId}`;
+    const threadPart = threadRootId ? `&thread=${threadRootId}` : "";
+    if (objectType === "lead") {
+      return `/opportunities?selected=${objectId}&tab=current${msgPart}${threadPart}`;
+    }
+    const segMap: Record<string, string> = {
+      account: "accounts", contact: "contacts", opportunity: "opportunities",
+      project: "execution/projects", deployment: "deployments",
+      install_workflow: "install-workflows", customer_success: "customer-success",
+      partnership: "strategy/partnerships", quote: "quotes",
+      tradeshow_event: "operations/events",
+    };
+    const seg = segMap[objectType] ?? objectType.replace(/_/g, "-") + "s";
+    return `/${seg}/${objectId}?tab=current${msgPart}${threadPart}`;
+  }
+  return null;
+}
 
 const RECURRENCE_LABELS: Record<string, string> = {
   daily: "Daily",
@@ -470,6 +498,44 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                   </div>
                 )}
               </div>
+
+              {/* Currents Source */}
+              {t.source === "current_message" && t.source_meta && (() => {
+                const sm = t.source_meta as any;
+                const currentsUrl = buildCurrentsUrl(sm);
+                if (!currentsUrl) return null;
+                const isChannel = sm.sourceContext === "currents_channel";
+                const sourceLabel = isChannel
+                  ? `#${sm.channelSlug}`
+                  : sm.objectType
+                    ? `${String(sm.objectType).replace(/_/g, " ")} · ${sm.objectId}`
+                    : "Currents";
+                return (
+                  <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs space-y-1.5" data-testid="panel-currents-source">
+                    <p className="flex items-center gap-1.5 font-medium text-primary/70">
+                      <Radio className="h-3.5 w-3.5" /> Created from Currents
+                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        {isChannel
+                          ? <Hash className="h-3 w-3 shrink-0" />
+                          : <MessageSquare className="h-3 w-3 shrink-0" />}
+                        <span className="font-medium capitalize">{sourceLabel}</span>
+                        {sm.threadRootId && (
+                          <span className="text-muted-foreground/50">· thread reply</span>
+                        )}
+                      </div>
+                      <a
+                        href={currentsUrl}
+                        className="inline-flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors shrink-0"
+                        data-testid="link-view-in-currents"
+                      >
+                        View in Currents <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Dependencies */}
               {data.dependencies.length > 0 && (
