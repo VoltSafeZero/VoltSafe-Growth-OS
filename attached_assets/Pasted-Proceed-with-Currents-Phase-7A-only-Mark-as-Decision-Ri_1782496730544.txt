@@ -1,0 +1,323 @@
+Proceed with Currents Phase 7A only: Mark as Decision / Risk / Requirement.
+
+Goal:
+Allow users to mark important Currents messages and thread replies as structured operating memory:
+
+1. Decision
+2. Risk
+3. Requirement
+
+This should help VoltSafe preserve important context from internal conversations without digging through long threads later.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, or unrelated CRM/task features yet.
+
+Phase 7A scope
+
+Add only:
+
+1. Mark a Currents message as:
+    * Decision
+    * Risk
+    * Requirement
+2. Mark a Currents thread reply as:
+    * Decision
+    * Risk
+    * Requirement
+3. Store the classification with source context.
+4. Display badges on marked messages.
+5. Add a lightweight “Structured Items” view/filter for the current channel or record if clean.
+6. Support:
+    * channel messages
+    * channel thread replies
+    * record messages
+    * record thread replies
+
+Existing systems to audit first
+
+Before writing code, inspect:
+
+* Current message schema
+* Current pins/reactions/mentions tables
+* Existing task source metadata shape
+* Existing activity/timeline/note systems
+* Existing CRM record timeline patterns
+* Existing route patterns under /api/current
+* Existing UI action bar patterns in Currents messages
+* Existing badges/chips styling
+
+Do not create a large new knowledge system if a simple table is enough.
+
+Data model
+
+Preferred new table if needed:
+
+current_structured_items
+
+Suggested fields:
+
+* id
+* message_id
+* item_type
+    * decision
+    * risk
+    * requirement
+* created_by
+* created_at
+* updated_at
+* notes nullable
+* severity nullable for risks
+* status nullable
+* object_type nullable
+* object_id nullable
+* channel_id nullable
+* thread_root_id nullable
+* source_meta jsonb nullable
+
+Uniqueness:
+
+* One message can have multiple structured item types if needed, but avoid duplicate same type by same user.
+* Prefer unique:
+    * (message_id, item_type)
+
+If a simpler design is safer, propose and implement it.
+
+Backend requirements
+
+Add authenticated routes:
+
+Mark item
+
+POST /api/current/messages/:id/structured
+
+Body:
+
+{
+  "itemType": "decision",
+  "notes": "Optional short note",
+  "severity": null,
+  "status": null
+}
+
+Allowed itemType values:
+
+* decision
+* risk
+* requirement
+
+Behavior:
+
+* Validate message exists.
+* Reject deleted messages.
+* Allow channel messages and record messages.
+* Allow thread replies.
+* Infer source context:
+    * channel slug/id if channel message
+    * objectType/objectId if record message
+    * threadRootId if reply
+* Upsert if same message/itemType already exists.
+* Return structured item.
+
+Unmark item
+
+DELETE /api/current/messages/:id/structured/:itemType
+
+Behavior:
+
+* Remove the mark.
+* Auth required.
+* Safe if already absent.
+
+List structured items
+
+GET /api/current/structured
+
+Support filters:
+
+* scope=channel&channel=general
+* scope=record&objectType=account&objectId=123
+* itemType=decision|risk|requirement
+* limit
+
+Return:
+
+* item id
+* itemType
+* notes
+* severity/status if used
+* message id
+* threadRootId
+* message preview
+* author
+* createdBy
+* createdAt
+* channel slug/name or record objectType/objectId
+* actionUrl/deep-link back to source message/thread
+
+Frontend requirements
+
+1. Message action menu
+
+Add a compact action to Currents messages:
+
+* Mark as...
+    * Decision
+    * Risk
+    * Requirement
+
+Available on:
+
+* channel top-level messages
+* channel thread replies
+* record top-level messages
+* record thread replies
+
+Do not clutter the hover bar. If the hover bar is already crowded, use a small dropdown/menu.
+
+2. Message badges
+
+When a message is marked, show a subtle badge on the message:
+
+* Decision
+* Risk
+* Requirement
+
+Suggested styles:
+
+* Decision: green/blue
+* Risk: amber/red
+* Requirement: purple/cyan
+
+Keep it premium and compact.
+
+3. Optional notes dialog
+
+If low-risk, when marking a message allow optional note entry:
+
+* “Why is this a decision/risk/requirement?”
+
+But do not overcomplicate Phase 7A. A direct mark/unmark action is acceptable.
+
+4. Structured Items view
+
+Add a lightweight view if clean:
+
+For /current:
+
+* Add sidebar item or small button:
+    * Structured
+    * or Decisions / Risks
+
+For record Currents:
+
+* Add compact filter or panel:
+    * Structured Items
+
+Display grouped list:
+
+* Decisions
+* Risks
+* Requirements
+
+Each item should show:
+
+* badge
+* message preview
+* author
+* created date
+* source context
+* View in Currents link
+
+If this is too much for Phase 7A, implement badges and list API first, then return a follow-up plan.
+
+5. Deep-links
+
+Every structured item should link back to the source:
+
+Channel message:
+
+/current?channel=CHANNEL_SLUG&message=MESSAGE_ID
+
+Channel thread reply:
+
+/current?channel=CHANNEL_SLUG&thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+Record message:
+
+Use existing record route builder:
+
+* Account:
+    * /accounts/OBJECT_ID?tab=current&message=MESSAGE_ID
+* Contact:
+    * existing contact route
+* Opportunity:
+    * existing opportunity route
+* Lead:
+    * /opportunities?selected=LEAD_ID&tab=current&message=MESSAGE_ID
+
+Record thread reply:
+
+Add:
+
+thread=THREAD_ROOT_ID&message=MESSAGE_ID
+
+AI summary integration
+
+Do not add new AI generation.
+
+But if easy, allow action items or summary lines to be marked as decision/risk/requirement only if there is enough source context.
+
+If not clean, skip this for Phase 7A.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Mark channel message as Decision.
+4. Badge appears on message.
+5. Unmark removes badge.
+6. Mark channel message as Risk.
+7. Mark channel message as Requirement.
+8. Mark channel thread reply.
+9. Badge appears in thread panel.
+10. Record message can be marked.
+11. Account Currents message can be marked.
+12. Lead Currents message can be marked.
+13. Record thread reply can be marked if data exists.
+14. Deleted messages cannot be marked.
+15. List structured items route works.
+16. Structured items deep-link back correctly.
+17. Existing posting still works.
+18. Threads still work.
+19. Reactions still work.
+20. Pins still work.
+21. Edit/delete still works.
+22. Mentions still work.
+23. Attachments still work.
+24. Search still works.
+25. AI summaries still work.
+26. Create Task still works.
+27. View in Currents from Tasks still works.
+28. No browser console errors.
+29. No server errors.
+30. No SQL errors.
+31. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing schema/system audit summary
+2. Files changed
+3. Migration/table changes if any
+4. Routes added/changed
+5. Frontend components changed
+6. Structured item types supported
+7. Badge behavior
+8. Deep-link behavior
+9. Verification results
+10. Known issues
+11. Recommended next step
+
+Keep scope tight: Mark as Decision / Risk / Requirement only.

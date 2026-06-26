@@ -27,7 +27,15 @@ import {
   Search,
   Sparkles,
   CheckSquare,
+  Bookmark,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
 } from "@/components/current/current-attachment-display";
@@ -54,6 +62,26 @@ interface Reaction {
   reacted: boolean;
 }
 
+interface StructuredItem {
+  id: number;
+  itemType: 'decision' | 'risk' | 'requirement';
+  notes: string | null;
+  createdBy: number | null;
+  createdAt: string;
+}
+
+const STRUCTURED_BADGE_STYLE: Record<string, string> = {
+  decision: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  risk: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  requirement: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+};
+
+const STRUCTURED_DOT_STYLE: Record<string, string> = {
+  decision: "bg-emerald-500",
+  risk: "bg-amber-500",
+  requirement: "bg-purple-500",
+};
+
 interface Message {
   id: number;
   channelId: number;
@@ -69,6 +97,7 @@ interface Message {
   replyCount: number;
   latestReplyAt: string | null;
   attachments?: CurrentAttachment[];
+  structuredItems?: StructuredItem[];
 }
 
 interface ThreadData {
@@ -589,6 +618,9 @@ function MessageActionBar({
   onPin,
   onReply,
   onCreateTask,
+  structuredItems,
+  onMarkStructured,
+  onUnmarkStructured,
 }: {
   isOwn: boolean;
   isAdmin: boolean;
@@ -599,6 +631,9 @@ function MessageActionBar({
   onPin: () => void;
   onReply?: () => void;
   onCreateTask?: () => void;
+  structuredItems?: StructuredItem[];
+  onMarkStructured?: (itemType: string) => void;
+  onUnmarkStructured?: (itemType: string) => void;
 }) {
   const canEdit = isOwn;
   const canDelete = isOwn || isAdmin;
@@ -631,6 +666,42 @@ function MessageActionBar({
         >
           <CheckSquare className="w-3 h-3" />
         </button>
+      )}
+      {(onMarkStructured || onUnmarkStructured) && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              title="Mark as Decision / Risk / Requirement"
+              data-testid="btn-mark-structured"
+              className={cn(
+                "w-6 h-6 flex items-center justify-center rounded-md transition-colors",
+                (structuredItems?.length ?? 0) > 0
+                  ? "text-violet-400 bg-violet-500/10 hover:bg-violet-500/20"
+                  : "text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10"
+              )}
+            >
+              <Bookmark className="w-3 h-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="end" className="w-44 z-50">
+            <DropdownMenuLabel className="text-[10px] py-1 text-muted-foreground font-normal">Mark as…</DropdownMenuLabel>
+            {(["decision", "risk", "requirement"] as const).map((type) => {
+              const isMarked = structuredItems?.some((si) => si.itemType === type);
+              return (
+                <DropdownMenuItem
+                  key={type}
+                  data-testid={`mark-as-${type}`}
+                  onClick={() => isMarked ? onUnmarkStructured?.(type) : onMarkStructured?.(type)}
+                  className="text-xs gap-2 cursor-pointer"
+                >
+                  <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", STRUCTURED_DOT_STYLE[type])} />
+                  <span className="flex-1 capitalize">{type}</span>
+                  {isMarked && <span className="text-[10px] text-primary/60">✓</span>}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
       <button
         onClick={onPin}
@@ -714,6 +785,8 @@ function MessageRow({
   onPin,
   onOpenThread,
   onCreateTask,
+  onMarkStructured,
+  onUnmarkStructured,
 }: {
   message: Message;
   grouped: boolean;
@@ -726,6 +799,8 @@ function MessageRow({
   onPin: (messageId: number, isPinned: boolean) => void;
   onOpenThread?: () => void;
   onCreateTask?: (message: Message) => void;
+  onMarkStructured?: (messageId: number, itemType: string) => void;
+  onUnmarkStructured?: (messageId: number, itemType: string) => void;
 }) {
   const isPinned = pinnedMessageIds.has(message.id);
   const isOwn = message.userId === currentUserId;
@@ -766,6 +841,9 @@ function MessageRow({
         onPin={() => onPin(message.id, isPinned)}
         onReply={onOpenThread}
         onCreateTask={onCreateTask ? () => onCreateTask(message) : undefined}
+        structuredItems={message.structuredItems}
+        onMarkStructured={onMarkStructured ? (t) => onMarkStructured(message.id, t) : undefined}
+        onUnmarkStructured={onUnmarkStructured ? (t) => onUnmarkStructured(message.id, t) : undefined}
       />
 
       {/* Avatar / grouped spacer */}
@@ -822,6 +900,24 @@ function MessageRow({
           messageId={message.id}
           onToggle={onToggleReaction}
         />
+        {/* Structured item badges */}
+        {(message.structuredItems?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {message.structuredItems!.map((si) => (
+              <span
+                key={si.itemType}
+                data-testid={`structured-badge-${si.itemType}-${message.id}`}
+                className={cn(
+                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border select-none",
+                  STRUCTURED_BADGE_STYLE[si.itemType]
+                )}
+              >
+                <Bookmark className="w-2 h-2" />
+                {si.itemType.charAt(0).toUpperCase() + si.itemType.slice(1)}
+              </span>
+            ))}
+          </div>
+        )}
         {/* Reply count chip — only on top-level messages with replies */}
         {onOpenThread && (message.replyCount ?? 0) > 0 && (
           <button
@@ -1312,6 +1408,12 @@ function ThreadPanel({
               onDelete={(id) => deleteReplyMutation.mutate(id)}
               onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
               onCreateTask={onCreateTaskMsg ? () => onCreateTaskMsg(root, undefined) : undefined}
+              onMarkStructured={(mid, itemType) =>
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => invalidateThread())
+              }
+              onUnmarkStructured={(mid, itemType) =>
+                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => invalidateThread())
+              }
             />
           )}
         </div>
@@ -1364,6 +1466,12 @@ function ThreadPanel({
               onDelete={(id) => deleteReplyMutation.mutate(id)}
               onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
               onCreateTask={onCreateTaskMsg ? () => onCreateTaskMsg(reply, rootMessageId) : undefined}
+              onMarkStructured={(mid, itemType) =>
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => invalidateThread())
+              }
+              onUnmarkStructured={(mid, itemType) =>
+                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => invalidateThread())
+              }
             />
           );
         })}
@@ -2080,6 +2188,20 @@ export default function CurrentPage() {
     },
   });
 
+  // Mark as Decision / Risk / Requirement
+  const markStructuredMutation = useMutation({
+    mutationFn: ({ messageId, itemType }: { messageId: number; itemType: string }) =>
+      apiRequest("POST", `/api/current/messages/${messageId}/structured`, { itemType }),
+    onSuccess: () => invalidateFeed(),
+  });
+
+  // Unmark structured
+  const unmarkStructuredMutation = useMutation({
+    mutationFn: ({ messageId, itemType }: { messageId: number; itemType: string }) =>
+      apiRequest("DELETE", `/api/current/messages/${messageId}/structured/${itemType}`),
+    onSuccess: () => invalidateFeed(),
+  });
+
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   async function handleSend() {
@@ -2431,6 +2553,12 @@ export default function CurrentPage() {
                           }
                           onOpenThread={() => setThreadRootId(msg.id)}
                           onCreateTask={(m) => handleCreateTaskFromMsg(m)}
+                          onMarkStructured={(mid, itemType) =>
+                            markStructuredMutation.mutate({ messageId: mid, itemType })
+                          }
+                          onUnmarkStructured={(mid, itemType) =>
+                            unmarkStructuredMutation.mutate({ messageId: mid, itemType })
+                          }
                         />
                       </div>
                     );

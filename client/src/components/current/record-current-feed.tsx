@@ -11,8 +11,15 @@ import { formatDistanceToNow } from "date-fns";
 import {
   MessageSquare, Send, Smile, Pencil, Trash2, X, Check,
   MessagesSquare, ChevronLeft, Pin, ChevronDown, ChevronUp, Paperclip,
-  Search, Loader2, Sparkles, CheckSquare,
+  Search, Loader2, Sparkles, CheckSquare, Bookmark,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import {
   CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
@@ -46,6 +53,26 @@ function highlightSnippet(text: string, query: string): React.ReactNode {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface StructuredItem {
+  id: number;
+  itemType: 'decision' | 'risk' | 'requirement';
+  notes: string | null;
+  createdBy: number | null;
+  createdAt: string;
+}
+
+const REC_STRUCTURED_BADGE_STYLE: Record<string, string> = {
+  decision: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+  risk: "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+  requirement: "bg-purple-500/10 text-purple-400 border border-purple-500/20",
+};
+
+const REC_STRUCTURED_DOT_STYLE: Record<string, string> = {
+  decision: "bg-emerald-500",
+  risk: "bg-amber-500",
+  requirement: "bg-purple-500",
+};
+
 interface RecordMessage {
   id: number;
   userId: number;
@@ -61,6 +88,7 @@ interface RecordMessage {
   replyCount: number;
   latestReplyAt: string | null;
   attachments: CurrentAttachment[];
+  structuredItems?: StructuredItem[];
 }
 
 interface PinnedRecord {
@@ -384,6 +412,7 @@ function MessageComposer({
 
 function MessageItem({
   msg, myUserId, onReact, onEdit, onDelete, onOpenThread, onPin, isPinned, highlighted, onCreateTask,
+  onMarkStructured, onUnmarkStructured,
 }: {
   msg: RecordMessage;
   myUserId: number;
@@ -395,6 +424,8 @@ function MessageItem({
   isPinned: boolean;
   highlighted: boolean;
   onCreateTask?: (msg: RecordMessage) => void;
+  onMarkStructured?: (msgId: number, itemType: string) => void;
+  onUnmarkStructured?: (msgId: number, itemType: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
@@ -475,6 +506,22 @@ function MessageItem({
         {/* Attachments */}
         <CurrentAttachmentChips attachments={msg.attachments ?? []} />
 
+        {/* Structured badges */}
+        {(msg.structuredItems?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {msg.structuredItems!.map((si) => (
+              <span
+                key={si.itemType}
+                data-testid={`record-structured-badge-${si.itemType}-${msg.id}`}
+                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium ${REC_STRUCTURED_BADGE_STYLE[si.itemType]}`}
+              >
+                <Bookmark className="w-2 h-2" />
+                {si.itemType.charAt(0).toUpperCase() + si.itemType.slice(1)}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Reactions */}
         {msg.reactions.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
@@ -540,6 +587,41 @@ function MessageItem({
           >
             <CheckSquare className="h-3 w-3" />
           </button>
+        )}
+        {(onMarkStructured || onUnmarkStructured) && !msg.deletedAt && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                title="Mark as Decision / Risk / Requirement"
+                data-testid={`mark-structured-btn-${msg.id}`}
+                className={`h-5 w-5 flex items-center justify-center rounded transition-colors ${
+                  (msg.structuredItems?.length ?? 0) > 0
+                    ? "text-violet-400 bg-violet-500/10 hover:bg-violet-500/20"
+                    : "text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10"
+                }`}
+              >
+                <Bookmark className="h-3 w-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="end" className="w-44 z-50">
+              <DropdownMenuLabel className="text-[10px] py-1 text-muted-foreground font-normal">Mark as…</DropdownMenuLabel>
+              {(["decision", "risk", "requirement"] as const).map((type) => {
+                const isMarked = msg.structuredItems?.some((si) => si.itemType === type);
+                return (
+                  <DropdownMenuItem
+                    key={type}
+                    data-testid={`record-mark-as-${type}-${msg.id}`}
+                    onClick={() => isMarked ? onUnmarkStructured?.(msg.id, type) : onMarkStructured?.(msg.id, type)}
+                    className="text-xs gap-2 cursor-pointer"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${REC_STRUCTURED_DOT_STYLE[type]}`} />
+                    <span className="flex-1 capitalize">{type}</span>
+                    {isMarked && <span className="text-[10px] text-primary/60">✓</span>}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         <button
           onClick={() => onPin(msg.id, isPinned)}
@@ -745,6 +827,14 @@ function ThreadPanel({
                   onOpenThread={() => {}}
                   onPin={onPin}
                   onCreateTask={(m) => onCreateTask?.(m, rootId)}
+                  onMarkStructured={(msgId, itemType) =>
+                    apiRequest("POST", `/api/current/messages/${msgId}/structured`, { itemType })
+                      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/current/record", objectType, objectId, "thread", rootId] }))
+                  }
+                  onUnmarkStructured={(msgId, itemType) =>
+                    apiRequest("DELETE", `/api/current/messages/${msgId}/structured/${itemType}`)
+                      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/current/record", objectType, objectId, "thread", rootId] }))
+                  }
                 />
                 {i === 0 && allMsgs.length > 1 && (
                   <div className="ml-8 my-1 border-l-2 border-border/30 pl-2 text-[10px] text-muted-foreground">
@@ -966,6 +1056,21 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
     pinMutation.mutate({ msgId, isPinned });
   }
 
+  const markStructuredMutation = useMutation({
+    mutationFn: async ({ messageId, itemType }: { messageId: number; itemType: string }) => {
+      const r = await apiRequest("POST", `/api/current/messages/${messageId}/structured`, { itemType });
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] }),
+  });
+
+  const unmarkStructuredMutation = useMutation({
+    mutationFn: async ({ messageId, itemType }: { messageId: number; itemType: string }) => {
+      return apiRequest("DELETE", `/api/current/messages/${messageId}/structured/${itemType}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] }),
+  });
+
   return (
     <div className="flex flex-col h-full min-h-[320px]" data-testid={`record-current-feed-${objectType}-${objectId}`}>
       {/* Pinned bar */}
@@ -1123,6 +1228,8 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
                 onOpenThread={msgId => setThreadRootId(msgId)}
                 onPin={handlePin}
                 onCreateTask={(m) => handleCreateTaskFromRecordMsg(m)}
+                onMarkStructured={(msgId, itemType) => markStructuredMutation.mutate({ messageId: msgId, itemType })}
+                onUnmarkStructured={(msgId, itemType) => unmarkStructuredMutation.mutate({ messageId: msgId, itemType })}
               />
             ))}
             <div ref={bottomRef} />

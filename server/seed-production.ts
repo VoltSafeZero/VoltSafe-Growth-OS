@@ -2086,6 +2086,35 @@ export async function migrateCurrentSchema(): Promise<void> {
         WHERE object_type IS NOT NULL
     `));
 
+    // ── Phase 7A: Structured Items ──────────────────────────────────────────
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS current_structured_items (
+        id             SERIAL PRIMARY KEY,
+        message_id     INTEGER NOT NULL REFERENCES current_messages(id) ON DELETE CASCADE,
+        item_type      TEXT NOT NULL CHECK (item_type IN ('decision', 'risk', 'requirement')),
+        created_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        notes          TEXT,
+        severity       TEXT,
+        status         TEXT,
+        channel_id     INTEGER REFERENCES current_channels(id) ON DELETE SET NULL,
+        object_type    TEXT,
+        object_id      INTEGER,
+        thread_root_id INTEGER REFERENCES current_messages(id) ON DELETE SET NULL,
+        source_meta    JSONB,
+        UNIQUE(message_id, item_type)
+      )
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_csi_channel ON current_structured_items(channel_id) WHERE channel_id IS NOT NULL
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_csi_record ON current_structured_items(object_type, object_id) WHERE object_type IS NOT NULL
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_csi_message ON current_structured_items(message_id)
+    `));
+
     console.log("[migration] Current schema ready.");
   } catch (err) {
     console.error("[migration] migrateCurrentSchema error (non-fatal):", err);

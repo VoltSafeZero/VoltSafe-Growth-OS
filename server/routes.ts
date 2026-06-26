@@ -33063,7 +33063,7 @@ export function registerConfluenceRoutes(app: Express) {
         ORDER BY m.created_at ASC
         LIMIT 200
       `));
-      res.json(rows.rows.map((r: any) => ({
+      const messages = rows.rows.map((r: any) => ({
         id: r.id,
         channelId: r.channel_id,
         userId: r.user_id,
@@ -33078,7 +33078,22 @@ export function registerConfluenceRoutes(app: Express) {
         replyCount: Number(r.reply_count) || 0,
         latestReplyAt: r.latest_reply_at ?? null,
         attachments: r.msg_attachments || [],
-      })));
+        structuredItems: [] as any[],
+      }));
+      if (messages.length) {
+        const ids = messages.map((m: any) => m.id).join(",");
+        const siRows = await db.execute(sql.raw(
+          `SELECT message_id, id, item_type, notes, created_by, created_at FROM current_structured_items WHERE message_id = ANY(ARRAY[${ids}]::int[])`
+        ));
+        const siMap = new Map<number, any[]>();
+        for (const si of siRows.rows as any[]) {
+          const mid = Number(si.message_id);
+          if (!siMap.has(mid)) siMap.set(mid, []);
+          siMap.get(mid)!.push({ id: si.id, itemType: si.item_type, notes: si.notes ?? null, createdBy: si.created_by ? Number(si.created_by) : null, createdAt: si.created_at });
+        }
+        messages.forEach((m: any) => { m.structuredItems = siMap.get(m.id) ?? []; });
+      }
+      res.json(messages);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33451,7 +33466,21 @@ export function registerConfluenceRoutes(app: Express) {
         ORDER BY m.created_at ASC LIMIT 500
       `));
 
-      res.json({ root: mapRow(rootRows.rows[0]), replies: replyRows.rows.map(mapRow) });
+      const allRows = [rootRows.rows[0], ...replyRows.rows];
+      const allIds = allRows.map((r: any) => Number(r.id)).join(",");
+      let siMapThread = new Map<number, any[]>();
+      if (allIds) {
+        const siRows = await db.execute(sql.raw(
+          `SELECT message_id, id, item_type, notes, created_by, created_at FROM current_structured_items WHERE message_id = ANY(ARRAY[${allIds}]::int[])`
+        ));
+        for (const si of siRows.rows as any[]) {
+          const mid = Number(si.message_id);
+          if (!siMapThread.has(mid)) siMapThread.set(mid, []);
+          siMapThread.get(mid)!.push({ id: si.id, itemType: si.item_type, notes: si.notes ?? null, createdBy: si.created_by ? Number(si.created_by) : null, createdAt: si.created_at });
+        }
+      }
+      const addSI = (r: any) => ({ ...mapRow(r), structuredItems: siMapThread.get(Number(r.id)) ?? [] });
+      res.json({ root: addSI(rootRows.rows[0]), replies: replyRows.rows.map(addSI) });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33751,7 +33780,21 @@ export function registerConfluenceRoutes(app: Express) {
       if (!ALLOWED_RECORD_TYPES.has(objectType) || !objectId)
         return res.status(400).json({ message: "Invalid record type or id" });
       const rows = await db.execute(sql.raw(buildRecordMsgQuery(objectType, objectId, userId)));
-      res.json(rows.rows.map(mapRecordMsg));
+      const messages = rows.rows.map(mapRecordMsg);
+      if (messages.length) {
+        const ids = messages.map((m: any) => m.id).join(",");
+        const siRows = await db.execute(sql.raw(
+          `SELECT message_id, id, item_type, notes, created_by, created_at FROM current_structured_items WHERE message_id = ANY(ARRAY[${ids}]::int[])`
+        ));
+        const siMap = new Map<number, any[]>();
+        for (const si of siRows.rows as any[]) {
+          const mid = Number(si.message_id);
+          if (!siMap.has(mid)) siMap.set(mid, []);
+          siMap.get(mid)!.push({ id: si.id, itemType: si.item_type, notes: si.notes ?? null, createdBy: si.created_by ? Number(si.created_by) : null, createdAt: si.created_at });
+        }
+        messages.forEach((m: any) => { m.structuredItems = siMap.get(m.id) ?? []; });
+      }
+      res.json(messages);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33975,6 +34018,151 @@ export function registerConfluenceRoutes(app: Express) {
       });
 
       res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Structured Items Routes (Phase 7A) ──────────────────────────────────────
+
+  const VALID_STRUCTURED_TYPES = new Set(['decision', 'risk', 'requirement']);
+
+  // POST /api/current/messages/:id/structured — mark a message as decision/risk/requirement
+  app.post("/api/current/messages/:id/structured", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const messageId = Number(req.params.id);
+      if (!messageId) return res.status(400).json({ message: "Invalid message id" });
+      const itemType = String(req.body?.itemType || "");
+      if (!VALID_STRUCTURED_TYPES.has(itemType)) return res.status(400).json({ message: "itemType must be decision, risk, or requirement" });
+      const notes = req.body?.notes ? String(req.body.notes).slice(0, 1000) : null;
+
+      // Validate message exists and is not deleted
+      const msgRows = await db.execute(sql.raw(
+        `SELECT id, channel_id, object_type, object_id, parent_message_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+      ));
+      if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found or deleted" });
+
+      const msg = msgRows.rows[0] as any;
+      let channelId: number | null = msg.channel_id ? Number(msg.channel_id) : null;
+      let objectType: string | null = msg.object_type || null;
+      let objectId: number | null = msg.object_id ? Number(msg.object_id) : null;
+      const threadRootId: number | null = msg.parent_message_id ? Number(msg.parent_message_id) : null;
+
+      // For thread replies, infer context from root message
+      if (threadRootId && !channelId && !objectType) {
+        const rootRows2 = await db.execute(sql.raw(
+          `SELECT channel_id, object_type, object_id FROM current_messages WHERE id = ${threadRootId} LIMIT 1`
+        ));
+        if (rootRows2.rows.length) {
+          const root = rootRows2.rows[0] as any;
+          channelId = root.channel_id ? Number(root.channel_id) : null;
+          objectType = root.object_type || null;
+          objectId = root.object_id ? Number(root.object_id) : null;
+        }
+      }
+
+      const notesSQL = notes ? `'${notes.replace(/'/g, "''")}'` : "NULL";
+      const chanSQL = channelId ? String(channelId) : "NULL";
+      const objTypeSQL = objectType ? `'${objectType}'` : "NULL";
+      const objIdSQL = objectId ? String(objectId) : "NULL";
+      const threadSQL = threadRootId ? String(threadRootId) : "NULL";
+
+      const result = await db.execute(sql.raw(`
+        INSERT INTO current_structured_items (message_id, item_type, created_by, notes, channel_id, object_type, object_id, thread_root_id)
+        VALUES (${messageId}, '${itemType}', ${userId}, ${notesSQL}, ${chanSQL}, ${objTypeSQL}, ${objIdSQL}, ${threadSQL})
+        ON CONFLICT (message_id, item_type)
+        DO UPDATE SET notes = EXCLUDED.notes, created_by = EXCLUDED.created_by, created_at = NOW()
+        RETURNING id, message_id, item_type, notes, created_by, created_at
+      `));
+      const row = result.rows[0] as any;
+      res.status(201).json({
+        id: Number(row.id),
+        messageId: Number(row.message_id),
+        itemType: row.item_type,
+        notes: row.notes ?? null,
+        createdBy: row.created_by ? Number(row.created_by) : null,
+        createdAt: row.created_at,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/current/messages/:id/structured/:itemType — unmark
+  app.delete("/api/current/messages/:id/structured/:itemType", requireAuth, async (req, res) => {
+    try {
+      const messageId = Number(req.params.id);
+      const itemType = String(req.params.itemType);
+      if (!messageId) return res.status(400).json({ message: "Invalid message id" });
+      if (!VALID_STRUCTURED_TYPES.has(itemType)) return res.status(400).json({ message: "Invalid itemType" });
+      await db.execute(sql.raw(
+        `DELETE FROM current_structured_items WHERE message_id = ${messageId} AND item_type = '${itemType}'`
+      ));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/structured — list structured items with filters
+  app.get("/api/current/structured", requireAuth, async (req, res) => {
+    try {
+      const { scope, channel, objectType, objectId, itemType, limit } = req.query as Record<string, string | undefined>;
+      const maxLimit = Math.min(Number(limit) || 50, 100);
+      const whereParts: string[] = ["m.deleted_at IS NULL"];
+
+      if (scope === "channel" && channel) {
+        const escapedSlug = String(channel).replace(/'/g, "''");
+        whereParts.push(`si.channel_id = (SELECT id FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1)`);
+      } else if (scope === "record" && objectType && objectId) {
+        const safeType = String(objectType).replace(/[^a-z_]/gi, "");
+        whereParts.push(`si.object_type = '${safeType}' AND si.object_id = ${Number(objectId)}`);
+      }
+      if (itemType && VALID_STRUCTURED_TYPES.has(String(itemType))) {
+        whereParts.push(`si.item_type = '${String(itemType)}'`);
+      }
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          si.id, si.message_id, si.item_type, si.notes, si.severity, si.status,
+          si.created_by, si.created_at, si.channel_id, si.object_type, si.object_id, si.thread_root_id,
+          CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE LEFT(m.body, 300) END AS message_body,
+          m.created_at AS message_created_at,
+          mu.name AS author_name, mu.avatar_url AS author_avatar,
+          cu.name AS created_by_name,
+          c.slug AS channel_slug, c.name AS channel_name
+        FROM current_structured_items si
+        JOIN current_messages m ON m.id = si.message_id
+        JOIN users mu ON mu.id = m.user_id
+        LEFT JOIN users cu ON cu.id = si.created_by
+        LEFT JOIN current_channels c ON c.id = si.channel_id
+        WHERE ${whereParts.join(" AND ")}
+        ORDER BY si.created_at DESC
+        LIMIT ${maxLimit}
+      `));
+
+      res.json((rows.rows as any[]).map((r) => ({
+        id: Number(r.id),
+        messageId: Number(r.message_id),
+        itemType: r.item_type as string,
+        notes: r.notes ?? null,
+        severity: r.severity ?? null,
+        status: r.status ?? null,
+        createdBy: r.created_by ? Number(r.created_by) : null,
+        createdByName: r.created_by_name ?? null,
+        createdAt: r.created_at,
+        channelId: r.channel_id ? Number(r.channel_id) : null,
+        channelSlug: r.channel_slug ?? null,
+        channelName: r.channel_name ?? null,
+        objectType: r.object_type ?? null,
+        objectId: r.object_id ? Number(r.object_id) : null,
+        threadRootId: r.thread_root_id ? Number(r.thread_root_id) : null,
+        messageBody: r.message_body ?? null,
+        messageCreatedAt: r.message_created_at,
+        authorName: r.author_name ?? null,
+        authorAvatar: r.author_avatar ?? null,
+      })));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
