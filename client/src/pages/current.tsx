@@ -25,11 +25,14 @@ import {
   AtSign,
   Paperclip,
   Search,
+  Sparkles,
 } from "lucide-react";
 import {
   CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
 } from "@/components/current/current-attachment-display";
 import type { CurrentAttachment } from "@/components/current/current-attachment-display";
+import { CurrentSummaryPanel } from "@/components/current/current-summary-panel";
+import type { CurrentSummaryData } from "@/components/current/current-summary-panel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1023,6 +1026,19 @@ function ThreadPanel({
   const threadAtBottom = useRef(true);
   const replyMention = useComposerMentions(replyTextareaRef);
 
+  // Thread AI summary
+  const [threadSummaryOpen, setThreadSummaryOpen] = useState(false);
+  const [threadSummaryData, setThreadSummaryData] = useState<CurrentSummaryData | null>(null);
+  const threadSummaryMutation = useMutation({
+    mutationFn: async (msgId: number) => {
+      const r = await apiRequest("POST", "/api/current/summary", { scope: "thread", messageId: msgId });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "AI summary failed"); }
+      return r.json() as Promise<CurrentSummaryData>;
+    },
+    onSuccess: (data) => { setThreadSummaryData(data); setThreadSummaryOpen(true); },
+    onError: () => { setThreadSummaryOpen(true); setThreadSummaryData(null); },
+  });
+
   const threadQueryKey = ["/api/current/messages", rootMessageId, "thread"];
 
   // Keep a stable ref to onClose so the Esc listener never needs to re-register
@@ -1199,14 +1215,52 @@ function ThreadPanel({
           · #{displaySlug(selectedSlug)}
         </span>
         <button
+          onClick={() => {
+            if (threadSummaryOpen) {
+              setThreadSummaryOpen(false);
+            } else {
+              setThreadSummaryData(null);
+              threadSummaryMutation.mutate(rootMessageId);
+            }
+          }}
+          disabled={threadSummaryMutation.isPending}
+          title="Summarize thread"
+          data-testid="btn-summarize-thread"
+          className={cn(
+            "ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
+            threadSummaryOpen
+              ? "bg-primary/10 text-primary/80 hover:bg-primary/15"
+              : "text-muted-foreground/40 hover:text-foreground hover:bg-muted/60",
+          )}
+        >
+          {threadSummaryMutation.isPending
+            ? <Loader2 className="w-3 h-3 animate-spin" />
+            : <Sparkles className="w-3 h-3" />}
+          <span>Summarize</span>
+        </button>
+        <button
           onClick={onClose}
           data-testid="btn-close-thread"
           title="Close thread (Esc)"
-          className="ml-auto w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors"
         >
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* Thread AI Summary panel */}
+      {threadSummaryOpen && (
+        <div className="px-3 pt-2.5 pb-0 shrink-0 border-b border-border/30">
+          <CurrentSummaryPanel
+            data={threadSummaryData}
+            isLoading={threadSummaryMutation.isPending}
+            isError={threadSummaryMutation.isError}
+            onClose={() => setThreadSummaryOpen(false)}
+            onRegenerate={() => { setThreadSummaryData(null); threadSummaryMutation.mutate(rootMessageId); }}
+          />
+          <div className="h-2.5" />
+        </div>
+      )}
 
       {/* Root message */}
       {isLoading ? (
@@ -1779,6 +1833,19 @@ export default function CurrentPage() {
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainMention = useComposerMentions(textareaRef);
 
+  // Channel AI summary
+  const [channelSummaryOpen, setChannelSummaryOpen] = useState(false);
+  const [channelSummaryData, setChannelSummaryData] = useState<CurrentSummaryData | null>(null);
+  const channelSummaryMutation = useMutation({
+    mutationFn: async (slug: string) => {
+      const r = await apiRequest("POST", "/api/current/summary", { scope: "channel", channel: slug });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "AI summary failed"); }
+      return r.json() as Promise<CurrentSummaryData>;
+    },
+    onSuccess: (data) => { setChannelSummaryData(data); setChannelSummaryOpen(true); },
+    onError: () => { setChannelSummaryOpen(true); setChannelSummaryData(null); },
+  });
+
   // Helper: set a highlight with automatic 3s clear — cancels any pending timer
   function setHighlight(msgId: number | null) {
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
@@ -1793,32 +1860,8 @@ export default function CurrentPage() {
   const currentUserId = me?.id ?? 0;
   const isAdmin = ["admin", "master_admin"].includes(me?.globalRole ?? "");
 
-  // ── Deep-link from notification action_url: ?channel=X&message=Y&thread=Z ──
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const chan = params.get("channel");
-    const thread = params.get("thread");
-    const msg = params.get("message");
-    if (chan) { setSelectedSlug(chan); setView("channel"); }
-    if (thread) setThreadRootId(Number(thread));
-    if (msg) {
-      const msgId = Number(msg);
-      if (msgId > 0) setHighlight(msgId);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Scroll to highlighted message once messages are loaded
-  useEffect(() => {
-    if (!highlightedMsgId || messages.length === 0) return;
-    requestAnimationFrame(() => {
-      const el = document.querySelector(
-        `[data-testid="message-row-${highlightedMsgId}"]`
-      );
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }, [highlightedMsgId, messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Queries ───────────────────────────────────────────────────────────────
+  // Declared before useEffects that reference messages/channels to avoid TDZ.
 
   const { data: channels = [], isLoading: channelsLoading } = useQuery<Channel[]>({
     queryKey: ["/api/current/channels"],
@@ -1851,6 +1894,31 @@ export default function CurrentPage() {
   });
 
   const pinnedMessageIds = new Set(pins.map((p) => p.messageId));
+
+  // ── Deep-link from notification action_url: ?channel=X&message=Y&thread=Z ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const chan = params.get("channel");
+    const thread = params.get("thread");
+    const msg = params.get("message");
+    if (chan) { setSelectedSlug(chan); setView("channel"); }
+    if (thread) setThreadRootId(Number(thread));
+    if (msg) {
+      const msgId = Number(msg);
+      if (msgId > 0) setHighlight(msgId);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll to highlighted message once messages are loaded
+  useEffect(() => {
+    if (!highlightedMsgId || messages.length === 0) return;
+    requestAnimationFrame(() => {
+      const el = document.querySelector(
+        `[data-testid="message-row-${highlightedMsgId}"]`
+      );
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [highlightedMsgId, messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Scroll ────────────────────────────────────────────────────────────────
 
@@ -2187,8 +2255,32 @@ export default function CurrentPage() {
                   </span>
                 </div>
               )}
+              <button
+                onClick={() => {
+                  if (channelSummaryOpen) {
+                    setChannelSummaryOpen(false);
+                  } else {
+                    setChannelSummaryData(null);
+                    channelSummaryMutation.mutate(selectedSlug);
+                  }
+                }}
+                disabled={channelSummaryMutation.isPending}
+                title="Summarize channel"
+                data-testid="btn-summarize-channel"
+                className={cn(
+                  "ml-auto shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] font-medium transition-colors",
+                  channelSummaryOpen
+                    ? "bg-primary/10 text-primary/80 hover:bg-primary/15"
+                    : "text-muted-foreground/50 hover:text-foreground hover:bg-muted/60",
+                )}
+              >
+                {channelSummaryMutation.isPending
+                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                  : <Sparkles className="w-3 h-3" />}
+                <span className="hidden sm:inline">Summarize</span>
+              </button>
               {msgsFetching && !msgsLoading && (
-                <div className="ml-auto shrink-0 w-1.5 h-1.5 rounded-full bg-primary/30 animate-pulse" />
+                <div className="shrink-0 w-1.5 h-1.5 rounded-full bg-primary/30 animate-pulse" />
               )}
             </>
           )}
@@ -2222,6 +2314,19 @@ export default function CurrentPage() {
         ) : (
           /* ── Channel view ───────────────────────────────────────────── */
           <>
+            {/* AI Summary panel */}
+            {channelSummaryOpen && (
+              <div className="px-4 pt-3 pb-0 shrink-0">
+                <CurrentSummaryPanel
+                  data={channelSummaryData}
+                  isLoading={channelSummaryMutation.isPending}
+                  isError={channelSummaryMutation.isError}
+                  onClose={() => setChannelSummaryOpen(false)}
+                  onRegenerate={() => { setChannelSummaryData(null); channelSummaryMutation.mutate(selectedSlug); }}
+                />
+              </div>
+            )}
+
             {/* Pinned bar */}
             <PinnedBar pins={pins} onUnpin={(mid) => unpinMutation.mutate(mid)} />
 
