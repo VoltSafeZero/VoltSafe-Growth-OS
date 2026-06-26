@@ -7,7 +7,7 @@ import {
   GraduationCap, PlayCircle, Clock, ChevronRight,
   BookOpen, Lock, FileText, Sparkles, AlertTriangle,
   CheckCircle2, VideoOff, Film, Radio, ListChecks,
-  ArrowRight, Check, X,
+  ArrowRight, Check, X, ArrowLeft,
 } from "lucide-react";
 import { isDemoModeActive } from "@/lib/demo-mode";
 import {
@@ -95,9 +95,11 @@ function StatusBadge({ status }: { status: VideoStatus }) {
 function PlaylistCard({
   playlist,
   canSeeDevLinks,
+  onSelect,
 }: {
   playlist: TrainingPlaylist;
   canSeeDevLinks: boolean;
+  onSelect: (id: string) => void;
 }) {
   return (
     <Card
@@ -152,13 +154,7 @@ function PlaylistCard({
             data-testid={`button-view-playlist-${playlist.id}`}
             size="sm"
             className="bg-cyan-600 hover:bg-cyan-500 text-white flex-1"
-            onClick={() =>
-              window.open(
-                `https://github.com/search?q=${encodeURIComponent(playlist.filePath)}`,
-                "_blank",
-                "noopener",
-              )
-            }
+            onClick={() => onSelect(playlist.id)}
           >
             View Playlist <ChevronRight className="h-3 w-3 ml-1" />
           </Button>
@@ -176,14 +172,178 @@ function PlaylistCard({
             </Button>
           )}
         </div>
-
-        {canSeeDevLinks && (
-          <p className="text-[10px] text-muted-foreground/50 font-mono break-all leading-tight">
-            {playlist.filePath}
-          </p>
-        )}
       </CardContent>
     </Card>
+  );
+}
+
+// ── Playlist viewer ────────────────────────────────────────────────────────────
+
+function PlaylistViewer({
+  playlistId,
+  canSeeDevLinks,
+  onBack,
+}: {
+  playlistId: string;
+  canSeeDevLinks: boolean;
+  onBack: () => void;
+}) {
+  const playlist = TRAINING_PLAYLISTS.find((p) => p.id === playlistId);
+
+  if (!playlist) {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          data-testid="playlist-back-button"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to playlists
+        </button>
+        <div className="flex items-start gap-3 bg-destructive/10 border border-destructive/20 rounded-lg px-4 py-3 text-sm text-destructive">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <p>Playlist not found: <code className="font-mono">{playlistId}</code></p>
+        </div>
+      </div>
+    );
+  }
+
+  const videos = playlist.videoIds
+    .map((id) => TRAINING_VIDEOS.find((v) => v.id === id))
+    .filter(Boolean) as TrainingVideo[];
+
+  return (
+    <div className="space-y-6" data-testid={`playlist-viewer-${playlistId}`}>
+      {/* Back */}
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        data-testid="playlist-back-button"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Back to playlists
+      </button>
+
+      {/* Header card */}
+      <Card className="bg-card border-border/50">
+        <CardContent className="pt-5 pb-5">
+          <div className="flex items-start gap-4">
+            <span className="text-4xl leading-none shrink-0" role="img" aria-label={playlist.title}>
+              {playlist.icon}
+            </span>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold text-foreground leading-tight">{playlist.title}</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">{playlist.audience}</p>
+              <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+                {playlist.description}
+              </p>
+              <div className="flex flex-wrap gap-3 mt-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {playlist.estimatedTime}
+                </span>
+                <span className="flex items-center gap-1">
+                  <PlayCircle className="h-3 w-3" />
+                  {playlist.videoIds.length} video{playlist.videoIds.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Video list */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-foreground">Watch in this order</h3>
+        {videos.map((video, idx) => {
+          const meta = STATUS_META[video.status];
+          const StatusIcon = meta.icon;
+          return (
+            <Card
+              key={video.id}
+              className="bg-card border-border/50 hover:border-cyan-500/30 transition-colors"
+              data-testid={`playlist-video-${video.id}`}
+            >
+              <CardContent className="py-4">
+                <div className="flex items-start gap-4">
+                  {/* Step number */}
+                  <div className="w-7 h-7 rounded-full bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-xs font-bold text-cyan-400">{idx + 1}</span>
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm text-foreground">
+                        {video.number}. {video.title}
+                      </span>
+                      <Badge className={`text-[10px] px-1.5 py-0 border ${meta.badgeClass}`}>
+                        <StatusIcon className="h-2.5 w-2.5 mr-1" />
+                        {meta.label}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      {video.description}
+                    </p>
+                    <p className="text-xs text-muted-foreground/60 mt-1 flex items-center gap-1">
+                      <Clock className="h-2.5 w-2.5" />
+                      {video.duration}
+                    </p>
+                  </div>
+
+                  {/* Watch button */}
+                  <div className="shrink-0">
+                    {video.status === "hosted" && video.videoUrl ? (
+                      <Button
+                        size="sm"
+                        className="bg-cyan-600 hover:bg-cyan-500 text-white"
+                        onClick={() => window.open(video.videoUrl!, "_blank", "noopener")}
+                        data-testid={`watch-video-${video.id}`}
+                      >
+                        Watch
+                        <ArrowRight className="h-3 w-3 ml-1" />
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled
+                        className="text-muted-foreground/50 border-border/30"
+                        data-testid={`watch-video-${video.id}`}
+                      >
+                        Coming soon
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Not yet hosted notice */}
+      {!videos.some((v) => v.status === "hosted") && (
+        <div className="flex items-start gap-3 bg-muted/20 border border-border/30 rounded-lg px-4 py-3">
+          <Lock className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+          <div className="text-sm text-muted-foreground">
+            <p className="font-medium text-foreground mb-0.5">Videos coming soon</p>
+            <p>
+              These videos are being recorded and edited. Check back soon — they'll be watchable
+              here once published.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {canSeeDevLinks && (
+        <div className="text-xs text-muted-foreground/60 bg-muted/20 rounded-lg p-3 border border-border/30">
+          <p className="font-medium text-muted-foreground mb-1">Dev: source file</p>
+          <p className="font-mono">{playlist.filePath}</p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -522,6 +682,7 @@ export default function TrainingHubPage() {
   const [activeSection, setActiveSection] = useState<"playlists" | "library" | "future">(
     "playlists",
   );
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
 
   const { data: user } = useQuery<{ globalRole?: string; name?: string }>({
     queryKey: ["/api/auth/me"],
@@ -632,32 +793,35 @@ export default function TrainingHubPage() {
         {/* ── A. Learning Paths ─────────────────────────────────────────────── */}
         {activeSection === "playlists" && (
           <div className="space-y-6" data-testid="section-playlists">
-            <div>
-              <h2 className="text-base font-semibold text-foreground mb-1">
-                Role-Based Learning Paths
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Pick your role to get a curated playlist — only the videos that matter to your
-                day-to-day work.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {TRAINING_PLAYLISTS.map((pl) => (
-                <PlaylistCard key={pl.id} playlist={pl} canSeeDevLinks={canSeeDevLinks} />
-              ))}
-            </div>
-
-            {canSeeDevLinks && (
-              <div className="text-xs text-muted-foreground/60 bg-muted/20 rounded-lg p-3 border border-border/30 space-y-1">
-                <p className="font-medium text-muted-foreground mb-1">Dev: playlist file paths</p>
-                {TRAINING_PLAYLISTS.map((pl) => (
-                  <p key={pl.id} className="font-mono">
-                    {pl.filePath}
+            {selectedPlaylistId ? (
+              <PlaylistViewer
+                playlistId={selectedPlaylistId}
+                canSeeDevLinks={canSeeDevLinks}
+                onBack={() => setSelectedPlaylistId(null)}
+              />
+            ) : (
+              <>
+                <div>
+                  <h2 className="text-base font-semibold text-foreground mb-1">
+                    Role-Based Learning Paths
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Pick your role to get a curated playlist — only the videos that matter to your
+                    day-to-day work.
                   </p>
-                ))}
-                <p className="font-mono">onboarding-videos/PLAYLISTS.md</p>
-              </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {TRAINING_PLAYLISTS.map((pl) => (
+                    <PlaylistCard
+                      key={pl.id}
+                      playlist={pl}
+                      canSeeDevLinks={canSeeDevLinks}
+                      onSelect={setSelectedPlaylistId}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}
