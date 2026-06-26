@@ -1,0 +1,242 @@
+Proceed with Current Phase 4A only: Attachments.
+
+Goal:
+Add file/image attachments to Current messages so internal team members can share screenshots, marina layouts, install photos, PDFs, and other files inside both channel Currents and CRM Record Currents.
+
+Do not add Guest Currents, direct messages, search, AI summaries, slash commands, or external collaborators yet.
+
+Phase 4A scope
+
+Add only:
+
+1. Attachments for main /current channel messages
+2. Attachments for thread replies in /current
+3. Attachments for CRM Record Current messages
+4. Attachments for CRM Record Current thread replies
+5. Attachment display in message rows
+6. Basic image preview and file download/open behavior
+7. Reuse existing VoltSafe attachment/file upload infrastructure wherever possible
+
+Existing systems to reuse
+
+Please first audit the existing upload/attachment system.
+
+Reuse existing:
+
+* attachments table if possible
+* existing upload endpoint if possible
+* existing file serving route if possible
+* existing ACL/auth patterns if possible
+* existing multer/storage utilities if present
+
+Do not create a second independent file system unless absolutely necessary.
+
+Backend requirements
+
+1. Schema
+
+If the existing attachments table can support Current, add idempotent columns as needed.
+
+Preferred:
+
+* message_id INTEGER REFERENCES current_messages(id)
+
+If already added, reuse it.
+
+If the existing attachment schema has entity_type / entity_id style fields, decide whether to use those instead, but keep the implementation simple and safe.
+
+2. Upload route
+
+Add or reuse an authenticated upload route.
+
+Preferred route if needed:
+
+* POST /api/current/messages/:id/attachments
+
+Requirements:
+
+* Auth required
+* User must have access to the message context
+* Attachments should work for:
+    * channel messages
+    * channel thread replies
+    * record messages
+    * record thread replies
+* Validate file size
+* Validate allowed file types
+* Store useful metadata:
+    * original filename
+    * stored filename/path
+    * mime type
+    * size
+    * uploaded by
+    * message id
+    * created at
+
+3. Message fetch response
+
+All message fetch routes should include attachments:
+
+* GET /api/current/channels/:slug/messages
+* GET /api/current/messages/:id/thread
+* GET /api/current/record/:type/:id/messages
+
+Each message should include an attachments array.
+
+Each attachment should include:
+
+* id
+* fileName or storedName
+* originalName
+* mimeType
+* sizeBytes
+* url or download/open route
+
+4. Security / access
+
+Do not make files publicly accessible without auth unless the existing app already does that intentionally.
+
+Ensure users cannot access attachments from messages they should not be able to see.
+
+For Phase 4A, internal authenticated-user access is acceptable. Do not build external guest permissions yet.
+
+5. Deletion behavior
+
+For Phase 4A:
+
+* If a message is soft-deleted, hide/redact attachments in the UI if consistent with deleted body behavior.
+* Do not necessarily delete files from disk.
+* Avoid hard-deleting attachment records unless existing app convention does that.
+
+Frontend requirements
+
+1. Composer attachment button
+
+Add a paperclip/upload button to:
+
+* Main /current channel composer
+* /current thread reply composer
+* RecordCurrentFeed composer
+* RecordCurrentFeed thread reply composer
+
+Behavior:
+
+* User can click paperclip and select files.
+* Show selected files before sending.
+* Allow removing selected files before sending.
+* Support one or multiple attachments if simple.
+* Show upload progress if existing infrastructure supports it; otherwise show a clear sending/uploading state.
+* Sending should post the message and attach the files.
+
+If attaching files requires the message ID first:
+
+* Create the message first.
+* Upload/link attachments to that message.
+* Then refetch the message feed.
+
+2. Message attachment display
+
+In message rows, display attachments below the message body.
+
+For images:
+
+* Show a clean thumbnail/preview if safe and easy.
+* Clicking opens/downloads the image.
+
+For non-images:
+
+* Show a compact file chip/card with:
+    * file icon
+    * original filename
+    * file size
+    * click to open/download
+
+Keep it premium and compact. No ugly file dump.
+
+3. Drag-and-drop, optional
+
+If low-risk, support drag-and-drop into composer.
+
+If this complicates the implementation, defer it.
+
+4. UX requirements
+
+* Attachment button should not clutter composer.
+* File chips should look good in dark mode.
+* Long filenames should truncate gracefully.
+* Large files should fail gracefully with a useful error.
+* Unsupported file types should fail gracefully.
+* Upload errors should not lose the typed message if possible.
+* Attachments should not cause feed scroll jitter.
+* Image previews should not blow up the message row height.
+
+Suggested file limits
+
+Use existing app limits if they exist.
+
+If no app convention exists, use conservative limits:
+
+Allowed:
+
+* images: png, jpg, jpeg, gif, webp
+* documents: pdf, doc, docx, xls, xlsx, csv, txt
+* slides: ppt, pptx
+* archives: zip if existing system allows it
+
+Max size:
+
+* 10 MB per file for Phase 4A unless existing infrastructure uses another limit
+
+Do not allow executable/script files.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current still loads.
+3. Channel posting without attachments still works.
+4. Channel posting with one image attachment works.
+5. Channel posting with one PDF/document works.
+6. Channel thread reply with attachment works.
+7. Record Current posting without attachments still works.
+8. Record Current posting with image attachment works.
+9. Record Current posting with PDF/document works.
+10. Record thread reply with attachment works.
+11. Attachments display correctly in message rows.
+12. Image thumbnails/previews render cleanly.
+13. Non-image file chips render cleanly.
+14. Clicking attachment opens/downloads correctly.
+15. Deleted messages hide/redact attachments if intended.
+16. Reactions still work.
+17. Edit/delete still work.
+18. Pins still work.
+19. Threads still work.
+20. @mentions still work.
+21. Mention notifications still work.
+22. Record Current still works for Account, Contact, Opportunity, and Lead.
+23. Channel messages and record messages stay isolated.
+24. Uploading unsupported file type fails gracefully.
+25. Uploading oversized file fails gracefully.
+26. No browser console errors.
+27. No server errors.
+28. No SQL errors.
+29. Existing /execution/communications remains unaffected.
+30. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing attachment system audit summary
+2. Files changed
+3. Database migration/schema changes
+4. Routes added/changed
+5. Frontend components changed/added
+6. Attachment behavior supported
+7. File type/size limits used
+8. Verification results
+9. Known issues
+10. Recommended next step
+
+Keep scope tight: Current attachments only.

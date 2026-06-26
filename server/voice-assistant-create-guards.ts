@@ -58,6 +58,9 @@ const LINKABLE_SECTION: Record<string, string> = {
   // task drawer only opens for users who are already viewing tasks they
   // can see, so crm:view is a safe minimum.
   task: "crm",
+  // Current message attachments — any authenticated team member with crm:view
+  // can read Current messages, so the same section gate applies.
+  current_message: "crm",
   project: "projects",
   quote: "quoting",
   partnership: "partnerships", ecosystem: "partnerships",

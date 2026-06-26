@@ -10,9 +10,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow } from "date-fns";
 import {
   MessageSquare, Send, Smile, Pencil, Trash2, X, Check,
-  AtSign, MessagesSquare, ChevronLeft, Pin, ChevronDown, ChevronUp,
+  AtSign, MessagesSquare, ChevronLeft, Pin, ChevronDown, ChevronUp, Paperclip,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
+} from "./current-attachment-display";
+import type { CurrentAttachment } from "./current-attachment-display";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,6 +34,7 @@ interface RecordMessage {
   reactions: Array<{ emoji: string; count: number; reacted: boolean }>;
   replyCount: number;
   latestReplyAt: string | null;
+  attachments: CurrentAttachment[];
 }
 
 interface PinnedRecord {
@@ -253,13 +258,14 @@ function useComposerMentions(text: string, setText: (t: string) => void) {
 function MessageComposer({
   onSend, placeholder, disabled,
 }: {
-  onSend: (body: string) => void;
+  onSend: (body: string, files: File[]) => void;
   placeholder?: string;
   disabled?: boolean;
 }) {
   const [draft, setDraft] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mention = useComposerMentions(draft, setDraft);
-  const btnRef = useRef<HTMLButtonElement | null>(null);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (mention.handleMentionKeyDown(e)) return;
@@ -271,14 +277,30 @@ function MessageComposer({
 
   function submit() {
     const trimmed = draft.trim();
-    if (!trimmed) return;
-    onSend(trimmed);
+    if (!trimmed || disabled) return;
+    const files = [...pendingFiles];
+    onSend(trimmed, files);
     setDraft("");
+    setPendingFiles([]);
     mention.closeMention();
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files ?? []);
+    if (selected.length === 0) return;
+    setPendingFiles(prev => [...prev, ...selected]);
+    e.target.value = "";
+  }
+
+  function removeFile(index: number) {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
   }
 
   return (
     <div className="relative flex flex-col gap-1.5">
+      {pendingFiles.length > 0 && (
+        <PendingFileChips files={pendingFiles} onRemove={removeFile} />
+      )}
       <div className="flex items-end gap-2">
         <div className="flex-1 relative">
           <Textarea
@@ -292,15 +314,23 @@ function MessageComposer({
             data-testid="record-current-composer"
           />
           <button
-            ref={btnRef as any}
             className="absolute right-2 bottom-2 text-muted-foreground hover:text-foreground transition-colors"
             type="button"
             tabIndex={-1}
-            onClick={() => {}}
-            data-testid="record-current-emoji-hint"
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach file"
+            data-testid="record-current-attach"
           >
-            <AtSign className="h-3.5 w-3.5" />
+            <Paperclip className="h-3.5 w-3.5" />
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileChange}
+            data-testid="record-current-file-input"
+          />
         </div>
         <Button
           size="sm"
@@ -414,6 +444,9 @@ function MessageItem({
             {renderMentionBody(msg.body || "", myUserId)}
           </p>
         )}
+
+        {/* Attachments */}
+        <CurrentAttachmentChips attachments={msg.attachments ?? []} />
 
         {/* Reactions */}
         {msg.reactions.length > 0 && (
@@ -590,9 +623,13 @@ function ThreadPanel({
   });
 
   const replyMutation = useMutation({
-    mutationFn: async (body: string) => {
+    mutationFn: async ({ body, files }: { body: string; files: File[] }) => {
       const r = await apiRequest("POST", `/api/current/messages/${rootId}/thread`, { body });
-      return r.json();
+      const newMsg = await r.json();
+      if (files.length > 0 && newMsg?.id) {
+        await uploadCurrentAttachments(newMsg.id, files);
+      }
+      return newMsg;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/current/messages", rootId, "thread"] });
@@ -676,7 +713,7 @@ function ThreadPanel({
 
         <div className="p-3 border-t border-border/50 flex-shrink-0">
           <MessageComposer
-            onSend={body => replyMutation.mutate(body)}
+            onSend={(body, files) => replyMutation.mutate({ body, files })}
             placeholder="Reply…"
             disabled={replyMutation.isPending}
           />
@@ -765,9 +802,13 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
 
   // Mutations
   const postMutation = useMutation({
-    mutationFn: async (body: string) => {
+    mutationFn: async ({ body, files }: { body: string; files: File[] }) => {
       const r = await apiRequest("POST", apiBase + "/messages", { body });
-      return r.json();
+      const newMsg = await r.json();
+      if (files.length > 0 && newMsg?.id) {
+        await uploadCurrentAttachments(newMsg.id, files);
+      }
+      return newMsg;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [apiBase + "/messages"] }),
     onError: () => toast({ title: "Failed to send", variant: "destructive" }),
@@ -868,7 +909,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
       {/* Composer */}
       <div className="flex-shrink-0 pt-2 border-t border-border/30 mt-1">
         <MessageComposer
-          onSend={body => postMutation.mutate(body)}
+          onSend={(body, files) => postMutation.mutate({ body, files })}
           disabled={postMutation.isPending}
         />
       </div>

@@ -6438,7 +6438,7 @@ export async function registerRoutes(
     const files = (req.files as Express.Multer.File[]) ?? [];
     if (files.length === 0) return res.status(400).json({ message: "No file uploaded" });
     const { objectType, objectId, category, title, notes, tags } = req.body;
-    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task", "tradeshow_event"];
+    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task", "tradeshow_event", "current_message"];
     if (!objectType || !objectId || !allowedTypes.includes(objectType)) {
       for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
       return res.status(400).json({ message: "Valid objectType and objectId required" });
@@ -6572,8 +6572,8 @@ export async function registerRoutes(
     if (!url || !objectType || !objectId) {
       return res.status(400).json({ message: "url, objectType, and objectId are required" });
     }
-    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task", "tradeshow_event"];
-    if (!allowedTypes.includes(objectType)) {
+    const allowedTypes = ["lead", "account", "partnership", "contact", "opportunity", "quote", "install_workflow", "deployment", "purchase_order", "project", "customer_success", "general", "task", "tradeshow_event", "current_message"];
+    if (!allowedTypes.includes(objectType as string)) {
       return res.status(400).json({ message: "Invalid objectType" });
     }
     try {
@@ -33021,7 +33021,8 @@ export function registerConfluenceRoutes(app: Express) {
           u.name AS user_name, u.avatar_url AS user_avatar_url,
           COALESCE(rxn.reactions, '[]'::json) AS reactions,
           COALESCE(rep.reply_count, 0)::int AS reply_count,
-          rep.latest_reply_at
+          rep.latest_reply_at,
+          COALESCE(att.msg_attachments, '[]'::json) AS msg_attachments
         FROM current_messages m
         JOIN users u ON u.id = m.user_id
         LEFT JOIN LATERAL (
@@ -33041,6 +33042,19 @@ export function registerConfluenceRoutes(app: Express) {
           FROM current_messages
           WHERE parent_message_id = m.id AND deleted_at IS NULL
         ) rep ON true
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(json_agg(
+            json_build_object(
+              'id', a.id,
+              'fileName', a.file_name,
+              'originalName', a.original_name,
+              'mimeType', a.mime_type,
+              'fileSize', a.file_size
+            ) ORDER BY a.created_at
+          ), '[]'::json) AS msg_attachments
+          FROM attachments a
+          WHERE a.object_type = 'current_message' AND a.object_id = m.id
+        ) att ON true
         WHERE m.channel_id = (
           SELECT id FROM current_channels WHERE slug = '${escapedSlug}' AND archived_at IS NULL LIMIT 1
         )
@@ -33062,6 +33076,7 @@ export function registerConfluenceRoutes(app: Express) {
         reactions: r.reactions || [],
         replyCount: Number(r.reply_count) || 0,
         latestReplyAt: r.latest_reply_at ?? null,
+        attachments: r.msg_attachments || [],
       })));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -33385,7 +33400,23 @@ export function registerConfluenceRoutes(app: Express) {
           m.parent_message_id,
           CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
           u.name AS user_name, u.avatar_url AS user_avatar_url,
-          COALESCE(rxn.reactions, '[]'::json) AS reactions`;
+          COALESCE(rxn.reactions, '[]'::json) AS reactions,
+          COALESCE(att.msg_attachments, '[]'::json) AS msg_attachments`;
+
+      const lateralAttachments = `
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(json_agg(
+            json_build_object(
+              'id', a.id,
+              'fileName', a.file_name,
+              'originalName', a.original_name,
+              'mimeType', a.mime_type,
+              'fileSize', a.file_size
+            ) ORDER BY a.created_at
+          ), '[]'::json) AS msg_attachments
+          FROM attachments a
+          WHERE a.object_type = 'current_message' AND a.object_id = m.id
+        ) att ON true`;
 
       const mapRow = (r: any) => ({
         id: r.id, channelId: r.channel_id,
@@ -33397,12 +33428,14 @@ export function registerConfluenceRoutes(app: Express) {
         userName: r.user_name, userAvatarUrl: r.user_avatar_url,
         reactions: r.reactions || [],
         replyCount: 0, latestReplyAt: null,
+        attachments: r.msg_attachments || [],
       });
 
       const rootRows = await db.execute(sql.raw(`
         SELECT ${selectCols}
         FROM current_messages m JOIN users u ON u.id = m.user_id
         ${lateralReactions}
+        ${lateralAttachments}
         WHERE m.id = ${rootId} AND (m.parent_message_id IS NULL) LIMIT 1
       `));
       if (!rootRows.rows.length) return res.status(404).json({ message: "Thread not found" });
@@ -33411,6 +33444,7 @@ export function registerConfluenceRoutes(app: Express) {
         SELECT ${selectCols}
         FROM current_messages m JOIN users u ON u.id = m.user_id
         ${lateralReactions}
+        ${lateralAttachments}
         WHERE m.parent_message_id = ${rootId}
         ORDER BY m.created_at ASC LIMIT 500
       `));
@@ -33642,7 +33676,8 @@ export function registerConfluenceRoutes(app: Express) {
         u.name AS user_name, u.avatar_url AS user_avatar_url,
         COALESCE(rxn.reactions, '[]'::json) AS reactions,
         COALESCE(rep.reply_count, 0)::int AS reply_count,
-        rep.latest_reply_at
+        rep.latest_reply_at,
+        COALESCE(att.msg_attachments, '[]'::json) AS msg_attachments
       FROM current_messages m
       JOIN users u ON u.id = m.user_id
       LEFT JOIN LATERAL (
@@ -33662,6 +33697,19 @@ export function registerConfluenceRoutes(app: Express) {
         FROM current_messages
         WHERE parent_message_id = m.id AND deleted_at IS NULL
       ) rep ON true
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(json_agg(
+          json_build_object(
+            'id', a.id,
+            'fileName', a.file_name,
+            'originalName', a.original_name,
+            'mimeType', a.mime_type,
+            'fileSize', a.file_size
+          ) ORDER BY a.created_at
+        ), '[]'::json) AS msg_attachments
+        FROM attachments a
+        WHERE a.object_type = 'current_message' AND a.object_id = m.id
+      ) att ON true
       WHERE m.object_type = '${objectType}'
         AND m.object_id = ${objectId}
         AND m.parent_message_id IS NULL
@@ -33687,6 +33735,7 @@ export function registerConfluenceRoutes(app: Express) {
       reactions: r.reactions || [],
       replyCount: Number(r.reply_count) || 0,
       latestReplyAt: r.latest_reply_at ?? null,
+      attachments: r.msg_attachments || [],
     };
   }
 

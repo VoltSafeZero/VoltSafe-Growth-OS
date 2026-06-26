@@ -22,7 +22,12 @@ import {
   ChevronDown,
   ChevronUp,
   AtSign,
+  Paperclip,
 } from "lucide-react";
+import {
+  CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
+} from "@/components/current/current-attachment-display";
+import type { CurrentAttachment } from "@/components/current/current-attachment-display";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -55,6 +60,7 @@ interface Message {
   reactions: Reaction[];
   replyCount: number;
   latestReplyAt: string | null;
+  attachments?: CurrentAttachment[];
 }
 
 interface ThreadData {
@@ -732,6 +738,7 @@ function MessageRow({
         <p className="text-[13.5px] text-foreground/90 leading-relaxed whitespace-pre-wrap break-words">
           {renderMentionBody(message.body, currentUserId)}
         </p>
+        <CurrentAttachmentChips attachments={message.attachments ?? []} />
         <ReactionStrip
           reactions={message.reactions || []}
           messageId={message.id}
@@ -949,6 +956,8 @@ function ThreadPanel({
 }) {
   const queryClient = useQueryClient();
   const [replyDraft, setReplyDraft] = useState("");
+  const [replyPendingFiles, setReplyPendingFiles] = useState<File[]>([]);
+  const replyFileInputRef = useRef<HTMLInputElement | null>(null);
   const [editingReply, setEditingReply] = useState<Message | null>(null);
   const threadFeedRef = useRef<HTMLDivElement>(null);
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1024,15 +1033,8 @@ function ThreadPanel({
   // Post reply
   const postReplyMutation = useMutation({
     mutationFn: (body: string) =>
-      apiRequest("POST", `/api/current/messages/${rootMessageId}/thread`, { body }),
-    onSuccess: () => {
-      setReplyDraft("");
-      replyMention.closeMention();
-      if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
-      threadAtBottom.current = true;
-      invalidateThread();
-      invalidateFeed();
-    },
+      apiRequest("POST", `/api/current/messages/${rootMessageId}/thread`, { body })
+        .then((r) => r.json()),
   });
 
   // Edit reply (reuses same PATCH route)
@@ -1080,10 +1082,23 @@ function ThreadPanel({
     },
   });
 
-  function handleReplySend() {
+  async function handleReplySend() {
     const trimmed = replyDraft.trim();
     if (!trimmed || postReplyMutation.isPending) return;
-    postReplyMutation.mutate(trimmed);
+    try {
+      const newMsg = await postReplyMutation.mutateAsync(trimmed);
+      setReplyDraft("");
+      replyMention.closeMention();
+      if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
+      threadAtBottom.current = true;
+      const files = [...replyPendingFiles];
+      setReplyPendingFiles([]);
+      if (files.length > 0 && newMsg?.id) {
+        await uploadCurrentAttachments(newMsg.id, files);
+      }
+      invalidateThread();
+      invalidateFeed();
+    } catch {}
   }
 
   function handleReplyKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1225,6 +1240,16 @@ function ThreadPanel({
                 onHover={replyMention.setMentionIdx}
               />
             )}
+            {replyPendingFiles.length > 0 && (
+              <div className="mb-2">
+                <PendingFileChips
+                  files={replyPendingFiles}
+                  onRemove={(i) =>
+                    setReplyPendingFiles((prev) => prev.filter((_, idx) => idx !== i))
+                  }
+                />
+              </div>
+            )}
             <div
               className={cn(
                 "flex items-end gap-2 rounded-xl px-3 py-2 transition-all duration-150",
@@ -1255,6 +1280,28 @@ function ThreadPanel({
                 rows={1}
                 data-testid="thread-reply-input"
               />
+              <button
+                type="button"
+                onClick={() => replyFileInputRef.current?.click()}
+                title="Attach file"
+                className="shrink-0 h-7 w-7 p-0 rounded-lg flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors"
+                data-testid="btn-attach-reply"
+              >
+                <Paperclip className="w-3 h-3" />
+              </button>
+              <input
+                ref={replyFileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0)
+                    setReplyPendingFiles((prev) => [...prev, ...files]);
+                  e.target.value = "";
+                }}
+                data-testid="reply-file-input"
+              />
               <Button
                 size="sm"
                 onClick={handleReplySend}
@@ -1270,7 +1317,7 @@ function ThreadPanel({
               </Button>
             </div>
             <p className="text-[10px] text-muted-foreground/30 mt-1 px-0.5 select-none">
-              Enter to reply · Shift+Enter for new line · @ to mention
+              Enter to reply · Shift+Enter for new line · @ to mention · 📎 to attach
             </p>
           </>
         )}
@@ -1414,6 +1461,8 @@ export default function CurrentPage() {
   const queryClient = useQueryClient();
   const [selectedSlug, setSelectedSlug] = useState<string>("general");
   const [draft, setDraft] = useState("");
+  const [mainPendingFiles, setMainPendingFiles] = useState<File[]>([]);
+  const mainFileInputRef = useRef<HTMLInputElement | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [threadRootId, setThreadRootId] = useState<number | null>(null);
   const [view, setView] = useState<"channel" | "mentions">("channel");
@@ -1562,16 +1611,8 @@ export default function CurrentPage() {
   // Post
   const postMutation = useMutation({
     mutationFn: (body: string) =>
-      apiRequest("POST", `/api/current/channels/${selectedSlug}/messages`, {
-        body,
-      }),
-    onSuccess: () => {
-      setDraft("");
-      mainMention.closeMention();
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
-      isAtBottom.current = true;
-      invalidateFeed();
-    },
+      apiRequest("POST", `/api/current/channels/${selectedSlug}/messages`, { body })
+        .then((r) => r.json()),
   });
 
   // Edit
@@ -1626,10 +1667,22 @@ export default function CurrentPage() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  function handleSend() {
+  async function handleSend() {
     const trimmed = draft.trim();
     if (!trimmed || postMutation.isPending) return;
-    postMutation.mutate(trimmed);
+    try {
+      const newMsg = await postMutation.mutateAsync(trimmed);
+      setDraft("");
+      mainMention.closeMention();
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      isAtBottom.current = true;
+      const files = [...mainPendingFiles];
+      setMainPendingFiles([]);
+      if (files.length > 0 && newMsg?.id) {
+        await uploadCurrentAttachments(newMsg.id, files);
+      }
+      invalidateFeed();
+    } catch {}
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1891,6 +1944,16 @@ export default function CurrentPage() {
                   onHover={mainMention.setMentionIdx}
                 />
               )}
+              {mainPendingFiles.length > 0 && (
+                <div className="mb-2">
+                  <PendingFileChips
+                    files={mainPendingFiles}
+                    onRemove={(i) =>
+                      setMainPendingFiles((prev) => prev.filter((_, idx) => idx !== i))
+                    }
+                  />
+                </div>
+              )}
               <div
                 className={cn(
                   "flex items-end gap-2 rounded-xl px-3.5 py-2.5 transition-all duration-150",
@@ -1914,6 +1977,28 @@ export default function CurrentPage() {
                   rows={1}
                   data-testid="composer-input"
                 />
+                <button
+                  type="button"
+                  onClick={() => mainFileInputRef.current?.click()}
+                  title="Attach file"
+                  className="shrink-0 h-8 w-8 p-0 rounded-lg flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors"
+                  data-testid="btn-attach-channel"
+                >
+                  <Paperclip className="w-3.5 h-3.5" />
+                </button>
+                <input
+                  ref={mainFileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    if (files.length > 0)
+                      setMainPendingFiles((prev) => [...prev, ...files]);
+                    e.target.value = "";
+                  }}
+                  data-testid="channel-file-input"
+                />
                 <Button
                   size="sm"
                   onClick={handleSend}
@@ -1929,7 +2014,7 @@ export default function CurrentPage() {
                 </Button>
               </div>
               <p className="text-[10.5px] text-muted-foreground/35 mt-1.5 px-0.5 select-none">
-                Enter to send · Shift+Enter for new line · @ to mention
+                Enter to send · Shift+Enter for new line · @ to mention · 📎 to attach
               </p>
             </div>
           </>
