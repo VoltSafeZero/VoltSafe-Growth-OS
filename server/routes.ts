@@ -33008,7 +33008,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  // GET /api/current/channels/:slug/messages — latest 200 messages with reactions (asc)
+  // GET /api/current/channels/:slug/messages — top-level messages with reactions + reply counts (asc)
   app.get("/api/current/channels/:slug/messages", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
@@ -33019,7 +33019,9 @@ export function registerConfluenceRoutes(app: Express) {
           m.id, m.channel_id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
           CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
           u.name AS user_name, u.avatar_url AS user_avatar_url,
-          COALESCE(rxn.reactions, '[]'::json) AS reactions
+          COALESCE(rxn.reactions, '[]'::json) AS reactions,
+          COALESCE(rep.reply_count, 0)::int AS reply_count,
+          rep.latest_reply_at
         FROM current_messages m
         JOIN users u ON u.id = m.user_id
         LEFT JOIN LATERAL (
@@ -33034,9 +33036,15 @@ export function registerConfluenceRoutes(app: Express) {
             GROUP BY emoji
           ) rg
         ) rxn ON true
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*)::int AS reply_count, MAX(created_at) AS latest_reply_at
+          FROM current_messages
+          WHERE parent_message_id = m.id AND deleted_at IS NULL
+        ) rep ON true
         WHERE m.channel_id = (
           SELECT id FROM current_channels WHERE slug = '${escapedSlug}' AND archived_at IS NULL LIMIT 1
         )
+          AND (m.parent_message_id IS NULL)
         ORDER BY m.created_at ASC
         LIMIT 200
       `));
@@ -33052,6 +33060,8 @@ export function registerConfluenceRoutes(app: Express) {
         userName: r.user_name,
         userAvatarUrl: r.user_avatar_url,
         reactions: r.reactions || [],
+        replyCount: Number(r.reply_count) || 0,
+        latestReplyAt: r.latest_reply_at ?? null,
       })));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -33317,6 +33327,102 @@ export function registerConfluenceRoutes(app: Express) {
       if (!messageId) return res.status(400).json({ message: "Invalid message id" });
       await db.execute(sql.raw(`DELETE FROM current_pins WHERE message_id = ${messageId}`));
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/messages/:id/thread — root message + all replies
+  app.get("/api/current/messages/:id/thread", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const rootId = Number(req.params.id);
+      if (!rootId) return res.status(400).json({ message: "Invalid message id" });
+
+      const lateralReactions = `
+        LEFT JOIN LATERAL (
+          SELECT json_agg(
+            json_build_object('emoji', rg.emoji, 'count', rg.cnt::int, 'reacted', rg.reacted)
+            ORDER BY rg.first_at
+          ) AS reactions
+          FROM (
+            SELECT emoji, COUNT(*) AS cnt, BOOL_OR(user_id = ${userId}) AS reacted, MIN(created_at) AS first_at
+            FROM current_reactions WHERE message_id = m.id GROUP BY emoji
+          ) rg
+        ) rxn ON true`;
+
+      const selectCols = `
+          m.id, m.channel_id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
+          m.parent_message_id,
+          CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
+          u.name AS user_name, u.avatar_url AS user_avatar_url,
+          COALESCE(rxn.reactions, '[]'::json) AS reactions`;
+
+      const mapRow = (r: any) => ({
+        id: r.id, channelId: r.channel_id, userId: r.user_id,
+        body: r.body, isEdited: r.is_edited, editedAt: r.edited_at,
+        deletedAt: r.deleted_at, createdAt: r.created_at,
+        parentMessageId: r.parent_message_id,
+        userName: r.user_name, userAvatarUrl: r.user_avatar_url,
+        reactions: r.reactions || [],
+        replyCount: 0, latestReplyAt: null,
+      });
+
+      const rootRows = await db.execute(sql.raw(`
+        SELECT ${selectCols}
+        FROM current_messages m JOIN users u ON u.id = m.user_id
+        ${lateralReactions}
+        WHERE m.id = ${rootId} AND (m.parent_message_id IS NULL) LIMIT 1
+      `));
+      if (!rootRows.rows.length) return res.status(404).json({ message: "Thread not found" });
+
+      const replyRows = await db.execute(sql.raw(`
+        SELECT ${selectCols}
+        FROM current_messages m JOIN users u ON u.id = m.user_id
+        ${lateralReactions}
+        WHERE m.parent_message_id = ${rootId}
+        ORDER BY m.created_at ASC LIMIT 500
+      `));
+
+      res.json({ root: mapRow(rootRows.rows[0]), replies: replyRows.rows.map(mapRow) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/messages/:id/thread — post a reply to a thread
+  app.post("/api/current/messages/:id/thread", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const rootId = Number(req.params.id);
+      const body = String(req.body?.body || "").trim();
+      if (!rootId) return res.status(400).json({ message: "Invalid message id" });
+      if (!body) return res.status(400).json({ message: "Reply body is required" });
+      if (body.length > 10000) return res.status(400).json({ message: "Reply too long" });
+
+      const rootRows = await db.execute(sql.raw(`
+        SELECT id, channel_id FROM current_messages
+        WHERE id = ${rootId} AND deleted_at IS NULL AND parent_message_id IS NULL LIMIT 1
+      `));
+      if (!rootRows.rows.length) return res.status(404).json({ message: "Root message not found" });
+      const channelId = Number(rootRows.rows[0].channel_id);
+
+      const escaped = body.replace(/'/g, "''");
+      const ins = await db.execute(sql.raw(`
+        INSERT INTO current_messages (channel_id, user_id, body, parent_message_id)
+        VALUES (${channelId}, ${userId}, '${escaped}', ${rootId})
+        RETURNING id, channel_id, user_id, body, is_edited, created_at, parent_message_id
+      `));
+      const msg = ins.rows[0];
+      const userRows = await db.execute(sql.raw(`SELECT name, avatar_url FROM users WHERE id = ${userId} LIMIT 1`));
+      const u = userRows.rows[0] || {};
+      res.status(201).json({
+        id: msg.id, channelId: msg.channel_id, userId: msg.user_id,
+        body: msg.body, isEdited: false, editedAt: null, deletedAt: null,
+        createdAt: msg.created_at, parentMessageId: msg.parent_message_id,
+        userName: u.name || "Unknown", userAvatarUrl: u.avatar_url || null,
+        reactions: [], replyCount: 0, latestReplyAt: null,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

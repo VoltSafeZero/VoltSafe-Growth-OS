@@ -2008,6 +2008,17 @@ export async function migrateCurrentSchema(): Promise<void> {
         ON current_pins(channel_id)
     `);
 
+
+    await db.execute(sql`
+      ALTER TABLE current_messages
+        ADD COLUMN IF NOT EXISTS parent_message_id INTEGER REFERENCES current_messages(id) ON DELETE CASCADE
+    `);
+
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_current_messages_parent
+        ON current_messages(parent_message_id)
+    `);
+
     console.log("[migration] Current schema ready.");
   } catch (err) {
     console.error("[migration] migrateCurrentSchema error (non-fatal):", err);

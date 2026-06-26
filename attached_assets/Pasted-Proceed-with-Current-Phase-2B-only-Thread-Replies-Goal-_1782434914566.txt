@@ -1,0 +1,149 @@
+Proceed with Current Phase 2B only: Thread Replies.
+
+Goal:
+Add Slack-style thread replies to Current so users can reply to a specific message without cluttering the main channel feed.
+
+Do not add @mentions, CRM record Currents, Guest Currents, direct messages, attachments, search, AI summaries, slash commands, or notifications yet.
+
+Phase 2B scope
+
+Add only:
+
+1. Reply to message
+2. Thread panel/drawer
+3. Thread reply count
+4. Thread message posting/edit/delete/reactions if naturally reusable
+5. Clean unread/polling behavior for open thread
+
+Backend requirements
+
+Use the existing current_messages.parent_message_id field if it already exists. If it does not exist, add it idempotently.
+
+A top-level channel message has:
+
+* parent_message_id = null
+
+A thread reply has:
+
+* parent_message_id = root_message_id
+* same channel_id as the parent message
+
+Add/complete routes:
+
+* GET /api/current/messages/:id/thread
+    * Returns the root message and its replies.
+    * Replies should include author info, timestamp, body, edited/deleted state, and reactions if available.
+    * Exclude hard-deleted data. Soft-deleted bodies should be redacted like main feed messages.
+* POST /api/current/messages/:id/thread
+    * Creates a reply under that root message.
+    * Body required.
+    * Reject empty/whitespace-only replies.
+    * Should auto-mark read for the sender if consistent with existing channel read behavior.
+
+Update channel message fetch response to include:
+
+* replyCount
+* optionally latestReplyAt
+* optionally latestReplyAuthor
+
+Important:
+
+* Thread replies should not appear as standalone top-level messages in the main channel feed.
+* Main channel feed should only show messages where parent_message_id IS NULL.
+* Reactions/edit/delete should continue to work correctly for both top-level messages and thread replies if the existing routes can support that cleanly.
+
+Frontend requirements
+
+Add a clean thread experience inside /current.
+
+Message row
+
+Each top-level message should show:
+
+* A subtle Reply action in the hover action bar.
+* If replies exist, show a compact link below the message:
+    * 1 reply
+    * 3 replies
+    * optionally “Latest reply …”
+
+Clicking Reply or the reply count opens a thread panel.
+
+Thread panel
+
+Add a right-side drawer/panel:
+
+* Opens from the right side of the Current page.
+* Shows the root message at the top.
+* Shows replies below.
+* Has a compact reply composer at the bottom.
+* Can be closed with X and Esc.
+* Does not navigate away from /current.
+* Does not break the channel feed layout.
+* Looks excellent in dark mode.
+
+Thread composer
+
+* Enter sends.
+* Shift+Enter creates newline.
+* Empty replies rejected.
+* Auto-grow textarea if consistent with the main composer.
+* After send, reply appears quickly and thread scrolls to newest reply.
+
+Polling/query behavior
+
+* Open thread should poll every 5 seconds while visible.
+* Channel feed should still poll every 5 seconds.
+* Avoid flicker.
+* Avoid scroll jumping.
+* Invalidate:
+    * thread query after reply/edit/delete/reaction
+    * channel messages query after reply so reply count updates
+
+UX requirements
+
+Keep it premium and restrained:
+
+* No clutter
+* No nested comment chaos
+* No huge borders
+* No ugly admin-panel drawer
+* Smooth hover states
+* Thread panel should feel native to VoltSafe CMS
+* Deleted replies should show subtle “Message deleted”
+* Edited replies should show subtle “edited”
+* Reactions should render in replies if the existing ReactionStrip is reusable
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Existing posting still works.
+4. Existing reactions still work.
+5. Existing edit/delete still work.
+6. Existing pins still work.
+7. User can reply to a top-level message.
+8. Reply appears in the thread panel.
+9. Reply does not appear as a top-level channel message.
+10. Reply count updates on the parent message.
+11. Multiple replies display in correct order.
+12. Thread panel closes correctly.
+13. Thread polling does not cause flicker.
+14. Editing/deleting/reactions still work for thread replies if supported.
+15. Switching channels closes or resets the open thread safely.
+16. Unread counts do not regress.
+17. /execution/communications remains unaffected.
+18. No browser console errors.
+19. No server errors.
+20. No unrelated files changed unnecessarily.
+
+Please implement only Phase 2B thread replies, then stop and return:
+
+1. Files changed
+2. Database migration/schema changes
+3. Routes added/changed
+4. Frontend components changed/added
+5. Verification results
+6. Known issues
+7. Recommended next step

@@ -52,6 +52,13 @@ interface Message {
   userName: string;
   userAvatarUrl: string | null;
   reactions: Reaction[];
+  replyCount: number;
+  latestReplyAt: string | null;
+}
+
+interface ThreadData {
+  root: Message;
+  replies: Message[];
 }
 
 interface PinnedMessage {
@@ -149,7 +156,6 @@ function EmojiPickerPopover({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
-  // Close on click-outside or scroll (scroll moves the anchor but picker stays fixed)
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
@@ -166,7 +172,7 @@ function EmojiPickerPopover({
       setOpen(false);
     }
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("scroll", onScroll, true); // capture phase catches all scrolls
+    document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("scroll", onScroll, true);
@@ -176,7 +182,6 @@ function EmojiPickerPopover({
   function handleToggle() {
     if (!open && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      // Open below trigger; clamp so picker never goes off the right edge of viewport
       setCoords({
         top: rect.bottom + 4,
         left: Math.max(4, rect.right - 166),
@@ -231,6 +236,7 @@ function MessageActionBar({
   onEdit,
   onDelete,
   onPin,
+  onReply,
 }: {
   isOwn: boolean;
   isAdmin: boolean;
@@ -239,6 +245,7 @@ function MessageActionBar({
   onEdit: () => void;
   onDelete: () => void;
   onPin: () => void;
+  onReply?: () => void;
 }) {
   const canEdit = isOwn;
   const canDelete = isOwn || isAdmin;
@@ -253,6 +260,15 @@ function MessageActionBar({
       )}
     >
       <EmojiPickerPopover onReact={onReact} />
+      {onReply && (
+        <button
+          onClick={onReply}
+          title="Reply in thread"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+        >
+          <MessageSquare className="w-3 h-3" />
+        </button>
+      )}
       <button
         onClick={onPin}
         title={isPinned ? "Unpin" : "Pin"}
@@ -333,6 +349,7 @@ function MessageRow({
   onEdit,
   onDelete,
   onPin,
+  onOpenThread,
 }: {
   message: Message;
   grouped: boolean;
@@ -343,11 +360,11 @@ function MessageRow({
   onEdit: (message: Message) => void;
   onDelete: (messageId: number) => void;
   onPin: (messageId: number, isPinned: boolean) => void;
+  onOpenThread?: () => void;
 }) {
   const isPinned = pinnedMessageIds.has(message.id);
   const isOwn = message.userId === currentUserId;
 
-  // Soft-deleted placeholder
   if (message.deletedAt) {
     return (
       <div
@@ -382,6 +399,7 @@ function MessageRow({
         onEdit={() => onEdit(message)}
         onDelete={() => onDelete(message.id)}
         onPin={() => onPin(message.id, isPinned)}
+        onReply={onOpenThread}
       />
 
       {/* Avatar / grouped spacer */}
@@ -437,6 +455,28 @@ function MessageRow({
           messageId={message.id}
           onToggle={onToggleReaction}
         />
+        {/* Reply count chip — only on top-level messages with replies */}
+        {onOpenThread && (message.replyCount ?? 0) > 0 && (
+          <button
+            onClick={onOpenThread}
+            data-testid={`reply-count-${message.id}`}
+            className="mt-2 flex items-center gap-1.5 text-[12px] text-primary/70 hover:text-primary transition-colors group/rc"
+          >
+            <div className="flex -space-x-1">
+              <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center">
+                <MessageSquare className="w-2.5 h-2.5 text-primary/60" />
+              </div>
+            </div>
+            <span className="font-medium">
+              {message.replyCount === 1 ? "1 reply" : `${message.replyCount} replies`}
+            </span>
+            {message.latestReplyAt && (
+              <span className="text-muted-foreground/40 group-hover/rc:text-muted-foreground/60 transition-colors">
+                · {formatTs(message.latestReplyAt)}
+              </span>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -589,6 +629,321 @@ function PinnedBar({
   );
 }
 
+// ── Thread panel ──────────────────────────────────────────────────────────────
+
+function ThreadPanel({
+  rootMessageId,
+  currentUserId,
+  isAdmin,
+  selectedSlug,
+  onClose,
+}: {
+  rootMessageId: number;
+  currentUserId: number;
+  isAdmin: boolean;
+  selectedSlug: string;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [replyDraft, setReplyDraft] = useState("");
+  const [editingReply, setEditingReply] = useState<Message | null>(null);
+  const threadFeedRef = useRef<HTMLDivElement>(null);
+  const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const threadAtBottom = useRef(true);
+
+  const threadQueryKey = ["/api/current/messages", rootMessageId, "thread"];
+
+  const { data, isLoading } = useQuery<ThreadData>({
+    queryKey: threadQueryKey,
+    queryFn: () =>
+      fetch(`/api/current/messages/${rootMessageId}/thread`, {
+        credentials: "include",
+      }).then((r) => {
+        if (!r.ok) throw new Error("Thread not found");
+        return r.json();
+      }),
+    refetchInterval: 5_000,
+    placeholderData: keepPreviousData,
+  });
+
+  const invalidateThread = () =>
+    queryClient.invalidateQueries({ queryKey: threadQueryKey });
+
+  const invalidateFeed = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["/api/current/channels", selectedSlug, "messages"],
+    });
+    queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
+  };
+
+  // Esc to close
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  // Scroll to bottom when replies arrive (if already near bottom)
+  const prevReplyCount = useRef(0);
+  useEffect(() => {
+    const count = data?.replies?.length ?? 0;
+    if (count > prevReplyCount.current && threadAtBottom.current) {
+      requestAnimationFrame(() => {
+        if (threadFeedRef.current)
+          threadFeedRef.current.scrollTop = threadFeedRef.current.scrollHeight;
+      });
+    }
+    prevReplyCount.current = count;
+  }, [data?.replies?.length]);
+
+  // On first open, scroll to bottom
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      if (threadFeedRef.current)
+        threadFeedRef.current.scrollTop = threadFeedRef.current.scrollHeight;
+    });
+  }, [rootMessageId]);
+
+  function handleThreadScroll() {
+    if (!threadFeedRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = threadFeedRef.current;
+    threadAtBottom.current = scrollHeight - scrollTop - clientHeight < 80;
+  }
+
+  // Post reply
+  const postReplyMutation = useMutation({
+    mutationFn: (body: string) =>
+      apiRequest("POST", `/api/current/messages/${rootMessageId}/thread`, { body }),
+    onSuccess: () => {
+      setReplyDraft("");
+      if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
+      threadAtBottom.current = true;
+      invalidateThread();
+      invalidateFeed();
+    },
+  });
+
+  // Edit reply (reuses same PATCH route)
+  const editReplyMutation = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: string }) =>
+      apiRequest("PATCH", `/api/current/messages/${id}`, { body }),
+    onSuccess: () => {
+      setEditingReply(null);
+      invalidateThread();
+      invalidateFeed();
+    },
+  });
+
+  // Delete reply
+  const deleteReplyMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/current/messages/${id}`),
+    onSuccess: () => {
+      invalidateThread();
+      invalidateFeed();
+    },
+  });
+
+  // React on reply
+  const reactReplyMutation = useMutation({
+    mutationFn: ({ messageId, emoji }: { messageId: number; emoji: string }) =>
+      apiRequest("POST", `/api/current/messages/${messageId}/reactions`, { emoji }),
+    onSuccess: () => {
+      invalidateThread();
+      invalidateFeed();
+    },
+  });
+
+  // Pin on reply (reuses same PIN route — pins are channel-scoped so this works fine)
+  const pinReplyMutation = useMutation({
+    mutationFn: ({ id, isPinned }: { id: number; isPinned: boolean }) =>
+      isPinned
+        ? apiRequest("DELETE", `/api/current/messages/${id}/pin`)
+        : apiRequest("POST", `/api/current/messages/${id}/pin`),
+    onSuccess: () => {
+      invalidateThread();
+      invalidateFeed();
+      queryClient.invalidateQueries({
+        queryKey: ["/api/current/channels", selectedSlug, "pins"],
+      });
+    },
+  });
+
+  function handleReplySend() {
+    const trimmed = replyDraft.trim();
+    if (!trimmed || postReplyMutation.isPending) return;
+    postReplyMutation.mutate(trimmed);
+  }
+
+  function handleReplyKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleReplySend();
+    }
+  }
+
+  const root = data?.root;
+  const replies = data?.replies ?? [];
+  const emptyPinnedSet = new Set<number>();
+
+  return (
+    <div
+      className="w-[380px] shrink-0 flex flex-col border-l border-border bg-background overflow-hidden"
+      data-testid="thread-panel"
+    >
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2 shrink-0">
+        <MessageSquare className="w-3.5 h-3.5 text-muted-foreground/50" />
+        <span className="font-semibold text-[13px] text-foreground tracking-tight">
+          Thread
+        </span>
+        <span className="text-[12px] text-muted-foreground/50 ml-0.5">
+          · #{displaySlug(selectedSlug)}
+        </span>
+        <button
+          onClick={onClose}
+          data-testid="btn-close-thread"
+          title="Close thread (Esc)"
+          className="ml-auto w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Root message */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-4 h-4 text-muted-foreground/40 animate-spin" />
+        </div>
+      ) : root ? (
+        <div className="px-4 pt-4 pb-3 border-b border-border/30 shrink-0 bg-muted/[0.02]">
+          {editingReply?.id === root.id ? (
+            <InlineEditRow
+              message={root}
+              onSave={(body) => editReplyMutation.mutate({ id: root.id, body })}
+              onCancel={() => setEditingReply(null)}
+            />
+          ) : (
+            <MessageRow
+              message={root}
+              grouped={false}
+              currentUserId={currentUserId}
+              isAdmin={isAdmin}
+              pinnedMessageIds={emptyPinnedSet}
+              onToggleReaction={(mid, emoji) =>
+                reactReplyMutation.mutate({ messageId: mid, emoji })
+              }
+              onEdit={(m) => setEditingReply(m)}
+              onDelete={(id) => deleteReplyMutation.mutate(id)}
+              onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
+            />
+          )}
+        </div>
+      ) : null}
+
+      {/* Reply count divider */}
+      {!isLoading && (
+        <div className="px-4 py-2 shrink-0 flex items-center gap-2">
+          <span className="text-[11px] text-muted-foreground/50 font-medium select-none">
+            {replies.length === 0
+              ? "No replies yet"
+              : replies.length === 1
+              ? "1 reply"
+              : `${replies.length} replies`}
+          </span>
+          <div className="flex-1 h-px bg-border/30" />
+        </div>
+      )}
+
+      {/* Replies feed */}
+      <div
+        ref={threadFeedRef}
+        onScroll={handleThreadScroll}
+        className="flex-1 overflow-y-auto px-4 py-1"
+        data-testid="thread-replies-feed"
+      >
+        {replies.map((reply, i) => {
+          if (editingReply?.id === reply.id) {
+            return (
+              <InlineEditRow
+                key={reply.id}
+                message={reply}
+                onSave={(body) => editReplyMutation.mutate({ id: reply.id, body })}
+                onCancel={() => setEditingReply(null)}
+              />
+            );
+          }
+          return (
+            <MessageRow
+              key={reply.id}
+              message={reply}
+              grouped={isContinuation(replies[i - 1], reply)}
+              currentUserId={currentUserId}
+              isAdmin={isAdmin}
+              pinnedMessageIds={emptyPinnedSet}
+              onToggleReaction={(mid, emoji) =>
+                reactReplyMutation.mutate({ messageId: mid, emoji })
+              }
+              onEdit={(m) => setEditingReply(m)}
+              onDelete={(id) => deleteReplyMutation.mutate(id)}
+              onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
+            />
+          );
+        })}
+        <div className="h-2" />
+      </div>
+
+      {/* Reply composer */}
+      <div className="px-4 pt-2 pb-4 border-t border-border/60 shrink-0">
+        <div
+          className={cn(
+            "flex items-end gap-2 rounded-xl px-3 py-2 transition-all duration-150",
+            "bg-muted/30 border border-border/60",
+            "focus-within:border-primary/40 focus-within:bg-background",
+            "focus-within:shadow-[0_0_0_3px_hsl(var(--primary)/0.07)]"
+          )}
+        >
+          <Textarea
+            ref={replyTextareaRef}
+            value={replyDraft}
+            onChange={(e) => {
+              setReplyDraft(e.target.value);
+              growTextarea(e.target, 120);
+            }}
+            onKeyDown={handleReplyKeyDown}
+            placeholder="Reply…"
+            className={cn(
+              "flex-1 border-0 bg-transparent shadow-none resize-none p-0",
+              "text-[13px] placeholder:text-muted-foreground/40 leading-relaxed",
+              "focus-visible:ring-0 focus-visible:ring-offset-0",
+              "min-h-[20px] max-h-32 overflow-y-auto"
+            )}
+            rows={1}
+            data-testid="thread-reply-input"
+          />
+          <Button
+            size="sm"
+            onClick={handleReplySend}
+            disabled={!replyDraft.trim() || postReplyMutation.isPending}
+            className="shrink-0 h-7 w-7 p-0 rounded-lg transition-all"
+            data-testid="btn-send-reply"
+          >
+            {postReplyMutation.isPending ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Send className="w-3 h-3" />
+            )}
+          </Button>
+        </div>
+        <p className="text-[10px] text-muted-foreground/30 mt-1 px-0.5 select-none">
+          Enter to reply · Shift+Enter for new line
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Sidebar skeletons ─────────────────────────────────────────────────────────
 
 function ChannelSkeleton() {
@@ -631,6 +986,7 @@ export default function CurrentPage() {
   const [selectedSlug, setSelectedSlug] = useState<string>("general");
   const [draft, setDraft] = useState("");
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [threadRootId, setThreadRootId] = useState<number | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isAtBottom = useRef(true);
@@ -695,6 +1051,7 @@ export default function CurrentPage() {
     isAtBottom.current = true;
     lastReadRef.current = 0;
     setEditingMessage(null);
+    setThreadRootId(null); // close thread when switching channels
     scrollToBottom();
   }, [selectedSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -929,7 +1286,7 @@ export default function CurrentPage() {
           )}
         </div>
 
-        {/* Pinned bar — only rendered when there are pins */}
+        {/* Pinned bar */}
         <PinnedBar pins={pins} onUnpin={(mid) => unpinMutation.mutate(mid)} />
 
         {/* Message feed */}
@@ -978,6 +1335,7 @@ export default function CurrentPage() {
                         ? unpinMutation.mutate(id)
                         : pinMutation.mutate(id)
                     }
+                    onOpenThread={() => setThreadRootId(msg.id)}
                   />
                 );
               })}
@@ -1030,6 +1388,17 @@ export default function CurrentPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Thread panel ────────────────────────────────────────────────── */}
+      {threadRootId !== null && (
+        <ThreadPanel
+          rootMessageId={threadRootId}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          selectedSlug={selectedSlug}
+          onClose={() => setThreadRootId(null)}
+        />
+      )}
     </div>
   );
 }
