@@ -510,7 +510,12 @@ function InlineEditRow({
       e.preventDefault();
       submit();
     }
-    if (e.key === "Escape") onCancel();
+    if (e.key === "Escape") {
+      // Stop the native event from reaching document listeners (e.g. ThreadPanel
+      // close). The edit should cancel; the panel should stay open.
+      e.nativeEvent.stopPropagation();
+      onCancel();
+    }
   }
 
   function submit() {
@@ -653,6 +658,11 @@ function ThreadPanel({
 
   const threadQueryKey = ["/api/current/messages", rootMessageId, "thread"];
 
+  // Keep a stable ref to onClose so the Esc listener never needs to re-register
+  // on every render (onClose is an arrow fn in the parent → new ref each render).
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+
   const { data, isLoading } = useQuery<ThreadData>({
     queryKey: threadQueryKey,
     queryFn: () =>
@@ -676,14 +686,14 @@ function ThreadPanel({
     queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
   };
 
-  // Esc to close
+  // Esc to close — uses ref so the effect never re-registers on every render
   useEffect(() => {
     function handler(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to bottom when replies arrive (if already near bottom)
   const prevReplyCount = useRef(0);
@@ -894,51 +904,59 @@ function ThreadPanel({
         <div className="h-2" />
       </div>
 
-      {/* Reply composer */}
+      {/* Reply composer — hidden when root is deleted */}
       <div className="px-4 pt-2 pb-4 border-t border-border/60 shrink-0">
-        <div
-          className={cn(
-            "flex items-end gap-2 rounded-xl px-3 py-2 transition-all duration-150",
-            "bg-muted/30 border border-border/60",
-            "focus-within:border-primary/40 focus-within:bg-background",
-            "focus-within:shadow-[0_0_0_3px_hsl(var(--primary)/0.07)]"
-          )}
-        >
-          <Textarea
-            ref={replyTextareaRef}
-            value={replyDraft}
-            onChange={(e) => {
-              setReplyDraft(e.target.value);
-              growTextarea(e.target, 120);
-            }}
-            onKeyDown={handleReplyKeyDown}
-            placeholder="Reply…"
-            className={cn(
-              "flex-1 border-0 bg-transparent shadow-none resize-none p-0",
-              "text-[13px] placeholder:text-muted-foreground/40 leading-relaxed",
-              "focus-visible:ring-0 focus-visible:ring-offset-0",
-              "min-h-[20px] max-h-32 overflow-y-auto"
-            )}
-            rows={1}
-            data-testid="thread-reply-input"
-          />
-          <Button
-            size="sm"
-            onClick={handleReplySend}
-            disabled={!replyDraft.trim() || postReplyMutation.isPending}
-            className="shrink-0 h-7 w-7 p-0 rounded-lg transition-all"
-            data-testid="btn-send-reply"
-          >
-            {postReplyMutation.isPending ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <Send className="w-3 h-3" />
-            )}
-          </Button>
-        </div>
-        <p className="text-[10px] text-muted-foreground/30 mt-1 px-0.5 select-none">
-          Enter to reply · Shift+Enter for new line
-        </p>
+        {root?.deletedAt ? (
+          <p className="text-[12px] text-muted-foreground/50 italic text-center py-1 select-none">
+            This message was deleted — no new replies can be added.
+          </p>
+        ) : (
+          <>
+            <div
+              className={cn(
+                "flex items-end gap-2 rounded-xl px-3 py-2 transition-all duration-150",
+                "bg-muted/30 border border-border/60",
+                "focus-within:border-primary/40 focus-within:bg-background",
+                "focus-within:shadow-[0_0_0_3px_hsl(var(--primary)/0.07)]"
+              )}
+            >
+              <Textarea
+                ref={replyTextareaRef}
+                value={replyDraft}
+                onChange={(e) => {
+                  setReplyDraft(e.target.value);
+                  growTextarea(e.target, 120);
+                }}
+                onKeyDown={handleReplyKeyDown}
+                placeholder="Reply…"
+                className={cn(
+                  "flex-1 border-0 bg-transparent shadow-none resize-none p-0",
+                  "text-[13px] placeholder:text-muted-foreground/40 leading-relaxed",
+                  "focus-visible:ring-0 focus-visible:ring-offset-0",
+                  "min-h-[20px] max-h-32 overflow-y-auto"
+                )}
+                rows={1}
+                data-testid="thread-reply-input"
+              />
+              <Button
+                size="sm"
+                onClick={handleReplySend}
+                disabled={!replyDraft.trim() || postReplyMutation.isPending}
+                className="shrink-0 h-7 w-7 p-0 rounded-lg transition-all"
+                data-testid="btn-send-reply"
+              >
+                {postReplyMutation.isPending ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Send className="w-3 h-3" />
+                )}
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground/30 mt-1 px-0.5 select-none">
+              Enter to reply · Shift+Enter for new line
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

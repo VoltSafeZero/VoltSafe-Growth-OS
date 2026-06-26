@@ -1,0 +1,148 @@
+Current Phase 2B thread replies are shipped. Before adding @mentions or any new features, please perform a Phase 2B audit and polish pass only.
+
+Do not add @mentions, notifications, CRM record Currents, Guest Currents, direct messages, attachments, search, AI summaries, slash commands, or any new major feature yet.
+
+Goal
+
+Verify that the new thread reply experience is stable, polished, and premium inside /current.
+
+Audit only:
+
+1. Thread replies
+2. Thread panel/drawer
+3. Reply counts
+4. Existing Phase 1 and Phase 2A behavior after thread changes
+
+Audit checklist
+
+1. Thread panel behavior
+
+Verify:
+
+* Clicking Reply opens the correct thread.
+* Clicking the reply-count chip opens the correct thread.
+* Thread panel closes with X.
+* Thread panel closes with Esc.
+* Switching channels closes or resets the open thread safely.
+* Opening a new thread while another is open swaps cleanly.
+* Panel does not cause horizontal page overflow.
+* Panel looks good in dark mode.
+* Panel does not cover essential UI awkwardly.
+* Panel width feels right on desktop and laptop widths.
+* Thread panel does not break /current refresh behavior.
+
+2. Thread root message
+
+Verify:
+
+* Root message displays correctly at top of panel.
+* Deleted root messages are handled gracefully.
+* Edited root messages show edited state.
+* Root reactions display correctly if reused.
+* Root message author/avatar/timestamp are correct.
+
+3. Thread replies
+
+Verify:
+
+* Replies appear in correct chronological order.
+* Multiple replies display cleanly.
+* Long replies wrap correctly.
+* Multi-line replies preserve formatting.
+* Deleted replies show a subtle “Message deleted” placeholder.
+* Edited replies show the edited label.
+* Replies do not appear as top-level channel messages.
+* Reply-to-reply is rejected.
+* Empty/whitespace-only replies are rejected.
+
+4. Thread composer
+
+Verify:
+
+* Composer is anchored at the bottom of the thread panel.
+* Enter sends.
+* Shift+Enter creates newline if supported.
+* Empty replies cannot be sent.
+* Composer auto-grows if implemented.
+* Composer resets after send.
+* Sending a reply feels fast.
+* Thread scrolls to newest reply after send.
+* No scroll jumping during thread polling.
+
+5. Reply count and latest reply chip
+
+Verify:
+
+* 1 reply vs N replies grammar is correct.
+* Reply count excludes deleted replies if that is the intended behavior.
+* Latest reply timestamp is accurate enough.
+* Reply chip styling is subtle but discoverable.
+* Reply count updates after posting, deleting, or editing if relevant.
+* Reply chip does not clutter messages with reactions.
+
+6. Existing Current regression check
+
+Verify:
+
+* /current loads.
+* All 9 Currents still appear.
+* Posting top-level messages still works.
+* Channel switching still works.
+* Auto-scroll still works without jitter.
+* Reactions still work.
+* Edit/delete still work.
+* Pins still work.
+* Unread counts still behave correctly.
+* Polling does not cause visible flicker.
+* /execution/communications remains unaffected.
+
+7. Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* TypeScript/build output
+* React key warnings
+* API errors
+
+Allowed fixes
+
+Only fix bugs or polish issues directly related to Phase 2B threads.
+
+Allowed:
+
+* Thread panel layout fixes
+* Thread scrolling fixes
+* Reply-count fixes
+* Query invalidation fixes
+* Thread composer polish
+* Deleted/edited reply edge-case fixes
+* Responsive layout fixes
+* Console/server error fixes
+
+Not allowed:
+
+* @mentions
+* Notifications
+* CRM record Currents
+* Guest Currents
+* Direct messages
+* Attachments
+* Search
+* AI summaries
+* Slash commands
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. API checks performed
+5. Visual verification notes
+6. Final pass/fail status
+7. Recommended next feature order
+
+Keep scope tight: audit and polish Phase 2B only.
