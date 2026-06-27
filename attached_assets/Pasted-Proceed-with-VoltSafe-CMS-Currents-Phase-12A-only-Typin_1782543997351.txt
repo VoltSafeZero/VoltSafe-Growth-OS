@@ -1,0 +1,282 @@
+Proceed with VoltSafe CMS Currents Phase 12A only: Typing Indicators.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, channel search improvements, or unrelated task features.
+
+Goal
+
+Add lightweight typing indicators to Currents for:
+
+1. Channels
+2. 1:1 DMs
+3. Group DMs
+4. Thread replies if low-risk
+
+Currents now supports channels, DMs, group DMs, attachments, unread/read state, muting, channel management, archived channels, structured items, AI summaries, and task source links. Typing indicators should make conversations feel more alive without introducing a large real-time infrastructure change.
+
+Scope
+
+Add only:
+
+1. Typing signal endpoint(s)
+2. Typing state polling or short-lived server cache
+3. Composer-side typing updates
+4. Typing indicator display in message feeds
+5. Security/membership checks
+6. Tests/audit for the above
+
+Do not add WebSockets unless already available and low-risk. Prefer a simple polling/TTL approach for Phase 12A.
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* Current message composer for channels
+* DM composer
+* ThreadPanel composer
+* Current polling intervals for messages/DMs
+* Existing auth/session model
+* Existing route patterns under /api/current
+* Existing channel permission/archived checks
+* Existing DM/group DM membership guards
+* Existing current user lookup
+* Any existing in-memory cache/TTL helper
+* Any existing WebSocket/event infrastructure
+
+Preferred architecture
+
+Use an in-memory TTL map for Phase 12A.
+
+Example conceptual key:
+
+* channel:${channelSlug}
+* dm:${conversationId}
+* thread:${rootMessageId}
+
+Each typing event stores:
+
+{
+  "userId": 123,
+  "name": "Trevor",
+  "expiresAt": 1710000000000
+}
+
+TTL:
+
+* 5–8 seconds
+
+The client sends a typing ping at most every 2–3 seconds while text is changing.
+
+The client polls typing state every 3–5 seconds while viewing a conversation.
+
+This avoids schema changes.
+
+Backend routes
+
+Add authenticated routes under /api/current.
+
+Send typing signal
+
+POST /api/current/typing
+
+Body:
+
+{
+  "scope": "channel",
+  "channelSlug": "sales"
+}
+
+or:
+
+{
+  "scope": "dm",
+  "conversationId": 123
+}
+
+or, if supporting threads:
+
+{
+  "scope": "thread",
+  "rootMessageId": 456
+}
+
+Rules:
+
+1. Requires authentication.
+2. Validate scope.
+3. For channel:
+    * channel must exist
+    * channel must not be archived
+4. For DM/group DM:
+    * user must be current member
+5. For thread:
+    * user must be allowed to view/reply to root message
+    * if root belongs to archived channel, reject typing
+6. Store typing event in TTL map.
+7. Return success.
+
+Get typing state
+
+GET /api/current/typing
+
+Query examples:
+
+* /api/current/typing?scope=channel&channelSlug=sales
+* /api/current/typing?scope=dm&conversationId=123
+* /api/current/typing?scope=thread&rootMessageId=456
+
+Rules:
+
+1. Requires authentication.
+2. Same access checks as POST.
+3. Return active typers excluding current user.
+4. Expire stale entries.
+5. Limit returned typers to reasonable number, e.g. 3 names plus count.
+
+Response:
+
+{
+  "typers": [
+    { "userId": 4, "name": "Alex" }
+  ],
+  "count": 1
+}
+
+Frontend requirements
+
+Composer typing pings
+
+When user types in:
+
+* channel composer
+* DM/group DM composer
+* thread composer if supported
+
+Send typing signal:
+
+1. Only when draft text is non-empty.
+2. Throttle to every 2–3 seconds.
+3. Stop naturally when user stops typing; TTL expires.
+4. Do not send typing signals in archived channels.
+5. Do not send typing signals after message send clears composer.
+6. Do not spam the server on every keystroke.
+
+Typing indicator display
+
+Show below message feed or above composer:
+
+Examples:
+
+* Alex is typing…
+* Alex and Sarah are typing…
+* Alex and 2 others are typing…
+
+For DMs/group DMs:
+
+* Show only other members.
+* Do not show current user typing.
+
+For channels:
+
+* Show other internal users typing in that channel.
+
+For threads if implemented:
+
+* Show inside ThreadPanel near reply composer.
+
+UI polish
+
+1. Small, subtle text.
+2. Animated dots optional.
+3. Does not shift layout aggressively.
+4. Dark mode polished.
+5. Hidden when no one is typing.
+6. Works with polling/refetch without flicker.
+
+Security requirements
+
+Verify:
+
+1. User cannot send typing signal to DM/group DM they are not part of.
+2. User cannot read typing state for DM/group DM they are not part of.
+3. User cannot type into archived channel.
+4. User cannot read/write thread typing where they lack access.
+5. Typing state does not leak private conversation membership.
+6. Stale entries expire.
+7. Server memory cannot grow unbounded:
+    * cleanup stale entries
+    * cap map size or expire on each read/write
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Channel typing signal sends while typing.
+4. Channel typing indicator appears for other user.
+5. Channel typing indicator excludes current user.
+6. Channel typing indicator expires after TTL.
+7. Archived channel does not send typing signal.
+8. DM typing signal sends while typing.
+9. Group DM typing signal sends while typing.
+10. DM/group typing indicator appears for other members.
+11. DM/group typing indicator excludes current user.
+12. Non-member cannot send/read DM typing.
+13. Typing ping is throttled.
+14. Typing polling does not cause console/server errors.
+15. Sending a message clears draft without leaving stuck indicator.
+16. Switching conversations does not show stale typing state.
+17. Thread typing works if implemented.
+18. Thread typing is skipped/deferred clearly if not implemented.
+19. Existing channel messages still send.
+20. Existing DMs still send.
+21. Existing group DMs still send.
+22. Attachments still work.
+23. Attachment-only DMs still work.
+24. Unread/read-state still works.
+25. Muting/preferences still work.
+26. Archived channel read-only behavior still works.
+27. Search still works.
+28. Mentions panel still works.
+29. Structured panel still works.
+30. AI summaries still work.
+31. Create Task still works.
+32. View in Currents still works.
+33. No browser console errors.
+34. No server errors.
+35. No SQL errors.
+36. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Typing POST channel access check
+* Typing GET channel access check
+* Typing POST DM membership check
+* Typing GET DM membership check
+* Archived channel typing blocked
+* Current user excluded from typers
+* TTL expiry logic
+* Map cleanup
+* Frontend typing ping throttle
+* Frontend indicator rendering
+* Existing 11A/11B group DM tests pass
+* Existing 10A/10B notification tests pass
+* Existing 9A/9B/9C channel tests pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing composer/polling audit summary
+2. Backend routes added
+3. Frontend changes
+4. Typing TTL/cache behavior
+5. Security checks
+6. Verification results
+7. Features intentionally deferred
+8. Known issues
+9. Recommended next feature order
+
+Keep scope tight: Typing Indicators only.

@@ -1350,6 +1350,16 @@ function ThreadPanel({
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
   const threadAtBottom = useRef(true);
   const replyMention = useComposerMentions(replyTextareaRef);
+  // Phase 12A: thread typing ping throttle
+  const threadTypingPingRef = useRef(0);
+  const { data: threadTypingData } = useQuery<{ typers: { userId: number; name: string }[]; count: number }>({
+    queryKey: ["/api/current/typing", "thread", rootMessageId],
+    queryFn: () =>
+      fetch(`/api/current/typing?scope=thread&rootMessageId=${rootMessageId}`, { credentials: "include" }).then((r) => r.json()),
+    refetchInterval: 3_000,
+    staleTime: 0,
+    enabled: !isArchived,
+  });
 
   // Thread AI summary
   const [threadSummaryOpen, setThreadSummaryOpen] = useState(false);
@@ -1717,6 +1727,8 @@ function ThreadPanel({
                 onHover={replyMention.setMentionIdx}
               />
             )}
+            {/* Phase 12A: thread typing indicator */}
+            <TypingIndicator typers={threadTypingData?.typers ?? []} count={threadTypingData?.count ?? 0} />
             {replyPendingFiles.length > 0 && (
               <div className="mb-2">
                 <PendingFileChips
@@ -1745,6 +1757,19 @@ function ThreadPanel({
                     e.target.value,
                     e.target.selectionStart ?? e.target.value.length
                   );
+                  // Phase 12A: thread typing ping, throttled
+                  if (e.target.value.trim() && !isArchived) {
+                    const now = Date.now();
+                    if (now - threadTypingPingRef.current > 2_500) {
+                      threadTypingPingRef.current = now;
+                      fetch("/api/current/typing", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ scope: "thread", rootMessageId }),
+                      }).catch(() => {});
+                    }
+                  }
                 }}
                 onKeyDown={handleReplyKeyDown}
                 placeholder="Reply… (@ to mention)"
@@ -2343,6 +2368,42 @@ function GroupMemberDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── TypingIndicator ──────────────────────────────────────────────────────────
+// Phase 12A: displays who is typing in a channel, DM, or thread.
+
+function TypingIndicator({
+  typers,
+  count,
+}: {
+  typers: { userId: number; name: string }[];
+  count: number;
+}) {
+  if (!count) return null;
+  const firstName = (n: string) => n.split(" ")[0];
+  let label: string;
+  if (count === 1) label = `${firstName(typers[0].name)} is typing`;
+  else if (count === 2) label = `${firstName(typers[0].name)} and ${firstName(typers[1].name)} are typing`;
+  else label = `${firstName(typers[0].name)} and ${count - 1} other${count - 1 > 1 ? "s" : ""} are typing`;
+  return (
+    <div
+      className="flex items-center gap-1.5 px-1 h-5 shrink-0 select-none"
+      aria-live="polite"
+      data-testid="typing-indicator"
+    >
+      <span className="text-[11px] text-muted-foreground/55 italic leading-none">{label}</span>
+      <span className="flex gap-[3px] items-end pb-0.5">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="w-[3px] h-[3px] rounded-full bg-muted-foreground/40 animate-bounce"
+            style={{ animationDelay: `${i * 160}ms`, animationDuration: "0.9s" }}
+          />
+        ))}
+      </span>
+    </div>
   );
 }
 
@@ -2947,6 +3008,9 @@ export default function CurrentPage() {
   const [groupMemberOpen, setGroupMemberOpen] = useState(false);
   const [dmPendingFiles, setDmPendingFiles] = useState<File[]>([]);
   const dmFileInputRef = useRef<HTMLInputElement | null>(null);
+  // Phase 12A: typing ping throttle refs (per composer)
+  const channelTypingPingRef = useRef(0);
+  const dmTypingPingRef = useRef(0);
   const [isDmUploading, setIsDmUploading] = useState(false);
   const dmFeedRef = useRef<HTMLDivElement>(null);
   const dmTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -3065,6 +3129,24 @@ export default function CurrentPage() {
     refetchInterval: 5_000,
     enabled: !!selectedDmId && view === "dm",
     placeholderData: keepPreviousData,
+  });
+
+  // Phase 12A: typing indicator queries (poll every 3 s while active)
+  const { data: channelTypingData } = useQuery<{ typers: { userId: number; name: string }[]; count: number }>({
+    queryKey: ["/api/current/typing", "channel", selectedSlug],
+    queryFn: () =>
+      fetch(`/api/current/typing?scope=channel&channelSlug=${encodeURIComponent(selectedSlug)}`, { credentials: "include" }).then((r) => r.json()),
+    refetchInterval: 3_000,
+    staleTime: 0,
+    enabled: !!selectedSlug && view === "channel",
+  });
+  const { data: dmTypingData } = useQuery<{ typers: { userId: number; name: string }[]; count: number }>({
+    queryKey: ["/api/current/typing", "dm", selectedDmId],
+    queryFn: () =>
+      fetch(`/api/current/typing?scope=dm&conversationId=${selectedDmId}`, { credentials: "include" }).then((r) => r.json()),
+    refetchInterval: 3_000,
+    staleTime: 0,
+    enabled: !!selectedDmId && view === "dm",
   });
 
   // ── Deep-link from notification action_url: ?channel=X&message=Y&thread=Z&dm=N ──
@@ -3537,6 +3619,19 @@ export default function CurrentPage() {
       e.target.value,
       e.target.selectionStart ?? e.target.value.length
     );
+    // Phase 12A: send typing ping, throttled to every 2.5 s, only when non-empty
+    if (e.target.value.trim() && !isArchivedChannel) {
+      const now = Date.now();
+      if (now - channelTypingPingRef.current > 2_500) {
+        channelTypingPingRef.current = now;
+        fetch("/api/current/typing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ scope: "channel", channelSlug: selectedSlug }),
+        }).catch(() => {});
+      }
+    }
   }
 
   // ── DM Handlers ───────────────────────────────────────────────────────────
@@ -3588,6 +3683,19 @@ export default function CurrentPage() {
       e.target.value,
       e.target.selectionStart ?? e.target.value.length
     );
+    // Phase 12A: DM typing ping, throttled
+    if (e.target.value.trim() && selectedDmId) {
+      const now = Date.now();
+      if (now - dmTypingPingRef.current > 2_500) {
+        dmTypingPingRef.current = now;
+        fetch("/api/current/typing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ scope: "dm", conversationId: selectedDmId }),
+        }).catch(() => {});
+      }
+    }
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -4282,6 +4390,8 @@ export default function CurrentPage() {
                   }}
                 />
               )}
+              {/* Phase 12A: DM typing indicator */}
+              <TypingIndicator typers={dmTypingData?.typers ?? []} count={dmTypingData?.count ?? 0} />
               {dmPendingFiles.length > 0 && (
                 <div className="mb-2">
                   <PendingFileChips
@@ -4500,6 +4610,8 @@ export default function CurrentPage() {
                   onHover={mainMention.setMentionIdx}
                 />
               )}
+              {/* Phase 12A: channel typing indicator */}
+              <TypingIndicator typers={channelTypingData?.typers ?? []} count={channelTypingData?.count ?? 0} />
               {mainPendingFiles.length > 0 && (
                 <div className="mb-2">
                   <PendingFileChips

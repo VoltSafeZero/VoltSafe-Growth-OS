@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
-import { cacheFor, cacheInvalidate } from "./cache";
+import { cacheFor, cacheInvalidate, cacheGet, cacheSet } from "./cache";
 import { pick } from "./utils";
 import { normalizeSource, buildNormalizeCaseExpr, BUCKET_LABELS, SOURCE_BUCKETS } from "./source-attribution";
 import {
@@ -35459,6 +35459,139 @@ export function registerConfluenceRoutes(app: Express) {
         `DELETE FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId}`
       ));
       res.json({ ok: true, conversationId: convId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Typing indicators (Phase 12A) ─────────────────────────────────────────
+  // In-memory TTL map via existing cache.ts. No schema change required.
+  // Keys: typing:channel:${slug}  typing:dm:${convId}  typing:thread:${rootMsgId}
+
+  interface TypingEntry { userId: number; name: string; expiresAt: number; }
+  const TYPING_TTL_MS  = 7_000;   // per-entry lifetime ms
+  const TYPING_CACHE_S = 10;      // cache bucket TTL seconds
+  const MAX_TYPERS     = 10;      // cap entries per bucket
+
+  function getTypingKey(scope: string, id: string | number): string {
+    return `typing:${scope}:${id}`;
+  }
+  function readActiveTypers(key: string): TypingEntry[] {
+    const raw = cacheGet(key);
+    if (!raw || !Array.isArray(raw)) return [];
+    const now = Date.now();
+    return (raw as TypingEntry[]).filter((e) => e.expiresAt > now);
+  }
+  function upsertTyper(key: string, userId: number, name: string): void {
+    const existing = readActiveTypers(key).filter((e) => e.userId !== userId);
+    const next = existing.slice(0, MAX_TYPERS - 1);
+    next.push({ userId, name, expiresAt: Date.now() + TYPING_TTL_MS });
+    cacheSet(key, next, TYPING_CACHE_S);
+  }
+
+  // POST /api/current/typing — record that current user is typing
+  app.post("/api/current/typing", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { scope, channelSlug, conversationId, rootMessageId } = req.body || {};
+      if (!["channel", "dm", "thread"].includes(String(scope)))
+        return res.status(400).json({ message: "scope must be channel | dm | thread" });
+      const nameRows = await db.execute(sql.raw(`SELECT name FROM users WHERE id = ${userId} LIMIT 1`));
+      const userName = String((nameRows.rows[0] as any)?.name || "Someone");
+
+      if (scope === "channel") {
+        const slug = String(channelSlug || "").trim();
+        if (!slug) return res.status(400).json({ message: "channelSlug required" });
+        const ch = await db.execute(sql.raw(
+          `SELECT archived_at FROM current_channels WHERE slug = '${slug.replace(/'/g, "''")}' LIMIT 1`
+        ));
+        if (!ch.rows.length) return res.status(404).json({ message: "Channel not found" });
+        if ((ch.rows[0] as any).archived_at)
+          return res.status(400).json({ message: "Cannot type in an archived channel" });
+        upsertTyper(getTypingKey("channel", slug), userId, userName);
+
+      } else if (scope === "dm") {
+        const convId = Number(conversationId);
+        if (!convId) return res.status(400).json({ message: "conversationId required" });
+        const mem = await db.execute(sql.raw(
+          `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this conversation" });
+        upsertTyper(getTypingKey("dm", convId), userId, userName);
+
+      } else {
+        // thread
+        const rootId = Number(rootMessageId);
+        if (!rootId) return res.status(400).json({ message: "rootMessageId required" });
+        const msgRow = await db.execute(sql.raw(
+          `SELECT channel_id FROM current_messages WHERE id = ${rootId} LIMIT 1`
+        ));
+        if (!msgRow.rows.length) return res.status(404).json({ message: "Thread root not found" });
+        const chanId = Number((msgRow.rows[0] as any).channel_id);
+        if (!chanId) return res.status(400).json({ message: "Thread root is not in a channel" });
+        const chanRow = await db.execute(sql.raw(
+          `SELECT archived_at FROM current_channels WHERE id = ${chanId} LIMIT 1`
+        ));
+        if ((chanRow.rows[0] as any)?.archived_at)
+          return res.status(400).json({ message: "Cannot type in a thread of an archived channel" });
+        upsertTyper(getTypingKey("thread", rootId), userId, userName);
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/typing — fetch who is currently typing (excludes self, limits to 3 shown)
+  app.get("/api/current/typing", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { scope, channelSlug, conversationId, rootMessageId } = req.query;
+      if (!["channel", "dm", "thread"].includes(String(scope)))
+        return res.status(400).json({ message: "scope must be channel | dm | thread" });
+      let key: string;
+
+      if (scope === "channel") {
+        const slug = String(channelSlug || "").trim();
+        if (!slug) return res.status(400).json({ message: "channelSlug required" });
+        const ch = await db.execute(sql.raw(
+          `SELECT archived_at FROM current_channels WHERE slug = '${slug.replace(/'/g, "''")}' LIMIT 1`
+        ));
+        if (!ch.rows.length) return res.status(404).json({ message: "Channel not found" });
+        if ((ch.rows[0] as any).archived_at) return res.json({ typers: [], count: 0 });
+        key = getTypingKey("channel", slug);
+
+      } else if (scope === "dm") {
+        const convId = Number(conversationId);
+        if (!convId) return res.status(400).json({ message: "conversationId required" });
+        const mem = await db.execute(sql.raw(
+          `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this conversation" });
+        key = getTypingKey("dm", convId);
+
+      } else {
+        const rootId = Number(rootMessageId);
+        if (!rootId) return res.status(400).json({ message: "rootMessageId required" });
+        const msgRow = await db.execute(sql.raw(
+          `SELECT channel_id FROM current_messages WHERE id = ${rootId} LIMIT 1`
+        ));
+        if (!msgRow.rows.length) return res.status(404).json({ message: "Thread root not found" });
+        const chanId = Number((msgRow.rows[0] as any).channel_id);
+        if (!chanId) return res.status(400).json({ message: "Thread root is not in a channel" });
+        const chanRow = await db.execute(sql.raw(
+          `SELECT archived_at FROM current_channels WHERE id = ${chanId} LIMIT 1`
+        ));
+        if ((chanRow.rows[0] as any)?.archived_at) return res.json({ typers: [], count: 0 });
+        key = getTypingKey("thread", rootId);
+      }
+
+      const active = readActiveTypers(key).filter((e) => e.userId !== userId);
+      const limited = active.slice(0, 3);
+      res.json({
+        typers: limited.map((e) => ({ userId: e.userId, name: e.name })),
+        count: active.length,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
