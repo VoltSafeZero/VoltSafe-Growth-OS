@@ -1,0 +1,240 @@
+Please perform a VoltSafe CMS Currents Phase 8B Direct Message Attachments audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, channel management, notification preferences, typing indicators, or unrelated task features.
+
+Goal
+
+Verify that Direct Message attachments in Currents are secure, stable, polished, and regression-free.
+
+Phase 8B added:
+
+* Paperclip button in DM composer
+* Pending file chips
+* Multi-file picker
+* Upload after DM message creation
+* Attachment display through existing CurrentAttachmentChips
+* Attachment upload failure toast
+* DM message query invalidation/refetch
+
+This audit should verify the full feature.
+
+Audit scope
+
+Audit only:
+
+1. DM composer attachment UI
+2. Pending file chip behavior
+3. DM attachment upload flow
+4. Backend attachment permissions for DM messages
+5. DM message GET attachment payload
+6. Attachment display in DM message rows
+7. Upload failure handling
+8. Existing channel/record attachment regressions caused by Phase 8B
+
+Existing attachment system checks
+
+Verify:
+
+1. uploadCurrentAttachments() is reused correctly.
+2. Upload uses:
+    * objectType = "current_message"
+    * objectId = DM_MESSAGE_ID
+3. /api/attachments still allows current_message.
+4. PendingFileChips works correctly in DM composer.
+5. CurrentAttachmentChips displays attachments in DM feed.
+6. DM message GET route includes attachments.
+7. Existing channel and record attachment flows still work.
+8. No duplicate upload helper was created unnecessarily.
+
+DM composer checks
+
+Verify:
+
+1. Paperclip button appears in DM composer.
+2. Paperclip opens file picker.
+3. File input supports multiple files.
+4. Selected files appear as pending chips.
+5. Multiple selected files all appear.
+6. Selecting files more than once appends files correctly.
+7. Removing one pending file works.
+8. Removing all pending files works.
+9. Pending chips do not break layout.
+10. Dark mode styling is clean.
+11. Send button shows loading/spinner during upload.
+12. Composer does not double-send while uploading.
+13. Textarea remains usable before upload.
+14. Enter-to-send behavior still works.
+15. Shift+Enter still creates a new line.
+16. Emoji picker still works if present.
+17. @mention behavior still works if present.
+
+Upload flow checks
+
+Verify the actual flow:
+
+1. User selects file.
+2. User writes message.
+3. User sends DM.
+4. DM message is created first.
+5. Attachment upload uses returned message ID.
+6. Attachments upload to current_message.
+7. DM messages query invalidates/refetches.
+8. DM sidebar/list query invalidates/refetches.
+9. Sent message displays attachment after refetch.
+10. Reopening the DM later still displays attachment.
+11. Multiple attachments upload correctly.
+12. Large file behavior is safe and does not freeze UI.
+13. Failed upload does not delete the text message.
+14. Failed upload shows clear warning toast.
+15. Failed upload filenames are listed if available.
+16. Upload loading state clears in finally.
+
+Attachment-only behavior
+
+Current behavior says attachment-only DMs are blocked because body text is required.
+
+Audit and confirm:
+
+1. Attachment-only send is safely blocked.
+2. User gets understandable behavior/message.
+3. Pending files remain staged if send is blocked.
+4. This matches channel Currents behavior.
+5. No empty DM messages are created accidentally.
+
+Do not add attachment-only messages in this audit unless there is already a bug causing broken behavior. Just document it clearly.
+
+Security checks
+
+This is the most important part.
+
+Verify:
+
+1. User can only upload attachments to a DM message they are allowed to access.
+2. User cannot upload a file to another user’s DM by guessing a current_message ID.
+3. User cannot view/download attachments from a DM they are not a member of.
+4. Attachment list returned in DM messages is only for authorized DM members.
+5. Existing /api/attachments route has adequate permission checks for current_message.
+6. Existing /api/attachments/file/:fileName download route enforces attachment ACLs.
+7. Deleted DM message attachments are hidden/redacted consistently.
+8. No file path leakage.
+9. No cross-DM attachment leakage.
+10. No channel/record attachment permission regression.
+
+If the existing upload route only checks broad crm:edit permission and does not verify DM membership/object ownership, fix that security gap.
+
+DM message display checks
+
+Verify:
+
+1. DM messages with attachments render correctly.
+2. Image attachments display as image/thumbnail if supported.
+3. Non-image files display as file chips.
+4. Long filenames truncate gracefully.
+5. Multiple attachments display cleanly.
+6. Attachment chips/images do not crowd small messages.
+7. Attachments work in dark mode.
+8. Attachments still display after reload/refetch.
+9. Deleted messages do not show attachments.
+10. Existing MessageRow reuse did not break channel messages.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* DM list
+* New DM dialog
+* DM send/read behavior
+* DM unread counts
+* DM notifications
+* DM deep-links
+* Channel list
+* Channel posting
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Channel edit/delete
+* Channel search
+* Record Currents
+* Record attachments
+* Record threads
+* Record search
+* Mentions panel
+* Structured panel
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+
+Verify task system still works:
+
+* Tasks Hub loads
+* Task drawer opens
+* Currents source block still renders
+* View in Currents still works
+* Non-Currents tasks still render normally
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Upload route errors
+* Attachment route errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 8B DM attachments.
+
+Allowed:
+
+* DM attachment permission bug
+* Attachment upload route guard bug
+* DM message attachment payload bug
+* Upload failure handling bug
+* Pending file chip bug
+* Send/loading state bug
+* Query invalidation/refetch bug
+* DM attachment display bug
+* Console/server errors caused by DM attachments
+* Test fixes directly related to this feature
+
+Not allowed:
+
+* Attachment-only DM support as a new feature
+* Group DMs
+* Guest Currents
+* External collaborators
+* Slash commands
+* Workflow automation
+* Channel management
+* Notification preferences
+* Typing indicators
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Attachment system checks
+5. DM composer checks
+6. Upload flow checks
+7. Attachment-only behavior confirmation
+8. Security checks
+9. DM message display checks
+10. Existing Currents regression results
+11. Existing task regression results
+12. Features intentionally deferred
+13. Final pass/fail status
+14. Recommended next feature order
+
+Keep scope tight: Currents Phase 8B DM Attachments audit only.

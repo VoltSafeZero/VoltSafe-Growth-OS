@@ -6424,6 +6424,26 @@ export async function registerRoutes(
     const section = attachmentSectionFor(String(objectType));
     const gate = await requireSectionView(userId, section);
     if (!gate.ok) return res.status(403).json({ message: "Not authorized to view attachments for this object" });
+    // DM membership guard: if reading attachments for a current_message in a DM conversation,
+    // the requester must be a member of that conversation.
+    if (String(objectType) === "current_message") {
+      const role = String((req.session as any).globalRole || "");
+      const isAdminRole = role === "master_admin" || role === "admin";
+      if (!isAdminRole) {
+        const msgCheck = await db.execute(sql`
+          SELECT conversation_id FROM current_messages WHERE id = ${Number(objectId)} LIMIT 1
+        `);
+        const msgRow = (msgCheck.rows[0] as any) || null;
+        if (!msgRow) return res.status(404).json({ message: "Message not found" });
+        if (msgRow.conversation_id) {
+          const memberCheck = await db.execute(sql`
+            SELECT 1 FROM current_conversation_members
+            WHERE conversation_id = ${Number(msgRow.conversation_id)} AND user_id = ${userId} LIMIT 1
+          `);
+          if (!memberCheck.rows.length) return res.status(403).json({ message: "Not authorized" });
+        }
+      }
+    }
     res.json(await storage.getAttachments(objectType as string, Number(objectId)));
   });
 
@@ -6458,6 +6478,27 @@ export async function registerRoutes(
           return res.status(403).json({
             message: `Edit access required on ${section} to upload attachments`,
           });
+        }
+      }
+    }
+    // DM ownership guard: when uploading to a current_message, the user must own that message.
+    // This prevents any crm:edit user from attaching files to another user's DM by guessing the message ID.
+    if (objectType === "current_message") {
+      const uploadUserId = (req.session as any).userId as number;
+      const role = String((req.session as any).globalRole || "");
+      const isAdminRole = role === "master_admin" || role === "admin";
+      if (!isAdminRole) {
+        const msgCheck = await db.execute(sql`
+          SELECT user_id FROM current_messages WHERE id = ${Number(objectId)} LIMIT 1
+        `);
+        const msgRow = (msgCheck.rows[0] as any) || null;
+        if (!msgRow) {
+          for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
+          return res.status(404).json({ message: "Message not found" });
+        }
+        if (Number(msgRow.user_id) !== uploadUserId) {
+          for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
+          return res.status(403).json({ message: "Cannot attach files to another user's message" });
         }
       }
     }
@@ -6659,6 +6700,21 @@ export async function registerRoutes(
       const section = attachmentSectionFor(String(row.object_type || ""));
       const gate = await requireSectionView(userId, section);
       if (!gate.ok) return res.status(404).json(opaque404);
+      // DM membership guard: if this file belongs to a current_message in a DM conversation,
+      // the requester must be a member of that conversation. Returns opaque 404 on failure.
+      if (row.object_type === "current_message") {
+        const msgCheck = await db.execute(sql`
+          SELECT conversation_id FROM current_messages WHERE id = ${Number(row.object_id)} LIMIT 1
+        `);
+        const dmRow = (msgCheck.rows[0] as any) || null;
+        if (dmRow?.conversation_id) {
+          const memberCheck = await db.execute(sql`
+            SELECT 1 FROM current_conversation_members
+            WHERE conversation_id = ${Number(dmRow.conversation_id)} AND user_id = ${userId} LIMIT 1
+          `);
+          if (!memberCheck.rows.length) return res.status(404).json(opaque404);
+        }
+      }
     }
 
     if (!fs.existsSync(resolved)) return res.status(404).json(opaque404);
