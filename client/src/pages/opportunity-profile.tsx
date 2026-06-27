@@ -578,7 +578,7 @@ export default function OpportunityProfilePage() {
         <div className="flex items-center gap-2 my-3">
           <div className="flex-1 border-t border-border/30" />
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
-            <MessagesSquare className="h-3 w-3" /> Currents
+            <MessagesSquare className="h-3 w-3" /> CURRENTS
           </span>
           <div className="flex-1 border-t border-border/30" />
         </div>

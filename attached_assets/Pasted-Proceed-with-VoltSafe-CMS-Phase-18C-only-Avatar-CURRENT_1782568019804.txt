@@ -1,0 +1,265 @@
+Proceed with VoltSafe CMS Phase 18C only: Avatar + CURRENTS Premium UI Verification / Regression Audit.
+
+Do not add new product features. Do not work on Guest CURRENTS, external collaborators, workflow automation, private-channel roles, Gmail/mail-permissions, Accounts/Contacts redesign, Polyweather, or unrelated modules.
+
+Goal
+
+Verify that the recently completed Phase 18A avatar upload feature and Phase 18B CURRENTS premium UI polish are safe, stable, visually clean, and launch-ready.
+
+This is a QA/regression pass only.
+
+Context
+
+Phase 18A added:
+
+* user avatar upload
+* user avatar delete/reset
+* authenticated avatar file serving
+* /api/auth/me avatarUrl
+* reusable UserAvatar
+* avatar display in header and CURRENTS DM/group surfaces
+
+Phase 18B added:
+
+* user-facing CURRENTS capitalization
+* premium CURRENTS sidebar/header polish
+* empty channel/DM state polish
+* composer polish
+* message hover polish
+* active row polish
+* light/dark visual improvements
+
+Audit scope
+
+Audit only:
+
+1. Avatar upload security
+2. Avatar display coverage
+3. CURRENTS premium UI visual regressions
+4. CURRENTS naming consistency
+5. Light/dark mode screenshots
+6. TypeScript/browser/server errors
+7. Existing CURRENTS functionality regressions
+8. Targeted tests
+
+Avatar security verification
+
+Verify:
+
+1. POST /api/me/avatar requires auth.
+2. DELETE /api/me/avatar requires auth.
+3. GET /api/user-avatars/:fileName requires auth.
+4. User can mutate only their own avatar.
+5. Upload accepts JPEG.
+6. Upload accepts PNG.
+7. Upload accepts WebP.
+8. Upload rejects SVG.
+9. Upload rejects GIF unless explicitly intended.
+10. Upload rejects non-image MIME types.
+11. Upload rejects files over 2 MB.
+12. Upload does not trust original filename.
+13. Stored filename is UUID/safe.
+14. Path traversal is impossible.
+15. File-serving route cannot read arbitrary files.
+16. Old avatar cleanup cannot delete arbitrary files.
+17. Delete/reset clears avatar safely.
+18. /api/auth/me returns safe avatarUrl.
+19. Avatar URL does not expose filesystem paths.
+
+Fix only security or reliability issues directly related to avatar upload.
+
+Avatar display verification
+
+Verify uploaded avatars display correctly in:
+
+1. top-right app header
+2. profile dropdown preview
+3. CURRENTS DM sidebar
+4. CURRENTS DM header
+5. CURRENTS DM empty state
+6. CURRENTS group DM member list
+7. CURRENTS channel participants dialog if avatarUrl is available there
+8. CURRENTS message rows if avatarUrl is available there
+
+Verify fallback behavior:
+
+1. users without avatar still show initials.
+2. broken image URL falls back to initials.
+3. no avatar rendering crash.
+4. dark/light mode avatar rings look clean.
+
+If message rows or channel participant dialogs still use initials because the backend payload does not include avatarUrl, document it. Only fix if low-risk and directly related.
+
+CURRENTS naming verification
+
+Search user-facing copy for:
+
+* Currents
+* currents
+* Current
+* Slack
+* Slack Lite
+
+Ensure the product name is consistently:
+
+CURRENTS
+
+Do not rename internal routes, API paths, database tables, variable names, or unrelated phrases like “current user.”
+
+CURRENTS premium UI verification
+
+Visually inspect:
+
+1. CURRENTS sidebar header
+2. channel list
+3. selected channel row
+4. DM list
+5. selected DM row
+6. private lock icon
+7. archived badge
+8. muted/unread indicators
+9. search/mentions/structured rows
+10. channel header
+11. DM header
+12. group DM header
+13. empty DM state
+14. empty channel state
+15. message row hover state
+16. message action bar
+17. composer default state
+18. composer focused state
+19. emoji picker
+20. attachment button
+21. slash command menu
+22. thread panel
+23. participants/member dialogs
+
+Check for:
+
+* crowding
+* washed-out light mode
+* overly neon dark mode
+* bad contrast
+* clipped labels
+* icon overlap
+* broken hover states
+* broken focus states
+* layout overflow
+* unread badges misaligned
+* composer height issues
+* message row hover weirdness
+
+Screenshots required
+
+Capture and inspect screenshots for:
+
+1. CURRENTS channel view — light mode
+2. CURRENTS DM empty state — light mode
+3. CURRENTS channel view — dark mode
+4. CURRENTS DM view — dark mode
+5. CURRENTS composer focused state
+6. CURRENTS sidebar with selected channel and selected DM
+7. profile dropdown with avatar/initials
+8. avatar upload/change/remove UI
+
+Include a short visual assessment in the final report.
+
+Functional regression verification
+
+Verify:
+
+1. /current loads.
+2. channel messages render.
+3. channel message send works.
+4. DM messages render.
+5. DM message send works.
+6. group DMs render.
+7. private channels render.
+8. archived channels remain read-only.
+9. reactions render/work.
+10. emoji picker opens.
+11. attachment upload still works.
+12. attachment download still works.
+13. slash commands still open/work.
+14. mentions still work.
+15. thread panel opens.
+16. thread reply works.
+17. AI summary still opens.
+18. Create Task from message still works if feasible.
+19. profile dropdown opens.
+20. sign out still works.
+
+Tests to run
+
+Run targeted tests:
+
+* user-avatar
+* private-channels
+* channel-management
+* channel-visibility
+* channel-readonly
+* notification-preferences
+* dm-attachments
+* dm-attachments-only
+* dm-reactions
+* group-dm
+* group-dm-members
+* slash-commands
+* permissions
+
+Also run:
+
+* TypeScript check
+* browser console inspection
+* server log inspection
+* one E2E or Playwright smoke test for /current
+
+If dm-reactions.test.cjs still has the pre-existing “group test message must be in response” failure, document whether it predates these changes and whether it is unrelated. Do not fix unrelated test-data/timing issues unless directly caused by avatar or CURRENTS UI changes.
+
+Allowed fixes
+
+Allowed:
+
+* avatar security bug
+* avatar display bug
+* initials fallback bug
+* broken avatar image fallback
+* user-facing CURRENTS capitalization miss
+* light/dark contrast issue
+* visual spacing/alignment regression
+* composer focus/hover visual bug
+* broken UI state caused by Phase 18B
+* tests directly related to avatar/CURRENTS verification
+
+Not allowed:
+
+* new avatar features
+* cropper UI
+* profile bios
+* guest users
+* external collaborators
+* new CURRENTS message features
+* backend feature expansion
+* migrations unless fixing an avatar schema bug
+* Gmail/mail-permissions work
+* CRM redesign
+* unrelated app shell redesign
+
+Deliverable
+
+Return:
+
+1. Avatar security audit results
+2. Avatar display coverage results
+3. CURRENTS naming audit results
+4. Visual polish audit results
+5. Screenshots captured and summary
+6. Functional regression results
+7. Tests run
+8. TypeScript/browser/server log results
+9. Issues found
+10. Fixes made
+11. Known unrelated failures
+12. Final launch-readiness verdict
+
+Keep scope tight: Avatar + CURRENTS premium UI verification only.

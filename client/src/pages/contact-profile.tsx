@@ -854,7 +854,7 @@ function TimelineSection({
           <TabsTrigger value="timeline" className="text-xs" data-testid="tab-contact-timeline">Timeline</TabsTrigger>
           <TabsTrigger value="emails" className="text-xs" data-testid="tab-contact-emails">Emails</TabsTrigger>
           <TabsTrigger value="current" className="text-xs flex items-center gap-1" data-testid="tab-contact-current">
-            <MessagesSquare className="h-3 w-3" /> Currents
+            <MessagesSquare className="h-3 w-3" /> CURRENTS
           </TabsTrigger>
         </TabsList>
         <TabsContent value="timeline">

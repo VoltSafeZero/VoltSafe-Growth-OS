@@ -74,7 +74,7 @@ function buildDescription(source: CreateTaskSource): string {
     const body = source.body ? stripMentionTokens(source.body) : "(no text)";
     const msgKind = source.threadRootId != null ? "thread reply" : "message";
     return (
-      `Created from Currents ${msgKind} in #${source.channelSlug}.\n\n` +
+      `Created from CURRENTS ${msgKind} in #${source.channelSlug}.\n\n` +
       `"${body}"\n\n` +
       `— ${source.userName}, ${format(new Date(source.createdAt), "MMM d, yyyy 'at' h:mm a")}`
     );
@@ -84,7 +84,7 @@ function buildDescription(source: CreateTaskSource): string {
     const msgKind = source.threadRootId != null ? "thread reply" : "message";
     const label = source.objectType.charAt(0).toUpperCase() + source.objectType.slice(1);
     return (
-      `Created from Currents ${msgKind} on ${label} record.\n\n` +
+      `Created from CURRENTS ${msgKind} on ${label} record.\n\n` +
       `"${body}"\n\n` +
       `— ${source.userName}, ${format(new Date(source.createdAt), "MMM d, yyyy 'at' h:mm a")}`
     );
@@ -94,9 +94,9 @@ function buildDescription(source: CreateTaskSource): string {
 
 function buildDefaultTitle(source: CreateTaskSource): string {
   if (source.kind === "channel_message" || source.kind === "record_message") {
-    return source.body ? truncateTitle(source.body) : "Task from Currents";
+    return source.body ? truncateTitle(source.body) : "Task from CURRENTS";
   }
-  return truncateTitle(source.task) || "Task from Currents";
+  return truncateTitle(source.task) || "Task from CURRENTS";
 }
 
 function buildSourceMeta(source: CreateTaskSource): Record<string, unknown> {
@@ -214,7 +214,7 @@ export function CreateTaskFromCurrentDialog({ open, source, onClose }: Props) {
         description: description.trim() || undefined,
         priority,
         source: "current_message",
-        sourceLabel: "Currents",
+        sourceLabel: "CURRENTS",
         sourceMeta: buildSourceMeta(source),
       };
       if (assigneeId && assigneeId !== "_none") {
@@ -300,7 +300,7 @@ export function CreateTaskFromCurrentDialog({ open, source, onClose }: Props) {
                     <>From <span className="font-medium text-foreground/80">#{source.channelSlug}</span>{source.threadRootId != null ? " · thread reply" : ""} · {source.userName}</>
                   )}
                   {source.kind === "record_message" && (
-                    <>From <span className="font-medium text-foreground/80">{source.objectType.charAt(0).toUpperCase() + source.objectType.slice(1)}</span> record Currents{source.threadRootId != null ? " · thread reply" : ""} · {source.userName}</>
+                    <>From <span className="font-medium text-foreground/80">{source.objectType.charAt(0).toUpperCase() + source.objectType.slice(1)}</span> record CURRENTS{source.threadRootId != null ? " · thread reply" : ""} · {source.userName}</>
                   )}
                   {source.kind === "summary_action_item" && (
                     <>From AI Summary — <span className="font-medium text-foreground/80">Action Item</span></>

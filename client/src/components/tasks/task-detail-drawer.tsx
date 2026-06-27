@@ -531,7 +531,7 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                   return (
                     <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs space-y-1.5" data-testid="panel-currents-source">
                       <p className="flex items-center gap-1.5 font-medium text-primary/70">
-                        <Radio className="h-3.5 w-3.5" /> Created from Currents AI Summary
+                        <Radio className="h-3.5 w-3.5" /> Created from CURRENTS AI Summary
                       </p>
                       {softUrl && softLabel && (
                         <div className="flex items-center justify-between gap-2">
@@ -549,7 +549,7 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                             className="inline-flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors shrink-0"
                             data-testid="link-view-in-currents"
                           >
-                            View in Currents <ArrowRight className="h-3 w-3" />
+                            View in CURRENTS <ArrowRight className="h-3 w-3" />
                           </a>
                         </div>
                       )}
@@ -564,11 +564,11 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                   ? `#${sm.channelSlug}`
                   : sm.objectType
                     ? `${String(sm.objectType).replace(/_/g, " ")} · ${sm.objectId}`
-                    : "Currents";
+                    : "CURRENTS";
                 return (
                   <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs space-y-1.5" data-testid="panel-currents-source">
                     <p className="flex items-center gap-1.5 font-medium text-primary/70">
-                      <Radio className="h-3.5 w-3.5" /> Created from Currents
+                      <Radio className="h-3.5 w-3.5" /> Created from CURRENTS
                     </p>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 text-muted-foreground min-w-0">
@@ -585,7 +585,7 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
                         className="inline-flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors shrink-0"
                         data-testid="link-view-in-currents"
                       >
-                        View in Currents <ArrowRight className="h-3 w-3" />
+                        View in CURRENTS <ArrowRight className="h-3 w-3" />
                       </a>
                     </div>
                   </div>
