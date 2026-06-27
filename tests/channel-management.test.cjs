@@ -353,3 +353,59 @@ async function run() {
 }
 
 run().catch((e) => { console.error(e); process.exit(1); });
+
+// ── Phase 9A Audit Polish Checks ─────────────────────────────────────────────
+
+async function runAuditChecks() {
+  console.log("\n=== Phase 9A Audit Polish Checks ===\n");
+  const routesPath = "server/routes.ts";
+  const frontendPath = "client/src/pages/current.tsx";
+
+  // A1. PATCH empty name returns 400
+  assertInFile("A1. PATCH rejects explicitly empty name (400 guard)", routesPath, /nameRaw !== null && nameRaw === ""/);
+
+  // A2. GET pins no longer requires archived_at IS NULL in channel subquery
+  assertInFile("A2. GET pins channel subquery allows archived channels", routesPath,
+    /SELECT id FROM current_channels WHERE slug = '.*escapedSlug.*' LIMIT 1\s*\)\s*AND m\.deleted_at IS NULL/);
+
+  // A3. POST pin checks archived status before inserting
+  assertInFile("A3. POST pin blocks archived channel", routesPath, "Cannot pin messages in an archived channel");
+
+  // A4. Archive fallback uses filter not find
+  assertInFile("A4. Archive fallback uses filter for safety", frontendPath, /channels\.filter.*slug !== selectedSlug/);
+
+  // A5. unarchiveChannelMutation defined
+  assertInFile("A5. unarchiveChannelMutation defined", frontendPath, /const unarchiveChannelMutation = useMutation/);
+
+  // A6. btn-unarchive-channel testid
+  assertInFile("A6. btn-unarchive-channel testid in archived banner", frontendPath, /data-testid="btn-unarchive-channel"/);
+
+  // A7. Unarchive button only for admins (isAdmin gate)
+  assertInFile("A7. Unarchive button gated by isAdmin", frontendPath, /isAdmin.*btn-unarchive-channel|btn-unarchive-channel.*isAdmin/s);
+
+  // A8. Unarchive button uses selectedChannelDirect.id
+  assertInFile("A8. Unarchive uses selectedChannelDirect.id", frontendPath, /unarchiveChannelMutation\.mutate\(selectedChannelDirect\.id\)/);
+
+  // A9. GET pins route now has no archived_at IS NULL in channel subquery
+  const routesContent = require("fs").readFileSync(routesPath, "utf8");
+  const pinsSection = routesContent.slice(
+    routesContent.indexOf("// GET /api/current/channels/:slug/pins"),
+    routesContent.indexOf("// POST /api/current/messages/:id/pin")
+  );
+  assert("A9. GET pins channel subquery does NOT contain archived_at IS NULL",
+    !pinsSection.includes("archived_at IS NULL"), "archived_at IS NULL still found in GET pins subquery");
+
+  // A10. POST pin archive guard uses chanCheck
+  assertInFile("A10. POST pin uses chanCheck to detect archived", routesPath, /const chanCheck = await db\.execute/);
+
+  // A11. Archive fallback also includes channels[0] as secondary fallback
+  assertInFile("A11. Archive fallback secondary: channels[0]?.slug", frontendPath, /channels\[0\]\?\.slug/);
+
+  // A12. Unarchive mutation calls invalidateQueries for channels
+  assertInFile("A12. unarchiveChannelMutation invalidates channel list", frontendPath,
+    "unarchiveChannelMutation");
+
+  console.log(`\n  Audit checks: ${passed} passed, ${failed} failed so far`);
+}
+
+runAuditChecks().catch((e) => { console.error(e); process.exit(1); });

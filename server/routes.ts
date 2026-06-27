@@ -33134,6 +33134,7 @@ export function registerConfluenceRoutes(app: Express) {
       const updates: string[] = [];
       const nameRaw = req.body?.name != null ? String(req.body.name).trim() : null;
       const descRaw = req.body?.description !== undefined ? String(req.body.description ?? "").trim() : undefined;
+      if (nameRaw !== null && nameRaw === "") return res.status(400).json({ message: "Channel name cannot be empty" });
       if (nameRaw) {
         if (nameRaw.length > 80) return res.status(400).json({ message: "Name too long (max 80 chars)" });
         const slug = normalizeChannelSlug(nameRaw);
@@ -33521,7 +33522,7 @@ export function registerConfluenceRoutes(app: Express) {
         JOIN users author ON author.id = m.user_id
         LEFT JOIN users pinner ON pinner.id = p.pinned_by
         WHERE p.channel_id = (
-          SELECT id FROM current_channels WHERE slug = '${escapedSlug}' AND archived_at IS NULL LIMIT 1
+          SELECT id FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1
         )
           AND m.deleted_at IS NULL
         ORDER BY p.pinned_at DESC
@@ -33558,6 +33559,10 @@ export function registerConfluenceRoutes(app: Express) {
       const pinObjId: number | null = msgRows.rows[0].object_id ? Number(msgRows.rows[0].object_id) : null;
 
       if (channelId) {
+        const chanCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${channelId} LIMIT 1`));
+        if (chanCheck.rows.length && (chanCheck.rows[0] as any).archived_at) {
+          return res.status(403).json({ message: "Cannot pin messages in an archived channel" });
+        }
         await db.execute(sql.raw(`
           INSERT INTO current_pins (channel_id, message_id, pinned_by)
           VALUES (${channelId}, ${messageId}, ${userId})

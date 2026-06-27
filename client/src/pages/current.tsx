@@ -2888,9 +2888,23 @@ export default function CurrentPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
       setEditChannelOpen(false);
       setArchiveConfirmOpen(false);
-      const nextSlug = channels.find((c) => c.slug !== selectedSlug)?.slug ?? "general";
+      const others = channels.filter((c) => c.slug !== selectedSlug);
+      const nextSlug = others[0]?.slug ?? channels[0]?.slug ?? "general";
       setSelectedSlug(nextSlug);
       toast({ title: "Channel archived", description: "The channel is now read-only." });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const unarchiveChannelMutation = useMutation({
+    mutationFn: async (channelId: number) => {
+      const r = await apiRequest("POST", `/api/current/channels/${channelId}/unarchive`, {});
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to unarchive channel"); }
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
+      toast({ title: "Channel unarchived", description: "The channel is active again." });
     },
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -3820,7 +3834,17 @@ export default function CurrentPage() {
             {isArchivedChannel && (
               <div className="mx-4 mb-0 mt-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[12.5px] shrink-0">
                 <Archive className="w-3.5 h-3.5 shrink-0" />
-                <span>This channel is archived. Messages are read-only.</span>
+                <span className="flex-1">This channel is archived. Messages are read-only.</span>
+                {isAdmin && selectedChannelDirect?.id && (
+                  <button
+                    data-testid="btn-unarchive-channel"
+                    onClick={() => unarchiveChannelMutation.mutate(selectedChannelDirect.id)}
+                    disabled={unarchiveChannelMutation.isPending}
+                    className="shrink-0 text-amber-400 hover:text-amber-300 underline underline-offset-2 text-[12px] font-medium transition-colors disabled:opacity-50"
+                  >
+                    {unarchiveChannelMutation.isPending ? "Restoring…" : "Unarchive"}
+                  </button>
+                )}
               </div>
             )}
 

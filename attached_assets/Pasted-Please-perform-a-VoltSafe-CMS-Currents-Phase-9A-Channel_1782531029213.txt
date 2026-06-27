@@ -1,0 +1,329 @@
+Please perform a VoltSafe CMS Currents Phase 9A Channel Management audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, notification preferences, typing indicators, or unrelated task features.
+
+Goal
+
+Verify that Channel Management is secure, stable, polished, and regression-free.
+
+Phase 9A added:
+
+* Create channel
+* Edit channel name/description
+* Archive channel
+* Unarchive channel
+* Admin-only channel controls
+* Archived channel read-only behavior
+* Archived channel deep-link support
+* Sidebar channel management controls
+
+This audit should verify the full feature.
+
+Audit scope
+
+Audit only:
+
+1. Channel schema/migration
+2. Channel create/edit/archive/unarchive backend routes
+3. Admin permission guards
+4. Channel sidebar UI
+5. Create Channel dialog
+6. Edit Channel dialog
+7. Archived channel read-only behavior
+8. Archived channel deep-link behavior
+9. Existing Currents regressions caused by Phase 9A
+
+Schema / migration checks
+
+Verify:
+
+1. current_channels has required columns:
+    * description or equivalent
+    * archived_at
+    * archived_by
+    * updated_at if used
+2. Migration is idempotent.
+3. Existing channel rows remain valid.
+4. Existing archived channels remain valid.
+5. New columns do not break existing channel queries.
+6. Slug/name uniqueness is enforced safely.
+7. Archived channels do not conflict with active duplicate-name logic unless intentionally allowed.
+
+Backend route checks
+
+GET /api/current/channels
+
+Verify:
+
+1. Requires authentication.
+2. Returns active channels by default.
+3. Does not include archived channels in the normal sidebar list.
+4. Existing channel ordering remains sensible.
+5. Existing unread counts still work.
+6. Existing selected/default channel behavior still works.
+
+GET /api/current/channels/:slug
+
+Verify:
+
+1. Requires authentication.
+2. Can return archived channel metadata for deep-link/read-only detection.
+3. Does not expose unsafe data.
+4. Handles missing slug safely.
+5. Handles duplicate/renamed slug behavior safely.
+
+POST /api/current/channels
+
+Verify:
+
+1. Requires authentication.
+2. Requires admin permission.
+3. Rejects non-admin users.
+4. Rejects empty/whitespace-only name.
+5. Normalizes slug safely:
+    * lowercase
+    * trim
+    * spaces to hyphens
+    * unsafe characters removed
+6. Rejects duplicate active slug.
+7. Handles duplicate archived slug according to intended rule.
+8. Creates channel with archived_at = null.
+9. Returns created channel.
+10. New channel appears in sidebar after refetch.
+
+PATCH /api/current/channels/:id
+
+Verify:
+
+1. Requires authentication.
+2. Requires admin permission.
+3. Rejects non-admin users.
+4. Rejects missing channel.
+5. Rejects empty/whitespace-only name if name is updated.
+6. Normalizes slug safely when name changes.
+7. Rejects duplicate active slug.
+8. Allows description update.
+9. Preserves channel id.
+10. Existing messages remain linked and visible.
+11. Sidebar updates after edit.
+
+POST /api/current/channels/:id/archive
+
+Verify:
+
+1. Requires authentication.
+2. Requires admin permission.
+3. Rejects non-admin users.
+4. Rejects missing channel.
+5. Sets archived_at.
+6. Sets archived_by.
+7. Hides channel from normal sidebar.
+8. Does not delete messages.
+9. Blocks new posts to archived channel.
+10. Selects safe fallback channel on frontend.
+
+POST /api/current/channels/:id/unarchive
+
+Verify:
+
+1. Requires authentication.
+2. Requires admin permission.
+3. Rejects non-admin users.
+4. Rejects missing channel.
+5. Clears archived_at.
+6. Handles slug collision if another active channel now uses same slug.
+7. Channel reappears in sidebar.
+8. Posting works after unarchive.
+
+Archived channel behavior checks
+
+Verify:
+
+1. Archived channel messages remain visible.
+2. Archived channel deep-link opens safely.
+3. Archived channel shows clear read-only banner.
+4. Composer is hidden or disabled.
+5. Posting route blocks archived channels even if frontend is bypassed.
+6. Search results can still open archived messages safely if intended.
+7. View in Currents links still work for archived channel messages.
+8. Create Task source links still work.
+9. AI summaries/search/structured items do not crash on archived channel.
+
+Frontend UI checks
+
+Sidebar
+
+Verify:
+
+1. Channels section still renders.
+2. Admin create button appears.
+3. Non-admin users do not see or cannot use admin controls.
+4. Gear/settings button appears for admins.
+5. Gear/settings button does not crowd channel rows.
+6. Channel unread badges still display.
+7. Archived channels are hidden from default list.
+8. Sidebar remains usable on smaller screens.
+9. Dark mode styling is polished.
+
+Create Channel dialog
+
+Verify:
+
+1. Opens from Channels +.
+2. Name field works.
+3. Description field works.
+4. Slug preview is correct.
+5. Empty name validation is clear.
+6. Duplicate name error is clear.
+7. Create success closes dialog.
+8. Created channel is selected or available immediately.
+9. Dialog resets after close.
+
+Edit Channel dialog
+
+Verify:
+
+1. Opens with existing channel name/description.
+2. Save works.
+3. Duplicate-name error is clear.
+4. Rename updates sidebar/header.
+5. Description update works.
+6. Archive confirmation flow is clear.
+7. Archive success closes dialog or moves user safely.
+8. Unarchive flow works if implemented.
+9. Dialog handles loading/error states.
+
+Header / active channel
+
+Verify:
+
+1. Current channel header reflects renamed channel.
+2. Settings button appears only when appropriate.
+3. Summarize button still works.
+4. Archived channel banner displays.
+5. Archived channel composer is hidden/disabled.
+6. Normal active channel composer still works.
+
+Permission / security checks
+
+Verify:
+
+1. Normal user cannot create channel.
+2. Normal user cannot edit channel.
+3. Normal user cannot archive channel.
+4. Normal user cannot unarchive channel.
+5. Normal user cannot post to archived channel by calling API directly.
+6. Admin can perform allowed actions.
+7. Channel name/description inputs are safely handled.
+8. Slug normalization prevents unsafe path/input issues.
+9. No SQL injection exposure.
+10. Archived channels do not leak private data beyond existing channel visibility model.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel list
+* Channel posting
+* Channel unread counts
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Channel attachment-only behavior if any
+* Channel search
+* Channel AI summaries
+* Channel Create Task
+* Channel View in Currents from Tasks
+* Mentions panel
+* Structured panel
+* Structured notes/counts/export
+* Record Currents
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record search
+* Record summaries
+* Record Create Task
+* Record View in Currents from Tasks
+* DMs
+* DM attachments
+* Attachment-only DMs
+* DM unread/read-state
+* Currents nav unread badge
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 9A Channel Management.
+
+Allowed:
+
+* Channel schema/migration bug
+* Admin permission bug
+* Slug normalization bug
+* Duplicate channel bug
+* Archive/unarchive bug
+* Archived posting bug
+* Archived deep-link bug
+* Sidebar/dialog polish
+* Query invalidation/refetch bug
+* Console/server errors caused by channel management
+* Tests directly related to 9A
+
+Not allowed:
+
+* Private channels
+* Channel members
+* Guest Currents
+* External collaborators
+* Group DMs
+* Slash commands
+* Workflow automation
+* Notification preferences
+* Typing indicators
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Schema/migration checks
+5. Backend route checks
+6. Archived-channel behavior checks
+7. Frontend UI checks
+8. Permission/security checks
+9. Existing Currents regression results
+10. Existing task regression results
+11. Features intentionally deferred
+12. Final pass/fail status
+13. Recommended next feature order
+
+Keep scope tight: Currents Phase 9A Channel Management audit only.
