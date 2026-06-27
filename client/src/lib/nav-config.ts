@@ -145,6 +145,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "territory-routing", label: "Territory Routing",  route: "/routing",            icon: MapPin,                               advisorHidden: true },
       { id: "tickets",           label: { desktop: "Support Tickets", mobile: "Tickets" },  route: "/support/tickets", icon: ClipboardList, permKey: "support" },
       { id: "winter-support",    label: "Winter Support",     route: "/winter",             icon: Snowflake,   permKey: "support" },
+      { id: "data-quality",      label: "Data Quality",       route: "/data-quality",       icon: ShieldCheck, permKey: "crm",     advisorHidden: true },
     ],
   },
   {
@@ -161,6 +162,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "revenue-hub",         label: "Revenue Hub",                                                 route: "/revenue",                      icon: BarChart3,  permKey: "crm", exactMatch: true, advisorHidden: true },
       { id: "revenue-ops",         label: "Revenue Ops",                                                 route: "/revenue-ops",                  icon: Target,                     advisorHidden: true },
       { id: "revenue-sim",         label: "Revenue Simulator",                                           route: "/revenue-sim",                  icon: FlaskRound,                 advisorHidden: true },
+      { id: "score-feedback",      label: "Score Feedback",                                              route: "/scores/feedback",              icon: Target,                     advisorHidden: true },
     ],
   },
   {
@@ -184,8 +186,6 @@ export const NAV_CONFIG: NavSection[] = [
     label: "More",
     icon: MoreHorizontal,
     items: [
-      { id: "score-feedback",    label: "Score Feedback",    route: "/scores/feedback",               icon: Target,                                         advisorHidden: true },
-      { id: "data-quality",      label: "Data Quality",      route: "/data-quality",                  icon: ShieldCheck, permKey: "crm",                   advisorHidden: true },
       { id: "task-rules",        label: "Task Rules",        route: "/automation/tasks",              icon: Zap },
       { id: "automations",       label: "Automations",       route: "/automations",                   icon: Zap },
     ],

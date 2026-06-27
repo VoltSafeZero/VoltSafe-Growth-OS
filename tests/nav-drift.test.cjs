@@ -320,8 +320,36 @@ ok("Revenue Simulator is NOT in More group",
 ok("Revenue Simulator route is /revenue-sim (unchanged)",
   src.includes('route: "/revenue-sim"'));
 
-// ── Phase 1–4C: Duplicate route guard ────────────────────────────────────────
-console.log("\nPhase 1–4C — Duplicate routes in NAV_CONFIG:");
+// ── Phase 4D: Score Feedback → Insights; Data Quality → Operations ───────────
+console.log("\nPhase 4D — Score Feedback to Insights; Data Quality to Operations:");
+
+ok("Score Feedback is in Insights group",
+  insightsSection.includes('/scores/feedback'),
+  "Scoring intelligence belongs in Insights");
+
+ok("Score Feedback is NOT in More group",
+  !moreSection.includes('/scores/feedback'),
+  "Must be removed from More");
+
+ok("Score Feedback route is /scores/feedback (unchanged)",
+  src.includes('route: "/scores/feedback"'));
+
+ok("Data Quality is in Operations group",
+  opsSection.includes('/data-quality'),
+  "CRM data hygiene belongs in Operations");
+
+ok("Data Quality is NOT in More group",
+  !moreSection.includes('/data-quality'),
+  "Must be removed from More");
+
+ok("Data Quality route is /data-quality (unchanged)",
+  src.includes('route: "/data-quality"'));
+
+ok('Data Quality permKey:"crm" is unchanged',
+  src.match(/id: "data-quality"[\s\S]{0,120}permKey: "crm"/) !== null);
+
+// ── Phase 1–4D: Duplicate route guard ────────────────────────────────────────
+console.log("\nPhase 1–4D — Duplicate routes in NAV_CONFIG:");
 
 const routeMatches   = [...src.matchAll(/route: "([^"]+)"/g)];
 const routes         = routeMatches.map(m => m[1]);

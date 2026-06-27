@@ -1,0 +1,142 @@
+Proceed with VoltSafe CMS Navigation Cleanup Phase 4D only: Score Feedback + Data Quality Placement.
+
+Use the planning document:
+
+docs/nav-more-decision-plan-2026-06-27.md
+
+Do not perform a full sidebar reorganization. Do not implement role-based nav. Do not consolidate Automations/Task Rules. Do not touch CURRENTS, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Move the next two remaining More items to clearer existing homes:
+
+1. Score Feedback → Insights
+2. Data Quality → Operations
+
+This is a nav-config-only cleanup phase.
+
+Routes, components, permissions, backend behavior, and page functionality must remain unchanged.
+
+Scope
+
+Allowed:
+
+1. Move Score Feedback from More to Insights.
+2. Move Data Quality from More to Operations.
+3. Keep labels unchanged.
+4. Keep routes unchanged.
+5. Keep components unchanged.
+6. Keep existing permissions unchanged.
+7. Update nav tests to assert the new parent groups.
+8. Verify no duplicate routes.
+
+Not allowed:
+
+1. Moving Task Rules.
+2. Moving Automations.
+3. Consolidating Task Rules into Automations.
+4. Creating a new top-level group.
+5. Renaming Insights to Intelligence.
+6. Backend permission changes.
+7. New routes/components.
+8. Full sidebar redesign.
+9. CURRENTS changes.
+10. Gmail/mail/tracking changes.
+11. CRM behavior changes.
+
+Required changes
+
+1. Score Feedback
+
+Move:
+
+* Score Feedback
+
+From:
+
+* More
+
+To:
+
+* Insights
+
+Keep route unchanged.
+
+Keep component/page unchanged.
+
+Reason:
+
+* Score Feedback is an intelligence/scoring-quality feedback surface.
+* It fits better beside Revenue Intelligence, Relationship Intelligence, Revenue Hub/Ops/Simulator, Territory & Geo, and other analytical tools.
+
+2. Data Quality
+
+Move:
+
+* Data Quality
+
+From:
+
+* More
+
+To:
+
+* Operations
+
+Keep route unchanged.
+
+Keep component/page unchanged.
+
+Keep existing permKey:"crm" or equivalent permission unchanged.
+
+Reason:
+
+* Data Quality is operational CRM/data hygiene work.
+* It belongs with execution/operations tooling, not a miscellaneous catch-all.
+
+Verification
+
+Verify:
+
+1. Sidebar renders.
+2. Score Feedback appears under Insights.
+3. Score Feedback no longer appears under More.
+4. Score Feedback route is unchanged.
+5. Data Quality appears under Operations.
+6. Data Quality no longer appears under More.
+7. Data Quality route is unchanged.
+8. Data Quality permission key is unchanged.
+9. Components are unchanged.
+10. No duplicate routes introduced.
+11. Prior Phase 1–4C nav tests still pass.
+12. No TypeScript errors.
+13. Browser console clean if app is run.
+
+Tests
+
+Update tests/nav-drift.test.cjs or equivalent checks for:
+
+1. Score Feedback is under Insights.
+2. Score Feedback is not under More.
+3. Score Feedback route remains unchanged.
+4. Data Quality is under Operations.
+5. Data Quality is not under More.
+6. Data Quality route remains unchanged.
+7. Data Quality permission key remains unchanged.
+8. No duplicate nav routes.
+9. Prior nav cleanup tests still pass.
+
+Deliverable
+
+Return:
+
+1. Items moved
+2. Files changed
+3. Confirmation labels/routes/components unchanged
+4. Confirmation permissions unchanged
+5. Tests added/updated
+6. Verification results
+7. Remaining items in More
+8. Recommended next phase
+
+Keep scope tight: Score Feedback + Data Quality placement only.
