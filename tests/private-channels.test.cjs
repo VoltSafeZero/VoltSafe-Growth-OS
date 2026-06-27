@@ -197,6 +197,158 @@ assert(
   "Summary route uses resolveChannelAccess for channel scope"
 );
 
+// Phase 15A security audit fixes —————————————————————————————————————————
+
+console.log("\n=== T002: Typing thread scope — private channel guard ===");
+
+// POST typing thread scope
+const typingPostBlock = routes.slice(routes.indexOf("POST /api/current/typing"), routes.indexOf("GET /api/current/typing"));
+const typingPostThreadIdx = typingPostBlock.indexOf("// thread");
+const typingPostThreadSection = typingPostBlock.slice(typingPostThreadIdx, typingPostThreadIdx + 1500);
+assert(
+  typingPostThreadSection.includes("is_private"),
+  "POST typing route thread scope checks is_private"
+);
+assert(
+  typingPostThreadSection.includes("current_channel_members"),
+  "POST typing route thread scope checks channel membership"
+);
+
+// GET typing thread scope
+const typingGetRouteIdx = routes.indexOf("GET /api/current/typing");
+const typingGetBlock = routes.slice(typingGetRouteIdx, typingGetRouteIdx + 3000);
+const typingGetThreadIdx = typingGetBlock.indexOf("// thread", 500);
+const typingGetThreadSection = typingGetBlock.slice(typingGetThreadIdx < 0 ? typingGetBlock.indexOf("rootMessageId") : typingGetThreadIdx, typingGetThreadIdx < 0 ? typingGetBlock.indexOf("rootMessageId") + 800 : typingGetThreadIdx + 800);
+assert(
+  typingGetBlock.slice(typingGetBlock.indexOf("rootMessageId")).includes("is_private"),
+  "GET typing route thread scope checks is_private"
+);
+assert(
+  typingGetBlock.slice(typingGetBlock.indexOf("rootMessageId")).includes("current_channel_members"),
+  "GET typing route thread scope checks channel membership"
+);
+
+console.log("\n=== T002: Summary thread scope — private channel guard ===");
+
+const summaryRouteIdx = routes.indexOf("POST /api/current/summary");
+const summaryBlock = routes.slice(summaryRouteIdx, summaryRouteIdx + 6000);
+const summaryThreadSection = summaryBlock.slice(summaryBlock.indexOf("scope === \"thread\""), summaryBlock.indexOf("scope === \"channel\""));
+assert(
+  summaryThreadSection.includes("is_private"),
+  "Summary thread scope checks is_private"
+);
+assert(
+  summaryThreadSection.includes("current_channel_members"),
+  "Summary thread scope checks channel membership"
+);
+assert(
+  summaryThreadSection.includes("summThreadChanId") || summaryThreadSection.includes("channel_id"),
+  "Summary thread scope resolves channel from root message"
+);
+
+console.log("\n=== T002: Pin route — private channel guard ===");
+
+const pinPostIdx = routes.indexOf("POST /api/current/messages/:id/pin");
+const pinPostSection = routes.slice(pinPostIdx, pinPostIdx + 2000);
+assert(
+  pinPostSection.includes("is_private"),
+  "POST pin route checks is_private before inserting pin"
+);
+assert(
+  pinPostSection.includes("current_channel_members"),
+  "POST pin route checks channel membership"
+);
+assert(
+  pinPostSection.includes("Not a member of this private channel"),
+  "POST pin route returns 403 for non-members of private channel"
+);
+
+console.log("\n=== T002: Unpin route — private channel guard ===");
+
+const unpinRouteIdx = routes.indexOf("DELETE /api/current/messages/:id/pin");
+const unpinSection = routes.slice(unpinRouteIdx, unpinRouteIdx + 2000);
+assert(
+  unpinSection.includes("is_private"),
+  "DELETE unpin route checks is_private"
+);
+assert(
+  unpinSection.includes("current_channel_members"),
+  "DELETE unpin route checks channel membership"
+);
+assert(
+  unpinSection.includes("Not a member of this private channel"),
+  "DELETE unpin route returns 403 for non-members of private channel"
+);
+
+console.log("\n=== T002: Structured mark/unmark — private channel guard ===");
+
+const structMarkIdx = routes.indexOf("POST /api/current/messages/:id/structured");
+const structMarkSection = routes.slice(structMarkIdx, structMarkIdx + 3500);
+assert(
+  structMarkSection.includes("is_private"),
+  "POST structured mark checks is_private"
+);
+assert(
+  structMarkSection.includes("current_channel_members"),
+  "POST structured mark checks channel membership"
+);
+assert(
+  structMarkSection.includes("Not a member of this private channel"),
+  "POST structured mark returns 403 for non-members"
+);
+
+const structUnmarkIdx = routes.indexOf("DELETE /api/current/messages/:id/structured");
+const structUnmarkSection = routes.slice(structUnmarkIdx, structUnmarkIdx + 2000);
+assert(
+  structUnmarkSection.includes("is_private"),
+  "DELETE structured unmark checks is_private"
+);
+assert(
+  structUnmarkSection.includes("current_channel_members"),
+  "DELETE structured unmark checks channel membership"
+);
+assert(
+  structUnmarkSection.includes("Not a member of this private channel"),
+  "DELETE structured unmark returns 403 for non-members"
+);
+
+console.log("\n=== T002: Attachment GET — private channel guard for current_message ===");
+
+// Attachment list guard for private channels
+const attachGetIdx = routes.indexOf("app.get(\"/api/attachments\"");
+const attachGetSection = routes.slice(attachGetIdx, attachGetIdx + 3000);
+assert(
+  attachGetSection.includes("channel_id"),
+  "GET /api/attachments fetches channel_id from message"
+);
+assert(
+  attachGetSection.includes("is_private"),
+  "GET /api/attachments checks is_private for channel messages"
+);
+assert(
+  attachGetSection.includes("current_channel_members"),
+  "GET /api/attachments checks private channel membership"
+);
+
+console.log("\n=== T002: Attachment POST — private channel guard for current_message ===");
+
+const attachPostIdx = routes.indexOf("app.post(\"/api/attachments\"");
+const attachPostSection = routes.slice(attachPostIdx, attachPostIdx + 5000);
+// Find the section that handles channel guard (after archived check)
+const attachPostChanSection = attachPostSection.slice(attachPostSection.indexOf("Block uploads to archived"));
+assert(
+  attachPostChanSection.includes("is_private"),
+  "POST /api/attachments checks is_private for channel messages"
+);
+assert(
+  attachPostChanSection.includes("current_channel_members"),
+  "POST /api/attachments checks private channel membership before upload"
+);
+assert(
+  attachPostChanSection.includes("Not a member of this private channel"),
+  "POST /api/attachments returns 403 for non-members of private channel"
+);
+
 console.log("\n=== T002: Create channel — isPrivate + memberIds ===");
 
 const createChannelRouteIdx = routes.indexOf("POST /api/current/channels");

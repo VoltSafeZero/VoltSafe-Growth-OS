@@ -6431,7 +6431,7 @@ export async function registerRoutes(
       const isAdminRole = role === "master_admin" || role === "admin";
       if (!isAdminRole) {
         const msgCheck = await db.execute(sql`
-          SELECT conversation_id FROM current_messages WHERE id = ${Number(objectId)} LIMIT 1
+          SELECT conversation_id, channel_id FROM current_messages WHERE id = ${Number(objectId)} LIMIT 1
         `);
         const msgRow = (msgCheck.rows[0] as any) || null;
         if (!msgRow) return res.status(404).json({ message: "Message not found" });
@@ -6441,6 +6441,18 @@ export async function registerRoutes(
             WHERE conversation_id = ${Number(msgRow.conversation_id)} AND user_id = ${userId} LIMIT 1
           `);
           if (!memberCheck.rows.length) return res.status(403).json({ message: "Not authorized" });
+        }
+        // Private-channel guard: if message belongs to a private channel, require membership
+        if (msgRow.channel_id) {
+          const chanPriv = await db.execute(sql.raw(
+            `SELECT is_private FROM current_channels WHERE id = ${Number(msgRow.channel_id)} LIMIT 1`
+          ));
+          if (chanPriv.rows.length && (chanPriv.rows[0] as any).is_private) {
+            const chanMem = await db.execute(sql.raw(
+              `SELECT 1 FROM current_channel_members WHERE channel_id = ${Number(msgRow.channel_id)} AND user_id = ${userId} LIMIT 1`
+            ));
+            if (!chanMem.rows.length) return res.status(403).json({ message: "Not authorized" });
+          }
         }
       }
     }
@@ -6501,16 +6513,26 @@ export async function registerRoutes(
           return res.status(403).json({ message: "Cannot attach files to another user's message" });
         }
       }
-      // Block uploads to archived channel messages
+      // Block uploads to archived or private channel messages (non-members)
       const uploadChanRow = await db.execute(sql.raw(
         `SELECT channel_id FROM current_messages WHERE id = ${Number(objectId)} LIMIT 1`
       ));
       const uploadChanId = (uploadChanRow.rows[0] as any)?.channel_id ? Number((uploadChanRow.rows[0] as any).channel_id) : null;
       if (uploadChanId) {
-        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${uploadChanId} LIMIT 1`));
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${uploadChanId} LIMIT 1`));
         if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at) {
           for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
           return res.status(403).json({ message: "Cannot upload attachments to an archived channel message" });
+        }
+        if (arcCheck.rows.length && (arcCheck.rows[0] as any).is_private) {
+          const uploadUserId2 = (req.session as any).userId as number;
+          const chanMem = await db.execute(sql.raw(
+            `SELECT 1 FROM current_channel_members WHERE channel_id = ${uploadChanId} AND user_id = ${uploadUserId2} LIMIT 1`
+          ));
+          if (!chanMem.rows.length) {
+            for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
+            return res.status(403).json({ message: "Not a member of this private channel" });
+          }
         }
       }
     }
@@ -34079,9 +34101,13 @@ export function registerConfluenceRoutes(app: Express) {
       const pinObjId: number | null = msgRows.rows[0].object_id ? Number(msgRows.rows[0].object_id) : null;
 
       if (channelId) {
-        const chanCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${channelId} LIMIT 1`));
+        const chanCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${channelId} LIMIT 1`));
         if (chanCheck.rows.length && (chanCheck.rows[0] as any).archived_at) {
           return res.status(403).json({ message: "Cannot pin messages in an archived channel" });
+        }
+        if (chanCheck.rows.length && (chanCheck.rows[0] as any).is_private) {
+          const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`));
+          if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
         }
         await db.execute(sql.raw(`
           INSERT INTO current_pins (channel_id, message_id, pinned_by)
@@ -34116,9 +34142,13 @@ export function registerConfluenceRoutes(app: Express) {
       if (unpinMsg.rows.length) {
         const unpinChanId = (unpinMsg.rows[0] as any).channel_id ? Number((unpinMsg.rows[0] as any).channel_id) : null;
         if (unpinChanId) {
-          const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${unpinChanId} LIMIT 1`));
+          const arcCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${unpinChanId} LIMIT 1`));
           if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
             return res.status(403).json({ message: "Cannot unpin messages in an archived channel" });
+          if (arcCheck.rows.length && (arcCheck.rows[0] as any).is_private) {
+            const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${unpinChanId} AND user_id = ${userId} LIMIT 1`));
+            if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+          }
         }
       }
       await db.execute(sql.raw(`DELETE FROM current_pins WHERE message_id = ${messageId}`));
@@ -34843,11 +34873,15 @@ export function registerConfluenceRoutes(app: Express) {
         }
       }
 
-      // Block structured tags in archived channels
+      // Block structured tags in archived or private channels (non-members)
       if (channelId) {
-        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${channelId} LIMIT 1`));
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${channelId} LIMIT 1`));
         if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
           return res.status(403).json({ message: "Cannot add structured items to an archived channel message" });
+        if (arcCheck.rows.length && (arcCheck.rows[0] as any).is_private) {
+          const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`));
+          if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+        }
       }
 
       const notesSQL = notes ? `'${notes.replace(/'/g, "''")}'` : "NULL";
@@ -34884,16 +34918,21 @@ export function registerConfluenceRoutes(app: Express) {
       const itemType = String(req.params.itemType);
       if (!messageId) return res.status(400).json({ message: "Invalid message id" });
       if (!VALID_STRUCTURED_TYPES.has(itemType)) return res.status(400).json({ message: "Invalid itemType" });
-      // Block removal in archived channels
+      // Block removal in archived or private channels (non-members)
       const delStructMsg = await db.execute(sql.raw(
         `SELECT channel_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
       ));
       if (delStructMsg.rows.length) {
         const delStructChanId = (delStructMsg.rows[0] as any).channel_id ? Number((delStructMsg.rows[0] as any).channel_id) : null;
         if (delStructChanId) {
-          const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${delStructChanId} LIMIT 1`));
+          const arcCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${delStructChanId} LIMIT 1`));
           if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
             return res.status(403).json({ message: "Cannot remove structured items from an archived channel message" });
+          if (arcCheck.rows.length && (arcCheck.rows[0] as any).is_private) {
+            const delStructUserId = getSessionUserId(req);
+            const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${delStructChanId} AND user_id = ${delStructUserId} LIMIT 1`));
+            if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+          }
         }
       }
       await db.execute(sql.raw(
@@ -35026,6 +35065,23 @@ export function registerConfluenceRoutes(app: Express) {
         const rootId = Number(req.body?.messageId);
         if (!rootId || rootId <= 0) {
           return res.status(400).json({ message: "messageId required for thread scope" });
+        }
+        // Private-channel guard: check if thread root belongs to a private channel
+        const summThreadRoot = await db.execute(sql.raw(
+          `SELECT channel_id FROM current_messages WHERE id = ${rootId} AND deleted_at IS NULL LIMIT 1`
+        ));
+        if (!summThreadRoot.rows.length) return res.status(404).json({ message: "Thread not found" });
+        const summThreadChanId = (summThreadRoot.rows[0] as any).channel_id ? Number((summThreadRoot.rows[0] as any).channel_id) : null;
+        if (summThreadChanId) {
+          const privCheck = await db.execute(sql.raw(
+            `SELECT is_private FROM current_channels WHERE id = ${summThreadChanId} LIMIT 1`
+          ));
+          if (privCheck.rows.length && (privCheck.rows[0] as any).is_private) {
+            const mem = await db.execute(sql.raw(
+              `SELECT 1 FROM current_channel_members WHERE channel_id = ${summThreadChanId} AND user_id = ${userId} LIMIT 1`
+            ));
+            if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+          }
         }
         const { rows: dbRows } = await db.execute(sql.raw(`
           SELECT
@@ -35857,10 +35913,14 @@ export function registerConfluenceRoutes(app: Express) {
         const chanId = Number((msgRow.rows[0] as any).channel_id);
         if (!chanId) return res.status(400).json({ message: "Thread root is not in a channel" });
         const chanRow = await db.execute(sql.raw(
-          `SELECT archived_at FROM current_channels WHERE id = ${chanId} LIMIT 1`
+          `SELECT archived_at, is_private FROM current_channels WHERE id = ${chanId} LIMIT 1`
         ));
         if ((chanRow.rows[0] as any)?.archived_at)
           return res.status(400).json({ message: "Cannot type in a thread of an archived channel" });
+        if ((chanRow.rows[0] as any)?.is_private) {
+          const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${chanId} AND user_id = ${userId} LIMIT 1`));
+          if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+        }
         upsertTyper(getTypingKey("thread", rootId), userId, userName);
       }
       res.json({ ok: true });
@@ -35911,9 +35971,13 @@ export function registerConfluenceRoutes(app: Express) {
         const chanId = Number((msgRow.rows[0] as any).channel_id);
         if (!chanId) return res.status(400).json({ message: "Thread root is not in a channel" });
         const chanRow = await db.execute(sql.raw(
-          `SELECT archived_at FROM current_channels WHERE id = ${chanId} LIMIT 1`
+          `SELECT archived_at, is_private FROM current_channels WHERE id = ${chanId} LIMIT 1`
         ));
         if ((chanRow.rows[0] as any)?.archived_at) return res.json({ typers: [], count: 0 });
+        if ((chanRow.rows[0] as any)?.is_private) {
+          const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${chanId} AND user_id = ${userId} LIMIT 1`));
+          if (!mem.rows.length) return res.json({ typers: [], count: 0 });
+        }
         key = getTypingKey("thread", rootId);
       }
 
