@@ -3326,15 +3326,22 @@ export default function CurrentPage() {
   });
   const channelParticipants = channelParticipantsData?.participants ?? [];
 
-  // Phase 12B: collect user IDs needing presence from DM list + Phase 12C channel participants
+  // Phase 12B+12C: collect user IDs needing presence — DMs first, then channel participants.
+  // DMs take priority because their dots are always visible in the sidebar.
+  // Capped at 100 to match the server-side cap on GET /api/current/presence.
+  const PRESENCE_ID_CAP = 100;
   const presenceUserIds = useMemo(() => {
     const ids = new Set<number>();
     for (const dm of dmConversations) {
       if (dm.type === "dm" && dm.otherUser) ids.add(dm.otherUser.id);
       dm.members.forEach((m) => ids.add(m.id));
     }
-    // Phase 12C: include channel participant IDs so presence dot works in the panel
-    for (const p of channelParticipants) ids.add(p.id);
+    // Phase 12C: include channel participant IDs so presence dot works in the panel.
+    // Added after DM IDs so DM presence takes priority when the cap is hit.
+    for (const p of channelParticipants) {
+      if (ids.size >= PRESENCE_ID_CAP) break;
+      ids.add(p.id);
+    }
     return Array.from(ids).sort((a, b) => a - b);
   }, [dmConversations, channelParticipants]);
 
@@ -3419,6 +3426,8 @@ export default function CurrentPage() {
     // Clear stale channel AI summary when switching channels
     setChannelSummaryOpen(false);
     setChannelSummaryData(null);
+    // Phase 12C: close participant dialog on channel switch to avoid stale context
+    setChannelParticipantsOpen(false);
   }, [selectedSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── DM scroll ─────────────────────────────────────────────────────────────

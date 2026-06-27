@@ -1,0 +1,273 @@
+Please perform a VoltSafe CMS Currents Phase 12C Channel Member List / Online Presence Panel audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, DM unread badge work, message reactions, private channels, channel search improvements, or unrelated task features.
+
+Goal
+
+Verify that the Channel Member List / Online Presence Panel is secure, stable, polished, and regression-free.
+
+Phase 12C added:
+
+* GET /api/current/channels/:slug/participants
+* Channel participants button in the channel header
+* ChannelParticipantsDialog
+* Channel participant presence display
+* Channel online count
+* Presence query expansion to include channel participant IDs
+* Archived-channel participant viewing
+
+Audit scope
+
+Audit only:
+
+1. Channel participants backend route
+2. Channel participant definition/query logic
+3. Presence integration for channel participants
+4. Channel header people button
+5. ChannelParticipantsDialog UI
+6. Security/privacy behavior
+7. Existing Currents regressions caused by 12C
+
+Backend route checks
+
+GET /api/current/channels/:slug/participants
+
+Verify:
+
+1. Requires authentication.
+2. Validates slug safely.
+3. Rejects injection attempts.
+4. Existing active channel returns clean response.
+5. Archived channel returns clean read-only response.
+6. Missing channel returns 404.
+7. Invalid slug returns 400, not 500.
+8. Participant source is correct:
+    * message authors
+    * channel preference users
+9. Does not accidentally include unrelated users.
+10. Suspended/deactivated users are excluded.
+11. Inactive users are excluded if relevant to current schema.
+12. Response includes only:
+
+* channel id/slug/name/description/isArchived
+* participant id/name/email
+
+13. Does not expose password, role, permissions, status, private fields, or session data.
+14. Results are capped at 100.
+15. Results are sorted consistently.
+16. Query avoids N+1 behavior.
+17. SQL injection is not possible through slug.
+
+Participant definition checks
+
+Verify the product wording is accurate.
+
+Because channels do not yet have formal membership, this panel should not imply formal “members” if the backend is actually returning participants.
+
+Confirm UI copy uses one of:
+
+* People
+* Channel participants
+* People in this channel
+
+Avoid misleading copy like:
+
+* Members
+
+unless formal channel membership exists.
+
+Presence behavior checks
+
+Verify:
+
+1. Channel participant IDs are added to the existing presence query.
+2. Presence query dedupes IDs across:
+    * 1:1 DMs
+    * group DMs
+    * channel participants
+3. Presence query ordering is stable.
+4. Presence query is disabled when no IDs exist.
+5. Presence query does not fetch all users.
+6. Presence route still returns only { userId, status }.
+7. Channel online count uses presenceMap correctly.
+8. Current user handling is intentional and documented.
+9. Online count does not double-count current user.
+10. Switching channels updates participants and online count.
+11. Archived channels can still show presence safely.
+
+Frontend checks
+
+Channel header people button
+
+Verify:
+
+1. Button appears in active channels.
+2. Button appears or behaves safely in archived channels.
+3. Label shows People while loading.
+4. Label shows N people once loaded.
+5. Label shows N people · M online when online count > 0.
+6. Label hides online count cleanly when M = 0.
+7. Button does not crowd Summarize/admin Settings buttons.
+8. Header layout works on smaller screens.
+9. Button does not shift message feed.
+10. Button opens the correct channel’s participant dialog.
+
+ChannelParticipantsDialog
+
+Verify:
+
+1. Opens from channel header button.
+2. Shows selected channel name/slug.
+3. Shows archived badge for archived channels.
+4. Shows current user first if present.
+5. Shows online users before offline users.
+6. Sorts alphabetically within groups.
+7. Shows avatar/initials.
+8. Shows name.
+9. Shows email.
+10. Shows online dot/status.
+11. Shows “You” label for current user.
+12. Empty state works.
+13. Dark mode styling is clean.
+14. Smaller screen layout is acceptable.
+15. Closing/reopening does not show stale channel data.
+16. Switching channels while dialog is open does not show wrong participants.
+
+Security/privacy checks
+
+Verify:
+
+1. Auth required.
+2. Invalid slug cannot inject SQL.
+3. Suspended/deactivated users excluded.
+4. No private fields leaked.
+5. Presence route remains privacy-safe.
+6. Participant route does not expose DM or group DM data.
+7. Archived channel view is read-only.
+8. Route handles malformed slug safely.
+9. Cap prevents huge result sets.
+10. No excessive route/presence polling.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Phase 12B DM/group DM presence
+* Phase 12A typing indicators
+* Channel messages
+* Channel unread counts
+* Channel notification preferences
+* Channel archived/read-only behavior
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Mentions panel
+* Structured panel
+* Structured archived toggle/badges
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+* 1:1 DMs
+* 1:1 DM attachments
+* 1:1 attachment-only DMs
+* 1:1 DM unread/read-state
+* 1:1 DM mute/unmute
+* Group DMs
+* Group DM add/leave members
+* Group DM attachments
+* Group DM unread/read-state
+* Hide-muted unread badge preference
+* Record Currents
+* Record attachments
+* Record search
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+* Excessive polling/network noise
+
+Specific concerns to audit
+
+Please specifically check these:
+
+1. Whether “People” vs “Members” copy is accurate.
+2. Whether current user is counted correctly in channel online count.
+3. Whether current user can appear in participants from message/preference rows.
+4. Whether the participant route should include the current user even if they have not posted or set preferences.
+5. Whether channel preference rows can include stale/suspended users.
+6. Whether participant IDs added to presence query can push it over the 100-ID cap.
+7. Whether switching channels creates stale participant/presence display.
+8. Whether archived channel participant viewing leaks anything it should not.
+9. Whether removing ml-auto from Summarize caused any header layout regression.
+10. Whether the participant query needs a deterministic secondary sort, e.g. by user id after name.
+
+Allowed fixes
+
+Only fix issues directly related to Phase 12C Channel Member List / Online Presence Panel.
+
+Allowed:
+
+* Participant route validation bug
+* Participant route privacy bug
+* Suspended/deactivated filtering bug
+* Participant sorting bug
+* Participant count/online count bug
+* Presence query overfetch bug
+* People button layout bug
+* Dialog stale data bug
+* Dark mode/layout polish
+* Console/server errors caused by 12C
+* Tests directly related to 12C
+
+Not allowed:
+
+* Formal channel membership model
+* Private channels
+* Adding/removing channel members
+* Guest/external collaborators
+* WebSockets
+* Read receipts
+* DM unread badge work
+* Message reactions
+* Slash commands
+* Workflow automation
+* Channel search improvements
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend route checks
+5. Participant definition checks
+6. Presence behavior checks
+7. Frontend checks
+8. Security/privacy checks
+9. Regression results
+10. Known issues
+11. Final pass/fail status
+12. Recommended next feature order
+
+Keep scope tight: Channel Member List / Online Presence Panel audit only.

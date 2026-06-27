@@ -33796,7 +33796,7 @@ export function registerConfluenceRoutes(app: Express) {
             WHERE channel_id = ${channelId}
         )
           AND (u.status IS NULL OR u.status NOT IN ('suspended', 'deactivated'))
-        ORDER BY u.name
+        ORDER BY u.name, u.id
         LIMIT 100
       `));
       res.json({

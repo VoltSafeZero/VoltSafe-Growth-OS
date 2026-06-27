@@ -384,12 +384,11 @@ async function test(name, fn) {
 
   console.log("\n  [source-grep: presenceUserIds extended]");
 
-  await test("src: presenceUserIds includes channel participant IDs", async () => {
-    const block = src.slice(
-      src.indexOf("presenceUserIds = useMemo"),
-      src.indexOf("presenceUserIds = useMemo") + 400,
-    );
+  await test("src: presenceUserIds includes channel participant IDs (capped at 100)", async () => {
+    const start = src.indexOf("presenceUserIds = useMemo");
+    const block = src.slice(start, start + 700);
     assert.ok(block.includes("channelParticipants"), "presenceUserIds must include channelParticipants");
+    assert.ok(block.includes("PRESENCE_ID_CAP"), "presenceUserIds must cap IDs to avoid server-side truncation");
   });
 
   await test("src: channelParticipants query enabled only in channel view", async () => {
