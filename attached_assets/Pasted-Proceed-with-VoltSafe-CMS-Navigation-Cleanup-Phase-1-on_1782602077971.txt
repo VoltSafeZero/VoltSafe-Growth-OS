@@ -1,0 +1,169 @@
+Proceed with VoltSafe CMS Navigation Cleanup Phase 1 only: Zero-Risk Drift Fixes.
+
+Use the read-only audit document:
+
+docs/nav-permissions-audit-2026-06-27.md
+
+Do not perform a full sidebar reorganization. Do not implement role-based nav. Do not redesign the app shell. Do not touch CURRENTS internals, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Fix only the obvious navigation drift issues found in the audit — items that are demonstrably wrong, duplicated, or inaccessible due to configuration mismatch.
+
+This is a small cleanup phase, not a new information architecture implementation.
+
+Scope
+
+Allowed:
+
+1. Fix nav items that currently render the wrong page.
+2. Remove/consolidate exact duplicate nav items.
+3. Move personal/non-admin tools out of the Admin-only section if they are currently hidden from normal users despite adminOnly: false.
+4. Rename only obvious confusing labels if the route/component remains unchanged.
+5. Add small tests/source checks that prevent these specific nav drift bugs from returning.
+
+Not allowed:
+
+1. Full sidebar reorganization.
+2. New top-level groups.
+3. Role-based nav beyond existing advisor/admin behavior.
+4. Backend permission redesign.
+5. New routes/components unless an existing route is clearly missing for a nav item.
+6. Deleting real implemented features.
+7. Moving large groups of items.
+8. Changing CURRENTS internals.
+9. Changing mail/tracking/Gmail modules.
+10. Changing CRM feature behavior.
+
+Required fixes from audit
+
+1. Fix wrong-page nav items
+
+The audit found these nav items silently render the wrong page:
+
+* Signals & Alerts renders Activity Feed
+* Meeting Briefs renders Today
+* Forecasting renders Pipeline Snapshot
+
+For each:
+
+1. Confirm current route/component evidence from the audit.
+2. Decide whether there is an existing intended component/page.
+3. If an intended page exists, wire the nav item to it.
+4. If no intended page exists, mark it clearly as a placeholder or remove/hide it from nav for now.
+5. Do not leave a nav item that opens an unrelated page.
+
+2. Consolidate exact duplicate nav items
+
+The audit found:
+
+* Reports
+* Rel. Intelligence
+
+Both render RelationshipIntelligencePage at two different routes.
+
+Fix by choosing one canonical nav item and route.
+
+Preferred:
+
+* Keep Relationship Intelligence or Rel. Intelligence only if the feature is truly relationship-specific.
+* Remove/hide the duplicate Reports item if it is not a separate reports feature.
+* If Reports should exist later, leave it out of nav until it has its own page.
+
+Do not keep two nav items that open the same component unless there is a clear product reason.
+
+3. Admin-only section mismatch
+
+The audit found:
+
+* Email Signatures
+* AI Voice Profiles
+
+These have adminOnly: false but are buried under the Admin-only section, making them invisible to regular users.
+
+Fix by either:
+
+Option A — Move them to a non-admin section if they are personal tools.
+
+Recommended destination:
+
+* Work
+    * Email Signatures
+    * AI Voice Profiles
+
+or
+
+* Library
+    * Email Signatures
+    * AI Voice Profiles
+
+Option B — Mark them truly admin-only if they are intended to be managed only by admins.
+
+Do not leave them as adminOnly: false inside an Admin-only group.
+
+4. Channels naming collision
+
+The audit found the Channels group name conflicts with CURRENTS channels.
+
+For Phase 1, only rename this if it is low-risk and user-facing label only.
+
+Recommended:
+
+* Channels → Ecosystem
+
+Keep routes/components unchanged.
+
+Do not move all items yet.
+
+5. More group
+
+Do not reorganize the full More group in this phase.
+
+Only remove/fix items directly affected by the duplicate/wrong-route findings.
+
+The full More cleanup should be a later phase after the Phase 1 drift fixes are verified.
+
+Verification
+
+Run checks for:
+
+1. Sidebar renders.
+2. Each fixed nav item opens the intended page or is removed/hidden.
+3. No nav item opens an unrelated page.
+4. Duplicate Reports/Relationship Intelligence issue resolved.
+5. Email Signatures and AI Voice Profiles visibility is intentional.
+6. Channels/Ecosystem label displays correctly if renamed.
+7. Existing routes still load.
+8. Admin section still works for admins.
+9. Non-admin users do not see admin-only items.
+10. No TypeScript errors.
+11. Browser console clean.
+12. Server logs clean.
+
+Tests
+
+Add or update small tests/source checks for:
+
+1. Signals & Alerts no longer maps to Activity Feed unless intentionally removed.
+2. Meeting Briefs no longer maps to Today unless intentionally removed.
+3. Forecasting no longer maps to Pipeline Snapshot unless intentionally removed.
+4. Reports and Rel. Intelligence are not duplicate visible nav items.
+5. Email Signatures and AI Voice Profiles are not stranded inside Admin with adminOnly: false.
+6. Channels user-facing label is renamed to Ecosystem if implemented.
+
+Run relevant existing tests for sidebar/nav config if they exist.
+
+Deliverable
+
+Return:
+
+1. Audit findings used
+2. Drift fixes made
+3. Items removed/hidden/moved/renamed
+4. Files changed
+5. Tests added/updated
+6. Verification results
+7. Any ambiguous items left for product decision
+8. Recommended next phase
+
+Keep scope tight: zero-risk navigation drift fixes only.
