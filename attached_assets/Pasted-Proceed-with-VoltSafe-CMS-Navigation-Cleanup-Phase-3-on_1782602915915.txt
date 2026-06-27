@@ -1,0 +1,210 @@
+Proceed with VoltSafe CMS Navigation Cleanup Phase 3 only: More Group Restructuring / Obvious Moves.
+
+Use the audit document:
+
+docs/nav-permissions-audit-2026-06-27.md
+
+Do not perform a full sidebar reorganization. Do not implement role-based nav. Do not redesign the app shell. Do not rename labels unless explicitly stated below. Do not touch CURRENTS internals, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Reduce the More group catch-all clutter by moving only obvious items into better existing parent groups.
+
+This is a position-only cleanup phase.
+
+Routes, components, permissions, and page functionality must remain unchanged.
+
+Current context
+
+Phase 1 fixed obvious nav drift:
+
+* removed wrong-page nav items
+* removed duplicate Reports
+* moved Email Signatures and AI Voice Profiles out of Admin
+* renamed Channels → Ecosystem
+
+Phase 2 clarified labels:
+
+* Asset Library → Document Hub
+* Assets → Knowledge Assets
+* Digest & Alerts → Digest Settings
+* Rel. Intelligence → Relationship Intelligence
+* Govt & Grants → Government & Grants
+
+Nav drift tests now pass 27/27.
+
+Scope
+
+Allowed:
+
+1. Move specified nav items out of More into better existing groups.
+2. Keep labels unchanged unless explicitly listed.
+3. Keep routes unchanged.
+4. Keep components unchanged.
+5. Update nav tests to assert the new parent group.
+6. Verify no duplicate routes.
+
+Not allowed:
+
+1. New top-level groups.
+2. Large sidebar redesign.
+3. Role-based nav.
+4. Backend permission changes.
+5. New routes/components.
+6. Deleting real features.
+7. Changing CURRENTS internals.
+8. Changing mail/tracking/Gmail modules.
+9. Changing CRM feature behavior.
+10. Reorganizing all of More at once.
+
+Required moves
+
+Move only these obvious items:
+
+1. Support Tickets
+
+Move from:
+
+* More
+
+To:
+
+* Operations
+
+Reason: support tickets are operational/customer support workflow, not miscellaneous.
+
+Keep:
+
+* label unchanged
+* route unchanged
+* component unchanged
+
+2. Winter Support
+
+Move from:
+
+* More
+
+To:
+
+* Operations
+
+Reason: winter support is operational/seasonal support workflow.
+
+Keep:
+
+* label unchanged
+* route unchanged
+* component unchanged
+
+3. Daily Execution
+
+Move from:
+
+* More
+
+To:
+
+* Work
+
+Reason: daily execution belongs with day-to-day work tools.
+
+Keep:
+
+* label unchanged
+* route unchanged
+* component unchanged
+
+4. Price Lists
+
+Move from:
+
+* More
+
+To:
+
+* Pipeline
+
+Reason: price lists support sales/revenue workflow.
+
+Keep:
+
+* label unchanged
+* route unchanged
+* component unchanged
+
+5. Territory Routing
+
+Move from:
+
+* More
+
+To:
+
+* Operations
+
+Reason: territory routing is operational/geographic routing, not miscellaneous.
+
+Keep:
+
+* label unchanged
+* route unchanged
+* component unchanged
+
+Do not move yet
+
+Leave these in place for now unless the audit clearly says otherwise:
+
+* Automations
+* Task Rules
+* Data Quality
+* Help
+* Digest Settings
+* Relationship Intelligence
+* Source Attribution
+* Document Hub / Knowledge Assets if already placed elsewhere
+
+These need a later structure decision.
+
+Verification
+
+Verify:
+
+1. Sidebar renders.
+2. More group has fewer items.
+3. Moved items appear under the intended parent group.
+4. Moved items do not remain in More.
+5. Routes are unchanged.
+6. Components are unchanged.
+7. No duplicate routes introduced.
+8. Phase 1 and Phase 2 nav tests still pass.
+9. Existing admin/advisor behavior unchanged.
+10. No TypeScript errors.
+11. Browser console clean if app is run.
+
+Tests
+
+Update tests/nav-drift.test.cjs or add equivalent checks for:
+
+1. Support Tickets is under Operations.
+2. Winter Support is under Operations.
+3. Daily Execution is under Work.
+4. Price Lists is under Pipeline.
+5. Territory Routing is under Operations.
+6. None of those five items remain under More.
+7. Their routes are unchanged.
+8. No duplicate routes exist.
+
+Deliverable
+
+Return:
+
+1. Items moved
+2. Files changed
+3. Confirmation labels/routes/components unchanged
+4. Tests added/updated
+5. Verification results
+6. Items intentionally left in More
+7. Recommended next phase
+
+Keep scope tight: More group obvious moves only.

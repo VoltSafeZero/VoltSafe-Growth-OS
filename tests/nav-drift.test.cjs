@@ -4,22 +4,13 @@
  * Source-grep checks that prevent known nav drift bugs from returning.
  * Run with: node tests/nav-drift.test.cjs
  *
- * Phase 1 checks (2026-06-27):
- *  1. Signals & Alerts no longer maps to Activity Feed route
- *  2. Meeting Briefs no longer maps to Today route
- *  3. Forecasting no longer maps to Pipeline route
- *  4. Reports and Rel. Intelligence are not both visible nav items (duplicate)
- *  5. Email Signatures and AI Voice Profiles are not stranded in Admin with adminOnly:false
- *  6. Channels group user-facing label is "Ecosystem"
- *  7. No nav item route appears twice in NAV_CONFIG
- *
- * Phase 2 checks (2026-06-27):
- *  8.  "Asset Library" label is gone → "Document Hub" replaces it
- *  9.  "Assets" label is gone → "Knowledge Assets" replaces it
- *  10. "Digest & Alerts" label is gone → "Digest Settings" replaces it
- *  11. "Rel. Intelligence" abbreviation is gone → "Relationship Intelligence" replaces it
- *  12. Routes for all renamed items are unchanged
- *  13. No duplicate nav routes (re-checked after Phase 2)
+ * Phase 1 (2026-06-27): Wrong-page routing, duplicate items, admin mismatch,
+ *   Channels → Ecosystem rename.
+ * Phase 2 (2026-06-27): Label clarifications (Document Hub, Knowledge Assets,
+ *   Digest Settings, Relationship Intelligence, Government & Grants).
+ * Phase 3 (2026-06-27): More group obvious moves — Support Tickets, Winter
+ *   Support, Territory Routing → Operations; Daily Execution → Work;
+ *   Price Lists → Pipeline.
  */
 
 "use strict";
@@ -27,10 +18,10 @@
 const fs = require("fs");
 const path = require("path");
 
-const NAV_FILE = path.join(__dirname, "../client/src/lib/nav-config.ts");
+const NAV_FILE  = path.join(__dirname, "../client/src/lib/nav-config.ts");
 const DOCS_FILE = path.join(__dirname, "../client/src/pages/documents.tsx");
 
-const src = fs.readFileSync(NAV_FILE, "utf8");
+const src     = fs.readFileSync(NAV_FILE,  "utf8");
 const docsSrc = fs.readFileSync(DOCS_FILE, "utf8");
 
 let passed = 0;
@@ -46,193 +37,209 @@ function ok(label, condition, detail = "") {
   }
 }
 
-console.log("\nNav Drift Regression Tests\n");
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+/** Extract the raw text of a named section (id: "xxx") from NAV_CONFIG. */
+function sectionText(id) {
+  // Match from the opening brace that contains id: "<id>" up to the matching
+  // closing brace+comma (end of the section object in the top-level array).
+  // We look for id: "<id>" within ~80 chars of a line that starts the object,
+  // then capture until the next top-level `},` or `},\n`.
+  const pattern = new RegExp(
+    `id: "${id}"[\\s\\S]*?(?=\\n  (?:\\{|//|\\]))`,
+    "m"
+  );
+  const m = src.match(pattern);
+  return m ? m[0] : "";
+}
+
+const workSection      = sectionText("work");
+const pipelineSection  = sectionText("pipeline");
+const opsSection       = sectionText("operations");
+const moreSection      = sectionText("more");
+const channelsSection  = sectionText("channels");
 
 // ── Phase 1: Wrong-route guards ───────────────────────────────────────────────
-console.log("Phase 1 — Wrong-page nav item drift fixes:");
+console.log("\nPhase 1 — Wrong-page nav item drift fixes:");
 
-ok(
-  'No nav item routes to /intelligence/signals',
+ok("No nav item routes to /intelligence/signals",
   !src.includes('route: "/intelligence/signals"'),
-  'Signals & Alerts was wired to ActivityFeedPage — must be removed or replaced with a real signals page'
-);
-ok(
-  'No nav item routes to /intelligence/briefs',
-  !src.includes('route: "/intelligence/briefs"'),
-  'Meeting Briefs was wired to TodayPage — must be removed or replaced with a real briefs page'
-);
-ok(
-  'No nav item routes to /execution/forecast',
-  !src.includes('route: "/execution/forecast"'),
-  'Forecasting was wired to PipelinePage — must be removed or replaced with a real forecast page'
-);
+  "Signals & Alerts was wired to ActivityFeedPage");
 
-// ── Phase 1: Duplicate Reports/Rel.Intelligence ───────────────────────────────
+ok("No nav item routes to /intelligence/briefs",
+  !src.includes('route: "/intelligence/briefs"'),
+  "Meeting Briefs was wired to TodayPage");
+
+ok("No nav item routes to /execution/forecast",
+  !src.includes('route: "/execution/forecast"'),
+  "Forecasting was wired to PipelinePage");
+
+// ── Phase 1: Duplicate Reports ────────────────────────────────────────────────
 console.log("\nPhase 1 — Duplicate nav item (Reports = Rel. Intelligence):");
 
-ok(
-  'No nav item routes to /relationships (duplicate Reports entry)',
+ok("No nav item routes to /relationships (duplicate Reports entry)",
   !src.includes('route: "/relationships"'),
-  '"Reports" nav item duplicated Rel. Intelligence — /relationships entry must be removed from NAV_CONFIG'
-);
-ok(
-  'Relationship Intelligence canonical entry exists (/intelligence/rel-intelligence)',
+  '"Reports" duplicated Rel. Intelligence');
+
+ok("Relationship Intelligence canonical entry exists (/intelligence/rel-intelligence)",
   src.includes('route: "/intelligence/rel-intelligence"'),
-  'The canonical Relationship Intelligence nav item must remain'
-);
+  "Canonical Relationship Intelligence nav item must remain");
 
 // ── Phase 1: Admin section mismatch ──────────────────────────────────────────
 console.log("\nPhase 1 — adminOnly:false items stranded inside Admin section:");
 
-ok(
-  'Email Signatures is not marked adminOnly:false inside Admin group',
+ok("Email Signatures not marked adminOnly:false inside Admin group",
   !src.match(/id: "admin-signatures"[\s\S]{0,120}adminOnly: false/),
-  '"admin-signatures" with adminOnly:false was hidden from non-admin users despite being a personal tool'
-);
-ok(
-  'AI Voice Profiles is not marked adminOnly:false inside Admin group',
-  !src.match(/id: "admin-voice-profiles"[\s\S]{0,120}adminOnly: false/),
-  '"admin-voice-profiles" with adminOnly:false was hidden from non-admin users despite being a personal tool'
-);
-ok(
-  'Email Signatures route (/settings/signatures) exists in nav',
-  src.includes('route: "/settings/signatures"'),
-  'Email Signatures must have a nav entry (moved to Work group)'
-);
-ok(
-  'AI Voice Profiles route (/settings/voice-profiles) exists in nav',
-  src.includes('route: "/settings/voice-profiles"'),
-  'AI Voice Profiles must have a nav entry (moved to Work group)'
-);
+  '"admin-signatures" with adminOnly:false hidden from non-admin users');
 
-const workSectionMatch = src.match(/id: "work"[\s\S]*?(?=\n  \{[\s\n]*id: "pipeline")/);
-const workSectionText = workSectionMatch ? workSectionMatch[0] : "";
-ok(
-  'Email Signatures is in Work group',
-  workSectionText.includes('/settings/signatures'),
-  'Email Signatures should be in the Work group, not Admin'
-);
-ok(
-  'AI Voice Profiles is in Work group',
-  workSectionText.includes('/settings/voice-profiles'),
-  'AI Voice Profiles should be in the Work group, not Admin'
-);
+ok("AI Voice Profiles not marked adminOnly:false inside Admin group",
+  !src.match(/id: "admin-voice-profiles"[\s\S]{0,120}adminOnly: false/),
+  '"admin-voice-profiles" with adminOnly:false hidden from non-admin users');
+
+ok("Email Signatures route (/settings/signatures) exists in nav",
+  src.includes('route: "/settings/signatures"'));
+
+ok("AI Voice Profiles route (/settings/voice-profiles) exists in nav",
+  src.includes('route: "/settings/voice-profiles"'));
+
+ok("Email Signatures is in Work group",
+  workSection.includes('/settings/signatures'),
+  "Email Signatures should be in Work, not Admin");
+
+ok("AI Voice Profiles is in Work group",
+  workSection.includes('/settings/voice-profiles'),
+  "AI Voice Profiles should be in Work, not Admin");
 
 // ── Phase 1: Channels → Ecosystem ────────────────────────────────────────────
 console.log("\nPhase 1 — Channels group label rename:");
 
-const channelsSectionMatch = src.match(/id: "channels"[\s\S]{0,80}/);
-const channelsSectionText = channelsSectionMatch ? channelsSectionMatch[0] : "";
-ok(
-  'Channels section label is "Ecosystem"',
-  channelsSectionText.includes('label: "Ecosystem"'),
-  'The Channels sidebar group should be labeled "Ecosystem" to avoid collision with CURRENTS messaging'
-);
-ok(
-  'Channels section label is NOT "Channels"',
-  !channelsSectionText.includes('label: "Channels"'),
-  'The old "Channels" label conflicts with CURRENTS internal channel terminology'
-);
+ok('Channels section label is "Ecosystem"',
+  channelsSection.includes('label: "Ecosystem"'),
+  'Should be "Ecosystem" to avoid CURRENTS collision');
+
+ok('Channels section label is NOT "Channels"',
+  !channelsSection.includes('label: "Channels"'),
+  '"Channels" conflicts with CURRENTS messaging');
 
 // ── Phase 2: Label clarifications ────────────────────────────────────────────
 console.log("\nPhase 2 — Label clarification renames:");
 
-// Document Hub (was Asset Library)
-ok(
-  '"Asset Library" label is gone from nav',
-  !src.includes('label: "Asset Library"'),
-  '"Asset Library" was renamed to "Document Hub" to avoid confusion with knowledge/physical assets'
-);
-ok(
-  '"Document Hub" label exists in nav',
-  src.includes('label: "Document Hub"'),
-  '"Document Hub" must appear as the nav label for /documents'
-);
-ok(
-  'Document Hub route is /documents (unchanged)',
-  src.includes('label: "Document Hub"') && src.includes('"Document Hub"') &&
-    src.match(/label: "Document Hub"[\s\S]{0,50}route: "\/documents"/) !== null,
-  'Route must not change — only the label'
-);
+ok('"Asset Library" label is gone from nav',
+  !src.includes('label: "Asset Library"'));
 
-// Knowledge Assets (was Assets)
-ok(
-  '"Assets" bare label is gone from nav',
-  !src.match(/label: "Assets"[^a-zA-Z]/),
-  '"Assets" was renamed to "Knowledge Assets" to distinguish from Document Hub'
-);
-ok(
-  '"Knowledge Assets" label exists in nav',
-  src.includes('label: "Knowledge Assets"'),
-  '"Knowledge Assets" must appear as the nav label for /knowledge/assets'
-);
-ok(
-  'Knowledge Assets route is /knowledge/assets (unchanged)',
-  src.match(/label: "Knowledge Assets"[\s\S]{0,60}route: "\/knowledge\/assets"/) !== null,
-  'Route must not change — only the label'
-);
+ok('"Document Hub" label exists in nav',
+  src.includes('label: "Document Hub"'));
 
-// Digest Settings (was Digest & Alerts)
-ok(
-  '"Digest & Alerts" label is gone from nav',
-  !src.includes('label: "Digest & Alerts"'),
-  '"Digest & Alerts" was renamed to "Digest Settings" to distinguish from live signals/alerts feeds'
-);
-ok(
-  '"Digest Settings" label exists in nav',
-  src.includes('label: "Digest Settings"'),
-  '"Digest Settings" must appear as the nav label for /alerts-digest'
-);
-ok(
-  'Digest Settings route is /alerts-digest (unchanged)',
-  src.match(/label: "Digest Settings"[\s\S]{0,60}route: "\/alerts-digest"/) !== null,
-  'Route must not change — only the label'
-);
+ok("Document Hub route is /documents (unchanged)",
+  src.match(/label: "Document Hub"[\s\S]{0,50}route: "\/documents"/) !== null);
 
-// Relationship Intelligence (was Rel. Intelligence)
-ok(
-  '"Rel. Intelligence" abbreviation is gone from nav',
-  !src.includes('label: "Rel. Intelligence"'),
-  '"Rel. Intelligence" was expanded to "Relationship Intelligence" for clarity'
-);
-ok(
-  '"Relationship Intelligence" label exists in nav',
-  src.includes('label: "Relationship Intelligence"'),
-  '"Relationship Intelligence" must appear as the nav label for /intelligence/rel-intelligence'
-);
-ok(
-  'Relationship Intelligence route is /intelligence/rel-intelligence (unchanged)',
-  src.match(/label: "Relationship Intelligence"[\s\S]{0,80}route: "\/intelligence\/rel-intelligence"/) !== null,
-  'Route must not change — only the label'
-);
+ok('"Assets" bare label is gone from nav',
+  !src.match(/label: "Assets"[^a-zA-Z]/));
 
-// ── Phase 2: Page title sync (documents.tsx) ──────────────────────────────────
-console.log("\nPhase 2 — Page title sync:");
+ok('"Knowledge Assets" label exists in nav',
+  src.includes('label: "Knowledge Assets"'));
 
-ok(
-  'documents.tsx h1 shows "Document Hub" (not "Asset Library")',
-  docsSrc.includes('>Document Hub<') && !docsSrc.includes('>Asset Library<'),
-  'The documents.tsx page title should match the nav label "Document Hub"'
-);
+ok("Knowledge Assets route is /knowledge/assets (unchanged)",
+  src.match(/label: "Knowledge Assets"[\s\S]{0,60}route: "\/knowledge\/assets"/) !== null);
 
-// ── Duplicate route guard (re-run after Phase 2) ──────────────────────────────
-console.log("\nPhase 1+2 — Duplicate routes in NAV_CONFIG:");
+ok('"Digest & Alerts" label is gone from nav',
+  !src.includes('label: "Digest & Alerts"'));
 
-const routeMatches = [...src.matchAll(/route: "([^"]+)"/g)];
-const routes = routeMatches.map(m => m[1]);
-const routeCounts = {};
-for (const r of routes) {
-  routeCounts[r] = (routeCounts[r] || 0) + 1;
-}
+ok('"Digest Settings" label exists in nav',
+  src.includes('label: "Digest Settings"'));
+
+ok("Digest Settings route is /alerts-digest (unchanged)",
+  src.match(/label: "Digest Settings"[\s\S]{0,60}route: "\/alerts-digest"/) !== null);
+
+ok('"Rel. Intelligence" abbreviation is gone from nav',
+  !src.includes('label: "Rel. Intelligence"'));
+
+ok('"Relationship Intelligence" label exists in nav',
+  src.includes('label: "Relationship Intelligence"'));
+
+ok("Relationship Intelligence route is /intelligence/rel-intelligence (unchanged)",
+  src.match(/label: "Relationship Intelligence"[\s\S]{0,80}route: "\/intelligence\/rel-intelligence"/) !== null);
+
+ok('documents.tsx h1 shows "Document Hub" (not "Asset Library")',
+  docsSrc.includes(">Document Hub<") && !docsSrc.includes(">Asset Library<"));
+
+// ── Phase 3: More group obvious moves ────────────────────────────────────────
+console.log("\nPhase 3 — More group obvious moves:");
+
+// Daily Execution → Work
+ok("Daily Execution is in Work group",
+  workSection.includes('/execution/daily'),
+  "Daily Execution belongs with day-to-day work tools");
+
+ok("Daily Execution is NOT in More group",
+  !moreSection.includes('/execution/daily'),
+  "Should have been moved out of More");
+
+ok("Daily Execution route is /execution/daily (unchanged)",
+  src.includes('route: "/execution/daily"'));
+
+// Price Lists → Pipeline
+ok("Price Lists is in Pipeline group",
+  pipelineSection.includes('/price-lists'),
+  "Price Lists supports sales/quoting workflow");
+
+ok("Price Lists is NOT in More group",
+  !moreSection.includes('/price-lists'),
+  "Should have been moved out of More");
+
+ok("Price Lists route is /price-lists (unchanged)",
+  src.includes('route: "/price-lists"'));
+
+// Territory Routing → Operations
+ok("Territory Routing is in Operations group",
+  opsSection.includes('/routing'),
+  "Territory Routing is operational/geographic routing");
+
+ok("Territory Routing is NOT in More group",
+  !moreSection.includes('/routing'),
+  "Should have been moved out of More");
+
+ok("Territory Routing route is /routing (unchanged)",
+  src.includes('route: "/routing"'));
+
+// Support Tickets → Operations
+ok("Support Tickets is in Operations group",
+  opsSection.includes('/support/tickets'),
+  "Support Tickets is operational/customer support workflow");
+
+ok("Support Tickets is NOT in More group",
+  !moreSection.includes('/support/tickets'),
+  "Should have been moved out of More");
+
+ok("Support Tickets route is /support/tickets (unchanged)",
+  src.includes('route: "/support/tickets"'));
+
+// Winter Support → Operations
+ok("Winter Support is in Operations group",
+  opsSection.includes('/winter'),
+  "Winter Support is operational/seasonal workflow");
+
+ok("Winter Support is NOT in More group",
+  !moreSection.includes('/winter'),
+  "Should have been moved out of More");
+
+ok("Winter Support route is /winter (unchanged)",
+  src.includes('route: "/winter"'));
+
+// ── Phase 1+2+3: Duplicate route guard ───────────────────────────────────────
+console.log("\nPhase 1+2+3 — Duplicate routes in NAV_CONFIG:");
+
+const routeMatches   = [...src.matchAll(/route: "([^"]+)"/g)];
+const routes         = routeMatches.map(m => m[1]);
+const routeCounts    = {};
+for (const r of routes) routeCounts[r] = (routeCounts[r] || 0) + 1;
 const duplicateRoutes = Object.entries(routeCounts)
   .filter(([, count]) => count > 1)
   .map(([r]) => r);
 
-ok(
-  `No duplicate routes in NAV_CONFIG (found ${duplicateRoutes.length} duplicates)`,
+ok(`No duplicate routes in NAV_CONFIG (found ${duplicateRoutes.length} duplicates)`,
   duplicateRoutes.length === 0,
-  duplicateRoutes.length > 0 ? `Duplicate routes: ${duplicateRoutes.join(", ")}` : ""
-);
+  duplicateRoutes.length > 0 ? `Duplicate routes: ${duplicateRoutes.join(", ")}` : "");
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n─────────────────────────────────`);
