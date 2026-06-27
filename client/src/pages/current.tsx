@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   useQuery,
@@ -2164,6 +2164,7 @@ function GroupMemberDialog({
   onLeave,
   isAddPending = false,
   isLeavePending = false,
+  presenceMap = {},
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -2173,6 +2174,7 @@ function GroupMemberDialog({
   onLeave: () => void;
   isAddPending?: boolean;
   isLeavePending?: boolean;
+  presenceMap?: Record<number, "online" | "offline">;
 }) {
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -2255,21 +2257,30 @@ function GroupMemberDialog({
             <div className="px-3 pt-3 pb-2 overflow-y-auto max-h-44 flex flex-col gap-0.5">
               {/* Current user first */}
               <div className="flex items-center gap-2 px-1 py-1.5 rounded-md">
-                <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white", avatarBg(currentUserId))}>
-                  {initials("You")}
+                <div className="relative shrink-0">
+                  <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white", avatarBg(currentUserId))}>
+                    {initials("You")}
+                  </div>
+                  <PresenceDot status="online" className="absolute -bottom-px -right-px w-2 h-2" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[12.5px] font-medium leading-tight">You</div>
+                  <div className="text-[11px] text-emerald-500/80">Online</div>
                 </div>
               </div>
               {(conversation?.members ?? []).map((m) => (
                 <div key={m.id} className="flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-muted/30">
-                  <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white", avatarBg(m.id))}>
-                    {initials(m.name)}
+                  <div className="relative shrink-0">
+                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white", avatarBg(m.id))}>
+                      {initials(m.name)}
+                    </div>
+                    <PresenceDot status={presenceMap[m.id] ?? "offline"} className="absolute -bottom-px -right-px w-2 h-2" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[12.5px] font-medium leading-tight truncate">{m.name}</div>
-                    <div className="text-[11px] text-muted-foreground/50 truncate">{m.email}</div>
+                    <div className={cn("text-[11px] truncate", presenceMap[m.id] === "online" ? "text-emerald-500/80" : "text-muted-foreground/50")}>
+                      {presenceMap[m.id] === "online" ? "Online" : m.email}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2369,6 +2380,25 @@ function GroupMemberDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── PresenceDot ──────────────────────────────────────────────────────────────
+// Phase 12B: small green dot indicating a user is online.
+function PresenceDot({
+  status,
+  className,
+}: {
+  status: "online" | "offline";
+  className?: string;
+}) {
+  if (status !== "online") return null;
+  return (
+    <span
+      className={cn("block rounded-full bg-emerald-500 ring-[1.5px] ring-background shrink-0", className)}
+      aria-label="Online"
+      data-testid="presence-dot"
+    />
   );
 }
 
@@ -3157,6 +3187,39 @@ export default function CurrentPage() {
     enabled: !!selectedDmId && view === "dm",
   });
 
+  // Phase 12B: collect user IDs needing presence from the DM list
+  const presenceUserIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const dm of dmConversations) {
+      if (dm.type === "dm" && dm.otherUser) ids.add(dm.otherUser.id);
+      dm.members.forEach((m) => ids.add(m.id));
+    }
+    return Array.from(ids).sort((a, b) => a - b);
+  }, [dmConversations]);
+
+  const { data: presenceData } = useQuery<{ users: { userId: number; status: "online" | "offline" }[] }>({
+    queryKey: ["/api/current/presence", presenceUserIds.join(",")],
+    queryFn: () =>
+      fetch(`/api/current/presence?userIds=${presenceUserIds.join(",")}`, { credentials: "include" }).then((r) => r.json()),
+    enabled: presenceUserIds.length > 0,
+    refetchInterval: 30_000,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  // Phase 12B: heartbeat — fires immediately when Currents opens, then every 30 s
+  useEffect(() => {
+    if (!currentUserId) return;
+    const beat = () =>
+      fetch("/api/current/presence/heartbeat", {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => {});
+    beat();
+    const t = setInterval(beat, 30_000);
+    return () => clearInterval(t);
+  }, [currentUserId]);
+
   // ── Deep-link from notification action_url: ?channel=X&message=Y&thread=Z&dm=N ──
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -3712,6 +3775,18 @@ export default function CurrentPage() {
   const isArchivedChannel = !selectedChannel && !channelsLoading && !!selectedChannelDirect?.archivedAt;
   const selectedDm = dmConversations.find((d) => d.conversationId === selectedDmId);
   const totalDmUnread = dmConversations.reduce((s, d) => s + d.unreadCount, 0);
+
+  // Phase 12B: presence lookup map and group online count
+  const presenceMap = useMemo(() => {
+    const m: Record<number, "online" | "offline"> = {};
+    for (const u of presenceData?.users ?? []) m[u.userId] = u.status;
+    return m;
+  }, [presenceData]);
+
+  const groupOnlineCount = useMemo(() => {
+    if (!selectedDm || selectedDm.type !== "group_dm") return 0;
+    return selectedDm.members.filter((mem) => presenceMap[mem.id] === "online").length;
+  }, [selectedDm, presenceMap]);
   const hideMutedPref = currentPrefs?.hideMutedFromCurrentsBadge ?? false;
   const badgeDmUnread = hideMutedPref
     ? dmConversations.reduce((s, d) => s + (d.isMuted ? 0 : d.unreadCount), 0)
@@ -3958,14 +4033,19 @@ export default function CurrentPage() {
                         <Users className="w-3 h-3 text-muted-foreground/60" />
                       </div>
                     ) : (
-                      <div
-                        className={cn(
-                          "w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white",
-                          isMutedDm && !active && "opacity-40",
-                          avatarBg(dm.otherUser?.id ?? dm.conversationId)
-                        )}
-                      >
-                        {initials(dm.otherUser?.name ?? dm.displayName)}
+                      <div className={cn("relative shrink-0", isMutedDm && !active && "opacity-40")}>
+                        <div
+                          className={cn(
+                            "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white",
+                            avatarBg(dm.otherUser?.id ?? dm.conversationId)
+                          )}
+                        >
+                          {initials(dm.otherUser?.name ?? dm.displayName)}
+                        </div>
+                        <PresenceDot
+                          status={presenceMap[dm.otherUser?.id ?? 0] ?? "offline"}
+                          className="absolute -bottom-px -right-px w-2 h-2"
+                        />
                       </div>
                     )}
                     <div className={cn("flex-1 min-w-0 text-left", isMutedDm && !active && "opacity-50")}>
@@ -4198,12 +4278,28 @@ export default function CurrentPage() {
                 >
                   <UserPlus className="w-3 h-3 shrink-0" />
                   {(selectedDm.members.length + 1)} members
+                  {groupOnlineCount > 0 && (
+                    <>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="text-emerald-500" data-testid="dm-header-online-count">{groupOnlineCount} online</span>
+                    </>
+                  )}
                 </button>
-              ) : selectedDm?.otherUser?.email && (
-                <span className="text-[12px] text-muted-foreground/60 truncate">
-                  {selectedDm.otherUser.email}
+              ) : selectedDm?.otherUser ? (
+                <span
+                  className={cn(
+                    "text-[12px] flex items-center gap-1 shrink-0",
+                    presenceMap[selectedDm.otherUser.id] === "online" ? "text-emerald-500" : "text-muted-foreground/40"
+                  )}
+                  data-testid="dm-header-presence-status"
+                >
+                  <span className={cn(
+                    "w-1.5 h-1.5 rounded-full shrink-0",
+                    presenceMap[selectedDm.otherUser.id] === "online" ? "bg-emerald-500" : "bg-muted-foreground/30"
+                  )} />
+                  {presenceMap[selectedDm.otherUser.id] === "online" ? "Online" : "Offline"}
                 </span>
-              )}
+              ) : null}
             </>
           ) : (
             <>
@@ -4861,6 +4957,7 @@ export default function CurrentPage() {
         onLeave={() => leaveDmMutation.mutate()}
         isAddPending={addMembersMutation.isPending}
         isLeavePending={leaveDmMutation.isPending}
+        presenceMap={presenceMap}
       />
 
       {/* ── Thread panel ────────────────────────────────────────────────── */}

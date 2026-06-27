@@ -1,0 +1,262 @@
+Proceed with VoltSafe CMS Currents Phase 12B only: Presence / Online Status Indicators.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, channel search improvements, or unrelated task features.
+
+Goal
+
+Add lightweight presence indicators to Currents so users can see who is currently active or recently active.
+
+Phase 12A added typing indicators using a TTL/polling approach. Phase 12B should reuse the same lightweight approach for online/recently-active presence without adding WebSockets.
+
+Scope
+
+Add only:
+
+1. Current user presence heartbeat
+2. Online/recently-active user status
+3. Presence dots in DM/group DM sidebar and headers
+4. Presence dots in channel/message avatars if low-risk
+5. Group DM member presence in member dialog
+6. Security/access checks
+7. Tests/audit for the above
+
+Do not add WebSockets, external guests, user availability settings, calendar availability, do-not-disturb scheduling, or complex presence preferences.
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* Phase 12A typing indicator routes and TTL cache
+* server/cache.ts
+* Current user/session route
+* Currents page polling/query patterns
+* DM/group DM member structures
+* GroupMemberDialog
+* Avatar rendering in MessageRow
+* Channel/DM sidebar rendering
+* Existing user search endpoint
+* Existing auth/session model
+
+Preferred architecture
+
+Use the existing server TTL cache.
+
+No schema changes unless already necessary.
+
+Presence heartbeat:
+
+* Client sends heartbeat while Currents is open.
+* Server stores presence:user:{userId} with TTL.
+* TTL: 60–90 seconds.
+* Client heartbeat interval: 30 seconds.
+
+Presence states:
+
+* online: active heartbeat within TTL
+* offline: no active heartbeat
+
+Optional if easy:
+
+* recent: heartbeat expired recently, but only if supported cleanly
+
+Keep Phase 12B simple: online/offline is enough.
+
+Backend routes
+
+Add authenticated routes under /api/current.
+
+Heartbeat
+
+POST /api/current/presence/heartbeat
+
+Rules:
+
+1. Requires authentication.
+2. Stores current user presence in TTL cache.
+3. Uses session user ID only.
+4. Stores only minimal data:
+    * userId
+    * name
+    * timestamp
+5. Returns { ok: true }.
+
+Get presence
+
+GET /api/current/presence
+
+Query examples:
+
+/api/current/presence?userIds=1,2,3
+
+Rules:
+
+1. Requires authentication.
+2. Accepts a comma-separated list of user IDs.
+3. Sanitizes user IDs.
+4. Returns presence only for requested users.
+5. Does not expose emails, permissions, or sensitive user data.
+6. Caps request size, e.g. max 100 users.
+7. Response shape:
+
+{
+  "users": [
+    { "userId": 1, "status": "online" },
+    { "userId": 2, "status": "offline" }
+  ]
+}
+
+Frontend requirements
+
+Heartbeat
+
+When /current is open:
+
+1. Send heartbeat immediately.
+2. Send heartbeat every 30 seconds.
+3. Stop naturally when user leaves page.
+4. Do not spam heartbeat on every render.
+
+DM sidebar
+
+For 1:1 DMs:
+
+1. Show small presence dot near avatar.
+2. Online dot if other user is online.
+3. Offline/subdued dot if offline, or hide offline dot if cleaner.
+
+For group DMs:
+
+1. Do not show every member in sidebar.
+2. Optional: show group online count if easy, e.g. 2 online.
+3. Otherwise defer group sidebar presence.
+
+DM/group DM header
+
+For 1:1 DM:
+
+* Show presence text under name:
+    * Online
+    * Offline
+
+For group DM:
+
+* Show member count plus online count:
+    * 4 members · 2 online
+
+GroupMemberDialog
+
+Show each member’s presence dot/status.
+
+Message avatars
+
+If low-risk, show presence dot on message avatars for recent active users.
+
+If this causes clutter, skip and document.
+
+Presence fetching strategy
+
+Frontend should request presence for visible/relevant users only:
+
+1. DM sidebar users
+2. Selected DM/group DM members
+3. GroupMemberDialog members
+4. Maybe visible message authors if low-risk
+
+Poll presence every 30 seconds while /current is open.
+
+Avoid querying all users in the system.
+
+UI requirements
+
+Presence dot styling:
+
+* Online: small green dot
+* Offline: muted/gray dot or no dot
+* Must work in dark mode
+* Must not crowd sidebar rows
+* Must not cause layout jump
+
+Security requirements
+
+Verify:
+
+1. Presence heartbeat uses only session user.
+2. User cannot spoof another user’s presence.
+3. Presence GET sanitizes user IDs.
+4. Presence GET caps user ID list.
+5. Presence does not expose emails/roles/permissions.
+6. Presence does not reveal private group/DM membership beyond users already visible in the UI.
+7. No unbounded cache growth.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Presence heartbeat sends immediately.
+4. Presence heartbeat repeats on interval.
+5. Heartbeat does not spam.
+6. Presence GET returns online/offline for requested users.
+7. Current user cannot spoof another user.
+8. DM sidebar shows 1:1 presence dot.
+9. 1:1 DM header shows Online/Offline.
+10. Group DM header shows online count if implemented.
+11. GroupMemberDialog shows member presence.
+12. Presence expires after TTL.
+13. Dark mode styling is clean.
+14. Switching DMs updates visible presence.
+15. DMs still send.
+16. Group DMs still send.
+17. Group member add/leave still works.
+18. Typing indicators still work.
+19. Channel Currents still work.
+20. Archived channel behavior still works.
+21. Notification preferences still work.
+22. Hide-muted badge preference still works.
+23. Search still works.
+24. Mentions panel still works.
+25. Structured panel still works.
+26. AI summaries still work.
+27. Create Task still works.
+28. View in Currents still works.
+29. No browser console errors.
+30. No server errors.
+31. No SQL errors.
+32. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Presence heartbeat route auth
+* Heartbeat uses session user only
+* Presence GET route auth
+* Presence GET sanitizes IDs
+* Presence GET caps max users
+* Online/offline response shape
+* TTL expiry
+* Frontend heartbeat interval
+* DM sidebar presence dot
+* DM header presence text
+* Group member dialog presence
+* Existing 12A typing tests still pass
+* Existing 11A/11B group DM tests still pass
+* Existing 10A/10B notification tests still pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing presence/typing audit summary
+2. Backend routes added
+3. Frontend changes
+4. TTL/cache behavior
+5. UI behavior
+6. Security checks
+7. Verification results
+8. Features intentionally deferred
+9. Known issues
+10. Recommended next feature order
+
+Keep scope tight: Presence / Online Status Indicators only.

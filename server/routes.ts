@@ -35597,6 +35597,43 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // ── Presence / Online Status (Phase 12B) ────────────────────────────────────────
+  // Key: presence:user:{userId}  TTL: 90 s  Heartbeat: 30 s from client
+  const PRESENCE_TTL_S = 90;
+
+  // POST /api/current/presence/heartbeat — record that current user is online
+  app.post("/api/current/presence/heartbeat", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const nameRows = await db.execute(sql.raw(`SELECT name FROM users WHERE id = ${userId} LIMIT 1`));
+      const name = String((nameRows.rows[0] as any)?.name || "Someone");
+      cacheSet(`presence:user:${userId}`, { userId, name, ts: Date.now() }, PRESENCE_TTL_S);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/presence?userIds=1,2,3 — batch presence lookup, max 100
+  app.get("/api/current/presence", requireAuth, (req, res) => {
+    try {
+      const raw = String(req.query.userIds || "");
+      const ids = raw
+        .split(",")
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .slice(0, 100);
+      if (!ids.length) return res.json({ users: [] });
+      const users = ids.map((userId) => ({
+        userId,
+        status: cacheGet(`presence:user:${userId}`) ? "online" : "offline",
+      }));
+      res.json({ users });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
     // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
