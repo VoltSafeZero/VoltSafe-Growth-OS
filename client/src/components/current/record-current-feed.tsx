@@ -11,7 +11,7 @@ import { formatDistanceToNow } from "date-fns";
 import {
   MessageSquare, Send, Smile, Pencil, Trash2, X, Check,
   MessagesSquare, ChevronLeft, Pin, ChevronDown, ChevronUp, Paperclip,
-  Search, Loader2, Sparkles, CheckSquare, Bookmark,
+  Search, Loader2, Sparkles, CheckSquare, Bookmark, Download,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -965,6 +965,29 @@ function ThreadPanel({
 }
 
 
+// ── CSV export helpers (record) ───────────────────────────────────────────────
+
+function recCsvEscapeField(val: unknown): string {
+  const raw = val == null ? "" : String(val);
+  let s = raw;
+  if (s.length > 0 && "=+-@\t".includes(s[0])) s = "'" + s;
+  if (s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r")) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function recDownloadCsv(rows: unknown[][], filename: string) {
+  const csv = rows.map(r => r.map(recCsvEscapeField).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── RecordStructuredPanel ─────────────────────────────────────────────────────
 
 interface RecStructuredItem {
@@ -1024,9 +1047,33 @@ function RecordStructuredPanel({ objectType, objectId }: { objectType: string; o
     requirement: "bg-purple-500/15 text-purple-400 border-purple-500/30",
   };
 
+  function handleRecExportCsv() {
+    const date = new Date().toISOString().slice(0, 10);
+    const filterPart = filter === "all" ? "all" : filter + "s";
+    const filename = `voltsafe-currents-structured-${objectType}-${objectId}-${filterPart}-${date}.csv`;
+    const headers = [
+      "Type", "Message Preview", "Notes", "Message Author", "Marked By",
+      "Created At", "Source", "Message ID", "Action URL", "Record Type", "Record ID",
+    ];
+    const rows = displayed.map(item => [
+      item.itemType,
+      item.messageBody ?? "",
+      item.notes ?? "",
+      item.authorName ?? "",
+      item.createdByName ?? "",
+      item.createdAt,
+      `${objectType} ${objectId}`,
+      String(item.messageId),
+      item.actionUrl ?? "",
+      objectType,
+      String(objectId),
+    ]);
+    recDownloadCsv([headers, ...rows], filename);
+  }
+
   return (
     <div className="flex flex-col h-full">
-      {/* Filter chips */}
+      {/* Filter chips + export */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-1.5 flex-wrap border-b border-border/30">
         {REC_STRUCT_FILTER_ITEMS.map(({ value, label }) => (
           <button
@@ -1052,6 +1099,20 @@ function RecordStructuredPanel({ objectType, objectId }: { objectType: string; o
             </span>
           </button>
         ))}
+        <button
+          onClick={handleRecExportCsv}
+          disabled={displayed.length === 0}
+          data-testid="rec-structured-export-csv"
+          title="Export visible structured items"
+          className={`ml-auto inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+            displayed.length === 0
+              ? "text-muted-foreground/30 cursor-not-allowed"
+              : "text-muted-foreground/50 hover:text-foreground hover:bg-muted/40"
+          }`}
+        >
+          <Download className="w-2.5 h-2.5" />
+          CSV
+        </button>
       </div>
 
       {/* Items */}

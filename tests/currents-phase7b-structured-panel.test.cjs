@@ -95,7 +95,7 @@ console.log("\n── 5. Filter chip UI ──");
 check("structured-filter-{value} testid generated from STRUCT_FILTER_ITEMS", currentTsx.includes("`structured-filter-${value}`"));
 check("filter chip uses STRUCT_FILTER_ITEMS.map", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 4500).includes("STRUCT_FILTER_ITEMS.map(");
+  return i > -1 && currentTsx.slice(i, i + 6000).includes("STRUCT_FILTER_ITEMS.map(");
 })());
 check("filter chip active style for decision (emerald)", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
@@ -297,15 +297,15 @@ check("RecordStructuredPanel filter chips present", (() => {
 })());
 check("RecordStructuredPanel shows loading state", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");
-  return i > -1 && recordFeed.slice(i, i + 4000).includes("isLoading") && recordFeed.slice(i, i + 4000).includes("animate-spin");
+  return i > -1 && recordFeed.slice(i, i + 5500).includes("isLoading") && recordFeed.slice(i, i + 5500).includes("animate-spin");
 })());
 check("RecordStructuredPanel shows error state", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");
-  return i > -1 && recordFeed.slice(i, i + 4000).includes("isError") && recordFeed.slice(i, i + 4000).includes("Could not load structured items");
+  return i > -1 && recordFeed.slice(i, i + 5500).includes("isError") && recordFeed.slice(i, i + 5500).includes("Could not load structured items");
 })());
 check("RecordStructuredPanel shows empty state messages", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");
-  const block = recordFeed.slice(i, i + 4000);
+  const block = recordFeed.slice(i, i + 5500);
   return block.includes("No structured items yet") && block.includes("No decisions marked yet");
 })());
 check("rec-structured-filter-{value} testid generated", recordFeed.includes("`rec-structured-filter-${value}`"));
@@ -330,7 +330,7 @@ check("RecordStructuredPanel shows createdByName (marked by)", (() => {
 })());
 check("RecordStructuredPanel uses formatDistanceToNow for dates", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");
-  return i > -1 && recordFeed.slice(i, i + 6000).includes("formatDistanceToNow");
+  return i > -1 && recordFeed.slice(i, i + 7500).includes("formatDistanceToNow");
 })());
 
 // ── 13. showStructured state + toggle wiring ──────────────────────────────────

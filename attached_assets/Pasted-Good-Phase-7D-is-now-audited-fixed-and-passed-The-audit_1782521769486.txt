@@ -1,0 +1,222 @@
+Good — Phase 7D is now audited, fixed, and passed.
+
+The audit caught two real issues:
+
+* Backend was silently capping at 100, even though the frontend requested 200 ✅ fixed to cap at 500
+* Thread-panel mark/unmark/note updates were not invalidating the structured panel counts ✅ fixed
+
+Now the structured-memory layer is in strong shape.
+
+Next best move: Phase 7E — Export Structured Items to CSV. Keep it simple first: CSV download from the Structured Panel using the currently loaded/filtered items. No PDF yet. PDF tends to turn into layout goblin country.
+
+Copy-paste this next:
+
+Proceed with VoltSafe CMS Currents Phase 7E only: Export Structured Items to CSV.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, AI classification, PDF export, new task features, or unrelated CRM features.
+
+Goal
+
+Allow users to export structured Currents items as a CSV from the Structured Items Panel.
+
+Structured item types:
+
+* Decisions
+* Risks
+* Requirements
+
+The export should work for:
+
+1. /current Structured Panel
+2. Record Currents Structured Panel
+
+Use the currently loaded and currently filtered items client-side if possible. Do not add backend export routes unless absolutely necessary.
+
+Scope
+
+Add only:
+
+1. CSV export button in /current Structured Panel
+2. CSV export button in Record Structured Panel
+3. Export currently visible/filtered items
+4. Include key fields in the CSV
+5. Safe CSV escaping
+6. Helpful empty-state behavior
+
+Export behavior
+
+When a user clicks export:
+
+* Download a .csv file
+* Use currently displayed items, respecting:
+    * selected scope
+    * selected filter
+    * current channel vs All Currents
+    * selected record in Record Structured Panel
+
+Examples:
+
+* Current channel + All filter exports all loaded structured items for current channel.
+* Current channel + Decisions filter exports only decisions for current channel.
+* All Currents + Risks filter exports all loaded risk items.
+* Account record + Requirements filter exports requirements for that account.
+
+CSV columns
+
+Include these columns:
+
+1. Type
+2. Message Preview
+3. Notes
+4. Message Author
+5. Marked By
+6. Created At
+7. Source
+8. Message ID
+9. Thread Root ID
+10. Action URL
+
+Optional if easily available:
+
+11. Record Type
+12. Record ID
+13. Channel
+
+CSV escaping requirements
+
+Implement safe CSV escaping:
+
+* Wrap fields in quotes when needed
+* Escape quotes by doubling them
+* Preserve commas/newlines safely
+* Prevent spreadsheet formula injection for cells beginning with:
+    * =
+    * +
+    * -
+    * @
+
+For formula-like values, prefix with a single quote '.
+
+File naming
+
+Use a useful filename.
+
+Examples:
+
+* voltsafe-currents-structured-general-all-2026-06-26.csv
+* voltsafe-currents-structured-general-decisions-2026-06-26.csv
+* voltsafe-currents-structured-all-risks-2026-06-26.csv
+* voltsafe-currents-structured-account-123-requirements-2026-06-26.csv
+
+Use local date or ISO date.
+
+UI requirements
+
+/current Structured Panel
+
+Add an export button near the panel header or filters:
+
+* Export CSV
+* or small download icon + CSV
+
+Behavior:
+
+* Disabled if there are no currently displayed items.
+* Tooltip or title explains what will export:
+    * “Export visible structured items”
+* Button should not crowd the filter chips.
+* Dark mode should look good.
+
+Record Structured Panel
+
+Add same export button in compact form.
+
+Behavior:
+
+* Disabled if no displayed record items.
+* Exports only visible/filtered record items.
+
+Backend
+
+Prefer no backend changes.
+
+Use existing loaded displayed items in the frontend.
+
+Only change backend if a necessary field is missing.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Structured Panel opens.
+4. Export button appears.
+5. Export button disabled when no displayed items.
+6. Export All items works.
+7. Export Decisions filter works.
+8. Export Risks filter works.
+9. Export Requirements filter works.
+10. Export Current Channel scope works.
+11. Export All Currents scope works.
+12. CSV filename is sensible.
+13. CSV columns are correct.
+14. CSV escaping handles commas.
+15. CSV escaping handles quotes.
+16. CSV escaping handles newlines.
+17. CSV escaping prevents formula injection.
+18. Action URL included.
+19. Notes included.
+20. Record Structured Panel export works.
+21. Record export respects filter.
+22. Existing count badges still work.
+23. Existing notes still work.
+24. Existing deep-links still work.
+25. Existing badges still work.
+26. Existing Currents features still work:
+    * posting
+    * threads
+    * reactions
+    * pins
+    * edit/delete
+    * mentions
+    * attachments
+    * search
+    * AI summaries
+    * create task
+    * View in Currents from tasks
+27. Existing task system still works.
+28. No browser console errors.
+29. No server errors.
+30. No SQL errors.
+31. No unrelated files changed unnecessarily.
+
+Testing
+
+Add or update source-grep tests for:
+
+* CSV export helper
+* safe CSV escaping
+* formula-injection prevention
+* export button in /current Structured Panel
+* export button in Record Structured Panel
+* export uses displayed items, not raw unfiltered data
+* export disabled when displayed list is empty
+* no backend export route added
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Files changed
+2. Backend changes, if any
+3. CSV helper behavior
+4. /current export behavior
+5. Record export behavior
+6. CSV columns
+7. Filename behavior
+8. Verification results
+9. Known issues
+10. Recommended next step
+
+Keep scope tight: export currently visible structured items to CSV only.

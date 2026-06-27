@@ -28,6 +28,7 @@ import {
   Sparkles,
   CheckSquare,
   Bookmark,
+  Download,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -2086,6 +2087,29 @@ const STRUCT_FILTER_ITEMS = [
   { value: "requirement" as const, label: "Requirements" },
 ];
 
+// ── CSV export helpers ────────────────────────────────────────────────────────
+
+function csvEscapeField(val: unknown): string {
+  const raw = val == null ? "" : String(val);
+  let s = raw;
+  if (s.length > 0 && "=+-@\t".includes(s[0])) s = "'" + s;
+  if (s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r")) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function downloadCsv(rows: unknown[][], filename: string) {
+  const csv = rows.map(r => r.map(csvEscapeField).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── StructuredItemsPanel ─────────────────────────────────────────────────────
 
 function StructuredItemsPanel({
@@ -2143,6 +2167,38 @@ function StructuredItemsPanel({
     requirement: "bg-purple-500/15 text-purple-400 border-purple-500/30",
   };
 
+  function handleExportCsv() {
+    const date = new Date().toISOString().slice(0, 10);
+    const scopePart = scope === "channel" ? displaySlug(selectedSlug) : "all";
+    const filterPart = filter === "all" ? "all" : filter + "s";
+    const filename = `voltsafe-currents-structured-${scopePart}-${filterPart}-${date}.csv`;
+    const headers = [
+      "Type", "Message Preview", "Notes", "Message Author", "Marked By",
+      "Created At", "Source", "Message ID", "Thread Root ID", "Action URL",
+      "Channel", "Record Type", "Record ID",
+    ];
+    const rows = displayed.map(item => [
+      item.itemType,
+      item.messageBody ?? "",
+      item.notes ?? "",
+      item.authorName ?? "",
+      item.createdByName ?? "",
+      item.createdAt,
+      item.channelSlug
+        ? `#${item.channelSlug}`
+        : item.objectType
+        ? `${item.objectType} ${item.objectId ?? ""}`
+        : "",
+      String(item.messageId),
+      item.threadRootId ? String(item.threadRootId) : "",
+      item.actionUrl ?? "",
+      item.channelSlug ?? "",
+      item.objectType ?? "",
+      item.objectId ? String(item.objectId) : "",
+    ]);
+    downloadCsv([headers, ...rows], filename);
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Scope + filter controls */}
@@ -2174,7 +2230,7 @@ function StructuredItemsPanel({
             All Currents
           </button>
         </div>
-        {/* Filter chips */}
+        {/* Filter chips + export */}
         <div className="flex items-center gap-1.5 flex-wrap">
           {STRUCT_FILTER_ITEMS.map(({ value, label }) => (
             <button
@@ -2202,6 +2258,21 @@ function StructuredItemsPanel({
               </span>
             </button>
           ))}
+          <button
+            onClick={handleExportCsv}
+            disabled={displayed.length === 0}
+            data-testid="structured-export-csv"
+            title="Export visible structured items"
+            className={cn(
+              "ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors",
+              displayed.length === 0
+                ? "text-muted-foreground/30 cursor-not-allowed"
+                : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/40"
+            )}
+          >
+            <Download className="w-3 h-3" />
+            CSV
+          </button>
         </div>
       </div>
 
