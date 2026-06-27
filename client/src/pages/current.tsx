@@ -691,6 +691,7 @@ function MessageActionBar({
   isOwn,
   isAdmin,
   isPinned,
+  isArchived,
   onReact,
   onEdit,
   onDelete,
@@ -706,6 +707,7 @@ function MessageActionBar({
   isAdmin: boolean;
   isPinned: boolean;
   hasBody?: boolean;
+  isArchived?: boolean;
   onReact: (emoji: string) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -717,6 +719,7 @@ function MessageActionBar({
   onUnmarkStructured?: (itemType: string) => void;
   onMarkWithNote?: (itemType: string, notes: string | null) => void;
 }) {
+  if (isArchived) return null;
   const canEdit = isOwn && (hasBody !== false);
   const canDelete = isOwn || isAdmin;
 
@@ -942,6 +945,7 @@ function MessageRow({
   grouped,
   currentUserId,
   isAdmin,
+  isArchived,
   pinnedMessageIds,
   onToggleReaction,
   onEdit,
@@ -957,6 +961,7 @@ function MessageRow({
   grouped: boolean;
   currentUserId: number;
   isAdmin: boolean;
+  isArchived?: boolean;
   pinnedMessageIds: Set<number>;
   onToggleReaction: (messageId: number, emoji: string) => void;
   onEdit: (message: Message) => void;
@@ -1002,6 +1007,7 @@ function MessageRow({
         isAdmin={isAdmin}
         isPinned={isPinned}
         hasBody={!!message.body}
+        isArchived={isArchived}
         onReact={(emoji) => onToggleReaction(message.id, emoji)}
         onEdit={() => onEdit(message)}
         onDelete={() => onDelete(message.id)}
@@ -1291,6 +1297,7 @@ function ThreadPanel({
   rootMessageId,
   currentUserId,
   isAdmin,
+  isArchived,
   selectedSlug,
   onClose,
   onCreateTaskMsg,
@@ -1299,6 +1306,7 @@ function ThreadPanel({
   rootMessageId: number;
   currentUserId: number;
   isAdmin: boolean;
+  isArchived?: boolean;
   selectedSlug: string;
   onClose: () => void;
   onCreateTaskMsg?: (msg: Message, threadRootId?: number) => void;
@@ -1572,6 +1580,7 @@ function ThreadPanel({
               grouped={false}
               currentUserId={currentUserId}
               isAdmin={isAdmin}
+              isArchived={isArchived}
               pinnedMessageIds={emptyPinnedSet}
               onToggleReaction={(mid, emoji) =>
                 reactReplyMutation.mutate({ messageId: mid, emoji })
@@ -1633,6 +1642,7 @@ function ThreadPanel({
               grouped={isContinuation(replies[i - 1], reply)}
               currentUserId={currentUserId}
               isAdmin={isAdmin}
+              isArchived={isArchived}
               pinnedMessageIds={emptyPinnedSet}
               onToggleReaction={(mid, emoji) =>
                 reactReplyMutation.mutate({ messageId: mid, emoji })
@@ -1656,9 +1666,13 @@ function ThreadPanel({
         <div className="h-2" />
       </div>
 
-      {/* Reply composer — hidden when root is deleted */}
+      {/* Reply composer — hidden when root is deleted or channel is archived */}
       <div className="px-4 pt-2 pb-4 border-t border-border/60 shrink-0">
-        {root?.deletedAt ? (
+        {isArchived ? (
+          <p className="text-[12px] text-muted-foreground/50 italic text-center py-1 select-none" data-testid="thread-archived-notice">
+            This channel is archived — replies are disabled.
+          </p>
+        ) : root?.deletedAt ? (
           <p className="text-[12px] text-muted-foreground/50 italic text-center py-1 select-none">
             This message was deleted — no new replies can be added.
           </p>
@@ -3793,6 +3807,7 @@ export default function CurrentPage() {
                       >
                         <MessageRow
                           message={msg}
+                          isArchived={isArchivedChannel}
                           grouped={
                             !isHighlighted &&
                             isContinuation(messages[i - 1], msg)
@@ -4098,6 +4113,7 @@ export default function CurrentPage() {
           rootMessageId={threadRootId}
           currentUserId={currentUserId}
           isAdmin={isAdmin}
+          isArchived={isArchivedChannel}
           selectedSlug={selectedSlug}
           onClose={() => setThreadRootId(null)}
           onCreateTaskMsg={handleCreateTaskFromMsg}

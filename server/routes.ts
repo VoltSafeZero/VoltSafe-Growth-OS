@@ -6501,6 +6501,18 @@ export async function registerRoutes(
           return res.status(403).json({ message: "Cannot attach files to another user's message" });
         }
       }
+      // Block uploads to archived channel messages
+      const uploadChanRow = await db.execute(sql.raw(
+        `SELECT channel_id FROM current_messages WHERE id = ${Number(objectId)} LIMIT 1`
+      ));
+      const uploadChanId = (uploadChanRow.rows[0] as any)?.channel_id ? Number((uploadChanRow.rows[0] as any).channel_id) : null;
+      if (uploadChanId) {
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${uploadChanId} LIMIT 1`));
+        if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at) {
+          for (const f of files) { try { fs.unlinkSync(f.path); } catch {} }
+          return res.status(403).json({ message: "Cannot upload attachments to an archived channel message" });
+        }
+      }
     }
     const NOTABLE_CATS = ["certification", "contract", "lab_report", "quote_proposal"];
     const created: any[] = [];
@@ -33427,6 +33439,13 @@ export function registerConfluenceRoutes(app: Express) {
         if (!memCheck.rows.length)
           return res.status(403).json({ message: "Not a member of this conversation" });
       }
+      // Block reactions in archived channels
+      const reactChannelId = msgRows.rows[0].channel_id ? Number(msgRows.rows[0].channel_id) : null;
+      if (reactChannelId) {
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${reactChannelId} LIMIT 1`));
+        if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
+          return res.status(403).json({ message: "Cannot react to messages in an archived channel" });
+      }
       const escaped = emoji.replace(/'/g, "''");
       const existing = await db.execute(sql.raw(
         `SELECT id FROM current_reactions WHERE message_id = ${messageId} AND user_id = ${userId} AND emoji = '${escaped}' LIMIT 1`
@@ -33462,6 +33481,13 @@ export function registerConfluenceRoutes(app: Express) {
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
       if (Number(msgRows.rows[0].user_id) !== userId)
         return res.status(403).json({ message: "Cannot edit another user's message" });
+      // Block edits in archived channels
+      const editChannelId = msgRows.rows[0].channel_id ? Number(msgRows.rows[0].channel_id) : null;
+      if (editChannelId) {
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${editChannelId} LIMIT 1`));
+        if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
+          return res.status(403).json({ message: "Cannot edit messages in an archived channel" });
+      }
       const escaped = body.replace(/'/g, "''");
       await db.execute(sql.raw(
         `UPDATE current_messages SET body = '${escaped}', is_edited = TRUE, edited_at = NOW() WHERE id = ${messageId}`
@@ -33493,11 +33519,18 @@ export function registerConfluenceRoutes(app: Express) {
       const isAdminUser = ["admin", "master_admin"].includes(String((req.session as any).globalRole || ""));
       if (!messageId) return res.status(400).json({ message: "Invalid message id" });
       const msgRows = await db.execute(sql.raw(
-        `SELECT id, user_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+        `SELECT id, user_id, channel_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
       ));
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
       if (Number(msgRows.rows[0].user_id) !== userId && !isAdminUser)
         return res.status(403).json({ message: "Cannot delete another user's message" });
+      // Block deletes in archived channels
+      const delChannelId = (msgRows.rows[0] as any).channel_id ? Number((msgRows.rows[0] as any).channel_id) : null;
+      if (delChannelId) {
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${delChannelId} LIMIT 1`));
+        if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
+          return res.status(403).json({ message: "Cannot delete messages in an archived channel" });
+      }
       await db.execute(sql.raw(`UPDATE current_messages SET deleted_at = NOW() WHERE id = ${messageId}`));
       res.json({ ok: true });
     } catch (err: any) {
@@ -33589,6 +33622,18 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const messageId = Number(req.params.id);
       if (!messageId) return res.status(400).json({ message: "Invalid message id" });
+      // Block unpin in archived channels
+      const unpinMsg = await db.execute(sql.raw(
+        `SELECT channel_id FROM current_messages WHERE id = ${messageId} LIMIT 1`
+      ));
+      if (unpinMsg.rows.length) {
+        const unpinChanId = (unpinMsg.rows[0] as any).channel_id ? Number((unpinMsg.rows[0] as any).channel_id) : null;
+        if (unpinChanId) {
+          const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${unpinChanId} LIMIT 1`));
+          if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
+            return res.status(403).json({ message: "Cannot unpin messages in an archived channel" });
+        }
+      }
       await db.execute(sql.raw(`DELETE FROM current_pins WHERE message_id = ${messageId}`));
       res.json({ ok: true });
     } catch (err: any) {
@@ -33709,6 +33754,13 @@ export function registerConfluenceRoutes(app: Express) {
       const channelId = rootRow.channel_id ? Number(rootRow.channel_id) : null;
       const threadObjType: string | null = rootRow.object_type || null;
       const threadObjId: number | null = rootRow.object_id ? Number(rootRow.object_id) : null;
+
+      // Block replies in archived channels
+      if (channelId) {
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${channelId} LIMIT 1`));
+        if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
+          return res.status(403).json({ message: "Cannot reply in an archived channel" });
+      }
 
       const escaped = body.replace(/'/g, "''");
       // Build INSERT: preserve channel_id OR object context from root
@@ -34269,6 +34321,13 @@ export function registerConfluenceRoutes(app: Express) {
         }
       }
 
+      // Block structured tags in archived channels
+      if (channelId) {
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${channelId} LIMIT 1`));
+        if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
+          return res.status(403).json({ message: "Cannot add structured items to an archived channel message" });
+      }
+
       const notesSQL = notes ? `'${notes.replace(/'/g, "''")}'` : "NULL";
       const chanSQL = channelId ? String(channelId) : "NULL";
       const objTypeSQL = objectType ? `'${objectType}'` : "NULL";
@@ -34303,6 +34362,18 @@ export function registerConfluenceRoutes(app: Express) {
       const itemType = String(req.params.itemType);
       if (!messageId) return res.status(400).json({ message: "Invalid message id" });
       if (!VALID_STRUCTURED_TYPES.has(itemType)) return res.status(400).json({ message: "Invalid itemType" });
+      // Block removal in archived channels
+      const delStructMsg = await db.execute(sql.raw(
+        `SELECT channel_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+      ));
+      if (delStructMsg.rows.length) {
+        const delStructChanId = (delStructMsg.rows[0] as any).channel_id ? Number((delStructMsg.rows[0] as any).channel_id) : null;
+        if (delStructChanId) {
+          const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${delStructChanId} LIMIT 1`));
+          if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
+            return res.status(403).json({ message: "Cannot remove structured items from an archived channel message" });
+        }
+      }
       await db.execute(sql.raw(
         `DELETE FROM current_structured_items WHERE message_id = ${messageId} AND item_type = '${itemType}'`
       ));

@@ -1,0 +1,294 @@
+Proceed with VoltSafe CMS Currents Phase 9B only: Archived Channel Read-Only Hardening.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, notification preferences, typing indicators, channel search improvements, or unrelated task features.
+
+Goal
+
+Make archived channels truly read-only across all Currents write paths.
+
+Phase 9A added channel create/edit/archive/unarchive and already hides the main composer for archived channels. This phase should audit and harden every remaining action that could mutate archived channel content.
+
+Scope
+
+Audit and fix only archived-channel write behavior.
+
+Focus on:
+
+1. Thread replies in archived channels
+2. Message reactions in archived channels
+3. Message edit/delete in archived channels
+4. Pins/unpins in archived channels
+5. Attachments in archived channels
+6. Structured tags in archived channels
+7. Create Task from archived channel messages
+8. AI summaries for archived channels
+9. Search/View in Currents deep-links for archived messages
+10. Frontend action buttons shown/hidden in archived channels
+11. Backend route guards for archived channels
+
+Do not add new channel management features.
+
+Existing behavior to audit first
+
+Before coding, inspect:
+
+* Main channel composer archived guard
+* Thread panel composer
+* POST /api/current/messages
+* Thread reply route
+* Reaction route
+* Edit message route
+* Delete message route
+* Pin/unpin routes
+* Structured item routes
+* Attachment upload route
+* Create Task from message route
+* AI summary route
+* Search route
+* View in Currents deep-link behavior
+* MessageActionBar UI
+* ThreadPanel UI
+* CurrentAttachment upload behavior
+
+Desired archived-channel behavior
+
+When a channel is archived:
+
+Allowed
+
+Users should be able to:
+
+1. View existing messages.
+2. View existing threads.
+3. View existing attachments.
+4. View existing reactions.
+5. View existing pins.
+6. View existing structured items.
+7. Search archived messages if already supported.
+8. Open archived messages through View in Currents links.
+9. Open archived messages from task source links.
+10. Run/read summaries if summary is read-only and does not mutate channel content.
+11. Admin can unarchive channel.
+
+Blocked
+
+Users should not be able to:
+
+1. Post new root messages.
+2. Post thread replies.
+3. Add/remove reactions.
+4. Edit messages.
+5. Delete messages.
+6. Pin/unpin messages.
+7. Upload new attachments.
+8. Add/remove Decision/Risk/Requirement tags.
+9. Create new tasks from archived-channel messages, unless intentionally allowed and clearly documented.
+10. Trigger any write that changes archived-channel message state.
+
+Backend requirements
+
+For every write route that can target a channel message, verify archived channel state before mutation.
+
+Thread replies
+
+If replying to a root message in an archived channel:
+
+* Return 403.
+* Do not insert reply.
+
+Reactions
+
+If reacting to a message or thread reply in an archived channel:
+
+* Return 403.
+* Do not insert/delete reaction.
+
+Edit/delete
+
+If editing or deleting a message in an archived channel:
+
+* Return 403.
+* Do not mutate message.
+
+Pins/unpins
+
+Already partially fixed in 9A audit. Verify both:
+
+* pin
+* unpin
+
+Both should return 403 in archived channels.
+
+Attachments
+
+If uploading attachment to a current_message whose message belongs to an archived channel:
+
+* Return 403.
+* Clean up uploaded temp files.
+* Do not attach file.
+
+Viewing/downloading existing attachments should still work.
+
+Structured tags
+
+If adding/removing Decision/Risk/Requirement on an archived channel message:
+
+* Return 403.
+* Do not mutate structured items.
+
+Create Task
+
+Audit behavior.
+
+Preferred:
+
+* Allow creating a task from an archived message only if it does not mutate the archived message/channel.
+* If current implementation writes back source metadata only to task tables, it may be allowed.
+* If it changes message state, block it.
+
+Document the decision clearly.
+
+AI summaries
+
+Audit behavior.
+
+Preferred:
+
+* Allow summary generation if it only reads archived messages and writes summary to separate summary/cache table.
+* If it mutates channel/message state in a way that violates read-only, block it.
+
+Document the decision clearly.
+
+Frontend requirements
+
+When viewing an archived channel:
+
+1. Show read-only banner.
+2. Hide main composer.
+3. Hide or disable thread reply composer.
+4. Hide or disable reaction buttons.
+5. Hide or disable edit/delete controls.
+6. Hide or disable pin/unpin controls.
+7. Hide or disable structured tag controls.
+8. Hide or disable attachment upload controls.
+9. Hide or disable Create Task action if backend decision is blocked.
+10. Keep View/Search/Summary read-only actions visible if allowed.
+11. Show admin Unarchive button.
+12. UI should not show actions that will obviously 403.
+
+Deep-link behavior
+
+Verify archived-channel deep-links:
+
+1. /current?channel=archived-slug
+2. Message deep-link if supported
+3. Thread deep-link if supported
+4. View in Currents from Task
+5. Search result click
+
+Expected:
+
+* Opens archived channel/message safely.
+* Shows read-only banner.
+* Does not show write controls.
+* Does not crash if archived channel is hidden from sidebar.
+
+Security requirements
+
+Verify:
+
+1. Non-admin cannot bypass UI by calling write routes directly.
+2. Admin also cannot mutate archived-channel content unless route is explicitly unarchive.
+3. Archived-channel write routes return 403.
+4. Archived message IDs cannot be used to sneak in reactions/attachments/structured tags.
+5. DM behavior is unaffected.
+6. Record Currents behavior is unaffected.
+7. Active channel behavior is unaffected.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Active channels still work normally.
+4. Archived channel opens via deep-link.
+5. Archived banner appears.
+6. Main composer hidden.
+7. Thread reply composer hidden/disabled.
+8. Reaction controls hidden/disabled.
+9. Edit/delete controls hidden/disabled.
+10. Pin/unpin controls hidden/disabled.
+11. Structured tag controls hidden/disabled.
+12. Attachment upload blocked.
+13. Existing attachments still view/download.
+14. Existing pins still display.
+15. Existing threads still display.
+16. Existing structured items still display.
+17. Search can open archived messages safely if intended.
+18. View in Currents links still open archived messages.
+19. Posting to archived channel blocked server-side.
+20. Replying in archived channel blocked server-side.
+21. Reacting in archived channel blocked server-side.
+22. Editing archived-channel message blocked server-side.
+23. Deleting archived-channel message blocked server-side.
+24. Pinning/unpinning archived-channel message blocked server-side.
+25. Uploading attachment to archived-channel message blocked server-side.
+26. Adding/removing structured tag blocked server-side.
+27. Active channel posting still works.
+28. Active channel replies still work.
+29. Active channel reactions still work.
+30. Active channel attachments still work.
+31. DMs still work.
+32. DM attachments still work.
+33. Attachment-only DMs still work.
+34. DM unread/read-state still works.
+35. Record Currents still work.
+36. Mentions panel still works.
+37. Search still works.
+38. Structured panel still works.
+39. AI summaries still work if allowed.
+40. Create Task still works if allowed.
+41. No browser console errors.
+42. No server errors.
+43. No SQL errors.
+44. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Thread reply blocked in archived channel
+* Reaction blocked in archived channel
+* Edit/delete blocked in archived channel
+* Pin/unpin blocked in archived channel
+* Attachment upload blocked in archived channel
+* Structured tag add/remove blocked in archived channel
+* Main composer hidden
+* Thread composer hidden
+* Message action buttons hidden/disabled
+* Archived deep-link still readable
+* Active channel behavior unaffected
+* DM behavior unaffected
+* Existing Phase 8B/8C/8D tests still pass
+* Existing Phase 9A channel management tests still pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing archived-channel write-path audit summary
+2. Issues found
+3. Fixes made
+4. Files changed
+5. Backend route guards added/confirmed
+6. Frontend controls hidden/disabled
+7. Deep-link behavior
+8. Security checks
+9. Regression results
+10. Features intentionally allowed in archived channels
+11. Features intentionally blocked in archived channels
+12. Final pass/fail status
+13. Recommended next feature order
+
+Keep scope tight: Archived Channel Read-Only Hardening only.
