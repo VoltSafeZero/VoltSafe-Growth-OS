@@ -28,24 +28,24 @@ console.log("=== Phase 7D Structured Filter Count Badges — Source-Grep Tests =
 console.log("── 1. StructuredItemsPanel — client-side counting (current.tsx) ──");
 
 check(
-  "counts.all computed from full data",
-  src.includes("all: data.length")
+  "counts.all computed from visible data",
+  src.includes("all: visibleData.length")
 );
 check(
-  "counts.decision computed from full data",
-  src.includes('decision: data.filter(i => i.itemType === "decision").length')
+  "counts.decision computed from visible data",
+  src.includes('decision: visibleData.filter(i => i.itemType === "decision").length')
 );
 check(
-  "counts.risk computed from full data",
-  src.includes('risk: data.filter(i => i.itemType === "risk").length')
+  "counts.risk computed from visible data",
+  src.includes('risk: visibleData.filter(i => i.itemType === "risk").length')
 );
 check(
-  "counts.requirement computed from full data",
-  src.includes('requirement: data.filter(i => i.itemType === "requirement").length')
+  "counts.requirement computed from visible data",
+  src.includes('requirement: visibleData.filter(i => i.itemType === "requirement").length')
 );
 check(
-  "displayed computed by client-side filter",
-  src.includes('const displayed = filter === "all" ? data : data.filter(i => i.itemType === filter)')
+  "displayed computed by client-side filter on visibleData",
+  src.includes('const displayed = filter === "all" ? visibleData : visibleData.filter(i => i.itemType === filter)')
 );
 
 // ── 2. StructuredItemsPanel: no itemType in query params ──────────────────

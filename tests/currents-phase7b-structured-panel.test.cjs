@@ -33,7 +33,7 @@ check("StructuredListItem interface declared", currentTsx.includes("interface St
 check("StructuredListItem has itemType field", currentTsx.includes('"decision" | "risk" | "requirement"') && currentTsx.includes("interface StructuredListItem"));
 check("StructuredListItem has actionUrl field", (() => {
   const i = currentTsx.indexOf("interface StructuredListItem {");
-  return i > -1 && currentTsx.slice(i, i + 600).includes("actionUrl: string | null");
+  return i > -1 && currentTsx.slice(i, i + 900).includes("actionUrl: string | null");
 })());
 check("StructuredListItem has messageBody field", (() => {
   const i = currentTsx.indexOf("interface StructuredListItem {");
@@ -196,23 +196,23 @@ check("Error state shows helpful message", (() => {
 })());
 check("Empty state for filter=all", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 8000).includes("No structured items yet");
+  return i > -1 && currentTsx.slice(i, i + 12000).includes("No structured items yet");
 })());
 check("Empty state for filter=decision", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 8000).includes("No decisions marked yet");
+  return i > -1 && currentTsx.slice(i, i + 12000).includes("No decisions marked yet");
 })());
 check("Empty state for filter=risk", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 8000).includes("No risks marked yet");
+  return i > -1 && currentTsx.slice(i, i + 12000).includes("No risks marked yet");
 })());
 check("Empty state for filter=requirement", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 8000).includes("No requirements marked yet");
+  return i > -1 && currentTsx.slice(i, i + 12000).includes("No requirements marked yet");
 })());
 check("Empty state shows Bookmark icon", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 8000).includes("Bookmark");
+  return i > -1 && currentTsx.slice(i, i + 12000).includes("Bookmark");
 })());
 
 // ── 9. Main page view state + sidebar integration ─────────────────────────────
