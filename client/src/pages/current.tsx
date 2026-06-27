@@ -39,6 +39,7 @@ import {
   BellRing,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -3050,6 +3051,30 @@ export default function CurrentPage() {
     },
   });
 
+  // ── Currents badge preference (Phase 10B) ────────────────────────────────
+
+  const { data: currentPrefs } = useQuery<{ hideMutedFromCurrentsBadge: boolean }>({
+    queryKey: ["/api/current/preferences"],
+    staleTime: 60_000,
+  });
+
+  const currentPrefMutation = useMutation({
+    mutationFn: (hideMuted: boolean) =>
+      apiRequest("PUT", "/api/current/preferences", { hideMutedFromCurrentsBadge: hideMuted }).then((r) => r.json()),
+    onSuccess: (_data, hideMuted) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/preferences"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/current/unread-counts"] });
+      toast({
+        title: hideMuted
+          ? "Muted unread hidden from Currents badge"
+          : "Muted unread included in Currents badge",
+      });
+    },
+    onError: (e: any) => {
+      toast({ title: "Could not update preference", description: e.message, variant: "destructive" });
+    },
+  });
+
   // ── Notification preference mutations ────────────────────────────────────
 
   const channelPrefMutation = useMutation({
@@ -3230,7 +3255,14 @@ export default function CurrentPage() {
   const isArchivedChannel = !selectedChannel && !channelsLoading && !!selectedChannelDirect?.archivedAt;
   const selectedDm = dmConversations.find((d) => d.conversationId === selectedDmId);
   const totalDmUnread = dmConversations.reduce((s, d) => s + d.unreadCount, 0);
-  const totalUnread = channels.reduce((s, c) => s + c.unreadCount, 0) + totalDmUnread;
+  const hideMutedPref = currentPrefs?.hideMutedFromCurrentsBadge ?? false;
+  const badgeDmUnread = hideMutedPref
+    ? dmConversations.reduce((s, d) => s + (d.isMuted ? 0 : d.unreadCount), 0)
+    : totalDmUnread;
+  const badgeChannelUnread = hideMutedPref
+    ? channels.reduce((s, c) => s + (c.notificationLevel === 'muted' ? 0 : c.unreadCount), 0)
+    : channels.reduce((s, c) => s + c.unreadCount, 0);
+  const totalUnread = badgeChannelUnread + badgeDmUnread;
   const nonDeletedCount = messages.filter((m) => !m.deletedAt).length;
   const dmNonDeletedCount = dmMessages.filter((m) => !m.deletedAt).length;
 
@@ -3616,6 +3648,27 @@ export default function CurrentPage() {
             />
             <span className="flex-1 text-left">Structured</span>
           </button>
+        </div>
+
+        {/* Badge preference toggle (Phase 10B) */}
+        <div className="px-3 py-2.5 border-t border-border/30 shrink-0">
+          <div className="flex items-center gap-2">
+            <Switch
+              data-testid="toggle-hide-muted-badge"
+              checked={hideMutedPref}
+              onCheckedChange={(v) => currentPrefMutation.mutate(v)}
+              className="shrink-0 scale-75 origin-left"
+              disabled={currentPrefMutation.isPending}
+            />
+            <div className="min-w-0">
+              <div className="text-[11px] text-muted-foreground/70 font-medium leading-tight">
+                Hide muted unread from badge
+              </div>
+              <div className="text-[10px] text-muted-foreground/40 leading-tight mt-0.5">
+                Muted channels and DMs still show their own counts
+              </div>
+            </div>
+          </div>
         </div>
       </aside>
 

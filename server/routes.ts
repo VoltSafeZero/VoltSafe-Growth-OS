@@ -33043,6 +33043,17 @@ export function registerConfluenceRoutes(app: Express) {
     ALTER TABLE current_channels ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
   `)).catch(() => {});
 
+  // Additive migration: per-user Currents badge preferences (Phase 10B)
+  db.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS current_user_preferences (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      hide_muted_from_badge BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `)).catch(() => {});
+
   // Additive migration: per-user channel notification preferences
   db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS current_channel_preferences (
@@ -33185,6 +33196,40 @@ export function registerConfluenceRoutes(app: Express) {
         WHERE conversation_id = ${convId} AND user_id = ${userId}
       `));
       res.json({ conversationId: convId, isMuted, notificationLevel: isMuted ? "muted" : "all" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/preferences — get current user's Currents-level preferences (Phase 10B)
+  app.get("/api/current/preferences", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const rows = await db.execute(sql.raw(
+        `SELECT hide_muted_from_badge FROM current_user_preferences WHERE user_id = ${userId} LIMIT 1`
+      ));
+      const pref = rows.rows[0] as any;
+      res.json({ hideMutedFromCurrentsBadge: Boolean(pref?.hide_muted_from_badge) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PUT /api/current/preferences — upsert current user's Currents-level preferences (Phase 10B)
+  app.put("/api/current/preferences", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { hideMutedFromCurrentsBadge } = req.body || {};
+      if (typeof hideMutedFromCurrentsBadge !== "boolean")
+        return res.status(400).json({ message: "hideMutedFromCurrentsBadge must be a boolean" });
+      await db.execute(sql.raw(`
+        INSERT INTO current_user_preferences (user_id, hide_muted_from_badge, created_at, updated_at)
+        VALUES (${userId}, ${hideMutedFromCurrentsBadge}, NOW(), NOW())
+        ON CONFLICT (user_id) DO UPDATE SET
+          hide_muted_from_badge = EXCLUDED.hide_muted_from_badge,
+          updated_at = NOW()
+      `));
+      res.json({ hideMutedFromCurrentsBadge });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33490,13 +33535,21 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  // GET /api/current/unread-counts — quick summary for sidebar badge
+  // GET /api/current/unread-counts — quick summary for sidebar badge (Phase 10B: respects hideMutedFromCurrentsBadge)
   app.get("/api/current/unread-counts", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
+      // Phase 10B: load user badge preference
+      const prefRows = await db.execute(sql.raw(
+        `SELECT hide_muted_from_badge FROM current_user_preferences WHERE user_id = ${userId} LIMIT 1`
+      ));
+      const hideMuted = Boolean((prefRows.rows[0] as any)?.hide_muted_from_badge);
+
+      // Channel unread counts (always compute per-channel for response.channels)
       const rows = await db.execute(sql.raw(`
         SELECT
           c.slug,
+          c.id AS channel_id,
           COALESCE(
             (SELECT COUNT(*)::int
              FROM current_messages m
@@ -33518,24 +33571,42 @@ export function registerConfluenceRoutes(app: Express) {
       let total = 0;
       for (const r of rows.rows) {
         const n = Number(r.unread_count);
+        const channelId = Number(r.channel_id);
         channels[r.slug as string] = n;
-        total += n;
+        if (hideMuted && n > 0) {
+          // Phase 10B: skip muted channels from badge total
+          const mutedRow = await db.execute(sql.raw(
+            `SELECT notification_level FROM current_channel_preferences WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`
+          ));
+          const level = (mutedRow.rows[0] as any)?.notification_level;
+          if (level !== 'muted') total += n;
+        } else {
+          total += n;
+        }
       }
-      // DM unread count
+      // DM unread count (Phase 10B: optionally exclude muted DMs from total)
       const dmRows = await db.execute(sql.raw(`
-        SELECT COALESCE(SUM(
-          (SELECT COUNT(*)::int FROM current_messages cm
-           WHERE cm.conversation_id = ccm.conversation_id
-             AND cm.deleted_at IS NULL
-             AND cm.user_id != ${userId}
-             AND cm.id > COALESCE(ccm.last_read_message_id, 0)
-          )
-        ), 0)::int AS dm_unread
+        SELECT
+          ccm.conversation_id,
+          ccm.is_muted,
+          COALESCE(
+            (SELECT COUNT(*)::int FROM current_messages cm
+             WHERE cm.conversation_id = ccm.conversation_id
+               AND cm.deleted_at IS NULL
+               AND cm.user_id != ${userId}
+               AND cm.id > COALESCE(ccm.last_read_message_id, 0)
+            ), 0
+          ) AS dm_unread_count
         FROM current_conversation_members ccm
         WHERE ccm.user_id = ${userId} AND ccm.is_archived = FALSE
       `));
-      const dmUnread = Number((dmRows.rows[0] as any)?.dm_unread) || 0;
-      res.json({ total: total + dmUnread, channels, dm: dmUnread });
+      let dmUnread = 0;
+      for (const r of dmRows.rows as any[]) {
+        const n = Number(r.dm_unread_count);
+        if (hideMuted && Boolean(r.is_muted)) continue; // Phase 10B: skip muted DMs
+        dmUnread += n;
+      }
+      res.json({ total: total + dmUnread, channels, dm: dmUnread, hideMutedFromCurrentsBadge: hideMuted });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

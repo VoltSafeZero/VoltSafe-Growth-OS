@@ -1,0 +1,243 @@
+Proceed with VoltSafe CMS Currents Phase 10B only: Hide Muted From Currents Unread Badge Preference.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, typing indicators, channel search improvements, or unrelated task features.
+
+Goal
+
+Add a user-level preference that controls whether muted channels/DMs count toward the main Currents unread badge.
+
+Phase 10A added per-channel and per-DM muting. Muted conversations still show unread counts, visually subdued. Phase 10B should let users decide whether muted unread messages appear in the global Currents nav badge.
+
+Scope
+
+Add only:
+
+1. User preference: include or exclude muted conversations from global Currents unread badge
+2. Backend unread-count behavior respects this preference
+3. Small UI control to toggle the preference
+4. Tests/audit for the above
+
+Do not change per-channel/DM unread badges unless needed. Muted conversations should still show their own subdued unread counts.
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* /api/current/unread-counts
+* Currents nav unread badge in app-sidebar
+* current_channel_preferences
+* current_conversation_members.is_muted
+* any existing user settings/preferences table
+* existing CMS preference/settings patterns
+* sidebar settings/control patterns
+* Phase 10A mute behavior and tests
+
+Desired behavior
+
+Add a user-level setting:
+
+hideMutedFromCurrentsBadge
+
+Default: false
+
+Meaning:
+
+* false: main Currents nav badge includes unread from muted channels/DMs.
+* true: main Currents nav badge excludes unread from muted channels/DMs.
+
+Important:
+
+* Muted channel/DM row-level unread badges should still show subdued unread counts.
+* This setting only affects the global/nav Currents badge total.
+
+Data model
+
+Prefer using an existing user preferences/settings table if one exists.
+
+If no suitable table exists, add a small additive table:
+
+current_user_preferences
+
+Fields:
+
+* user_id
+* hide_muted_from_badge
+* created_at
+* updated_at
+
+Unique:
+
+* user_id
+
+Migration must be idempotent.
+
+Backend routes
+
+Add authenticated routes under /api/current.
+
+Get preferences
+
+GET /api/current/preferences
+
+Return:
+
+{
+  "hideMutedFromCurrentsBadge": false
+}
+
+Update preferences
+
+PUT /api/current/preferences
+
+Body:
+
+{
+  "hideMutedFromCurrentsBadge": true
+}
+
+Rules:
+
+1. Requires authentication.
+2. Only updates current user’s preferences.
+3. Boolean only.
+4. Returns updated preferences.
+5. Does not expose other users’ settings.
+
+Unread-count behavior
+
+Update:
+
+GET /api/current/unread-counts
+
+Behavior:
+
+1. Load current user preference.
+2. If hideMutedFromCurrentsBadge === false, preserve existing behavior.
+3. If hideMutedFromCurrentsBadge === true:
+    * Exclude unread from muted channels.
+    * Exclude unread from muted DMs.
+4. Do not change row-level unread counts in /api/current/channels or /api/current/dms.
+5. Sender’s own messages still excluded.
+6. Deleted messages still excluded.
+7. Archived channels still excluded by write-blocking / existing unread logic.
+
+Muted channel exclusion
+
+Muted channel means current user has current_channel_preferences.notification_level = 'muted'.
+
+Muted DM exclusion
+
+Muted DM means current user’s current_conversation_members.is_muted = true.
+
+Frontend requirements
+
+Add a small setting in Currents.
+
+Preferred location:
+
+* Currents sidebar footer/settings area, or
+* near the Direct Messages / Channels notification controls, or
+* a small Notification settings control in the Currents header.
+
+Keep it simple.
+
+UI copy:
+
+* Label: Hide muted unread from badge
+* Helper text: Muted channels and DMs will still show their own unread counts.
+* Toggle switch or checkbox.
+
+Behavior:
+
+1. Loads current preference.
+2. Toggle updates backend.
+3. Shows toast:
+    * enabled: Muted unread hidden from Currents badge
+    * disabled: Muted unread included in Currents badge
+4. Refetches /api/current/unread-counts.
+5. Nav badge updates accordingly.
+6. Does not affect muted row-level unread badges.
+
+Security requirements
+
+Verify:
+
+1. User can only read their own preference.
+2. User can only update their own preference.
+3. Invalid payload rejected.
+4. Preference cannot leak DM/channel data.
+5. Existing mute preference routes remain secure.
+6. Existing unread-count security remains scoped to session user.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Preferences load.
+4. Toggle appears.
+5. Toggle persists after reload.
+6. Default is include muted unread in nav badge.
+7. When off, nav badge includes muted channel unread.
+8. When off, nav badge includes muted DM unread.
+9. When on, nav badge excludes muted channel unread.
+10. When on, nav badge excludes muted DM unread.
+11. Muted channel row still shows subdued unread.
+12. Muted DM row still shows subdued unread.
+13. Unmuted channel unread still counts in nav badge.
+14. Unmuted DM unread still counts in nav badge.
+15. Sender’s own messages still excluded.
+16. Deleted messages still excluded.
+17. Preference update shows toast.
+18. Invalid payload rejected.
+19. User cannot update another user’s preference.
+20. Channel posting still works.
+21. DM sending still works.
+22. DM attachments still work.
+23. Attachment-only DMs still work.
+24. Channel mute/all/mentions preferences still work.
+25. Archived channel read-only behavior still works.
+26. Search still works.
+27. Mentions panel still works.
+28. Structured panel still works.
+29. AI summaries still work.
+30. Create Task still works.
+31. View in Currents still works.
+32. No browser console errors.
+33. No server errors.
+34. No SQL errors.
+35. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Preference schema/migration
+* GET /api/current/preferences
+* PUT /api/current/preferences
+* Invalid payload rejected
+* /api/current/unread-counts includes muted unread by default
+* /api/current/unread-counts excludes muted channel unread when enabled
+* /api/current/unread-counts excludes muted DM unread when enabled
+* Row-level muted unread badges remain visible
+* Nav badge refetches after preference toggle
+* Existing Phase 10A tests still pass
+* Existing Phase 8B/8C/8D DM tests still pass
+* Existing Phase 9A/9B/9C channel tests still pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing unread/preference audit summary
+2. Schema/migration changes
+3. Backend routes added/changed
+4. Unread-count behavior changes
+5. Frontend control added
+6. Security checks
+7. Verification results
+8. Known issues
+9. Recommended next feature order
+
+Keep scope tight: Hide Muted From Currents Unread Badge Preference only.
