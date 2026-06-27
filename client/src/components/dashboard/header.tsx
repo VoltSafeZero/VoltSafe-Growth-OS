@@ -5,11 +5,11 @@ import {
   Search, Bell, LogOut, X, Plus, CalendarDays, CheckSquare, UserPlus as UserPlusIcon,
   Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
   Users, Target, StickyNote, ArrowRight, Sun, LayoutDashboard, Zap, Clock, GitBranch,
-  ExternalLink, Copy, BookOpen, Sparkles, ChevronDown, ChevronUp,
+  ExternalLink, Copy, BookOpen, Sparkles, ChevronDown, ChevronUp, Camera, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import navLogo from "@assets/nav-logo.png";
 import {
   DropdownMenu,
@@ -1013,6 +1013,7 @@ type AuthUser = {
   email: string;
   role: string;
   mustChangePassword: boolean;
+  avatarUrl?: string | null;
 };
 
 const quickCreateItems = [
@@ -1031,7 +1032,36 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
     : "VS";
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const mobileSearchRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
+
+  const { data: meData } = useQuery<any>({
+    queryKey: ["/api/auth/me"],
+    staleTime: 30_000,
+  });
+  const currentAvatarUrl: string | null = meData?.avatarUrl ?? user?.avatarUrl ?? null;
+
+  const uploadAvatarMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("avatar", file);
+      const res = await fetch("/api/me/avatar", { method: "POST", body: formData, credentials: "include" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? "Upload failed");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }),
+  });
+
+  const removeAvatarMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/me/avatar", { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? "Remove failed");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }),
+  });
+
   const { data: notifData } = useQuery<NotificationsResponse>({
     queryKey: ["/api/notifications"],
     refetchInterval: 60_000,
@@ -1178,6 +1208,9 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
                   data-testid="button-user-menu"
                 >
                   <Avatar className="w-8 h-8 border border-primary/30 bg-primary/10">
+                    {currentAvatarUrl && (
+                      <AvatarImage src={currentAvatarUrl} alt={user?.name ?? "User"} />
+                    )}
                     <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
                       {initials}
                     </AvatarFallback>
@@ -1185,13 +1218,44 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
                   <span className="text-sm font-medium hidden sm:inline">{user?.name || "User"}</span>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>
-                  <div className="flex flex-col">
-                    <span className="font-medium">{user?.name}</span>
-                    <span className="text-xs text-muted-foreground font-normal">{user?.email}</span>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="p-2">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="w-10 h-10 border border-primary/30 bg-primary/10 shrink-0">
+                      {currentAvatarUrl && (
+                        <AvatarImage src={currentAvatarUrl} alt={user?.name ?? "User"} />
+                      )}
+                      <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-medium truncate">{user?.name}</span>
+                      <span className="text-xs text-muted-foreground font-normal truncate">{user?.email}</span>
+                    </div>
                   </div>
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="gap-2 cursor-pointer"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadAvatarMutation.isPending}
+                  data-testid="button-upload-avatar"
+                >
+                  <Camera className="w-4 h-4 text-muted-foreground" />
+                  {uploadAvatarMutation.isPending ? "Uploading…" : currentAvatarUrl ? "Change photo" : "Upload photo"}
+                </DropdownMenuItem>
+                {currentAvatarUrl && (
+                  <DropdownMenuItem
+                    className="gap-2 cursor-pointer text-muted-foreground focus:text-muted-foreground"
+                    onClick={() => removeAvatarMutation.mutate()}
+                    disabled={removeAvatarMutation.isPending}
+                    data-testid="button-remove-avatar"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {removeAvatarMutation.isPending ? "Removing…" : "Remove photo"}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={onLogout}
@@ -1203,6 +1267,18 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              data-testid="input-avatar-upload"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadAvatarMutation.mutate(file);
+                e.target.value = "";
+              }}
+            />
           </div>
         </>
       )}

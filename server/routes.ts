@@ -1333,7 +1333,89 @@ export async function registerRoutes(
       defaultCommandCenter: user.defaultCommandCenter,
       calendarBookingUrl: user.calendarBookingUrl ?? null,
       detectedTimezone: (req.session as any).detectedTimezone ?? null,
+      avatarUrl: user.avatarUrl ?? null,
     });
+  });
+
+  // ── User avatar upload / serve (Phase 18A) ──────────────────────────────────
+  const USER_AVATARS_DIR = path.resolve("uploads/user-avatars");
+  if (!fs.existsSync(USER_AVATARS_DIR)) fs.mkdirSync(USER_AVATARS_DIR, { recursive: true });
+
+  const userAvatarUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, USER_AVATARS_DIR),
+      filename: (_req, _file, cb) => {
+        cb(null, `user-avatar-${crypto.randomUUID()}.jpg`);
+      },
+    }),
+    limits: { fileSize: 2 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ["image/jpeg", "image/png", "image/webp"];
+      if (allowed.includes(file.mimetype)) cb(null, true);
+      else cb(new Error("Only JPEG, PNG and WebP images are allowed"));
+    },
+  });
+
+  const userAvatarMiddleware = (req: any, res: any, next: any) => {
+    userAvatarUpload.single("avatar")(req, res, (err: any) => {
+      if (err) {
+        const isSize = err.code === "LIMIT_FILE_SIZE";
+        return res.status(isSize ? 413 : 400).json({ message: isSize ? "Image too large (max 2 MB)" : (err.message ?? "Upload error") });
+      }
+      next();
+    });
+  };
+
+  app.post("/api/me/avatar", requireAuth, userAvatarMiddleware, async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const userId = req.session.userId!;
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user) { try { fs.unlinkSync(req.file.path); } catch {} return res.status(401).json({ message: "Not authenticated" }); }
+      const prev = user.avatarUrl;
+      if (prev) {
+        const prevName = path.basename(prev);
+        if (prevName.startsWith("user-avatar-")) {
+          try { fs.unlinkSync(path.join(USER_AVATARS_DIR, prevName)); } catch {}
+        }
+      }
+      const avatarUrl = `/api/user-avatars/${req.file.filename}`;
+      await db.update(users).set({ avatarUrl }).where(eq(users.id, userId));
+      res.json({ id: user.id, name: user.name, email: user.email, avatarUrl });
+    } catch (err: any) {
+      if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/me/avatar", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const prev = user.avatarUrl;
+      if (prev) {
+        const prevName = path.basename(prev);
+        if (prevName.startsWith("user-avatar-")) {
+          try { fs.unlinkSync(path.join(USER_AVATARS_DIR, prevName)); } catch {}
+        }
+      }
+      await db.update(users).set({ avatarUrl: null }).where(eq(users.id, userId));
+      res.json({ id: user.id, name: user.name, email: user.email, avatarUrl: null });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/user-avatars/:fileName", requireAuth, (req, res) => {
+    const fileName = path.basename(req.params.fileName);
+    if (!fileName.startsWith("user-avatar-")) return res.status(404).json({ message: "Not found" });
+    const filePath = path.join(USER_AVATARS_DIR, fileName);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(USER_AVATARS_DIR)) return res.status(403).json({ message: "Forbidden" });
+    if (!fs.existsSync(resolved)) return res.status(404).json({ message: "Not found" });
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.sendFile(resolved);
   });
 
   // POST /api/session/timezone — detect and persist the user's browser timezone

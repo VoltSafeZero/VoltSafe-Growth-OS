@@ -1,0 +1,385 @@
+Proceed with VoltSafe CMS CURRENTS Phase 18B only: Premium UI Polish / CURRENTS Brand Upgrade.
+
+Do not work on Guest CURRENTS, external collaborators, workflow automation, private-channel roles, new message features, Gmail/mail-permissions, Accounts/Contacts redesign, Polyweather, or unrelated modules.
+
+Goal
+
+Upgrade CURRENTS so it feels premium, polished, and magnetic — a place users naturally gravitate toward inside VoltSafe CMS.
+
+Also update all user-facing copy so the product name is consistently capitalized as:
+
+CURRENTS
+
+Not:
+
+* Currents
+* currents
+* Current
+* Slack Lite
+* Slack
+
+Do not rename database tables, routes, internal API names, or code identifiers unless necessary. This is user-facing polish only.
+
+Current issue
+
+CURRENTS is functionally complete, but visually it still feels too plain/basic in some states.
+
+The current screenshot shows:
+
+* large empty white space in the main DM area
+* weak visual hierarchy
+* simple initials avatar presentation
+* minimal premium identity
+* flat message/composer treatment
+* sidebar is functional but not yet “destination quality”
+* “Currents” is not capitalized consistently
+
+The goal is not to redesign the whole app shell. The goal is to make the CURRENTS experience feel more intentional, premium, branded, and finished.
+
+Audit first
+
+Before writing code, inspect:
+
+1. client/src/pages/current.tsx
+2. CURRENTS sidebar/channel list
+3. CURRENTS DM list
+4. channel header
+5. DM/group DM header
+6. empty DM state
+7. empty channel state
+8. message feed
+9. composer
+10. slash command menu
+11. search/mentions/structured views
+12. thread panel
+13. participants/member dialogs
+14. profile/user avatar components if relevant
+15. app sidebar/nav labels where CURRENTS appears
+
+Take note of every user-facing string that says Currents/current/slack-lite and standardize it to CURRENTS.
+
+Naming requirement
+
+Globally update user-facing text:
+
+* Currents → CURRENTS
+* currents → CURRENTS
+* Current only where it refers to this feature → CURRENTS
+* Slack Lite → remove/replace with CURRENTS
+
+Examples:
+
+* Sidebar nav: CURRENTS
+* Section header: CURRENTS
+* Empty states: “Start a conversation in CURRENTS”
+* Error messages: “Could not load CURRENTS”
+* Toasts: “CURRENTS message not sent” only where natural
+* Tooltips/help text: use CURRENTS
+
+Do not change unrelated words like “current user”, “current account”, or internal variable names.
+
+Visual design direction
+
+Make CURRENTS feel like a premium VoltSafe communication command center.
+
+Use the existing VoltSafe visual language:
+
+* teal/cyan accents
+* deep glassy surfaces in dark mode
+* clean soft panels in light mode
+* subtle glow, not heavy neon
+* elegant borders
+* better spacing
+* better empty states
+* better hierarchy
+* premium but still practical
+
+Avoid:
+
+* huge redesign
+* bright distracting colors
+* heavy animations
+* new dependencies
+* breaking layout
+* changing core behavior
+* making it look too much like Slack
+
+Specific UI upgrades
+
+1. CURRENTS left rail / internal sidebar
+
+Improve the inner CURRENTS sidebar so it feels more premium.
+
+Polish:
+
+* make the CURRENTS title/header stronger
+* improve spacing between Channels, Direct Messages, Search/Mentions/Structured
+* make selected channel/DM row feel richer
+* improve hover states
+* improve unread/muted/private/archived icon alignment
+* improve empty states for no DMs/private channels
+* ensure dark and light mode both look intentional
+
+Keep it compact. Do not make it wider unless absolutely needed.
+
+2. Channel and DM headers
+
+Improve headers for:
+
+* channels
+* private channels
+* archived channels
+* DMs
+* group DMs
+
+Polish:
+
+* stronger title hierarchy
+* better avatar treatment
+* better online/offline indicator placement
+* better private/archived badges
+* subtle divider/glass effect
+* avoid clutter
+
+For DMs, the header should feel more premium than just initials + name + offline.
+
+3. Empty DM state
+
+The current empty DM state is very plain.
+
+Upgrade it to a polished invitation state.
+
+Example direction:
+
+* larger avatar/photo/initials treatment
+* soft circular glow/accent
+* name
+* presence
+* short warm prompt:
+    * “Start the conversation”
+    * “Send a quick note to Scott.”
+* subtle card or centered layout that feels intentional
+
+Do not add new functionality.
+
+4. Empty channel state
+
+Add or polish empty channel states.
+
+For a quiet channel, show something like:
+
+* channel icon
+* channel name
+* “No messages yet”
+* “Start the first update in #general.”
+* subtle premium panel
+
+Only user-facing copy should say CURRENTS where appropriate.
+
+5. Message feed
+
+Improve visual polish without changing behavior:
+
+* better message spacing
+* subtle hover action reveal
+* improved avatar alignment
+* slightly improved timestamp/readability
+* cleaner deleted/edited message treatment
+* better attachment chip spacing
+* better reaction pill polish
+
+Do not change message grouping logic unless a clear visual bug exists.
+
+6. Composer
+
+Upgrade the composer to feel premium.
+
+Current composer is functional but plain.
+
+Polish:
+
+* better rounded container
+* subtle focus glow
+* better icon alignment
+* send button treatment
+* attachment/emoji icons cleaner
+* disabled/archived/private blocked state clearer
+* light mode and dark mode both clean
+
+Do not break:
+
+* Enter to send
+* Shift+Enter newline
+* @ mentions
+* slash commands
+* attachments
+* emoji picker
+
+7. Search / Mentions / Structured views
+
+Polish these utility views so they match the premium feel:
+
+* better header labels
+* better empty states
+* better result cards
+* consistent CURRENTS naming
+* no raw/technical wording
+
+8. Thread panel
+
+Polish thread panel:
+
+* header hierarchy
+* reply composer
+* empty reply state
+* action buttons
+* spacing
+* dark/light mode
+
+Do not change thread behavior.
+
+9. Dialogs
+
+Light polish only:
+
+* create/edit channel dialog
+* member picker
+* channel participants dialog
+* group DM member dialog
+* create task from message dialog if CURRENTS-specific
+
+Focus on spacing, headings, button wording, and consistent CURRENTS naming.
+
+Light mode and dark mode
+
+The uploaded screenshot is light mode. Ensure upgrades work in both:
+
+1. Light mode
+2. Dark mode
+
+Light mode should not look washed out. Dark mode should not look too neon.
+
+Use existing CSS variables/design tokens where possible.
+
+User-facing naming scan
+
+Search the codebase for user-facing instances of:
+
+* Currents
+* currents
+* Current
+* Slack
+* Slack Lite
+
+Update only user-facing product references to CURRENTS.
+
+Do not rename:
+
+* API routes like /api/current
+* DB tables like current_messages
+* internal variables like currentUser
+* unrelated terms like “current account”
+
+Tests / verification
+
+Run or update targeted tests for:
+
+1. /current loads
+2. CURRENTS sidebar renders
+3. channel view renders
+4. DM view renders
+5. group DM view renders
+6. empty DM state renders
+7. composer still sends
+8. emoji picker still works
+9. attachment button still works
+10. slash command menu still works
+11. private channel lock still appears
+12. archived badge still appears
+13. no TypeScript errors
+14. no browser console errors
+15. no regressions in key CURRENTS tests
+
+Run relevant existing suites:
+
+* private-channels
+* channel-management
+* channel-visibility
+* channel-readonly
+* notification-preferences
+* dm-reactions
+* group-dm
+* group-dm-members
+* slash-commands
+* dm-attachments
+* dm-attachments-only
+* permissions
+
+Visual verification
+
+After changes, capture screenshots for:
+
+1. CURRENTS channel view in light mode
+2. CURRENTS DM empty state in light mode
+3. CURRENTS channel view in dark mode
+4. CURRENTS DM view in dark mode
+5. composer focused state
+6. profile/sidebar area if CURRENTS naming changed there
+
+Verify:
+
+* it feels more premium
+* spacing is clean
+* text is readable
+* selected states are obvious
+* empty states feel intentional
+* no crowding
+* no broken icons
+* no layout overflow
+
+Allowed fixes
+
+Allowed:
+
+* copy capitalization
+* spacing
+* borders
+* hover states
+* selected states
+* empty states
+* composer styling
+* message feed styling
+* header styling
+* light/dark mode polish
+* subtle premium visual improvements
+* minor component cleanup if needed
+
+Not allowed:
+
+* new message functionality
+* guest users
+* external collaborators
+* profile image upload unless already in progress
+* new backend features
+* migrations
+* real-time/WebSocket rewrite
+* changing access control
+* changing trading/mail/CRM modules
+* unrelated sidebar redesign
+
+Deliverable
+
+Return:
+
+1. UX issues found
+2. Visual polish changes made
+3. User-facing CURRENTS naming changes
+4. Files changed
+5. Light mode screenshot summary
+6. Dark mode screenshot summary
+7. Regression tests run
+8. TypeScript/browser console results
+9. Known limitations
+10. Final status
+
+Keep scope tight: CURRENTS premium UI polish and capitalization only.

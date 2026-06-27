@@ -2392,8 +2392,12 @@ function GroupMemberDialog({
               {(conversation?.members ?? []).map((m) => (
                 <div key={m.id} className="flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-muted/30">
                   <div className="relative shrink-0">
-                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white", avatarBg(m.id))}>
-                      {initials(m.name)}
+                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white overflow-hidden", avatarBg(m.id))}>
+                      {m.avatarUrl ? (
+                        <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
+                      ) : (
+                        initials(m.name)
+                      )}
                     </div>
                     <PresenceDot status={presenceMap[m.id] ?? "offline"} className="absolute -bottom-px -right-px w-2 h-2" />
                   </div>
@@ -4420,11 +4424,15 @@ export default function CurrentPage() {
                       <div className={cn("relative shrink-0", isMutedDm && !active && "opacity-40")}>
                         <div
                           className={cn(
-                            "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white",
+                            "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white overflow-hidden",
                             avatarBg(dm.otherUser?.id ?? dm.conversationId)
                           )}
                         >
-                          {initials(dm.otherUser?.name ?? dm.displayName)}
+                          {dm.otherUser?.avatarUrl ? (
+                            <img src={dm.otherUser.avatarUrl} alt={dm.otherUser.name} className="w-full h-full object-cover" />
+                          ) : (
+                            initials(dm.otherUser?.name ?? dm.displayName)
+                          )}
                         </div>
                         <PresenceDot
                           status={presenceMap[dm.otherUser?.id ?? 0] ?? "offline"}
@@ -4642,12 +4650,16 @@ export default function CurrentPage() {
               ) : (
                 <div
                   className={cn(
-                    "w-6 h-6 rounded-full flex items-center justify-center shrink-0",
+                    "w-6 h-6 rounded-full flex items-center justify-center shrink-0 overflow-hidden",
                     "text-[10px] font-bold text-white",
                     selectedDm ? avatarBg(selectedDm.otherUser?.id ?? selectedDm.conversationId) : "bg-muted"
                   )}
                 >
-                  {selectedDm ? initials(selectedDm.otherUser?.name ?? selectedDm.displayName) : "?"}
+                  {selectedDm?.otherUser?.avatarUrl ? (
+                    <img src={selectedDm.otherUser.avatarUrl} alt={selectedDm.otherUser.name} className="w-full h-full object-cover" />
+                  ) : (
+                    selectedDm ? initials(selectedDm.otherUser?.name ?? selectedDm.displayName) : "?"
+                  )}
                 </div>
               )}
               <span className="font-semibold text-[14px] text-foreground shrink-0">
@@ -4829,12 +4841,16 @@ export default function CurrentPage() {
                   ) : (
                     <div
                       className={cn(
-                        "w-12 h-12 rounded-full flex items-center justify-center",
+                        "w-12 h-12 rounded-full flex items-center justify-center overflow-hidden",
                         "text-base font-bold text-white",
                         selectedDm ? avatarBg(selectedDm.otherUser?.id ?? selectedDm.conversationId) : "bg-muted"
                       )}
                     >
-                      {selectedDm ? initials(selectedDm.otherUser?.name ?? selectedDm.displayName) : "?"}
+                      {selectedDm?.otherUser?.avatarUrl ? (
+                        <img src={selectedDm.otherUser.avatarUrl} alt={selectedDm.otherUser.name} className="w-full h-full object-cover" />
+                      ) : (
+                        selectedDm ? initials(selectedDm.otherUser?.name ?? selectedDm.displayName) : "?"
+                      )}
                     </div>
                   )}
                   <div className="text-center">

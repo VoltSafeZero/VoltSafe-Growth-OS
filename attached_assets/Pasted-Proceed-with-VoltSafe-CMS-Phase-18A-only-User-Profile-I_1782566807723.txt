@@ -1,0 +1,305 @@
+Proceed with VoltSafe CMS Phase 18A only: User Profile Image / Avatar Upload Foundation.
+
+Do not work on Guest Currents, external collaborators, workflow automation, new Currents message features, private-channel roles, Accounts/Contacts list redesign, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Add the ability for authenticated VoltSafe CMS users to upload, replace, and display their own profile image/avatar.
+
+This should improve:
+
+* top-right user menu
+* Currents message avatars
+* Currents DM/group DM avatars
+* channel participants dialog
+* group DM member dialog
+* task owner/user avatars where applicable
+* any existing user avatar/initials component
+
+The current fallback initials system should remain for users without uploaded images.
+
+Scope
+
+Implement only:
+
+1. user avatar image storage
+2. authenticated upload endpoint
+3. authenticated remove/reset endpoint if appropriate
+4. user profile dropdown upload UI
+5. avatar rendering across existing user-avatar surfaces
+6. safe image validation
+7. tests/regressions
+
+Audit first
+
+Before writing code, audit:
+
+1. existing users schema
+2. existing file/upload infrastructure
+3. existing attachment storage paths
+4. existing avatar/initials components
+5. top-right user menu component
+6. Currents MessageRow
+7. Currents DM/group DM sidebar rows
+8. channel participants dialog
+9. group DM member dialog
+10. task owner/avatar components
+11. auth /me response shape
+12. any existing user profile/settings route
+
+Do not duplicate upload systems if an existing safe upload utility can be reused.
+
+Data model
+
+Add or reuse a user avatar field.
+
+Preferred:
+
+* users.avatar_url or equivalent existing field
+* nullable string
+* stores safe app-relative URL/path, not raw base64
+* keeps initials fallback when null
+
+If the schema already has a suitable field, reuse it.
+
+If adding a migration:
+
+* make it idempotent
+* nullable
+* no destructive changes
+* no existing user data changed
+* no seed dependency
+
+Upload behavior
+
+Users should be able to:
+
+1. open the top-right profile dropdown
+2. see their current avatar or initials
+3. click an upload/change image action
+4. choose an image file
+5. upload it
+6. immediately see the new avatar in the top-right menu and Currents surfaces
+7. optionally remove/reset to initials
+
+Image validation
+
+Server-side validation required.
+
+Allow only safe image types:
+
+* JPEG
+* PNG
+* WebP
+
+Recommended limits:
+
+* max file size: 2 MB
+* reject SVG
+* reject GIF unless already supported safely
+* reject executable/non-image MIME types
+* verify extension and MIME type
+* generate a safe filename
+* do not trust the original filename
+* avoid path traversal risk
+* do not store raw base64 in DB
+
+If image processing/resizing is already available, resize/crop to a reasonable square avatar size. If not available, keep scope simple and store the original safe image, but enforce file size and type limits.
+
+Authorization rules
+
+1. Authenticated user can upload their own avatar.
+2. Authenticated user can remove/reset their own avatar.
+3. Normal users cannot upload another user’s avatar.
+4. Admin behavior should not be expanded unless there is already an admin user-management pattern.
+5. Avatar image URLs may be visible to authenticated users where that user appears.
+6. No unauthenticated upload.
+7. No unauthenticated profile mutation.
+
+Backend endpoints
+
+Add endpoints similar to:
+
+* POST /api/me/avatar
+* DELETE /api/me/avatar
+
+or fit the existing route style.
+
+Expected behavior:
+
+POST
+
+* requires auth
+* accepts one image file
+* validates type/size
+* stores the file safely
+* updates current user avatar field
+* returns updated safe user profile payload
+
+DELETE
+
+* requires auth
+* clears avatar field
+* optionally deletes old file if safe
+* returns updated safe user profile payload
+
+Also ensure the existing auth/session /me response includes the avatar URL.
+
+Frontend UI
+
+Update the top-right profile dropdown.
+
+Current dropdown shows:
+
+* initials circle
+* name
+* email
+* Sign Out
+
+Add:
+
+* larger current avatar/initials preview
+* Upload photo or Change photo
+* Remove photo if avatar exists
+* upload loading state
+* error state/toast if upload fails
+
+Keep the UI compact and consistent with the dark VoltSafe design.
+
+Avatar rendering
+
+Centralize avatar rendering if possible.
+
+Create or update a reusable component like:
+
+* UserAvatar
+* Avatar
+* ProfileAvatar
+
+It should support:
+
+* image URL
+* initials fallback
+* size variants
+* deterministic fallback colors
+* accessible alt text
+* graceful image load failure fallback
+
+Use it in:
+
+1. top-right header/user menu
+2. Currents message rows
+3. Currents DM sidebar
+4. Currents group DM sidebar/member rows
+5. channel participants dialog
+6. group DM member dialog
+7. task owner/avatar surfaces if already using user initials
+8. notification/user display surfaces if applicable
+
+Do not rewrite unrelated UI.
+
+Currents-specific requirements
+
+In Currents:
+
+1. Message author avatar should show uploaded photo if available.
+2. DM row avatar should show uploaded photo for the other person.
+3. Group DM member list should show uploaded photos.
+4. Channel participants dialog should show uploaded photos.
+5. Existing initials fallback must remain.
+6. Avatar image failure should not crash message rendering.
+7. Private channel/security behavior must not change.
+
+Cache/update behavior
+
+After upload/delete:
+
+1. invalidate/refetch /api/me
+2. invalidate/refetch Currents user/member/conversation queries where needed
+3. update local UI immediately if safe
+4. avoid requiring full page reload
+
+Security/privacy
+
+Verify:
+
+1. rejected file types cannot be uploaded
+2. oversized file rejected
+3. SVG rejected
+4. fake extension rejected
+5. path traversal filename rejected
+6. user cannot update another user
+7. avatar URL does not expose server file paths
+8. upload endpoint cannot overwrite arbitrary files
+9. deleted/replaced avatar does not break the app
+10. old avatar cleanup is safe or intentionally deferred
+
+Tests
+
+Add or update tests for:
+
+1. authenticated upload succeeds for JPEG/PNG/WebP
+2. unauthenticated upload rejected
+3. oversized upload rejected
+4. invalid MIME rejected
+5. SVG rejected
+6. DELETE clears avatar
+7. /api/me returns avatar URL
+8. user cannot mutate another user’s avatar
+9. initials fallback when avatar is null
+10. Currents message avatar uses image when present
+11. DM row/avatar uses image when present
+12. image load failure falls back to initials
+13. no regressions in Currents private-channel tests
+14. no regressions in DM/group DM tests
+
+Regression checks
+
+Verify:
+
+1. App starts cleanly.
+2. Header renders.
+3. Profile dropdown opens.
+4. Upload photo works.
+5. Remove photo works if implemented.
+6. /current loads.
+7. Currents message feed renders.
+8. DMs render.
+9. Group DMs render.
+10. Private channels still work.
+11. Attachments still work.
+12. Existing initials still show for users without photos.
+13. Browser console clean.
+14. Server logs clean.
+15. TypeScript clean.
+
+Do not do
+
+Do not add:
+
+* public profiles
+* profile bios
+* status messages
+* custom presence states
+* external user avatars
+* guest users
+* image cropping UI unless trivial/existing
+* social login avatar sync
+* Gravatar
+* new file-storage provider
+* unrelated profile settings
+
+Deliverable
+
+Return:
+
+1. Existing avatar/upload infrastructure found
+2. Schema/migration changes
+3. Backend endpoints added
+4. Frontend components updated
+5. Where avatars now display
+6. Security validation implemented
+7. Tests added/updated
+8. Regression results
+9. Known limitations
+10. Final status
