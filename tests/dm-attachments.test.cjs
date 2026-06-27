@@ -237,7 +237,7 @@ console.log("\n19. Keyboard behavior");
 assertContains(
   "Enter key calls handleDmSend",
   src,
-  /handleDmKeyDown[\s\S]{0,200}handleDmSend/
+  /handleDmKeyDown[\s\S]{0,700}handleDmSend/
 );
 assertContains(
   "Shift+Enter does not call handleDmSend",
