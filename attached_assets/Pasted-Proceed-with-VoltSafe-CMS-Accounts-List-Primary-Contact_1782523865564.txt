@@ -1,0 +1,106 @@
+Proceed with VoltSafe CMS Accounts List Primary Contact Click-Through only.
+
+Do not work on Currents, Training Hub, AI summaries, task features, Guest Currents, direct messages, workflow automation, or unrelated CRM features.
+
+Goal
+
+Make the Primary Contact name in the Accounts list clickable so users can jump directly to that contact’s profile/detail, without accidentally opening the Account detail row.
+
+The Primary Contact column already exists and is audited. This task should only add click-through behavior.
+
+Scope
+
+Work only on:
+
+1. Accounts list Primary Contact cell
+2. Contact profile/detail navigation behavior
+3. Minimal state/modal wiring if needed
+
+Do not change backend payload unless the contact ID is missing. The primary contact payload already includes id.
+
+Requirements
+
+Click behavior
+
+When an account has a primary contact:
+
+* Contact name should be visually clickable.
+* Clicking contact name should open that contact’s profile/detail.
+* It should not also trigger the account row click.
+* Use event.stopPropagation() to prevent the account detail row from opening.
+
+When an account has no primary contact:
+
+* Keep existing muted No primary contact fallback.
+* No click behavior.
+
+Preferred navigation
+
+Use the existing contact detail behavior already used elsewhere in the app.
+
+Before coding, audit:
+
+* Contacts page contact detail pattern
+* Contact profile route
+* Existing contact detail dialog/modal if any
+* Existing navigation helper for contacts
+* Current router behavior
+
+Preferred options, in order:
+
+1. Open existing Contact detail dialog/modal if there is a reusable pattern.
+2. Navigate to existing contact profile route, e.g. /contacts/:id, if that is the standard.
+3. If neither is clean, make the contact name display-only and document why.
+
+Do not build a new contact modal.
+
+UI requirements
+
+* Contact name should look like a subtle link:
+    * underline on hover, or primary color on hover
+    * cursor pointer
+* Keep title text non-clickable unless easiest to include with the name.
+* Do not clutter the row.
+* Dark mode should look good.
+* Keyboard/focus accessibility should be reasonable if using a button/link.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. Accounts page loads.
+3. Accounts still default to list view.
+4. Accounts still sort A→Z.
+5. Primary Contact column still appears.
+6. Clicking account row opens Account detail.
+7. Clicking primary contact name opens Contact detail/profile.
+8. Clicking primary contact name does not open Account detail.
+9. Accounts with no primary contact still show fallback.
+10. Fallback is not clickable.
+11. External account profile icon still works.
+12. Bulk checkbox still works.
+13. Search still works.
+14. Filters still work.
+15. Infinite scroll still works.
+16. Grid/Pipeline/Map views still work.
+17. Account detail dialog still works.
+18. Contact detail/profile loads correctly.
+19. No browser console errors.
+20. No server errors.
+21. No SQL errors.
+22. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing contact navigation audit summary
+2. Files changed
+3. Click-through behavior implemented
+4. Event propagation behavior
+5. Verification results
+6. Known issues
+7. Recommended next step
+
+Keep scope tight: Primary Contact click-through only.

@@ -74,8 +74,48 @@ check(
   /account\.primaryContact\.title(\?\.trim\(\))? &&/.test(src)
 );
 check(
-  "text-primary-contact-name data-testid present",
-  /data-testid=\{`text-primary-contact-name-\$\{account\.id\}`\}/.test(src)
+  "btn-primary-contact-name data-testid present (click-through)",
+  /data-testid=\{`btn-primary-contact-name-\$\{account\.id\}`\}/.test(src)
+);
+
+console.log("\n── Click-through behavior ──");
+check(
+  "Contact name is a button element",
+  /<button[^>]*btn-primary-contact-name/.test(src) ||
+  /btn-primary-contact-name[^>]*>/.test(src)
+);
+check(
+  "stopPropagation called on contact name click",
+  src.includes("e.stopPropagation()") &&
+  src.includes("setLocation(`/contacts/")
+);
+check(
+  "Navigates to /contacts/:id using primaryContact.id",
+  /setLocation\(`\/contacts\/\$\{account\.primaryContact[^}]*\.id\}`\)/.test(src)
+);
+check(
+  "Contact name button has hover:underline styling",
+  src.includes("hover:underline")
+);
+check(
+  "Contact name button has hover:text-primary styling",
+  src.includes("hover:text-primary")
+);
+check(
+  "Contact name button has cursor-pointer",
+  src.includes("cursor-pointer")
+);
+check(
+  "No primary contact fallback is NOT a button/link (not clickable)",
+  !src.includes('<button') || (() => {
+    const fallbackIdx = src.indexOf("No primary contact");
+    const btnBeforeFallback = src.lastIndexOf("<button", fallbackIdx);
+    return btnBeforeFallback === -1 || src.indexOf(">", btnBeforeFallback) < fallbackIdx;
+  })()
+);
+check(
+  "setLocation imported/used from useLocation (wouter)",
+  src.includes("setLocation") && src.includes("useLocation")
 );
 
 console.log("\n── Fallback display ──");

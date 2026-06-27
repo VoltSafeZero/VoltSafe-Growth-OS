@@ -677,7 +677,13 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                       <td className="p-3 sm:p-4 hidden lg:table-cell" onClick={() => setSelectedAccount(account)} data-testid={`cell-primary-contact-${account.id}`}>
                         {account.primaryContact ? (
                           <div className="min-w-0">
-                            <span className="text-sm font-medium block truncate max-w-[160px]" data-testid={`text-primary-contact-name-${account.id}`}>{account.primaryContact.name}</span>
+                            <button
+                              className="text-sm font-medium block truncate max-w-[160px] text-left hover:underline hover:text-primary transition-colors cursor-pointer"
+                              data-testid={`btn-primary-contact-name-${account.id}`}
+                              onClick={e => { e.stopPropagation(); setLocation(`/contacts/${account.primaryContact!.id}`); }}
+                            >
+                              {account.primaryContact.name}
+                            </button>
                             {account.primaryContact.title?.trim() && (
                               <span className="text-xs text-muted-foreground block truncate max-w-[160px]">{account.primaryContact.title.trim()}</span>
                             )}
