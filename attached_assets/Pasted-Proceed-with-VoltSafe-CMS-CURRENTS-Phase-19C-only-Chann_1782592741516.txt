@@ -1,0 +1,252 @@
+Proceed with VoltSafe CMS CURRENTS Phase 19C only: Channel Details / Members Modal Polish.
+
+Do not work on avatar upload, Guest CURRENTS, external collaborators, workflow automation, private-channel roles, backend security, Gmail/mail-permissions, Accounts/Contacts redesign, Polyweather, or unrelated modules.
+
+Goal
+
+Make CURRENTS channel details and member management feel more familiar to Slack users, using the same mental model shown in the Slack screenshots:
+
+* channel name/details modal
+* tabs like About / Members / Files / Pins / Settings
+* searchable member list
+* add people entry point
+* clear private/archived/member state
+
+Do not add major new backend features. Reuse existing CURRENTS channel/member/participants functionality.
+
+Current context
+
+CURRENTS already has:
+
+* channel participants endpoint
+* channel participants dialog
+* private channel membership management
+* archived channel display
+* Files tab from Phase 19B
+* Pins tab from Phase 19A
+* Structured tab from Phase 19A
+* avatar display from Phase 18A
+* CURRENTS uppercase naming
+
+Phase 19C should polish the modal/details experience, not rebuild security or add roles.
+
+Audit first
+
+Before writing code, inspect:
+
+1. client/src/pages/current.tsx
+2. existing ChannelParticipantsDialog
+3. existing group member dialog
+4. existing channel create/edit dialog
+5. existing channel settings/admin actions
+6. private channel member management UI
+7. participants endpoint response shape
+8. Files/Pins/Structured tab implementations
+9. channel header People/Members button
+10. light/dark modal styling
+
+Do not start with backend changes unless a small missing payload field blocks display polish.
+
+Main requirement
+
+Create or upgrade a Slack-like Channel Details modal.
+
+It should open from the channel header Members/People button or channel details action.
+
+Suggested tabs:
+
+1. About
+2. Members
+3. Files
+4. Pins
+5. Settings
+
+Keep the implementation low-lift. If some tabs reuse existing UI/data, that is preferred.
+
+1. About tab
+
+Show:
+
+* channel name
+* channel type:
+    * Public channel
+    * Private channel
+    * Archived channel if archived
+* purpose/description if available
+* member count if available
+* created by / created date if available
+* simple explanatory text if fields are unavailable
+
+Do not add new database fields for description/purpose unless one already exists.
+
+2. Members tab
+
+Upgrade the existing participants/member dialog into a more Slack-like member tab.
+
+Requirements:
+
+* search box: “Find members”
+* member count
+* avatar/photo or initials
+* name
+* email or title if available
+* online/offline presence indicator if already available
+* add people entry point for admins/private channel managers if existing logic supports it
+* remove member action only if existing member-management logic supports it
+* clear empty state
+* scrollable list
+* light/dark mode clean
+
+Do not add new permission roles.
+
+3. Files tab
+
+Reuse Phase 19B attachment/file display if possible.
+
+Show files shared in this channel.
+
+If data is not already available inside the modal, use a simple empty/help state and link/instruction to use the main Files tab. Do not build a new backend file search.
+
+4. Pins tab
+
+Reuse existing pinned messages if available.
+
+Show pinned messages or a clean empty state:
+
+* “No pinned messages yet”
+* “Pinned messages will appear here.”
+
+Do not build new pin logic.
+
+5. Settings tab
+
+Low-lift only.
+
+Show existing controls where appropriate:
+
+* notification preference / mute if already available
+* private/public status if already available
+* archived status
+* archive/unarchive button for admins if existing action exists
+* channel edit/manage members if existing action exists
+
+Do not add new settings or roles.
+
+Visual direction
+
+Match Slack-like familiarity but keep VoltSafe style:
+
+* centered modal
+* dark overlay
+* large channel name
+* close X
+* tab row
+* search input on Members
+* clean row spacing
+* avatar/photo support
+* subtle teal focus state
+* good light/dark contrast
+
+Do not over-animate.
+
+Header integration
+
+Update the channel header so:
+
+* Members button opens the Channel Details modal directly to Members tab
+* clicking channel name or info/details action opens About tab if low-risk
+* existing participants behavior is preserved inside the new modal
+* private/archived badges still show clearly
+
+CURRENTS naming
+
+All user-facing copy should use:
+
+CURRENTS
+
+Do not rename internal routes, DB tables, API names, or variables.
+
+Tests / verification
+
+Verify:
+
+1. channel details modal opens
+2. About tab renders
+3. Members tab renders
+4. member search filters list
+5. avatars render with initials fallback
+6. private channel members render only to authorized users
+7. add/remove people actions still work if exposed
+8. Files tab renders or shows clean low-lift state
+9. Pins tab renders or shows clean low-lift state
+10. Settings tab renders allowed controls
+11. modal closes cleanly
+12. switching channels resets modal state safely
+13. light mode clean
+14. dark mode clean
+15. no TypeScript errors
+16. no browser console errors
+17. existing CURRENTS security tests still pass
+
+Run relevant suites:
+
+* private-channels
+* channel-management
+* channel-visibility
+* channel-readonly
+* notification-preferences
+* dm-attachments
+* dm-attachments-only
+* dm-reactions
+* group-dm
+* group-dm-members
+* permissions
+* Phase 19A/19B source checks if present
+
+If the known dm-reactions.test.cjs “group test message must be in response” failure appears, document whether it is the pre-existing unrelated issue unless directly caused by this phase.
+
+Screenshots
+
+Capture screenshots for:
+
+1. channel details About tab
+2. Members tab with search
+3. Members tab with avatars
+4. Files tab or empty state
+5. Pins tab or empty state
+6. Settings tab
+7. light mode modal
+8. dark mode modal
+
+Not allowed
+
+Do not add:
+
+* guest users
+* external collaborators
+* channel roles/owners
+* public invite links
+* new backend permission model
+* new database tables
+* new global file search
+* unrelated profile settings
+* CRM/mail/trading changes
+
+Deliverable
+
+Return:
+
+1. UX issues found
+2. modal/details changes made
+3. About tab details
+4. Members tab details
+5. Files/Pins/Settings tab details
+6. header integration details
+7. files changed
+8. screenshots captured
+9. tests run
+10. TypeScript/browser/server results
+11. known limitations
+12. final status
+
+Keep scope tight: CURRENTS Channel Details / Members Modal polish only.

@@ -263,64 +263,64 @@ async function test(name, fn) {
 
   const routesSrc = fs.readFileSync(path.join(__dirname, "../server/routes.ts"), "utf8");
 
-  console.log("\n  [source-grep: ChannelParticipantsDialog]");
+  console.log("\n  [source-grep: ChannelDetailsModal (Phase 19C)]");
 
-  await test("src: ChannelParticipantsDialog component defined", async () => {
-    assert.ok(src.includes("function ChannelParticipantsDialog("), "ChannelParticipantsDialog missing");
+  await test("src: ChannelDetailsModal component defined", async () => {
+    assert.ok(src.includes("function ChannelDetailsModal("), "ChannelDetailsModal missing");
   });
 
-  await test("src: ChannelParticipantsDialog accepts presenceMap prop", async () => {
+  await test("src: ChannelDetailsModal accepts presenceMap prop", async () => {
     assert.ok(src.includes("presenceMap?: Record<number, \"online\" | \"offline\">"), "presenceMap prop missing");
   });
 
-  await test("src: ChannelParticipantsDialog shows participant rows with data-testid", async () => {
+  await test("src: ChannelDetailsModal shows participant rows with data-testid", async () => {
     assert.ok(src.includes("channel-participant-row-"), "participant row testid missing");
   });
 
-  await test("src: ChannelParticipantsDialog 'You' label for current user", async () => {
+  await test("src: ChannelDetailsModal 'You' label for current user", async () => {
     assert.ok(src.includes("You"), "You label missing");
     assert.ok(src.includes("isYou"), "isYou check missing");
   });
 
-  await test("src: ChannelParticipantsDialog sorts: current user → online → offline", async () => {
-    const block = src.slice(src.indexOf("function ChannelParticipantsDialog"), src.indexOf("function PresenceDot"));
+  await test("src: ChannelDetailsModal sorts: current user → online → offline", async () => {
+    const block = src.slice(src.indexOf("function ChannelDetailsModal"), src.indexOf("function PresenceDot"));
     assert.ok(block.includes("you"), "you bucket missing in sort");
     assert.ok(block.includes("online"), "online bucket missing in sort");
     assert.ok(block.includes("offline"), "offline bucket missing in sort");
   });
 
-  await test("src: ChannelParticipantsDialog shows Online/Offline status text", async () => {
-    const block = src.slice(src.indexOf("function ChannelParticipantsDialog"), src.indexOf("function PresenceDot"));
+  await test("src: ChannelDetailsModal shows Online/Offline status text", async () => {
+    const block = src.slice(src.indexOf("function ChannelDetailsModal"), src.indexOf("function PresenceDot"));
     assert.ok(block.includes("Online"), "Online text missing");
     assert.ok(block.includes("Offline"), "Offline text missing");
   });
 
-  await test("src: ChannelParticipantsDialog uses PresenceDot", async () => {
-    const block = src.slice(src.indexOf("function ChannelParticipantsDialog"), src.indexOf("function PresenceDot"));
-    assert.ok(block.includes("<PresenceDot"), "PresenceDot not used in ChannelParticipantsDialog");
+  await test("src: ChannelDetailsModal uses PresenceDot", async () => {
+    const block = src.slice(src.indexOf("function ChannelDetailsModal"), src.indexOf("function PresenceDot"));
+    assert.ok(block.includes("<PresenceDot"), "PresenceDot not used in ChannelDetailsModal");
   });
 
-  await test("src: ChannelParticipantsDialog shows empty state", async () => {
+  await test("src: ChannelDetailsModal shows empty state", async () => {
     assert.ok(src.includes("No channel participants yet"), "empty state message missing");
   });
 
-  await test("src: ChannelParticipantsDialog empty state has data-testid", async () => {
+  await test("src: ChannelDetailsModal empty state has data-testid", async () => {
     assert.ok(src.includes("channel-participants-empty"), "empty state testid missing");
   });
 
-  await test("src: ChannelParticipantsDialog isArchived prop shows badge", async () => {
-    const block = src.slice(src.indexOf("function ChannelParticipantsDialog"), src.indexOf("function PresenceDot"));
-    assert.ok(block.includes("Archived"), "Archived badge missing in dialog");
+  await test("src: ChannelDetailsModal isArchived shows archived indicator", async () => {
+    const block = src.slice(src.indexOf("function ChannelDetailsModal"), src.indexOf("function PresenceDot"));
+    assert.ok(block.includes("Archived"), "Archived indicator missing in modal");
   });
 
-  await test("src: ChannelParticipantsDialog always shows email (not toggled)", async () => {
-    const block = src.slice(src.indexOf("function ChannelParticipantsDialog"), src.indexOf("function PresenceDot"));
+  await test("src: ChannelDetailsModal always shows email (not toggled)", async () => {
+    const block = src.slice(src.indexOf("function ChannelDetailsModal"), src.indexOf("function PresenceDot"));
     assert.ok(block.includes("{p.email}"), "email not always shown");
     assert.ok(!block.includes("presenceMap[p.id] === \"online\" ? "), "email should not be conditionally replaced");
   });
 
-  await test("src: ChannelParticipantsDialog current user always shown online", async () => {
-    const block = src.slice(src.indexOf("function ChannelParticipantsDialog"), src.indexOf("function PresenceDot"));
+  await test("src: ChannelDetailsModal current user always shown online", async () => {
+    const block = src.slice(src.indexOf("function ChannelDetailsModal"), src.indexOf("function PresenceDot"));
     assert.ok(block.includes('isYou ? "online"'), "current user must always show online status");
   });
 
@@ -403,10 +403,10 @@ async function test(name, fn) {
     assert.ok(block.includes("staleTime:"), "staleTime missing on participants query");
   });
 
-  await test("src: ChannelParticipantsDialog call site passes all required props", async () => {
+  await test("src: ChannelDetailsModal call site passes all required props", async () => {
     const dialogCall = src.slice(
-      src.indexOf("Phase 12C: channel participants / online presence panel"),
-      src.indexOf("Phase 12C: channel participants / online presence panel") + 500,
+      src.indexOf("Phase 19C: ChannelDetailsModal call site"),
+      src.indexOf("Phase 19C: ChannelDetailsModal call site") + 700,
     );
     assert.ok(dialogCall.includes("channelSlug={selectedSlug}"), "channelSlug prop missing at call site");
     assert.ok(dialogCall.includes("participants={channelParticipants}"), "participants prop missing at call site");

@@ -2528,8 +2528,7 @@ function GroupMemberDialog({
   );
 }
 
-// ── ChannelParticipantsDialog ────────────────────────────────────────────────
-// Phase 12C: shows channel participants with online presence indicators.
+// ── ChannelParticipant type ───────────────────────────────────────────────────
 
 interface ChannelParticipant {
   id: number;
@@ -2537,115 +2536,447 @@ interface ChannelParticipant {
   email: string;
 }
 
-function ChannelParticipantsDialog({
+// ── ChannelDetailsModal ───────────────────────────────────────────────────────
+// Phase 19C: Slack-style channel details modal with About/Members/Files/Pins/Settings tabs.
+
+type ChannelDetailsTab = "about" | "members" | "files" | "pins" | "settings";
+
+function ChannelDetailsModal({
   open,
   onOpenChange,
+  defaultTab = "about",
   channelSlug,
+  channel,
+  channelDirect,
   participants,
+  pins,
+  messages,
   currentUserId,
+  isAdmin,
   isArchived = false,
   presenceMap = {},
+  onPrefChange,
+  onUnarchive,
+  onOpenEditChannel,
+  onRemoveMember,
+  onAddMember,
+  onUnpin,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  defaultTab?: ChannelDetailsTab;
   channelSlug: string;
+  channel: Channel | null;
+  channelDirect: ChannelInfo | null;
   participants: ChannelParticipant[];
+  pins: PinnedMessage[];
+  messages: Message[];
   currentUserId: number;
+  isAdmin: boolean;
   isArchived?: boolean;
   presenceMap?: Record<number, "online" | "offline">;
+  onPrefChange: (level: "all" | "mentions" | "muted") => void;
+  onUnarchive: () => void;
+  onOpenEditChannel: () => void;
+  onRemoveMember: (userId: number) => void;
+  onAddMember: (userId: number) => void;
+  onUnpin: (messageId: number) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<ChannelDetailsTab>("about");
+  const [memberSearch, setMemberSearch] = useState("");
+
+  useEffect(() => {
+    if (open) { setActiveTab(defaultTab); setMemberSearch(""); }
+  }, [open, defaultTab]);
+
   const sorted = useMemo(() => {
     const you = participants.filter((p) => p.id === currentUserId);
     const others = participants.filter((p) => p.id !== currentUserId);
-    const online = others
-      .filter((p) => presenceMap[p.id] === "online")
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const offline = others
-      .filter((p) => presenceMap[p.id] !== "online")
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const online = others.filter((p) => presenceMap[p.id] === "online").sort((a, b) => a.name.localeCompare(b.name));
+    const offline = others.filter((p) => presenceMap[p.id] !== "online").sort((a, b) => a.name.localeCompare(b.name));
     return [...you, ...online, ...offline];
   }, [participants, currentUserId, presenceMap]);
 
-  function initials(name: string) {
-    return name
-      .split(" ")
-      .map((w) => w[0] ?? "")
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-  }
+  const filteredMembers = memberSearch.trim()
+    ? sorted.filter((p) =>
+        p.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
+        p.email.toLowerCase().includes(memberSearch.toLowerCase())
+      )
+    : sorted;
+
+  const msgsWithFiles = messages.filter((m) => m.attachments && m.attachments.length > 0).slice(-20);
+
+  const channelTypeLabel = isArchived
+    ? "Archived channel"
+    : channel?.isPrivate
+    ? "Private channel"
+    : "Public channel";
+
+  const notifLevel: "all" | "mentions" | "muted" = channel?.notificationLevel ?? "mentions";
+  const createdAt = channelDirect?.createdAt;
+  const TABS: ChannelDetailsTab[] = ["about", "members", "files", "pins", "settings"];
+  const TAB_LABELS: Record<ChannelDetailsTab, string> = { about: "About", members: "Members", files: "Files", pins: "Pins", settings: "Settings" };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm w-full p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-4 pt-4 pb-3 border-b border-border/30">
-          <DialogTitle className="text-[14px] font-semibold flex items-center gap-2">
-            <Users className="w-4 h-4 text-muted-foreground/60" />
-            <span className="truncate">
-              #{displaySlug(channelSlug)} · {participants.length}{" "}
-              {participants.length === 1 ? "person" : "people"}
-            </span>
-            {isArchived && (
-              <span className="ml-auto shrink-0 text-[11px] font-normal text-muted-foreground/60 bg-muted/40 px-1.5 py-0.5 rounded">
-                Archived
-              </span>
+      <DialogContent className="max-w-[480px] w-full p-0 gap-0 overflow-hidden flex flex-col" style={{ maxHeight: "85vh" }}>
+        {/* Modal header */}
+        <div className="px-5 pt-5 pb-3 border-b border-border/30 shrink-0">
+          <div className="flex items-start gap-2.5 min-w-0">
+            {isArchived ? (
+              <Archive className="w-4 h-4 text-muted-foreground/50 shrink-0 mt-0.5" />
+            ) : channel?.isPrivate ? (
+              <Lock className="w-4 h-4 text-amber-400/70 shrink-0 mt-0.5" />
+            ) : (
+              <Hash className="w-4 h-4 text-primary/60 shrink-0 mt-0.5" />
             )}
-          </DialogTitle>
-        </DialogHeader>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <DialogTitle className="text-[15px] font-bold text-foreground tracking-tight">
+                  {channel?.name ?? displaySlug(channelSlug)}
+                </DialogTitle>
+                <span className={cn("text-[10.5px] font-medium px-1.5 py-0.5 rounded-full shrink-0 select-none",
+                  isArchived ? "bg-muted/40 text-muted-foreground/60" :
+                  channel?.isPrivate ? "bg-amber-500/10 text-amber-400" : "bg-primary/10 text-primary/70"
+                )}>
+                  {channelTypeLabel}
+                </span>
+              </div>
+              {channel?.description ? (
+                <p className="text-[12.5px] text-muted-foreground/70 leading-relaxed mt-0.5">{channel.description}</p>
+              ) : (
+                <p className="text-[12px] text-muted-foreground/35 italic mt-0.5">No description set</p>
+              )}
+            </div>
+          </div>
+        </div>
 
-        <div className="overflow-y-auto max-h-[360px] py-1">
-          {sorted.length === 0 ? (
-            <p
-              className="px-4 py-6 text-center text-[13px] text-muted-foreground/50"
-              data-testid="channel-participants-empty"
+        {/* Tab row */}
+        <div className="flex items-end px-2 border-b border-border/30 bg-sidebar/5 shrink-0 overflow-x-auto">
+          {TABS.map((tab) => (
+            <button
+              key={tab}
+              data-testid={`channel-details-tab-${tab}`}
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                "px-3 py-2.5 text-[12px] font-medium transition-colors border-b-2 -mb-px whitespace-nowrap shrink-0",
+                activeTab === tab
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground/50 hover:text-foreground hover:bg-muted/30"
+              )}
             >
-              No channel participants yet
-            </p>
-          ) : (
-            sorted.map((p) => {
-              const isYou = p.id === currentUserId;
-              const status = isYou ? "online" : (presenceMap[p.id] ?? "offline");
-              return (
-                <div
-                  key={p.id}
-                  className="flex items-center gap-3 px-4 py-2 hover:bg-muted/30 transition-colors"
-                  data-testid={`channel-participant-row-${p.id}`}
-                >
-                  <div className="relative shrink-0">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-[11px] font-semibold text-primary/80">
-                      {initials(p.name)}
-                    </div>
-                    <PresenceDot
-                      status={status}
-                      className="absolute -bottom-px -right-px w-2 h-2"
-                    />
+              {TAB_LABELS[tab]}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+
+          {/* ── About ── */}
+          {activeTab === "about" && (
+            <div className="px-5 py-4 space-y-4">
+              <div className={cn("flex items-center gap-3 p-3 rounded-xl",
+                isArchived ? "bg-amber-500/10 border border-amber-500/20" :
+                channel?.isPrivate ? "bg-amber-500/8 border border-amber-500/15" : "bg-primary/8 border border-primary/15"
+              )}>
+                <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+                  isArchived ? "bg-muted/40" : channel?.isPrivate ? "bg-amber-500/10" : "bg-primary/10"
+                )}>
+                  {isArchived ? <Archive className="w-4 h-4 text-amber-400/60" /> :
+                   channel?.isPrivate ? <Lock className="w-4 h-4 text-amber-400/70" /> :
+                   <Hash className="w-4 h-4 text-primary/60" />}
+                </div>
+                <div>
+                  <p className="text-[12.5px] font-semibold text-foreground/85">{channelTypeLabel}</p>
+                  <p className="text-[11.5px] text-muted-foreground/60 leading-tight mt-0.5">
+                    {isArchived ? "Messages are preserved in read-only mode." :
+                     channel?.isPrivate ? "Only invited members can access this channel." :
+                     "Anyone in CURRENTS can join and see this channel."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[10.5px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-1">Members</p>
+                  <p className="text-[13px] text-foreground/80">{participants.length} {participants.length === 1 ? "member" : "members"}</p>
+                </div>
+                {channel?.description && (
+                  <div>
+                    <p className="text-[10.5px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-1">Description</p>
+                    <p className="text-[13px] text-foreground/80 leading-relaxed">{channel.description}</p>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-medium text-foreground truncate">
-                        {p.name}
-                      </span>
-                      {isYou && (
-                        <span className="text-[10.5px] text-muted-foreground/50 shrink-0">
-                          You
+                )}
+                {createdAt && (
+                  <div>
+                    <p className="text-[10.5px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-1">Created</p>
+                    <p className="text-[13px] text-foreground/80">
+                      {new Date(createdAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Members ── */}
+          {activeTab === "members" && (
+            <div className="flex flex-col h-full">
+              <div className="px-4 py-3 border-b border-border/20 shrink-0">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Find members"
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-[12.5px] bg-muted/30 border border-border/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/50 transition-all"
+                    data-testid="channel-details-member-search"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground/40 mt-1.5">
+                  {participants.length} {participants.length === 1 ? "member" : "members"}
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto py-1">
+                {filteredMembers.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-[13px] text-muted-foreground/50" data-testid="channel-participants-empty">
+                    {memberSearch ? "No members match your search" : "No channel participants yet"}
+                  </p>
+                ) : filteredMembers.map((p) => {
+                  const isYou = p.id === currentUserId;
+                  const status = isYou ? "online" : (presenceMap[p.id] ?? "offline");
+                  return (
+                    <div key={p.id} className="flex items-center gap-3 px-4 py-2 hover:bg-muted/30 transition-colors" data-testid={`channel-participant-row-${p.id}`}>
+                      <div className="relative shrink-0">
+                        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white select-none", avatarBg(p.id))}>
+                          {initials(p.name)}
+                        </div>
+                        <PresenceDot
+                          status={status}
+                          className="absolute -bottom-px -right-px w-2 h-2"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[13px] font-medium text-foreground truncate">{p.name}</span>
+                          {isYou && <span className="text-[10.5px] text-muted-foreground/50 shrink-0">You</span>}
+                        </div>
+                        <div className="text-[11.5px] text-muted-foreground/60 truncate">{p.email}</div>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-1">
+                        <span className="text-[11px]">
+                          {status === "online"
+                            ? <span className="text-emerald-500/80">Online</span>
+                            : <span className="text-muted-foreground/40">Offline</span>}
                         </span>
-                      )}
+                        {isAdmin && channel?.isPrivate && !isYou && (
+                          <button
+                            onClick={() => onRemoveMember(p.id)}
+                            className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-colors ml-1"
+                            title="Remove from channel"
+                            data-testid={`channel-details-remove-member-${p.id}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-[11.5px] text-muted-foreground/60 truncate">
-                      {p.email}
-                    </div>
+                  );
+                })}
+              </div>
+
+              {isAdmin && channel?.isPrivate && !isArchived && (
+                <div className="px-4 py-3 border-t border-border/20 shrink-0">
+                  <p className="text-[11px] font-medium text-muted-foreground/50 mb-2">Add people</p>
+                  <MemberPickerInline
+                    selectedIds={[]}
+                    onChange={(ids) => { const id = ids[0]; if (id) onAddMember(id); }}
+                    excludeIds={participants.map((p) => p.id)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Files ── */}
+          {activeTab === "files" && (
+            <div className="px-4 py-4">
+              {msgsWithFiles.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-3 select-none">
+                  <FileText className="w-10 h-10 text-muted-foreground/15" />
+                  <div className="text-center">
+                    <p className="text-[13px] font-medium text-muted-foreground/50">No files shared yet</p>
+                    <p className="text-[12px] text-muted-foreground/35 mt-1">Files shared in this channel will appear here.</p>
                   </div>
-                  <div className="shrink-0 text-[11px]">
-                    {status === "online" ? (
-                      <span className="text-emerald-500/80">Online</span>
-                    ) : (
-                      <span className="text-muted-foreground/40">Offline</span>
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {msgsWithFiles.map((msg, i) => {
+                    const prev = msgsWithFiles[i - 1];
+                    const showDivider = msgIsNewDay(prev?.createdAt, msg.createdAt);
+                    return (
+                      <div key={msg.id}>
+                        {showDivider && (
+                          <div className="flex items-center gap-3 py-2 select-none" aria-hidden>
+                            <div className="flex-1 h-px bg-border/30" />
+                            <span className="text-[10.5px] font-medium text-muted-foreground/40 px-2 whitespace-nowrap">{formatDateDivider(msg.createdAt)}</span>
+                            <div className="flex-1 h-px bg-border/30" />
+                          </div>
+                        )}
+                        <div className="flex items-start gap-3 px-1 py-2 rounded-xl hover:bg-muted/20 transition-colors">
+                          <div className={cn("w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-white text-[10px] font-bold mt-0.5 overflow-hidden select-none", avatarBg(msg.userId))}>
+                            {msg.userAvatarUrl
+                              ? <img src={msg.userAvatarUrl} alt={msg.userName} className="w-full h-full object-cover" />
+                              : initials(msg.userName)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline gap-2 mb-1.5">
+                              <span className="text-[12px] font-semibold text-foreground/85">{msg.userName}</span>
+                              <span className="text-[10.5px] text-muted-foreground/50">{formatTs(msg.createdAt)}</span>
+                            </div>
+                            <FilesTabAttachments attachments={msg.attachments!} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Pins ── */}
+          {activeTab === "pins" && (
+            <div className="px-4 py-4 space-y-2.5">
+              {pins.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-3 select-none">
+                  <Pin className="w-10 h-10 text-muted-foreground/15" />
+                  <div className="text-center">
+                    <p className="text-[13px] font-medium text-muted-foreground/50">No pinned messages yet</p>
+                    <p className="text-[12px] text-muted-foreground/35 mt-1">Pinned messages will appear here.</p>
+                  </div>
+                </div>
+              ) : pins.map((pin) => (
+                <div key={pin.id} className="group flex items-start gap-3 px-3 py-2.5 rounded-xl bg-muted/20 border border-border/30 hover:bg-muted/30 transition-colors">
+                  <Pin className="w-3.5 h-3.5 text-primary/50 shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2 mb-0.5">
+                      <span className="text-[12px] font-semibold text-foreground/80">{pin.messageUserName}</span>
+                      <span className="text-[10.5px] text-muted-foreground/40">{formatTs(pin.messageCreatedAt)}</span>
+                    </div>
+                    <p className="text-[12.5px] text-foreground/70 leading-snug break-words">
+                      {pin.messageBody || <em className="text-muted-foreground/40">Attachment</em>}
+                    </p>
+                    {pin.pinnedByName && (
+                      <p className="text-[10px] text-muted-foreground/35 mt-1">Pinned by {pin.pinnedByName}</p>
+                    )}
+                  </div>
+                  {!isArchived && (
+                    <button
+                      onClick={() => onUnpin(pin.messageId)}
+                      className="opacity-0 group-hover:opacity-100 shrink-0 w-6 h-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted/60 transition-all"
+                      title="Unpin"
+                      data-testid={`channel-details-unpin-${pin.messageId}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Settings ── */}
+          {activeTab === "settings" && (
+            <div className="px-5 py-4 space-y-5">
+              <div>
+                <p className="text-[10.5px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-3">Notifications</p>
+                <div className="space-y-1">
+                  {(
+                    [
+                      { value: "all" as const, label: "All messages", desc: "Get notified for every message" },
+                      { value: "mentions" as const, label: "Mentions & keywords", desc: "Only when @mentioned or keywords match" },
+                      { value: "muted" as const, label: "Muted", desc: "No notifications from this channel" },
+                    ] as const
+                  ).map((opt) => {
+                    const isActive = notifLevel === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => onPrefChange(opt.value)}
+                        data-testid={`channel-notif-${opt.value}`}
+                        className={cn(
+                          "w-full flex items-start gap-3 px-3 py-2.5 rounded-xl transition-colors text-left",
+                          isActive
+                            ? "bg-primary/10 border border-primary/20"
+                            : "hover:bg-muted/30 border border-transparent"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-4 h-4 rounded-full border-2 shrink-0 mt-0.5 flex items-center justify-center",
+                          isActive ? "border-primary bg-primary" : "border-border/50"
+                        )}>
+                          {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[12.5px] font-medium text-foreground/85 leading-tight">{opt.label}</p>
+                          <p className="text-[11px] text-muted-foreground/50 mt-0.5">{opt.desc}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {isAdmin && (
+                <div>
+                  <p className="text-[10.5px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-3">Admin</p>
+                  <div className="space-y-2">
+                    {!isArchived && (
+                      <button
+                        onClick={onOpenEditChannel}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/30 border border-border/30 transition-colors text-left"
+                        data-testid="channel-details-edit-btn"
+                      >
+                        <Settings className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+                        <div>
+                          <p className="text-[12.5px] font-medium text-foreground/85">Edit channel</p>
+                          <p className="text-[11px] text-muted-foreground/50">Change name, description, and privacy</p>
+                        </div>
+                      </button>
+                    )}
+                    {isArchived && (
+                      <button
+                        onClick={onUnarchive}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-emerald-500/10 border border-emerald-500/20 transition-colors text-left"
+                        data-testid="channel-details-unarchive-btn"
+                      >
+                        <Archive className="w-4 h-4 text-emerald-500/60 shrink-0" />
+                        <div>
+                          <p className="text-[12.5px] font-medium text-emerald-400">Restore channel</p>
+                          <p className="text-[11px] text-muted-foreground/50">Make this channel active again</p>
+                        </div>
+                      </button>
                     )}
                   </div>
                 </div>
-              );
-            })
+              )}
+
+              {isArchived && (
+                <div className="px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <div className="flex items-center gap-2">
+                    <Archive className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <p className="text-[12px] text-amber-400 font-medium">This channel is archived</p>
+                  </div>
+                  <p className="text-[11.5px] text-muted-foreground/60 mt-1">Messages are preserved in read-only mode.</p>
+                </div>
+              )}
+            </div>
           )}
+
         </div>
       </DialogContent>
     </Dialog>
@@ -3295,6 +3626,7 @@ export default function CurrentPage() {
   const [editChannelOpen, setEditChannelOpen] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [channelParticipantsOpen, setChannelParticipantsOpen] = useState(false);
+  const [channelDetailsTab, setChannelDetailsTab] = useState<ChannelDetailsTab>("about");
   const [channelNameInput, setChannelNameInput] = useState("");
   const [channelDescInput, setChannelDescInput] = useState("");
   const [channelEditNameInput, setChannelEditNameInput] = useState("");
@@ -4744,7 +5076,7 @@ export default function CurrentPage() {
               )}
               {/* Phase 12C: channel people / online presence control */}
               <button
-                onClick={() => setChannelParticipantsOpen(true)}
+                onClick={() => { setChannelDetailsTab("members"); setChannelParticipantsOpen(true); }}
                 data-testid="btn-channel-participants"
                 title="Channel participants"
                 className={cn(
@@ -4824,7 +5156,7 @@ export default function CurrentPage() {
                     </button>
                   );
                 })}
-                <button data-testid="channel-tab-members" onClick={() => setChannelParticipantsOpen(true)}
+                <button data-testid="channel-tab-members" onClick={() => { setChannelDetailsTab("members"); setChannelParticipantsOpen(true); }}
                   className="px-3 py-2 text-[12px] font-medium transition-colors border-b-2 border-transparent -mb-px whitespace-nowrap shrink-0 text-muted-foreground/50 hover:text-foreground hover:bg-muted/30">
                   Members
                 </button>
@@ -5716,15 +6048,36 @@ export default function CurrentPage() {
         presenceMap={presenceMap}
       />
 
-      {/* Phase 12C: channel participants / online presence panel */}
-      <ChannelParticipantsDialog
+      {/* Phase 19C: ChannelDetailsModal call site */}
+      <ChannelDetailsModal
         open={channelParticipantsOpen}
         onOpenChange={setChannelParticipantsOpen}
+        defaultTab={channelDetailsTab}
         channelSlug={selectedSlug}
+        channel={selectedChannel ?? null}
+        channelDirect={selectedChannelDirect ?? null}
         participants={channelParticipants}
+        pins={pins}
+        messages={messages}
         currentUserId={currentUserId}
+        isAdmin={isAdmin}
         isArchived={isArchivedChannel}
         presenceMap={presenceMap}
+        onPrefChange={(level) => {
+          if (selectedChannel?.id) channelPrefMutation.mutate({ channelId: selectedChannel.id, notificationLevel: level });
+        }}
+        onUnarchive={() => {
+          if (selectedChannelDirect?.id) unarchiveChannelMutation.mutate(selectedChannelDirect.id);
+        }}
+        onOpenEditChannel={() => {
+          setChannelParticipantsOpen(false);
+          setChannelEditNameInput(selectedChannel?.name ?? "");
+          setChannelEditDescInput(selectedChannel?.description ?? "");
+          setEditChannelOpen(true);
+        }}
+        onRemoveMember={(userId) => removeChannelMemberMutation.mutate({ slug: selectedSlug, userId })}
+        onAddMember={(userId) => addChannelMemberMutation.mutate({ slug: selectedSlug, userId })}
+        onUnpin={(messageId) => unpinMutation.mutate(messageId)}
       />
 
       {/* ── Thread panel ────────────────────────────────────────────────── */}
