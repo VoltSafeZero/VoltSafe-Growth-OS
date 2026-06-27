@@ -1,0 +1,265 @@
+Proceed with VoltSafe CMS Currents Phase 9C only: Archived Channel Visibility / Structured Panel Polish.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, notification preferences, typing indicators, or unrelated task features.
+
+Goal
+
+Polish how archived channel content appears across read-only Currents surfaces.
+
+Phase 9A added channel archive/unarchive. Phase 9B made archived channels truly read-only. Phase 9C should make archived channel content clear, discoverable, and not confusing in panels like Structured Items, Search, Mentions, Pins, Summaries, and View in Currents links.
+
+Scope
+
+Work only on read-only visibility and labeling for archived channels.
+
+Focus on:
+
+1. Structured Panel archived-channel visibility/filtering
+2. Search result labeling for archived channels
+3. Mentions panel labeling if archived-channel mentions appear
+4. Pins panel behavior for archived channels
+5. View in Currents links to archived messages
+6. AI summary behavior/read-only labeling if needed
+7. Archived channel badges/labels in read-only surfaces
+8. Tests/audit for the above
+
+Do not add new write features.
+
+Existing behavior to audit first
+
+Before coding, inspect:
+
+* GET /api/current/structured
+* Structured Panel UI in /current
+* RecordStructuredPanel if shared
+* Currents search routes and UI
+* Mentions routes and UI
+* Pins route and UI
+* AI summary routes and UI
+* View in Currents deep-link handling
+* Task source block links
+* Archived channel metadata route
+* Any existing archivedAt, archived_at, channelArchivedAt, or similar response fields
+
+Desired behavior
+
+Archived channel content should remain readable, but clearly labeled.
+
+Structured Items
+
+Archived channel structured items should either:
+
+1. Be shown by default with an Archived badge, or
+2. Be hidden by default with a clear Include archived channels toggle.
+
+Preferred for Phase 9C:
+
+* Show active-channel items by default.
+* Add a checkbox/toggle: Include archived channels.
+* When included, archived-channel items show an Archived badge beside the channel/source label.
+
+Do not delete or mutate archived structured items.
+
+Search
+
+Search results from archived channels should remain accessible.
+
+Requirements:
+
+1. Archived-channel search results should show an Archived badge.
+2. Clicking result should open archived channel/message safely.
+3. Read-only banner should appear after navigation.
+4. No write controls should appear.
+
+Mentions
+
+If a user was mentioned in an archived channel:
+
+1. Mention should remain visible.
+2. It should show an Archived badge or archived channel label.
+3. Clicking mention should open read-only archived channel/message safely.
+
+Pins
+
+Existing pins in archived channels should remain visible/readable.
+
+Requirements:
+
+1. Pins route should include archived channel pins when viewing archived channel.
+2. Pin UI should show read-only state.
+3. Unpin controls should be hidden/disabled for archived channels.
+4. Archived badge appears where helpful.
+
+View in Currents / Task Source Links
+
+For links pointing to archived channel messages:
+
+1. Link should still work.
+2. Archived channel should open safely.
+3. Read-only banner should appear.
+4. Message/thread highlight should still work if implemented.
+5. No write controls should appear.
+
+Backend requirements
+
+Add archived metadata to read-only responses where needed.
+
+Possible fields:
+
+{
+  "channelArchivedAt": "2026-06-26T..."
+}
+
+or:
+
+{
+  "isChannelArchived": true
+}
+
+Audit each route and add archived metadata only where useful:
+
+* structured items
+* search results
+* mentions
+* pins
+* task source/current links if needed
+
+Avoid payload bloat.
+
+Frontend requirements
+
+Archived badge
+
+Create or reuse a small badge:
+
+Archived
+
+Suggested styling:
+
+* muted amber/neutral badge
+* small size
+* not loud, but visible
+
+Use consistently in:
+
+* Structured items
+* Search results
+* Mentions
+* Pins
+* Any source labels where archived channel content appears
+
+Structured Panel toggle
+
+Add:
+
+Include archived channels
+
+Behavior:
+
+1. Off by default.
+2. When off, archived-channel items are hidden.
+3. When on, archived-channel items appear with Archived badge.
+4. Counts should be clear:
+    * Either count only visible items, or
+    * clearly separate total vs filtered count.
+5. Export CSV should export currently visible items only.
+6. Existing type filters still work.
+7. Existing channel/all scope filters still work.
+
+Deep-link behavior
+
+If clicking archived content:
+
+1. Navigate correctly.
+2. Read-only banner appears.
+3. Archived channel metadata loads even though hidden from normal sidebar.
+4. No crash if channel is archived and not in sidebar list.
+
+Security requirements
+
+This phase is read-only.
+
+Verify:
+
+1. No write route is loosened.
+2. Archived-channel write blocks from 9B remain intact.
+3. Normal users can only see archived content they could already see under the existing visibility model.
+4. No private/guest/channel-member permissions are introduced.
+5. DMs are unaffected.
+6. Record Currents are unaffected.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Active channels still display normally.
+4. Archived channel opens by deep-link.
+5. Archived banner appears.
+6. Structured Panel loads.
+7. Structured Panel hides archived-channel items by default if toggle implemented.
+8. Structured Panel includes archived-channel items when toggled on.
+9. Archived structured items show Archived badge.
+10. Structured type filters still work.
+11. Structured CSV export exports visible items only.
+12. Search results from archived channels show Archived badge.
+13. Clicking archived search result opens read-only channel.
+14. Mentions from archived channels show Archived badge if present.
+15. Clicking archived mention opens read-only channel.
+16. Pins in archived channels remain visible.
+17. Pin/unpin controls remain hidden/blocked in archived channels.
+18. View in Currents links to archived messages still work.
+19. Task source links to archived messages still work.
+20. AI summaries do not crash on archived channels.
+21. Active channel posting still works.
+22. Active channel replies still work.
+23. Active channel reactions still work.
+24. Active channel attachments still work.
+25. Archived channel write paths remain blocked.
+26. DMs still work.
+27. DM attachments still work.
+28. Attachment-only DMs still work.
+29. DM unread/read-state still works.
+30. Record Currents still work.
+31. No browser console errors.
+32. No server errors.
+33. No SQL errors.
+34. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Structured archived-channel toggle
+* Archived badge in structured items
+* CSV exports currently visible structured items only
+* Search result archived badge
+* Mention archived badge if route supports it
+* Pins visible in archived channel
+* Unpin hidden/blocked in archived channel
+* View in Currents archived deep-link
+* Task source archived deep-link
+* 9A tests still pass
+* 9B tests still pass
+* 8B/8C/8D DM tests still pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing archived-content visibility audit summary
+2. Issues found
+3. Fixes made
+4. Files changed
+5. Backend metadata changes
+6. Frontend archived badge/toggle behavior
+7. Structured Panel behavior
+8. Search/Mentions/Pins behavior
+9. Deep-link behavior
+10. Security checks
+11. Regression results
+12. Final pass/fail status
+13. Recommended next feature order
+
+Keep scope tight: Archived Channel Visibility / Structured Panel Polish only.

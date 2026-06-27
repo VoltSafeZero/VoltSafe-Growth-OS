@@ -33920,7 +33920,8 @@ export function registerConfluenceRoutes(app: Express) {
           m.deleted_at, m.created_at, m.parent_message_id,
           m.object_type, m.object_id,
           u.name AS user_name, u.avatar_url AS user_avatar_url,
-          c.slug AS channel_slug, c.name AS channel_name
+          c.slug AS channel_slug, c.name AS channel_name,
+          (c.archived_at IS NOT NULL) AS is_channel_archived
         FROM current_mentions cm
         JOIN current_messages m ON m.id = cm.message_id
         JOIN users u ON u.id = m.user_id
@@ -33946,6 +33947,7 @@ export function registerConfluenceRoutes(app: Express) {
         userAvatarUrl: r.user_avatar_url,
         channelSlug: r.channel_slug || null,
         channelName: r.channel_name || null,
+        isChannelArchived: Boolean(r.is_channel_archived),
       })));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -34209,6 +34211,7 @@ export function registerConfluenceRoutes(app: Express) {
           u.name AS user_name,
           cc.slug AS channel_slug,
           cc.name AS channel_name,
+          (cc.archived_at IS NOT NULL) AS is_channel_archived,
           CASE WHEN m.deleted_at IS NOT NULL THEN '[]'::json
                ELSE COALESCE(att.att_list, '[]'::json) END AS att_list,
           EXISTS (
@@ -34264,6 +34267,7 @@ export function registerConfluenceRoutes(app: Express) {
           createdAt: r.created_at,
           channelSlug: r.channel_slug ?? null,
           channelName: r.channel_name ?? null,
+          isChannelArchived: Boolean(r.is_channel_archived),
           objectType: r.object_type ?? null,
           objectId: r.object_id ? Number(r.object_id) : null,
           attachmentNames: Array.isArray(r.att_list)
@@ -34409,7 +34413,8 @@ export function registerConfluenceRoutes(app: Express) {
           m.created_at AS message_created_at,
           mu.name AS author_name, mu.avatar_url AS author_avatar,
           cu.name AS created_by_name,
-          c.slug AS channel_slug, c.name AS channel_name
+          c.slug AS channel_slug, c.name AS channel_name,
+          (c.archived_at IS NOT NULL) AS is_channel_archived
         FROM current_structured_items si
         JOIN current_messages m ON m.id = si.message_id
         JOIN users mu ON mu.id = m.user_id
@@ -34433,6 +34438,7 @@ export function registerConfluenceRoutes(app: Express) {
         channelId: r.channel_id ? Number(r.channel_id) : null,
         channelSlug: r.channel_slug ?? null,
         channelName: r.channel_name ?? null,
+        isChannelArchived: Boolean(r.is_channel_archived),
         objectType: r.object_type ?? null,
         objectId: r.object_id ? Number(r.object_id) : null,
         threadRootId: r.thread_root_id ? Number(r.thread_root_id) : null,

@@ -210,6 +210,7 @@ interface MentionMessage {
   userAvatarUrl: string | null;
   channelSlug: string;
   channelName: string;
+  isChannelArchived?: boolean;
 }
 
 // ── SearchResult ──────────────────────────────────────────────────────────────
@@ -222,6 +223,7 @@ interface SearchResult {
   createdAt: string;
   channelSlug: string | null;
   channelName: string | null;
+  isChannelArchived?: boolean;
   objectType: string | null;
   objectId: number | null;
   attachmentNames: string[];
@@ -331,6 +333,18 @@ function isContinuation(prev: Message | undefined, curr: Message): boolean {
 
 function displaySlug(slug: string): string {
   return slug.replace(/-/g, "\u2011");
+}
+
+// ── ArchivedBadge ─────────────────────────────────────────────────────────────
+function ArchivedBadge() {
+  return (
+    <span
+      data-testid="archived-badge"
+      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9.5px] font-semibold border select-none shrink-0 bg-amber-500/10 text-amber-400/80 border-amber-500/20"
+    >
+      Archived
+    </span>
+  );
 }
 
 function normalizeChannelSlug(name: string): string {
@@ -1855,6 +1869,7 @@ function SearchResultCard({
         {result.isReply && (
           <span className="text-[10px] text-muted-foreground/50 shrink-0">· thread</span>
         )}
+        {result.isChannelArchived && <ArchivedBadge />}
         <span className="ml-auto text-[10.5px] text-muted-foreground/40 shrink-0 tabular-nums">
           {formatTs(result.createdAt)}
         </span>
@@ -2204,6 +2219,7 @@ function MentionsPanel({
             <span className="text-[11px] font-semibold text-primary/70 truncate">
               #{displaySlug(m.channelSlug)}
             </span>
+            {m.isChannelArchived && <ArchivedBadge />}
             {m.parentMessageId && (
               <span className="text-[10px] text-muted-foreground/50 shrink-0">
                 · in thread
@@ -2254,6 +2270,7 @@ interface StructuredListItem {
   channelId: number | null;
   channelSlug: string | null;
   channelName: string | null;
+  isChannelArchived: boolean;
   objectType: string | null;
   objectId: number | null;
   threadRootId: number | null;
@@ -2305,6 +2322,7 @@ function StructuredItemsPanel({
 }) {
   const [filter, setFilter] = useState<"all" | "decision" | "risk" | "requirement">("all");
   const [scope, setScope] = useState<"channel" | "all">("channel");
+  const [includeArchived, setIncludeArchived] = useState(false);
 
   const params = new URLSearchParams({ scope: scope === "channel" ? "channel" : "all", limit: "200" });
   if (scope === "channel") {
@@ -2318,13 +2336,16 @@ function StructuredItemsPanel({
     refetchInterval: 30_000,
   });
 
+  // Apply archived filter: hide items from archived channels unless toggle is on
+  const visibleData = includeArchived ? data : data.filter(i => !i.isChannelArchived);
+
   const counts = {
-    all: data.length,
-    decision: data.filter(i => i.itemType === "decision").length,
-    risk: data.filter(i => i.itemType === "risk").length,
-    requirement: data.filter(i => i.itemType === "requirement").length,
+    all: visibleData.length,
+    decision: visibleData.filter(i => i.itemType === "decision").length,
+    risk: visibleData.filter(i => i.itemType === "risk").length,
+    requirement: visibleData.filter(i => i.itemType === "requirement").length,
   };
-  const displayed = filter === "all" ? data : data.filter(i => i.itemType === filter);
+  const displayed = filter === "all" ? visibleData : visibleData.filter(i => i.itemType === filter);
 
   function handleView(item: StructuredListItem) {
     if (!item.actionUrl) return;
@@ -2414,6 +2435,22 @@ function StructuredItemsPanel({
             All Currents
           </button>
         </div>
+        {/* Include archived toggle */}
+        <label
+          className="flex items-center gap-1.5 cursor-pointer select-none w-fit"
+          data-testid="structured-include-archived-label"
+        >
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(e) => setIncludeArchived(e.target.checked)}
+            data-testid="structured-include-archived-toggle"
+            className="w-3 h-3 rounded accent-amber-500"
+          />
+          <span className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+            Include archived channels
+          </span>
+        </label>
         {/* Filter chips + export */}
         <div className="flex items-center gap-1.5 flex-wrap">
           {STRUCT_FILTER_ITEMS.map(({ value, label }) => (
@@ -2496,7 +2533,7 @@ function StructuredItemsPanel({
                 data-testid={`structured-item-${item.id}`}
                 className="rounded-xl border border-border/50 hover:border-border/70 bg-card/30 hover:bg-muted/10 transition-all p-3.5 group"
               >
-                {/* Top row: type badge + source + date */}
+                {/* Top row: type badge + source + archived badge + date */}
                 <div className="flex items-center gap-2 mb-2.5">
                   <span className={cn(
                     "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border select-none shrink-0",
@@ -2513,6 +2550,7 @@ function StructuredItemsPanel({
                       : "Currents"}
                     {item.threadRootId ? " · thread" : ""}
                   </span>
+                  {item.isChannelArchived && <ArchivedBadge />}
                   <span className="text-[11px] text-muted-foreground/40 shrink-0 tabular-nums">
                     {formatTs(item.createdAt)}
                   </span>
