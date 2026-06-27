@@ -35133,10 +35133,12 @@ export function registerConfluenceRoutes(app: Express) {
             ON CONFLICT (conversation_id, user_id) DO NOTHING
           `));
         }
-        const members = (validRows.rows as any[]).map((u) => ({
-          id: Number(u.id), name: u.name, email: u.email, avatarUrl: u.avatar_url || null,
-        }));
-        const displayName = members.map((m) => m.name.split(' ')[0]).join(', ');
+        const members = (validRows.rows as any[])
+          .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)))
+          .map((u: any) => ({
+            id: Number(u.id), name: u.name, email: u.email, avatarUrl: u.avatar_url || null,
+          }));
+        const displayName = members.map((m: any) => m.name.split(' ')[0]).join(', ');
         return res.status(201).json({ conversationId, type: 'group_dm', displayName, members });
       }
 

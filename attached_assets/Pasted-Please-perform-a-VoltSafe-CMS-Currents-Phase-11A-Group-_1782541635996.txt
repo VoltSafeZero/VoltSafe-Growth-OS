@@ -1,0 +1,272 @@
+Please perform a VoltSafe CMS Currents Phase 11A Group Direct Messages audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, typing indicators, channel search improvements, or unrelated task features.
+
+Goal
+
+Verify that Group Direct Messages are secure, stable, polished, and regression-free.
+
+Phase 11A added:
+
+* group_dm conversation type
+* Multi-select New DM dialog
+* Group DM creation using userIds
+* Deterministic participant_key
+* Group DM display names
+* Group DM member arrays
+* Group DM sidebar/header UI
+* Group DM notification fan-out
+* Existing 1:1 DM backward compatibility
+
+Audit scope
+
+Audit only:
+
+1. Group DM creation route
+2. Group DM list response
+3. Group DM message send/read behavior
+4. Group DM notification fan-out
+5. Group DM mute behavior
+6. Group DM attachment behavior
+7. New DM multi-select UI
+8. Existing 1:1 DM regressions caused by 11A
+9. Security/user membership enforcement
+
+Backend checks
+
+POST /api/current/dms
+
+Verify:
+
+1. Requires authentication.
+2. Existing { userId } 1:1 behavior still works.
+3. New { userIds: [] } group behavior works.
+4. Self is excluded safely.
+5. Duplicate submitted users are deduped.
+6. Empty userIds rejected.
+7. Single-user userIds behavior is either rejected or routes to 1:1 intentionally.
+8. Group requires current user + at least 2 other users.
+9. Upper member limit works and is documented.
+10. Inactive/deleted users are rejected.
+11. External/guest users are rejected if such users exist.
+12. Deterministic participant_key uses sorted IDs.
+13. Exact same participant set returns existing group DM.
+14. Member rows are created for every participant.
+15. Conversation type is group_dm.
+16. Race/duplicate insert behavior is safe enough.
+17. Existing 1:1 participant key behavior is unchanged.
+
+GET /api/current/dms
+
+Verify:
+
+1. Requires authentication.
+2. Returns only conversations where current user is a member.
+3. Returns both dm and group_dm.
+4. Preserves otherUser for 1:1 DMs.
+5. Provides members[] for group DMs.
+6. Provides displayName for both 1:1 and group DMs.
+7. Group display name excludes or includes current user intentionally and consistently.
+8. Handles long member lists gracefully.
+9. Last message preview works for group DMs.
+10. Attachment-only preview works for group DMs.
+11. Unread counts work for group DMs.
+12. Muted state works for group DMs.
+13. Sort newest first still works.
+14. No duplicate rows from multi-member JOINs.
+
+POST /api/current/dms/:id/messages
+
+Verify:
+
+1. Sender must be a member.
+2. Works for group DMs.
+3. Text-only group DM sends.
+4. Text + attachment group DM sends.
+5. Attachment-only group DM sends.
+6. Sender is not notified.
+7. Every other unmuted member is notified.
+8. Muted members are skipped.
+9. Notification title/body are correct.
+10. last_message_at updates.
+11. No duplicate notifications are created.
+
+Read/preference/attachment routes
+
+Verify existing routes work for group DMs:
+
+1. POST /api/current/dms/:id/read
+2. PUT /api/current/dms/:id/preference
+3. attachment upload to group DM message
+4. attachment list for group DM messages
+5. attachment download for group DM messages
+
+Each route must require membership.
+
+Frontend checks
+
+New DM dialog
+
+Verify:
+
+1. Dialog opens.
+2. User search works.
+3. Current user is excluded.
+4. Selected users appear as chips.
+5. User can remove selected chips.
+6. Checkmark appears on selected results.
+7. One selected user starts 1:1 DM.
+8. Two or more selected users starts group DM.
+9. Duplicate click does not duplicate chip.
+10. Create button text updates correctly.
+11. Loading state works.
+12. Empty state is clear.
+13. Dialog closes after start.
+14. Dialog resets after close.
+15. Keyboard/mouse interaction is usable.
+16. Dark mode styling is polished.
+
+DM sidebar
+
+Verify:
+
+1. 1:1 DMs still show other user.
+2. Group DMs show group icon.
+3. Group DMs show readable display name.
+4. Long group names truncate.
+5. Group DMs show last message preview.
+6. Group DMs show unread badge.
+7. Muted group DMs are dimmed.
+8. Sort order works with mixed 1:1 and group DMs.
+9. Clicking group DM opens correct conversation.
+
+DM header/feed
+
+Verify:
+
+1. Group DM header shows group icon.
+2. Group DM header shows display name.
+3. Group DM header shows member count.
+4. Empty state is group-specific.
+5. Message feed works.
+6. Composer works.
+7. Attachments work.
+8. Attachment-only sends work.
+9. Read state works.
+10. Deep-link /current?dm=ID opens group DM.
+
+Security checks
+
+Verify:
+
+1. User cannot create group DM with inactive/deleted users.
+2. User cannot read group DM unless member.
+3. User cannot send to group DM unless member.
+4. User cannot mark group DM read unless member.
+5. User cannot mute group DM unless member.
+6. User cannot upload/list/download attachments unless member.
+7. User cannot infer private group DM data from unauthorized endpoints.
+8. Sender is not notified.
+9. Muted members are not notified.
+10. No SQL injection exposure through userIds.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* 1:1 DMs
+* 1:1 DM attachments
+* 1:1 attachment-only DMs
+* 1:1 DM unread/read-state
+* 1:1 DM mute/unmute
+* Hide muted unread from nav badge preference
+* Channel list
+* Channel posting
+* Channel unread counts
+* Channel notification preferences
+* Channel archived/read-only behavior
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Channel search
+* Mentions panel
+* Structured panel
+* Structured archived toggle/badges
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+* Record Currents
+* Record attachments
+* Record search
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 11A Group DMs.
+
+Allowed:
+
+* Group DM creation bug
+* Participant dedupe bug
+* Member limit bug
+* Participant key bug
+* GET /dms shape bug
+* Display name bug
+* Notification fan-out bug
+* Muted member notification bug
+* Group attachment membership bug
+* New DM dialog bug
+* 1:1 DM regression caused by 11A
+* Console/server errors caused by 11A
+* Tests directly related to 11A
+
+Not allowed:
+
+* Adding/removing members after group creation
+* Renaming group DMs
+* Guest/external collaborators
+* Slash commands
+* Workflow automation
+* Typing indicators
+* Channel search improvements
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend checks
+5. Frontend checks
+6. Notification behavior checks
+7. Security checks
+8. Regression results
+9. Known issues
+10. Final pass/fail status
+11. Recommended next feature order
+
+Keep scope tight: Group Direct Messages audit only.

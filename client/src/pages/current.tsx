@@ -1949,10 +1949,12 @@ function NewDmDialog({
   open,
   onOpenChange,
   onConfirm,
+  isPending = false,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onConfirm: (userIds: number[]) => void;
+  isPending?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -1988,9 +1990,8 @@ function NewDmDialog({
   }
 
   function handleConfirm() {
-    if (!selectedUsers.length) return;
+    if (!selectedUsers.length || isPending) return;
     onConfirm(selectedUsers.map((u) => u.id));
-    onOpenChange(false);
   }
 
   const isGroup = selectedUsers.length >= 2;
@@ -2101,16 +2102,18 @@ function NewDmDialog({
           {/* Start conversation button */}
           <button
             data-testid="btn-dm-start-conversation"
-            disabled={!canConfirm}
             onClick={handleConfirm}
             className={cn(
-              "w-full py-1.5 rounded-lg text-[13px] font-medium transition-colors",
-              canConfirm
+              "w-full py-1.5 rounded-lg text-[13px] font-medium transition-colors flex items-center justify-center gap-1.5",
+              canConfirm && !isPending
                 ? "bg-primary text-primary-foreground hover:bg-primary/90"
                 : "bg-muted/40 text-muted-foreground/40 cursor-not-allowed"
             )}
+            disabled={!canConfirm || isPending}
           >
-            {isGroup
+            {isPending ? (
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Starting…</>
+            ) : isGroup
               ? `Start group message (${selectedUsers.length + 1} people)`
               : "Start conversation"
             }
@@ -3198,6 +3201,7 @@ export default function CurrentPage() {
       return apiRequest("POST", "/api/current/dms", body).then((r) => r.json());
     },
     onSuccess: (data: { conversationId: number }) => {
+      setNewDmOpen(false);
       setSelectedDmId(data.conversationId);
       setView("dm");
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
@@ -4468,6 +4472,7 @@ export default function CurrentPage() {
         open={newDmOpen}
         onOpenChange={setNewDmOpen}
         onConfirm={(userIds) => startDmMutation.mutate(userIds)}
+        isPending={startDmMutation.isPending}
       />
 
       {/* ── Thread panel ────────────────────────────────────────────────── */}
