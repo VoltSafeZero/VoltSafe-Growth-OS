@@ -29,7 +29,11 @@ import {
   CheckSquare,
   Bookmark,
   Download,
+  UserRound,
+  Plus,
+  Users,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,6 +58,44 @@ import { CreateTaskFromCurrentDialog } from "@/components/current/create-task-fr
 import type { CreateTaskSource } from "@/components/current/create-task-from-current-dialog";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface DmConversation {
+  conversationId: number;
+  otherUser: {
+    id: number;
+    name: string;
+    email: string;
+    avatarUrl: string | null;
+  };
+  isArchived: boolean;
+  isMuted: boolean;
+  unreadCount: number;
+  lastMessage: {
+    id: number;
+    body: string | null;
+    userName: string;
+    createdAt: string;
+  } | null;
+  lastMessageAt: string | null;
+}
+
+interface DmMessage {
+  id: number;
+  conversationId: number;
+  userId: number;
+  body: string | null;
+  isEdited: boolean;
+  editedAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  userName: string;
+  userAvatarUrl: string | null;
+  reactions: Reaction[];
+  replyCount: number;
+  latestReplyAt: string | null;
+  attachments?: CurrentAttachment[];
+  structuredItems?: StructuredItem[];
+}
 
 interface Channel {
   id: number;
@@ -1833,6 +1875,107 @@ function SearchResultCard({
   );
 }
 
+// ── NewDmDialog ───────────────────────────────────────────────────────────────
+
+function NewDmDialog({
+  open,
+  onOpenChange,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSelect: (userId: number) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  useEffect(() => {
+    if (!open) { setQ(""); setDebouncedQ(""); }
+  }, [open]);
+
+  const { data: users = [], isLoading } = useQuery<MentionUser[]>({
+    queryKey: ["/api/current/users", debouncedQ],
+    queryFn: () =>
+      fetch(`/api/current/users?q=${encodeURIComponent(debouncedQ)}`, {
+        credentials: "include",
+      }).then((r) => r.json()),
+    staleTime: 10_000,
+    enabled: open,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-sm flex items-center gap-2">
+            <UserRound className="w-4 h-4 text-primary/70" />
+            New Direct Message
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-1 space-y-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50 pointer-events-none" />
+            <Input
+              placeholder="Search teammates…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="pl-8 text-sm h-8"
+              autoFocus
+              data-testid="dm-user-search-input"
+            />
+          </div>
+          <div className="space-y-0.5 max-h-52 overflow-y-auto">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-5 text-muted-foreground/40">
+                <Loader2 className="w-4 h-4 animate-spin" />
+              </div>
+            ) : users.length === 0 ? (
+              <div className="text-center py-5 text-[12px] text-muted-foreground/60">
+                {debouncedQ ? "No teammates found" : "Start typing to search teammates"}
+              </div>
+            ) : (
+              users.map((user) => (
+                <button
+                  key={user.id}
+                  data-testid={`dm-user-option-${user.id}`}
+                  onClick={() => {
+                    onSelect(user.id);
+                    onOpenChange(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-muted/50 transition-colors"
+                >
+                  <div
+                    className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
+                      "text-[11px] font-bold text-white",
+                      avatarBg(user.id)
+                    )}
+                  >
+                    {initials(user.name)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-medium text-foreground truncate">
+                      {user.name}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground truncate">
+                      {user.email}
+                    </div>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── SearchPanel ───────────────────────────────────────────────────────────────
 
 function SearchPanel({
@@ -2396,7 +2539,16 @@ export default function CurrentPage() {
   const { toast } = useToast();
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [threadRootId, setThreadRootId] = useState<number | null>(null);
-  const [view, setView] = useState<"channel" | "mentions" | "search" | "structured">("channel");
+  const [view, setView] = useState<"channel" | "mentions" | "search" | "structured" | "dm">("channel");
+  const [selectedDmId, setSelectedDmId] = useState<number | null>(null);
+  const [newDmOpen, setNewDmOpen] = useState(false);
+  const [dmDraft, setDmDraft] = useState("");
+  const [editingDmMessage, setEditingDmMessage] = useState<DmMessage | null>(null);
+  const dmFeedRef = useRef<HTMLDivElement>(null);
+  const dmTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const dmIsAtBottom = useRef(true);
+  const dmLastReadRef = useRef<number>(0);
+  const dmMention = useComposerMentions(dmTextareaRef);
   const [highlightedMsgId, setHighlightedMsgId] = useState<number | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -2481,13 +2633,38 @@ export default function CurrentPage() {
 
   const pinnedMessageIds = new Set(pins.map((p) => p.messageId));
 
-  // ── Deep-link from notification action_url: ?channel=X&message=Y&thread=Z ──
+  // ── DM queries ────────────────────────────────────────────────────────────
+
+  const { data: dmConversations = [], isLoading: dmsLoading } = useQuery<DmConversation[]>({
+    queryKey: ["/api/current/dms"],
+    refetchInterval: 15_000,
+  });
+
+  const { data: dmMessages = [], isLoading: dmMsgsLoading } = useQuery<DmMessage[]>({
+    queryKey: ["/api/current/dms", selectedDmId, "messages"],
+    queryFn: () =>
+      fetch(`/api/current/dms/${selectedDmId}/messages`, {
+        credentials: "include",
+      }).then((r) => r.json()),
+    refetchInterval: 5_000,
+    enabled: !!selectedDmId && view === "dm",
+    placeholderData: keepPreviousData,
+  });
+
+  // ── Deep-link from notification action_url: ?channel=X&message=Y&thread=Z&dm=N ──
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const dm = params.get("dm");
     const chan = params.get("channel");
     const thread = params.get("thread");
     const msg = params.get("message");
-    if (chan) { setSelectedSlug(chan); setView("channel"); }
+    if (dm) {
+      const dmId = Number(dm);
+      if (dmId > 0) { setSelectedDmId(dmId); setView("dm"); }
+    } else if (chan) {
+      setSelectedSlug(chan);
+      setView("channel");
+    }
     if (thread) setThreadRootId(Number(thread));
     if (msg) {
       const msgId = Number(msg);
@@ -2534,6 +2711,29 @@ export default function CurrentPage() {
     setChannelSummaryData(null);
   }, [selectedSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── DM scroll ─────────────────────────────────────────────────────────────
+
+  function handleDmScroll() {
+    if (!dmFeedRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = dmFeedRef.current;
+    dmIsAtBottom.current = scrollHeight - scrollTop - clientHeight < 80;
+  }
+
+  useEffect(() => {
+    if (dmIsAtBottom.current && dmFeedRef.current)
+      dmFeedRef.current.scrollTop = dmFeedRef.current.scrollHeight;
+  }, [dmMessages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    dmIsAtBottom.current = true;
+    dmLastReadRef.current = 0;
+    setEditingDmMessage(null);
+    dmMention.closeMention();
+    setTimeout(() => {
+      if (dmFeedRef.current) dmFeedRef.current.scrollTop = dmFeedRef.current.scrollHeight;
+    }, 50);
+  }, [selectedDmId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Read receipts ─────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -2554,6 +2754,25 @@ export default function CurrentPage() {
       )
       .catch(() => {});
   }, [selectedSlug, messages.length, queryClient]);
+
+  // ── DM read receipts ──────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!selectedDmId || dmMessages.length === 0 || view !== "dm") return;
+    const lastMsg = [...dmMessages].reverse().find((m) => !m.deletedAt);
+    if (!lastMsg) return;
+    const lastId = lastMsg.id;
+    if (lastId === dmLastReadRef.current) return;
+    dmLastReadRef.current = lastId;
+    fetch(`/api/current/dms/${selectedDmId}/read`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lastReadMessageId: lastId }),
+    })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] }))
+      .catch(() => {});
+  }, [selectedDmId, dmMessages.length, view, queryClient]);
 
   // ── Mutation helpers ──────────────────────────────────────────────────────
 
@@ -2655,6 +2874,49 @@ export default function CurrentPage() {
     },
   });
 
+  // ── DM mutations ──────────────────────────────────────────────────────────
+
+  const startDmMutation = useMutation({
+    mutationFn: (userId: number) =>
+      apiRequest("POST", "/api/current/dms", { userId }).then((r) => r.json()),
+    onSuccess: (data: { conversationId: number }) => {
+      setSelectedDmId(data.conversationId);
+      setView("dm");
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
+    },
+    onError: (e: any) => {
+      toast({ title: "Could not start DM", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const dmPostMutation = useMutation({
+    mutationFn: (body: string) =>
+      apiRequest("POST", `/api/current/dms/${selectedDmId}/messages`, { body }).then((r) => r.json()),
+  });
+
+  const dmEditMutation = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: string }) =>
+      apiRequest("PATCH", `/api/current/messages/${id}`, { body }),
+    onSuccess: () => {
+      setEditingDmMessage(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] });
+    },
+  });
+
+  const dmDeleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/current/messages/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] });
+    },
+  });
+
+  const dmReactMutation = useMutation({
+    mutationFn: ({ messageId, emoji }: { messageId: number; emoji: string }) =>
+      apiRequest("POST", `/api/current/messages/${messageId}/reactions`, { emoji }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] }),
+  });
+
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   async function handleSend() {
@@ -2704,11 +2966,47 @@ export default function CurrentPage() {
     );
   }
 
+  // ── DM Handlers ───────────────────────────────────────────────────────────
+
+  async function handleDmSend() {
+    const trimmed = dmDraft.trim();
+    if (!trimmed || dmPostMutation.isPending || !selectedDmId) return;
+    try {
+      await dmPostMutation.mutateAsync(trimmed);
+      setDmDraft("");
+      dmMention.closeMention();
+      if (dmTextareaRef.current) dmTextareaRef.current.style.height = "auto";
+      dmIsAtBottom.current = true;
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
+    } catch {}
+  }
+
+  function handleDmKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (dmMention.handleMentionKeyDown(e, dmDraft, setDmDraft)) return;
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleDmSend();
+    }
+  }
+
+  function handleDmDraftChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setDmDraft(e.target.value);
+    growTextarea(e.target);
+    dmMention.onValueChange(
+      e.target.value,
+      e.target.selectionStart ?? e.target.value.length
+    );
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const selectedChannel = channels.find((c) => c.slug === selectedSlug);
-  const totalUnread = channels.reduce((s, c) => s + c.unreadCount, 0);
+  const selectedDm = dmConversations.find((d) => d.conversationId === selectedDmId);
+  const totalDmUnread = dmConversations.reduce((s, d) => s + d.unreadCount, 0);
+  const totalUnread = channels.reduce((s, c) => s + c.unreadCount, 0) + totalDmUnread;
   const nonDeletedCount = messages.filter((m) => !m.deletedAt).length;
+  const dmNonDeletedCount = dmMessages.filter((m) => !m.deletedAt).length;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -2784,6 +3082,82 @@ export default function CurrentPage() {
                       )}
                     >
                       {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* DMs section */}
+        <div className="px-4 pt-3 pb-1 shrink-0 flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+            Direct Messages
+          </span>
+          <button
+            data-testid="btn-new-dm"
+            onClick={() => setNewDmOpen(true)}
+            className="w-4 h-4 rounded flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground/80 hover:bg-muted/40 transition-colors"
+            title="New Direct Message"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
+        <div className="px-2 pb-2 shrink-0 space-y-px">
+          {dmsLoading ? (
+            <div className="flex items-center gap-2 px-2.5 py-1.5">
+              <div className="w-5 h-5 rounded-full bg-muted/40 animate-pulse shrink-0" />
+              <div className="h-3 w-20 rounded bg-muted/30 animate-pulse" />
+            </div>
+          ) : dmConversations.length === 0 ? (
+            <button
+              data-testid="btn-new-dm-empty"
+              onClick={() => setNewDmOpen(true)}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12px] text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-muted/30 transition-colors"
+            >
+              <UserRound className="w-3.5 h-3.5 opacity-50 shrink-0" />
+              <span>Message a teammate</span>
+            </button>
+          ) : (
+            dmConversations.map((dm) => {
+              const active = view === "dm" && selectedDmId === dm.conversationId;
+              return (
+                <button
+                  key={dm.conversationId}
+                  data-testid={`dm-item-${dm.conversationId}`}
+                  onClick={() => { setSelectedDmId(dm.conversationId); setView("dm"); }}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
+                    "transition-all duration-100 group",
+                    active
+                      ? "bg-primary/15 text-primary font-medium"
+                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "w-5 h-5 rounded-full flex items-center justify-center shrink-0",
+                      "text-[9px] font-bold text-white",
+                      avatarBg(dm.otherUser.id)
+                    )}
+                  >
+                    {initials(dm.otherUser.name)}
+                  </div>
+                  <span className="flex-1 truncate text-left min-w-0">
+                    {dm.otherUser.name}
+                  </span>
+                  {dm.unreadCount > 0 && (
+                    <span
+                      className={cn(
+                        "min-w-[18px] h-[18px] px-1 flex items-center justify-center",
+                        "rounded-full text-[10px] font-bold shrink-0",
+                        active
+                          ? "bg-primary/20 text-primary"
+                          : "bg-primary text-primary-foreground"
+                      )}
+                    >
+                      {dm.unreadCount > 99 ? "99+" : dm.unreadCount}
                     </span>
                   )}
                 </button>
@@ -2886,6 +3260,26 @@ export default function CurrentPage() {
                 Structured Items
               </span>
             </>
+          ) : view === "dm" ? (
+            <>
+              <div
+                className={cn(
+                  "w-6 h-6 rounded-full flex items-center justify-center shrink-0",
+                  "text-[10px] font-bold text-white",
+                  selectedDm ? avatarBg(selectedDm.otherUser.id) : "bg-muted"
+                )}
+              >
+                {selectedDm ? initials(selectedDm.otherUser.name) : "?"}
+              </div>
+              <span className="font-semibold text-[14px] text-foreground shrink-0">
+                {selectedDm?.otherUser.name ?? "Direct Message"}
+              </span>
+              {selectedDm?.otherUser.email && (
+                <span className="text-[12px] text-muted-foreground/60 truncate">
+                  {selectedDm.otherUser.email}
+                </span>
+              )}
+            </>
           ) : (
             <>
               <Hash className="w-4 h-4 text-muted-foreground/60 shrink-0" />
@@ -2967,6 +3361,139 @@ export default function CurrentPage() {
               setHighlight(threadId ?? messageId);
             }}
           />
+        ) : view === "dm" ? (
+          /* ── DM view ─────────────────────────────────────────────────── */
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            {/* DM feed */}
+            <div
+              ref={dmFeedRef}
+              onScroll={handleDmScroll}
+              className="flex-1 overflow-y-auto px-4 py-4 space-y-1"
+            >
+              {dmMsgsLoading ? (
+                <div className="flex items-center justify-center py-10 text-muted-foreground/30">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                </div>
+              ) : dmNonDeletedCount === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground/40">
+                  <div
+                    className={cn(
+                      "w-12 h-12 rounded-full flex items-center justify-center",
+                      "text-base font-bold text-white",
+                      selectedDm ? avatarBg(selectedDm.otherUser.id) : "bg-muted"
+                    )}
+                  >
+                    {selectedDm ? initials(selectedDm.otherUser.name) : "?"}
+                  </div>
+                  <div className="text-center">
+                    <div className="text-[13px] font-medium text-foreground/60">
+                      {selectedDm?.otherUser.name ?? "Your teammate"}
+                    </div>
+                    <div className="text-[12px] mt-1">
+                      Start the conversation — say hi!
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                dmMessages.map((msg, i) => {
+                  const prev = dmMessages[i - 1];
+                  const isConsecutive =
+                    prev &&
+                    !prev.deletedAt &&
+                    prev.userId === msg.userId &&
+                    new Date(msg.createdAt).getTime() -
+                      new Date(prev.createdAt).getTime() <
+                      5 * 60 * 1000;
+                  if (editingDmMessage?.id === msg.id) {
+                    return (
+                      <InlineEditRow
+                        key={msg.id}
+                        initialValue={msg.body ?? ""}
+                        onSave={(body) => dmEditMutation.mutate({ id: msg.id, body })}
+                        onCancel={() => setEditingDmMessage(null)}
+                        isPending={dmEditMutation.isPending}
+                      />
+                    );
+                  }
+                  return (
+                    <MessageRow
+                      key={msg.id}
+                      message={{ ...msg, replyCount: 0, latestReplyAt: null, structuredItems: [], pinned: false }}
+                      currentUserId={currentUserId}
+                      isConsecutive={isConsecutive}
+                      highlighted={false}
+                      onEdit={() => setEditingDmMessage(msg)}
+                      onDelete={() => dmDeleteMutation.mutate(msg.id)}
+                      onReact={(emoji) => dmReactMutation.mutate({ messageId: msg.id, emoji })}
+                      onPin={() => {}}
+                      onUnpin={() => {}}
+                      onOpenThread={() => {}}
+                      onMarkStructured={() => {}}
+                      onUnmarkStructured={() => {}}
+                      pinnedMessageIds={new Set()}
+                      showThread={false}
+                    />
+                  );
+                })
+              )}
+            </div>
+
+            {/* DM Composer */}
+            <div className="px-4 pb-4 shrink-0">
+              <div className="relative rounded-xl border border-border bg-muted/20 overflow-visible">
+                {dmMention.open && dmMention.results.length > 0 && (
+                  <MentionDropdown
+                    users={dmMention.results}
+                    activeIndex={dmMention.activeIndex}
+                    onSelect={(user) => {
+                      const next = dmMention.insertMention(user, dmDraft, dmTextareaRef);
+                      setDmDraft(next);
+                    }}
+                  />
+                )}
+                <textarea
+                  ref={dmTextareaRef}
+                  data-testid="dm-composer-input"
+                  value={dmDraft}
+                  onChange={handleDmDraftChange}
+                  onKeyDown={handleDmKeyDown}
+                  placeholder={`Message ${selectedDm?.otherUser.name ?? "teammate"}…`}
+                  rows={1}
+                  className={cn(
+                    "w-full px-4 py-3 pr-12 text-[13.5px] leading-relaxed resize-none outline-none",
+                    "bg-transparent text-foreground placeholder:text-muted-foreground/40",
+                    "max-h-52 overflow-y-auto"
+                  )}
+                  style={{ height: "auto" }}
+                />
+                <div className="absolute right-2.5 bottom-2.5 flex items-center gap-1.5">
+                  <EmojiPickerPopover
+                    onSelect={(emoji) => {
+                      setDmDraft((d) => d + emoji);
+                      dmTextareaRef.current?.focus();
+                    }}
+                  />
+                  <button
+                    data-testid="dm-send-btn"
+                    onClick={handleDmSend}
+                    disabled={!dmDraft.trim() || dmPostMutation.isPending}
+                    className={cn(
+                      "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all",
+                      dmDraft.trim() && !dmPostMutation.isPending
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                        : "bg-muted/40 text-muted-foreground/30"
+                    )}
+                  >
+                    {dmPostMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
           /* ── Channel view ───────────────────────────────────────────── */
           <>
@@ -3156,6 +3683,12 @@ export default function CurrentPage() {
         open={createTaskSource !== null}
         source={createTaskSource}
         onClose={() => setCreateTaskSource(null)}
+      />
+
+      <NewDmDialog
+        open={newDmOpen}
+        onOpenChange={setNewDmOpen}
+        onSelect={(userId) => startDmMutation.mutate(userId)}
       />
 
       {/* ── Thread panel ────────────────────────────────────────────────── */}

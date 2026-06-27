@@ -33208,7 +33208,20 @@ export function registerConfluenceRoutes(app: Express) {
         channels[r.slug as string] = n;
         total += n;
       }
-      res.json({ total, channels });
+      // DM unread count
+      const dmRows = await db.execute(sql.raw(`
+        SELECT COALESCE(SUM(
+          (SELECT COUNT(*)::int FROM current_messages cm
+           WHERE cm.conversation_id = ccm.conversation_id
+             AND cm.deleted_at IS NULL
+             AND cm.id > COALESCE(ccm.last_read_message_id, 0)
+          )
+        ), 0)::int AS dm_unread
+        FROM current_conversation_members ccm
+        WHERE ccm.user_id = ${userId} AND ccm.is_archived = FALSE
+      `));
+      const dmUnread = Number((dmRows.rows[0] as any)?.dm_unread) || 0;
+      res.json({ total: total + dmUnread, channels, dm: dmUnread });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -34507,6 +34520,285 @@ export function registerConfluenceRoutes(app: Express) {
       }
 
       res.json({ converted, skipped, failed: failures.length, failures });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Direct Message Routes (Phase 8A) ────────────────────────────────────────
+
+  // GET /api/current/dms — list DM conversations for the current user
+  app.get("/api/current/dms", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          cv.id AS conversation_id,
+          cv.last_message_at,
+          cv.updated_at,
+          ou.id AS other_user_id,
+          ou.name AS other_user_name,
+          ou.email AS other_user_email,
+          ou.avatar_url AS other_user_avatar,
+          me.is_archived,
+          me.is_muted,
+          me.last_read_message_id,
+          lm.id AS last_message_id,
+          lm.body AS last_message_body,
+          lu.name AS last_message_user_name,
+          lm.created_at AS last_message_created_at,
+          COALESCE(
+            (SELECT COUNT(*)::int
+             FROM current_messages cm
+             WHERE cm.conversation_id = cv.id
+               AND cm.deleted_at IS NULL
+               AND cm.id > COALESCE(me.last_read_message_id, 0)
+            ), 0
+          ) AS unread_count
+        FROM current_conversation_members me
+        JOIN current_conversations cv ON cv.id = me.conversation_id
+        JOIN current_conversation_members them ON them.conversation_id = cv.id AND them.user_id != ${userId}
+        JOIN users ou ON ou.id = them.user_id
+        LEFT JOIN LATERAL (
+          SELECT m.id, m.body, m.user_id, m.created_at
+          FROM current_messages m
+          WHERE m.conversation_id = cv.id AND m.deleted_at IS NULL
+          ORDER BY m.created_at DESC LIMIT 1
+        ) lm ON true
+        LEFT JOIN users lu ON lu.id = lm.user_id
+        WHERE me.user_id = ${userId}
+          AND me.is_archived = FALSE
+        ORDER BY COALESCE(cv.last_message_at, cv.created_at) DESC
+      `));
+      res.json(rows.rows.map((r: any) => ({
+        conversationId: Number(r.conversation_id),
+        otherUser: {
+          id: Number(r.other_user_id),
+          name: r.other_user_name,
+          email: r.other_user_email,
+          avatarUrl: r.other_user_avatar || null,
+        },
+        isArchived: Boolean(r.is_archived),
+        isMuted: Boolean(r.is_muted),
+        unreadCount: Number(r.unread_count) || 0,
+        lastMessage: r.last_message_id ? {
+          id: Number(r.last_message_id),
+          body: r.last_message_body,
+          userName: r.last_message_user_name,
+          createdAt: r.last_message_created_at,
+        } : null,
+        lastMessageAt: r.last_message_at || r.updated_at || null,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/dms — start or open existing 1:1 DM with another user
+  app.post("/api/current/dms", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const targetUserId = Number(req.body?.userId);
+      if (!targetUserId || isNaN(targetUserId))
+        return res.status(400).json({ message: "userId is required" });
+      if (targetUserId === userId)
+        return res.status(400).json({ message: "Cannot start a DM with yourself" });
+      const targetRows = await db.execute(sql.raw(
+        `SELECT id, name, email, avatar_url FROM users WHERE id = ${targetUserId} AND global_role NOT IN ('inactive') LIMIT 1`
+      ));
+      if (!targetRows.rows.length)
+        return res.status(404).json({ message: "User not found or inactive" });
+      const lo = Math.min(userId, targetUserId);
+      const hi = Math.max(userId, targetUserId);
+      const pairKey = `dm:${lo}:${hi}`;
+      const existing = await db.execute(sql.raw(
+        `SELECT id FROM current_conversations WHERE participant_key = '${pairKey}' LIMIT 1`
+      ));
+      let conversationId: number;
+      if (existing.rows.length) {
+        conversationId = Number(existing.rows[0].id);
+        await db.execute(sql.raw(
+          `UPDATE current_conversation_members SET is_archived = FALSE WHERE conversation_id = ${conversationId} AND user_id = ${userId}`
+        ));
+      } else {
+        const convIns = await db.execute(sql.raw(
+          `INSERT INTO current_conversations (type, created_by, participant_key) VALUES ('dm', ${userId}, '${pairKey}') RETURNING id`
+        ));
+        conversationId = Number(convIns.rows[0].id);
+        await db.execute(sql.raw(`
+          INSERT INTO current_conversation_members (conversation_id, user_id)
+          VALUES (${conversationId}, ${userId}), (${conversationId}, ${targetUserId})
+          ON CONFLICT (conversation_id, user_id) DO NOTHING
+        `));
+      }
+      const t = targetRows.rows[0] as any;
+      res.status(201).json({
+        conversationId,
+        otherUser: { id: Number(t.id), name: t.name, email: t.email, avatarUrl: t.avatar_url || null },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/dms/:id/messages — messages for a DM conversation
+  app.get("/api/current/dms/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const convId = Number(req.params.id);
+      if (!convId) return res.status(400).json({ message: "Invalid conversation id" });
+      const memberCheck = await db.execute(sql.raw(
+        `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+      ));
+      if (!memberCheck.rows.length)
+        return res.status(403).json({ message: "Not a member of this conversation" });
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          m.id, m.conversation_id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
+          CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
+          u.name AS user_name, u.avatar_url AS user_avatar_url,
+          COALESCE(rxn.reactions, '[]'::json) AS reactions,
+          CASE WHEN m.deleted_at IS NOT NULL THEN '[]'::json
+               ELSE COALESCE(att.msg_attachments, '[]'::json) END AS msg_attachments
+        FROM current_messages m
+        JOIN users u ON u.id = m.user_id
+        LEFT JOIN LATERAL (
+          SELECT json_agg(
+            json_build_object('emoji', rg.emoji, 'count', rg.cnt::int, 'reacted', rg.reacted)
+            ORDER BY rg.first_at
+          ) AS reactions
+          FROM (
+            SELECT emoji, COUNT(*) AS cnt, BOOL_OR(user_id = ${userId}) AS reacted, MIN(created_at) AS first_at
+            FROM current_reactions
+            WHERE message_id = m.id
+            GROUP BY emoji
+          ) rg
+        ) rxn ON true
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(json_agg(
+            json_build_object('id', a.id, 'fileName', a.file_name, 'originalName', a.original_name, 'mimeType', a.mime_type, 'fileSize', a.file_size)
+            ORDER BY a.created_at
+          ), '[]'::json) AS msg_attachments
+          FROM attachments a
+          WHERE a.object_type = 'current_message' AND a.object_id = m.id
+        ) att ON true
+        WHERE m.conversation_id = ${convId}
+          AND m.parent_message_id IS NULL
+        ORDER BY m.created_at ASC
+        LIMIT 200
+      `));
+      res.json(rows.rows.map((r: any) => ({
+        id: r.id,
+        conversationId: r.conversation_id,
+        userId: r.user_id,
+        body: r.body,
+        isEdited: r.is_edited,
+        editedAt: r.edited_at,
+        deletedAt: r.deleted_at,
+        createdAt: r.created_at,
+        userName: r.user_name,
+        userAvatarUrl: r.user_avatar_url,
+        reactions: r.reactions || [],
+        replyCount: 0,
+        latestReplyAt: null,
+        attachments: r.msg_attachments || [],
+        structuredItems: [],
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/dms/:id/messages — send a DM message
+  app.post("/api/current/dms/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const convId = Number(req.params.id);
+      if (!convId) return res.status(400).json({ message: "Invalid conversation id" });
+      const body = String(req.body?.body || "").trim();
+      if (!body) return res.status(400).json({ message: "Message body is required" });
+      if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
+      const memberCheck = await db.execute(sql.raw(
+        `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+      ));
+      if (!memberCheck.rows.length)
+        return res.status(403).json({ message: "Not a member of this conversation" });
+      const escaped = body.replace(/'/g, "''");
+      const ins = await db.execute(sql.raw(`
+        INSERT INTO current_messages (conversation_id, user_id, body)
+        VALUES (${convId}, ${userId}, '${escaped}')
+        RETURNING id, conversation_id, user_id, body, is_edited, created_at
+      `));
+      const msg = ins.rows[0];
+      await db.execute(sql.raw(`
+        UPDATE current_conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = ${convId}
+      `));
+      await db.execute(sql.raw(`
+        UPDATE current_conversation_members SET last_read_message_id = ${Number(msg.id)}
+        WHERE conversation_id = ${convId} AND user_id = ${userId}
+      `));
+      const userRows = await db.execute(sql.raw(`SELECT name, avatar_url FROM users WHERE id = ${userId} LIMIT 1`));
+      const u = userRows.rows[0] as any || {};
+      res.status(201).json({
+        id: msg.id,
+        conversationId: msg.conversation_id,
+        userId: msg.user_id,
+        body: msg.body,
+        isEdited: msg.is_edited,
+        createdAt: msg.created_at,
+        userName: u.name || "Unknown",
+        userAvatarUrl: u.avatar_url || null,
+        reactions: [],
+        replyCount: 0,
+        latestReplyAt: null,
+        attachments: [],
+        structuredItems: [],
+      });
+      (async () => {
+        try {
+          const others = await db.execute(sql.raw(
+            `SELECT user_id FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id != ${userId}`
+          ));
+          const senderRows = await db.execute(sql.raw(`SELECT name FROM users WHERE id = ${userId} LIMIT 1`));
+          const senderName = String((senderRows.rows[0] as any)?.name || "Someone");
+          const preview = body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@').slice(0, 100).replace(/'/g, "''");
+          const escapedSender = senderName.replace(/'/g, "''");
+          for (const row of others.rows as any[]) {
+            const recipientId = Number(row.user_id);
+            const actionUrl = `/current?dm=${convId}`;
+            const dedupeKey = `dm_msg:${Number(msg.id)}:${recipientId}`;
+            await db.execute(sql.raw(`
+              INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
+              SELECT ${recipientId}, 'current_dm', 'New direct message from ${escapedSender}', '${preview}', 'medium', 'current_conversation', ${convId}, '${actionUrl}', FALSE, '${dedupeKey}'
+              WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE dedupe_key = '${dedupeKey}')
+            `));
+          }
+        } catch { /* non-fatal */ }
+      })();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/dms/:id/read — mark DM as read for current user
+  app.post("/api/current/dms/:id/read", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const convId = Number(req.params.id);
+      if (!convId) return res.status(400).json({ message: "Invalid conversation id" });
+      const lastReadMessageId = Number(req.body?.lastReadMessageId);
+      if (!lastReadMessageId) return res.status(400).json({ message: "lastReadMessageId required" });
+      const memberCheck = await db.execute(sql.raw(
+        `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+      ));
+      if (!memberCheck.rows.length)
+        return res.status(403).json({ message: "Not a member of this conversation" });
+      await db.execute(sql.raw(`
+        UPDATE current_conversation_members
+        SET last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), ${lastReadMessageId})
+        WHERE conversation_id = ${convId} AND user_id = ${userId}
+      `));
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

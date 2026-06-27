@@ -2119,6 +2119,49 @@ export async function migrateCurrentSchema(): Promise<void> {
       ALTER TABLE current_structured_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     `));
 
+    // ── Phase 8A: Direct Messages ──────────────────────────────────────────
+    await db.execute(sql.raw(`
+      ALTER TABLE current_messages ADD COLUMN IF NOT EXISTS conversation_id INTEGER
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_current_messages_conversation
+        ON current_messages(conversation_id, created_at ASC)
+        WHERE conversation_id IS NOT NULL
+    `));
+
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS current_conversations (
+        id               SERIAL PRIMARY KEY,
+        type             TEXT NOT NULL DEFAULT 'dm',
+        created_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        participant_key  TEXT,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_message_at  TIMESTAMPTZ
+      )
+    `));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_participant_key
+        ON current_conversations(participant_key)
+        WHERE participant_key IS NOT NULL
+    `));
+
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS current_conversation_members (
+        conversation_id      INTEGER NOT NULL REFERENCES current_conversations(id) ON DELETE CASCADE,
+        user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_read_message_id INTEGER,
+        is_archived          BOOLEAN NOT NULL DEFAULT FALSE,
+        is_muted             BOOLEAN NOT NULL DEFAULT FALSE,
+        PRIMARY KEY (conversation_id, user_id)
+      )
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_ccm_user
+        ON current_conversation_members(user_id)
+    `));
+
     console.log("[migration] Current schema ready.");
   } catch (err) {
     console.error("[migration] migrateCurrentSchema error (non-fatal):", err);
