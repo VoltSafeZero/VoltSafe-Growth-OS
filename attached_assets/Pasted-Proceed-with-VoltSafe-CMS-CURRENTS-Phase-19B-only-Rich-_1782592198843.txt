@@ -1,0 +1,241 @@
+Proceed with VoltSafe CMS CURRENTS Phase 19B only: Rich Message / File Feed Polish.
+
+Do not work on avatar upload, Guest CURRENTS, external collaborators, workflow automation, private-channel roles, backend security, Gmail/mail-permissions, Accounts/Contacts redesign, Polyweather, or unrelated modules.
+
+Goal
+
+Make CURRENTS message feeds and file/attachment displays feel more like the familiar Slack experience the VoltSafe team is used to, while keeping VoltSafe’s premium Growth OS identity.
+
+Phase 19A added:
+
+* denser sidebar
+* Slack-style top tabs
+* Files/Pins/Structured/Members tab row
+* date dividers
+* contextual composer placeholders
+
+Phase 19B should focus only on:
+
+1. message feed polish
+2. image/file preview polish
+3. Files tab polish
+4. attachment hover/download/open behavior
+5. reaction placement polish around attachments
+6. light/dark consistency
+
+Do not add a new backend file system. Reuse existing attachment data and routes.
+
+Audit first
+
+Before writing code, inspect:
+
+1. client/src/pages/current.tsx
+2. message feed rendering
+3. MessageRow
+4. MessageActionBar
+5. attachment rendering components
+6. CurrentAttachmentDisplay
+7. file upload/display routes if needed
+8. Phase 19A Files tab implementation
+9. reaction rendering near attachments
+10. deleted/edited/pinned message states
+11. DM and group DM feed rendering
+12. light/dark mode styling
+
+Do not start with backend changes unless a clear attachment display bug requires it.
+
+1. Rich image preview polish
+
+Slack makes images feel native in the feed. Improve CURRENTS image attachments.
+
+For image attachments:
+
+* show larger inline previews where appropriate
+* preserve aspect ratio
+* cap max width/height so giant images do not dominate
+* use rounded corners
+* use subtle border/shadow
+* keep filename visible but not noisy
+* show download/open affordance on hover if existing route supports it
+* maintain reactions below/near the attachment cleanly
+* support light and dark mode
+
+Do not break attachment-only messages.
+
+2. File card polish
+
+For non-image attachments:
+
+Create/upgrade a compact file card style:
+
+* file icon/type
+* filename
+* file size if available
+* download/open action
+* subtle border/background
+* hover state
+* clear contrast in light/dark mode
+
+Examples:
+
+* PDF
+* DOC/DOCX
+* XLS/XLSX
+* CSV
+* generic file
+
+Do not add document previewing unless already available.
+
+3. Files tab polish
+
+Phase 19A added a Files tab using existing message attachments.
+
+Upgrade it to feel intentional:
+
+* show attachment cards grouped/listed cleanly
+* include sender name
+* include date/time
+* include channel/DM context where useful
+* image thumbnails for image files
+* compact file cards for documents
+* good empty state:
+    * “No files shared yet”
+    * “Files attached in this conversation will appear here.”
+* maintain channel/DM privacy/access behavior
+
+Do not build global cross-channel file search in this phase.
+
+4. Attachment hover actions
+
+Where low-risk, add hover actions:
+
+* Open
+* Download
+* Copy link only if safe/existing
+* no action if route not available
+
+Do not expose private file URLs to unauthorized users.
+
+Do not add public sharing.
+
+5. Reaction placement polish
+
+Make reactions look clean under messages with attachments.
+
+Verify:
+
+* reactions under image attachments are not too far away
+* reactions under file cards are aligned
+* reaction add button remains visible on hover
+* attachment-only messages still allow reactions
+* deleted messages do not show attachment actions incorrectly
+
+6. Feed density and hierarchy
+
+Adjust only if needed:
+
+* message spacing
+* avatar alignment
+* filename spacing
+* timestamp readability
+* date divider spacing
+* hover action positioning
+
+Do not make messages cramped.
+
+7. Light and dark mode
+
+Verify image/file cards in:
+
+* light mode
+* dark mode
+
+Light mode should not look washed out. Dark mode should not look too neon.
+
+Use existing tokens where possible.
+
+Not allowed
+
+Do not add:
+
+* new backend file library
+* global files search
+* public file sharing
+* external collaborators
+* guest users
+* file comments
+* image editor
+* cropper
+* video/audio preview unless already supported
+* new database tables
+* attachment storage redesign
+* trading/mail/CRM changes
+
+Functional requirements
+
+Verify:
+
+1. channel messages with image attachments render
+2. channel messages with file attachments render
+3. DM image attachments render
+4. DM file attachments render
+5. group DM attachments render
+6. attachment-only messages render
+7. reactions still work on attachment messages
+8. file download still works
+9. unauthorized/private attachment access still blocked
+10. archived channels still allow viewing old attachments but block new uploads
+11. Files tab works for channels
+12. Files tab works for DMs/group DMs
+13. empty Files tab state works
+14. no browser console errors
+15. no server errors
+
+Tests / verification
+
+Run relevant tests:
+
+* dm-attachments
+* dm-attachments-only
+* private-channels
+* channel-readonly
+* channel-visibility
+* dm-reactions
+* group-dm
+* group-dm-members
+* permissions
+* slash-commands if touched
+* Phase 19A layout/source checks if present
+
+If the known dm-reactions.test.cjs “group test message must be in response” failure appears, document whether it is the pre-existing unrelated test-data/timing issue unless this phase directly caused it.
+
+Screenshots
+
+Capture and inspect screenshots for:
+
+1. channel feed with image attachment
+2. channel feed with non-image file card
+3. DM feed with attachment
+4. Files tab with image thumbnail
+5. Files tab empty state
+6. light mode file preview
+7. dark mode file preview
+
+Deliverable
+
+Return:
+
+1. UX issues found
+2. message feed polish changes
+3. image preview changes
+4. file card changes
+5. Files tab changes
+6. reaction placement results
+7. files changed
+8. screenshots captured
+9. tests run
+10. TypeScript/browser console/server log results
+11. known limitations
+12. final status
+
+Keep scope tight: CURRENTS rich message/file feed polish only.
