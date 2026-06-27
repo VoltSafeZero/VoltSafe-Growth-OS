@@ -1,0 +1,94 @@
+Proceed with VoltSafe CMS Navigation Cleanup Phase 4A only: Move Relationship Intelligence to Insights.
+
+Use the planning document:
+
+docs/nav-more-decision-plan-2026-06-27.md
+
+Do not perform a full sidebar reorganization. Do not implement role-based nav. Do not create a new Revenue group. Do not consolidate Automations/Task Rules. Do not move Training/Help. Do not touch CURRENTS, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Move Relationship Intelligence out of the More group and into the existing Insights group.
+
+This is a position-only move.
+
+Scope
+
+Allowed:
+
+1. Move Relationship Intelligence from More to Insights.
+2. Keep label unchanged.
+3. Keep route unchanged.
+4. Keep component unchanged.
+5. Update nav tests to assert the new parent group.
+6. Verify no duplicate routes.
+
+Not allowed:
+
+1. Creating a new Revenue group.
+2. Moving Revenue Hub, Revenue Ops, or Revenue Simulator.
+3. Renaming Insights to Intelligence.
+4. Moving or renaming other More items.
+5. Backend permission changes.
+6. New routes/components.
+7. Full sidebar redesign.
+8. CURRENTS changes.
+9. Gmail/mail/tracking changes.
+10. CRM feature changes.
+
+Required change
+
+Move:
+
+* Relationship Intelligence
+
+From:
+
+* More
+
+To:
+
+* Insights
+
+Keep route:
+
+* /intelligence/rel-intelligence
+
+Keep component/page unchanged.
+
+Verification
+
+Verify:
+
+1. Sidebar renders.
+2. Relationship Intelligence appears under Insights.
+3. Relationship Intelligence no longer appears under More.
+4. Route remains /intelligence/rel-intelligence.
+5. Component/page remains unchanged.
+6. No duplicate routes introduced.
+7. Existing nav drift tests still pass.
+8. No TypeScript errors.
+9. Browser console clean if app is run.
+
+Tests
+
+Update tests/nav-drift.test.cjs or equivalent checks for:
+
+1. Relationship Intelligence is under Insights.
+2. Relationship Intelligence is not under More.
+3. Route remains /intelligence/rel-intelligence.
+4. No duplicate nav routes.
+5. Prior Phase 1–3 nav tests still pass.
+
+Deliverable
+
+Return:
+
+1. Item moved
+2. Files changed
+3. Confirmation label/route/component unchanged
+4. Tests added/updated
+5. Verification results
+6. Recommended next phase
+
+Keep scope tight: Relationship Intelligence position-only move.

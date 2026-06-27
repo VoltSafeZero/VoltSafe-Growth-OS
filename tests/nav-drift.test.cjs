@@ -56,6 +56,7 @@ function sectionText(id) {
 const workSection      = sectionText("work");
 const pipelineSection  = sectionText("pipeline");
 const opsSection       = sectionText("operations");
+const insightsSection  = sectionText("insights");
 const moreSection      = sectionText("more");
 const channelsSection  = sectionText("channels");
 
@@ -226,8 +227,25 @@ ok("Winter Support is NOT in More group",
 ok("Winter Support route is /winter (unchanged)",
   src.includes('route: "/winter"'));
 
-// ── Phase 1+2+3: Duplicate route guard ───────────────────────────────────────
-console.log("\nPhase 1+2+3 — Duplicate routes in NAV_CONFIG:");
+// ── Phase 4A: Relationship Intelligence → Insights ───────────────────────────
+console.log("\nPhase 4A — Relationship Intelligence moved to Insights:");
+
+ok("Relationship Intelligence is in Insights group",
+  insightsSection.includes('/intelligence/rel-intelligence'),
+  "Should live under Insights, not More");
+
+ok("Relationship Intelligence is NOT in More group",
+  !moreSection.includes('/intelligence/rel-intelligence'),
+  "Must be removed from More");
+
+ok("Relationship Intelligence route is /intelligence/rel-intelligence (unchanged)",
+  src.includes('route: "/intelligence/rel-intelligence"'));
+
+ok('Relationship Intelligence label is still "Relationship Intelligence"',
+  src.includes('label: "Relationship Intelligence"'));
+
+// ── Phase 1+2+3+4A: Duplicate route guard ────────────────────────────────────
+console.log("\nPhase 1–4A — Duplicate routes in NAV_CONFIG:");
 
 const routeMatches   = [...src.matchAll(/route: "([^"]+)"/g)];
 const routes         = routeMatches.map(m => m[1]);

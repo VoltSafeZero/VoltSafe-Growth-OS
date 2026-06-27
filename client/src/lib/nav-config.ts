@@ -156,6 +156,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "copilot",             label: { desktop: "Executive Copilot",  mobile: "Copilot" },         route: "/executive-copilot",            icon: Brain },
       { id: "revenue-intelligence", label: { desktop: "Revenue Intelligence", mobile: "Rev Intel" },    route: "/revenue-intelligence",         icon: Zap, permKey: "crm", advisorHidden: true },
       { id: "territory",           label: { desktop: "Territory & Geo",    mobile: "Territory" },       route: "/geography",                    icon: Globe,      permKey: "crm", advisorHidden: true },
+      { id: "rel-intelligence",    label: "Relationship Intelligence",                                   route: "/intelligence/rel-intelligence", icon: BarChart3 },
     ],
   },
   {
@@ -182,7 +183,6 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "revenue-hub",       label: "Revenue Hub",       route: "/revenue",                       icon: BarChart3,   permKey: "crm", exactMatch: true, advisorHidden: true },
       { id: "revenue-ops",       label: "Revenue Ops",       route: "/revenue-ops",                   icon: Target,                                         advisorHidden: true },
       { id: "revenue-sim",       label: "Revenue Simulator", route: "/revenue-sim",                   icon: FlaskRound,                                     advisorHidden: true },
-      { id: "rel-intelligence",  label: "Relationship Intelligence", route: "/intelligence/rel-intelligence", icon: BarChart3 },
       { id: "score-feedback",    label: "Score Feedback",    route: "/scores/feedback",               icon: Target,                                         advisorHidden: true },
       { id: "digest-alerts",     label: "Digest Settings",   route: "/alerts-digest",                 icon: BellRing },
       { id: "data-quality",      label: "Data Quality",      route: "/data-quality",                  icon: ShieldCheck, permKey: "crm",                   advisorHidden: true },
