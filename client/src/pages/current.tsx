@@ -65,6 +65,14 @@ import { CurrentSummaryPanel } from "@/components/current/current-summary-panel"
 import type { CurrentSummaryData } from "@/components/current/current-summary-panel";
 import { CreateTaskFromCurrentDialog } from "@/components/current/create-task-from-current-dialog";
 import type { CreateTaskSource } from "@/components/current/create-task-from-current-dialog";
+import {
+  useSlashCommand,
+  SlashCommandMenu,
+  SlashCommandPill,
+  CHANNEL_COMMANDS,
+  DM_COMMANDS,
+  THREAD_COMMANDS,
+} from "@/components/current/slash-command-menu";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1350,6 +1358,7 @@ function ThreadPanel({
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
   const threadAtBottom = useRef(true);
   const replyMention = useComposerMentions(replyTextareaRef);
+  const threadSlash = useSlashCommand(replyDraft, THREAD_COMMANDS);
   // Phase 12A: thread typing ping throttle
   const threadTypingPingRef = useRef(0);
   const { data: threadTypingData } = useQuery<{ typers: { userId: number; name: string }[]; count: number }>({
@@ -1448,6 +1457,17 @@ function ThreadPanel({
         .then((r) => r.json()),
   });
 
+  const threadMarkStructuredMutation = useMutation({
+    mutationFn: ({ messageId, itemType }: { messageId: number; itemType: string }) =>
+      apiRequest("POST", `/api/current/messages/${messageId}/structured`, { itemType })
+        .then((r) => r.json()),
+    onSuccess: () => {
+      invalidateThread();
+      invalidateFeed();
+      queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] });
+    },
+  });
+
   // Edit reply (reuses same PATCH route)
   const editReplyMutation = useMutation({
     mutationFn: ({ id, body }: { id: number; body: string }) =>
@@ -1496,12 +1516,23 @@ function ThreadPanel({
   async function handleReplySend() {
     const trimmed = replyDraft.trim();
     if (!trimmed || postReplyMutation.isPending || isReplyUploading) return;
+    const cmd = threadSlash.selectedCommand;
+    threadSlash.clearCommand();
     try {
       const newMsg = await postReplyMutation.mutateAsync(trimmed);
       setReplyDraft("");
       replyMention.closeMention();
       if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
       threadAtBottom.current = true;
+      // Execute thread slash command
+      if (cmd && newMsg?.id) {
+        if (cmd.id === "task" && onCreateTaskMsg) {
+          onCreateTaskMsg(newMsg as Message, rootMessageId);
+        } else if (cmd.id === "decision" || cmd.id === "risk" || cmd.id === "requirement") {
+          threadMarkStructuredMutation.mutate({ messageId: newMsg.id, itemType: cmd.id });
+          toast({ title: `Marked as ${cmd.id}` });
+        }
+      }
       const files = [...replyPendingFiles];
       setReplyPendingFiles([]);
       if (files.length > 0 && newMsg?.id) {
@@ -1526,6 +1557,14 @@ function ThreadPanel({
 
   function handleReplyKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (replyMention.handleMentionKeyDown(e, replyDraft, setReplyDraft)) return;
+    const slashResult = threadSlash.handleMenuKeyDown(e);
+    if (slashResult !== false) {
+      if (typeof slashResult === "object") {
+        threadSlash.selectCommand(slashResult);
+        setReplyDraft("");
+      }
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleReplySend();
@@ -1728,6 +1767,14 @@ function ThreadPanel({
                 onHover={replyMention.setMentionIdx}
               />
             )}
+            {threadSlash.menuOpen && (
+              <SlashCommandMenu
+                commands={threadSlash.filteredCommands}
+                activeIndex={threadSlash.activeIndex}
+                onSelect={(cmd) => { threadSlash.selectCommand(cmd); setReplyDraft(""); }}
+                onHover={threadSlash.setActiveIndex}
+              />
+            )}
             {/* Phase 12A: thread typing indicator */}
             <TypingIndicator typers={threadTypingData?.typers ?? []} count={threadTypingData?.count ?? 0} />
             {replyPendingFiles.length > 0 && (
@@ -1739,6 +1786,9 @@ function ThreadPanel({
                   }
                 />
               </div>
+            )}
+            {threadSlash.selectedCommand && (
+              <SlashCommandPill command={threadSlash.selectedCommand} onClear={threadSlash.clearCommand} />
             )}
             <div
               className={cn(
@@ -1820,7 +1870,7 @@ function ThreadPanel({
               </Button>
             </div>
             <p className="text-[10px] text-muted-foreground/30 mt-1 px-0.5 select-none">
-              Enter to reply · Shift+Enter for new line · @ to mention · 📎 to attach
+              Enter to reply · Shift+Enter for new line · @ to mention · / for commands · 📎 to attach
             </p>
           </>
         )}
@@ -3185,6 +3235,8 @@ export default function CurrentPage() {
   const lastReadRef = useRef<number>(0);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainMention = useComposerMentions(textareaRef);
+  const channelSlash = useSlashCommand(draft, CHANNEL_COMMANDS);
+  const dmSlash = useSlashCommand(dmDraft, DM_COMMANDS);
 
   const [createTaskSource, setCreateTaskSource] = useState<CreateTaskSource | null>(null);
 
@@ -3796,14 +3848,34 @@ export default function CurrentPage() {
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   async function handleSend() {
+    // /summarize: no message — trigger channel summary directly
+    if (channelSlash.selectedCommand?.id === "summarize") {
+      channelSummaryMutation.mutate(selectedSlug);
+      channelSlash.clearCommand();
+      return;
+    }
     const trimmed = draft.trim();
     if (!trimmed || postMutation.isPending || isMainUploading) return;
+    const cmd = channelSlash.selectedCommand;
+    channelSlash.clearCommand();
     try {
       const newMsg = await postMutation.mutateAsync(trimmed);
       setDraft("");
       mainMention.closeMention();
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       isAtBottom.current = true;
+      // Execute slash command on the newly sent message
+      if (cmd && newMsg?.id) {
+        if (cmd.id === "task") {
+          handleCreateTaskFromMsg(newMsg as Message);
+        } else if (cmd.id === "decision" || cmd.id === "risk" || cmd.id === "requirement") {
+          markStructuredMutation.mutate({ messageId: newMsg.id, itemType: cmd.id });
+          toast({ title: `Marked as ${cmd.id}` });
+        } else if (cmd.id === "pin") {
+          pinMutation.mutate(newMsg.id);
+          toast({ title: "Message pinned" });
+        }
+      }
       const files = [...mainPendingFiles];
       setMainPendingFiles([]);
       if (files.length > 0 && newMsg?.id) {
@@ -3827,6 +3899,14 @@ export default function CurrentPage() {
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (mainMention.handleMentionKeyDown(e, draft, setDraft)) return;
+    const slashResult = channelSlash.handleMenuKeyDown(e);
+    if (slashResult !== false) {
+      if (typeof slashResult === "object") {
+        channelSlash.selectCommand(slashResult);
+        setDraft("");
+      }
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -3861,12 +3941,18 @@ export default function CurrentPage() {
     const trimmed = dmDraft.trim();
     const hasFiles = dmPendingFiles.length > 0;
     if ((!trimmed && !hasFiles) || dmPostMutation.isPending || isDmUploading || !selectedDmId) return;
+    const cmd = dmSlash.selectedCommand;
+    dmSlash.clearCommand();
     try {
       const newMsg = await dmPostMutation.mutateAsync({ body: trimmed, hasPendingAttachments: hasFiles });
       setDmDraft("");
       dmMention.closeMention();
       if (dmTextareaRef.current) dmTextareaRef.current.style.height = "auto";
       dmIsAtBottom.current = true;
+      // Execute DM slash command
+      if (cmd?.id === "task" && newMsg?.id) {
+        handleCreateTaskFromMsg(newMsg as Message);
+      }
       const files = [...dmPendingFiles];
       setDmPendingFiles([]);
       if (files.length > 0 && newMsg?.id) {
@@ -3891,6 +3977,14 @@ export default function CurrentPage() {
 
   function handleDmKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (dmMention.handleMentionKeyDown(e, dmDraft, setDmDraft)) return;
+    const slashResult = dmSlash.handleMenuKeyDown(e);
+    if (slashResult !== false) {
+      if (typeof slashResult === "object") {
+        dmSlash.selectCommand(slashResult);
+        setDmDraft("");
+      }
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleDmSend();
@@ -4675,6 +4769,14 @@ export default function CurrentPage() {
                   }}
                 />
               )}
+              {dmSlash.menuOpen && (
+                <SlashCommandMenu
+                  commands={dmSlash.filteredCommands}
+                  activeIndex={dmSlash.activeIndex}
+                  onSelect={(cmd) => { dmSlash.selectCommand(cmd); setDmDraft(""); }}
+                  onHover={dmSlash.setActiveIndex}
+                />
+              )}
               {/* Phase 12A: DM typing indicator */}
               <TypingIndicator typers={dmTypingData?.typers ?? []} count={dmTypingData?.count ?? 0} />
               {dmPendingFiles.length > 0 && (
@@ -4686,6 +4788,9 @@ export default function CurrentPage() {
                     }
                   />
                 </div>
+              )}
+              {dmSlash.selectedCommand && (
+                <SlashCommandPill command={dmSlash.selectedCommand} onClear={dmSlash.clearCommand} />
               )}
               <div
                 className={cn(
@@ -4763,7 +4868,7 @@ export default function CurrentPage() {
                 </div>
               </div>
               <p className="text-[10.5px] text-muted-foreground/35 mt-1.5 px-0.5 select-none">
-                Enter to send · Shift+Enter for new line · @ to mention · 📎 to attach
+                Enter to send · Shift+Enter for new line · @ to mention · / for commands · 📎 to attach
               </p>
             </div>
           </div>
@@ -4895,6 +5000,14 @@ export default function CurrentPage() {
                   onHover={mainMention.setMentionIdx}
                 />
               )}
+              {channelSlash.menuOpen && (
+                <SlashCommandMenu
+                  commands={channelSlash.filteredCommands}
+                  activeIndex={channelSlash.activeIndex}
+                  onSelect={(cmd) => { channelSlash.selectCommand(cmd); setDraft(""); }}
+                  onHover={channelSlash.setActiveIndex}
+                />
+              )}
               {/* Phase 12A: channel typing indicator */}
               <TypingIndicator typers={channelTypingData?.typers ?? []} count={channelTypingData?.count ?? 0} />
               {mainPendingFiles.length > 0 && (
@@ -4906,6 +5019,9 @@ export default function CurrentPage() {
                     }
                   />
                 </div>
+              )}
+              {channelSlash.selectedCommand && (
+                <SlashCommandPill command={channelSlash.selectedCommand} onClear={channelSlash.clearCommand} />
               )}
               <div
                 className={cn(
@@ -4955,7 +5071,7 @@ export default function CurrentPage() {
                 <Button
                   size="sm"
                   onClick={handleSend}
-                  disabled={!draft.trim() || postMutation.isPending || isMainUploading}
+                  disabled={((!draft.trim() && channelSlash.selectedCommand?.id !== "summarize")) || postMutation.isPending || isMainUploading}
                   className="shrink-0 h-8 w-8 p-0 rounded-lg transition-all"
                   data-testid="btn-send-message"
                 >
@@ -4967,7 +5083,7 @@ export default function CurrentPage() {
                 </Button>
               </div>
               <p className="text-[10.5px] text-muted-foreground/35 mt-1.5 px-0.5 select-none">
-                Enter to send · Shift+Enter for new line · @ to mention · 📎 to attach
+                Enter to send · Shift+Enter for new line · @ to mention · / for commands · 📎 to attach
               </p>
             </div>
             )}

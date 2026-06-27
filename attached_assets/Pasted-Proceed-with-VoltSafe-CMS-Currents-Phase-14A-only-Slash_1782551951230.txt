@@ -1,0 +1,306 @@
+Proceed with VoltSafe CMS Currents Phase 14A only: Slash Commands / Composer Quick Actions.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, workflow automation, DM unread badge work, private channels, channel search improvements, presence panels, message reactions, or unrelated task features.
+
+Goal
+
+Add lightweight slash commands to Currents composers so users can trigger common actions faster.
+
+Currents now supports:
+
+* channels
+* threads
+* DMs
+* group DMs
+* attachments
+* reactions
+* pins
+* structured items
+* AI summaries
+* Create Task
+* typing indicators
+* presence
+* channel participants
+
+Phase 14A should add composer-side slash command suggestions and simple command execution without building a large command framework.
+
+Scope
+
+Add only slash commands for existing Currents capabilities.
+
+Start with these commands:
+
+1. /task — create a task from the current draft/message context
+2. /decision — mark/send as Decision
+3. /risk — mark/send as Risk
+4. /requirement — mark/send as Requirement
+5. /pin — pin the sent message if supported in that context
+6. /summarize — trigger existing summary action for current channel/thread/record context if low-risk
+
+Keep Phase 14A simple. Do not add custom command management or external integrations.
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* Channel composer
+* DM/group DM composer
+* ThreadPanel composer
+* Record Currents composer
+* Existing Create Task from message/thread/summary flows
+* Existing structured item marking routes
+* Existing pin route
+* Existing AI summary route/buttons
+* Message send routes
+* MessageRow actions
+* MessageActionBar
+* Current toast/dialog patterns
+* Current keyboard handling patterns
+* Existing tests for Currents phases 6A–13A
+
+Product behavior
+
+When a user types / at the start of a composer draft, show a small command menu.
+
+Example:
+
+/task Create task
+/decision Mark as decision
+/risk Mark as risk
+/requirement Mark as requirement
+/pin Send and pin
+/summarize Summarize this conversation
+
+Filtering:
+
+* Typing /ta should narrow to /task.
+* Escape closes the menu.
+* Arrow keys navigate if low-risk.
+* Enter selects highlighted command if menu is open.
+* Mouse click selects a command.
+
+After selecting a command:
+
+* The slash command token is removed from the draft.
+* The user can continue typing the message/body.
+* The selected command appears as a small pill above the composer, e.g. Command: Create task.
+* User can clear the selected command before sending.
+
+Context support
+
+Channel composer
+
+Support:
+
+* /task
+* /decision
+* /risk
+* /requirement
+* /pin
+* /summarize
+
+Thread reply composer
+
+Support:
+
+* /task
+* /decision
+* /risk
+* /requirement
+
+Pin may be skipped for thread replies unless already supported.
+
+Summarize may be skipped unless thread summary is already easy.
+
+DM/group DM composer
+
+Support initially:
+
+* /task
+
+Optional if existing structured item system supports DMs:
+
+* /decision
+* /risk
+* /requirement
+
+If structured items are channel/record-only, do not force them into DMs.
+
+Record Currents composer
+
+Support if composer exists and low-risk:
+
+* /task
+* /decision
+* /risk
+* /requirement
+
+Execution behavior
+
+/task
+
+Preferred Phase 14A behavior:
+
+* After message sends, open existing Create Task dialog/drawer prefilled from the sent message.
+* If easier, create task directly only if existing UX already supports it safely.
+* Must preserve existing Create Task behavior and source metadata.
+
+/decision, /risk, /requirement
+
+Preferred behavior:
+
+* Send the message normally.
+* After send succeeds, call existing structured-item mark route on the sent message.
+* If note support exists, do not force a note in Phase 14A.
+* Toast: Marked as decision, etc.
+
+/pin
+
+Preferred behavior:
+
+* Send the message normally.
+* After send succeeds, call existing pin route.
+* Only in active channels.
+* Do not allow in archived channels.
+* Toast: Message pinned.
+
+/summarize
+
+Preferred behavior:
+
+* Trigger existing summary action for the current channel/thread/record.
+* Does not need to send a message.
+* If too risky, include in menu only where existing summary button already exists and reuse that exact handler.
+
+Backend requirements
+
+Avoid adding backend routes unless necessary.
+
+Prefer reusing existing routes:
+
+* send message route
+* structured item route
+* pin route
+* task creation/source route
+* summary route
+
+If a small helper route is necessary, keep it scoped and authenticated.
+
+Frontend requirements
+
+Add a reusable SlashCommandMenu component or helper.
+
+Requirements:
+
+1. Works in channel composer.
+2. Works in DM/group DM composer for supported commands.
+3. Works in ThreadPanel composer if low-risk.
+4. Opens only when draft starts with / or current word starts with /.
+5. Filters commands by typed query.
+6. Shows command name and short description.
+7. Selecting command removes slash token from draft.
+8. Shows selected command pill.
+9. Clear command button works.
+10. Send button behavior remains unchanged unless command selected.
+11. Attachment sending still works.
+12. Attachment-only sending still works.
+13. Empty draft + selected command should be handled safely:
+    * either require body text, or
+    * allow only commands that do not require a message, such as /summarize.
+14. Dark mode styling clean.
+15. Smaller screens acceptable.
+
+Security requirements
+
+Verify:
+
+1. Slash commands do not bypass existing route auth.
+2. Slash commands do not bypass archived channel write blocks.
+3. Slash commands do not bypass DM/group DM membership checks.
+4. Slash commands do not allow pinning archived channel messages.
+5. Slash commands do not allow marking deleted messages.
+6. Slash commands do not alter messages user cannot access.
+7. Slash commands use the session user only.
+8. Invalid command is ignored or rejected safely.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Typing / opens command menu.
+4. Filtering works.
+5. Escape closes menu.
+6. Selecting command inserts selected-command pill.
+7. Clearing pill works.
+8. Sending normal message without command still works.
+9. Sending with /decision marks sent message as Decision.
+10. Sending with /risk marks sent message as Risk.
+11. Sending with /requirement marks sent message as Requirement.
+12. Sending with /pin pins sent channel message.
+13. /pin not available or blocked in DMs.
+14. /pin blocked in archived channels.
+15. /task uses existing Create Task flow/source metadata.
+16. /summarize only appears where safely supported.
+17. DM/group DM normal send still works.
+18. DM/group DM attachments still work.
+19. Attachment-only messages still work.
+20. Thread replies still work.
+21. Typing indicators still work.
+22. Presence still works.
+23. Reactions still work.
+24. Channel participants panel still works.
+25. Notification preferences still work.
+26. Hide-muted unread badge preference still works.
+27. Structured panel still works.
+28. AI summaries still work.
+29. Create Task still works.
+30. View in Currents still works.
+31. No browser console errors.
+32. No server errors.
+33. No SQL errors.
+34. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Slash menu appears on /
+* Slash filtering
+* Slash command selection
+* Selected command pill
+* Clear selected command
+* Normal send unaffected
+* /decision marks sent channel message
+* /risk marks sent channel message
+* /requirement marks sent channel message
+* /pin pins sent channel message
+* /pin unavailable/blocked in archived channels
+* /task triggers existing task creation/source flow or opens task UI
+* DM unsupported commands hidden or safely ignored
+* Thread composer support if implemented
+* Existing 13A reaction tests pass
+* Existing 12C channel participants tests pass
+* Existing 12B presence tests pass
+* Existing 12A typing tests pass
+* Existing 11A/11B group DM tests pass
+* Existing 10A/10B notification tests pass
+* Existing 9A/9B channel tests pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing composer/action audit summary
+2. Slash commands implemented
+3. Frontend changes
+4. Backend changes, if any
+5. Command behavior by context
+6. Security checks
+7. Verification results
+8. Features intentionally deferred
+9. Known issues
+10. Recommended next feature order
+
+Keep scope tight: Slash Commands / Composer Quick Actions only.
