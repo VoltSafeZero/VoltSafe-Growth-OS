@@ -1,0 +1,261 @@
+Proceed with VoltSafe CMS CURRENTS Phase 19D only: Slack-Familiarity UI Verification / Regression Audit.
+
+Do not add new product features. Do not work on avatar upload, Guest CURRENTS, external collaborators, workflow automation, private-channel roles, backend security expansion, Gmail/mail-permissions, Accounts/Contacts redesign, Polyweather, or unrelated modules.
+
+Goal
+
+Verify that the completed Slack-familiarity polish phases are visually clean, functional, and regression-free.
+
+Recently completed:
+
+* Phase 19A: compact sidebar, top tabs, date dividers, contextual composer placeholders
+* Phase 19B: rich image/file previews, Files tab gallery/list, file cards
+* Phase 19C: Slack-like Channel Details modal with About/Members/Files/Pins/Settings
+
+This phase is QA/regression only.
+
+Audit scope
+
+Audit only:
+
+1. CURRENTS layout polish
+2. sidebar density and selected states
+3. tab row behavior
+4. date dividers
+5. composer placeholders
+6. rich attachment previews
+7. Files tab
+8. Channel Details modal
+9. Members search/add/remove
+10. Pins/Settings tabs
+11. light/dark mode
+12. TypeScript/browser/server errors
+13. existing CURRENTS functionality regressions
+14. targeted tests
+
+Visual audit checklist
+
+Inspect:
+
+Sidebar
+
+1. CURRENTS wordmark/header
+2. channel rows
+3. selected channel
+4. private channel lock
+5. archived indicators
+6. muted indicators
+7. unread badges
+8. DM rows
+9. selected DM
+10. presence dots
+11. group DM rows
+12. section spacing/density
+
+Header and tab row
+
+1. channel header
+2. private/archived badges
+3. DM/group DM header
+4. top tab row
+5. active tab underline
+6. tab row overflow/crowding
+7. Files/Pins/Structured/Members tabs
+8. DM tabs
+
+Message feed
+
+1. date dividers
+2. message spacing
+3. hover states
+4. MessageActionBar
+5. reactions
+6. edited/deleted messages
+7. attachment-only messages
+8. pinned messages
+9. empty channel state
+10. empty DM state
+
+Attachments / Files
+
+1. image preview size/aspect ratio
+2. image hover overlay
+3. Open/Download actions
+4. non-image file card
+5. file size/type display
+6. Files tab with image attachments
+7. Files tab with document attachments
+8. Files tab empty state
+9. Files tab date dividers
+10. private/DM attachment access still works
+
+Channel Details modal
+
+1. modal opens from header People button
+2. modal opens from Members tab
+3. About tab renders
+4. Members tab renders
+5. member search filters correctly
+6. avatars render
+7. presence indicators render
+8. add people works for allowed users
+9. remove member works for allowed users
+10. Files tab renders
+11. Pins tab renders
+12. Settings tab renders
+13. notification preference controls work
+14. Edit channel button works
+15. archive/unarchive button works
+16. modal closes cleanly
+17. switching channels resets safely
+18. no stale data
+
+Functional regression checks
+
+Verify:
+
+1. /current loads.
+2. channel messages render.
+3. channel message send works.
+4. DM messages render.
+5. DM message send works.
+6. group DMs render.
+7. private channels render.
+8. archived channels remain read-only.
+9. reactions work.
+10. emoji picker opens.
+11. attachment upload works.
+12. attachment download works.
+13. slash command menu opens.
+14. slash commands still work.
+15. mentions still work.
+16. search view still works.
+17. structured view still works.
+18. thread panel opens.
+19. thread reply works.
+20. AI summary still opens.
+21. Create Task from message still works if feasible.
+22. profile dropdown still works.
+23. sign out still works.
+
+Security spot-check
+
+Do not redo the full security audit, but spot-check:
+
+1. private non-member cannot view private channel.
+2. private non-member cannot download private attachment.
+3. archived channel composer remains blocked.
+4. left group DM member cannot access old group DM.
+5. channel details modal does not leak private members.
+6. Files tab does not leak private attachments.
+7. Members tab respects private-channel membership.
+
+Light/dark mode
+
+Capture and inspect both modes.
+
+Verify:
+
+1. light mode does not look washed out.
+2. dark mode does not look too neon.
+3. text contrast is strong.
+4. tab row visible.
+5. modal readable.
+6. file cards readable.
+7. composer focus state clean.
+8. selected row clear.
+
+Tests to run
+
+Run:
+
+* private-channels
+* channel-management
+* channel-participants
+* channel-visibility
+* channel-readonly
+* notification-preferences
+* dm-attachments
+* dm-attachments-only
+* dm-reactions
+* group-dm
+* group-dm-members
+* slash-commands
+* permissions
+* Phase 19A source checks if present
+* Phase 19B source checks if present
+
+Also run:
+
+* TypeScript check
+* browser console inspection
+* server log inspection
+* one E2E smoke test for /current
+
+If the known dm-reactions.test.cjs “group test message must be in response” issue appears, document whether it is still unrelated/pre-existing unless this phase introduced a new regression.
+
+Screenshots required
+
+Capture and inspect screenshots for:
+
+1. channel view light mode
+2. DM view light mode
+3. channel view dark mode
+4. DM view dark mode
+5. message feed with date dividers
+6. message with image attachment
+7. message with file card
+8. Files tab
+9. Channel Details About tab
+10. Channel Details Members tab
+11. Channel Details Files tab
+12. Channel Details Pins tab
+13. Channel Details Settings tab
+14. composer focused state
+
+Allowed fixes
+
+Allowed:
+
+* visual regression from 19A/19B/19C
+* tab row bug
+* date divider bug
+* attachment preview display bug
+* Files tab display bug
+* Channel Details modal bug
+* member search bug
+* stale modal state
+* light/dark contrast issue
+* broken CURRENTS capitalization
+* tests directly related to these phases
+
+Not allowed:
+
+* new features
+* guest users
+* external collaborators
+* private-channel roles
+* new backend systems
+* database migrations
+* profile/avatar expansion
+* CRM/mail/trading/Polyweather work
+* unrelated app shell redesign
+
+Deliverable
+
+Return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Visual audit results
+5. Functional regression results
+6. Security spot-check results
+7. Light/dark mode results
+8. Screenshots captured
+9. Tests run
+10. TypeScript/browser/server log results
+11. Known unrelated failures
+12. Final launch-readiness verdict
+
+Keep scope tight: CURRENTS Slack-familiarity UI verification only.
