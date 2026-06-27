@@ -1,0 +1,275 @@
+Please perform a VoltSafe CMS Currents Phase 12B Presence / Online Status Indicators audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, channel search improvements, DM unread badge work, message reactions, or unrelated task features.
+
+Goal
+
+Verify that Currents presence indicators are secure, stable, polished, and regression-free.
+
+Phase 12B added:
+
+* POST /api/current/presence/heartbeat
+* GET /api/current/presence
+* Presence TTL cache using presence:user:{userId}
+* 90-second presence TTL
+* 30-second frontend heartbeat
+* 30-second frontend presence polling
+* 1:1 DM sidebar online dot
+* 1:1 DM header Online/Offline state
+* Group DM header online count
+* GroupMemberDialog presence display
+
+Audit scope
+
+Audit only:
+
+1. Presence backend routes
+2. Presence TTL/cache behavior
+3. Heartbeat behavior
+4. Presence polling behavior
+5. DM sidebar presence UI
+6. DM/group DM header presence UI
+7. GroupMemberDialog presence UI
+8. Security/privacy behavior
+9. Existing Currents regressions caused by 12B
+
+Backend route checks
+
+POST /api/current/presence/heartbeat
+
+Verify:
+
+1. Requires authentication.
+2. Uses session user ID only.
+3. Cannot spoof another user via body/query params.
+4. Stores only minimal data.
+5. Uses correct key: presence:user:{userId}.
+6. Uses 90-second TTL.
+7. Refreshes TTL on repeated heartbeat.
+8. Returns { ok: true }.
+9. Does not expose user profile data.
+
+GET /api/current/presence
+
+Verify:
+
+1. Requires authentication.
+2. Accepts comma-separated userIds.
+3. Sanitizes invalid IDs.
+4. Rejects or ignores floats, strings, negatives, zero, empty values.
+5. Caps at 100 user IDs.
+6. Returns only { userId, status }.
+7. Does not expose names, emails, roles, permissions, or private profile fields.
+8. Returns online only if TTL entry exists.
+9. Returns offline if missing/expired.
+10. Handles empty/sanitized-out list cleanly.
+11. Does not leak group/DM membership beyond requested IDs.
+
+Cache / TTL checks
+
+Verify:
+
+1. TTL is 90 seconds.
+2. Heartbeat every 30 seconds is sufficient.
+3. Presence expires naturally after TTL.
+4. Cache sweep prevents unbounded growth.
+5. Repeated heartbeat keeps user online.
+6. Presence cache does not persist across server restart, which is acceptable.
+7. Presence keys cannot be created for arbitrary spoofed users.
+8. Memory growth is bounded by active users.
+
+Frontend checks
+
+Heartbeat
+
+Verify:
+
+1. Heartbeat fires immediately when /current loads.
+2. Heartbeat repeats every 30 seconds.
+3. Heartbeat stops on unmount.
+4. Heartbeat does not fire before current user ID is known.
+5. Heartbeat does not spam on every render.
+6. Heartbeat does not create console/server noise.
+
+Presence query
+
+Verify:
+
+1. Query only includes visible/relevant users.
+2. Query includes 1:1 DM other users.
+3. Query includes group DM members.
+4. Query dedupes IDs.
+5. Query uses stable ordering.
+6. Query is disabled when there are no IDs.
+7. Polls every 30 seconds.
+8. Uses refetchOnWindowFocus: false.
+9. Does not query all users in the system.
+
+DM sidebar
+
+Verify:
+
+1. 1:1 DM online dot appears when user is online.
+2. Offline state does not cause layout shift.
+3. Dot placement is clean on avatar.
+4. Dot does not crowd unread/mute badges.
+5. Dark mode styling is clean.
+6. Group DM sidebar does not get cluttered.
+
+DM/group DM header
+
+Verify:
+
+1. 1:1 DM header shows Online when online.
+2. 1:1 DM header shows Offline when offline.
+3. Group DM header shows N members · M online when M > 0.
+4. Group DM header hides online count cleanly when M = 0.
+5. Current user handling is intentional:
+    * confirm whether current user counts toward group online count.
+    * document the decision.
+6. Header does not jump or wrap awkwardly.
+
+GroupMemberDialog
+
+Verify:
+
+1. PresenceMap is passed correctly.
+2. Current user row shows sensible status.
+3. Other members show online dot/status when online.
+4. Offline members still show readable email/details.
+5. Existing add-member search still works.
+6. Leave confirmation still works.
+7. Dialog layout remains clean in dark mode and smaller screens.
+
+Security/privacy checks
+
+Verify:
+
+1. User cannot spoof another user’s presence.
+2. Presence GET does not leak emails, names, roles, permissions, or private data.
+3. Presence GET cannot be used to infer hidden private group membership beyond IDs the frontend already knows.
+4. Presence routes require auth.
+5. Presence routes are safe from SQL injection.
+6. Presence ID parsing cannot create arbitrary cache keys.
+7. Presence data does not persist beyond TTL.
+8. Presence works only for authenticated internal users.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Phase 12A typing indicators
+* Channel messages
+* Channel unread counts
+* Channel notification preferences
+* Channel archived/read-only behavior
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Mentions panel
+* Structured panel
+* Structured archived toggle/badges
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+* 1:1 DMs
+* 1:1 DM attachments
+* 1:1 attachment-only DMs
+* 1:1 DM unread/read-state
+* 1:1 DM mute/unmute
+* Group DMs
+* Group DM add/leave members
+* Group DM attachments
+* Group DM unread/read-state
+* Hide-muted unread badge preference
+* Record Currents
+* Record attachments
+* Record search
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+* Excessive polling/network noise
+
+Specific concerns to audit
+
+Please specifically check these:
+
+1. Whether current user should count in group online count.
+2. Whether PresenceDot returning null when offline causes any subtle alignment issue.
+3. Whether the presence query can include currentUserId unnecessarily.
+4. Whether 30-second polling plus 30-second heartbeat causes acceptable network load.
+5. Whether parseInt could unintentionally accept partial values like 12abc; if so, tighten parsing.
+6. Whether GET /api/current/presence?userIds= behaves cleanly.
+7. Whether presence route should use Number.isInteger semantics instead of loose parsing.
+8. Whether group member dialog replacing email with Online loses useful contact context.
+
+Allowed fixes
+
+Only fix issues directly related to Phase 12B Presence.
+
+Allowed:
+
+* Presence route validation bug
+* Presence spoofing/privacy bug
+* Presence cache/TTL bug
+* Heartbeat interval bug
+* Presence query overfetch bug
+* UI dot/layout bug
+* Group online count bug
+* GroupMemberDialog presence display bug
+* Console/server errors caused by presence
+* Tests directly related to 12B
+
+Not allowed:
+
+* WebSockets
+* Recently active state
+* Do-not-disturb
+* Calendar availability
+* Channel member/presence panel
+* Guest/external collaborators
+* Slash commands
+* Workflow automation
+* Channel search improvements
+* DM unread badge work
+* Message reactions
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend route checks
+5. Cache/TTL checks
+6. Frontend checks
+7. UI behavior checks
+8. Security/privacy checks
+9. Regression results
+10. Known issues
+11. Final pass/fail status
+12. Recommended next feature order
+
+Keep scope tight: Presence / Online Status Indicators audit only.

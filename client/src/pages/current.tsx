@@ -2278,8 +2278,8 @@ function GroupMemberDialog({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[12.5px] font-medium leading-tight truncate">{m.name}</div>
-                    <div className={cn("text-[11px] truncate", presenceMap[m.id] === "online" ? "text-emerald-500/80" : "text-muted-foreground/50")}>
-                      {presenceMap[m.id] === "online" ? "Online" : m.email}
+                    <div className="text-[11px] text-muted-foreground/50 truncate">
+                      {m.email}
                     </div>
                   </div>
                 </div>
@@ -3783,9 +3783,12 @@ export default function CurrentPage() {
     return m;
   }, [presenceData]);
 
+  // Current user is always online while Currents is open (heartbeat running).
+  // members[] = other members only (API excludes current user), so add +1.
   const groupOnlineCount = useMemo(() => {
     if (!selectedDm || selectedDm.type !== "group_dm") return 0;
-    return selectedDm.members.filter((mem) => presenceMap[mem.id] === "online").length;
+    const othersOnline = selectedDm.members.filter((mem) => presenceMap[mem.id] === "online").length;
+    return 1 + othersOnline; // +1 for current user (always online in Currents)
   }, [selectedDm, presenceMap]);
   const hideMutedPref = currentPrefs?.hideMutedFromCurrentsBadge ?? false;
   const badgeDmUnread = hideMutedPref

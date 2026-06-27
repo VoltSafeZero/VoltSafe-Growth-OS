@@ -35620,8 +35620,8 @@ export function registerConfluenceRoutes(app: Express) {
       const raw = String(req.query.userIds || "");
       const ids = raw
         .split(",")
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => Number.isFinite(n) && n > 0)
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isInteger(n) && n > 0)
         .slice(0, 100);
       if (!ids.length) return res.json({ users: [] });
       const users = ids.map((userId) => ({

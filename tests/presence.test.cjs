@@ -214,7 +214,7 @@ async function test(name, fn) {
     assert.deepStrictEqual(body, { users: [] });
   });
 
-  await test("GET presence: sanitizes non-numeric IDs (ignores 'abc', floats)", async () => {
+  await test("GET presence: sanitizes non-numeric IDs (ignores 'abc', floats, negatives)", async () => {
     await beat(trevorSid);
     const r = await getPresence(trevorSid, "4,abc,3.7,NaN,-1");
     assert.strictEqual(r.status, 200);
@@ -223,6 +223,26 @@ async function test(name, fn) {
     for (const u of body.users) {
       assert.ok(Number.isInteger(u.userId) && u.userId > 0, `invalid userId: ${u.userId}`);
     }
+  });
+
+  await test("GET presence: partial strings like '12abc' are rejected (not parsed as 12)", async () => {
+    // parseInt('12abc') = 12 (bug) — Number('12abc') = NaN (fix)
+    // After fix: '12abc' must be stripped, not silently accepted as userId=12
+    await beat(trevorSid);
+    const r = await getPresence(trevorSid, "12abc,4");
+    const body = await r.json();
+    // Only userId 4 should appear; if 12abc was silently parsed as 12, we'd get 2 entries
+    const userIds = body.users.map((u) => u.userId);
+    assert.ok(!userIds.includes(12), "12abc must NOT be accepted as userId 12");
+    assert.ok(userIds.includes(4), "valid userId 4 still returned");
+  });
+
+  await test("GET presence: float IDs like '3.7' are rejected (not truncated to 3)", async () => {
+    const r = await getPresence(trevorSid, "3.7,4");
+    const body = await r.json();
+    const userIds = body.users.map((u) => u.userId);
+    assert.ok(!userIds.includes(3), "3.7 must NOT be accepted as userId 3");
+    assert.ok(userIds.includes(4), "valid userId 4 still returned");
   });
 
   await test("GET presence: caps at 100 user IDs", async () => {
@@ -359,6 +379,14 @@ async function test(name, fn) {
     assert.ok(src.includes("presenceMap[mem.id] === \"online\""), "groupOnlineCount filter");
   });
 
+  await test("src: groupOnlineCount adds +1 for current user (always online in Currents)", async () => {
+    assert.ok(src.includes("1 + othersOnline"), "current user +1 in groupOnlineCount");
+  });
+
+  await test("src: groupOnlineCount comment documents the decision", async () => {
+    assert.ok(src.includes("always online in Currents"), "decision documented in comment");
+  });
+
   // ── Source-grep: DM sidebar ──────────────────────────────────────────────────
   console.log("\n  [source-grep: DM sidebar presence dot]");
 
@@ -423,8 +451,13 @@ async function test(name, fn) {
     assert.ok(src.includes("presenceMap[m.id] ?? \"offline\""), "member row presence dot");
   });
 
-  await test("src: GroupMemberDialog member row shows 'Online' text when online", async () => {
-    assert.ok(src.includes("presenceMap[m.id] === \"online\" ? \"Online\" : m.email"), "member row Online/email toggle");
+  await test("src: GroupMemberDialog member rows always show email (dot is sufficient presence indicator)", async () => {
+    // After polish: email is always shown; toggling it out for "Online" lost useful contact context
+    const dialogBlock = src.slice(src.indexOf("// ── GroupMemberDialog"), src.indexOf("// ── PresenceDot"));
+    // email should appear in the member row render (m.email)
+    assert.ok(dialogBlock.includes("{m.email}"), "email always shown in member rows");
+    // the old toggle pattern should be gone
+    assert.ok(!dialogBlock.includes("? \"Online\" : m.email"), "Online/email toggle removed");
   });
 
   await test("src: GroupMemberDialog call site passes presenceMap={presenceMap}", async () => {
@@ -433,6 +466,41 @@ async function test(name, fn) {
 
   await test("src: GroupMemberDialog 'You' row shows 'Online' subtitle", async () => {
     assert.ok(src.includes("text-emerald-500/80\">Online</div>"), "You row Online subtitle");
+  });
+
+  // ── Source-grep: backend routes (read server/routes.ts) ─────────────────────
+  console.log("\n  [source-grep: backend routes]");
+
+  const routesSrc = require("fs").readFileSync(require("path").join(__dirname, "../server/routes.ts"), "utf8");
+  const presenceGetBlock = (() => {
+    const idx = routesSrc.indexOf("// GET /api/current/presence?userIds=1,2,3");
+    return routesSrc.slice(idx, idx + 600);
+  })();
+
+  await test("routes: GET presence uses Number() not parseInt (rejects '12abc')", async () => {
+    assert.ok(!presenceGetBlock.includes("parseInt(s.trim(), 10)"), "parseInt removed");
+    assert.ok(presenceGetBlock.includes("Number(s.trim())"), "Number() used");
+  });
+
+  await test("routes: GET presence uses Number.isInteger not Number.isFinite", async () => {
+    assert.ok(!presenceGetBlock.includes("Number.isFinite(n)"), "isFinite removed");
+    assert.ok(presenceGetBlock.includes("Number.isInteger(n)"), "isInteger used");
+  });
+
+  await test("routes: GET presence still caps at 100 after parser change", async () => {
+    assert.ok(presenceGetBlock.includes(".slice(0, 100)"), "cap at 100 present");
+  });
+
+  await test("routes: heartbeat uses 90s TTL constant", async () => {
+    const hbBlock = routesSrc.slice(routesSrc.indexOf("PRESENCE_TTL_S"), routesSrc.indexOf("PRESENCE_TTL_S") + 100);
+    assert.ok(hbBlock.includes("90"), "90 s TTL");
+  });
+
+  await test("routes: heartbeat stores only userId/name/ts in cache (no email/perms)", async () => {
+    const hbRoute = routesSrc.slice(routesSrc.indexOf("POST /api/current/presence/heartbeat"), routesSrc.indexOf("POST /api/current/presence/heartbeat") + 500);
+    assert.ok(hbRoute.includes("{ userId, name, ts: Date.now() }"), "minimal data stored");
+    assert.ok(!hbRoute.includes("email"), "no email in heartbeat cache");
+    assert.ok(!hbRoute.includes("permissions"), "no permissions in heartbeat cache");
   });
 
   // ── Source-grep: message avatars (deferred — document the decision) ───────────
