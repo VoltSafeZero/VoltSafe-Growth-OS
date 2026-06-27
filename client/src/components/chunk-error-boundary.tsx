@@ -21,25 +21,47 @@ interface Props {
 interface State {
   hasError: boolean;
   isChunkError: boolean;
+  errorMessage: string;
+  errorStack: string;
 }
 
 export class ChunkErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, isChunkError: false };
+    this.state = { hasError: false, isChunkError: false, errorMessage: "", errorStack: "" };
   }
 
   static getDerivedStateFromError(error: unknown): State {
+    const msg = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? (error.stack ?? "") : "";
     return {
       hasError: true,
       isChunkError: isChunkError(error),
+      errorMessage: msg,
+      errorStack: stack,
     };
   }
 
-  componentDidCatch(error: unknown) {
+  componentDidCatch(error: unknown, info: { componentStack?: string }) {
+    const msg = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? (error.stack ?? "") : "";
+    const componentStack = info?.componentStack ?? "";
+
     if (isChunkError(error)) {
       console.warn("[ChunkErrorBoundary] Chunk load failure detected — app was likely redeployed.", error);
+    } else {
+      console.error("[ChunkErrorBoundary] React render error:", msg, stack);
     }
+
+    // Report to server so it appears in deployment logs
+    try {
+      fetch("/api/debug/client-error", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg, stack, componentStack: componentStack.slice(0, 2000) }),
+      }).catch(() => {});
+    } catch {}
   }
 
   render() {
@@ -76,6 +98,12 @@ export class ChunkErrorBoundary extends Component<Props, State> {
         </div>
         <h2 className="text-lg font-semibold">Something went wrong</h2>
         <p className="text-muted-foreground text-sm max-w-xs">An unexpected error occurred on this page.</p>
+        {this.state.errorMessage && (
+          <pre className="text-left text-[11px] text-destructive/80 bg-destructive/5 border border-destructive/20 rounded-lg p-3 max-w-lg w-full overflow-auto max-h-48 whitespace-pre-wrap break-all">
+            {this.state.errorMessage}
+            {this.state.errorStack ? `\n\n${this.state.errorStack.slice(0, 800)}` : ""}
+          </pre>
+        )}
         <button
           onClick={() => window.location.reload()}
           className="mt-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"

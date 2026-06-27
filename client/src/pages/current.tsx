@@ -795,6 +795,7 @@ function MessageActionBar({
   isAdmin,
   isPinned,
   isArchived,
+  hasBody,
   onReact,
   onEdit,
   onDelete,

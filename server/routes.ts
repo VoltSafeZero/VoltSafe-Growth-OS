@@ -756,6 +756,20 @@ export async function registerRoutes(
       HELP_CENTER_ASSET_NAMES,
     } = await import("./services/help-center-refresh");
 
+    // ── Client error reporting (debug) ───────────────────────────────────────
+    app.post("/api/debug/client-error", requireAuth, async (req, res) => {
+      try {
+        const { message, stack, componentStack } = req.body ?? {};
+        const user = (req as any).user;
+        console.error(
+          `[CLIENT-ERROR] user=${user?.id ?? "?"} msg=${String(message).slice(0, 500)}\nstack=${String(stack ?? "").slice(0, 1000)}\ncomponent=${String(componentStack ?? "").slice(0, 500)}`
+        );
+        res.json({ ok: true });
+      } catch {
+        res.json({ ok: true });
+      }
+    });
+
     app.get("/api/help-center/refresh-status", requireAuth, async (_req, res) => {
       try {
         res.json(await getRefreshStatus());
