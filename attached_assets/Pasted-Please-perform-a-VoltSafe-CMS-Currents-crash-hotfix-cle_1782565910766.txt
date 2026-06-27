@@ -1,0 +1,140 @@
+Please perform a VoltSafe CMS Currents crash hotfix cleanup and production verification pass only.
+
+Do not add new Currents features. Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, workflow automation, Polyweather, Gmail/mail-permissions, or unrelated task features.
+
+Goal
+
+Verify the Currents production crash is fixed, clean up any temporary debug/error-reporting code if needed, and confirm Currents v1 is launch-ready again.
+
+Context
+
+Root cause found:
+
+MessageActionBar referenced hasBody, but hasBody was listed only in the TypeScript props type and was missing from the runtime function destructuring. TypeScript erased the type, so runtime JavaScript threw:
+
+ReferenceError: hasBody is not defined
+
+Fix applied:
+
+function MessageActionBar({
+  isOwn,
+  isAdmin,
+  isPinned,
+  isArchived,
+  hasBody,
+  onReact,
+  ...
+})
+
+E2E test after the fix confirmed /current loads with channel list, message feed, and composer visible.
+
+Scope
+
+Audit only:
+
+1. Confirm hasBody destructuring fix is present.
+2. Confirm Currents no longer crashes in production/prod-equivalent.
+3. Confirm temporary error-boundary/debug endpoint changes are safe.
+4. Remove or gate any temporary debug code that should not ship.
+5. Run targeted Currents regressions.
+6. Document unrelated test failures separately.
+
+Debug/error-boundary cleanup
+
+During diagnosis, temporary debug changes were added:
+
+* Error boundary surfaced the actual error message on screen.
+* Error boundary POSTed error details to the server.
+* A server debug endpoint was added for client-side error logs.
+
+Audit these carefully.
+
+Rules:
+
+1. Do not expose raw stack traces to normal production users.
+2. Do not expose internal file paths, component stacks, route names, or secrets.
+3. If the client error-reporting endpoint is useful, keep it only if:
+    * authenticated or safely scoped
+    * rate-limited or low-risk
+    * logs sanitized data only
+    * does not leak private user/message/channel data
+4. If it was purely temporary, remove it.
+5. Error boundary user-facing text should be friendly and safe.
+6. Server logs may include sanitized diagnostic details, but not sensitive payloads.
+
+Verification
+
+Verify:
+
+1. App starts cleanly.
+2. /current loads after login.
+3. Channel sidebar renders.
+4. Channel message feed renders.
+5. Channel composer renders.
+6. MessageActionBar renders.
+7. Existing message with body renders.
+8. Attachment-only/null-body message does not crash.
+9. Deleted message does not crash.
+10. DM feed renders.
+11. Group DM feed renders.
+12. Thread panel renders.
+13. Reactions render.
+14. Emoji picker renders in channel composer.
+15. Private channel lock icon renders.
+16. Archived badge renders.
+17. Browser console has no runtime errors.
+18. Server logs have no Currents runtime errors.
+19. Production/prod-equivalent deploy serves the fixed bundle.
+
+Tests
+
+Run targeted tests:
+
+* private-channels
+* channel-management
+* notification-preferences
+* dm-attachments
+* dm-attachments-only
+* dm-reactions
+* group-dm
+* group-dm-members
+* channel-visibility
+* channel-readonly
+* slash-commands
+* structured tests
+* csv-export
+* permissions
+* any E2E/smoke test for /current
+
+Do not treat the missing scripts/test-reply-body-hydration.ts failure as a Currents blocker unless it touches Currents. Document it as unrelated test infrastructure if still present.
+
+Production acceptance
+
+After deploy/restart, verify from the actual production URL or production-equivalent browser session:
+
+1. Login works.
+2. /current loads.
+3. No error boundary.
+4. Channel messages visible.
+5. Composer visible.
+6. Sending a test channel message works.
+7. Reactions/emoji picker do not crash.
+8. DMs page still opens.
+9. Private/archived UI renders.
+10. Browser console clean.
+
+Deliverable
+
+Return:
+
+1. Root cause confirmation
+2. Exact fix confirmation
+3. Debug/error-boundary cleanup decision
+4. Files changed
+5. E2E verification results
+6. Production/prod-equivalent verification results
+7. Test results
+8. Known unrelated failures
+9. Final launch readiness verdict
+
+Keep scope tight: Currents crash hotfix cleanup and production verification only.
