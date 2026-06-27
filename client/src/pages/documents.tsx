@@ -674,7 +674,7 @@ export default function DocumentsPage() {
       <div className="p-4 sm:p-6 pb-4 border-b border-border/30">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Asset Library</h1>
+            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Document Hub</h1>
             <p className="text-muted-foreground text-sm mt-0.5">Files, links and records — organized by use case and visibility · {total} total</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">

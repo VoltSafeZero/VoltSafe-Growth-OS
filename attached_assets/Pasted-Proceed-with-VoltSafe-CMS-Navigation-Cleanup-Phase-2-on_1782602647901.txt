@@ -1,0 +1,107 @@
+Proceed with VoltSafe CMS Navigation Cleanup Phase 2 only: Low-Risk Label Clarification.
+
+Use the audit document:
+
+docs/nav-permissions-audit-2026-06-27.md
+
+Do not perform a full sidebar reorganization. Do not implement role-based nav. Do not redesign the app shell. Do not move large nav groups. Do not touch CURRENTS internals, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Clarify confusing sidebar labels using low-risk, user-facing label-only changes.
+
+Routes, components, permissions, backend behavior, and page functionality must remain unchanged.
+
+Scope
+
+Allowed:
+
+1. Rename confusing nav labels only.
+2. Keep route/path unchanged.
+3. Keep component/page unchanged.
+4. Update tests/source checks for labels.
+5. Update obvious user-facing page titles only if they directly match the nav label and are safe.
+
+Not allowed:
+
+1. Moving nav items between groups, except if already done in Phase 1.
+2. New top-level groups.
+3. Role-based nav.
+4. Backend permission changes.
+5. New routes/components.
+6. Deleting features.
+7. Reorganizing More/Library.
+8. Changing CURRENTS internals.
+9. Changing mail/tracking/Gmail modules.
+10. Changing CRM behavior.
+
+Required label changes
+
+Apply these label-only changes if the audit/code confirms they are safe:
+
+1. Asset Library → Document Hub
+    * Reason: avoid confusion with physical/knowledge assets.
+    * Keep route/component unchanged.
+2. Assets → Knowledge Assets
+    * Reason: distinguish from document/file library.
+    * Keep route/component unchanged.
+3. Digest & Alerts → Digest Settings
+    * Reason: distinguish from future Signals & Alerts.
+    * Keep route/component unchanged.
+4. Rel. Intelligence → Relationship Intelligence
+    * Reason: avoid abbreviation and make meaning clear.
+    * Keep route/component unchanged.
+
+Optional if clearly safe:
+
+5. Govt & Grants → Government & Grants
+6. Accounts Won → Wins
+7. Booking Outreach → Outreach
+8. Booking Analytics → Outreach Analytics or Booking Analytics if current meaning is specifically booking-related
+
+Only apply optional changes if they are obvious label-only edits and do not create ambiguity.
+
+Verification
+
+Verify:
+
+1. Sidebar renders.
+2. Renamed labels appear correctly.
+3. Routes did not change.
+4. Components did not change.
+5. No duplicate routes introduced.
+6. Document Hub and Knowledge Assets are distinct labels.
+7. Digest Settings no longer implies a live signals feed.
+8. Relationship Intelligence displays fully.
+9. Existing Phase 1 nav drift tests still pass.
+10. No TypeScript errors.
+11. Browser console clean if app is run.
+
+Tests
+
+Update or add nav-config tests for:
+
+1. Asset Library no longer appears as a nav label.
+2. Document Hub appears.
+3. Assets no longer appears as a nav label if renamed.
+4. Knowledge Assets appears.
+5. Digest & Alerts no longer appears.
+6. Digest Settings appears.
+7. Rel. Intelligence no longer appears.
+8. Relationship Intelligence appears.
+9. Renamed items keep the same routes.
+10. No duplicate nav routes.
+
+Deliverable
+
+Return:
+
+1. Labels changed
+2. Files changed
+3. Confirmation routes/components stayed unchanged
+4. Tests added/updated
+5. Verification results
+6. Any optional labels left unchanged and why
+7. Recommended next phase
+
+Keep scope tight: label clarification only.
