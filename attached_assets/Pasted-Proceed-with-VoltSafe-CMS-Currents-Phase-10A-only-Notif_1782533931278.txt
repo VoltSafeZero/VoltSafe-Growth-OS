@@ -1,0 +1,331 @@
+Proceed with VoltSafe CMS Currents Phase 10A only: Notification Preferences / Muting.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, typing indicators, channel search improvements, or unrelated task features.
+
+Goal
+
+Add basic notification preferences for Currents so users can control noise from channels and direct messages.
+
+Currents now supports channels, DMs, mentions, unread badges, archived channels, attachments, structured items, tasks, and AI summaries. Phase 10A should add simple per-user mute/preference controls.
+
+Scope
+
+Add only:
+
+1. Per-channel notification preference
+2. Per-DM notification preference
+3. Mute/unmute controls
+4. Mention-only mode for channels if feasible
+5. Notification creation respects preferences
+6. Sidebar visual state for muted channels/DMs
+7. Tests/audit for the above
+
+Do not add email notifications, push notifications, global notification settings, snooze scheduling, group DMs, guest users, or complex notification routing yet.
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* Current notification creation routes
+* DM notification creation route
+* Channel mention notification route
+* Any existing notification table/schema
+* current_conversation_members.is_muted
+* Any existing channel membership/preference table
+* Current channel unread-count logic
+* Current DM unread-count logic
+* Sidebar channel rendering
+* Sidebar DM rendering
+* Auth/user model
+* Existing settings/preferences patterns elsewhere in CMS
+
+Desired preference levels
+
+For Phase 10A, use simple levels:
+
+Channels
+
+* all — notify for all channel messages
+* mentions — notify only when user is mentioned
+* muted — no notifications, but unread counts may still appear muted/dimmed
+
+Default: mentions or existing behavior, whichever best matches current system.
+
+Preferred default for channels:
+
+* mentions
+
+Direct Messages
+
+* all — notify for all DM messages
+* muted — no notifications, but unread count may still appear muted/dimmed
+
+Default:
+
+* all
+
+Data model
+
+If no suitable table exists, add:
+
+current_channel_preferences
+
+Fields:
+
+* channel_id
+* user_id
+* notification_level
+    * all
+    * mentions
+    * muted
+* created_at
+* updated_at
+
+Unique:
+
+* (channel_id, user_id)
+
+For DMs, prefer reusing existing current_conversation_members.is_muted if already present.
+
+If a notification level is cleaner for DMs, add it to members:
+
+* notification_level
+    * all
+    * muted
+
+Migration must be idempotent.
+
+Backend routes
+
+Add authenticated routes under /api/current.
+
+Get channel preferences
+
+GET /api/current/channel-preferences
+
+Return current user’s channel preferences.
+
+Each item:
+
+{
+  "channelId": 1,
+  "notificationLevel": "mentions"
+}
+
+Set channel preference
+
+PUT /api/current/channels/:id/preference
+
+Body:
+
+{
+  "notificationLevel": "muted"
+}
+
+Rules:
+
+1. Requires authentication.
+2. Channel must exist.
+3. User can set own preference only.
+4. Valid levels only: all, mentions, muted.
+5. Upsert preference row.
+6. Return updated preference.
+
+Set DM preference
+
+PUT /api/current/dms/:id/preference
+
+Body:
+
+{
+  "notificationLevel": "muted"
+}
+
+or:
+
+{
+  "isMuted": true
+}
+
+Rules:
+
+1. Requires authentication.
+2. User must be a member of the DM.
+3. User can only update their own member row.
+4. Valid levels only.
+5. Return updated preference.
+
+Notification behavior
+
+Update notification creation so preferences are respected.
+
+Channel messages
+
+If user has channel preference:
+
+* muted: no notification
+* mentions: notify only if user was mentioned
+* all: notify for all messages, excluding sender
+
+If no preference row:
+
+* Use default behavior.
+
+Do not notify sender.
+
+DM messages
+
+If recipient muted the DM:
+
+* no notification
+
+If not muted:
+
+* notify normally
+
+Do not notify sender.
+
+Unread behavior
+
+Important: muting should affect notifications, not necessarily unread counts.
+
+Recommended:
+
+* Keep unread counts working.
+* Muted channels/DMs may still show unread badge, but visually subdued.
+* Or hide unread badge for muted conversations if easier, but document clearly.
+
+Preferred:
+
+* Show unread badge, but muted row is visually dimmed.
+
+Frontend requirements
+
+Channel row controls
+
+Add a small menu/control for channel notification preference.
+
+Options:
+
+* Notify for all messages
+* Mentions only
+* Mute channel
+
+Keep it unobtrusive — likely in existing channel gear/settings area.
+
+DM row controls
+
+Add a small menu/control for DM notification preference.
+
+Options:
+
+* Notify me
+* Mute conversation
+
+Could be in DM row hover menu or DM header.
+
+Visual state
+
+Muted channel/DM rows should be visually distinct:
+
+* slightly dimmed
+* muted icon if available
+* tooltip or label if easy
+
+Do not make muted items disappear.
+
+Feedback
+
+Show toast after preference update:
+
+* Channel muted
+* Channel set to mentions only
+* DM muted
+* DM unmuted
+
+Security requirements
+
+Verify:
+
+1. User can only update their own preferences.
+2. User cannot update another user’s DM membership.
+3. User cannot set preference for a DM they are not part of.
+4. Invalid notification levels are rejected.
+5. Preferences do not leak private DMs.
+6. Admin does not need special privileges for user-owned preferences.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Channel preferences load.
+4. DM preferences load.
+5. User can mute a channel.
+6. User can set channel to mentions-only.
+7. User can set channel to all messages.
+8. Muted channel is visually dimmed.
+9. Channel notification creation respects muted.
+10. Channel notification creation respects mentions-only.
+11. Channel notification creation respects all.
+12. Sender is never notified.
+13. User can mute a DM.
+14. User can unmute a DM.
+15. Muted DM is visually dimmed.
+16. DM notification creation respects mute.
+17. DM unread counts still work.
+18. Channel unread counts still work.
+19. Preferences persist after reload.
+20. Invalid preference level rejected.
+21. Unauthorized DM preference update rejected.
+22. DMs still send normally.
+23. DM attachments still work.
+24. Attachment-only DMs still work.
+25. Channel posting still works.
+26. Channel archived/read-only behavior still works.
+27. Search still works.
+28. Mentions panel still works.
+29. Structured panel still works.
+30. AI summaries still work.
+31. Create Task still works.
+32. View in Currents still works.
+33. No browser console errors.
+34. No server errors.
+35. No SQL errors.
+36. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Channel preference schema/migration
+* Set channel preference route
+* Invalid channel preference rejected
+* User can only set own preference
+* DM preference route
+* Unauthorized DM preference rejected
+* Muted DM suppresses notification
+* Muted channel suppresses notification
+* Mentions-only channel still notifies on mention
+* All channel preference notifies on normal message
+* Muted visual state in sidebar
+* Existing 8B/8C/8D DM tests pass
+* Existing 9A/9B/9C channel tests pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing notification/preference audit summary
+2. Schema/migration changes
+3. Backend routes added/changed
+4. Notification behavior changes
+5. Frontend controls added
+6. Visual muted state behavior
+7. Security checks
+8. Verification results
+9. Known issues
+10. Recommended next feature order
+
+Keep scope tight: Notification Preferences / Muting only.

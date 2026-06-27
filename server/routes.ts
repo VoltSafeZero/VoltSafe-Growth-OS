@@ -33043,6 +33043,20 @@ export function registerConfluenceRoutes(app: Express) {
     ALTER TABLE current_channels ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
   `)).catch(() => {});
 
+  // Additive migration: per-user channel notification preferences
+  db.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS current_channel_preferences (
+      id SERIAL PRIMARY KEY,
+      channel_id INTEGER NOT NULL REFERENCES current_channels(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      notification_level TEXT NOT NULL DEFAULT 'mentions'
+        CHECK (notification_level IN ('all', 'mentions', 'muted')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (channel_id, user_id)
+    );
+  `)).catch(() => {});
+
   function normalizeChannelSlug(name: string): string {
     return name.toLowerCase().trim()
       .replace(/\s+/g, '-')
@@ -33051,7 +33065,7 @@ export function registerConfluenceRoutes(app: Express) {
       .replace(/^-+|-+$/g, '');
   }
 
-  // GET /api/current/channels — list all channels with per-user unread counts
+  // GET /api/current/channels — list all channels with per-user unread counts + notification pref
   app.get("/api/current/channels", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
@@ -33071,7 +33085,14 @@ export function registerConfluenceRoutes(app: Express) {
                  0
                )
             ), 0
-          ) AS unread_count
+          ) AS unread_count,
+          COALESCE(
+            (SELECT ccp.notification_level
+             FROM current_channel_preferences ccp
+             WHERE ccp.channel_id = c.id AND ccp.user_id = ${userId}
+             LIMIT 1),
+            'mentions'
+          ) AS notification_level
         FROM current_channels c
         WHERE c.archived_at IS NULL
         ORDER BY c.id ASC
@@ -33084,7 +33105,86 @@ export function registerConfluenceRoutes(app: Express) {
         isPrivate: r.is_private,
         createdAt: r.created_at,
         unreadCount: Number(r.unread_count),
+        notificationLevel: r.notification_level || 'mentions',
       })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/channel-preferences — all channel prefs for current user
+  app.get("/api/current/channel-preferences", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const rows = await db.execute(sql.raw(`
+        SELECT channel_id, notification_level
+        FROM current_channel_preferences
+        WHERE user_id = ${userId}
+      `));
+      res.json(rows.rows.map((r: any) => ({
+        channelId: Number(r.channel_id),
+        notificationLevel: r.notification_level,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PUT /api/current/channels/:id/preference — upsert channel notification preference
+  app.put("/api/current/channels/:id/preference", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const channelId = Number(req.params.id);
+      if (!channelId) return res.status(400).json({ message: "Invalid channel id" });
+      const level = String(req.body?.notificationLevel || "");
+      if (!["all", "mentions", "muted"].includes(level))
+        return res.status(400).json({ message: "Invalid notificationLevel. Must be all, mentions, or muted" });
+      const chanCheck = await db.execute(sql.raw(
+        `SELECT id FROM current_channels WHERE id = ${channelId} LIMIT 1`
+      ));
+      if (!chanCheck.rows.length) return res.status(404).json({ message: "Channel not found" });
+      await db.execute(sql.raw(`
+        INSERT INTO current_channel_preferences (channel_id, user_id, notification_level, created_at, updated_at)
+        VALUES (${channelId}, ${userId}, '${level}', NOW(), NOW())
+        ON CONFLICT (channel_id, user_id) DO UPDATE SET
+          notification_level = EXCLUDED.notification_level,
+          updated_at = NOW()
+      `));
+      res.json({ channelId, notificationLevel: level });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PUT /api/current/dms/:id/preference — mute/unmute a DM conversation
+  app.put("/api/current/dms/:id/preference", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const convId = Number(req.params.id);
+      if (!convId) return res.status(400).json({ message: "Invalid conversation id" });
+      const memberCheck = await db.execute(sql.raw(
+        `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+      ));
+      if (!memberCheck.rows.length)
+        return res.status(403).json({ message: "Not a member of this conversation" });
+      // Accept either notificationLevel or isMuted for convenience
+      let isMuted: boolean;
+      if (typeof req.body?.notificationLevel === "string") {
+        const level = req.body.notificationLevel;
+        if (!["all", "muted"].includes(level))
+          return res.status(400).json({ message: "Invalid notificationLevel for DM. Must be all or muted" });
+        isMuted = level === "muted";
+      } else if (typeof req.body?.isMuted === "boolean") {
+        isMuted = req.body.isMuted;
+      } else {
+        return res.status(400).json({ message: "notificationLevel or isMuted required" });
+      }
+      await db.execute(sql.raw(`
+        UPDATE current_conversation_members
+        SET is_muted = ${isMuted}
+        WHERE conversation_id = ${convId} AND user_id = ${userId}
+      `));
+      res.json({ conversationId: convId, isMuted, notificationLevel: isMuted ? "muted" : "all" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33334,6 +33434,30 @@ export function registerConfluenceRoutes(app: Express) {
       });
       // Fire-and-forget mention sync
       syncCurrentMentions(Number(msg.id), userId, body, String(slug), null).catch(() => {});
+      // Fire-and-forget: notify users who have opted into all-messages for this channel
+      (async () => {
+        try {
+          const allPrefUsers = await db.execute(sql.raw(
+            `SELECT user_id FROM current_channel_preferences WHERE channel_id = ${channelId} AND notification_level = 'all' AND user_id != ${userId}`
+          ));
+          if (!allPrefUsers.rows.length) return;
+          const senderRows = await db.execute(sql.raw(`SELECT name FROM users WHERE id = ${userId} LIMIT 1`));
+          const senderName = String((senderRows.rows[0] as any)?.name || "Someone");
+          const preview = body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@$1').slice(0, 100).replace(/'/g, "''");
+          const escapedSender = senderName.replace(/'/g, "''");
+          const escapedSlug = String(slug).replace(/'/g, "''");
+          for (const row of allPrefUsers.rows as any[]) {
+            const recipientId = Number(row.user_id);
+            const actionUrl = `/current?channel=${escapedSlug}`;
+            const dedupeKey = `channel_all:${Number(msg.id)}:${recipientId}`;
+            await db.execute(sql.raw(`
+              INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
+              SELECT ${recipientId}, 'current_message', 'New message in #${escapedSlug} from ${escapedSender}', '${preview}', 'low', 'current_channel', ${channelId}, '${actionUrl}', FALSE, '${dedupeKey}'
+              WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE dedupe_key = '${dedupeKey}')
+            `));
+          }
+        } catch { /* non-fatal */ }
+      })();
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33849,6 +33973,20 @@ export function registerConfluenceRoutes(app: Express) {
         `SELECT id FROM users WHERE id = ${mid} AND global_role NOT IN ('inactive') LIMIT 1`
       ));
       if (!userCheck.rows.length) continue;
+      // Check if user has muted this channel (skip notification if muted)
+      if (channelSlug) {
+        const chanRow = await db.execute(sql.raw(
+          `SELECT id FROM current_channels WHERE slug = '${channelSlug.replace(/'/g, "''")}' LIMIT 1`
+        ));
+        if (chanRow.rows.length) {
+          const chanId = Number((chanRow.rows[0] as any).id);
+          const prefRow = await db.execute(sql.raw(
+            `SELECT notification_level FROM current_channel_preferences WHERE channel_id = ${chanId} AND user_id = ${mid} LIMIT 1`
+          ));
+          const level = (prefRow.rows[0] as any)?.notification_level;
+          if (level === 'muted') continue;
+        }
+      }
       // Insert mention record (idempotent)
       await db.execute(sql.raw(`
         INSERT INTO current_mentions (message_id, mentioned_user_id, mentioned_by_user_id)
@@ -35038,6 +35176,11 @@ export function registerConfluenceRoutes(app: Express) {
           const escapedSender = senderName.replace(/'/g, "''");
           for (const row of others.rows as any[]) {
             const recipientId = Number(row.user_id);
+            // Respect DM mute preference — skip notification if recipient muted this DM
+            const muteCheck = await db.execute(sql.raw(
+              `SELECT is_muted FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${recipientId} LIMIT 1`
+            ));
+            if ((muteCheck.rows[0] as any)?.is_muted) continue;
             const actionUrl = `/current?dm=${convId}`;
             const dedupeKey = `dm_msg:${Number(msg.id)}:${recipientId}`;
             await db.execute(sql.raw(`

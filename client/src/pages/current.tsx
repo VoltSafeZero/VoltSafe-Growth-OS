@@ -34,6 +34,9 @@ import {
   Users,
   Settings,
   Archive,
+  Bell,
+  BellOff,
+  BellRing,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -107,6 +110,7 @@ interface Channel {
   isPrivate: boolean;
   unreadCount: number;
   archivedAt?: string | null;
+  notificationLevel?: 'all' | 'mentions' | 'muted';
 }
 
 interface ChannelInfo {
@@ -3046,6 +3050,37 @@ export default function CurrentPage() {
     },
   });
 
+  // ── Notification preference mutations ────────────────────────────────────
+
+  const channelPrefMutation = useMutation({
+    mutationFn: ({ channelId, notificationLevel }: { channelId: number; notificationLevel: string }) =>
+      apiRequest("PUT", `/api/current/channels/${channelId}/preference`, { notificationLevel }).then((r) => r.json()),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
+      const labels: Record<string, string> = {
+        muted: "Channel muted",
+        mentions: "Channel set to mentions only",
+        all: "Channel set to all messages",
+      };
+      toast({ title: labels[vars.notificationLevel] || "Preference updated" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Could not update preference", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const dmPrefMutation = useMutation({
+    mutationFn: ({ conversationId, isMuted }: { conversationId: number; isMuted: boolean }) =>
+      apiRequest("PUT", `/api/current/dms/${conversationId}/preference`, { isMuted }).then((r) => r.json()),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
+      toast({ title: vars.isMuted ? "Conversation muted" : "Conversation unmuted" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Could not update preference", description: e.message, variant: "destructive" });
+    },
+  });
+
   // ── DM mutations ──────────────────────────────────────────────────────────
 
   const startDmMutation = useMutation({
@@ -3248,6 +3283,7 @@ export default function CurrentPage() {
           ) : (
             channels.map((channel) => {
               const active = view === "channel" && selectedSlug === channel.slug;
+              const isMutedChan = channel.notificationLevel === 'muted';
               return (
                 <div key={channel.slug} className="relative group">
                   <button
@@ -3258,19 +3294,27 @@ export default function CurrentPage() {
                       "transition-all duration-100",
                       active
                         ? "bg-primary/15 text-primary font-medium"
-                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                      isAdmin && "pr-7",
+                        : isMutedChan
+                          ? "text-muted-foreground/40 hover:bg-muted/40 hover:text-muted-foreground/70"
+                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                      "pr-7",
                     )}
                   >
                     <Hash
                       className={cn(
                         "w-3.5 h-3.5 shrink-0 transition-opacity",
-                        active ? "opacity-80" : "opacity-40 group-hover:opacity-60"
+                        active ? "opacity-80" : isMutedChan ? "opacity-20" : "opacity-40 group-hover:opacity-60"
                       )}
                     />
-                    <span className="flex-1 truncate text-left min-w-0">
+                    <span className={cn("flex-1 truncate text-left min-w-0", isMutedChan && "opacity-60")}>
                       {displaySlug(channel.slug)}
                     </span>
+                    {isMutedChan && !active && (
+                      <BellOff
+                        data-testid={`channel-muted-icon-${channel.slug}`}
+                        className="w-3 h-3 shrink-0 opacity-30"
+                      />
+                    )}
                     {channel.unreadCount > 0 && (
                       <span
                         className={cn(
@@ -3278,31 +3322,88 @@ export default function CurrentPage() {
                           "rounded-full text-[10px] font-bold shrink-0",
                           active
                             ? "bg-primary/20 text-primary"
-                            : "bg-primary text-primary-foreground"
+                            : isMutedChan
+                              ? "bg-muted/60 text-muted-foreground/50"
+                              : "bg-primary text-primary-foreground"
                         )}
                       >
                         {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
                       </span>
                     )}
                   </button>
-                  {isAdmin && (
-                    <button
-                      data-testid={`btn-edit-channel-${channel.slug}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setChannelEditNameInput(channel.name);
-                        setChannelEditDescInput(channel.description ?? "");
-                        setSelectedSlug(channel.slug);
-                        setView("channel");
-                        setArchiveConfirmOpen(false);
-                        setEditChannelOpen(true);
-                      }}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 w-5 h-5 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted/60 transition-all"
-                      title="Edit channel"
-                    >
-                      <Settings className="w-3 h-3" />
-                    </button>
-                  )}
+                  {/* Notification preference dropdown — all users */}
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          data-testid={`btn-channel-pref-${channel.slug}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className={cn(
+                            "w-5 h-5 rounded flex items-center justify-center transition-all",
+                            "opacity-0 group-hover:opacity-100",
+                            isMutedChan
+                              ? "text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10"
+                              : "text-muted-foreground/40 hover:text-foreground hover:bg-muted/60"
+                          )}
+                          title="Notification preference"
+                        >
+                          {isMutedChan
+                            ? <BellOff className="w-3 h-3" />
+                            : channel.notificationLevel === 'all'
+                              ? <Bell className="w-3 h-3" />
+                              : <BellRing className="w-3 h-3" />
+                          }
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent side="right" align="center" className="w-48 z-50">
+                        <DropdownMenuLabel className="text-[10px] py-1 text-muted-foreground/60 font-normal">
+                          Notifications
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem
+                          data-testid={`pref-all-${channel.slug}`}
+                          onClick={(e) => { e.stopPropagation(); channelPrefMutation.mutate({ channelId: channel.id, notificationLevel: 'all' }); }}
+                          className={cn("text-[12px]", channel.notificationLevel === 'all' && "font-semibold text-primary")}
+                        >
+                          <Bell className="w-3.5 h-3.5 mr-2 shrink-0" />
+                          All messages
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          data-testid={`pref-mentions-${channel.slug}`}
+                          onClick={(e) => { e.stopPropagation(); channelPrefMutation.mutate({ channelId: channel.id, notificationLevel: 'mentions' }); }}
+                          className={cn("text-[12px]", (channel.notificationLevel === 'mentions' || !channel.notificationLevel) && "font-semibold text-primary")}
+                        >
+                          <BellRing className="w-3.5 h-3.5 mr-2 shrink-0" />
+                          Mentions only
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          data-testid={`pref-muted-${channel.slug}`}
+                          onClick={(e) => { e.stopPropagation(); channelPrefMutation.mutate({ channelId: channel.id, notificationLevel: 'muted' }); }}
+                          className={cn("text-[12px]", isMutedChan && "font-semibold text-amber-400")}
+                        >
+                          <BellOff className="w-3.5 h-3.5 mr-2 shrink-0" />
+                          Mute channel
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    {isAdmin && (
+                      <button
+                        data-testid={`btn-edit-channel-${channel.slug}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setChannelEditNameInput(channel.name);
+                          setChannelEditDescInput(channel.description ?? "");
+                          setSelectedSlug(channel.slug);
+                          setView("channel");
+                          setArchiveConfirmOpen(false);
+                          setEditChannelOpen(true);
+                        }}
+                        className="w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-foreground hover:bg-muted/60 transition-all"
+                        title="Edit channel"
+                      >
+                        <Settings className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })
@@ -3341,55 +3442,110 @@ export default function CurrentPage() {
           ) : (
             dmConversations.map((dm) => {
               const active = view === "dm" && selectedDmId === dm.conversationId;
+              const isMutedDm = dm.isMuted;
               return (
-                <button
-                  key={dm.conversationId}
-                  data-testid={`dm-item-${dm.conversationId}`}
-                  onClick={() => { setSelectedDmId(dm.conversationId); setView("dm"); }}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
-                    "transition-all duration-100 group",
-                    active
-                      ? "bg-primary/15 text-primary font-medium"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                  )}
-                >
-                  <div
+                <div key={dm.conversationId} className="relative group">
+                  <button
+                    data-testid={`dm-item-${dm.conversationId}`}
+                    onClick={() => { setSelectedDmId(dm.conversationId); setView("dm"); }}
                     className={cn(
-                      "w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white",
-                      avatarBg(dm.otherUser.id)
+                      "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] pr-7",
+                      "transition-all duration-100",
+                      active
+                        ? "bg-primary/15 text-primary font-medium"
+                        : isMutedDm
+                          ? "text-muted-foreground/40 hover:bg-muted/40 hover:text-muted-foreground/70"
+                          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                     )}
                   >
-                    {initials(dm.otherUser.name)}
-                  </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center gap-1">
-                      <span className="truncate flex-1 font-medium">
-                        {dm.otherUser.name}
-                      </span>
-                      {dm.unreadCount > 0 && (
-                        <span
-                          className={cn(
-                            "min-w-[16px] h-[16px] px-1 flex items-center justify-center",
-                            "rounded-full text-[10px] font-bold shrink-0",
-                            active
-                              ? "bg-primary/20 text-primary"
-                              : "bg-primary text-primary-foreground"
-                          )}
-                        >
-                          {dm.unreadCount > 99 ? "99+" : dm.unreadCount}
+                    <div
+                      className={cn(
+                        "w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white",
+                        isMutedDm && !active && "opacity-40",
+                        avatarBg(dm.otherUser.id)
+                      )}
+                    >
+                      {initials(dm.otherUser.name)}
+                    </div>
+                    <div className={cn("flex-1 min-w-0 text-left", isMutedDm && !active && "opacity-50")}>
+                      <div className="flex items-center gap-1">
+                        <span className="truncate flex-1 font-medium">
+                          {dm.otherUser.name}
                         </span>
+                        {isMutedDm && !active && (
+                          <BellOff
+                            data-testid={`dm-muted-icon-${dm.conversationId}`}
+                            className="w-2.5 h-2.5 shrink-0 opacity-40"
+                          />
+                        )}
+                        {dm.unreadCount > 0 && (
+                          <span
+                            className={cn(
+                              "min-w-[16px] h-[16px] px-1 flex items-center justify-center",
+                              "rounded-full text-[10px] font-bold shrink-0",
+                              active
+                                ? "bg-primary/20 text-primary"
+                                : isMutedDm
+                                  ? "bg-muted/60 text-muted-foreground/50"
+                                  : "bg-primary text-primary-foreground"
+                            )}
+                          >
+                            {dm.unreadCount > 99 ? "99+" : dm.unreadCount}
+                          </span>
+                        )}
+                      </div>
+                      {dm.lastMessage && (
+                        <div className="text-[11px] text-muted-foreground/50 truncate leading-tight">
+                          {dm.lastMessage.body
+                            ? dm.lastMessage.body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, "@$1").slice(0, 45)
+                            : "📎 Attachment"}
+                        </div>
                       )}
                     </div>
-                    {dm.lastMessage && (
-                      <div className="text-[11px] text-muted-foreground/50 truncate leading-tight">
-                        {dm.lastMessage.body
-                          ? dm.lastMessage.body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, "@$1").slice(0, 45)
-                          : "📎 Attachment"}
-                      </div>
-                    )}
+                  </button>
+                  {/* DM mute dropdown */}
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          data-testid={`btn-dm-pref-${dm.conversationId}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className={cn(
+                            "w-5 h-5 rounded flex items-center justify-center transition-all",
+                            "opacity-0 group-hover:opacity-100",
+                            isMutedDm
+                              ? "text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10"
+                              : "text-muted-foreground/40 hover:text-foreground hover:bg-muted/60"
+                          )}
+                          title="Notification preference"
+                        >
+                          {isMutedDm ? <BellOff className="w-3 h-3" /> : <Bell className="w-3 h-3" />}
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent side="right" align="center" className="w-44 z-50">
+                        <DropdownMenuLabel className="text-[10px] py-1 text-muted-foreground/60 font-normal">
+                          Notifications
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem
+                          data-testid={`dm-pref-notify-${dm.conversationId}`}
+                          onClick={(e) => { e.stopPropagation(); dmPrefMutation.mutate({ conversationId: dm.conversationId, isMuted: false }); }}
+                          className={cn("text-[12px]", !isMutedDm && "font-semibold text-primary")}
+                        >
+                          <Bell className="w-3.5 h-3.5 mr-2 shrink-0" />
+                          Notify me
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          data-testid={`dm-pref-mute-${dm.conversationId}`}
+                          onClick={(e) => { e.stopPropagation(); dmPrefMutation.mutate({ conversationId: dm.conversationId, isMuted: true }); }}
+                          className={cn("text-[12px]", isMutedDm && "font-semibold text-amber-400")}
+                        >
+                          <BellOff className="w-3.5 h-3.5 mr-2 shrink-0" />
+                          Mute conversation
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                </button>
+                </div>
               );
             })
           )}
