@@ -1100,7 +1100,7 @@ function MessageRow({
   return (
     <div
       className={cn(
-        "relative flex gap-3 group hover:bg-white/[0.025] rounded-lg px-2 -mx-2 py-0.5 transition-colors",
+        "relative flex gap-3 group hover:bg-muted/40 rounded-xl px-2 -mx-2 py-0.5 transition-colors",
         grouped ? "mt-0.5" : "mt-4 first:mt-0"
       )}
       data-testid={`message-row-${message.id}`}
@@ -1971,15 +1971,18 @@ function ChannelSkeleton() {
 function EmptyFeed({ slug }: { slug: string }) {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center py-20 select-none">
-      <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-5 ring-1 ring-primary/10">
-        <Hash className="w-8 h-8 text-primary/50" />
+      <div className="relative mb-6">
+        <div className="absolute inset-0 rounded-2xl bg-primary/20 blur-xl opacity-50 scale-110" />
+        <div className="relative w-18 h-18 w-[72px] h-[72px] rounded-2xl bg-primary/15 flex items-center justify-center ring-1 ring-primary/25 shadow-lg">
+          <Hash className="w-9 h-9 text-primary/70" />
+        </div>
       </div>
-      <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
+      <h3 className="text-[16px] font-semibold text-foreground mb-2">
         Start the conversation
       </h3>
-      <p className="text-sm text-muted-foreground max-w-[240px]">
+      <p className="text-[13px] text-muted-foreground/70 max-w-[220px] leading-relaxed">
         Be the first to post in{" "}
-        <span className="text-primary font-medium">#{displaySlug(slug)}</span>
+        <span className="text-primary font-semibold">#{displaySlug(slug)}</span>
       </p>
     </div>
   );
@@ -2002,7 +2005,7 @@ function SearchResultCard({
     ? `#${displaySlug(result.channelSlug)}`
     : result.objectType
     ? `${result.objectType.replace(/_/g, " ")} · ${result.objectId}`
-    : "Currents";
+    : "CURRENTS";
 
   const recordUrl = (() => {
     if (result.channelSlug || !result.objectType || !result.objectId) return null;
@@ -2771,7 +2774,7 @@ function SearchPanel({
               <Search className="w-6 h-6 text-primary/50" />
             </div>
             <p className="text-[13.5px] font-semibold text-foreground/70 mb-1.5">
-              Search Currents
+              Search CURRENTS
             </p>
             <p className="text-[12px] text-muted-foreground/60 max-w-[230px] leading-relaxed">
               Find messages, files, and people across all channels and records.
@@ -3092,7 +3095,7 @@ function StructuredItemsPanel({
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
             )}
           >
-            All Currents
+            All CURRENTS
           </button>
         </div>
         {/* Include archived toggle */}
@@ -3206,8 +3209,8 @@ function StructuredItemsPanel({
                     {item.channelSlug
                       ? `#${displaySlug(item.channelSlug)}`
                       : item.objectType
-                      ? `${item.objectType.charAt(0).toUpperCase() + item.objectType.slice(1)} Currents`
-                      : "Currents"}
+                      ? `${item.objectType.charAt(0).toUpperCase() + item.objectType.slice(1)} · CURRENTS`
+                      : "CURRENTS"}
                     {item.threadRootId ? " · thread" : ""}
                   </span>
                   {item.isChannelArchived && <ArchivedBadge />}
@@ -3846,8 +3849,8 @@ export default function CurrentPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/current/unread-counts"] });
       toast({
         title: hideMuted
-          ? "Muted unread hidden from Currents badge"
-          : "Muted unread included in Currents badge",
+          ? "Muted unread hidden from CURRENTS badge"
+          : "Muted unread included in CURRENTS badge",
       });
     },
     onError: (e: any) => {
@@ -4185,16 +4188,16 @@ export default function CurrentPage() {
       <aside className="w-56 shrink-0 flex flex-col border-r border-border bg-sidebar/40 overflow-hidden">
 
         {/* Module header */}
-        <div className="px-4 py-3.5 border-b border-border/60 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-primary/15 flex items-center justify-center shrink-0">
-              <MessageSquare className="w-3.5 h-3.5 text-primary" />
+        <div className="px-4 py-3 border-b border-border/60 shrink-0 bg-gradient-to-b from-primary/[0.04] to-transparent">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-primary/20 flex items-center justify-center shrink-0 ring-1 ring-primary/20 shadow-sm">
+              <MessageSquare className="w-4 h-4 text-primary" />
             </div>
-            <span className="font-semibold text-[13px] text-foreground tracking-tight">
-              Currents
+            <span className="font-bold text-[12.5px] text-foreground tracking-widest uppercase">
+              CURRENTS
             </span>
             {totalUnread > 0 && (
-              <span className="ml-auto min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">
+              <span className="ml-auto min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0 shadow-sm">
                 {totalUnread > 99 ? "99+" : totalUnread}
               </span>
             )}
@@ -4235,7 +4238,7 @@ export default function CurrentPage() {
                       "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
                       "transition-all duration-100",
                       active
-                        ? "bg-primary/15 text-primary font-medium"
+                        ? "bg-primary/20 text-primary font-semibold"
                         : isMutedChan
                           ? "text-muted-foreground/40 hover:bg-muted/40 hover:text-muted-foreground/70"
                           : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
@@ -4404,7 +4407,7 @@ export default function CurrentPage() {
                       "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] pr-7",
                       "transition-all duration-100",
                       active
-                        ? "bg-primary/15 text-primary font-medium"
+                        ? "bg-primary/20 text-primary font-semibold"
                         : isMutedDm
                           ? "text-muted-foreground/40 hover:bg-muted/40 hover:text-muted-foreground/70"
                           : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
@@ -4617,25 +4620,25 @@ export default function CurrentPage() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Header — adapts for channel vs. mentions view */}
-        <div className="px-5 py-3 border-b border-border/60 flex items-center gap-2.5 shrink-0 min-w-0">
+        <div className="px-5 py-3.5 border-b border-border/60 flex items-center gap-2.5 shrink-0 min-w-0 bg-sidebar/20">
           {view === "mentions" ? (
             <>
-              <AtSign className="w-4 h-4 text-muted-foreground/60 shrink-0" />
-              <span className="font-semibold text-[14px] text-foreground shrink-0">
+              <AtSign className="w-4 h-4 text-primary/60 shrink-0" />
+              <span className="font-bold text-[14px] text-foreground shrink-0 tracking-tight">
                 Mentions
               </span>
             </>
           ) : view === "search" ? (
             <>
-              <Search className="w-4 h-4 text-muted-foreground/60 shrink-0" />
-              <span className="font-semibold text-[14px] text-foreground shrink-0">
+              <Search className="w-4 h-4 text-primary/60 shrink-0" />
+              <span className="font-bold text-[14px] text-foreground shrink-0 tracking-tight">
                 Search
               </span>
             </>
           ) : view === "structured" ? (
             <>
-              <Bookmark className="w-4 h-4 text-muted-foreground/60 shrink-0" />
-              <span className="font-semibold text-[14px] text-foreground shrink-0">
+              <Bookmark className="w-4 h-4 text-primary/60 shrink-0" />
+              <span className="font-bold text-[14px] text-foreground shrink-0 tracking-tight">
                 Structured Items
               </span>
             </>
@@ -4662,7 +4665,7 @@ export default function CurrentPage() {
                   )}
                 </div>
               )}
-              <span className="font-semibold text-[14px] text-foreground shrink-0">
+              <span className="font-bold text-[14px] text-foreground shrink-0 tracking-tight">
                 {selectedDm?.displayName ?? "Direct Message"}
               </span>
               {selectedDm?.type === 'group_dm' ? (
@@ -4700,11 +4703,11 @@ export default function CurrentPage() {
           ) : (
             <>
               {selectedChannel?.isPrivate ? (
-                <Lock className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+                <Lock className="w-4 h-4 text-primary/60 shrink-0" />
               ) : (
-                <Hash className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+                <Hash className="w-4 h-4 text-primary/60 shrink-0" />
               )}
-              <span className="font-semibold text-[14px] text-foreground shrink-0">
+              <span className="font-bold text-[14px] text-foreground shrink-0 tracking-tight">
                 {displaySlug(selectedSlug)}
               </span>
               {isArchivedChannel && <ArchivedBadge />}
@@ -4833,32 +4836,39 @@ export default function CurrentPage() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                 </div>
               ) : dmNonDeletedCount === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground/40">
+                <div className="flex flex-col items-center justify-center py-20 gap-5 select-none">
                   {selectedDm?.type === 'group_dm' ? (
-                    <div className="w-12 h-12 rounded-full flex items-center justify-center bg-muted/60 border border-border/40">
-                      <Users className="w-6 h-6 text-muted-foreground/40" />
+                    <div className="relative">
+                      <div className="absolute inset-0 rounded-full bg-primary/20 blur-xl opacity-40 scale-125" />
+                      <div className="relative w-20 h-20 rounded-full flex items-center justify-center bg-muted/80 border border-border/60 shadow-lg">
+                        <Users className="w-9 h-9 text-muted-foreground/50" />
+                      </div>
                     </div>
                   ) : (
-                    <div
-                      className={cn(
-                        "w-12 h-12 rounded-full flex items-center justify-center overflow-hidden",
-                        "text-base font-bold text-white",
-                        selectedDm ? avatarBg(selectedDm.otherUser?.id ?? selectedDm.conversationId) : "bg-muted"
-                      )}
-                    >
-                      {selectedDm?.otherUser?.avatarUrl ? (
-                        <img src={selectedDm.otherUser.avatarUrl} alt={selectedDm.otherUser.name} className="w-full h-full object-cover" />
-                      ) : (
-                        selectedDm ? initials(selectedDm.otherUser?.name ?? selectedDm.displayName) : "?"
-                      )}
+                    <div className="relative">
+                      <div className="absolute inset-0 rounded-full blur-xl opacity-30 scale-125"
+                        style={{ background: "hsl(var(--primary))" }} />
+                      <div
+                        className={cn(
+                          "relative w-20 h-20 rounded-full flex items-center justify-center overflow-hidden shadow-lg",
+                          "text-lg font-bold text-white ring-2 ring-white/10",
+                          selectedDm ? avatarBg(selectedDm.otherUser?.id ?? selectedDm.conversationId) : "bg-muted"
+                        )}
+                      >
+                        {selectedDm?.otherUser?.avatarUrl ? (
+                          <img src={selectedDm.otherUser.avatarUrl} alt={selectedDm.otherUser.name} className="w-full h-full object-cover" />
+                        ) : (
+                          selectedDm ? initials(selectedDm.otherUser?.name ?? selectedDm.displayName) : "?"
+                        )}
+                      </div>
                     </div>
                   )}
                   <div className="text-center">
-                    <div className="text-[13px] font-medium text-foreground/60">
+                    <div className="text-[15px] font-semibold text-foreground/80 mb-1.5">
                       {selectedDm?.displayName ?? "Your teammate"}
                     </div>
-                    <div className="text-[12px] mt-1">
-                      {selectedDm?.type === 'group_dm' ? "Kick off the group conversation!" : "Start the conversation — say hi!"}
+                    <div className="text-[13px] text-muted-foreground/60 leading-relaxed max-w-[200px]">
+                      {selectedDm?.type === 'group_dm' ? "Kick off the group conversation!" : "Say hi to start the conversation."}
                     </div>
                   </div>
                 </div>
@@ -4906,7 +4916,7 @@ export default function CurrentPage() {
             </div>
 
             {/* DM Composer */}
-            <div className="px-4 pb-4 shrink-0">
+            <div className="px-4 pb-5 shrink-0 border-t border-border/50 bg-sidebar/10 pt-3">
               {dmMention.open && dmMention.results.length > 0 && (
                 <MentionDropdown
                   users={dmMention.results}
@@ -4942,10 +4952,10 @@ export default function CurrentPage() {
               )}
               <div
                 className={cn(
-                  "flex items-end gap-2 rounded-xl px-3.5 py-2.5 transition-all duration-150",
-                  "bg-muted/30 border border-border/60",
-                  "focus-within:border-primary/40 focus-within:bg-background",
-                  "focus-within:shadow-[0_0_0_3px_hsl(var(--primary)/0.07)]"
+                  "flex items-end gap-2 rounded-2xl px-3.5 py-2.5 transition-all duration-150",
+                  "bg-muted/40 border border-border/50",
+                  "focus-within:border-primary/50 focus-within:bg-background/80",
+                  "focus-within:shadow-[0_0_0_3px_hsl(var(--primary)/0.10)]"
                 )}
               >
                 <textarea
@@ -5137,7 +5147,7 @@ export default function CurrentPage() {
 
             {/* Composer */}
             {!isArchivedChannel && (
-            <div className="px-5 pt-3 pb-4 border-t border-border/60 shrink-0">
+            <div className="px-5 pt-3 pb-5 border-t border-border/50 shrink-0 bg-sidebar/10">
               {mainMention.mentionActive && mainMention.mentionAnchorRect && (
                 <MentionDropdown
                   users={mainMention.mentionUsers}
@@ -5173,10 +5183,10 @@ export default function CurrentPage() {
               )}
               <div
                 className={cn(
-                  "flex items-end gap-2 rounded-xl px-3.5 py-2.5 transition-all duration-150",
-                  "bg-muted/30 border border-border/60",
-                  "focus-within:border-primary/40 focus-within:bg-background",
-                  "focus-within:shadow-[0_0_0_3px_hsl(var(--primary)/0.07)]"
+                  "flex items-end gap-2 rounded-2xl px-3.5 py-2.5 transition-all duration-150",
+                  "bg-muted/40 border border-border/50",
+                  "focus-within:border-primary/50 focus-within:bg-background/80",
+                  "focus-within:shadow-[0_0_0_3px_hsl(var(--primary)/0.10)]"
                 )}
               >
                 <Textarea
