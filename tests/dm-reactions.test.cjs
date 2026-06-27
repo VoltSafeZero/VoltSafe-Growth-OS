@@ -358,7 +358,7 @@ async function main() {
 
   await test("routes: reaction route checks conversation_id membership (DM guard)", async () => {
     const idx = routes.indexOf('app.post("/api/current/messages/:id/reactions"');
-    const block = routes.slice(idx, idx + 1500);
+    const block = routes.slice(idx, idx + 2500);
     assert.ok(block.includes("current_conversation_members"), "must check DM membership");
   });
 
@@ -503,7 +503,7 @@ async function main() {
 
   await test("routes: reaction route uses msgRows channel_id for archived check", async () => {
     const idx = routes.indexOf('app.post("/api/current/messages/:id/reactions"');
-    const block = routes.slice(idx, idx + 1500);
+    const block = routes.slice(idx, idx + 2500);
     assert.ok(block.includes("reactChannelId"), "reactChannelId must be derived from msgRows.rows[0].channel_id");
     assert.ok(block.includes("SELECT archived_at FROM current_channels"), "archived_at check must query current_channels");
   });

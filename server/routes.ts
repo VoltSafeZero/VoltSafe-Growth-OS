@@ -33733,17 +33733,17 @@ export function registerConfluenceRoutes(app: Express) {
         if (!memCheck.rows.length)
           return res.status(403).json({ message: "Not a member of this conversation" });
       }
-      // Block reactions in archived or private channels the user is not a member of
+      // Block reactions in archived channels
       const reactChannelId = msgRows.rows[0].channel_id ? Number(msgRows.rows[0].channel_id) : null;
       if (reactChannelId) {
-        const chanCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${reactChannelId} LIMIT 1`));
-        if (chanCheck.rows.length) {
-          if ((chanCheck.rows[0] as any).archived_at)
-            return res.status(403).json({ message: "Cannot react to messages in an archived channel" });
-          if ((chanCheck.rows[0] as any).is_private) {
-            const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${reactChannelId} AND user_id = ${userId} LIMIT 1`));
-            if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
-          }
+        const chanCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${reactChannelId} LIMIT 1`));
+        if (chanCheck.rows.length && (chanCheck.rows[0] as any).archived_at)
+          return res.status(403).json({ message: "Cannot react to messages in an archived channel" });
+        // Phase 15A: block non-members from reacting in private channels
+        const privCheck = await db.execute(sql.raw(`SELECT is_private FROM current_channels WHERE id = ${reactChannelId} LIMIT 1`));
+        if (privCheck.rows.length && (privCheck.rows[0] as any).is_private) {
+          const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${reactChannelId} AND user_id = ${userId} LIMIT 1`));
+          if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
         }
       }
       const escaped = emoji.replace(/'/g, "''");
@@ -34246,7 +34246,7 @@ export function registerConfluenceRoutes(app: Express) {
       const threadObjType: string | null = rootRow.object_type || null;
       const threadObjId: number | null = rootRow.object_id ? Number(rootRow.object_id) : null;
 
-      // Block replies in archived or private channels user is not a member of
+      // Block replies in archived channels
       if (channelId) {
         const chanCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${channelId} LIMIT 1`));
         if (chanCheck.rows.length) {

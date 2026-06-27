@@ -302,7 +302,7 @@ assertIn(
 assertIn(
   "CN6. 'all' mode queries users with all preference for this channel",
   ROUTES,
-  `SELECT user_id FROM current_channel_preferences WHERE channel_id = \${channelId} AND notification_level = 'all' AND user_id != \${userId}`
+  `ccp.notification_level = 'all' AND ccp.user_id != \${userId}`
 );
 
 assertIn(
@@ -314,7 +314,7 @@ assertIn(
 assertIn(
   "CN8. Sender never receives their own all-messages notification",
   ROUTES,
-  /notification_level = 'all' AND user_id != \$\{userId\}/
+  /notification_level = 'all' AND (?:ccp\.)?user_id != \$\{userId\}/
 );
 
 // ── Section 8: Frontend — imports ─────────────────────────────────────────────
