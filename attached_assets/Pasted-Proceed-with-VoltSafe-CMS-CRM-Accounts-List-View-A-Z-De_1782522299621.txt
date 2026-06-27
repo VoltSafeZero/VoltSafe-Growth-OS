@@ -1,0 +1,156 @@
+Proceed with VoltSafe CMS CRM Accounts List View + A→Z Default Sort only.
+
+Do not work on Currents, Training Hub, AI summaries, task features, Guest Currents, direct messages, slash commands, workflow automation, or unrelated CRM features.
+
+Goal
+
+Improve the Accounts page usability by making Accounts display as a clean list/table by default instead of cards/tiles, sorted alphabetically A→Z.
+
+This should align with the desired CRM behavior:
+
+* Leads default sort A→Z
+* Accounts default sort A→Z
+* Contacts default sort A→Z
+* Accounts should be list/table style, not tile/card style
+
+Scope
+
+Work only on:
+
+1. Accounts page/list layout
+2. Accounts default sorting
+3. Any shared CRM list components needed for Accounts
+4. Minimal regression checks for Leads/Contacts if shared code is touched
+
+Requirements
+
+1. Accounts default view
+
+Accounts should default to a list/table layout.
+
+Avoid card/tile layout as the primary default.
+
+A good list row should show useful fields such as:
+
+* Account name
+* Account type or segment if available
+* Industry if available
+* Location if available
+* Primary contact if available
+* Owner if available
+* Last activity or created date if available
+* Status/stage if available
+
+Keep it compact, readable, and executive-friendly.
+
+2. A→Z default sort
+
+Default sort should be:
+
+* Account name ascending A→Z
+
+Sorting should be stable and case-insensitive.
+
+Examples:
+
+* ABC Marina
+* Bluewater Yacht Club
+* Oak Bay Marina
+* Royal Vancouver Yacht Club
+
+Blank/null names should not break sorting and should appear last if possible.
+
+3. Preserve existing behavior
+
+Do not remove existing account detail modal/page behavior.
+
+Clicking an account row should still open the correct account detail/profile.
+
+Search/filter should still work.
+
+Pagination/infinite loading should still work if implemented.
+
+Bulk actions should still work if implemented.
+
+Any existing “new account” action should still work.
+
+4. Visual requirements
+
+List/table should:
+
+* Look polished in dark mode
+* Avoid cramped rows
+* Support long account names gracefully
+* Have clear hover/focus state
+* Use consistent CRM styling
+* Avoid excessive column clutter
+* Work reasonably on narrower screens
+
+If fully responsive table is too much, use a compact list row on mobile.
+
+5. Sorting controls
+
+If there is a sort dropdown/header sort already:
+
+* Make A→Z account name the default
+* Keep user-controlled sorting if already available
+
+If no sorting controls exist:
+
+* At minimum, default the loaded list to account name A→Z
+
+Do not build a large new sorting system unless necessary.
+
+Areas to inspect
+
+Audit first:
+
+* Accounts page component
+* CRM shared list/card components
+* Account API query
+* Account sorting/filtering logic
+* Account detail navigation
+* Lead list sort behavior
+* Contact list sort behavior
+* Any saved view/localStorage behavior that may override defaults
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. Accounts page loads.
+3. Accounts display as a list/table by default.
+4. Accounts are sorted A→Z by account name by default.
+5. Sorting is case-insensitive.
+6. Blank/null account names do not break the page.
+7. Clicking an account opens the correct account detail/profile.
+8. Search still works.
+9. Filters still work if present.
+10. Pagination/infinite scrolling still works if present.
+11. New Account action still works if present.
+12. Account detail tabs still work.
+13. Account Currents still works.
+14. Account tasks/activity still works.
+15. Leads page still works if shared code touched.
+16. Contacts page still works if shared code touched.
+17. No browser console errors.
+18. No server errors.
+19. No SQL errors.
+20. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing Accounts page audit summary
+2. Files changed
+3. Default layout behavior
+4. Default sort behavior
+5. Search/filter/pagination behavior
+6. Account detail navigation behavior
+7. Verification results
+8. Known issues
+9. Recommended next step
+
+Keep scope tight: Accounts list view + A→Z default sort only.

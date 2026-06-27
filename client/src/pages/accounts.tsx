@@ -117,7 +117,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   const regionOptions = countryFilter !== "all" ? getRegionsForCountry(countryFilter) : [];
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
-  const [view, setView] = useState<"list" | "grid" | "pipeline" | "map">("grid");
+  const [view, setView] = useState<"list" | "grid" | "pipeline" | "map">("list");
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const [sortOption, setSortOption] = useState("name:asc");
