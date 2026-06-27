@@ -211,8 +211,31 @@ has(
   /dms\/:id\/messages[\s\S]{0,500}current_conversation_members[\s\S]{0,500}user_id = \$\{userId\}/
 );
 
-// ── 12. No regressions in channel attachments ─────────────────────────────────
-console.log("\n12. Channel attachment regression");
+// ── 12. Display polish: null-body rendering ───────────────────────────────────
+console.log("\n12. Display polish: null-body rendering");
+has(
+  "message.body guards the <p> wrapper (no empty paragraph for null body)",
+  src,
+  /message\.body &&[\s\S]{0,40}<p className/
+);
+has(
+  "MessageActionBar accepts hasBody prop",
+  src,
+  "hasBody?: boolean"
+);
+has(
+  "canEdit gated on hasBody !== false",
+  src,
+  /canEdit = isOwn && \(hasBody !== false\)/
+);
+has(
+  "MessageRow passes hasBody={!!message.body} to MessageActionBar",
+  src,
+  "hasBody={!!message.body}"
+);
+
+// ── 13. No regressions in channel attachments ─────────────────────────────────
+console.log("\n13. Channel attachment regression");
 has("mainPendingFiles still present", src, "mainPendingFiles");
 has("btn-attach-channel testid still present", src, 'data-testid="btn-attach-channel"');
 

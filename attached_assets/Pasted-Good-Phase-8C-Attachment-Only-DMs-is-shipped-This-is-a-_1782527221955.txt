@@ -1,0 +1,213 @@
+Good — Phase 8C Attachment-Only DMs is shipped.
+
+This is a nice UX finish. Users can now send a screenshot/PDF without typing “see attached,” while truly empty messages are still blocked.
+
+Because 8C changed backend message creation and notification previews, I’d do one quick 8C audit/polish pass before moving to larger Slack-lite features like channel management or notification preferences.
+
+Copy-paste this next:
+
+Please perform a VoltSafe CMS Currents Phase 8C Attachment-Only Direct Messages audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, channel management, notification preferences, typing indicators, or unrelated task features.
+
+Goal
+
+Verify that attachment-only Direct Messages are secure, stable, polished, and regression-free.
+
+Phase 8C added:
+
+* DM send with attachments and no text body
+* Frontend send guard allowing pending files with empty body
+* Backend hasPendingAttachments support
+* SQL NULL body storage for file-only DMs
+* Notification preview fallback: Sent an attachment
+* Sidebar preview fallback: 📎 Attachment
+
+Audit scope
+
+Audit only:
+
+1. Attachment-only DM send behavior
+2. Empty-message blocking behavior
+3. Backend validation for hasPendingAttachments
+4. File-only message display
+5. Sidebar preview
+6. Notification preview
+7. Existing Phase 8B attachment security guards
+8. Existing DM/channel/record regressions caused by 8C
+
+Frontend checks
+
+Verify:
+
+1. Send button is enabled when text exists.
+2. Send button is enabled when files are pending and text is empty.
+3. Send button is disabled when no text and no files.
+4. Pressing Enter sends if text exists.
+5. Pressing Enter sends if files are pending and text is empty.
+6. Pressing Enter does nothing if no text and no files.
+7. Shift+Enter still creates a newline.
+8. Pending files remain staged if empty no-file send is blocked.
+9. Pending chips clear after message creation.
+10. Upload spinner still works.
+11. Upload failure toast still works.
+12. Failed upload leaves the file-only message in place.
+13. Textarea placeholder says Write a message or attach files….
+14. Emoji picker still works.
+15. @mention behavior still works.
+
+Backend checks
+
+For POST /api/current/dms/:id/messages, verify:
+
+1. Requires authentication.
+2. Requires DM membership.
+3. Allows non-empty text body.
+4. Allows empty body only when hasPendingAttachments === true.
+5. Rejects empty body when hasPendingAttachments !== true.
+6. Rejects whitespace-only body when no attachments are pending.
+7. Stores file-only body as SQL NULL or equivalent safe value.
+8. Does not create truly empty messages.
+9. Does not weaken existing security checks.
+10. Does not affect channel/record message validation.
+
+Display checks
+
+Verify attachment-only DM messages:
+
+1. Render cleanly in the message feed.
+2. Do not show a weird blank bubble.
+3. Do not create excess vertical whitespace.
+4. Show attachments immediately after refetch.
+5. Show image thumbnails when applicable.
+6. Show file chips for non-image files.
+7. Still render correctly after reload.
+8. Still render correctly in dark mode.
+9. Deleted file-only messages hide body and attachments consistently.
+10. Message timestamps/author display correctly.
+
+Preview checks
+
+Verify:
+
+1. DM sidebar preview for file-only message shows 📎 Attachment or equivalent.
+2. Sidebar preview does not show blank text.
+3. Sidebar preview updates after sending file-only DM.
+4. Notification preview says Sent an attachment.
+5. Notification does not show blank body.
+6. Notification deep-link opens the DM.
+7. Unread count still updates.
+
+Security checks
+
+Confirm Phase 8B guards remain intact:
+
+1. User cannot upload to another user’s DM message by guessing message ID.
+2. User cannot list attachments for a DM they are not part of.
+3. User cannot download attachments from a DM they are not part of.
+4. File-only DM creation still requires DM membership.
+5. Empty text-only message creation is still blocked.
+6. Admin bypass, if present, remains intentional.
+7. No cross-DM attachment leakage.
+8. No channel/record attachment permission regression.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* DM list
+* New DM dialog
+* Text-only DM send
+* Text + attachment DM send
+* DM unread counts
+* DM read behavior
+* DM notifications
+* DM deep-links
+* Channel list
+* Channel posting
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Channel edit/delete
+* Channel search
+* Record Currents
+* Record attachments
+* Record threads
+* Record search
+* Mentions panel
+* Structured panel
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+
+Verify task system still works:
+
+* Tasks Hub loads
+* Task drawer opens
+* Currents source block still renders
+* View in Currents still works
+* Non-Currents tasks still render normally
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Upload route errors
+* Attachment route errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 8C attachment-only Direct Messages.
+
+Allowed:
+
+* Empty-body validation bug
+* hasPendingAttachments bug
+* File-only display bug
+* Sidebar preview bug
+* Notification preview bug
+* Send button/Enter key bug
+* Upload/refetch bug caused by 8C
+* Security regression caused by 8C
+* Tests directly related to 8C
+
+Not allowed:
+
+* Group DMs
+* Guest Currents
+* External collaborators
+* Slash commands
+* Workflow automation
+* Channel management
+* Notification preferences
+* Typing indicators
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Frontend checks
+5. Backend checks
+6. Display checks
+7. Preview checks
+8. Security checks
+9. Existing Currents regression results
+10. Existing task regression results
+11. Features intentionally deferred
+12. Final pass/fail status
+13. Recommended next feature order
+
+Keep scope tight: Currents Phase 8C Attachment-Only DM audit only.

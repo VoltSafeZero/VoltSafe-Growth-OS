@@ -682,6 +682,7 @@ function MessageActionBar({
   isOwn: boolean;
   isAdmin: boolean;
   isPinned: boolean;
+  hasBody?: boolean;
   onReact: (emoji: string) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -693,7 +694,7 @@ function MessageActionBar({
   onUnmarkStructured?: (itemType: string) => void;
   onMarkWithNote?: (itemType: string, notes: string | null) => void;
 }) {
-  const canEdit = isOwn;
+  const canEdit = isOwn && (hasBody !== false);
   const canDelete = isOwn || isAdmin;
 
   const [noteDialog, setNoteDialog] = useState<{ type: string; currentNote: string } | null>(null);
@@ -977,6 +978,7 @@ function MessageRow({
         isOwn={isOwn}
         isAdmin={isAdmin}
         isPinned={isPinned}
+        hasBody={!!message.body}
         onReact={(emoji) => onToggleReaction(message.id, emoji)}
         onEdit={() => onEdit(message)}
         onDelete={() => onDelete(message.id)}
@@ -1034,9 +1036,11 @@ function MessageRow({
             )}
           </div>
         )}
-        <p className="text-[13.5px] text-foreground/90 leading-relaxed whitespace-pre-wrap break-words">
-          {renderMentionBody(message.body, currentUserId)}
-        </p>
+        {message.body && (
+          <p className="text-[13.5px] text-foreground/90 leading-relaxed whitespace-pre-wrap break-words">
+            {renderMentionBody(message.body, currentUserId)}
+          </p>
+        )}
         <CurrentAttachmentChips attachments={message.attachments ?? []} />
         <ReactionStrip
           reactions={message.reactions || []}
