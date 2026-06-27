@@ -35698,6 +35698,12 @@ export function registerConfluenceRoutes(app: Express) {
       if (!memberCheck.rows.length)
         return res.status(403).json({ message: "Not a member of this conversation" });
       const rows = await db.execute(sql.raw(`
+        WITH recent_ids AS (
+          SELECT id FROM current_messages
+          WHERE conversation_id = ${convId} AND parent_message_id IS NULL
+          ORDER BY created_at DESC
+          LIMIT 200
+        )
         SELECT
           m.id, m.conversation_id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
           CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
@@ -35705,7 +35711,8 @@ export function registerConfluenceRoutes(app: Express) {
           COALESCE(rxn.reactions, '[]'::json) AS reactions,
           CASE WHEN m.deleted_at IS NOT NULL THEN '[]'::json
                ELSE COALESCE(att.msg_attachments, '[]'::json) END AS msg_attachments
-        FROM current_messages m
+        FROM recent_ids ri
+        JOIN current_messages m ON m.id = ri.id
         JOIN users u ON u.id = m.user_id
         LEFT JOIN LATERAL (
           SELECT json_agg(
@@ -35727,10 +35734,7 @@ export function registerConfluenceRoutes(app: Express) {
           FROM attachments a
           WHERE a.object_type = 'current_message' AND a.object_id = m.id
         ) att ON true
-        WHERE m.conversation_id = ${convId}
-          AND m.parent_message_id IS NULL
         ORDER BY m.created_at ASC
-        LIMIT 200
       `));
       res.json(rows.rows.map((r: any) => ({
         id: r.id,
