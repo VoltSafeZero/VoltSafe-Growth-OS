@@ -1,0 +1,210 @@
+Proceed with VoltSafe CMS Currents Phase 17A only: Final UX Polish / Launch Acceptance Pass.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, workflow automation, new Currents product features, DM unread badge work, message reactions, presence panels, slash commands, private-channel feature expansion, channel search improvements, or unrelated task features.
+
+Goal
+
+Perform the final UX polish and launch acceptance pass for Currents / Slack Lite.
+
+The feature set and production hardening are complete. Phase 17A should not add features. It should verify that Currents feels clean, coherent, and ready for day-to-day internal use.
+
+Scope
+
+Audit and polish only:
+
+1. Visual consistency
+2. Empty states
+3. Loading states
+4. Sidebar layout
+5. Header button crowding
+6. Dialog/modal behavior
+7. Mobile/smaller screen behavior
+8. Dark mode polish
+9. Error states/toasts
+10. Naming consistency: Currents
+11. Final launch checklist
+
+Areas to inspect
+
+Sidebar
+
+Verify:
+
+1. Channel list looks clean.
+2. Private lock icons do not crowd text.
+3. Archived channels display clearly.
+4. Muted channels display clearly.
+5. Unread badges align correctly.
+6. DM/group DM rows look clean.
+7. Presence dots do not overlap badges.
+8. Group DM names truncate nicely.
+9. Sidebar scroll behavior is good.
+10. Currents nav badge still works.
+
+Channel header
+
+Verify:
+
+1. Channel name, private badge/lock, archived state, people button, summarize button, and settings gear do not crowd each other.
+2. Header works on smaller screens.
+3. Private channels are visually clear.
+4. Archived channels are visually clear.
+5. People button label does not overflow.
+6. Summary button remains accessible.
+7. Settings gear remains accessible for admins.
+
+Message feed
+
+Verify:
+
+1. Message grouping looks correct.
+2. Consecutive messages look clean.
+3. Reactions align properly.
+4. Attachment chips/cards look clean.
+5. Deleted messages render cleanly.
+6. Edited messages render cleanly.
+7. Pins are visually clear.
+8. Structured badges are readable.
+9. Typing indicator does not jump layout.
+10. Empty message states are useful.
+
+Composer
+
+Verify:
+
+1. Normal channel composer feels clean.
+2. DM composer feels clean.
+3. Group DM composer feels clean.
+4. Thread composer feels clean.
+5. Slash command menu position is good.
+6. Slash command pill does not crowd attachments.
+7. Mention dropdown still works.
+8. Attachment upload controls still fit.
+9. Send button disabled states are clear.
+10. Archived/private blocked states are understandable.
+
+Dialogs/modals
+
+Verify:
+
+1. Channel create/edit dialog.
+2. Private-channel member picker.
+3. Group DM member dialog.
+4. Channel participants dialog.
+5. Thread panel.
+6. AI summary modal/panel.
+7. Create Task from Currents.
+8. Attachment preview/download behavior.
+9. All dialogs close properly.
+10. No stale dialog data when switching channels/DMs.
+
+Error states / toasts
+
+Verify:
+
+1. Unauthorized private-channel access shows a safe message.
+2. Failed sends show useful errors.
+3. Failed uploads show useful errors.
+4. Failed slash-command actions show useful errors.
+5. Failed member updates show useful errors.
+6. Failed summary generation shows useful errors.
+7. No raw server error text is shown to users.
+8. Toast wording is consistent.
+
+Naming consistency
+
+Verify all user-facing references use:
+
+* Currents
+
+Avoid old/internal wording like:
+
+* Current
+* Slack Lite
+* Slack
+* channel current
+* inconsistent notification labels
+
+Do not rename database tables/routes. Only user-facing copy.
+
+Security regression spot-check
+
+Do not redo the full Phase 16A audit, but spot-check that final polish did not break:
+
+1. Private non-member cannot view private channel.
+2. Private non-member cannot download private attachment.
+3. Archived channel composer remains blocked.
+4. Left group DM member cannot access old group DM.
+5. Slash commands cannot bypass access rules.
+
+Performance / console check
+
+Verify:
+
+1. Browser console is clean.
+2. Server logs are clean.
+3. No obvious excessive polling.
+4. Presence/typing polling remains reasonable.
+5. No React warnings.
+6. No TypeScript errors.
+7. No SQL errors.
+
+Final launch checklist
+
+Produce a launch checklist covering:
+
+1. Feature status.
+2. Security status.
+3. Known limitations.
+4. Non-blocking future improvements.
+5. Tests run.
+6. Recommended production monitoring items.
+7. Whether Currents v1 is launch-ready.
+
+Allowed fixes
+
+Only fix launch-polish issues.
+
+Allowed:
+
+* visual spacing/alignment
+* text/copy consistency
+* empty/loading/error states
+* stale dialog state
+* small responsive layout fixes
+* harmless toast wording fixes
+* Currents naming cleanup
+* tests directly related to launch polish
+
+Not allowed:
+
+* new product features
+* guest/external users
+* workflow automation
+* private-channel roles/owners
+* new slash commands
+* new reactions
+* new search features
+* database redesign
+* Accounts/Contacts/CRM list work
+* unrelated task/mail features
+
+Deliverable
+
+After the pass, return:
+
+1. UX issues found
+2. Fixes made
+3. Files changed
+4. Sidebar/header polish results
+5. Message/composer polish results
+6. Dialog/modal polish results
+7. Error/toast polish results
+8. Naming consistency results
+9. Security spot-check results
+10. Console/log results
+11. Test results
+12. Known limitations
+13. Final launch readiness verdict
+
+Keep scope tight: Final UX Polish / Launch Acceptance Pass only.

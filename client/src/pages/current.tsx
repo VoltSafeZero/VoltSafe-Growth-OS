@@ -1617,7 +1617,9 @@ function ThreadPanel({
       }
       invalidateThread();
       invalidateFeed();
-    } catch {}
+    } catch (err: any) {
+      toast({ title: "Reply not sent", description: err?.message ?? "Please try again.", variant: "destructive" });
+    }
   }
 
   function handleReplyKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -3662,7 +3664,7 @@ export default function CurrentPage() {
       setView("channel");
       toast({ title: "Channel created", description: `#${channel.slug} is ready.` });
     },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Could not create channel", description: err.message, variant: "destructive" }),
   });
 
   const editChannelMutation = useMutation({
@@ -3680,7 +3682,7 @@ export default function CurrentPage() {
       if (updated.slug && updated.slug !== selectedSlug) setSelectedSlug(updated.slug);
       toast({ title: "Channel updated" });
     },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Could not update channel", description: err.message, variant: "destructive" }),
   });
 
   const removeChannelMemberMutation = useMutation({
@@ -3690,7 +3692,7 @@ export default function CurrentPage() {
       return r.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/current/channels", selectedSlug, "members"] }),
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Could not remove member", description: err.message, variant: "destructive" }),
   });
 
   const addChannelMemberMutation = useMutation({
@@ -3700,7 +3702,7 @@ export default function CurrentPage() {
       return r.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/current/channels", selectedSlug, "members"] }),
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Could not add member", description: err.message, variant: "destructive" }),
   });
 
   const archiveChannelMutation = useMutation({
@@ -3720,7 +3722,7 @@ export default function CurrentPage() {
       setSelectedSlug(nextSlug);
       toast({ title: "Channel archived", description: "The channel is now read-only." });
     },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Could not archive channel", description: err.message, variant: "destructive" }),
   });
 
   const unarchiveChannelMutation = useMutation({
@@ -3733,7 +3735,7 @@ export default function CurrentPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
       toast({ title: "Channel unarchived", description: "The channel is active again." });
     },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Could not unarchive channel", description: err.message, variant: "destructive" }),
   });
 
   // Post
@@ -3934,6 +3936,7 @@ export default function CurrentPage() {
       setEditingDmMessage(null);
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] });
     },
+    onError: () => toast({ title: "Could not edit message", description: "Please try again.", variant: "destructive" }),
   });
 
   const dmDeleteMutation = useMutation({
@@ -3941,6 +3944,7 @@ export default function CurrentPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] });
     },
+    onError: () => toast({ title: "Could not delete message", description: "Please try again.", variant: "destructive" }),
   });
 
   const dmReactMutation = useMutation({
@@ -3999,7 +4003,9 @@ export default function CurrentPage() {
         }
       }
       invalidateFeed();
-    } catch {}
+    } catch (err: any) {
+      toast({ title: "Message not sent", description: err?.message ?? "Please try again.", variant: "destructive" });
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -4077,7 +4083,9 @@ export default function CurrentPage() {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
-    } catch {}
+    } catch (err: any) {
+      toast({ title: "Message not sent", description: err?.message ?? "Please try again.", variant: "destructive" });
+    }
   }
 
   function handleDmKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -4675,10 +4683,15 @@ export default function CurrentPage() {
             </>
           ) : (
             <>
-              <Hash className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+              {selectedChannel?.isPrivate ? (
+                <Lock className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+              ) : (
+                <Hash className="w-4 h-4 text-muted-foreground/60 shrink-0" />
+              )}
               <span className="font-semibold text-[14px] text-foreground shrink-0">
                 {displaySlug(selectedSlug)}
               </span>
+              {isArchivedChannel && <ArchivedBadge />}
               {selectedChannel?.description && (
                 <div className="flex items-center gap-2 min-w-0 overflow-hidden">
                   <div className="w-px h-4 bg-border/60 shrink-0" />
@@ -5160,6 +5173,12 @@ export default function CurrentPage() {
                   )}
                   rows={1}
                   data-testid="composer-input"
+                />
+                <EmojiPickerPopover
+                  onSelect={(emoji) => {
+                    setDraft((d) => d + emoji);
+                    textareaRef.current?.focus();
+                  }}
                 />
                 <button
                   type="button"
