@@ -33076,6 +33076,54 @@ export function registerConfluenceRoutes(app: Express) {
       .replace(/^-+|-+$/g, '');
   }
 
+  // ── Phase 15A: Private channel membership helpers ──────────────────────────
+  // canViewChannel: true if channel is public OR user is an explicit member
+  async function canViewChannel(userId: number, channelId: number): Promise<boolean> {
+    const rows = await db.execute(sql.raw(
+      `SELECT is_private FROM current_channels WHERE id = ${channelId} LIMIT 1`
+    ));
+    if (!rows.rows.length) return false;
+    if (!(rows.rows[0] as any).is_private) return true;
+    const mem = await db.execute(sql.raw(
+      `SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`
+    ));
+    return mem.rows.length > 0;
+  }
+
+  // resolveChannelAccess: looks up channel by slug, checks private membership.
+  // Returns null (not found), 'forbidden' (private + not member), or the channel row.
+  async function resolveChannelAccess(userId: number, slug: string): Promise<
+    { id: number; isPrivate: boolean; archivedAt: any } | null | 'forbidden'
+  > {
+    const escaped = slug.replace(/'/g, "''");
+    const rows = await db.execute(sql.raw(
+      `SELECT id, is_private, archived_at FROM current_channels WHERE slug = '${escaped}' LIMIT 1`
+    ));
+    if (!rows.rows.length) return null;
+    const ch = rows.rows[0] as any;
+    if (ch.is_private) {
+      const mem = await db.execute(sql.raw(
+        `SELECT 1 FROM current_channel_members WHERE channel_id = ${ch.id} AND user_id = ${userId} LIMIT 1`
+      ));
+      if (!mem.rows.length) return 'forbidden';
+    }
+    return { id: Number(ch.id), isPrivate: Boolean(ch.is_private), archivedAt: ch.archived_at ?? null };
+  }
+
+  // checkPrivateChannelAccess: for message-id-based routes — checks channel membership if private
+  async function checkPrivateChannelAccess(userId: number, channelId: number | null): Promise<boolean> {
+    if (!channelId) return true;
+    const rows = await db.execute(sql.raw(
+      `SELECT is_private FROM current_channels WHERE id = ${channelId} LIMIT 1`
+    ));
+    if (!rows.rows.length) return true;
+    if (!(rows.rows[0] as any).is_private) return true;
+    const mem = await db.execute(sql.raw(
+      `SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`
+    ));
+    return mem.rows.length > 0;
+  }
+
   // GET /api/current/channels — list all channels with per-user unread counts + notification pref
   app.get("/api/current/channels", requireAuth, async (req, res) => {
     try {
@@ -33106,6 +33154,9 @@ export function registerConfluenceRoutes(app: Express) {
           ) AS notification_level
         FROM current_channels c
         WHERE c.archived_at IS NULL
+          AND (c.is_private = FALSE OR EXISTS (
+            SELECT 1 FROM current_channel_members WHERE channel_id = c.id AND user_id = ${userId}
+          ))
         ORDER BY c.id ASC
       `));
       res.json(rows.rows.map((r: any) => ({
@@ -33238,6 +33289,7 @@ export function registerConfluenceRoutes(app: Express) {
   // GET /api/current/channels/:slug — single channel info (includes archived state)
   app.get("/api/current/channels/:slug", requireAuth, async (req, res) => {
     try {
+      const userId = getSessionUserId(req);
       const escapedSlug = String(req.params.slug).replace(/'/g, "''");
       const rows = await db.execute(sql.raw(`
         SELECT id, name, slug, description, is_private, created_at, archived_at, archived_by, updated_at
@@ -33245,6 +33297,12 @@ export function registerConfluenceRoutes(app: Express) {
       `));
       if (!rows.rows.length) return res.status(404).json({ message: "Channel not found" });
       const c = rows.rows[0] as any;
+      if (c.is_private) {
+        const mem = await db.execute(sql.raw(
+          `SELECT 1 FROM current_channel_members WHERE channel_id = ${c.id} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+      }
       res.json({
         id: c.id, name: c.name, slug: c.slug, description: c.description ?? null,
         isPrivate: c.is_private, createdAt: c.created_at,
@@ -33267,14 +33325,30 @@ export function registerConfluenceRoutes(app: Express) {
       const description = req.body?.description != null ? String(req.body.description).trim() : null;
       const dup = await db.execute(sql.raw(`SELECT id FROM current_channels WHERE slug = '${slug.replace(/'/g, "''")}' LIMIT 1`));
       if (dup.rows.length) return res.status(409).json({ message: `A channel with slug #${slug} already exists` });
+      const isPrivate = Boolean(req.body?.isPrivate);
+      const rawMemberIds: number[] = Array.isArray(req.body?.memberIds)
+        ? (req.body.memberIds as any[]).map(Number).filter((n: number) => n > 0)
+        : [];
       const escapedName = name.replace(/'/g, "''");
       const descPart = description ? `'${description.replace(/'/g, "''")}'` : "NULL";
       const ins = await db.execute(sql.raw(`
         INSERT INTO current_channels (name, slug, description, is_private, created_at)
-        VALUES ('${escapedName}', '${slug}', ${descPart}, FALSE, NOW())
+        VALUES ('${escapedName}', '${slug}', ${descPart}, ${isPrivate ? 'TRUE' : 'FALSE'}, NOW())
         RETURNING id, name, slug, description, is_private, created_at
       `));
       const c = ins.rows[0] as any;
+      const channelId = Number(c.id);
+      // Auto-add creator + explicit members for private channels
+      if (isPrivate) {
+        const memberSet = new Set<number>([userId, ...rawMemberIds]);
+        for (const mid of memberSet) {
+          await db.execute(sql.raw(
+            `INSERT INTO current_channel_members (channel_id, user_id, created_by)
+             VALUES (${channelId}, ${mid}, ${userId})
+             ON CONFLICT (channel_id, user_id) DO NOTHING`
+          ));
+        }
+      }
       res.status(201).json({ id: c.id, name: c.name, slug: c.slug, description: c.description ?? null, isPrivate: c.is_private, createdAt: c.created_at, unreadCount: 0 });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -33291,6 +33365,7 @@ export function registerConfluenceRoutes(app: Express) {
       const updates: string[] = [];
       const nameRaw = req.body?.name != null ? String(req.body.name).trim() : null;
       const descRaw = req.body?.description !== undefined ? String(req.body.description ?? "").trim() : undefined;
+      const isPrivateRaw = req.body?.isPrivate !== undefined ? Boolean(req.body.isPrivate) : undefined;
       if (nameRaw !== null && nameRaw === "") return res.status(400).json({ message: "Channel name cannot be empty" });
       if (nameRaw) {
         if (nameRaw.length > 80) return res.status(400).json({ message: "Name too long (max 80 chars)" });
@@ -33302,6 +33377,9 @@ export function registerConfluenceRoutes(app: Express) {
       }
       if (descRaw !== undefined) {
         updates.push(descRaw ? `description = '${descRaw.replace(/'/g, "''")}'` : `description = NULL`);
+      }
+      if (isPrivateRaw !== undefined) {
+        updates.push(`is_private = ${isPrivateRaw ? 'TRUE' : 'FALSE'}`);
       }
       if (!updates.length) return res.status(400).json({ message: "Nothing to update" });
       updates.push(`updated_at = NOW()`);
@@ -33347,6 +33425,9 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const userId = getSessionUserId(req);
       const { slug } = req.params;
+      const chAccess = await resolveChannelAccess(userId, String(slug));
+      if (chAccess === null) return res.status(404).json({ message: "Channel not found" });
+      if (chAccess === 'forbidden') return res.status(403).json({ message: "Not a member of this private channel" });
       const escapedSlug = String(slug).replace(/'/g, "''");
       const rows = await db.execute(sql.raw(`
         SELECT
@@ -33443,10 +33524,18 @@ export function registerConfluenceRoutes(app: Express) {
       if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
 
       const chanRows = await db.execute(sql.raw(`
-        SELECT id FROM current_channels WHERE slug = '${String(slug).replace(/'/g, "''")}' AND archived_at IS NULL LIMIT 1
+        SELECT id, is_private, archived_at FROM current_channels WHERE slug = '${String(slug).replace(/'/g, "''")}' LIMIT 1
       `));
       if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
-      const channelId = chanRows.rows[0].id;
+      const chanRow = chanRows.rows[0] as any;
+      if (chanRow.archived_at) return res.status(403).json({ message: "Channel is archived" });
+      const channelId = Number(chanRow.id);
+      if (chanRow.is_private) {
+        const mem = await db.execute(sql.raw(
+          `SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+      }
 
       const escaped = body.replace(/'/g, "''");
       const ins = await db.execute(sql.raw(`
@@ -33483,7 +33572,11 @@ export function registerConfluenceRoutes(app: Express) {
       (async () => {
         try {
           const allPrefUsers = await db.execute(sql.raw(
-            `SELECT user_id FROM current_channel_preferences WHERE channel_id = ${channelId} AND notification_level = 'all' AND user_id != ${userId}`
+            `SELECT ccp.user_id FROM current_channel_preferences ccp
+             LEFT JOIN current_channel_members ccm ON ccm.channel_id = ccp.channel_id AND ccm.user_id = ccp.user_id
+             JOIN current_channels cc ON cc.id = ccp.channel_id
+             WHERE ccp.channel_id = ${channelId} AND ccp.notification_level = 'all' AND ccp.user_id != ${userId}
+               AND (cc.is_private = FALSE OR ccm.user_id IS NOT NULL)`
           ));
           if (!allPrefUsers.rows.length) return;
           const senderRows = await db.execute(sql.raw(`SELECT name FROM users WHERE id = ${userId} LIMIT 1`));
@@ -33517,10 +33610,18 @@ export function registerConfluenceRoutes(app: Express) {
       if (!lastReadMessageId) return res.status(400).json({ message: "lastReadMessageId required" });
 
       const chanRows = await db.execute(sql.raw(`
-        SELECT id FROM current_channels WHERE slug = '${String(slug).replace(/'/g, "''")}' AND archived_at IS NULL LIMIT 1
+        SELECT id, is_private, archived_at FROM current_channels WHERE slug = '${String(slug).replace(/'/g, "''")}' LIMIT 1
       `));
       if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
-      const channelId = chanRows.rows[0].id;
+      const chanRow = chanRows.rows[0] as any;
+      if (chanRow.archived_at) return res.status(404).json({ message: "Channel not found" });
+      const channelId = Number(chanRow.id);
+      if (chanRow.is_private) {
+        const mem = await db.execute(sql.raw(
+          `SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+      }
 
       await db.execute(sql.raw(`
         INSERT INTO current_read_receipts (user_id, channel_id, last_read_message_id, updated_at)
@@ -33569,6 +33670,9 @@ export function registerConfluenceRoutes(app: Express) {
         LEFT JOIN current_channel_preferences cp
           ON cp.channel_id = c.id AND cp.user_id = ${userId}
         WHERE c.archived_at IS NULL
+          AND (c.is_private = FALSE OR EXISTS (
+            SELECT 1 FROM current_channel_members WHERE channel_id = c.id AND user_id = ${userId}
+          ))
       `));
       const channels: Record<string, number> = {};
       let total = 0;
@@ -33629,12 +33733,18 @@ export function registerConfluenceRoutes(app: Express) {
         if (!memCheck.rows.length)
           return res.status(403).json({ message: "Not a member of this conversation" });
       }
-      // Block reactions in archived channels
+      // Block reactions in archived or private channels the user is not a member of
       const reactChannelId = msgRows.rows[0].channel_id ? Number(msgRows.rows[0].channel_id) : null;
       if (reactChannelId) {
-        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${reactChannelId} LIMIT 1`));
-        if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
-          return res.status(403).json({ message: "Cannot react to messages in an archived channel" });
+        const chanCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${reactChannelId} LIMIT 1`));
+        if (chanCheck.rows.length) {
+          if ((chanCheck.rows[0] as any).archived_at)
+            return res.status(403).json({ message: "Cannot react to messages in an archived channel" });
+          if ((chanCheck.rows[0] as any).is_private) {
+            const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${reactChannelId} AND user_id = ${userId} LIMIT 1`));
+            if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+          }
+        }
       }
       const escaped = emoji.replace(/'/g, "''");
       const existing = await db.execute(sql.raw(
@@ -33731,7 +33841,11 @@ export function registerConfluenceRoutes(app: Express) {
   // GET /api/current/channels/:slug/pins — pinned messages for a channel
   app.get("/api/current/channels/:slug/pins", requireAuth, async (req, res) => {
     try {
+      const userId = getSessionUserId(req);
       const { slug } = req.params;
+      const chAccess = await resolveChannelAccess(userId, String(slug));
+      if (chAccess === null) return res.status(404).json({ message: "Channel not found" });
+      if (chAccess === 'forbidden') return res.status(403).json({ message: "Not a member of this private channel" });
       const escapedSlug = String(slug).replace(/'/g, "''");
       const rows = await db.execute(sql.raw(`
         SELECT
@@ -33779,11 +33893,17 @@ export function registerConfluenceRoutes(app: Express) {
       const escapedSlug = rawSlug.replace(/'/g, "''");
       // Resolve channel first
       const chanRows = await db.execute(sql.raw(
-        `SELECT id, name, slug, description, archived_at FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1`
+        `SELECT id, name, slug, description, is_private, archived_at FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1`
       ));
       if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
       const chan = chanRows.rows[0] as any;
       const channelId = Number(chan.id);
+      if (chan.is_private) {
+        const mem = await db.execute(sql.raw(
+          `SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+      }
       // Union: message authors + users with a pref row — joined to users for name/email
       const participantRows = await db.execute(sql.raw(`
         SELECT DISTINCT u.id, u.name, u.email
@@ -33813,6 +33933,132 @@ export function registerConfluenceRoutes(app: Express) {
           email: r.email,
         })),
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Phase 15A: Channel Member Management Routes ───────────────────────────────
+
+  // GET /api/current/channels/:slug/members — list members (any member or admin can view)
+  app.get("/api/current/channels/:slug/members", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const isAdminUser = ["admin", "master_admin"].includes(String((req.session as any).globalRole || ""));
+      const rawSlug = String(req.params.slug || "").trim();
+      if (!rawSlug || rawSlug.length > 120) return res.status(400).json({ message: "Invalid channel slug" });
+      const escapedSlug = rawSlug.replace(/'/g, "''");
+      const chanRows = await db.execute(sql.raw(
+        `SELECT id, is_private FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1`
+      ));
+      if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
+      const chan = chanRows.rows[0] as any;
+      const channelId = Number(chan.id);
+      // For private channels, require membership or admin to view members
+      if (chan.is_private && !isAdminUser) {
+        const mem = await db.execute(sql.raw(
+          `SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+      }
+      const rows = await db.execute(sql.raw(`
+        SELECT u.id, u.name, u.email, u.avatar_url, ccm.created_at AS joined_at, ccm.created_by
+        FROM current_channel_members ccm
+        JOIN users u ON u.id = ccm.user_id
+        WHERE ccm.channel_id = ${channelId}
+          AND (u.status IS NULL OR u.status NOT IN ('suspended', 'deactivated'))
+        ORDER BY u.name ASC, u.id ASC
+      `));
+      res.json({
+        channelId,
+        isPrivate: Boolean(chan.is_private),
+        members: rows.rows.map((r: any) => ({
+          id: Number(r.id),
+          name: r.name,
+          email: r.email,
+          avatarUrl: r.avatar_url ?? null,
+          joinedAt: r.joined_at,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PUT /api/current/channels/:slug/members — replace full member list (admin only)
+  app.put("/api/current/channels/:slug/members", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const rawSlug = String(req.params.slug || "").trim();
+      if (!rawSlug) return res.status(400).json({ message: "Invalid channel slug" });
+      const escapedSlug = rawSlug.replace(/'/g, "''");
+      const chanRows = await db.execute(sql.raw(
+        `SELECT id, archived_at FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1`
+      ));
+      if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
+      if ((chanRows.rows[0] as any).archived_at) return res.status(403).json({ message: "Channel is archived" });
+      const channelId = Number((chanRows.rows[0] as any).id);
+      const memberIds: number[] = Array.isArray(req.body?.memberIds)
+        ? (req.body.memberIds as any[]).map(Number).filter((n: number) => n > 0)
+        : [];
+      // Replace: delete all, then re-insert
+      await db.execute(sql.raw(`DELETE FROM current_channel_members WHERE channel_id = ${channelId}`));
+      for (const mid of new Set(memberIds)) {
+        await db.execute(sql.raw(
+          `INSERT INTO current_channel_members (channel_id, user_id, created_by)
+           VALUES (${channelId}, ${mid}, ${userId})
+           ON CONFLICT (channel_id, user_id) DO NOTHING`
+        ));
+      }
+      res.json({ ok: true, count: memberIds.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/channels/:slug/members/:userId — add a single member (admin only)
+  app.post("/api/current/channels/:slug/members/:userId", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const adminId = getSessionUserId(req);
+      const rawSlug = String(req.params.slug || "").trim();
+      const targetUserId = Number(req.params.userId);
+      if (!rawSlug || !targetUserId) return res.status(400).json({ message: "Invalid params" });
+      const escapedSlug = rawSlug.replace(/'/g, "''");
+      const chanRows = await db.execute(sql.raw(
+        `SELECT id, archived_at FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1`
+      ));
+      if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
+      if ((chanRows.rows[0] as any).archived_at) return res.status(403).json({ message: "Channel is archived" });
+      const channelId = Number((chanRows.rows[0] as any).id);
+      const userRows = await db.execute(sql.raw(`SELECT id FROM users WHERE id = ${targetUserId} LIMIT 1`));
+      if (!userRows.rows.length) return res.status(404).json({ message: "User not found" });
+      await db.execute(sql.raw(
+        `INSERT INTO current_channel_members (channel_id, user_id, created_by)
+         VALUES (${channelId}, ${targetUserId}, ${adminId})
+         ON CONFLICT (channel_id, user_id) DO NOTHING`
+      ));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/current/channels/:slug/members/:userId — remove a member (admin only)
+  app.delete("/api/current/channels/:slug/members/:userId", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const rawSlug = String(req.params.slug || "").trim();
+      const targetUserId = Number(req.params.userId);
+      if (!rawSlug || !targetUserId) return res.status(400).json({ message: "Invalid params" });
+      const escapedSlug = rawSlug.replace(/'/g, "''");
+      const chanRows = await db.execute(sql.raw(
+        `SELECT id FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1`
+      ));
+      if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
+      const channelId = Number((chanRows.rows[0] as any).id);
+      await db.execute(sql.raw(
+        `DELETE FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${targetUserId}`
+      ));
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33946,6 +34192,10 @@ export function registerConfluenceRoutes(app: Express) {
         WHERE m.id = ${rootId} AND (m.parent_message_id IS NULL) LIMIT 1
       `));
       if (!rootRows.rows.length) return res.status(404).json({ message: "Thread not found" });
+      const threadChanId = Number((rootRows.rows[0] as any).channel_id) || null;
+      if (!(await checkPrivateChannelAccess(userId, threadChanId))) {
+        return res.status(403).json({ message: "Not a member of this private channel" });
+      }
 
       const replyRows = await db.execute(sql.raw(`
         SELECT ${selectCols}
@@ -33996,11 +34246,17 @@ export function registerConfluenceRoutes(app: Express) {
       const threadObjType: string | null = rootRow.object_type || null;
       const threadObjId: number | null = rootRow.object_id ? Number(rootRow.object_id) : null;
 
-      // Block replies in archived channels
+      // Block replies in archived or private channels user is not a member of
       if (channelId) {
-        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${channelId} LIMIT 1`));
-        if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
-          return res.status(403).json({ message: "Cannot reply in an archived channel" });
+        const chanCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${channelId} LIMIT 1`));
+        if (chanCheck.rows.length) {
+          if ((chanCheck.rows[0] as any).archived_at)
+            return res.status(403).json({ message: "Cannot reply in an archived channel" });
+          if ((chanCheck.rows[0] as any).is_private) {
+            const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`));
+            if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+          }
+        }
       }
 
       const escaped = body.replace(/'/g, "''");
@@ -34183,6 +34439,9 @@ export function registerConfluenceRoutes(app: Express) {
         LEFT JOIN current_channels c ON c.id = m.channel_id
         WHERE cm.mentioned_user_id = ${userId}
           AND m.deleted_at IS NULL
+          AND (c.id IS NULL OR c.is_private = FALSE OR EXISTS (
+            SELECT 1 FROM current_channel_members WHERE channel_id = c.id AND user_id = ${userId}
+          ))
         ORDER BY m.created_at DESC
         LIMIT 50
       `));
@@ -34423,6 +34682,7 @@ export function registerConfluenceRoutes(app: Express) {
   // GET /api/current/search — ILIKE search across Current messages, authors, attachments
   app.get("/api/current/search", requireAuth, async (req, res) => {
     try {
+      const userId = getSessionUserId(req);
       const q = String(req.query.q || "").trim();
       if (!q) return res.json([]);
       if (q.length > 200) return res.status(400).json({ message: "Query too long" });
@@ -34497,6 +34757,9 @@ export function registerConfluenceRoutes(app: Express) {
           ${scopeClause}
           ${channelClause}
           ${recordClause}
+          AND (cc.id IS NULL OR cc.is_private = FALSE OR EXISTS (
+            SELECT 1 FROM current_channel_members WHERE channel_id = cc.id AND user_id = ${userId}
+          ))
         ORDER BY m.created_at DESC
         LIMIT ${limit}
       `));
@@ -34645,6 +34908,7 @@ export function registerConfluenceRoutes(app: Express) {
   // GET /api/current/structured — list structured items with filters
   app.get("/api/current/structured", requireAuth, async (req, res) => {
     try {
+      const userId = getSessionUserId(req);
       const { scope, channel, objectType, objectId, itemType, limit } = req.query as Record<string, string | undefined>;
       const maxLimit = Math.min(Number(limit) || 50, 500);
       const whereParts: string[] = ["m.deleted_at IS NULL"];
@@ -34659,6 +34923,10 @@ export function registerConfluenceRoutes(app: Express) {
       if (itemType && VALID_STRUCTURED_TYPES.has(String(itemType))) {
         whereParts.push(`si.item_type = '${String(itemType)}'`);
       }
+      // Phase 15A: exclude private channel items for non-members
+      whereParts.push(`(c.id IS NULL OR c.is_private = FALSE OR EXISTS (
+        SELECT 1 FROM current_channel_members WHERE channel_id = si.channel_id AND user_id = ${userId}
+      ))`);
 
       const rows = await db.execute(sql.raw(`
         SELECT
@@ -34730,6 +34998,7 @@ export function registerConfluenceRoutes(app: Express) {
   // POST /api/current/summary — AI-powered summary of a thread, channel, or record Current
   app.post("/api/current/summary", requireAuth, async (req, res) => {
     try {
+      const userId = getSessionUserId(req);
       const apiKey =
         process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
         process.env.OPENAI_API_KEY;
@@ -34788,6 +35057,9 @@ export function registerConfluenceRoutes(app: Express) {
         const channelParam = String(req.body?.channel || "");
         if (!channelParam) return res.status(400).json({ message: "channel required for channel scope" });
         const safeSlug = channelParam.replace(/[^a-zA-Z0-9_\-]/g, "").replace(/'/g, "");
+        const chSummAccess = await resolveChannelAccess(userId, safeSlug);
+        if (chSummAccess === null) return res.status(404).json({ message: "Channel not found" });
+        if (chSummAccess === 'forbidden') return res.status(403).json({ message: "Not a member of this private channel" });
         const { rows: dbRows } = await db.execute(sql.raw(`
           SELECT
             CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
@@ -35554,11 +35826,15 @@ export function registerConfluenceRoutes(app: Express) {
         const slug = String(channelSlug || "").trim();
         if (!slug) return res.status(400).json({ message: "channelSlug required" });
         const ch = await db.execute(sql.raw(
-          `SELECT archived_at FROM current_channels WHERE slug = '${slug.replace(/'/g, "''")}' LIMIT 1`
+          `SELECT id, archived_at, is_private FROM current_channels WHERE slug = '${slug.replace(/'/g, "''")}' LIMIT 1`
         ));
         if (!ch.rows.length) return res.status(404).json({ message: "Channel not found" });
         if ((ch.rows[0] as any).archived_at)
           return res.status(400).json({ message: "Cannot type in an archived channel" });
+        if ((ch.rows[0] as any).is_private) {
+          const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${Number((ch.rows[0] as any).id)} AND user_id = ${userId} LIMIT 1`));
+          if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+        }
         upsertTyper(getTypingKey("channel", slug), userId, userName);
 
       } else if (scope === "dm") {
@@ -35606,10 +35882,14 @@ export function registerConfluenceRoutes(app: Express) {
         const slug = String(channelSlug || "").trim();
         if (!slug) return res.status(400).json({ message: "channelSlug required" });
         const ch = await db.execute(sql.raw(
-          `SELECT archived_at FROM current_channels WHERE slug = '${slug.replace(/'/g, "''")}' LIMIT 1`
+          `SELECT id, archived_at, is_private FROM current_channels WHERE slug = '${slug.replace(/'/g, "''")}' LIMIT 1`
         ));
         if (!ch.rows.length) return res.status(404).json({ message: "Channel not found" });
         if ((ch.rows[0] as any).archived_at) return res.json({ typers: [], count: 0 });
+        if ((ch.rows[0] as any).is_private) {
+          const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${Number((ch.rows[0] as any).id)} AND user_id = ${userId} LIMIT 1`));
+          if (!mem.rows.length) return res.json({ typers: [], count: 0 });
+        }
         key = getTypingKey("channel", slug);
 
       } else if (scope === "dm") {

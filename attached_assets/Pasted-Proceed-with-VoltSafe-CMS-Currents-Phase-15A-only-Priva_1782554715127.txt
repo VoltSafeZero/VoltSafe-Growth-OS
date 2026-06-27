@@ -1,0 +1,388 @@
+Proceed with VoltSafe CMS Currents Phase 15A only: Private Channels / Channel Membership Foundation.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, workflow automation, DM unread badge work, message reactions, presence panels, slash commands, channel search improvements, or unrelated task features.
+
+Goal
+
+Add the foundation for private channels in Currents.
+
+Currents currently supports public channels, archived channels, DMs, group DMs, attachments, reactions, typing, presence, participants, structured items, AI summaries, tasks, and slash commands.
+
+Phase 15A should add private channel visibility and membership controls for internal users only.
+
+Keep this scoped to internal private channels. Do not add guests or external collaborators.
+
+Scope
+
+Add only:
+
+1. Private/public channel flag
+2. Channel membership table if needed
+3. Membership checks for private channels
+4. Create/edit channel UI support for private channels
+5. Add/remove internal members from private channels
+6. Sidebar visibility for private channels
+7. Search/mentions/structured/pins/attachments visibility enforcement
+8. Tests/audit for the above
+
+Do not add:
+
+* external guests
+* external collaborators
+* channel roles beyond basic admin/member
+* owner transfer
+* granular permissions
+* public invite links
+* workflow automation
+* new search features
+* unrelated channel redesign
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* current_channels
+* channel create/edit/archive routes
+* GET /api/current/channels
+* channel messages route
+* channel post route
+* thread reply route
+* reactions route
+* pins routes
+* structured item routes
+* mentions route
+* search route
+* AI summary routes
+* attachment upload/list/download guards
+* channel participants route
+* typing route
+* presence/participants integration
+* slash commands that call channel actions
+* admin channel settings UI
+* channel create/edit dialogs
+* archived channel behavior
+* all existing Currents tests from Phases 9A–14A
+
+Data model
+
+Add if not already present:
+
+current_channel_members
+
+Fields:
+
+* id
+* channel_id
+* user_id
+* created_at
+* created_by
+
+Constraints:
+
+* unique (channel_id, user_id)
+* FK channel → current_channels(id) ON DELETE CASCADE
+* FK user → users(id) ON DELETE CASCADE
+
+Add to current_channels:
+
+* is_private BOOLEAN NOT NULL DEFAULT FALSE
+
+Migration must be idempotent.
+
+Existing public channels remain public.
+
+Product behavior
+
+Public channels
+
+No behavior change:
+
+* visible to all authenticated internal users
+* readable by all
+* writable unless archived
+* existing archive/read-only behavior preserved
+
+Private channels
+
+Only members can:
+
+* see the channel in sidebar
+* open the channel
+* read messages
+* post messages
+* reply in threads
+* react
+* upload/list/download attachments
+* see pins
+* search messages
+* see mentions from that channel
+* see structured items from that channel
+* see participant list
+* receive notifications
+* use slash commands in that channel
+
+Admins can create/manage private channels.
+
+Decision:
+
+* Admins may either bypass membership for management only, or must be members to read/post.
+* Preferred: admins can manage channel membership/settings, but reading/posting private channel content requires membership unless explicitly added.
+
+Document whichever behavior is implemented.
+
+Backend requirements
+
+Create helper logic if useful:
+
+* canViewChannel(userId, channelId)
+* canPostToChannel(userId, channelId)
+* isChannelMember(userId, channelId)
+
+Rules:
+
+1. Public channel: authenticated users can view/post unless archived.
+2. Private channel: only members can view/post.
+3. Archived channel: no write actions regardless of public/private.
+4. Admin-only channel management routes remain admin-only.
+5. Membership checks must be server-side. Frontend hiding is not enough.
+
+Backend routes to update
+
+Audit and update every route that touches channel content.
+
+Required:
+
+* GET /api/current/channels
+* GET /api/current/channels/:slug
+* GET /api/current/channels/:slug/messages
+* POST /api/current/channels/:slug/messages
+* thread reply routes
+* reaction route
+* pins routes
+* structured item routes
+* mentions route
+* search route
+* AI summary routes
+* attachment upload/list/download guards
+* channel participants route
+* typing route
+* unread-count route
+* notification fan-out
+* slash-command paths indirectly through existing routes
+
+Channel management routes
+
+Update create/edit routes to support:
+
+{
+  "name": "Leadership",
+  "description": "Private leadership discussion",
+  "isPrivate": true,
+  "memberIds": [1, 2, 3]
+}
+
+Rules:
+
+1. Admin only.
+2. Create private channel with creator/admin as member automatically.
+3. Validate member IDs.
+4. Exclude suspended/deactivated users.
+5. Deduplicate members.
+6. Preserve existing public channel create behavior.
+7. Editing a channel can toggle public/private only if safe.
+8. Membership updates should not break archived channels.
+
+If toggling public/private is too risky for Phase 15A, support only setting privacy at creation and editing members afterward. Document the limitation.
+
+New membership routes
+
+Add admin-only routes:
+
+GET /api/current/channels/:slug/members
+
+PUT /api/current/channels/:slug/members
+
+or equivalent.
+
+Rules:
+
+1. Requires admin.
+2. Channel must exist.
+3. Works for private channels.
+4. For public channels, either return empty/formal members or allow preparing members before making private.
+5. Validates users.
+6. Excludes suspended/deactivated users.
+7. Cannot remove the last member from a private channel.
+8. Returns sorted member list.
+9. No private fields leaked.
+
+Frontend requirements
+
+Channel sidebar
+
+For private channels:
+
+* show only if current user is member
+* show lock icon beside private channel name
+* muted/unread behavior still works
+* archived/private badges must coexist cleanly
+
+Create/Edit channel dialog
+
+Add:
+
+* checkbox/toggle: Private channel
+* helper text: Only selected members can view and participate.
+* member picker when private is enabled
+* selected member chips
+* current user/admin included automatically if appropriate
+
+Channel settings/admin menu
+
+For private channels:
+
+* show members section
+* allow adding/removing internal members
+* show lock/private status
+* do not expose to non-admins
+
+Channel header
+
+For private channels:
+
+* show subtle lock icon or Private badge
+* participants button still works but only for allowed viewers
+
+Empty/private access
+
+If user tries to deep-link to a private channel they are not a member of:
+
+* do not show content
+* show 404 or access denied
+* do not leak channel name/details if possible
+
+Security requirements
+
+Verify:
+
+1. Non-member cannot see private channel in sidebar.
+2. Non-member cannot fetch private channel metadata.
+3. Non-member cannot fetch private channel messages.
+4. Non-member cannot post to private channel.
+5. Non-member cannot reply in private channel threads.
+6. Non-member cannot react to private channel messages.
+7. Non-member cannot pin/unpin private channel messages.
+8. Non-member cannot upload/list/download attachments from private channel messages.
+9. Non-member cannot see private channel in search.
+10. Non-member cannot see private channel mentions.
+11. Non-member cannot see private channel structured items.
+12. Non-member cannot get private channel AI summaries.
+13. Non-member cannot get private channel participants.
+14. Non-member cannot send/read typing state for private channel.
+15. Notifications are sent only to members.
+16. Unread counts include only channels user can see.
+17. Slash commands cannot bypass private-channel checks.
+18. Archived private channels remain read-only for members.
+19. Admin management does not leak content unless admin is also member, if that rule is chosen.
+20. SQL injection is not possible through slug/member IDs.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Public channels still work.
+4. Existing archived channel behavior still works.
+5. Admin can create private channel.
+6. Creator/member sees private channel in sidebar.
+7. Non-member does not see private channel in sidebar.
+8. Member can open/read/post private channel.
+9. Non-member cannot deep-link/read private channel.
+10. Member can reply in private channel thread.
+11. Non-member cannot reply.
+12. Member can react.
+13. Non-member cannot react.
+14. Member can upload/list/download attachments.
+15. Non-member cannot access attachments.
+16. Private channel search is visible only to members.
+17. Private channel mentions visible only to mentioned member if they are a channel member.
+18. Private channel structured items visible only to members.
+19. Private channel pins visible only to members.
+20. Private channel AI summary visible only to members.
+21. Private channel typing visible only to members.
+22. Private channel participant panel visible only to members.
+23. Notifications go only to members.
+24. Unread counts are correct.
+25. Private + archived behavior works.
+26. Lock/private UI appears.
+27. Create/edit dialog works.
+28. Member management works.
+29. Existing DMs still work.
+30. Existing group DMs still work.
+31. Typing indicators still work.
+32. Presence still works.
+33. Slash commands still work.
+34. Reactions still work.
+35. Structured panel still works.
+36. AI summaries still work.
+37. Create Task still works.
+38. View in Currents still works.
+39. No browser console errors.
+40. No server errors.
+41. No SQL errors.
+42. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* private channel schema/migration
+* create private channel
+* create public channel unaffected
+* private channel sidebar visibility
+* private channel metadata guard
+* private channel messages guard
+* private channel post guard
+* private channel thread guard
+* private channel reaction guard
+* private channel pin guard
+* private channel structured guard
+* private channel search guard
+* private channel mentions guard
+* private channel summary guard
+* private channel participants guard
+* private channel typing guard
+* private channel attachment upload/list/download guard
+* private channel notification member-only behavior
+* private channel unread counts
+* archived private channel read-only behavior
+* admin membership management
+* frontend lock/private badge
+* frontend create/edit private UI
+* existing 14A slash command tests pass
+* existing 13A reaction tests pass
+* existing 12C participants tests pass
+* existing 12B presence tests pass
+* existing 12A typing tests pass
+* existing 11A/11B group DM tests pass
+* existing 10A/10B notification tests pass
+* existing 9A/9B channel tests pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing channel access-control audit summary
+2. Schema/migration changes
+3. Backend route changes
+4. Frontend changes
+5. Private channel behavior
+6. Membership management behavior
+7. Security checks
+8. Verification results
+9. Features intentionally deferred
+10. Known issues
+11. Recommended next feature order
+
+Keep scope tight: Private Channels / Channel Membership Foundation only.

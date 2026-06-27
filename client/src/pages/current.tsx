@@ -40,6 +40,7 @@ import {
   Check,
   UserPlus,
   LogOut,
+  Lock,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -365,6 +366,70 @@ function ArchivedBadge() {
     >
       Archived
     </span>
+  );
+}
+
+// ── MemberPickerInline ────────────────────────────────────────────────────────
+// Lightweight member search + chip picker for create/edit channel dialogs.
+function MemberPickerInline({
+  selectedIds,
+  onChange,
+  excludeIds = [],
+}: {
+  selectedIds: number[];
+  onChange: (ids: number[]) => void;
+  excludeIds?: number[];
+}) {
+  const [q, setQ] = useState("");
+  const { data: users = [] } = useQuery<MentionUser[]>({
+    queryKey: ["/api/current/users", q],
+    queryFn: () =>
+      fetch(`/api/current/users?q=${encodeURIComponent(q)}`, { credentials: "include" }).then((r) => r.json()),
+    staleTime: 10_000,
+  });
+  const nameMapRef = useRef<Record<number, string>>({});
+  users.forEach((u) => { nameMapRef.current[u.id] = u.name; });
+  const allExcluded = new Set([...excludeIds, ...selectedIds]);
+  const suggestions = users.filter((u) => !allExcluded.has(u.id));
+
+  return (
+    <div className="space-y-2">
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {selectedIds.map((id) => (
+            <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-primary/15 text-primary border border-primary/20">
+              {nameMapRef.current[id] ?? `#${id}`}
+              <button type="button" onClick={() => onChange(selectedIds.filter((i) => i !== id))} className="opacity-60 hover:opacity-100" data-testid={`remove-member-${id}`}>
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <Input
+        data-testid="input-member-search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search teammates…"
+        className="h-7 text-[12px]"
+      />
+      {q.length > 0 && suggestions.length > 0 && (
+        <div className="border border-border/60 rounded-md overflow-hidden bg-popover">
+          {suggestions.slice(0, 6).map((u) => (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => { onChange([...selectedIds, u.id]); setQ(""); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-left hover:bg-muted/60 transition-colors"
+              data-testid={`member-suggestion-${u.id}`}
+            >
+              <span className="font-medium">{u.name}</span>
+              <span className="text-muted-foreground/60 text-[11px] truncate">{u.email}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3240,6 +3305,24 @@ export default function CurrentPage() {
 
   const [createTaskSource, setCreateTaskSource] = useState<CreateTaskSource | null>(null);
 
+  // Phase 15A: Private channel state
+  const [createIsPrivate, setCreateIsPrivate] = useState(false);
+  const [createMemberIds, setCreateMemberIds] = useState<number[]>([]);
+  const [editIsPrivate, setEditIsPrivate] = useState(false);
+
+  // Query: fetch channel members for edit dialog (admin only)
+  const { data: editChannelMembersData } = useQuery<{ members: { id: number; name: string; email: string; avatarUrl: string | null }[] }>({
+    queryKey: ["/api/current/channels", selectedSlug, "members"],
+    queryFn: async () => {
+      const r = await fetch(`/api/current/channels/${encodeURIComponent(selectedSlug)}/members`, { credentials: "include" });
+      if (!r.ok) return { members: [] };
+      return r.json();
+    },
+    enabled: editChannelOpen && isAdmin,
+    staleTime: 30_000,
+  });
+  const editChannelMembers = editChannelMembersData?.members ?? [];
+
   function handleCreateTaskFromMsg(msg: Message, threadRootId?: number): void {
     setCreateTaskSource({
       kind: "channel_message",
@@ -3563,7 +3646,7 @@ export default function CurrentPage() {
   // ── Channel management mutations ─────────────────────────────────────────
 
   const createChannelMutation = useMutation({
-    mutationFn: async (data: { name: string; description: string }) => {
+    mutationFn: async (data: { name: string; description: string; isPrivate?: boolean; memberIds?: number[] }) => {
       const r = await apiRequest("POST", "/api/current/channels", data);
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to create channel"); }
       return r.json() as Promise<Channel>;
@@ -3573,6 +3656,8 @@ export default function CurrentPage() {
       setCreateChannelOpen(false);
       setChannelNameInput("");
       setChannelDescInput("");
+      setCreateIsPrivate(false);
+      setCreateMemberIds([]);
       setSelectedSlug(channel.slug);
       setView("channel");
       toast({ title: "Channel created", description: `#${channel.slug} is ready.` });
@@ -3581,7 +3666,7 @@ export default function CurrentPage() {
   });
 
   const editChannelMutation = useMutation({
-    mutationFn: async (data: { name: string; description: string }) => {
+    mutationFn: async (data: { name: string; description: string; isPrivate?: boolean }) => {
       const chan = channels.find((c) => c.slug === selectedSlug);
       if (!chan) throw new Error("No channel selected");
       const r = await apiRequest("PATCH", `/api/current/channels/${chan.id}`, data);
@@ -3595,6 +3680,26 @@ export default function CurrentPage() {
       if (updated.slug && updated.slug !== selectedSlug) setSelectedSlug(updated.slug);
       toast({ title: "Channel updated" });
     },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const removeChannelMemberMutation = useMutation({
+    mutationFn: async ({ slug, userId }: { slug: string; userId: number }) => {
+      const r = await apiRequest("DELETE", `/api/current/channels/${encodeURIComponent(slug)}/members/${userId}`, {});
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to remove member"); }
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/current/channels", selectedSlug, "members"] }),
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const addChannelMemberMutation = useMutation({
+    mutationFn: async ({ slug, userId }: { slug: string; userId: number }) => {
+      const r = await apiRequest("POST", `/api/current/channels/${encodeURIComponent(slug)}/members/${userId}`, {});
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to add member"); }
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/current/channels", selectedSlug, "members"] }),
     onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
@@ -4121,12 +4226,21 @@ export default function CurrentPage() {
                       isAdmin ? "pr-14" : "pr-7",
                     )}
                   >
-                    <Hash
-                      className={cn(
-                        "w-3.5 h-3.5 shrink-0 transition-opacity",
-                        active ? "opacity-80" : isMutedChan ? "opacity-20" : "opacity-40 group-hover:opacity-60"
-                      )}
-                    />
+                    {channel.isPrivate ? (
+                      <Lock
+                        className={cn(
+                          "w-3.5 h-3.5 shrink-0 transition-opacity",
+                          active ? "opacity-80" : isMutedChan ? "opacity-20" : "opacity-40 group-hover:opacity-60"
+                        )}
+                      />
+                    ) : (
+                      <Hash
+                        className={cn(
+                          "w-3.5 h-3.5 shrink-0 transition-opacity",
+                          active ? "opacity-80" : isMutedChan ? "opacity-20" : "opacity-40 group-hover:opacity-60"
+                        )}
+                      />
+                    )}
                     <span className={cn("flex-1 truncate text-left min-w-0", isMutedChan && "opacity-60")}>
                       {displaySlug(channel.slug)}
                     </span>
@@ -4213,6 +4327,7 @@ export default function CurrentPage() {
                           e.stopPropagation();
                           setChannelEditNameInput(channel.name);
                           setChannelEditDescInput(channel.description ?? "");
+                          setEditIsPrivate(channel.isPrivate);
                           setSelectedSlug(channel.slug);
                           setView("channel");
                           setArchiveConfirmOpen(false);
@@ -5109,7 +5224,7 @@ export default function CurrentPage() {
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && channelNameInput.trim() && !createChannelMutation.isPending) {
-                    createChannelMutation.mutate({ name: channelNameInput.trim(), description: channelDescInput.trim() });
+                    createChannelMutation.mutate({ name: channelNameInput.trim(), description: channelDescInput.trim(), isPrivate: createIsPrivate, memberIds: createMemberIds });
                   }
                 }}
               />
@@ -5131,13 +5246,36 @@ export default function CurrentPage() {
                 maxLength={200}
               />
             </div>
+            {/* Private toggle */}
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-[12px] font-medium text-foreground/80 leading-tight">Private channel</p>
+                <p className="text-[11px] text-muted-foreground/60 leading-tight mt-0.5">Only invited members can see it</p>
+              </div>
+              <Switch
+                data-testid="toggle-channel-private"
+                checked={createIsPrivate}
+                onCheckedChange={setCreateIsPrivate}
+              />
+            </div>
+            {createIsPrivate && (
+              <div>
+                <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">
+                  Members <span className="text-muted-foreground/40">(you are added automatically)</span>
+                </label>
+                <MemberPickerInline
+                  selectedIds={createMemberIds}
+                  onChange={setCreateMemberIds}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter className="mt-2">
             <Button variant="ghost" size="sm" onClick={() => setCreateChannelOpen(false)}>Cancel</Button>
             <Button
               size="sm"
               data-testid="btn-create-channel-submit"
-              onClick={() => createChannelMutation.mutate({ name: channelNameInput.trim(), description: channelDescInput.trim() })}
+              onClick={() => createChannelMutation.mutate({ name: channelNameInput.trim(), description: channelDescInput.trim(), isPrivate: createIsPrivate, memberIds: createMemberIds })}
               disabled={!channelNameInput.trim() || createChannelMutation.isPending}
             >
               {createChannelMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
@@ -5202,6 +5340,55 @@ export default function CurrentPage() {
                     maxLength={200}
                   />
                 </div>
+                {/* Private toggle */}
+                <div className="flex items-center justify-between py-1">
+                  <div>
+                    <p className="text-[12px] font-medium text-foreground/80 leading-tight">Private channel</p>
+                    <p className="text-[11px] text-muted-foreground/60 leading-tight mt-0.5">Only invited members can see it</p>
+                  </div>
+                  <Switch
+                    data-testid="toggle-edit-channel-private"
+                    checked={editIsPrivate}
+                    onCheckedChange={setEditIsPrivate}
+                  />
+                </div>
+                {/* Member management — only shown for private channels */}
+                {editIsPrivate && (
+                  <div>
+                    <label className="text-[12px] font-medium text-muted-foreground mb-2 block">Members</label>
+                    <div className="border border-border/50 rounded-md max-h-36 overflow-y-auto mb-2">
+                      {editChannelMembers.length === 0 ? (
+                        <p className="px-3 py-2 text-[11px] text-muted-foreground/50">No members yet</p>
+                      ) : (
+                        editChannelMembers.map((m) => (
+                          <div key={m.id} className="flex items-center justify-between px-3 py-1.5 hover:bg-muted/30 transition-colors">
+                            <div className="min-w-0">
+                              <span className="text-[12px] font-medium text-foreground/80">{m.name}</span>
+                              <span className="text-[11px] text-muted-foreground/50 ml-1.5 truncate">{m.email}</span>
+                            </div>
+                            <button
+                              type="button"
+                              data-testid={`remove-channel-member-${m.id}`}
+                              onClick={() => removeChannelMemberMutation.mutate({ slug: selectedSlug, userId: m.id })}
+                              disabled={removeChannelMemberMutation.isPending}
+                              className="w-5 h-5 shrink-0 flex items-center justify-center rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <MemberPickerInline
+                      selectedIds={[]}
+                      onChange={(ids) => {
+                        const newId = ids[0];
+                        if (newId) addChannelMemberMutation.mutate({ slug: selectedSlug, userId: newId });
+                      }}
+                      excludeIds={editChannelMembers.map((m) => m.id)}
+                    />
+                  </div>
+                )}
               </div>
               <DialogFooter className="flex items-center justify-between sm:justify-between gap-2 mt-2">
                 <Button
@@ -5219,7 +5406,7 @@ export default function CurrentPage() {
                   <Button
                     size="sm"
                     data-testid="btn-edit-channel-submit"
-                    onClick={() => editChannelMutation.mutate({ name: channelEditNameInput.trim(), description: channelEditDescInput.trim() })}
+                    onClick={() => editChannelMutation.mutate({ name: channelEditNameInput.trim(), description: channelEditDescInput.trim(), isPrivate: editIsPrivate })}
                     disabled={!channelEditNameInput.trim() || editChannelMutation.isPending}
                   >
                     {editChannelMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
