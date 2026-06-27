@@ -2544,6 +2544,9 @@ export default function CurrentPage() {
   const [newDmOpen, setNewDmOpen] = useState(false);
   const [dmDraft, setDmDraft] = useState("");
   const [editingDmMessage, setEditingDmMessage] = useState<DmMessage | null>(null);
+  const [dmPendingFiles, setDmPendingFiles] = useState<File[]>([]);
+  const dmFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDmUploading, setIsDmUploading] = useState(false);
   const dmFeedRef = useRef<HTMLDivElement>(null);
   const dmTextareaRef = useRef<HTMLTextAreaElement>(null);
   const dmIsAtBottom = useRef(true);
@@ -2970,13 +2973,30 @@ export default function CurrentPage() {
 
   async function handleDmSend() {
     const trimmed = dmDraft.trim();
-    if (!trimmed || dmPostMutation.isPending || !selectedDmId) return;
+    if (!trimmed || dmPostMutation.isPending || isDmUploading || !selectedDmId) return;
     try {
-      await dmPostMutation.mutateAsync(trimmed);
+      const newMsg = await dmPostMutation.mutateAsync(trimmed);
       setDmDraft("");
       dmMention.closeMention();
       if (dmTextareaRef.current) dmTextareaRef.current.style.height = "auto";
       dmIsAtBottom.current = true;
+      const files = [...dmPendingFiles];
+      setDmPendingFiles([]);
+      if (files.length > 0 && newMsg?.id) {
+        setIsDmUploading(true);
+        try {
+          const result = await uploadCurrentAttachments(Number(newMsg.id), files);
+          if (result.failed.length > 0) {
+            toast({
+              title: "Message sent, but some files failed",
+              description: `${result.failed.length} attachment${result.failed.length > 1 ? "s" : ""} failed: ${result.failed.join(", ")}`,
+              variant: "destructive",
+            });
+          }
+        } finally {
+          setIsDmUploading(false);
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] });
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
     } catch {}
@@ -3450,33 +3470,50 @@ export default function CurrentPage() {
 
             {/* DM Composer */}
             <div className="px-4 pb-4 shrink-0">
-              <div className="relative rounded-xl border border-border bg-muted/20 overflow-visible">
-                {dmMention.open && dmMention.results.length > 0 && (
-                  <MentionDropdown
-                    users={dmMention.results}
-                    activeIndex={dmMention.activeIndex}
-                    onSelect={(user) => {
-                      const next = dmMention.insertMention(user, dmDraft, dmTextareaRef);
-                      setDmDraft(next);
-                    }}
+              {dmMention.open && dmMention.results.length > 0 && (
+                <MentionDropdown
+                  users={dmMention.results}
+                  activeIndex={dmMention.activeIndex}
+                  onSelect={(user) => {
+                    const next = dmMention.insertMention(user, dmDraft, dmTextareaRef);
+                    setDmDraft(next);
+                  }}
+                />
+              )}
+              {dmPendingFiles.length > 0 && (
+                <div className="mb-2">
+                  <PendingFileChips
+                    files={dmPendingFiles}
+                    onRemove={(i) =>
+                      setDmPendingFiles((prev) => prev.filter((_, idx) => idx !== i))
+                    }
                   />
+                </div>
+              )}
+              <div
+                className={cn(
+                  "flex items-end gap-2 rounded-xl px-3.5 py-2.5 transition-all duration-150",
+                  "bg-muted/30 border border-border/60",
+                  "focus-within:border-primary/40 focus-within:bg-background",
+                  "focus-within:shadow-[0_0_0_3px_hsl(var(--primary)/0.07)]"
                 )}
+              >
                 <textarea
                   ref={dmTextareaRef}
                   data-testid="dm-composer-input"
                   value={dmDraft}
                   onChange={handleDmDraftChange}
                   onKeyDown={handleDmKeyDown}
-                  placeholder={`Message ${selectedDm?.otherUser.name ?? "teammate"}…`}
+                  placeholder={`Message ${selectedDm?.otherUser.name ?? "teammate"}${dmPendingFiles.length > 0 ? " (optional)" : "…"}`}
                   rows={1}
                   className={cn(
-                    "w-full px-4 py-3 pr-12 text-[13.5px] leading-relaxed resize-none outline-none",
-                    "bg-transparent text-foreground placeholder:text-muted-foreground/40",
-                    "max-h-52 overflow-y-auto"
+                    "flex-1 border-0 bg-transparent shadow-none resize-none p-0 outline-none",
+                    "text-[13.5px] placeholder:text-muted-foreground/40 leading-relaxed",
+                    "min-h-[22px] max-h-36 overflow-y-auto"
                   )}
                   style={{ height: "auto" }}
                 />
-                <div className="absolute right-2.5 bottom-2.5 flex items-center gap-1.5">
+                <div className="flex items-center gap-1 shrink-0">
                   <EmojiPickerPopover
                     onSelect={(emoji) => {
                       setDmDraft((d) => d + emoji);
@@ -3484,17 +3521,43 @@ export default function CurrentPage() {
                     }}
                   />
                   <button
+                    type="button"
+                    onClick={() => dmFileInputRef.current?.click()}
+                    title="Attach file"
+                    data-testid="btn-attach-dm"
+                    className="h-8 w-8 p-0 rounded-lg flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors"
+                  >
+                    <Paperclip className="w-3.5 h-3.5" />
+                  </button>
+                  <input
+                    ref={dmFileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    data-testid="dm-file-input"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      if (files.length > 0)
+                        setDmPendingFiles((prev) => [...prev, ...files]);
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
                     data-testid="dm-send-btn"
                     onClick={handleDmSend}
-                    disabled={!dmDraft.trim() || dmPostMutation.isPending}
+                    disabled={
+                      !dmDraft.trim() ||
+                      dmPostMutation.isPending ||
+                      isDmUploading
+                    }
                     className={cn(
-                      "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all",
-                      dmDraft.trim() && !dmPostMutation.isPending
+                      "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all",
+                      dmDraft.trim() && !dmPostMutation.isPending && !isDmUploading
                         ? "bg-primary text-primary-foreground hover:bg-primary/90"
                         : "bg-muted/40 text-muted-foreground/30"
                     )}
                   >
-                    {dmPostMutation.isPending ? (
+                    {(dmPostMutation.isPending || isDmUploading) ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <Send className="w-3.5 h-3.5" />
@@ -3502,6 +3565,9 @@ export default function CurrentPage() {
                   </button>
                 </div>
               </div>
+              <p className="text-[10.5px] text-muted-foreground/35 mt-1.5 px-0.5 select-none">
+                Enter to send · Shift+Enter for new line · @ to mention · 📎 to attach
+              </p>
             </div>
           </div>
         ) : (

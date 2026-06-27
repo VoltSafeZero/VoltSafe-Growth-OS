@@ -1,0 +1,199 @@
+Proceed with VoltSafe CMS Currents Phase 8B only: Direct Message Attachments.
+
+Do not add group DMs, Guest Currents, external collaborators, slash commands, workflow automation, channel management, notification preferences, typing indicators, or unrelated CRM/task features.
+
+Goal
+
+Allow users to attach files/images to one-to-one Direct Messages in Currents.
+
+Phase 8A added secure one-to-one DMs. Existing Currents already supports attachments for channel and record messages via current_message. Phase 8B should reuse that system for DM messages.
+
+Scope
+
+Add only:
+
+1. File picker / paperclip in DM composer
+2. Pending attachment chips before send
+3. Upload attachments after sending DM message
+4. Display attachments on DM messages
+5. Attachment failure handling
+6. Safe backend support if needed
+
+Keep scope tight: DM attachments only.
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* Existing channel Currents attachment upload flow
+* Existing record Currents attachment upload flow
+* uploadCurrentAttachments()
+* CurrentAttachmentChips
+* PendingFileChips
+* /api/attachments route
+* attachment object type support for current_message
+* attachment display for MessageRow
+* current DM send mutation and message response shape
+* DM message GET route payload
+
+Reuse existing components/helpers if possible.
+
+Backend requirements
+
+Prefer no new upload route.
+
+Use the existing /api/attachments route if it already supports:
+
+* objectType = "current_message"
+* objectId = DM_MESSAGE_ID
+
+DM messages are still rows in current_messages, so attachment linking should work if message GET routes include attachments.
+
+DM message GET route
+
+Verify and, if needed, update:
+
+GET /api/current/dms/:conversationId/messages
+
+Each message should include:
+
+{
+  "attachments": []
+}
+
+Use the same attachment fields as channel/record Currents messages.
+
+Security
+
+Verify:
+
+1. User can only upload attachments to a DM message if they are a member of that DM conversation.
+2. User cannot attach files to someone else’s DM message by guessing message ID.
+3. User cannot view attachments for a DM they are not a member of.
+4. Existing attachment download/view permissions are respected or documented.
+5. Deleted DM message attachments are hidden/redacted consistently.
+
+If existing /api/attachments route cannot enforce DM membership for current_message, add a safe guard.
+
+Frontend requirements
+
+DM composer
+
+Add paperclip button to the DM composer.
+
+Behavior:
+
+* Opens file picker
+* Supports multiple files if existing Currents composer does
+* Shows pending file chips before send
+* Allows removing pending files before send
+* Disables send button or shows uploading state while attachments upload
+* Allows text + attachments
+* Allows attachment-only message if existing channel composer supports that; otherwise keep body required and document
+
+Upload behavior
+
+Recommended flow:
+
+1. User selects files.
+2. User clicks Send.
+3. DM message is created first.
+4. Attachments upload to:
+    * objectType: current_message
+    * objectId: created message id
+5. DM messages query invalidates/refetches.
+6. DM list preview updates.
+
+If some uploads fail:
+
+* Message should still exist.
+* Show warning toast:
+    * Message sent, but 1 attachment failed to upload.
+* Failed files should be clearly handled.
+
+DM message display
+
+DM message rows should display attachments using existing:
+
+* CurrentAttachmentChips
+* image thumbnails if supported
+* file chips if non-image
+
+Display should match channel/record Currents.
+
+UX requirements
+
+* Paperclip button should match existing channel composer styling.
+* Pending chips should look consistent.
+* Upload failure state should be clear.
+* Dark mode must look good.
+* Attachments should not crowd small DM messages.
+* No weird scroll jump after upload.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. DM list still loads.
+4. Existing DM can be opened.
+5. New DM can be started.
+6. Paperclip appears in DM composer.
+7. Selecting one file shows pending chip.
+8. Selecting multiple files shows multiple chips.
+9. Removing pending file works.
+10. Sending text + file works.
+11. Sending file with no text works if supported, or is safely blocked if not.
+12. Attachments display on sent DM message.
+13. Image attachment displays as image/thumb if existing component supports it.
+14. Non-image file displays as file chip.
+15. Upload failure shows warning and does not crash.
+16. Send button/loading state behaves correctly during upload.
+17. DM list preview updates after message send.
+18. Opening DM later still shows attachments.
+19. Unauthorized user cannot view DM messages/attachments.
+20. Unauthorized user cannot upload to DM message.
+21. Deleted DM message attachments are hidden/redacted.
+22. Existing channel attachments still work.
+23. Existing record attachments still work.
+24. Channel Currents still work.
+25. Record Currents still work.
+26. Mentions panel still works.
+27. Search still works.
+28. Structured panel still works.
+29. AI summaries still work.
+30. Create Task still works.
+31. View in Currents from Tasks still works.
+32. No browser console errors.
+33. No server errors.
+34. No SQL errors.
+35. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* DM composer paperclip
+* pending file chips
+* upload uses objectType=current_message
+* upload uses DM message id after send
+* DM message GET includes attachments
+* unauthorized DM attachment access guard if backend changed
+* existing channel/record attachment paths remain untouched
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing attachment system audit summary
+2. Files changed
+3. Backend changes, if any
+4. Frontend changes
+5. Upload flow
+6. Security checks
+7. Verification results
+8. Known issues
+9. Recommended next feature order
+
+Keep scope tight: Direct Message attachments only.
