@@ -994,16 +994,23 @@ function RecordStructuredPanel({ objectType, objectId }: { objectType: string; o
     scope: "record",
     objectType,
     objectId: String(objectId),
-    limit: "50",
+    limit: "200",
   });
-  if (filter !== "all") params.set("itemType", filter);
 
   const { data = [], isLoading, isError } = useQuery<RecStructuredItem[]>({
-    queryKey: ["/api/current/structured", "record", objectType, objectId, filter],
+    queryKey: ["/api/current/structured", "record", objectType, objectId],
     queryFn: () =>
       fetch(`/api/current/structured?${params}`, { credentials: "include" }).then(r => r.json()),
     refetchInterval: 30_000,
   });
+
+  const recCounts = {
+    all: data.length,
+    decision: data.filter(i => i.itemType === "decision").length,
+    risk: data.filter(i => i.itemType === "risk").length,
+    requirement: data.filter(i => i.itemType === "requirement").length,
+  };
+  const displayed = filter === "all" ? data : data.filter(i => i.itemType === filter);
 
   const filterLabel =
     filter === "decision" ? "decisions" :
@@ -1026,13 +1033,23 @@ function RecordStructuredPanel({ objectType, objectId }: { objectType: string; o
             key={value}
             onClick={() => setFilter(value)}
             data-testid={`rec-structured-filter-${value}`}
-            className={`px-2 py-0.5 rounded-full text-[10.5px] font-medium border transition-colors ${
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-medium border transition-colors ${
               filter === value
                 ? chipActive[value]
                 : "text-muted-foreground border-border/20 hover:border-border/60 hover:text-foreground"
             }`}
           >
             {label}
+            <span
+              data-testid={`rec-structured-count-${value}`}
+              className={`text-[9.5px] font-semibold tabular-nums leading-none px-1 py-0.5 rounded-full min-w-[14px] text-center ${
+                filter === value
+                  ? "bg-current/15 opacity-75"
+                  : "bg-muted/60 text-muted-foreground/70"
+              }`}
+            >
+              {recCounts[value]}
+            </span>
           </button>
         ))}
       </div>
@@ -1047,7 +1064,7 @@ function RecordStructuredPanel({ objectType, objectId }: { objectType: string; o
           <div className="flex items-center justify-center py-8 px-3 text-center">
             <p className="text-[12px] text-muted-foreground/70">Could not load structured items. Try again.</p>
           </div>
-        ) : data.length === 0 ? (
+        ) : displayed.length === 0 ? (
           <div className="flex flex-col items-center py-8 px-3 text-center select-none">
             <Bookmark className="w-6 h-6 text-muted-foreground/30 mb-2" />
             <p className="text-[12px] font-medium text-foreground/60 mb-0.5">
@@ -1062,7 +1079,7 @@ function RecordStructuredPanel({ objectType, objectId }: { objectType: string; o
           </div>
         ) : (
           <div className="space-y-1.5">
-            {data.map((item) => (
+            {displayed.map((item) => (
               <div
                 key={item.id}
                 data-testid={`rec-structured-item-${item.id}`}

@@ -99,15 +99,15 @@ check("filter chip uses STRUCT_FILTER_ITEMS.map", (() => {
 })());
 check("filter chip active style for decision (emerald)", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 2000).includes("emerald-500/15");
+  return i > -1 && currentTsx.slice(i, i + 4000).includes("emerald-500/15");
 })());
 check("filter chip active style for risk (amber)", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 2000).includes("amber-500/15");
+  return i > -1 && currentTsx.slice(i, i + 4000).includes("amber-500/15");
 })());
 check("filter chip active style for requirement (purple)", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 2000).includes("purple-500/15");
+  return i > -1 && currentTsx.slice(i, i + 4000).includes("purple-500/15");
 })());
 
 // ── 6. Item cards ─────────────────────────────────────────────────────────────
@@ -157,7 +157,7 @@ check("structured-view-btn-{id} testid on View button", currentTsx.includes("`st
 console.log("\n── 7. Deep-link navigation ──");
 check("handleView function declared in StructuredItemsPanel", (() => {
   const i = currentTsx.indexOf("function StructuredItemsPanel(");
-  return i > -1 && currentTsx.slice(i, i + 1000).includes("function handleView(");
+  return i > -1 && currentTsx.slice(i, i + 2500).includes("function handleView(");
 })());
 check("handleView detects /current? prefix for channel nav", (() => {
   const i = currentTsx.indexOf("function handleView(");
@@ -293,15 +293,15 @@ check("RecordStructuredPanel sends objectType + objectId in params", (() => {
 })());
 check("RecordStructuredPanel filter chips present", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");
-  return i > -1 && recordFeed.slice(i, i + 1500).includes("REC_STRUCT_FILTER_ITEMS");
+  return i > -1 && recordFeed.slice(i, i + 3000).includes("REC_STRUCT_FILTER_ITEMS");
 })());
 check("RecordStructuredPanel shows loading state", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");
-  return i > -1 && recordFeed.slice(i, i + 3000).includes("isLoading") && recordFeed.slice(i, i + 3000).includes("animate-spin");
+  return i > -1 && recordFeed.slice(i, i + 4000).includes("isLoading") && recordFeed.slice(i, i + 4000).includes("animate-spin");
 })());
 check("RecordStructuredPanel shows error state", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");
-  return i > -1 && recordFeed.slice(i, i + 3000).includes("isError") && recordFeed.slice(i, i + 3000).includes("Could not load structured items");
+  return i > -1 && recordFeed.slice(i, i + 4000).includes("isError") && recordFeed.slice(i, i + 4000).includes("Could not load structured items");
 })());
 check("RecordStructuredPanel shows empty state messages", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");
@@ -318,7 +318,7 @@ check("RecordStructuredPanel View button uses window.location.href", (() => {
 })());
 check("RecordStructuredPanel uses REC_STRUCTURED_BADGE_STYLE", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");
-  return i > -1 && recordFeed.slice(i, i + 4000).includes("REC_STRUCTURED_BADGE_STYLE");
+  return i > -1 && recordFeed.slice(i, i + 6000).includes("REC_STRUCTURED_BADGE_STYLE");
 })());
 check("RecordStructuredPanel shows authorName", (() => {
   const i = recordFeed.indexOf("function RecordStructuredPanel(");

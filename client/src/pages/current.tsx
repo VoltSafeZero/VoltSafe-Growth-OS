@@ -2098,18 +2098,25 @@ function StructuredItemsPanel({
   const [filter, setFilter] = useState<"all" | "decision" | "risk" | "requirement">("all");
   const [scope, setScope] = useState<"channel" | "all">("channel");
 
-  const params = new URLSearchParams({ scope: scope === "channel" ? "channel" : "all", limit: "50" });
+  const params = new URLSearchParams({ scope: scope === "channel" ? "channel" : "all", limit: "200" });
   if (scope === "channel") {
     params.set("channel", selectedSlug);
   }
-  if (filter !== "all") params.set("itemType", filter);
 
   const { data = [], isLoading, isError } = useQuery<StructuredListItem[]>({
-    queryKey: ["/api/current/structured", scope, selectedSlug, filter],
+    queryKey: ["/api/current/structured", scope, selectedSlug],
     queryFn: () =>
       fetch(`/api/current/structured?${params}`, { credentials: "include" }).then(r => r.json()),
     refetchInterval: 30_000,
   });
+
+  const counts = {
+    all: data.length,
+    decision: data.filter(i => i.itemType === "decision").length,
+    risk: data.filter(i => i.itemType === "risk").length,
+    requirement: data.filter(i => i.itemType === "requirement").length,
+  };
+  const displayed = filter === "all" ? data : data.filter(i => i.itemType === filter);
 
   function handleView(item: StructuredListItem) {
     if (!item.actionUrl) return;
@@ -2175,13 +2182,24 @@ function StructuredItemsPanel({
               onClick={() => setFilter(value)}
               data-testid={`structured-filter-${value}`}
               className={cn(
-                "px-2.5 py-0.5 rounded-full text-[11.5px] font-medium border transition-colors",
+                "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11.5px] font-medium border transition-colors",
                 filter === value
                   ? chipActive[value]
                   : "text-muted-foreground border-border/30 hover:border-border/60 hover:text-foreground"
               )}
             >
               {label}
+              <span
+                data-testid={`structured-count-${value}`}
+                className={cn(
+                  "text-[10px] font-semibold tabular-nums leading-none px-1 py-0.5 rounded-full min-w-[16px] text-center",
+                  filter === value
+                    ? "bg-current/15 opacity-80"
+                    : "bg-muted/60 text-muted-foreground/70"
+                )}
+              >
+                {counts[value]}
+              </span>
             </button>
           ))}
         </div>
@@ -2198,7 +2216,7 @@ function StructuredItemsPanel({
             <p className="text-[13px] text-muted-foreground">Could not load structured items.</p>
             <p className="text-[12px] text-muted-foreground/60 mt-1">Check your connection and try again.</p>
           </div>
-        ) : data.length === 0 ? (
+        ) : displayed.length === 0 ? (
           <div className="flex flex-col items-center justify-center pt-16 text-center px-6 select-none">
             <div className="w-14 h-14 rounded-2xl bg-primary/[0.08] flex items-center justify-center mb-4 ring-1 ring-primary/10">
               <Bookmark className="w-7 h-7 text-primary/40" />
@@ -2217,7 +2235,7 @@ function StructuredItemsPanel({
           </div>
         ) : (
           <div className="space-y-2" data-testid="structured-items-grid">
-            {data.map((item) => (
+            {displayed.map((item) => (
               <div
                 key={item.id}
                 data-testid={`structured-item-${item.id}`}

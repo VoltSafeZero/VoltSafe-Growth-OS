@@ -1,0 +1,156 @@
+Proceed with VoltSafe CMS Currents Phase 7D only: Structured Filter Count Badges.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, AI classification, exports, new task features, or unrelated CRM features.
+
+Goal
+
+Add count badges to the Structured Items filters so users can immediately see how many Decisions, Risks, and Requirements exist.
+
+Example:
+
+* All 12
+* Decisions 5
+* Risks 3
+* Requirements 4
+
+This should work in:
+
+1. /current Structured Panel
+2. Record Currents Structured Panel
+
+Use the already-loaded structured items dataset client-side if possible. Do not add backend changes unless absolutely necessary.
+
+Scope
+
+Add only:
+
+1. Count badge beside each filter chip:
+    * All
+    * Decisions
+    * Risks
+    * Requirements
+2. Counts update immediately after:
+    * marking a message
+    * updating a note
+    * unmarking a message
+    * switching channel/all scope
+    * switching record
+3. Counts respect current panel scope:
+    * Current channel scope counts only that channel
+    * All Currents scope counts all returned items
+    * Record scope counts only that record
+
+Backend
+
+Prefer no backend changes.
+
+Use existing GET /api/current/structured response.
+
+Only change backend if the response makes client-side counting impossible.
+
+Frontend requirements
+
+/current Structured Panel
+
+In the filter chip row, display count badges:
+
+* All 12
+* Decisions 5
+* Risks 3
+* Requirements 4
+
+Behavior:
+
+* Counts are computed from the full returned dataset before applying the selected item-type filter.
+* If there are zero items, show either:
+    * Decisions 0
+    * or hide the zero badge if that looks cleaner.
+* Selected chip should remain visually obvious.
+* Counts should not make the row feel cramped.
+
+Record Structured Panel
+
+Do the same inside RecordStructuredPanel.
+
+Counts should be based only on that record’s structured items.
+
+Data behavior
+
+Verify:
+
+1. Counts are correct for All.
+2. Counts are correct for Decisions.
+3. Counts are correct for Risks.
+4. Counts are correct for Requirements.
+5. Counts update after marking.
+6. Counts update after unmarking.
+7. Counts update after switching /current scope from current channel to All Currents.
+8. Counts update when switching selected channel.
+9. Counts update in record panel after marking/unmarking a record message.
+10. Counts do not require full page refresh.
+
+UX requirements
+
+* Badge styling should be subtle.
+* Dark mode must look good.
+* Counts should not dominate the filter label.
+* Use existing badge/chip styling if available.
+* Avoid awkward wrapping on narrow screens.
+* Do not add a heavy stats header.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Structured Panel opens.
+4. All filter shows correct count.
+5. Decisions filter shows correct count.
+6. Risks filter shows correct count.
+7. Requirements filter shows correct count.
+8. Switching filters preserves correct counts.
+9. Current channel scope counts are correct.
+10. All Currents scope counts are correct.
+11. Switching channel updates counts.
+12. Marking a new Decision increments counts immediately.
+13. Unmarking a Decision decrements counts immediately.
+14. Updating note does not change counts.
+15. Record Structured Panel shows counts.
+16. Record counts are scoped correctly.
+17. Record mark/unmark updates counts immediately.
+18. Existing badge display still works.
+19. Existing note display still works.
+20. Existing deep-links still work.
+21. Existing Currents features still work:
+    * posting
+    * threads
+    * reactions
+    * pins
+    * edit/delete
+    * mentions
+    * attachments
+    * search
+    * AI summaries
+    * create task
+    * View in Currents from tasks
+22. Existing task system still works.
+23. No browser console errors.
+24. No server errors.
+25. No SQL errors.
+26. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Files changed
+2. Backend changes, if any
+3. Count calculation behavior
+4. /current Structured Panel behavior
+5. Record Structured Panel behavior
+6. Verification results
+7. Known issues
+8. Recommended next step
+
+Keep scope tight: Structured filter count badges only.
