@@ -35320,7 +35320,7 @@ export function registerConfluenceRoutes(app: Express) {
             : `New direct message from ${escapedSender}`;
           for (const row of others.rows as any[]) {
             const recipientId = Number(row.user_id);
-            // Respect mute preference — skip notification if recipient muted this conversation
+            // Respect DM mute preference — skip notification if recipient muted this DM
             const muteCheck = await db.execute(sql.raw(
               `SELECT is_muted FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${recipientId} LIMIT 1`
             ));
