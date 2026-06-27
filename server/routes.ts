@@ -33451,6 +33451,7 @@ export function registerConfluenceRoutes(app: Express) {
   // POST /api/current/channels — create a new channel (admin only)
   app.post("/api/current/channels", requireAuth, requireAdmin, async (req, res) => {
     try {
+      const userId = getSessionUserId(req);
       const name = String(req.body?.name || "").trim();
       if (!name) return res.status(400).json({ message: "Channel name is required" });
       if (name.length > 80) return res.status(400).json({ message: "Name too long (max 80 chars)" });
