@@ -394,8 +394,8 @@ async function main() {
   // ── Source-grep: frontend ──────────────────────────────────────────────────
   console.log("\n  [source-grep: frontend DM MessageRow]");
 
-  // Window must be >1343 chars (measured distance from dmMessages.map( to onToggleReaction)
-  const DM_MAP_WINDOW = 2000;
+  // Window must be >2026 chars (Phase 19A date divider code added ~680 chars before onToggleReaction)
+  const DM_MAP_WINDOW = 2300;
 
   await test("src: DM MessageRow uses onToggleReaction (not onReact)", async () => {
     const dmMsgIdx = src.indexOf("dmMessages.map(");

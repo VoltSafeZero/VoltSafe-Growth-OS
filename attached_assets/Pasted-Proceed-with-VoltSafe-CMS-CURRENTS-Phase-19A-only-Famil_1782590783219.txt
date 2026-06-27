@@ -1,0 +1,301 @@
+Proceed with VoltSafe CMS CURRENTS Phase 19A only: Familiar Slack-Like Layout Polish.
+
+Do not work on avatar upload, Guest CURRENTS, external collaborators, workflow automation, private-channel roles, backend security, Gmail/mail-permissions, Accounts/Contacts redesign, Polyweather, or unrelated modules.
+
+Goal
+
+Make CURRENTS feel more familiar to the VoltSafe team coming from Slack, with the smallest possible learning curve.
+
+This phase should focus on layout, density, visual hierarchy, and navigation familiarity only.
+
+Do not add major new backend features. Reuse existing CURRENTS functionality.
+
+Why
+
+The VoltSafe team is used to Slack. CURRENTS is now powerful, but it should feel more familiar so users naturally switch over.
+
+Use Slack-like layout patterns where helpful, while keeping VoltSafe’s own premium Growth OS identity.
+
+Scope
+
+Implement only:
+
+1. More compact/dense CURRENTS sidebar
+2. Slack-style top tab row under channel/DM header
+3. Message feed date dividers
+4. Channel/DM-specific composer placeholder
+5. Selected channel/DM polish
+6. Light/dark visual consistency
+7. CURRENTS naming remains uppercase
+
+Audit first
+
+Before writing code, inspect:
+
+1. client/src/pages/current.tsx
+2. CURRENTS sidebar/channel list
+3. CURRENTS DM list
+4. channel header
+5. DM/group DM header
+6. message feed rendering
+7. message grouping logic
+8. composer placeholder logic
+9. search/mentions/structured views
+10. existing pins/tasks/structured/participants entry points
+11. light/dark mode styling
+
+Do not start with backend changes.
+
+1. Compact CURRENTS sidebar density
+
+Make the internal CURRENTS sidebar feel closer to Slack’s density.
+
+Polish:
+
+* reduce channel row vertical padding slightly
+* reduce DM row vertical padding slightly
+* keep selected row very clear
+* keep unread state visible
+* align #, lock, unread, muted, and presence indicators cleanly
+* make section headers tighter and more scannable
+* allow more channels/DMs to fit vertically
+* keep text readable
+* avoid making the sidebar feel cramped
+
+Expected feel:
+
+* more “work cockpit”
+* less empty space
+* faster scanning
+* familiar to Slack users
+
+Do not change the main app sidebar.
+
+2. Add Slack-style top tab row
+
+Add a horizontal tab/action row below the channel/DM header.
+
+For channels, show:
+
+* Messages
+* Files
+* Pins
+* Tasks
+* Structured
+* Members
+
+For DMs/group DMs, show:
+
+* Messages
+* Files
+* Tasks
+* Search
+
+This can be mostly UI/navigation polish.
+
+Use existing functionality where available:
+
+* Messages = current feed
+* Files = can open/search/filter existing attachments if already available; if no full view exists yet, use a disabled or “Coming soon” style only if necessary
+* Pins = existing pinned messages panel/list if available
+* Tasks = existing Create Task/source task flow if available; otherwise link to existing task context only if safe
+* Structured = existing structured items view
+* Members = existing participants/member dialog
+* Search = existing CURRENTS search view
+
+Do not build a full new Files backend in this phase.
+
+The tab row should feel familiar but VoltSafe-branded:
+
+* compact
+* subtle active underline
+* icons if already available
+* works in light/dark mode
+* no crowding
+
+3. Add message feed date dividers
+
+Add Slack-like date separators in the message feed.
+
+Examples:
+
+* Today
+* Yesterday
+* Wednesday, June 24
+* Tuesday, May 19
+
+Requirements:
+
+* display-only change
+* should not alter message ordering
+* should work for channels, DMs, group DMs, and thread/reply contexts only where appropriate
+* avoid duplicate date dividers
+* keep styling subtle and premium
+* divider should not disrupt message grouping/action bar
+
+This should make history easier to scan.
+
+4. Composer placeholder polish
+
+Make composer placeholders more contextual and Slack-like.
+
+Examples:
+
+For channel:
+
+* Message #general
+* Message #sales
+
+For private channel:
+
+* Message #engineering
+
+For DM:
+
+* Message Terri Breker
+
+For group DM:
+
+* Message group
+
+For archived/read-only state:
+
+* keep existing blocked state, but make wording clear and polished
+
+Do not break:
+
+* Enter to send
+* Shift+Enter newline
+* @ mentions
+* slash commands
+* attachments
+* emoji picker
+
+5. Selected row and hover polish
+
+Refine selected and hover states to feel familiar and strong.
+
+For selected channel/DM:
+
+* clear background
+* clear text contrast
+* subtle accent edge or glow if tasteful
+* no icon overlap
+* works in light/dark mode
+
+For hover:
+
+* soft background
+* no layout shift
+* no heavy animation
+
+6. Preserve CURRENTS capitalization
+
+Ensure user-facing product name remains:
+
+CURRENTS
+
+Do not change internal routes, DB tables, API paths, or variables.
+
+Do not change unrelated terms like “current user.”
+
+7. Light and dark mode
+
+Verify both modes.
+
+Light mode should not look washed out.
+
+Dark mode should feel premium but not overly neon.
+
+Use existing design tokens where possible.
+
+Not allowed
+
+Do not add:
+
+* new backend Files system
+* new message features
+* new reactions
+* guest users
+* external collaborators
+* profile settings
+* private-channel roles
+* WebSockets
+* database migrations
+* attachment storage redesign
+* Gmail/mail fixes
+* unrelated CRM/app shell redesign
+
+Tests / verification
+
+Run targeted checks:
+
+1. /current loads
+2. channel sidebar renders
+3. DM sidebar renders
+4. selected channel row renders
+5. selected DM row renders
+6. channel tab row renders
+7. DM tab row renders
+8. date dividers render correctly
+9. composer placeholder updates by context
+10. channel send still works
+11. DM send still works
+12. group DM still works
+13. private channels still render
+14. archived channels remain read-only
+15. search/mentions/structured views still work
+16. emoji picker still opens
+17. attachment button still works
+18. slash command menu still opens
+19. TypeScript clean
+20. browser console clean
+
+Run relevant test suites:
+
+* private-channels
+* channel-management
+* channel-visibility
+* channel-readonly
+* notification-preferences
+* dm-attachments
+* dm-attachments-only
+* dm-reactions
+* group-dm
+* group-dm-members
+* slash-commands
+* permissions
+
+If the known dm-reactions.test.cjs “group test message must be in response” failure still appears, document it as the pre-existing unrelated timing/data issue unless this phase caused a new failure.
+
+Screenshots
+
+Capture screenshots for:
+
+1. CURRENTS channel view light mode
+2. CURRENTS DM view light mode
+3. CURRENTS channel view dark mode
+4. CURRENTS DM view dark mode
+5. sidebar selected channel + selected DM
+6. tab row
+7. date dividers
+8. composer placeholder
+
+Deliverable
+
+Return:
+
+1. UX issues found
+2. Layout polish changes made
+3. Sidebar density changes
+4. Tab row implementation details
+5. Date divider implementation details
+6. Composer placeholder changes
+7. Files changed
+8. Screenshots captured
+9. Tests run
+10. TypeScript/browser console results
+11. Known limitations
+12. Final status
+
+Keep scope tight: CURRENTS familiar Slack-like layout polish only.

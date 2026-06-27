@@ -41,6 +41,7 @@ import {
   UserPlus,
   LogOut,
   Lock,
+  FileText,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -351,6 +352,22 @@ function isContinuation(prev: Message | undefined, curr: Message): boolean {
     new Date(curr.createdAt).getTime() - new Date(prev.createdAt).getTime() <
     5 * 60_000
   );
+}
+
+function formatDateDivider(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const dateMid = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  if (dateMid === todayMid) return "Today";
+  if (dateMid === todayMid - 86400000) return "Yesterday";
+  return date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+}
+
+function msgIsNewDay(prevDate: string | undefined, currDate: string): boolean {
+  if (!prevDate) return true;
+  const a = new Date(prevDate); const b = new Date(currDate);
+  return a.getFullYear() !== b.getFullYear() || a.getMonth() !== b.getMonth() || a.getDate() !== b.getDate();
 }
 
 function displaySlug(slug: string): string {
@@ -3290,11 +3307,17 @@ export default function CurrentPage() {
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [threadRootId, setThreadRootId] = useState<number | null>(null);
   const [view, setView] = useState<"channel" | "mentions" | "search" | "structured" | "dm">("channel");
+  const [channelTab, setChannelTab] = useState<"messages" | "files" | "pins" | "structured">("messages");
+  const [dmTab, setDmTab] = useState<"messages" | "files">("messages");
   const [selectedDmId, setSelectedDmId] = useState<number | null>(null);
   const [newDmOpen, setNewDmOpen] = useState(false);
   const [dmDraft, setDmDraft] = useState("");
   const [editingDmMessage, setEditingDmMessage] = useState<DmMessage | null>(null);
   const [groupMemberOpen, setGroupMemberOpen] = useState(false);
+
+  // Phase 19A: reset sub-tab on context switch
+  useEffect(() => { setChannelTab("messages"); }, [selectedSlug]);
+  useEffect(() => { setDmTab("messages"); }, [selectedDmId]);
   const [dmPendingFiles, setDmPendingFiles] = useState<File[]>([]);
   const dmFileInputRef = useRef<HTMLInputElement | null>(null);
   // Phase 12A: typing ping throttle refs (per composer)
@@ -4205,7 +4228,7 @@ export default function CurrentPage() {
         </div>
 
         {/* Section label */}
-        <div className="px-4 pt-3 pb-1 shrink-0 flex items-center justify-between">
+        <div className="px-4 pt-2 pb-0.5 shrink-0 flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
             Channels
           </span>
@@ -4235,7 +4258,7 @@ export default function CurrentPage() {
                     data-testid={`channel-item-${channel.slug}`}
                     onClick={() => { setSelectedSlug(channel.slug); setView("channel"); }}
                     className={cn(
-                      "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
+                      "w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[13px]",
                       "transition-all duration-100",
                       active
                         ? "bg-primary/20 text-primary font-semibold"
@@ -4366,7 +4389,7 @@ export default function CurrentPage() {
         </div>
 
         {/* DMs section */}
-        <div className="px-4 pt-3 pb-1 shrink-0 flex items-center justify-between">
+        <div className="px-4 pt-2 pb-0.5 shrink-0 flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
             Direct Messages
           </span>
@@ -4389,7 +4412,7 @@ export default function CurrentPage() {
             <button
               data-testid="btn-new-dm-empty"
               onClick={() => setNewDmOpen(true)}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12px] text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-muted/30 transition-colors"
+              className="w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[12px] text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-muted/30 transition-colors"
             >
               <UserRound className="w-3.5 h-3.5 opacity-50 shrink-0" />
               <span>Message a teammate</span>
@@ -4404,7 +4427,7 @@ export default function CurrentPage() {
                     data-testid={`dm-item-${dm.conversationId}`}
                     onClick={() => { setSelectedDmId(dm.conversationId); setView("dm"); }}
                     className={cn(
-                      "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] pr-7",
+                      "w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[13px] pr-7",
                       "transition-all duration-100",
                       active
                         ? "bg-primary/20 text-primary font-semibold"
@@ -4533,7 +4556,7 @@ export default function CurrentPage() {
             onClick={() => setView("search")}
             data-testid="sidebar-search"
             className={cn(
-              "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
+              "w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[13px]",
               "transition-all duration-100 group",
               view === "search"
                 ? "bg-primary/15 text-primary font-medium"
@@ -4554,7 +4577,7 @@ export default function CurrentPage() {
             onClick={() => setView("mentions")}
             data-testid="sidebar-mentions"
             className={cn(
-              "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
+              "w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[13px]",
               "transition-all duration-100 group",
               view === "mentions"
                 ? "bg-primary/15 text-primary font-medium"
@@ -4575,7 +4598,7 @@ export default function CurrentPage() {
             onClick={() => setView("structured")}
             data-testid="sidebar-structured"
             className={cn(
-              "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
+              "w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-[13px]",
               "transition-all duration-100 group",
               view === "structured"
                 ? "bg-primary/15 text-primary font-medium"
@@ -4786,6 +4809,43 @@ export default function CurrentPage() {
           )}
         </div>
 
+        {/* Phase 19A: Slack-style tab row */}
+        {(view === "channel" || view === "dm") && (
+          <div className="border-b border-border/40 px-4 bg-sidebar/10 shrink-0 flex items-end gap-0 overflow-x-auto">
+            {view === "channel" ? (
+              <>
+                {(["messages", "files", "pins", "structured"] as const).map((tab) => {
+                  const labels: Record<string, string> = { messages: "Messages", files: "Files", pins: "Pins", structured: "Structured" };
+                  return (
+                    <button key={tab} data-testid={`channel-tab-${tab}`} onClick={() => setChannelTab(tab)}
+                      className={cn("px-3 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px whitespace-nowrap shrink-0",
+                        channelTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground/50 hover:text-foreground hover:bg-muted/30")}>
+                      {labels[tab]}
+                    </button>
+                  );
+                })}
+                <button data-testid="channel-tab-members" onClick={() => setChannelParticipantsOpen(true)}
+                  className="px-3 py-2 text-[12px] font-medium transition-colors border-b-2 border-transparent -mb-px whitespace-nowrap shrink-0 text-muted-foreground/50 hover:text-foreground hover:bg-muted/30">
+                  Members
+                </button>
+              </>
+            ) : (
+              <>
+                {(["messages", "files"] as const).map((tab) => (
+                  <button key={tab} data-testid={`dm-tab-${tab}`} onClick={() => setDmTab(tab)}
+                    className={cn("px-3 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px whitespace-nowrap shrink-0",
+                      dmTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground/50 hover:text-foreground hover:bg-muted/30")}>
+                    {tab === "messages" ? "Messages" : "Files"}
+                  </button>
+                ))}
+                <button data-testid="dm-tab-search" onClick={() => setView("search")}
+                  className="px-3 py-2 text-[12px] font-medium transition-colors border-b-2 border-transparent -mb-px whitespace-nowrap shrink-0 text-muted-foreground/50 hover:text-foreground hover:bg-muted/30">
+                  Search
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {view === "mentions" ? (
           /* ── Mentions view ──────────────────────────────────────────── */
           <MentionsPanel
@@ -4882,6 +4942,7 @@ export default function CurrentPage() {
                     new Date(msg.createdAt).getTime() -
                       new Date(prev.createdAt).getTime() <
                       5 * 60 * 1000;
+                  const showDmDateDivider = !msg.deletedAt && msgIsNewDay(prev?.createdAt, msg.createdAt);
                   if (editingDmMessage?.id === msg.id) {
                     return (
                       <InlineEditRow
@@ -4894,6 +4955,16 @@ export default function CurrentPage() {
                     );
                   }
                   return (
+                    <>
+                      {showDmDateDivider && (
+                        <div className="flex items-center gap-3 py-3 select-none" aria-hidden>
+                          <div className="flex-1 h-px bg-border/30" />
+                          <span className="text-[11px] font-medium text-muted-foreground/40 px-2 whitespace-nowrap">
+                            {formatDateDivider(msg.createdAt)}
+                          </span>
+                          <div className="flex-1 h-px bg-border/30" />
+                        </div>
+                      )}
                     <MessageRow
                       key={msg.id}
                       message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: [] }}
@@ -4910,10 +4981,33 @@ export default function CurrentPage() {
                       onMarkStructured={() => {}}
                       onUnmarkStructured={() => {}}
                     />
+                    </>
                   );
                 })
               )}
             </div>
+
+            {/* Phase 19A: DM Files tab */}
+            {dmTab === "files" && (
+              <div className="flex-1 overflow-y-auto px-4 py-6">
+                {dmMessages.filter(m => m.attachments && m.attachments.length > 0).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-4 select-none">
+                    <FileText className="w-12 h-12 text-muted-foreground/15" />
+                    <p className="text-[13px] font-medium text-muted-foreground/50">No files shared yet</p>
+                    <p className="text-[12px] text-muted-foreground/35">Files shared here will appear here.</p>
+                  </div>
+                ) : dmMessages.filter(m => m.attachments && m.attachments.length > 0).map(msg => (
+                  <MessageRow key={msg.id}
+                    message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: [] }}
+                    currentUserId={currentUserId} grouped={false} isAdmin={false} isArchived={false}
+                    pinnedMessageIds={new Set()}
+                    onToggleReaction={(mid, emoji) => dmReactMutation.mutate({ messageId: mid, emoji })}
+                    onEdit={() => setEditingDmMessage(msg)} onDelete={() => dmDeleteMutation.mutate(msg.id)}
+                    onPin={() => {}} onOpenThread={() => {}} onMarkStructured={() => {}} onUnmarkStructured={() => {}}
+                  />
+                ))}
+              </div>
+            )}
 
             {/* DM Composer */}
             <div className="px-4 pb-5 shrink-0 border-t border-border/50 bg-sidebar/10 pt-3">
@@ -4964,7 +5058,7 @@ export default function CurrentPage() {
                   value={dmDraft}
                   onChange={handleDmDraftChange}
                   onKeyDown={handleDmKeyDown}
-                  placeholder="Write a message or attach files…"
+                  placeholder={selectedDm?.type === "group_dm" ? "Message the group…" : `Message ${selectedDm?.otherUser?.name ?? selectedDm?.displayName ?? "your teammate"}…`}
                   rows={1}
                   className={cn(
                     "flex-1 border-0 bg-transparent shadow-none resize-none p-0 outline-none",
@@ -5048,8 +5142,71 @@ export default function CurrentPage() {
             )}
 
             {/* Pinned bar */}
-            <PinnedBar pins={pins} onUnpin={(mid) => unpinMutation.mutate(mid)} />
+            {channelTab === "messages" && <PinnedBar pins={pins} onUnpin={(mid) => unpinMutation.mutate(mid)} />}
 
+            {/* Phase 19A: tab panels */}
+            {channelTab === "files" && (
+              <div className="flex-1 overflow-y-auto px-5 py-6 space-y-1">
+                {messages.filter(m => m.attachments && m.attachments.length > 0).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-4 select-none">
+                    <FileText className="w-12 h-12 text-muted-foreground/15" />
+                    <p className="text-[13px] font-medium text-muted-foreground/50">No files shared yet</p>
+                    <p className="text-[12px] text-muted-foreground/35 mt-1">Files shared in this channel will appear here.</p>
+                  </div>
+                ) : messages.filter(m => m.attachments && m.attachments.length > 0).map(msg => (
+                  <MessageRow key={msg.id} message={msg} isArchived={isArchivedChannel} grouped={false}
+                    currentUserId={currentUserId} isAdmin={isAdmin} pinnedMessageIds={pinnedMessageIds}
+                    onToggleReaction={(mid, emoji) => reactMutation.mutate({ messageId: mid, emoji })}
+                    onEdit={(m) => setEditingMessage(m)} onDelete={(id) => deleteMutation.mutate(id)}
+                    onPin={(id, isPinned) => isPinned ? unpinMutation.mutate(id) : pinMutation.mutate(id)}
+                    onOpenThread={() => setThreadRootId(msg.id)} onCreateTask={(m) => handleCreateTaskFromMsg(m)}
+                    onMarkStructured={(mid, itemType) => markStructuredMutation.mutate({ messageId: mid, itemType })}
+                    onUnmarkStructured={(mid, itemType) => unmarkStructuredMutation.mutate({ messageId: mid, itemType })}
+                    onMarkWithNote={(mid, itemType, notes) => handleConfirmMark(mid, itemType, notes)}
+                  />
+                ))}
+              </div>
+            )}
+            {channelTab === "pins" && (
+              <div className="flex-1 overflow-y-auto px-5 py-6 space-y-3">
+                {pins.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-4 select-none">
+                    <Pin className="w-12 h-12 text-muted-foreground/15" />
+                    <p className="text-[13px] font-medium text-muted-foreground/50">No pinned messages</p>
+                    <p className="text-[12px] text-muted-foreground/35 mt-1">Pin important messages so they're easy to find.</p>
+                  </div>
+                ) : pins.map(pin => (
+                  <div key={pin.id} className="group flex items-start gap-3 px-3 py-2.5 rounded-xl bg-muted/20 border border-border/30 hover:bg-muted/30 transition-colors">
+                    <Pin className="w-3.5 h-3.5 text-primary/50 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2 mb-0.5">
+                        <span className="text-[12.5px] font-semibold text-foreground/80">{pin.messageUserName}</span>
+                        <span className="text-[10.5px] text-muted-foreground/40">{formatTs(pin.messageCreatedAt)}</span>
+                      </div>
+                      <p className="text-[13px] text-foreground/70 leading-snug break-words">
+                        {pin.messageBody || <em className="text-muted-foreground/40">Attachment</em>}
+                      </p>
+                      {pin.pinnedByName && <p className="text-[10.5px] text-muted-foreground/35 mt-1">Pinned by {pin.pinnedByName}</p>}
+                    </div>
+                    <button onClick={() => unpinMutation.mutate(pin.messageId)}
+                      className="opacity-0 group-hover:opacity-100 shrink-0 w-6 h-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted/60 transition-all" title="Unpin">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {channelTab === "structured" && (
+              <StructuredItemsPanel selectedSlug={selectedSlug}
+                onChannelNavigate={(slug, messageId, threadId) => {
+                  setSelectedSlug(slug); setView("channel"); setChannelTab("messages");
+                  setThreadRootId(threadId ?? null); setHighlight(threadId ?? messageId);
+                }}
+              />
+            )}
+
+            {/* Message feed (Messages tab only) */}
+            {channelTab === "messages" && (<>
             {/* Message feed */}
             <div
               ref={feedRef}
@@ -5067,6 +5224,7 @@ export default function CurrentPage() {
                 <>
                   {messages.map((msg, i) => {
                     const isHighlighted = msg.id === highlightedMsgId;
+                    const showDateDivider = !msg.deletedAt && msgIsNewDay(messages[i - 1]?.createdAt, msg.createdAt);
                     if (editingMessage?.id === msg.id) {
                       return (
                         <InlineEditRow
@@ -5080,6 +5238,16 @@ export default function CurrentPage() {
                       );
                     }
                     return (
+                      <>
+                        {showDateDivider && (
+                          <div className="flex items-center gap-3 py-3 select-none" aria-hidden>
+                            <div className="flex-1 h-px bg-border/30" />
+                            <span className="text-[11px] font-medium text-muted-foreground/40 px-2 whitespace-nowrap">
+                              {formatDateDivider(msg.createdAt)}
+                            </span>
+                            <div className="flex-1 h-px bg-border/30" />
+                          </div>
+                        )}
                       <div
                         key={msg.id}
                         className={cn(
@@ -5120,6 +5288,7 @@ export default function CurrentPage() {
                           }
                         />
                       </div>
+                      </>
                     );
                   })}
                   <div className="h-2" />
@@ -5194,7 +5363,7 @@ export default function CurrentPage() {
                   value={draft}
                   onChange={handleDraftChange}
                   onKeyDown={handleKeyDown}
-                  placeholder={`Message #${displaySlug(selectedSlug)} (@ to mention)`}
+                  placeholder={`Message #${displaySlug(selectedSlug)}…`}
                   className={cn(
                     "flex-1 border-0 bg-transparent shadow-none resize-none p-0",
                     "text-[13.5px] placeholder:text-muted-foreground/40 leading-relaxed",
@@ -5251,6 +5420,7 @@ export default function CurrentPage() {
               </p>
             </div>
             )}
+            </>)}
           </>
         )}
       </div>

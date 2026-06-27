@@ -1,0 +1,197 @@
+Biggest gaps in VoltSafe CURRENTS today
+
+From your CURRENTS screenshot, the main differences are:
+
+1. CURRENTS uses too much empty space, especially in DMs.
+2. The message area feels sparse, while Slack feels content-rich and history-based.
+3. Composer is simpler, while Slack’s composer feels like a full work tool.
+4. There are no channel tabs across the top, so files, pins, members, and structured items feel hidden.
+5. DM/channel lists are cleaner but less dense, so users see fewer destinations at once.
+6. File/image previews could feel more like first-class message content.
+7. Channel details/member modal could feel more Slack-like, especially since your team already knows that pattern.
+
+Low-lift upgrade plan
+
+1. Add Slack-style channel tabs under the header
+
+This is the highest-impact familiar pattern.
+
+Add a row under the channel/DM header:
+
+Messages | Files | Pins | Tasks | Structured | Members
+
+For DMs:
+
+Messages | Files | Tasks | Search
+
+This does not require new backend features. It can mostly route to existing panels/views.
+
+Why this matters: users instantly understand where things live.
+
+⸻
+
+2. Make the CURRENTS sidebar denser
+
+Slack shows many channels because row height is compact.
+
+Low-lift changes:
+
+* reduce channel/DM row vertical padding
+* slightly smaller secondary preview text
+* keep selected state strong
+* use # and lock icons exactly aligned
+* make Channels and Direct Messages sections more compact
+* allow more visible rows before scrolling
+
+This will make CURRENTS feel more like a work cockpit and less like a sparse dashboard panel.
+
+⸻
+
+3. Add date dividers in the message feed
+
+Slack’s “Tuesday, May 19th” / “Wednesday, June 24th” dividers help users scan history.
+
+CURRENTS should show:
+
+Today
+Yesterday
+Wednesday, June 24
+
+This is visually familiar and low-risk because it is display-only.
+
+⸻
+
+4. Upgrade file/image message previews
+
+Slack makes images and PDFs feel native in the feed.
+
+For CURRENTS:
+
+* show uploaded image previews larger inline
+* show filename above or below preview
+* show compact file card for PDFs/docs
+* add small file size/type line
+* add hover actions: download / open
+* keep reactions underneath attachments
+
+This will make CURRENTS feel much closer to the Slack experience the team already uses.
+
+⸻
+
+5. Upgrade composer to feel more like a work composer
+
+Current composer is clean, but Slack’s feels more capable.
+
+Low-lift version:
+
+* add a compact formatting bar above/inside composer:
+    * B
+    * italic
+    * link
+    * bullet/list
+    * code
+* keep existing emoji, attach, slash command, send
+* make placeholder channel-specific:
+    * Message #general
+    * Message Terri Breker
+
+Even if formatting is basic at first, the toolbar makes it feel familiar and work-grade.
+
+⸻
+
+6. Improve empty DM state
+
+The empty DM screen is currently too plain.
+
+Make it more Slack-like but VoltSafe-branded:
+
+* larger avatar
+* name
+* role/email if available
+* “This is the beginning of your conversation with Scott.”
+* primary focus on composer
+* maybe a subtle “Send a quick note” prompt
+
+This reduces the “blank screen” feeling.
+
+⸻
+
+7. Add a Slack-style channel/member details modal
+
+Your Slack screenshot 3 shows the channel detail modal with:
+
+* About
+* Members
+* Tabs
+* Integrations
+* Settings
+* search members
+* add people
+
+CURRENTS already has participants/member management. Reframing it into a modal with tabs would be a big familiarity boost.
+
+Low-lift version:
+
+Channel Details modal
+
+* About
+* Members
+* Files
+* Pins
+* Settings
+
+Start with Members and Settings wired to existing functionality.
+
+⸻
+
+8. Preserve VoltSafe identity, don’t copy Slack exactly
+
+Use Slack’s layout muscle memory, but keep VoltSafe’s brand:
+
+* teal accent
+* CURRENTS uppercase
+* darker/premium glass in dark mode
+* cleaner light mode than Slack
+* more “Growth OS” feel
+
+The goal is: familiar enough that no one needs training, branded enough that it feels like VoltSafe’s own operating ecosystem.
+
+Recommended order
+
+I’d do this in three small phases:
+
+Phase 19A — Familiar Layout Polish
+
+* compact sidebar density
+* Slack-style top tabs
+* date dividers
+* channel-specific composer placeholder
+* selected row polish
+
+Phase 19B — Rich Message/File Feed
+
+* larger image previews
+* file cards
+* attachment hover actions
+* reaction placement polish
+* feed spacing closer to Slack
+
+Phase 19C — Channel Details Modal
+
+* About / Members / Files / Pins / Settings tabs
+* member search
+* add people
+* private/archived state display
+* reuse existing member-management logic
+
+Biggest low-lift/high-impact win
+
+Do these first:
+
+1. Top tabs: Messages / Files / Pins / Tasks / Structured / Members
+2. Date dividers
+3. Denser sidebar
+4. Better attachment/image previews
+5. Slack-like composer placeholder and formatting bar
+
+That combination will immediately make CURRENTS feel much closer to what your team already knows, without risking the backend/security work you just finished.
