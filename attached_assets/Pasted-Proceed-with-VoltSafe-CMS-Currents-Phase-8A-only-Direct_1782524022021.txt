@@ -1,0 +1,393 @@
+Proceed with VoltSafe CMS Currents Phase 8A only: Direct Messages.
+
+Do not add Guest Currents, external collaborators, slash commands, workflow automation, channel management, notification preferences, or unrelated CRM/task features yet.
+
+Goal
+
+Add internal Direct Messages to Currents so VoltSafe team members can have private one-to-one conversations inside the CMS.
+
+This should extend Currents as the Slack-lite internal communication layer.
+
+Phase 8A scope
+
+Add only:
+
+1. One-to-one direct message conversations between internal users
+2. DM conversation list
+3. DM message feed
+4. DM composer
+5. DM unread counts
+6. DM @mention support if clean, but not required for 8A
+7. Attachments/reactions/edit/delete if low-risk to reuse existing Currents message components
+8. No group DMs yet unless the schema makes it trivial
+
+Keep Phase 8A focused on 1:1 internal DMs.
+
+Existing Currents systems to audit first
+
+Before writing code, inspect:
+
+* current_channels
+* current_messages
+* current_read_receipts
+* current_reactions
+* current_pins
+* current_mentions
+* current_structured_items
+* attachment handling for current_message
+* existing Currents search
+* existing thread handling
+* existing unread-count logic
+* existing user search endpoint
+* existing notification system
+* existing permissions/auth model
+
+Reuse as much as possible.
+
+Do not create an entirely separate chat stack if existing current_messages can safely support DMs.
+
+Suggested data model
+
+Preferred if clean:
+
+New table: current_conversations
+
+Fields:
+
+* id
+* type
+    * dm
+    * future: group_dm
+* created_by
+* created_at
+* updated_at
+* last_message_at
+
+New table: current_conversation_members
+
+Fields:
+
+* conversation_id
+* user_id
+* created_at
+* last_read_at
+* is_archived
+* is_muted
+
+Unique:
+
+* (conversation_id, user_id)
+
+For one-to-one DMs, ensure the same two users do not create duplicate conversations.
+
+If easier and safer, use a deterministic participant key, such as sorted user IDs.
+
+Extend current_messages
+
+Add nullable:
+
+* conversation_id
+
+Rules:
+
+* channel message: channel_id set, conversation_id null
+* record message: object_type/object_id set, channel_id null, conversation_id null
+* DM message: conversation_id set, channel_id null, object_type/object_id null
+
+Do not break existing channel/record messages.
+
+Backend routes
+
+Add authenticated routes under existing Currents API namespace.
+
+List DM conversations
+
+GET /api/current/dms
+
+Return conversations for current user only.
+
+Each item should include:
+
+* conversation id
+* other user id
+* other user name
+* other user email
+* other user avatar if available
+* last message preview
+* last message author
+* last message timestamp
+* unread count
+* archived/muted flags if implemented
+
+Start or get DM
+
+POST /api/current/dms
+
+Body:
+
+{
+  "userId": 123
+}
+
+Behavior:
+
+* Validate user exists.
+* Reject self-DM unless intentionally allowed. Prefer reject self-DM.
+* Return existing DM if already exists.
+* Otherwise create conversation and two members.
+* Only internal active users should be selectable.
+
+Get DM messages
+
+GET /api/current/dms/:conversationId/messages
+
+Rules:
+
+* Current user must be a member.
+* Return messages ordered oldest → newest or match existing Currents feed convention.
+* Include:
+    * author
+    * attachments if reused
+    * reactions if reused
+    * edit/delete metadata if reused
+    * reply count if threads are supported
+
+Send DM message
+
+POST /api/current/dms/:conversationId/messages
+
+Body:
+
+{
+  "body": "Message text"
+}
+
+Rules:
+
+* Current user must be a member.
+* Message body required unless attachments are supported.
+* Insert into current_messages with conversation_id.
+* Update conversation last_message_at.
+* Notify the other member.
+* Reuse existing mention parsing if clean.
+
+Mark DM read
+
+POST /api/current/dms/:conversationId/read
+
+Rules:
+
+* Current user must be a member.
+* Update current_conversation_members.last_read_at.
+
+Optional
+
+Reuse existing message endpoints if compatible:
+
+* reactions
+* edit/delete
+* attachments
+* threads
+
+But only if they work cleanly with conversation_id.
+
+Frontend requirements
+
+1. Currents navigation
+
+In /current, add a clear section for:
+
+* Channels
+* Direct Messages
+* Mentions
+* Search
+* Structured
+
+Recommended sidebar:
+
+* Search
+* Mentions
+* Structured
+* Channels
+* Direct Messages
+
+Or keep current layout and add Direct Messages beneath channels if that is less disruptive.
+
+2. DM list
+
+Show one row per DM conversation:
+
+* other user avatar/initials
+* name
+* last message preview
+* unread badge
+* timestamp
+* muted/archive state if implemented
+
+Empty state:
+
+No direct messages yet. Start a conversation with a teammate.
+
+3. Start DM
+
+Add a button:
+
+* New DM
+* or plus icon near Direct Messages
+
+Behavior:
+
+* Opens user picker
+* Search internal users
+* Select user
+* Starts or opens existing DM
+
+Reuse existing /api/current/users?q= if possible.
+
+4. DM message view
+
+When a DM is selected:
+
+* Header shows other user name/avatar/email
+* Message feed looks consistent with channel Currents
+* Composer at bottom
+* Send button works
+* Auto-scroll to latest
+* Empty state:
+    * No messages yet. Say hello to [Name].
+
+5. DM unread behavior
+
+* DM unread count appears beside each DM row.
+* Overall Currents unread count should include DM unread if feasible.
+* Opening a DM marks it read.
+* Sending a message updates DM list preview.
+
+6. Reuse existing UI
+
+Reuse existing message components where practical:
+
+* body rendering
+* avatars
+* timestamps
+* attachments
+* reactions
+* edit/delete
+* thread panel if supported
+
+But do not overcomplicate Phase 8A if reuse requires major refactor.
+
+7. Notifications
+
+When user A sends a DM to user B:
+
+* Create a notification for user B.
+* Notification title/body should be clear:
+    * New direct message from Trevor
+* Action URL should open the DM:
+    * /current?dm=CONVERSATION_ID
+
+Do not notify sender.
+
+Security / permissions
+
+Verify:
+
+1. Only authenticated users can access DM routes.
+2. User can only list their own DMs.
+3. User can only read messages for conversations they belong to.
+4. User can only send messages to conversations they belong to.
+5. User cannot mark another user’s DM read.
+6. User cannot infer private conversations they are not part of.
+7. User cannot start DM with inactive/deleted users.
+8. User cannot self-DM unless explicitly supported.
+9. Message edit/delete permissions match existing Currents rules.
+
+URL/deep-link behavior
+
+Support:
+
+/current?dm=CONVERSATION_ID
+
+Expected behavior:
+
+* Opens Currents
+* Selects Direct Messages view
+* Selects that DM conversation
+* Loads messages
+* Marks read
+
+If invalid/no access:
+
+* Show safe error or fallback to DM list
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Direct Messages section appears.
+4. New DM button appears.
+5. User picker opens.
+6. User search works.
+7. Starting DM with another active user creates conversation.
+8. Starting DM with same user again opens existing conversation, no duplicate.
+9. Self-DM is rejected or safely blocked.
+10. DM list shows conversation.
+11. Sending DM works.
+12. Recipient receives unread count.
+13. Opening DM marks read.
+14. Last message preview updates.
+15. DM deep-link /current?dm=ID opens the correct conversation.
+16. Unauthorized user cannot open DM.
+17. DM message edit/delete works if implemented.
+18. DM reactions work if implemented.
+19. DM attachments work if implemented.
+20. DM threads work if implemented.
+21. Existing channel Currents still work.
+22. Existing record Currents still work.
+23. Mentions panel still works.
+24. Search still works.
+25. Structured panel still works.
+26. AI summaries still work.
+27. Create Task still works.
+28. View in Currents from Tasks still works.
+29. No browser console errors.
+30. No server errors.
+31. No SQL errors.
+32. No unrelated files changed unnecessarily.
+
+Implementation guidance
+
+Keep this incremental.
+
+If full reuse of reactions/attachments/threads is too risky, implement core DM messaging first and clearly document which channel features are deferred.
+
+Priority order:
+
+1. secure DM schema + routes
+2. DM list
+3. start/open DM
+4. send/read messages
+5. unread counts
+6. notification
+7. reuse attachments/reactions/edit/delete only if clean
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing Currents system audit summary
+2. Migration/table changes
+3. Routes added/changed
+4. Frontend components added/changed
+5. DM features implemented
+6. Features intentionally deferred
+7. Security checks
+8. Deep-link behavior
+9. Verification results
+10. Known issues
+11. Recommended next step
+
+Keep scope tight: internal one-to-one Direct Messages only.
