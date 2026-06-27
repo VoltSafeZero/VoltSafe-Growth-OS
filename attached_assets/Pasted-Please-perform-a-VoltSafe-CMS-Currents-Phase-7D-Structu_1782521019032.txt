@@ -1,0 +1,241 @@
+Please perform a VoltSafe CMS Currents Phase 7D Structured Filter Count Badges audit and polish pass only.
+
+Do not add Guest Currents, direct messages, slash commands, external collaborators, workflow automation, AI classification, exports, new task features, or unrelated CRM features.
+
+Goal
+
+Verify that Structured filter count badges work correctly and remain accurate across:
+
+1. /current Structured Panel
+2. Record Currents Structured Panel
+3. Current channel scope
+4. All Currents scope
+5. Record scope
+6. Mark / unmark / note update behavior
+7. Existing Currents regressions caused by Phase 7D
+
+Audit scope
+
+Audit only:
+
+* Count badges beside:
+    * All
+    * Decisions
+    * Risks
+    * Requirements
+* Client-side filtering behavior
+* Structured query behavior
+* Query invalidation after mark/unmark/note update
+* Record Structured Panel count behavior
+* Existing Phase 7A/7B/7C behavior affected by Phase 7D
+
+Backend/API usage checks
+
+Phase 7D should have made zero backend changes.
+
+Verify:
+
+1. GET /api/current/structured still works.
+2. /current Structured Panel fetches all types for the selected scope.
+3. Record Structured Panel fetches all types for that record.
+4. itemType is no longer sent when the frontend needs counts from the full dataset.
+5. scope=channel is sent explicitly for channel scope.
+6. scope=all is sent explicitly for all-Currents scope.
+7. scope=record is sent for record panels.
+8. limit=200 is safe and sufficient for now.
+9. API errors are handled.
+10. No excessive duplicate requests happen on every render.
+
+Count correctness checks
+
+For /current Structured Panel, verify:
+
+1. All count equals total returned items.
+2. Decisions count equals only itemType === "decision".
+3. Risks count equals only itemType === "risk".
+4. Requirements count equals only itemType === "requirement".
+5. Counts are computed before applying the selected filter.
+6. Switching filters does not change the counts incorrectly.
+7. Empty result count is displayed cleanly.
+8. Counts handle zero values cleanly.
+9. Counts do not show stale values after switching channel.
+10. Counts do not show stale values after switching current-channel/all scope.
+
+For Record Structured Panel, verify:
+
+1. Counts are scoped only to that record.
+2. Counts do not include channel/global structured items.
+3. Counts do not include other records.
+4. Counts update after marking/unmarking a record message.
+5. Counts remain correct after switching between Search / Summary / Structured.
+
+Client-side filtering checks
+
+Verify:
+
+1. All filter displays all loaded items.
+2. Decisions displays only decisions.
+3. Risks displays only risks.
+4. Requirements displays only requirements.
+5. Empty states use the filtered list, not raw data list.
+6. The item cards rendered match the selected filter.
+7. No hidden items are still counted incorrectly.
+8. No double filtering happens.
+
+Query invalidation checks
+
+Verify after these actions:
+
+1. Mark channel message as Decision.
+2. Mark channel message as Risk.
+3. Mark channel message as Requirement.
+4. Unmark channel message.
+5. Update note only.
+6. Mark channel thread reply.
+7. Unmark channel thread reply.
+8. Mark record message.
+9. Unmark record message.
+10. Update record note only.
+
+For each, verify:
+
+* Inline badge updates.
+* Structured Panel count updates.
+* Record Structured Panel count updates where relevant.
+* Filtered list updates.
+* No full page refresh required.
+* No stale results after switching views.
+
+Limit / pagination safety check
+
+Because Phase 7D raised limit to 200 and computes counts client-side, audit this carefully.
+
+Verify:
+
+1. If total structured items are fewer than 200, counts are exact.
+2. If total structured items could exceed 200 later, document that counts are “loaded count” rather than true total.
+3. If the backend supports total counts, do not implement unless trivial.
+4. If true counts need backend support, recommend it as a future scale improvement, not Phase 7D.
+
+Do not add pagination or backend totals in this audit unless there is a serious bug.
+
+UI/UX checks
+
+Verify:
+
+1. Count badges look subtle.
+2. Count badges are readable in dark mode.
+3. Active chip count styling is clear.
+4. Inactive chip count styling is clear.
+5. Counts do not crowd the filter row.
+6. Counts do not wrap awkwardly on narrow screens.
+7. Count labels are not too noisy.
+8. All naming remains consistent:
+    * All
+    * Decisions
+    * Risks
+    * Requirements
+9. No “Current” vs “Currents” regression.
+10. Record panel count badges match /current count badge styling.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Channel search
+* Channel AI summaries
+* Channel Create Task
+* Channel View in Currents from Tasks
+* Mentions panel
+* Structured Panel
+* Notes on structured items
+* Account Currents
+* Contact Currents
+* Opportunity Currents
+* Lead Currents
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record search
+* Record summaries
+* Record Create Task
+* Record View in Currents from Tasks
+* Record Structured Panel
+* /execution/communications
+
+Verify task system still works:
+
+* Tasks Hub loads
+* Task drawer opens
+* Currents source block still renders
+* View in Currents still works
+* Non-Currents tasks still render normally
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React warnings
+* Failed fetch handling
+* Vite/build errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 7D.
+
+Allowed:
+
+* Wrong count calculation
+* Wrong client-side filtering
+* Wrong empty state after filtering
+* Query key bugs
+* Query invalidation bugs
+* Scope toggle stale count bugs
+* Record panel count bugs
+* UI polish for count badges
+* Excessive duplicate requests caused by Phase 7D
+* Console/server errors caused by Phase 7D
+
+Not allowed:
+
+* Guest Currents
+* Direct messages
+* Slash commands
+* External collaborators
+* Workflow automation
+* AI classification
+* Exports
+* New task features
+* New unrelated CRM features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend/API usage checks
+5. Count correctness checks
+6. Client-side filtering checks
+7. Query invalidation checks
+8. Limit/pagination safety notes
+9. UI/UX polish checks
+10. Existing Currents regression results
+11. Existing task regression results
+12. Final pass/fail status
+13. Recommended next feature order
+
+Keep scope tight: Phase 7D Structured Filter Count Badges audit only.

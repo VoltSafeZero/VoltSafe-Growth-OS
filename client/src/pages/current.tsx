@@ -1511,13 +1511,13 @@ function ThreadPanel({
               onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
               onCreateTask={onCreateTaskMsg ? () => onCreateTaskMsg(root, undefined) : undefined}
               onMarkStructured={(mid, itemType) =>
-                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => { invalidateThread(); invalidateFeed(); })
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => { invalidateThread(); invalidateFeed(); queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] }); })
               }
               onUnmarkStructured={(mid, itemType) =>
-                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => { invalidateThread(); invalidateFeed(); })
+                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => { invalidateThread(); invalidateFeed(); queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] }); })
               }
               onMarkWithNote={(mid, itemType, notes) =>
-                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType, notes }).then(() => { invalidateThread(); invalidateFeed(); })
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType, notes }).then(() => { invalidateThread(); invalidateFeed(); queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] }); })
               }
             />
           )}
@@ -1572,13 +1572,13 @@ function ThreadPanel({
               onPin={(id, isPinned) => pinReplyMutation.mutate({ id, isPinned })}
               onCreateTask={onCreateTaskMsg ? () => onCreateTaskMsg(reply, rootMessageId) : undefined}
               onMarkStructured={(mid, itemType) =>
-                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => { invalidateThread(); invalidateFeed(); })
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType }).then(() => { invalidateThread(); invalidateFeed(); queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] }); })
               }
               onUnmarkStructured={(mid, itemType) =>
-                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => { invalidateThread(); invalidateFeed(); })
+                apiRequest("DELETE", `/api/current/messages/${mid}/structured/${itemType}`).then(() => { invalidateThread(); invalidateFeed(); queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] }); })
               }
               onMarkWithNote={(mid, itemType, notes) =>
-                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType, notes }).then(() => { invalidateThread(); invalidateFeed(); })
+                apiRequest("POST", `/api/current/messages/${mid}/structured`, { itemType, notes }).then(() => { invalidateThread(); invalidateFeed(); queryClient.invalidateQueries({ queryKey: ["/api/current/structured"] }); })
               }
             />
           );

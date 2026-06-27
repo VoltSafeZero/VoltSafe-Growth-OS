@@ -34110,7 +34110,7 @@ export function registerConfluenceRoutes(app: Express) {
   app.get("/api/current/structured", requireAuth, async (req, res) => {
     try {
       const { scope, channel, objectType, objectId, itemType, limit } = req.query as Record<string, string | undefined>;
-      const maxLimit = Math.min(Number(limit) || 50, 100);
+      const maxLimit = Math.min(Number(limit) || 50, 500);
       const whereParts: string[] = ["m.deleted_at IS NULL"];
 
       if (scope === "channel" && channel) {

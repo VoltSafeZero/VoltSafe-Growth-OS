@@ -245,6 +245,46 @@ check(
   rec.includes("item.notes &&") || rec.includes("{item.notes")
 );
 
+// ── 12. Audit-found fixes ─────────────────────────────────────────────────
+console.log("\n── 12. Audit-found fixes ──");
+
+// Backend limit cap fix: must allow up to 500 so limit=200 from frontend works
+const rts = fs.readFileSync(
+  require("path").join(__dirname, "../server/routes.ts"),
+  "utf8"
+);
+check(
+  "backend maxLimit allows up to 500 (not capped at 100)",
+  rts.includes("Math.min(Number(limit) || 50, 500)") ||
+  rts.includes("Math.min(Number(limit)||50,500)")
+);
+
+// Channel ThreadPanel root message invalidates /api/current/structured
+// The pattern: apiRequest(...structured...).then(() => { invalidateThread(); invalidateFeed(); queryClient.invalidateQueries...structured... })
+check(
+  "channel ThreadPanel root mark invalidates /api/current/structured",
+  (() => {
+    const pattern = /apiRequest\("POST".*?\/structured.*?\.then\(\(\) => \{.*?invalidateThread\(\).*?invalidateFeed\(\).*?\/api\/current\/structured/s;
+    return pattern.test(src);
+  })()
+);
+
+// Channel ThreadPanel reply invalidates /api/current/structured (multiple occurrences)
+check(
+  "channel ThreadPanel reply mark invalidates /api/current/structured",
+  (() => {
+    // Count all lines that have both the structured mark pattern and invalidateQueries structured
+    const lines = src.split("\n");
+    const matchLines = lines.filter(l =>
+      l.includes("apiRequest") &&
+      l.includes("/structured") &&
+      l.includes("invalidateThread()") &&
+      l.includes('"/api/current/structured"')
+    );
+    return matchLines.length >= 2;
+  })()
+);
+
 console.log(
   `\n${"─".repeat(60)}\nPhase 7D Filter Count Badges: ${passed} passed, ${failed} failed\n${"─".repeat(60)}`
 );
