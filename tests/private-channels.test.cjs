@@ -516,6 +516,69 @@ assert(
   "Edit open handler pre-populates editIsPrivate from channel"
 );
 
+console.log("\n=== T002: Edit message — private channel guard ===");
+
+const editMsgIdx = routes.indexOf("PATCH /api/current/messages/:id");
+const editMsgSection = routes.slice(editMsgIdx, editMsgIdx + 2000);
+assert(
+  editMsgSection.includes("archived or private channels (non-members)") ||
+    editMsgSection.includes("is_private") && editMsgSection.includes("Cannot edit"),
+  "PATCH message: checks is_private for private channel guard"
+);
+assert(
+  editMsgSection.includes("Not a member of this private channel"),
+  "PATCH message: returns 403 for non-members of private channel"
+);
+
+console.log("\n=== T002: Delete message — private channel guard ===");
+
+const delMsgIdx = routes.indexOf("DELETE /api/current/messages/:id");
+const delMsgSection = routes.slice(delMsgIdx, delMsgIdx + 2000);
+assert(
+  delMsgSection.includes("archived or private channels (non-members") ||
+    delMsgSection.includes("is_private") && delMsgSection.includes("Cannot delete"),
+  "DELETE message: checks is_private for private channel guard"
+);
+assert(
+  delMsgSection.includes("Not a member of this private channel"),
+  "DELETE message: returns 403 for non-members of private channel"
+);
+assert(
+  delMsgSection.includes("isAdminUser") && delMsgSection.includes("!isAdminUser"),
+  "DELETE message: admins bypass the private channel guard"
+);
+
+console.log("\n=== T002: File download — private channel guard ===");
+
+const fileDownloadIdx = routes.indexOf("DM and private-channel guard for current_message attachments");
+assert(fileDownloadIdx > 0, "File download has DM and private-channel guard comment");
+const fileDownloadSection = routes.slice(fileDownloadIdx, fileDownloadIdx + 1200);
+assert(
+  fileDownloadSection.includes("channel_id") && fileDownloadSection.includes("is_private"),
+  "File download: checks is_private for private channel guard"
+);
+assert(
+  fileDownloadSection.includes("current_channel_members") && fileDownloadSection.includes("opaque404"),
+  "File download: returns opaque 404 for non-members of private channel"
+);
+
+console.log("\n=== T002: Channel preference — private channel guard ===");
+
+const chanPrefIdx = routes.indexOf("PUT /api/current/channels/:id/preference");
+const chanPrefSection = routes.slice(chanPrefIdx, chanPrefIdx + 1500);
+assert(
+  chanPrefSection.includes("is_private"),
+  "PUT channel preference: checks is_private before upsert"
+);
+assert(
+  chanPrefSection.includes("current_channel_members"),
+  "PUT channel preference: checks membership for private channels"
+);
+assert(
+  chanPrefSection.includes("Not a member of this private channel"),
+  "PUT channel preference: returns 403 for non-members"
+);
+
 console.log("\n=== T003: Frontend — Channel type definitions ===");
 
 assert(

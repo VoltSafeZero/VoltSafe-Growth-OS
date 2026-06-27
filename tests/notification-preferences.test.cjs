@@ -161,7 +161,7 @@ assertIn(
 assertIn(
   "PP5. Channel existence check before upsert",
   ROUTES,
-  "SELECT id FROM current_channels WHERE id = ${channelId} LIMIT 1"
+  "SELECT id, is_private FROM current_channels WHERE id = ${channelId} LIMIT 1"
 );
 
 assertIn(

@@ -224,12 +224,17 @@ assertContains(
 assertContains(
   "file download: queries current_messages for conversation_id",
   routesSrc,
-  /SELECT conversation_id FROM current_messages WHERE id = \$\{Number\(row\.object_id\)\}/
+  /SELECT conversation_id[\w\s,]* FROM current_messages WHERE id = \$\{Number\(row\.object_id\)\}/
 );
 assertContains(
   "file download: returns opaque 404 on DM non-membership",
   routesSrc,
   /current_conversation_members[\s\S]{0,300}opaque404/
+);
+assertContains(
+  "file download: private channel guard on current_message attachments",
+  routesSrc,
+  /fileMsg\?\.channel_id[\s\S]{0,400}current_channel_members[\s\S]{0,200}opaque404/
 );
 
 // ── 19. Enter/Shift+Enter behavior preserved ─────────────────────────────────

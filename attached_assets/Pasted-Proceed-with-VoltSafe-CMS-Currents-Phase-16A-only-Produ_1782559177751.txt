@@ -1,0 +1,346 @@
+Proceed with VoltSafe CMS Currents Phase 16A only: Production Hardening / Final Launch Audit.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, workflow automation, new Currents product features, DM unread badge work, message reactions, presence panels, slash commands, private-channel feature expansion, channel search improvements, or unrelated task features.
+
+Goal
+
+Perform a final production-hardening audit for Currents / Slack Lite now that the v1 feature set is complete.
+
+Currents now includes:
+
+* public channels
+* private channels
+* archived/read-only channels
+* channel membership
+* DMs
+* group DMs
+* group DM member management
+* attachments
+* reactions
+* pins
+* threads
+* mentions
+* notifications
+* muting/preferences
+* unread counts
+* hide-muted-from-badge preference
+* typing indicators
+* presence
+* channel participant panel
+* structured items
+* CSV export
+* AI summaries
+* Create Task from Currents
+* View in Currents from Tasks
+* slash commands
+
+Phase 16A should not add features. It should verify the system is safe, stable, performant, and ready for production use.
+
+Audit scope
+
+Audit only:
+
+1. Security/access control
+2. Attachment authorization
+3. Private channel isolation
+4. DM/group DM isolation
+5. Notification privacy
+6. Search/mentions/structured visibility
+7. Unread-count correctness
+8. Production performance
+9. Database indexes
+10. Migration idempotency
+11. Error handling
+12. Frontend console/runtime safety
+13. Test coverage quality
+14. Known unrelated failures
+
+Security audit
+
+Perform a full access-control sweep.
+
+Verify all of these surfaces respect:
+
+* authentication
+* public/private channel rules
+* channel membership
+* archived-channel read-only rules
+* DM/group DM membership
+* left group DM membership deletion
+* admin management versus content access
+* deleted-message handling
+
+Routes/surfaces to audit:
+
+1. Channel list
+2. Channel metadata
+3. Channel messages
+4. Channel message send
+5. Thread fetch
+6. Thread reply
+7. Reactions
+8. Pins
+9. Structured mark/unmark
+10. Structured list/count/export
+11. Mentions
+12. Notifications
+13. Search
+14. AI summaries
+15. Attachments upload
+16. Attachments list
+17. Attachments download
+18. Typing POST/GET
+19. Presence POST/GET
+20. Channel participants
+21. Unread counts
+22. Slash command execution paths
+23. DM message fetch/send
+24. Group DM message fetch/send
+25. Group DM add/leave
+26. DM/group DM mute/preference
+27. DM/group DM attachments
+28. Create Task source metadata
+29. View in Currents deep links
+
+Attachment authorization audit
+
+This is high priority.
+
+Verify:
+
+1. Non-member cannot upload to private channel message.
+2. Non-member cannot list private channel message attachments.
+3. Non-member cannot download private channel message attachments.
+4. Non-member cannot upload/list/download DM attachments.
+5. User who left group DM cannot upload/list/download old group DM attachments.
+6. Public channel attachments still work.
+7. Archived channel upload is blocked.
+8. Archived channel download is allowed only for viewers/members.
+9. Record Currents attachments still work.
+10. Temporary files are cleaned up on authorization failure.
+11. Attachment filename/path handling is safe.
+12. No file path traversal risk.
+13. No objectType/objectId spoof can bypass guards.
+
+Notification privacy audit
+
+Verify:
+
+1. Private channel notifications go only to members.
+2. Private channel all-message notifications respect channel preferences.
+3. Private channel mention notifications go only to members.
+4. Muted private channel suppresses notifications correctly.
+5. Non-members cannot receive notification action URLs for private content.
+6. DM notifications go only to current members.
+7. Group DM notifications skip left members.
+8. Added-member notifications are stable and deduped.
+9. Notification action URLs do not leak inaccessible content.
+10. Notification previews do not expose private content to non-members.
+
+Visibility audit
+
+Verify private/inaccessible content is excluded from:
+
+1. Channel sidebar
+2. Global search
+3. Channel search
+4. Mentions panel
+5. Structured panel
+6. Structured counts
+7. Structured CSV export
+8. AI summaries
+9. Pins
+10. Participants
+11. Typing state
+12. Unread counts
+13. Task source deep links where user lacks access
+
+Database / performance audit
+
+Check for obvious performance risks.
+
+Audit:
+
+1. Currents channel list query
+2. Private channel membership joins
+3. Unread-count query
+4. Search query
+5. Structured list/count queries
+6. Mentions query
+7. Notifications query/fan-out
+8. DM/group DM list query
+9. Group DM member queries
+10. Attachment lookup queries
+11. Presence query cap
+12. Typing TTL cache behavior
+
+Check whether indexes exist or should exist for:
+
+* current_messages.channel_id
+* current_messages.conversation_id
+* current_messages.thread_parent_id
+* current_messages.user_id
+* current_channel_members.channel_id
+* current_channel_members.user_id
+* current_channel_members(channel_id, user_id)
+* current_channel_preferences(channel_id, user_id)
+* current_conversation_members(conversation_id, user_id)
+* current_reactions.message_id
+* current_structured_items.message_id
+* attachment lookup fields used by Currents
+
+Only add low-risk indexes if clearly needed.
+
+Do not rewrite large queries unless there is an obvious bug or severe performance issue.
+
+Migration audit
+
+Verify all Currents migrations are safe:
+
+1. Idempotent.
+2. Additive where possible.
+3. Do not destroy existing data.
+4. Safe to run on production.
+5. Do not rely on seed-only state.
+6. Existing public channels remain public.
+7. Existing DMs remain accessible.
+8. Existing group DMs remain accessible.
+9. Existing attachments remain accessible.
+10. Existing structured items remain accessible.
+11. Existing notifications remain accessible.
+
+Frontend audit
+
+Verify:
+
+1. /current loads cleanly.
+2. No browser console errors.
+3. No React warnings.
+4. No TypeScript errors.
+5. Channel switching works.
+6. DM switching works.
+7. Group DM switching works.
+8. Private channel deep-link behavior is safe.
+9. Slash command state resets correctly.
+10. Typing indicators do not flicker.
+11. Presence polling is reasonable.
+12. Attachment chips render correctly.
+13. Member dialogs do not show stale data.
+14. Modals/dialogs close correctly.
+15. Mobile/smaller screen layout is acceptable.
+16. Dark mode is clean.
+17. Header buttons do not crowd.
+18. Sidebar badges/icons do not overlap.
+19. Error toasts are understandable.
+
+Test coverage audit
+
+Review whether tests are too source-grep-heavy for security-sensitive areas.
+
+For high-risk routes, prefer at least some live HTTP tests where feasible:
+
+1. Private channel message guard.
+2. Private channel attachment download guard.
+3. Private channel search/mentions/structured guard.
+4. Private channel notification fan-out.
+5. DM/group DM membership guard.
+6. Archived channel write blocks.
+7. Left group DM access revocation.
+
+Do not rewrite the whole test suite, but add targeted live tests for the highest-risk areas if missing.
+
+Known unrelated failures
+
+The existing Gmail/mail-permissions failures appear unrelated to Currents.
+
+Document them separately:
+
+* which tests fail
+* why they fail
+* whether they touch Currents
+* whether they should block Currents launch
+
+Do not fix Gmail/mail routes in this Currents phase unless a Currents route is directly involved.
+
+Verification checklist
+
+After hardening, verify:
+
+1. App starts cleanly.
+2. /current loads.
+3. Public channels work.
+4. Private channels work for members.
+5. Private channels are blocked for non-members.
+6. Archived channels are read-only.
+7. DMs work.
+8. Group DMs work.
+9. Left group member access is revoked.
+10. Attachments work and are authorized.
+11. Reactions work.
+12. Slash commands work.
+13. Typing works.
+14. Presence works.
+15. Notifications are private.
+16. Search visibility is correct.
+17. Mentions visibility is correct.
+18. Structured visibility/export is correct.
+19. AI summaries respect access.
+20. Create Task source metadata works.
+21. View in Currents respects access.
+22. No browser console errors.
+23. No server errors.
+24. No SQL errors.
+25. No unrelated files changed unnecessarily.
+
+Allowed fixes
+
+Only fix issues directly related to Currents production hardening.
+
+Allowed:
+
+* missing access-control guard
+* privacy leak
+* attachment authorization bug
+* notification leak
+* search/mentions/structured visibility bug
+* unread-count leak
+* migration idempotency bug
+* missing critical index
+* query performance issue
+* frontend runtime error caused by Currents
+* stale dialog/state bug
+* targeted tests for Currents security
+
+Not allowed:
+
+* new product features
+* guest/external collaborators
+* workflow automation
+* new slash commands
+* new presence features
+* new message reaction features
+* private-channel roles/owners
+* channel search expansion
+* Accounts/Contacts/CRM list work
+* Gmail/mail-permissions fixes unless directly caused by Currents
+
+Deliverable
+
+After the audit/hardening pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Security/access-control audit results
+5. Attachment authorization results
+6. Notification privacy results
+7. Visibility/search/mentions/structured results
+8. Database/index/performance results
+9. Migration safety results
+10. Frontend/runtime results
+11. Test coverage results
+12. Known unrelated failures
+13. Final production-readiness status
+14. Recommended final wrap-up steps
+
+Keep scope tight: Currents Production Hardening / Final Launch Audit only.

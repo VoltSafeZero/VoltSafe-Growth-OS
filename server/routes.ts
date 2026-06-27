@@ -6734,19 +6734,29 @@ export async function registerRoutes(
       const section = attachmentSectionFor(String(row.object_type || ""));
       const gate = await requireSectionView(userId, section);
       if (!gate.ok) return res.status(404).json(opaque404);
-      // DM membership guard: if this file belongs to a current_message in a DM conversation,
-      // the requester must be a member of that conversation. Returns opaque 404 on failure.
+      // DM and private-channel guard for current_message attachments
       if (row.object_type === "current_message") {
         const msgCheck = await db.execute(sql`
-          SELECT conversation_id FROM current_messages WHERE id = ${Number(row.object_id)} LIMIT 1
+          SELECT conversation_id, channel_id FROM current_messages WHERE id = ${Number(row.object_id)} LIMIT 1
         `);
-        const dmRow = (msgCheck.rows[0] as any) || null;
-        if (dmRow?.conversation_id) {
+        const fileMsg = (msgCheck.rows[0] as any) || null;
+        if (fileMsg?.conversation_id) {
           const memberCheck = await db.execute(sql`
             SELECT 1 FROM current_conversation_members
-            WHERE conversation_id = ${Number(dmRow.conversation_id)} AND user_id = ${userId} LIMIT 1
+            WHERE conversation_id = ${Number(fileMsg.conversation_id)} AND user_id = ${userId} LIMIT 1
           `);
           if (!memberCheck.rows.length) return res.status(404).json(opaque404);
+        }
+        if (fileMsg?.channel_id) {
+          const privRow = await db.execute(sql.raw(
+            `SELECT is_private FROM current_channels WHERE id = ${Number(fileMsg.channel_id)} LIMIT 1`
+          ));
+          if (privRow.rows.length && (privRow.rows[0] as any).is_private) {
+            const memCheck = await db.execute(sql.raw(
+              `SELECT 1 FROM current_channel_members WHERE channel_id = ${Number(fileMsg.channel_id)} AND user_id = ${userId} LIMIT 1`
+            ));
+            if (!memCheck.rows.length) return res.status(404).json(opaque404);
+          }
         }
       }
     }
@@ -33224,9 +33234,15 @@ export function registerConfluenceRoutes(app: Express) {
       if (!["all", "mentions", "muted"].includes(level))
         return res.status(400).json({ message: "Invalid notificationLevel. Must be all, mentions, or muted" });
       const chanCheck = await db.execute(sql.raw(
-        `SELECT id FROM current_channels WHERE id = ${channelId} LIMIT 1`
+        `SELECT id, is_private FROM current_channels WHERE id = ${channelId} LIMIT 1`
       ));
       if (!chanCheck.rows.length) return res.status(404).json({ message: "Channel not found" });
+      if ((chanCheck.rows[0] as any).is_private) {
+        const mem = await db.execute(sql.raw(
+          `SELECT 1 FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+      }
       await db.execute(sql.raw(`
         INSERT INTO current_channel_preferences (channel_id, user_id, notification_level, created_at, updated_at)
         VALUES (${channelId}, ${userId}, '${level}', NOW(), NOW())
@@ -33803,12 +33819,16 @@ export function registerConfluenceRoutes(app: Express) {
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
       if (Number(msgRows.rows[0].user_id) !== userId)
         return res.status(403).json({ message: "Cannot edit another user's message" });
-      // Block edits in archived channels
+      // Block edits in archived or private channels (non-members)
       const editChannelId = msgRows.rows[0].channel_id ? Number(msgRows.rows[0].channel_id) : null;
       if (editChannelId) {
-        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${editChannelId} LIMIT 1`));
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${editChannelId} LIMIT 1`));
         if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
           return res.status(403).json({ message: "Cannot edit messages in an archived channel" });
+        if (arcCheck.rows.length && (arcCheck.rows[0] as any).is_private) {
+          const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${editChannelId} AND user_id = ${userId} LIMIT 1`));
+          if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+        }
       }
       const escaped = body.replace(/'/g, "''");
       await db.execute(sql.raw(
@@ -33846,12 +33866,16 @@ export function registerConfluenceRoutes(app: Express) {
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
       if (Number(msgRows.rows[0].user_id) !== userId && !isAdminUser)
         return res.status(403).json({ message: "Cannot delete another user's message" });
-      // Block deletes in archived channels
+      // Block deletes in archived or private channels (non-members; admins bypass)
       const delChannelId = (msgRows.rows[0] as any).channel_id ? Number((msgRows.rows[0] as any).channel_id) : null;
       if (delChannelId) {
-        const arcCheck = await db.execute(sql.raw(`SELECT archived_at FROM current_channels WHERE id = ${delChannelId} LIMIT 1`));
+        const arcCheck = await db.execute(sql.raw(`SELECT archived_at, is_private FROM current_channels WHERE id = ${delChannelId} LIMIT 1`));
         if (arcCheck.rows.length && (arcCheck.rows[0] as any).archived_at)
           return res.status(403).json({ message: "Cannot delete messages in an archived channel" });
+        if (!isAdminUser && arcCheck.rows.length && (arcCheck.rows[0] as any).is_private) {
+          const mem = await db.execute(sql.raw(`SELECT 1 FROM current_channel_members WHERE channel_id = ${delChannelId} AND user_id = ${userId} LIMIT 1`));
+          if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this private channel" });
+        }
       }
       await db.execute(sql.raw(`UPDATE current_messages SET deleted_at = NOW() WHERE id = ${messageId}`));
       res.json({ ok: true });
