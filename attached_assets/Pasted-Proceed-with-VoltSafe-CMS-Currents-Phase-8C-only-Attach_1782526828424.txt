@@ -1,0 +1,190 @@
+Proceed with VoltSafe CMS Currents Phase 8C only: Attachment-Only Direct Messages.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, channel management, notification preferences, typing indicators, or unrelated task features.
+
+Goal
+
+Allow users to send a Direct Message with attachments and no text body.
+
+Phase 8B added DM attachments, but currently body text is required. This phase should allow file-only DMs while keeping empty text-only messages blocked.
+
+Scope
+
+Add only:
+
+1. Attachment-only send support in the DM composer
+2. Backend support for DM message creation with empty body when attachments are expected
+3. Safe placeholder/body handling for file-only DM messages
+4. Message display polish for file-only DMs
+5. Tests/audit for this specific flow
+
+Do not add attachment-only support to channel/record Currents unless it is trivial and clearly shared. Keep this focused on DMs.
+
+Existing behavior to audit first
+
+Before coding, inspect:
+
+* DM composer send guard
+* handleDmSend
+* dmPostMutation
+* POST /api/current/dms/:id/messages
+* MessageRow rendering when body is empty/null
+* CurrentAttachmentChips rendering
+* DM notification preview
+* DM sidebar last-message preview
+* Search/summary/task behavior for messages with no text body
+
+Desired behavior
+
+Text-only DM
+
+Allowed if body has non-whitespace text.
+
+Text + attachment DM
+
+Allowed.
+
+Attachment-only DM
+
+Allowed if one or more pending files are selected.
+
+Empty DM
+
+Blocked if:
+
+* no text body, and
+* no pending files
+
+Frontend requirements
+
+Update the DM composer so:
+
+1. Send button is enabled when:
+    * trimmed body has text, OR
+    * dmPendingFiles.length > 0
+2. Pressing Enter sends if body has text or files are pending.
+3. Attachment-only send creates the DM message first, then uploads attachments using returned message ID.
+4. Pending chips clear after the message is created.
+5. Upload spinner still works.
+6. Failed attachment upload still leaves the DM message in place and shows the existing failure toast.
+7. If send is attempted with no body and no files, do nothing or show a gentle validation state.
+8. Placeholder should clearly support file-only send, e.g.:
+    * Write a message or attach files…
+
+Backend requirements
+
+Update:
+
+POST /api/current/dms/:id/messages
+
+Allow body to be empty only when the frontend indicates attachments are expected.
+
+Recommended request body:
+
+{
+  "body": "",
+  "hasPendingAttachments": true
+}
+
+Rules:
+
+1. If body.trim() has text → allow.
+2. If hasPendingAttachments === true → allow even if body is empty.
+3. If body is empty and hasPendingAttachments !== true → reject.
+4. Store body as either:
+    * empty string, or
+    * null, if existing message rendering supports it safely.
+5. Do not create empty messages unless attachments are expected.
+6. Existing DM membership/security checks remain unchanged.
+
+Display requirements
+
+For attachment-only DM messages:
+
+1. Message row should render cleanly.
+2. No weird blank bubble or giant empty space.
+3. Attachments should be visible immediately after refetch.
+4. Sidebar preview should say something like:
+    * Attachment
+    * 2 attachments
+    * or Sent an attachment
+5. Notification preview should say something like:
+    * Sent an attachment
+6. Search/summary/task features should not crash on empty body.
+
+Security requirements
+
+Verify:
+
+1. Existing Phase 8B attachment security guards remain intact.
+2. User still cannot upload to another user’s DM message.
+3. User still cannot list/download attachments from DMs they are not part of.
+4. Attachment-only message creation still requires DM membership.
+5. Empty text-only message creation is still blocked.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Existing DM opens.
+4. New DM can be started.
+5. Text-only DM still sends.
+6. Text + attachment DM still sends.
+7. Attachment-only DM sends.
+8. Attachment-only DM creates a message row.
+9. Attachment-only DM uploads file after message creation.
+10. Attachment-only DM displays attachment after refetch.
+11. Multiple attachment-only files work.
+12. Empty no-text/no-file send is blocked.
+13. Pending files remain staged if upload fails.
+14. Failed upload toast still appears.
+15. DM sidebar preview is sensible for attachment-only messages.
+16. DM notification preview is sensible for attachment-only messages.
+17. DM unread counts still work.
+18. DM read behavior still works.
+19. DM deep-link still works.
+20. Existing channel Currents still work.
+21. Existing record Currents still work.
+22. Existing channel/record attachments still work.
+23. Mentions panel still works.
+24. Search still works.
+25. Structured panel still works.
+26. AI summaries still work.
+27. Create Task still works.
+28. View in Currents from Tasks still works.
+29. No browser console errors.
+30. No server errors.
+31. No SQL errors.
+32. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Send enabled with pending files and empty body
+* Send blocked with no body and no files
+* hasPendingAttachments or equivalent flag sent to backend
+* Backend allows empty body only with pending attachments flag
+* Backend rejects empty body without attachments flag
+* Sidebar preview for attachment-only DM
+* Notification preview for attachment-only DM
+* Existing 8B attachment security guards still present
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing empty-body/message rendering audit
+2. Files changed
+3. Frontend changes
+4. Backend changes
+5. Attachment-only upload flow
+6. Display/preview behavior
+7. Security checks
+8. Verification results
+9. Known issues
+10. Recommended next feature order
+
+Keep scope tight: attachment-only Direct Messages only.

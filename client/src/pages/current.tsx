@@ -2893,8 +2893,8 @@ export default function CurrentPage() {
   });
 
   const dmPostMutation = useMutation({
-    mutationFn: (body: string) =>
-      apiRequest("POST", `/api/current/dms/${selectedDmId}/messages`, { body }).then((r) => r.json()),
+    mutationFn: ({ body, hasPendingAttachments }: { body: string; hasPendingAttachments: boolean }) =>
+      apiRequest("POST", `/api/current/dms/${selectedDmId}/messages`, { body, hasPendingAttachments }).then((r) => r.json()),
   });
 
   const dmEditMutation = useMutation({
@@ -2973,9 +2973,10 @@ export default function CurrentPage() {
 
   async function handleDmSend() {
     const trimmed = dmDraft.trim();
-    if (!trimmed || dmPostMutation.isPending || isDmUploading || !selectedDmId) return;
+    const hasFiles = dmPendingFiles.length > 0;
+    if ((!trimmed && !hasFiles) || dmPostMutation.isPending || isDmUploading || !selectedDmId) return;
     try {
-      const newMsg = await dmPostMutation.mutateAsync(trimmed);
+      const newMsg = await dmPostMutation.mutateAsync({ body: trimmed, hasPendingAttachments: hasFiles });
       setDmDraft("");
       dmMention.closeMention();
       if (dmTextareaRef.current) dmTextareaRef.current.style.height = "auto";
@@ -3504,7 +3505,7 @@ export default function CurrentPage() {
                   value={dmDraft}
                   onChange={handleDmDraftChange}
                   onKeyDown={handleDmKeyDown}
-                  placeholder={`Message ${selectedDm?.otherUser.name ?? "teammate"}${dmPendingFiles.length > 0 ? " (optional)" : "…"}`}
+                  placeholder="Write a message or attach files…"
                   rows={1}
                   className={cn(
                     "flex-1 border-0 bg-transparent shadow-none resize-none p-0 outline-none",
@@ -3546,13 +3547,13 @@ export default function CurrentPage() {
                     data-testid="dm-send-btn"
                     onClick={handleDmSend}
                     disabled={
-                      !dmDraft.trim() ||
+                      (!dmDraft.trim() && dmPendingFiles.length === 0) ||
                       dmPostMutation.isPending ||
                       isDmUploading
                     }
                     className={cn(
                       "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all",
-                      dmDraft.trim() && !dmPostMutation.isPending && !isDmUploading
+                      (dmDraft.trim() || dmPendingFiles.length > 0) && !dmPostMutation.isPending && !isDmUploading
                         ? "bg-primary text-primary-foreground hover:bg-primary/90"
                         : "bg-muted/40 text-muted-foreground/30"
                     )}

@@ -34782,18 +34782,19 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = getSessionUserId(req);
       const convId = Number(req.params.id);
       if (!convId) return res.status(400).json({ message: "Invalid conversation id" });
-      const body = String(req.body?.body || "").trim();
-      if (!body) return res.status(400).json({ message: "Message body is required" });
-      if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
+      const rawBody = String(req.body?.body || "").trim();
+      const hasPendingAttachments = req.body?.hasPendingAttachments === true;
+      if (!rawBody && !hasPendingAttachments) return res.status(400).json({ message: "Message body is required" });
+      if (rawBody.length > 10000) return res.status(400).json({ message: "Message too long" });
       const memberCheck = await db.execute(sql.raw(
         `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
       ));
       if (!memberCheck.rows.length)
         return res.status(403).json({ message: "Not a member of this conversation" });
-      const escaped = body.replace(/'/g, "''");
+      const bodyFragment = rawBody ? `'${rawBody.replace(/'/g, "''")}'` : "NULL";
       const ins = await db.execute(sql.raw(`
         INSERT INTO current_messages (conversation_id, user_id, body)
-        VALUES (${convId}, ${userId}, '${escaped}')
+        VALUES (${convId}, ${userId}, ${bodyFragment})
         RETURNING id, conversation_id, user_id, body, is_edited, created_at
       `));
       const msg = ins.rows[0];
@@ -34828,7 +34829,9 @@ export function registerConfluenceRoutes(app: Express) {
           ));
           const senderRows = await db.execute(sql.raw(`SELECT name FROM users WHERE id = ${userId} LIMIT 1`));
           const senderName = String((senderRows.rows[0] as any)?.name || "Someone");
-          const preview = body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@$1').slice(0, 100).replace(/'/g, "''");
+          const preview = rawBody
+            ? rawBody.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@$1').slice(0, 100).replace(/'/g, "''")
+            : 'Sent an attachment';
           const escapedSender = senderName.replace(/'/g, "''");
           for (const row of others.rows as any[]) {
             const recipientId = Number(row.user_id);
