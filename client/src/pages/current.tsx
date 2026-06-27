@@ -4644,20 +4644,19 @@ export default function CurrentPage() {
                   return (
                     <MessageRow
                       key={msg.id}
-                      message={{ ...msg, replyCount: 0, latestReplyAt: null, structuredItems: [], pinned: false }}
+                      message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: [] }}
                       currentUserId={currentUserId}
-                      isConsecutive={isConsecutive}
-                      highlighted={false}
+                      grouped={isConsecutive}
+                      isAdmin={false}
+                      isArchived={false}
+                      pinnedMessageIds={new Set()}
+                      onToggleReaction={(mid, emoji) => dmReactMutation.mutate({ messageId: mid, emoji })}
                       onEdit={() => setEditingDmMessage(msg)}
                       onDelete={() => dmDeleteMutation.mutate(msg.id)}
-                      onReact={(emoji) => dmReactMutation.mutate({ messageId: msg.id, emoji })}
                       onPin={() => {}}
-                      onUnpin={() => {}}
                       onOpenThread={() => {}}
                       onMarkStructured={() => {}}
                       onUnmarkStructured={() => {}}
-                      pinnedMessageIds={new Set()}
-                      showThread={false}
                     />
                   );
                 })

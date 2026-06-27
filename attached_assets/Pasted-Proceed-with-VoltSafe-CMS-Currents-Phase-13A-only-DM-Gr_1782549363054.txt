@@ -1,0 +1,207 @@
+Proceed with VoltSafe CMS Currents Phase 13A only: DM / Group DM Message Reactions Parity.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, DM unread badge work, private channels, channel search improvements, presence panels, or unrelated task features.
+
+Goal
+
+Bring message reactions in 1:1 DMs and Group DMs to parity with channel message reactions.
+
+Important: audit first. Earlier work may already support DM reactions partially at the backend level. Do not duplicate existing functionality. Confirm what exists, then only fill actual gaps.
+
+Scope
+
+Add or polish only:
+
+1. DM message reaction display
+2. DM message reaction add/remove behavior
+3. Group DM message reaction display
+4. Group DM message reaction add/remove behavior
+5. Attachment-only DM reaction behavior
+6. Security/membership checks
+7. Tests/audit for the above
+
+Do not add:
+
+* new emoji picker libraries
+* custom emoji management
+* read receipts
+* slash commands
+* guest/external collaborators
+* workflow automation
+* channel search improvements
+* unrelated channel reaction redesign
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* Channel message reaction UI
+* MessageActionBar
+* MessageRow
+* current_reactions table/schema
+* reaction routes under /api/current/messages/:id/reactions
+* DM message fetch route
+* DM/group DM message send route
+* DM/group DM message rendering
+* attachment-only DM rendering
+* archived channel reaction blocks
+* group DM membership guards
+* previous tests around reactions and DM membership
+* existing Phase 8A/8B/8C/11A/11B/12A/12B/12C tests
+
+Audit questions
+
+Answer these before writing code:
+
+1. Does the reaction backend route already accept DM messages?
+2. Does it correctly enforce DM/group DM membership?
+3. Does it block reactions for non-members?
+4. Does it block reactions on deleted messages?
+5. Does it block reactions on archived channel messages?
+6. Does the DM message fetch route already return reactions?
+7. Does the DM UI already render reactions?
+8. Does the DM UI already expose reaction buttons?
+9. Do attachment-only DM messages support reactions?
+10. Are group DM reactions treated the same as 1:1 DM reactions?
+
+Backend requirements
+
+If missing, update the existing reaction routes so they work for:
+
+* channel messages
+* 1:1 DM messages
+* group DM messages
+
+Rules:
+
+1. Requires authentication.
+2. Message must exist.
+3. Deleted messages cannot be reacted to.
+4. For channel messages:
+    * existing channel/archived rules remain unchanged.
+5. For DM/group DM messages:
+    * current user must be an active member of the conversation.
+    * users who left a group DM cannot react.
+    * non-members cannot infer message/conversation details.
+6. Add reaction is idempotent.
+7. Remove reaction only removes current user’s reaction.
+8. Reaction counts aggregate correctly.
+9. Current user’s own reaction state is returned correctly.
+10. No duplicate reactions from same user/message/emoji.
+11. No SQL injection through emoji/message id.
+
+Frontend requirements
+
+DM and group DM message rows
+
+For DM/group DM messages:
+
+1. Show existing reaction chips below message body.
+2. Show reaction count.
+3. Visually indicate when current user reacted.
+4. Allow current user to click a reaction chip to toggle their reaction.
+5. Show the same quick reaction controls used in channels, if already available.
+6. Work for:
+    * text-only DM messages
+    * text + attachment DM messages
+    * attachment-only DM messages
+    * group DM messages
+7. Keep layout compact.
+8. Dark mode styling must match channels.
+
+Reaction UI parity
+
+Use the same reaction UI patterns as channel messages unless there is a strong reason not to.
+
+Avoid creating a second visual language for DMs.
+
+Security requirements
+
+Verify:
+
+1. Non-member cannot add reaction to DM/group DM message.
+2. Non-member cannot remove reaction from DM/group DM message.
+3. User who left a group DM cannot add/remove reaction.
+4. User cannot react to deleted message.
+5. Archived channel reaction blocking still works.
+6. Existing channel reaction behavior is unchanged.
+7. Reaction routes do not leak private DM/group details.
+8. Emoji input is safely validated/limited.
+9. Reaction mutations are scoped to session user only.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Existing channel reactions still work.
+4. Archived channel reaction blocking still works.
+5. 1:1 DM reactions display.
+6. 1:1 DM reaction add works.
+7. 1:1 DM reaction remove works.
+8. Group DM reactions display.
+9. Group DM reaction add works.
+10. Group DM reaction remove works.
+11. Attachment-only DM can be reacted to.
+12. User who left group DM cannot react.
+13. Non-member cannot react.
+14. Reaction counts update after toggle.
+15. Current-user reaction state is visually clear.
+16. DM send/read/mute still works.
+17. Group DM add/leave still works.
+18. DM/group attachments still work.
+19. Typing indicators still work.
+20. Presence still works.
+21. Channel participant panel still works.
+22. Notification preferences still work.
+23. Hide-muted unread badge preference still works.
+24. Structured panel still works.
+25. AI summaries still work.
+26. Create Task still works.
+27. View in Currents still works.
+28. No browser console errors.
+29. No server errors.
+30. No SQL errors.
+31. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Backend route supports DM message reactions
+* Backend route supports group DM message reactions
+* Non-member blocked
+* Left group member blocked
+* Deleted message blocked
+* Archived channel behavior unchanged
+* Duplicate reaction prevention
+* Remove only current user reaction
+* DM fetch returns reactions
+* Group DM fetch returns reactions
+* DM UI renders reaction chips
+* DM UI exposes reaction action
+* Attachment-only DM reaction support
+* Existing channel reaction tests still pass
+* Existing 12C channel participants tests pass
+* Existing 12B presence tests pass
+* Existing 12A typing tests pass
+* Existing 11A/11B group DM tests pass
+* Existing 10A/10B notification tests pass
+* Existing 9A/9B channel tests pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing reaction system audit summary
+2. Backend changes
+3. Frontend changes
+4. DM/group DM reaction behavior
+5. Security checks
+6. Verification results
+7. Features intentionally deferred
+8. Known issues
+9. Recommended next feature order
+
+Keep scope tight: DM / Group DM Message Reactions Parity only.
