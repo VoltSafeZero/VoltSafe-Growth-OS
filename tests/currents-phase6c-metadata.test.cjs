@@ -247,13 +247,13 @@ assert(
 
 console.log("\n9. task-detail-drawer — summary block");
 assert(
-  "summary block shows 'Created from Currents AI Summary'",
-  drawerSrc.includes("Created from Currents AI Summary")
+  "summary block shows 'Created from CURRENTS AI Summary'",
+  drawerSrc.includes("Created from CURRENTS AI Summary")
 );
 assert(
   "summary block has data-testid=panel-currents-source",
   (() => {
-    const idx = drawerSrc.indexOf("Created from Currents AI Summary");
+    const idx = drawerSrc.indexOf("Created from CURRENTS AI Summary");
     const snippet = drawerSrc.slice(Math.max(0, idx - 400), idx + 50);
     return snippet.includes('data-testid="panel-currents-source"');
   })()
@@ -275,7 +275,7 @@ assert(
 assert(
   "summary block shows View in Currents link when softUrl available",
   (() => {
-    const idx = drawerSrc.indexOf("Created from Currents AI Summary");
+    const idx = drawerSrc.indexOf("Created from CURRENTS AI Summary");
     const snippet = drawerSrc.slice(idx, idx + 1200);
     return snippet.includes('data-testid="link-view-in-currents"');
   })()
@@ -287,7 +287,7 @@ assert(
 assert(
   "summary block shows thread indicator when threadRootId present",
   (() => {
-    const idx = drawerSrc.indexOf("Created from Currents AI Summary");
+    const idx = drawerSrc.indexOf("Created from CURRENTS AI Summary");
     const snippet = drawerSrc.slice(idx, idx + 1500);
     return snippet.includes("sm.threadRootId") && snippet.includes("thread");
   })()
