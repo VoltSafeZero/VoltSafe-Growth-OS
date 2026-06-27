@@ -3453,6 +3453,7 @@ export default function CurrentPage() {
     onSuccess: () => {
       setGroupMemberOpen(false);
       setSelectedDmId(null);
+      setView("channel");
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
       toast({ title: "You left the conversation" });
     },

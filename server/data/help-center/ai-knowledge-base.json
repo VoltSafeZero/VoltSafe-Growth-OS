@@ -1092,6 +1092,75 @@
         "fix",
         "data integrity"
       ]
+    },
+    {
+      "id": "faq-101",
+      "question": "How do I add a news article to a CRM profile?",
+      "answer": "Open any Lead, Account, Contact, or Partner profile. Scroll to the Recent News section. Click 'Add News'. Paste the article URL — it must start with http:// or https://. Optionally add a note (e.g. 'This is about their Phase 2 electrification grant') and a relevance type. Click 'Add article'. VoltSafe will fetch the article and generate a summary, strategic relevance note, suggested outreach angle, key points, and a relevance score in the background. This usually takes 10–30 seconds.",
+      "tags": [
+        "recent news",
+        "add news",
+        "article",
+        "account intelligence"
+      ]
+    },
+    {
+      "id": "faq-102",
+      "question": "What does VoltSafe do with a news article URL I add to a profile?",
+      "answer": "VoltSafe fetches the article, extracts its content, and then uses AI to create: (1) a plain-language summary of the article, (2) a strategic relevance note explaining why it matters to VoltSafe, (3) a suggested outreach angle — a specific way to reference this news in a sales or relationship email, (4) key points listed as bullet points, and (5) a relevance score from 1–5 (5 = high priority). The raw article body is never stored or sent anywhere — only the AI-distilled intelligence is kept.",
+      "tags": [
+        "recent news",
+        "ai summary",
+        "how it works",
+        "account intelligence"
+      ]
+    },
+    {
+      "id": "faq-103",
+      "question": "What is the bookmark/pin button on a Recent News article?",
+      "answer": "The bookmark (pin) button on each news card marks that article for email context. When it is pinned (filled teal), it will be automatically selected when you open the Suggested Email modal for that profile. This tells the AI to reference that specific article when writing an email. Pinned articles are prioritised above high-relevance-score articles in the auto-selection. You can pin or unpin at any time — only you can change the pin on articles you added (admins can change any).",
+      "tags": [
+        "recent news",
+        "pin",
+        "bookmark",
+        "email context",
+        "suggested email"
+      ]
+    },
+    {
+      "id": "faq-104",
+      "question": "How does Recent News affect the AI-suggested email?",
+      "answer": "When you open the Suggested Email modal, the system checks for Recent News articles on that profile. Pinned articles are auto-selected first. If nothing is pinned, articles with a relevance score of 4 or 5 are auto-selected (up to 3). You can also manually check or uncheck any article in the 'Recent News Context' section of the modal. The selected articles are sent to the AI as compressed context — it uses them to write a more timely, specific opener, like: 'I saw your recent marina modernisation announcement and thought it could be a good moment to reconnect.' The AI never pastes raw article text into the email.",
+      "tags": [
+        "recent news",
+        "suggested email",
+        "ai email",
+        "email context",
+        "outreach"
+      ]
+    },
+    {
+      "id": "faq-105",
+      "question": "Can I add the same article to multiple CRM profiles?",
+      "answer": "Yes. You can add the same URL to a Lead, an Account, a Contact, and a Partner independently. Each profile maintains its own separate entry — with its own note, relevance type, tags, and pin status. Adding the same URL to a second profile is allowed. What is blocked is adding the same URL twice to the same profile (you will see a duplicate warning).",
+      "tags": [
+        "recent news",
+        "duplicate",
+        "multiple records",
+        "same url"
+      ]
+    },
+    {
+      "id": "faq-106",
+      "question": "What happens if the article is behind a paywall or the fetch fails?",
+      "answer": "If VoltSafe cannot fetch the article (paywall, 404, timeout, or access restriction), the record is still saved with a 'Could not fetch' status badge. The article link is preserved so you can open it manually. You can add a note summarising the key context yourself. Click 'Refresh Summary' at any time to retry the fetch — useful if the article was temporarily unavailable. The system will never block you from saving a link just because it cannot fetch it.",
+      "tags": [
+        "recent news",
+        "paywall",
+        "failed fetch",
+        "refresh",
+        "error"
+      ]
     }
   ],
   "features": [
@@ -1262,6 +1331,19 @@
         "Read daily brief",
         "Review alerts",
         "Act on recommendations"
+      ]
+    },
+    {
+      "name": "Recent News",
+      "route": "Inside each Lead, Account, Contact, or Partner profile",
+      "description": "Paste a news article URL into any CRM profile. VoltSafe automatically fetches it and generates a plain-language summary, strategic relevance note, suggested outreach angle, key points, and a relevance score (1–5). Use it to spot timely reasons to reach out. Pin articles with the bookmark button to prioritise them when generating suggested emails.",
+      "keyActions": [
+        "Add news article URL",
+        "View AI summary and outreach angle",
+        "Pin article for email context",
+        "Refresh AI summary",
+        "Edit note or relevance type",
+        "Archive article"
       ]
     }
   ],
@@ -1447,6 +1529,6 @@
       "definition": "Percentage of opportunities won vs. total opportunities closed."
     }
   ],
-  "lastUpdated": "2026-06-24",
-  "lastRevisionTimestamp": "2026-06-25T06:58:00.902Z"
+  "lastUpdated": "2026-06-26",
+  "lastRevisionTimestamp": "2026-06-27T06:58:00.421Z"
 }

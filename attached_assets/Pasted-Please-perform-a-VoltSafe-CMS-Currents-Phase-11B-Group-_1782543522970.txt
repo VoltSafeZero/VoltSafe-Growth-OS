@@ -1,0 +1,274 @@
+Please perform a VoltSafe CMS Currents Phase 11B Group DM Member Management audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, typing indicators, channel search improvements, or unrelated task features.
+
+Goal
+
+Verify that Group DM member management is secure, stable, polished, and regression-free.
+
+Phase 11B added:
+
+* Add members to existing group DMs
+* Leave group DM
+* GroupMemberDialog
+* Member list
+* Add-member search/selection
+* Leave confirmation flow
+* Notification to added users
+* Access revocation via hard-deleted membership row
+
+Audit scope
+
+Audit only:
+
+1. Add-member backend route
+2. Leave-group backend route
+3. Membership/access revocation after leave
+4. GroupMemberDialog UI
+5. Add-member UI
+6. Leave confirmation UI
+7. Notifications to added users
+8. Existing group DM regressions caused by 11B
+9. Existing 1:1 DM regressions caused by 11B
+10. Security/user membership enforcement
+
+Backend checks
+
+POST /api/current/dms/:id/members
+
+Verify:
+
+1. Requires authentication.
+2. Current user must be a current member.
+3. Conversation must be group_dm.
+4. Rejects use on 1:1 DMs.
+5. Rejects missing/invalid conversation id.
+6. Rejects empty userIds.
+7. Rejects non-array userIds.
+8. Dedupes duplicate submitted users.
+9. Excludes existing members.
+10. Rejects if no new users remain.
+11. Validates all users exist.
+12. Rejects inactive/deleted users.
+13. Rejects external/guest users if such users exist.
+14. Enforces max group size.
+15. Inserts member rows without duplicates.
+16. Preserves existing members’ read state.
+17. Preserves existing members’ mute state.
+18. Returns updated sorted member list.
+19. Notifies newly added users only.
+20. Does not notify existing members unless intentionally designed.
+21. Does not notify the actor unless intentionally designed.
+22. Handles race/duplicate insert safely enough.
+
+POST /api/current/dms/:id/leave
+
+Verify:
+
+1. Requires authentication.
+2. Current user must be a current member.
+3. Conversation must be group_dm.
+4. Rejects use on 1:1 DMs.
+5. Deletes or deactivates only current user’s membership row.
+6. Does not delete the conversation.
+7. Does not delete messages.
+8. Remaining members keep access.
+9. Leaving user immediately loses access.
+10. Leaving user no longer sees group in GET /api/current/dms.
+11. Leaving user cannot open group via /current?dm=ID.
+12. Leaving user cannot send message.
+13. Leaving user cannot mark read.
+14. Leaving user cannot mute/unmute.
+15. Leaving user cannot upload/list/download attachments.
+16. If leaving would leave one or zero members, behavior is intentional and documented.
+
+Existing route membership checks
+
+Because Phase 11B uses hard-delete membership on leave, verify every route still relies on current_conversation_members membership:
+
+* GET /api/current/dms
+* GET /api/current/dms/:id/messages
+* POST /api/current/dms/:id/messages
+* POST /api/current/dms/:id/read
+* PUT /api/current/dms/:id/preference
+* POST /api/attachments for current_message
+* GET /api/attachments for current_message
+* GET /api/attachments/file/:fileName
+* /api/current/unread-counts
+* notification fan-out
+* hide-muted badge logic
+
+No route should still treat a left user as a member.
+
+Frontend checks
+
+GroupMemberDialog
+
+Verify:
+
+1. Opens from group DM header.
+2. Does not appear for 1:1 DMs.
+3. Shows all current members.
+4. Shows member name/email/avatar or initials.
+5. Current user label appears if implemented.
+6. Search works.
+7. Existing members are excluded from search results.
+8. Selected users appear as chips.
+9. Selected chips can be removed.
+10. Duplicate selection does not duplicate chip.
+11. Add button disabled until at least one new user is selected.
+12. Add button shows pending/loading state.
+13. Add success clears selection or closes picker cleanly.
+14. Add success refreshes DM list/header.
+15. Add success shows toast.
+16. Error does not clear selected users prematurely.
+17. Dialog dark mode styling is polished.
+18. Dialog layout works on smaller screens.
+
+Leave flow
+
+Verify:
+
+1. Leave button appears only for group DMs.
+2. Leave requires confirmation.
+3. Cancel confirmation works.
+4. Confirm leave calls backend.
+5. Success removes conversation from sidebar.
+6. Success navigates to safe fallback.
+7. Success shows toast.
+8. Failure does not remove conversation locally.
+9. 1:1 DMs do not show leave controls.
+10. Remaining users still see group.
+
+Notification behavior
+
+Verify:
+
+1. Newly added users receive a clear notification if implemented.
+2. Notification action URL opens the group DM.
+3. Existing members are not spammed unless intentional.
+4. Actor is not notified unless intentional.
+5. Muted state behavior is sensible and documented.
+6. Notifications do not leak group details to non-members.
+
+Security checks
+
+Verify:
+
+1. Non-member cannot add members.
+2. Non-member cannot leave a group they are not in.
+3. Member cannot add inactive/deleted users.
+4. Member cannot add external/guest users if such users exist.
+5. Member cannot add duplicate existing members.
+6. Member cannot exceed group size limit.
+7. Left user cannot read/send/mark-read/mute/upload/list/download attachments.
+8. Left user cannot access group DM by deep-link.
+9. Attachment guards respect current membership after leave.
+10. Notifications do not leak group details to non-members.
+11. SQL injection is not possible through userIds.
+12. Hard-delete membership does not orphan unsafe access.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Existing group DMs
+* Group DM send/read/mute
+* Group DM attachments
+* Group DM attachment-only messages
+* Group DM unread counts
+* Group DM notifications
+* 1:1 DMs
+* 1:1 DM attachments
+* 1:1 attachment-only DMs
+* 1:1 DM unread/read-state
+* 1:1 DM mute/unmute
+* Hide muted unread from nav badge preference
+* Channel list
+* Channel posting
+* Channel notification preferences
+* Channel archived/read-only behavior
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Mentions panel
+* Structured panel
+* Structured archived toggle/badges
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+* Record Currents
+* Record attachments
+* Record search
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 11B Group DM Member Management.
+
+Allowed:
+
+* Add-member route bug
+* Leave route bug
+* Membership access bug after leave
+* Group size validation bug
+* Existing-member dedupe bug
+* Notification-to-added-users bug
+* GroupMemberDialog bug
+* Leave confirmation bug
+* Cache invalidation/refetch bug
+* 1:1 DM regression caused by 11B
+* Console/server errors caused by 11B
+* Tests directly related to 11B
+
+Not allowed:
+
+* Removing other members
+* Group DM owner/admin roles
+* Renaming group DMs
+* Guest/external collaborators
+* Slash commands
+* Workflow automation
+* Typing indicators
+* Channel search improvements
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend checks
+5. Frontend checks
+6. Notification behavior checks
+7. Security checks
+8. Regression results
+9. Known issues
+10. Final pass/fail status
+11. Recommended next feature order
+
+Keep scope tight: Group DM Member Management audit only.

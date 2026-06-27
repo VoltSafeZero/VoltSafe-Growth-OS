@@ -35102,7 +35102,7 @@ export function registerConfluenceRoutes(app: Express) {
         // Validate all users exist and are active
         const idList = uniqueIds.join(',');
         const validRows = await db.execute(sql.raw(
-          `SELECT id, name, email, avatar_url FROM users WHERE id IN (${idList}) AND global_role NOT IN ('inactive')`
+          `SELECT id, name, email, avatar_url FROM users WHERE id IN (${idList}) AND global_role NOT IN ('inactive') AND status NOT IN ('suspended', 'deactivated')`
         ));
         if (validRows.rows.length !== uniqueIds.length)
           return res.status(400).json({ message: "One or more users not found or inactive" });
@@ -35414,7 +35414,7 @@ export function registerConfluenceRoutes(app: Express) {
       (async () => {
         try {
           for (const newUid of newIds) {
-            const dedupeKey = `dm_added:${convId}:${newUid}:${Date.now()}`;
+            const dedupeKey = `dm_added:${convId}:${newUid}`;
             await db.execute(sql.raw(`
               INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
               VALUES (${newUid}, 'current_dm', '${senderName} added you to a group conversation', 'You were added to a group message', 'medium', 'current_conversation', ${convId}, '/current?dm=${convId}', FALSE, '${dedupeKey}')
