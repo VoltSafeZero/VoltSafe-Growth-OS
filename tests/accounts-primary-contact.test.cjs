@@ -71,7 +71,7 @@ check(
 );
 check(
   "Contact title conditionally rendered",
-  /account\.primaryContact\.title &&/.test(src)
+  /account\.primaryContact\.title(\?\.trim\(\))? &&/.test(src)
 );
 check(
   "text-primary-contact-name data-testid present",

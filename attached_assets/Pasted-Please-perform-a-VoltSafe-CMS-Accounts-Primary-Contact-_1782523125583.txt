@@ -1,0 +1,173 @@
+Please perform a VoltSafe CMS Accounts Primary Contact Column audit and polish pass only.
+
+Do not work on Currents, Training Hub, AI summaries, task features, Guest Currents, direct messages, workflow automation, or unrelated CRM features.
+
+Goal
+
+Verify that the new Primary Contact column in the Accounts list is stable, accurate, performant, and polished.
+
+This is an audit/polish pass for the Accounts list primary contact enhancement that was already implemented.
+
+Audit scope
+
+Audit only:
+
+1. Accounts list primary contact data fetching
+2. Accounts list primary contact display
+3. Backend account payload shape
+4. List/table layout after adding the new column
+5. Existing Accounts page regressions caused by the column
+
+Backend/data checks
+
+Verify:
+
+1. GET /api/accounts still works.
+2. Account rows include primaryContact field.
+3. primaryContact is either:
+    * a lightweight contact object, or
+    * null
+4. Primary contact object includes only needed fields:
+    * id
+    * name
+    * title
+    * email
+    * phone
+5. Backend uses batch-fetch, not N+1 queries.
+6. Query filters contacts by accountId IN (...).
+7. Query filters isPrimary = true.
+8. Duplicate primary contacts for same account are handled safely.
+9. Accounts with no contacts return primaryContact: null.
+10. Accounts with contacts but no primary contact return primaryContact: null.
+11. Pagination/infinite scroll still works.
+12. Search and filters still work with the new payload.
+13. No SQL errors.
+14. No excessive payload bloat.
+
+Frontend display checks
+
+Verify in the Accounts list/table:
+
+1. Primary Contact column appears in the correct location.
+2. Column header is clear.
+3. Accounts with primary contact show contact name.
+4. Contact title displays if available.
+5. Email/phone do not crowd the row unless intentionally shown.
+6. Accounts without primary contact show muted No primary contact.
+7. Long contact names truncate gracefully.
+8. Long titles truncate gracefully.
+9. Row height remains reasonable.
+10. Column hidden or compacted appropriately on narrower screens.
+11. Dark mode styling is polished.
+12. Skeleton/loading row colSpan is correct.
+13. Empty state colSpan is correct.
+14. No layout shift or table overflow issues.
+
+Interaction checks
+
+Verify:
+
+1. Clicking account row still opens Account detail dialog.
+2. Clicking row near the primary contact cell still opens Account detail.
+3. Existing external profile icon still works.
+4. Checkbox/bulk-select still works.
+5. Sort dropdown still works.
+6. View toggle still works:
+    * List
+    * Grid
+    * Pipeline
+    * Map
+7. New Account button still works.
+8. Account detail dialog still works.
+9. Account profile page still works.
+
+Sorting/search/filter checks
+
+Verify:
+
+1. Accounts still default to list view.
+2. Accounts still default to name:asc.
+3. Search still works.
+4. Search results still include primary contacts where available.
+5. Filters still work:
+    * Industry
+    * Market Segment
+    * Type
+    * Country
+    * Region
+    * Priority
+6. Reset filters still restores A→Z sort.
+7. Saved views still work if present.
+8. Infinite scroll still loads more pages with primary contact populated.
+
+Data correctness checks
+
+Use real accounts if possible.
+
+Verify:
+
+1. Account with a known primary contact displays the correct contact.
+2. Account with multiple contacts displays only the one marked isPrimary = true.
+3. Account with duplicate isPrimary = true contacts chooses the first deterministically or at least does not crash.
+4. Account with no contact displays fallback.
+5. Contact title matches source data.
+6. No account displays another account’s contact.
+
+Regression checks
+
+Verify:
+
+* Leads page still works if shared code touched.
+* Contacts page still works if shared code touched.
+* Account Currents still works.
+* Account tasks/activity still works.
+* Account people tab still works.
+* Account edit/delete/convert/demote still work.
+* No browser console errors.
+* No server errors.
+* No SQL errors.
+* No unrelated files changed unnecessarily.
+
+Allowed fixes
+
+Only fix issues directly related to the Primary Contact column.
+
+Allowed:
+
+* Backend payload bug
+* N+1/performance issue
+* Wrong primary contact selection
+* Null/fallback display bug
+* Table layout/colSpan bug
+* Truncation/responsive polish
+* TypeScript/type bugs
+* Console/server errors caused by this feature
+
+Not allowed:
+
+* Click contact to open profile
+* New contact modal
+* New account/contact relationship system
+* New sorting system
+* New CRM features
+* Currents work
+* Task work
+* Training Hub work
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend/data checks performed
+5. Frontend display checks
+6. Interaction checks
+7. Sorting/search/filter checks
+8. Data correctness checks
+9. Regression results
+10. Final pass/fail status
+11. Recommended next feature order
+
+Keep scope tight: Accounts Primary Contact Column audit only.

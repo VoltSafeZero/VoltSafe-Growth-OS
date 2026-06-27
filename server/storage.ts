@@ -762,7 +762,7 @@ export class DatabaseStorage implements IStorage {
         phone: contacts.phone,
       }).from(contacts).where(
         and(inArray(contacts.accountId, accountIds), eq(contacts.isPrimary, true))
-      );
+      ).orderBy(asc(contacts.id));
       for (const c of primaryContacts) {
         if (c.accountId && !primaryContactMap[c.accountId]) {
           primaryContactMap[c.accountId] = { id: c.id, name: c.name, title: c.title, email: c.email, phone: c.phone };

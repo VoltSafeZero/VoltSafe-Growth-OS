@@ -678,8 +678,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                         {account.primaryContact ? (
                           <div className="min-w-0">
                             <span className="text-sm font-medium block truncate max-w-[160px]" data-testid={`text-primary-contact-name-${account.id}`}>{account.primaryContact.name}</span>
-                            {account.primaryContact.title && (
-                              <span className="text-xs text-muted-foreground block truncate max-w-[160px]">{account.primaryContact.title}</span>
+                            {account.primaryContact.title?.trim() && (
+                              <span className="text-xs text-muted-foreground block truncate max-w-[160px]">{account.primaryContact.title.trim()}</span>
                             )}
                           </div>
                         ) : (
