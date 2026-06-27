@@ -3297,7 +3297,7 @@ export default function CurrentPage() {
                         : isMutedChan
                           ? "text-muted-foreground/40 hover:bg-muted/40 hover:text-muted-foreground/70"
                           : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-                      "pr-7",
+                      isAdmin ? "pr-14" : "pr-7",
                     )}
                   >
                     <Hash

@@ -1,0 +1,305 @@
+Please perform a VoltSafe CMS Currents Phase 10A Notification Preferences / Muting audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, typing indicators, channel search improvements, or unrelated task features.
+
+Goal
+
+Verify that Currents notification preferences and muting are secure, stable, accurate, and regression-free.
+
+Phase 10A added:
+
+* current_channel_preferences
+* Channel notification levels: all, mentions, muted
+* DM mute/unmute preference
+* Channel preference API
+* DM preference API
+* Channel notification behavior respecting preferences
+* DM notification behavior respecting mute
+* Sidebar dropdown controls
+* Muted visual state
+
+Audit scope
+
+Audit only:
+
+1. Channel preference schema/migration
+2. Channel preference routes
+3. DM preference route
+4. Channel notification creation behavior
+5. DM notification creation behavior
+6. Sidebar preference controls
+7. Muted visual state
+8. Unread behavior with muted channels/DMs
+9. Existing Currents regressions caused by 10A
+
+Schema / migration checks
+
+Verify:
+
+1. current_channel_preferences exists.
+2. Columns exist:
+    * channel_id
+    * user_id
+    * notification_level
+    * created_at
+    * updated_at
+3. Unique constraint exists on (channel_id, user_id).
+4. Valid levels are constrained or validated:
+    * all
+    * mentions
+    * muted
+5. Migration is idempotent.
+6. Existing users/channels remain valid.
+7. Existing DMs still use current_conversation_members.is_muted safely.
+8. No schema conflict with archived channels.
+
+Backend route checks
+
+GET /api/current/channels
+
+Verify:
+
+1. Requires authentication.
+2. Returns active channels as before.
+3. Includes notificationLevel for current user.
+4. Defaults to mentions when no preference row exists.
+5. Does not expose other users’ preferences.
+6. Archived channel behavior remains correct.
+
+GET /api/current/channel-preferences
+
+Verify:
+
+1. Requires authentication.
+2. Returns only current user’s preferences.
+3. Does not expose other users’ preferences.
+4. Handles empty preference table cleanly.
+
+PUT /api/current/channels/:id/preference
+
+Verify:
+
+1. Requires authentication.
+2. User can only set their own preference.
+3. Channel must exist.
+4. Invalid channel id is handled safely.
+5. Invalid notification level is rejected.
+6. Valid levels accepted:
+    * all
+    * mentions
+    * muted
+7. Upsert works.
+8. Repeated updates work.
+9. updated_at changes.
+10. Archived channel preference behavior is safe and documented.
+
+PUT /api/current/dms/:id/preference
+
+Verify:
+
+1. Requires authentication.
+2. User must be a DM member.
+3. User can only update their own member row.
+4. Invalid DM id is handled safely.
+5. Invalid level is rejected.
+6. isMuted: true/false works if supported.
+7. notificationLevel: all/muted works if supported.
+8. Does not update the other participant’s preference.
+9. Does not leak private DM existence if avoidable.
+
+Notification behavior checks
+
+Channel messages
+
+Verify:
+
+1. Sender is never notified.
+2. Default channel behavior is mentions.
+3. mentions preference:
+    * no notification for normal message
+    * notification for @mention
+4. muted preference:
+    * no notification for normal message
+    * no notification for @mention
+5. all preference:
+    * notification for normal message
+    * notification for @mention
+6. Archived channel write blocks remain intact.
+7. Notification action URLs still open the right channel/message.
+8. Notification body renders mention names correctly.
+9. No duplicate notifications are created.
+
+Direct Messages
+
+Verify:
+
+1. Sender is never notified.
+2. Default DM behavior is notify.
+3. Muted DM suppresses notification.
+4. Unmuted DM restores notification.
+5. Attachment-only DM notification still works when unmuted.
+6. Attachment-only DM notification is suppressed when muted.
+7. Notification action URL still opens /current?dm=ID.
+8. DM unread count still works even when muted.
+
+Unread behavior checks
+
+Confirm intended behavior:
+
+1. Muting affects notifications only.
+2. Muted channels still show unread count, but visually subdued.
+3. Muted DMs still show unread count, but visually subdued.
+4. Total Currents unread badge still includes muted unread if that is the intended behavior.
+5. No double-counting.
+6. Sender’s own messages do not count unread.
+7. Archived channels do not create new unread through blocked writes.
+
+Frontend UI checks
+
+Channel sidebar
+
+Verify:
+
+1. Preference dropdown appears where intended.
+2. Options are clear:
+    * All messages
+    * Mentions only
+    * Mute channel
+3. Current selected preference is visually clear.
+4. Muted channel row is dimmed.
+5. BellOff icon appears for muted channel.
+6. Unread badge remains visible but subdued if intended.
+7. Dropdown does not interfere with channel selection.
+8. Dropdown does not accidentally open channel or gear dialog.
+9. Toasts appear after preference update.
+10. Dark mode styling is polished.
+
+DM sidebar
+
+Verify:
+
+1. DM preference dropdown appears where intended.
+2. Options are clear:
+    * Notify me
+    * Mute conversation
+3. Muted DM row is dimmed.
+4. BellOff icon or equivalent appears for muted DM.
+5. Unread badge remains visible but subdued if intended.
+6. Dropdown does not interfere with opening the DM.
+7. Toasts appear after mute/unmute.
+8. Dark mode styling is polished.
+
+Security checks
+
+Verify:
+
+1. User cannot update another user’s channel preference.
+2. User cannot update another user’s DM preference.
+3. User cannot update preference for a DM they are not part of.
+4. Invalid notification levels are rejected server-side.
+5. Preference routes require auth.
+6. Preferences do not leak private DM data.
+7. Admin does not override user-owned preference unless intentionally designed.
+8. SQL injection is not possible through preference values.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel list
+* Channel posting
+* Channel unread counts
+* Channel archived/read-only behavior
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Channel edit/delete
+* Channel search
+* Mentions panel
+* Structured panel
+* Structured archived toggle/badges
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+* DMs
+* DM attachments
+* Attachment-only DMs
+* DM unread/read-state
+* DM deep-links
+* Currents nav unread badge
+* Record Currents
+* Record attachments
+* Record search
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 10A Notification Preferences / Muting.
+
+Allowed:
+
+* Preference schema/migration bug
+* Preference route validation bug
+* User scoping/security bug
+* Notification suppression bug
+* Duplicate notification bug
+* Muted visual state bug
+* Sidebar dropdown propagation bug
+* Query invalidation/refetch bug
+* Toast/display bug
+* Console/server errors caused by 10A
+* Tests directly related to 10A
+
+Not allowed:
+
+* Group DMs
+* Guest Currents
+* External collaborators
+* Slash commands
+* Workflow automation
+* Typing indicators
+* Channel search improvements
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Schema/migration checks
+5. Backend route checks
+6. Channel notification behavior checks
+7. DM notification behavior checks
+8. Unread behavior checks
+9. Frontend UI checks
+10. Security checks
+11. Regression results
+12. Features intentionally deferred
+13. Final pass/fail status
+14. Recommended next feature order
+
+Keep scope tight: Currents Phase 10A Notification Preferences / Muting audit only.
