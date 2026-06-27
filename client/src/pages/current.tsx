@@ -628,9 +628,12 @@ function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
 
 function EmojiPickerPopover({
   onReact,
+  onSelect,
 }: {
-  onReact: (emoji: string) => void;
+  onReact?: (emoji: string) => void;
+  onSelect?: (emoji: string) => void;
 }) {
+  const handleEmoji = onReact ?? onSelect ?? (() => {});
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -691,7 +694,7 @@ function EmojiPickerPopover({
               <button
                 key={emoji}
                 onClick={() => {
-                  onReact(emoji);
+                  handleEmoji(emoji);
                   setOpen(false);
                 }}
                 className="w-7 h-7 flex items-center justify-center text-[15px] rounded-md hover:bg-muted/60 transition-colors"
