@@ -1,0 +1,182 @@
+Proceed with VoltSafe CMS Navigation Planning Phase 4 only: Remaining More Group Decision Document.
+
+Do not change code. Do not edit nav-config.ts. Do not move routes. Do not rename labels. Do not implement role-based nav. Do not touch CURRENTS, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Create a short decision document for the remaining items still in the More group after Navigation Cleanup Phases 1–3.
+
+The previous phases handled only zero-risk drift fixes, label clarifications, and obvious position-only moves. The remaining items require product/IA decisions before implementation.
+
+Current context
+
+Completed:
+
+* Phase 1: removed wrong-page nav items, removed duplicate Reports, moved personal tools out of Admin, renamed Channels → Ecosystem
+* Phase 2: label clarifications
+* Phase 3: moved obvious More items to Work/Pipeline/Operations
+* More reduced from 16 items to 11
+* nav drift tests now pass 42/42
+
+Remaining More items include:
+
+* Revenue Hub
+* Revenue Ops
+* Revenue Simulator
+* Relationship Intelligence
+* Score Feedback
+* Digest Settings
+* Data Quality
+* Task Rules
+* Automations
+* Training
+* Help
+
+Deliverable
+
+Create a markdown document, for example:
+
+docs/nav-more-decision-plan-2026-06-27.md
+
+Do not change code.
+
+Required sections
+
+1. Executive summary
+
+Explain why the remaining More items should not be moved blindly.
+
+2. Remaining More inventory
+
+For each remaining item, include:
+
+1. Current label
+2. Current route
+3. Current component/page file
+4. What the page appears to do
+5. Who likely uses it
+6. Recommended destination
+7. Recommended action:
+    * keep in More temporarily
+    * move to existing group
+    * merge into another page
+    * convert to tab
+    * rename
+    * hide until ready
+    * product decision needed
+8. Risk level:
+    * low
+    * medium
+    * high
+9. Reason
+
+3. Revenue suite decision
+
+Analyze:
+
+* Revenue Hub
+* Revenue Ops
+* Revenue Simulator
+* Relationship Intelligence
+
+Answer:
+
+1. Should these move under existing Pipeline?
+2. Should these move under existing Insights / future Intelligence?
+3. Should they become a new top-level Revenue group?
+4. Are they used enough to justify top-level visibility?
+5. Are they overlapping with Pipeline Snapshot / Opportunities / Accounts?
+6. Recommended decision
+
+4. Automation consolidation decision
+
+Analyze:
+
+* Automations
+* Task Rules
+
+Answer:
+
+1. Are these separate features or should Task Rules become a tab inside Automations?
+2. Who uses them?
+3. Are they admin/config tools or general work tools?
+4. Recommended destination:
+    * More
+    * Admin
+    * Work
+    * Library
+    * inside Automations as tab
+
+5. Learn/support decision
+
+Analyze:
+
+* Training
+* Help
+
+Answer:
+
+1. Should these become a Learn group?
+2. Should they move to Library once Library exists?
+3. Should they stay in More for now?
+4. Are they general-user-facing?
+5. Recommended decision
+
+6. Settings/config decision
+
+Analyze:
+
+* Digest Settings
+* Data Quality
+* Score Feedback
+
+Answer:
+
+1. Are these admin/config tools?
+2. Are they personal settings?
+3. Are they ops/data quality tools?
+4. Should they be visible to all users?
+5. Should they be gated by role?
+6. Recommended decision
+
+7. Recommended final IA after decisions
+
+Propose the next cleaned-up sidebar structure after the remaining More decisions are resolved.
+
+Do not implement it.
+
+8. Decision checklist for Trevor
+
+Provide a short checklist of decisions Trevor needs to make before implementation.
+
+Example:
+
+* Should Revenue tools live under Pipeline, Insights/Intelligence, or a new Revenue group?
+* Should Task Rules be merged into Automations?
+* Should Training + Help become Learn/Library?
+* Should Data Quality be admin-only or ops-facing?
+* Should Score Feedback be visible to all users or admins only?
+
+9. Recommended implementation phases
+
+Propose safe implementation phases after Trevor approves decisions.
+
+Example:
+
+* Phase 4A: Revenue suite placement
+* Phase 4B: Automations/Task Rules consolidation
+* Phase 4C: Learn/Help placement
+* Phase 4D: Data Quality / Score Feedback permission decision
+* Phase 4E: More group retirement or rename
+
+Constraints
+
+Do not modify code.
+
+Do not modify tests.
+
+Do not edit nav config.
+
+Do not rename or move anything.
+
+Stop after writing the decision document.
