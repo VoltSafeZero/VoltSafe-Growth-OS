@@ -1,0 +1,271 @@
+Please perform a VoltSafe CMS Currents Phase 12A Typing Indicators audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, channel search improvements, or unrelated task features.
+
+Goal
+
+Verify that Currents typing indicators are secure, stable, polished, and regression-free.
+
+Phase 12A added:
+
+* POST /api/current/typing
+* GET /api/current/typing
+* In-memory TTL typing cache
+* Channel typing indicators
+* DM/group DM typing indicators
+* Thread typing indicators
+* Composer-side typing pings
+* Polling-based typing state
+
+Audit scope
+
+Audit only:
+
+1. Typing backend routes
+2. Typing cache/TTL behavior
+3. Channel typing behavior
+4. DM/group DM typing behavior
+5. Thread typing behavior
+6. Frontend throttling/polling behavior
+7. Security/access checks
+8. Existing Currents regressions caused by 12A
+
+Backend route checks
+
+POST /api/current/typing
+
+Verify:
+
+1. Requires authentication.
+2. Validates scope.
+3. Rejects invalid/missing scope.
+4. Channel scope:
+    * requires valid channelSlug
+    * channel must exist
+    * channel must not be archived
+5. DM scope:
+    * requires valid conversationId
+    * current user must be current member
+    * works for 1:1 DMs
+    * works for group DMs
+6. Thread scope:
+    * requires valid rootMessageId
+    * root message must exist
+    * user must have access to the root message context
+    * archived channel thread typing is blocked
+7. Stores typing entry with TTL.
+8. Dedupes/refreshes same user in same scope.
+9. Does not create unbounded memory growth.
+10. Returns clean success response.
+
+GET /api/current/typing
+
+Verify:
+
+1. Requires authentication.
+2. Validates scope.
+3. Uses same access checks as POST.
+4. Returns only active non-expired typers.
+5. Excludes current user.
+6. Returns { typers, count }.
+7. Handles empty state cleanly.
+8. Handles stale/expired entries cleanly.
+9. Limits/caps returned typers if needed.
+10. Does not leak private DM/group/thread membership.
+
+Cache / TTL checks
+
+Verify:
+
+1. TTL is approximately 7 seconds.
+2. Existing server/cache.ts TTL behavior works as expected.
+3. Typing entries expire naturally.
+4. Repeated typing refreshes TTL.
+5. Cache cleanup/sweep prevents unbounded growth.
+6. Keys are scoped correctly:
+    * channel:{slug}
+    * dm:{conversationId}
+    * thread:{rootMessageId}
+7. Typing in one DM does not show in another.
+8. Typing in one channel does not show in another.
+9. Typing in thread does not show in root channel feed unless intentionally designed.
+10. Typing cache does not persist across restart, which is acceptable.
+
+Frontend checks
+
+Channel composer
+
+Verify:
+
+1. Typing ping sends while user types.
+2. Ping only sends when draft text is non-empty.
+3. Ping is throttled to about every 2.5 seconds.
+4. No ping is sent in archived channels.
+5. Indicator polls about every 3 seconds.
+6. Indicator excludes current user.
+7. Indicator appears above composer.
+8. Indicator expires/disappears after TTL.
+9. Sending message clears draft and does not leave stuck indicator.
+10. Switching channels does not show stale typers.
+
+DM / Group DM composer
+
+Verify:
+
+1. Typing ping sends while user types in 1:1 DM.
+2. Typing ping sends while user types in group DM.
+3. Ping only sends when draft text is non-empty.
+4. Ping is throttled.
+5. Indicator polls while DM is selected.
+6. Indicator excludes current user.
+7. Indicator appears above composer.
+8. Indicator expires/disappears after TTL.
+9. Switching DMs does not show stale typers.
+10. Non-member cannot read/write typing state.
+
+ThreadPanel composer
+
+Verify:
+
+1. Typing ping sends while user types reply.
+2. Ping only sends when reply draft is non-empty.
+3. Ping is throttled.
+4. Indicator appears near reply composer.
+5. Archived channel thread typing is blocked/hidden.
+6. Switching thread roots does not show stale typers.
+7. Thread typing does not break reply submission.
+
+Indicator UI checks
+
+Verify copy and layout:
+
+1. One typer:
+    * Alex is typing
+2. Two typers:
+    * Alex and Sarah are typing
+3. Three or more:
+    * Alex and 2 others are typing
+4. Animated dots render cleanly.
+5. Dark mode styling is polished.
+6. Indicator does not cause aggressive layout shift.
+7. Long names truncate or remain readable.
+8. Hidden when no typers.
+9. No flicker from polling.
+
+Security checks
+
+Verify:
+
+1. User cannot POST typing to DM/group DM they are not part of.
+2. User cannot GET typing for DM/group DM they are not part of.
+3. User cannot POST typing to archived channel.
+4. User cannot POST typing to archived-channel thread.
+5. User cannot infer private DM/group membership from typing endpoints.
+6. User cannot create unlimited arbitrary keys through invalid scopes.
+7. Typing route does not expose emails or sensitive user data.
+8. Typing route is scoped to internal authenticated users.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel list
+* Channel posting
+* Channel unread counts
+* Channel notification preferences
+* Channel archived/read-only behavior
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Channel search
+* Mentions panel
+* Structured panel
+* Structured archived toggle/badges
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+* 1:1 DMs
+* 1:1 DM attachments
+* 1:1 attachment-only DMs
+* 1:1 DM unread/read-state
+* 1:1 DM mute/unmute
+* Group DMs
+* Group DM add/leave members
+* Group DM attachments
+* Group DM unread/read-state
+* Hide muted unread from nav badge preference
+* Record Currents
+* Record attachments
+* Record search
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+* Excessive polling/network noise
+
+Allowed fixes
+
+Only fix issues directly related to Phase 12A Typing Indicators.
+
+Allowed:
+
+* Typing route validation bug
+* Typing access-control bug
+* Typing cache/TTL bug
+* Cross-conversation typing leakage
+* Stale indicator bug
+* Throttle/polling bug
+* Archived-channel typing bug
+* Thread typing bug
+* UI copy/layout bug
+* Console/server errors caused by typing indicators
+* Tests directly related to 12A
+
+Not allowed:
+
+* WebSocket conversion
+* Read receipts per person
+* Typing indicators for non-Currents modules
+* Guest/external collaborators
+* Slash commands
+* Workflow automation
+* Channel search improvements
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend route checks
+5. Cache/TTL checks
+6. Frontend checks
+7. Indicator UI checks
+8. Security checks
+9. Regression results
+10. Known issues
+11. Final pass/fail status
+12. Recommended next feature order
+
+Keep scope tight: Typing Indicators audit only.

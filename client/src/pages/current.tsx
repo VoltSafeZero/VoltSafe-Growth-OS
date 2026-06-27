@@ -1358,7 +1358,8 @@ function ThreadPanel({
       fetch(`/api/current/typing?scope=thread&rootMessageId=${rootMessageId}`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 3_000,
     staleTime: 0,
-    enabled: !isArchived,
+    refetchOnWindowFocus: false,
+    enabled: !!rootMessageId && !isArchived,
   });
 
   // Thread AI summary
@@ -2381,28 +2382,33 @@ function TypingIndicator({
   typers: { userId: number; name: string }[];
   count: number;
 }) {
-  if (!count) return null;
+  // Always reserve h-5 space so the composer does not jump when a typer appears.
   const firstName = (n: string) => n.split(" ")[0];
-  let label: string;
-  if (count === 1) label = `${firstName(typers[0].name)} is typing`;
-  else if (count === 2) label = `${firstName(typers[0].name)} and ${firstName(typers[1].name)} are typing`;
-  else label = `${firstName(typers[0].name)} and ${count - 1} other${count - 1 > 1 ? "s" : ""} are typing`;
+  let label = "";
+  if (count === 1) label = `${firstName(typers[0]?.name ?? "")} is typing`;
+  else if (count === 2) label = `${firstName(typers[0]?.name ?? "")} and ${firstName(typers[1]?.name ?? "")} are typing`;
+  else if (count > 2) label = `${firstName(typers[0]?.name ?? "")} and ${count - 1} other${count - 1 > 1 ? "s" : ""} are typing`;
+
   return (
     <div
-      className="flex items-center gap-1.5 px-1 h-5 shrink-0 select-none"
+      className="h-5 flex items-center gap-1.5 px-1 shrink-0 select-none"
       aria-live="polite"
       data-testid="typing-indicator"
     >
-      <span className="text-[11px] text-muted-foreground/55 italic leading-none">{label}</span>
-      <span className="flex gap-[3px] items-end pb-0.5">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="w-[3px] h-[3px] rounded-full bg-muted-foreground/40 animate-bounce"
-            style={{ animationDelay: `${i * 160}ms`, animationDuration: "0.9s" }}
-          />
-        ))}
-      </span>
+      {count > 0 && (
+        <>
+          <span className="text-[11px] text-muted-foreground/55 italic leading-none">{label}</span>
+          <span className="flex gap-[3px] items-end pb-0.5">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="w-[3px] h-[3px] rounded-full bg-muted-foreground/40 animate-bounce"
+                style={{ animationDelay: `${i * 160}ms`, animationDuration: "0.9s" }}
+              />
+            ))}
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -3138,6 +3144,7 @@ export default function CurrentPage() {
       fetch(`/api/current/typing?scope=channel&channelSlug=${encodeURIComponent(selectedSlug)}`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 3_000,
     staleTime: 0,
+    refetchOnWindowFocus: false,
     enabled: !!selectedSlug && view === "channel",
   });
   const { data: dmTypingData } = useQuery<{ typers: { userId: number; name: string }[]; count: number }>({
@@ -3146,6 +3153,7 @@ export default function CurrentPage() {
       fetch(`/api/current/typing?scope=dm&conversationId=${selectedDmId}`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 3_000,
     staleTime: 0,
+    refetchOnWindowFocus: false,
     enabled: !!selectedDmId && view === "dm",
   });
 
