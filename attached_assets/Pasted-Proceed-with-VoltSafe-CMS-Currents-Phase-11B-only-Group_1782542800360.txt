@@ -1,0 +1,292 @@
+Proceed with VoltSafe CMS Currents Phase 11B only: Group DM Member Management.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, typing indicators, channel search improvements, or unrelated task features.
+
+Goal
+
+Add basic member management for internal Group Direct Messages.
+
+Phase 11A added group DMs. Phase 11B should let group DM members:
+
+1. View group members clearly
+2. Add internal users to an existing group DM
+3. Leave a group DM
+4. Preserve security, notifications, unread state, and attachment permissions
+
+Keep this focused on internal group DM membership only.
+
+Scope
+
+Add only:
+
+1. Group DM member list UI
+2. Add member to existing group DM
+3. Leave group DM
+4. Backend routes for add/leave
+5. Membership/security guards
+6. Notification/system message behavior if low-risk
+7. Tests/audit for the above
+
+Do not add:
+
+* external guests
+* channel-like roles/admins
+* owner transfer
+* removing other members
+* renaming group DMs
+* typing indicators
+* read receipts per person
+* slash commands
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* current_conversations
+* current_conversation_members
+* group DM creation route
+* GET /api/current/dms
+* DM message routes
+* DM preference/mute route
+* DM read route
+* attachment membership guards
+* notification creation logic
+* NewDmDialog user search
+* group DM header/sidebar UI
+* existing user picker patterns
+* existing toast/dialog patterns
+
+Backend routes
+
+Add authenticated routes under /api/current.
+
+Add group DM members
+
+POST /api/current/dms/:id/members
+
+Body:
+
+{
+  "userIds": [123, 456]
+}
+
+Rules:
+
+1. Requires authentication.
+2. Current user must be a member of the group DM.
+3. Conversation must be group_dm.
+4. Reject use on 1:1 DMs.
+5. Validate all users exist and are active/internal.
+6. Exclude current members.
+7. Reject if no new valid users remain.
+8. Insert new rows into current_conversation_members.
+9. Preserve existing members’ read/mute state.
+10. Return updated conversation/member list.
+11. Do not create duplicate member rows.
+12. Enforce reasonable max group size, matching Phase 11A limit if one exists.
+13. Notify newly added users if notification system supports it cleanly.
+
+Leave group DM
+
+POST /api/current/dms/:id/leave
+
+Rules:
+
+1. Requires authentication.
+2. Current user must be a member.
+3. Conversation must be group_dm.
+4. Reject use on 1:1 DMs.
+5. Remove or soft-archive the current user’s member row.
+
+Preferred behavior:
+
+* Soft leave if schema supports it, e.g. left_at.
+* If no left_at exists, carefully delete the member row.
+
+Consider adding columns if needed:
+
+* left_at
+* left_by
+
+If adding left_at, update all membership checks to require left_at IS NULL.
+
+6. User who left should no longer see the group DM in list.
+7. User who left cannot read/send/mark-read/mute/upload attachments.
+8. Existing messages remain visible to remaining members.
+9. If only one member would remain, either:
+    * allow it but group becomes effectively inactive, or
+    * block leaving as last/second-last member.
+
+Preferred: allow leaving unless it would leave zero members; document behavior.
+
+Display/system message behavior
+
+If low-risk, add system messages such as:
+
+* Trevor added Alex to the conversation
+* Sarah left the conversation
+
+Only do this if existing message rendering can safely support system messages.
+
+If not low-risk, skip system messages and just toast in UI.
+
+Frontend requirements
+
+Group DM header
+
+Add a member control in the group DM header:
+
+* Member count clickable
+* Or small Members / Add button
+
+When clicked, show a group member popover/dialog.
+
+Member list
+
+Show:
+
+* member avatar/initials
+* name
+* email
+* muted state optional
+* current user label optional
+
+Add members
+
+In the member dialog:
+
+1. Add Add people button/search.
+2. Search internal users.
+3. Exclude existing members.
+4. Allow selecting multiple users.
+5. Show selected chips.
+6. Add button disabled until at least one new user selected.
+7. On success:
+    * close or clear picker
+    * refetch DM list/messages
+    * update header member count
+    * show toast
+
+Leave group
+
+In the member dialog or group DM header:
+
+1. Show Leave conversation for group DMs.
+2. Require confirmation.
+3. On success:
+    * remove group DM from current user’s sidebar
+    * navigate to safe fallback DM or empty Direct Messages state
+    * show toast
+
+Do not show Leave for 1:1 DMs.
+
+Security requirements
+
+Verify:
+
+1. Non-member cannot add members.
+2. Non-member cannot leave a group they are not in.
+3. Member cannot add inactive/deleted users.
+4. Member cannot add external/guest users if such users exist.
+5. Member cannot add duplicate existing members.
+6. Member cannot add beyond group size limit.
+7. User who left can no longer read/send/mark-read/mute/upload attachments.
+8. User who left cannot access group DM by deep-link.
+9. Attachment guards respect left/active membership.
+10. Notifications do not leak group details to non-members.
+
+Existing route updates
+
+If adding left_at, update all membership checks in:
+
+* GET /api/current/dms
+* GET /api/current/dms/:id/messages
+* POST /api/current/dms/:id/messages
+* POST /api/current/dms/:id/read
+* PUT /api/current/dms/:id/preference
+* DM attachment upload/list/download guards
+* Notification fan-out
+* Unread-counts
+* Hide-muted badge preference
+* Group DM member list response
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Existing 1:1 DMs still work.
+4. Existing group DMs still work.
+5. Group member list opens.
+6. Member list shows all current members.
+7. Existing members are excluded from add search.
+8. Add one member works.
+9. Add multiple members works.
+10. Duplicate add is safely ignored or blocked.
+11. Added user sees group DM.
+12. Added user can send/read messages.
+13. Added user receives notifications.
+14. Existing members keep read/mute state.
+15. Leave group requires confirmation.
+16. Leaving removes group from sidebar.
+17. Leaving user cannot open group via deep-link.
+18. Remaining users still see group and messages.
+19. 1:1 DMs do not show group member management controls.
+20. DM attachments still work.
+21. Attachment-only DMs still work.
+22. Group DM attachments still work.
+23. Group DM unread counts still work.
+24. Group DM mute still works.
+25. Hide-muted unread badge preference still works.
+26. Channel Currents still work.
+27. Archived channel behavior still works.
+28. Search still works.
+29. Mentions panel still works.
+30. Structured panel still works.
+31. AI summaries still work.
+32. Create Task still works.
+33. View in Currents still works.
+34. No browser console errors.
+35. No server errors.
+36. No SQL errors.
+37. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Add member route requires membership
+* Add member route rejects 1:1 DM
+* Add member route rejects inactive users
+* Add member route dedupes existing members
+* Add member route enforces max size
+* Leave route requires membership
+* Leave route rejects 1:1 DM
+* Left user no longer sees group DM
+* Left user cannot read/send/mute/upload
+* Remaining users can still use group
+* Member dialog UI
+* Add-member UI
+* Leave confirmation UI
+* Existing 11A group DM tests still pass
+* Existing 8B/8C/8D DM tests still pass
+* Existing 10A/10B notification tests still pass
+* Existing 9A/9B/9C channel tests still pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing group DM membership audit summary
+2. Schema/migration changes, if any
+3. Backend route changes
+4. Frontend changes
+5. Add-member behavior
+6. Leave-group behavior
+7. Security checks
+8. Verification results
+9. Known issues
+10. Recommended next feature order
+
+Keep scope tight: Group DM Member Management only.

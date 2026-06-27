@@ -38,6 +38,8 @@ import {
   BellOff,
   BellRing,
   Check,
+  UserPlus,
+  LogOut,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -2124,6 +2126,226 @@ function NewDmDialog({
   );
 }
 
+// ── GroupMemberDialog ─────────────────────────────────────────────────────────
+// Phase 11B: view members, add members, leave group DM
+
+function GroupMemberDialog({
+  open,
+  onOpenChange,
+  conversation,
+  currentUserId,
+  onAddMembers,
+  onLeave,
+  isAddPending = false,
+  isLeavePending = false,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  conversation: DmConversation | null;
+  currentUserId: number;
+  onAddMembers: (userIds: number[]) => void;
+  onLeave: () => void;
+  isAddPending?: boolean;
+  isLeavePending?: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [selectedNew, setSelectedNew] = useState<MentionUser[]>([]);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  useEffect(() => {
+    if (!open) { setQ(""); setDebouncedQ(""); setSelectedNew([]); setConfirmLeave(false); }
+  }, [open]);
+
+  const existingMemberIds = new Set([
+    currentUserId,
+    ...(conversation?.members.map((m) => m.id) ?? []),
+  ]);
+
+  const { data: searchUsers = [], isLoading: searchLoading } = useQuery<MentionUser[]>({
+    queryKey: ["/api/current/users", debouncedQ],
+    queryFn: () =>
+      fetch(`/api/current/users?q=${encodeURIComponent(debouncedQ)}`, { credentials: "include" }).then((r) => r.json()),
+    staleTime: 10_000,
+    enabled: open && !confirmLeave,
+  });
+
+  const filteredUsers = searchUsers.filter((u) => !existingMemberIds.has(u.id));
+  const selectedIds = new Set(selectedNew.map((u) => u.id));
+
+  function toggleNew(user: MentionUser) {
+    setSelectedNew((prev) =>
+      prev.some((u) => u.id === user.id)
+        ? prev.filter((u) => u.id !== user.id)
+        : [...prev, user]
+    );
+  }
+
+  const totalCount = 1 + (conversation?.members.length ?? 0);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm w-full p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-4 pt-4 pb-3 border-b border-border/30">
+          <DialogTitle className="text-[14px] font-semibold flex items-center gap-2">
+            <Users className="w-4 h-4 text-muted-foreground/60" />
+            {conversation?.displayName ?? "Group"} · {totalCount} member{totalCount !== 1 ? "s" : ""}
+          </DialogTitle>
+        </DialogHeader>
+
+        {confirmLeave ? (
+          <div className="px-4 py-5 flex flex-col gap-3">
+            <p className="text-[13px] text-foreground/80">
+              Leave <span className="font-medium">{conversation?.displayName}</span>? You won't be able to send or receive messages in this group.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmLeave(false)}
+                className="flex-1 py-1.5 rounded-lg text-[13px] border border-border/50 hover:bg-muted/50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                data-testid="btn-leave-confirm"
+                onClick={onLeave}
+                disabled={isLeavePending}
+                className="flex-1 py-1.5 rounded-lg text-[13px] font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+              >
+                {isLeavePending
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Leaving…</>
+                  : "Leave conversation"
+                }
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col max-h-[72vh] overflow-hidden">
+            {/* ── Current members ── */}
+            <div className="px-3 pt-3 pb-2 overflow-y-auto max-h-44 flex flex-col gap-0.5">
+              {/* Current user first */}
+              <div className="flex items-center gap-2 px-1 py-1.5 rounded-md">
+                <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white", avatarBg(currentUserId))}>
+                  {initials("You")}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12.5px] font-medium leading-tight">You</div>
+                </div>
+              </div>
+              {(conversation?.members ?? []).map((m) => (
+                <div key={m.id} className="flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-muted/30">
+                  <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white", avatarBg(m.id))}>
+                    {initials(m.name)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12.5px] font-medium leading-tight truncate">{m.name}</div>
+                    <div className="text-[11px] text-muted-foreground/50 truncate">{m.email}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-border/30 mx-3" />
+
+            {/* ── Add people ── */}
+            <div className="px-3 pt-3 pb-2 flex flex-col gap-2">
+              <p className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-wide px-1">Add people</p>
+
+              {selectedNew.length > 0 && (
+                <div className="flex flex-wrap gap-1 px-1">
+                  {selectedNew.map((u) => (
+                    <span key={u.id} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[12px] font-medium">
+                      {u.name.split(" ")[0]}
+                      <button onClick={() => toggleNew(u)} className="hover:opacity-70"><X className="w-3 h-3" /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <input
+                type="text"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search teammates…"
+                data-testid="input-add-member-search"
+                className="w-full px-3 py-1.5 rounded-lg text-[13px] bg-muted/40 border border-border/30 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
+              />
+
+              <div className="overflow-y-auto max-h-32">
+                {searchLoading ? (
+                  <div className="flex items-center justify-center py-3">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/40" />
+                  </div>
+                ) : filteredUsers.length === 0 ? (
+                  <p className="text-[12px] text-muted-foreground/40 text-center py-2">
+                    {debouncedQ ? "No results" : "Search to add teammates"}
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-0.5">
+                    {filteredUsers.slice(0, 8).map((user) => (
+                      <button
+                        key={user.id}
+                        onClick={() => toggleNew(user)}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/40 transition-colors w-full text-left"
+                      >
+                        <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white", avatarBg(user.id))}>
+                          {initials(user.name)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[12.5px] font-medium truncate">{user.name}</div>
+                          <div className="text-[11px] text-muted-foreground/50 truncate">{user.email}</div>
+                        </div>
+                        {selectedIds.has(user.id) && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button
+                data-testid="btn-add-members"
+                onClick={() => { if (selectedNew.length) onAddMembers(selectedNew.map((u) => u.id)); }}
+                disabled={!selectedNew.length || isAddPending}
+                className={cn(
+                  "w-full py-1.5 rounded-lg text-[13px] font-medium transition-colors flex items-center justify-center gap-1.5",
+                  selectedNew.length && !isAddPending
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "bg-muted/40 text-muted-foreground/40 cursor-not-allowed"
+                )}
+              >
+                {isAddPending
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Adding…</>
+                  : selectedNew.length
+                    ? `Add ${selectedNew.length} person${selectedNew.length > 1 ? "s" : ""}`
+                    : "Select people to add"
+                }
+              </button>
+            </div>
+
+            <div className="border-t border-border/30 mx-3" />
+
+            {/* ── Leave ── */}
+            <div className="px-3 py-2.5">
+              <button
+                data-testid="btn-leave-group-dm"
+                onClick={() => setConfirmLeave(true)}
+                className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[12.5px] text-destructive/70 hover:bg-destructive/10 hover:text-destructive transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5 shrink-0" />
+                Leave conversation
+              </button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── SearchPanel ───────────────────────────────────────────────────────────────
 
 function SearchPanel({
@@ -2722,6 +2944,7 @@ export default function CurrentPage() {
   const [newDmOpen, setNewDmOpen] = useState(false);
   const [dmDraft, setDmDraft] = useState("");
   const [editingDmMessage, setEditingDmMessage] = useState<DmMessage | null>(null);
+  const [groupMemberOpen, setGroupMemberOpen] = useState(false);
   const [dmPendingFiles, setDmPendingFiles] = useState<File[]>([]);
   const dmFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDmUploading, setIsDmUploading] = useState(false);
@@ -3208,6 +3431,33 @@ export default function CurrentPage() {
     },
     onError: (e: any) => {
       toast({ title: "Could not start conversation", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const addMembersMutation = useMutation({
+    mutationFn: (userIds: number[]) =>
+      apiRequest("POST", `/api/current/dms/${selectedDmId}/members`, { userIds }).then((r) => r.json()),
+    onSuccess: () => {
+      setGroupMemberOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
+      toast({ title: "Members added successfully" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Could not add members", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const leaveDmMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/current/dms/${selectedDmId}/leave`, {}).then((r) => r.json()),
+    onSuccess: () => {
+      setGroupMemberOpen(false);
+      setSelectedDmId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
+      toast({ title: "You left the conversation" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Could not leave conversation", description: e.message, variant: "destructive" });
     },
   });
 
@@ -3823,9 +4073,15 @@ export default function CurrentPage() {
                 {selectedDm?.displayName ?? "Direct Message"}
               </span>
               {selectedDm?.type === 'group_dm' ? (
-                <span className="text-[12px] text-muted-foreground/60 truncate">
+                <button
+                  data-testid="btn-group-member-count"
+                  onClick={() => setGroupMemberOpen(true)}
+                  className="flex items-center gap-1 text-[12px] text-muted-foreground/60 hover:text-primary/80 transition-colors rounded px-1 -mx-1"
+                  title="View members"
+                >
+                  <UserPlus className="w-3 h-3 shrink-0" />
                   {(selectedDm.members.length + 1)} members
-                </span>
+                </button>
               ) : selectedDm?.otherUser?.email && (
                 <span className="text-[12px] text-muted-foreground/60 truncate">
                   {selectedDm.otherUser.email}
@@ -4473,6 +4729,17 @@ export default function CurrentPage() {
         onOpenChange={setNewDmOpen}
         onConfirm={(userIds) => startDmMutation.mutate(userIds)}
         isPending={startDmMutation.isPending}
+      />
+
+      <GroupMemberDialog
+        open={groupMemberOpen}
+        onOpenChange={setGroupMemberOpen}
+        conversation={selectedDm ?? null}
+        currentUserId={currentUserId}
+        onAddMembers={(userIds) => addMembersMutation.mutate(userIds)}
+        onLeave={() => leaveDmMutation.mutate()}
+        isAddPending={addMembersMutation.isPending}
+        isLeavePending={leaveDmMutation.isPending}
       />
 
       {/* ── Thread panel ────────────────────────────────────────────────── */}

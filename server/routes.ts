@@ -35366,7 +35366,105 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  // ── Engagement scheduler + default rules ────────────────────────────────────
+  // POST /api/current/dms/:id/members — add members to a group DM (Phase 11B)
+  app.post("/api/current/dms/:id/members", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const convId = Number(req.params.id);
+      if (!convId) return res.status(400).json({ message: "Invalid conversation id" });
+      const memberCheck = await db.execute(sql.raw(
+        `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+      ));
+      if (!memberCheck.rows.length)
+        return res.status(403).json({ message: "Not a member of this conversation" });
+      const convRow = await db.execute(sql.raw(
+        `SELECT type FROM current_conversations WHERE id = ${convId} LIMIT 1`
+      ));
+      if (!convRow.rows.length) return res.status(404).json({ message: "Conversation not found" });
+      if (String((convRow.rows[0] as any).type) !== 'group_dm')
+        return res.status(400).json({ message: "Cannot add members to a 1:1 DM" });
+      const rawIds: number[] = (Array.isArray(req.body?.userIds) ? req.body.userIds : [])
+        .map(Number).filter((n: number) => !isNaN(n) && n > 0);
+      const uniqueIds = [...new Set(rawIds)];
+      if (!uniqueIds.length)
+        return res.status(400).json({ message: "userIds is required" });
+      const idList = uniqueIds.join(',');
+      const validUsers = await db.execute(sql.raw(
+        `SELECT id, name, email, avatar_url FROM users WHERE id IN (${idList}) AND global_role NOT IN ('inactive')`
+      ));
+      if (validUsers.rows.length !== uniqueIds.length)
+        return res.status(400).json({ message: "One or more users not found or inactive" });
+      const existingRows = await db.execute(sql.raw(
+        `SELECT user_id FROM current_conversation_members WHERE conversation_id = ${convId}`
+      ));
+      const existingIds = new Set((existingRows.rows as any[]).map((r) => Number(r.user_id)));
+      const newIds = uniqueIds.filter((id) => !existingIds.has(id));
+      if (!newIds.length)
+        return res.status(400).json({ message: "All specified users are already members" });
+      if (existingIds.size + newIds.length > 20)
+        return res.status(400).json({ message: `Group DM limited to 20 members (currently ${existingIds.size})` });
+      const memberValues = newIds.map((uid) => `(${convId}, ${uid})`).join(', ');
+      await db.execute(sql.raw(`
+        INSERT INTO current_conversation_members (conversation_id, user_id)
+        VALUES ${memberValues}
+        ON CONFLICT (conversation_id, user_id) DO NOTHING
+      `));
+      const senderRows = await db.execute(sql.raw(`SELECT name FROM users WHERE id = ${userId} LIMIT 1`));
+      const senderName = String((senderRows.rows[0] as any)?.name || "Someone").replace(/'/g, "''");
+      (async () => {
+        try {
+          for (const newUid of newIds) {
+            const dedupeKey = `dm_added:${convId}:${newUid}:${Date.now()}`;
+            await db.execute(sql.raw(`
+              INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
+              VALUES (${newUid}, 'current_dm', '${senderName} added you to a group conversation', 'You were added to a group message', 'medium', 'current_conversation', ${convId}, '/current?dm=${convId}', FALSE, '${dedupeKey}')
+            `));
+          }
+        } catch { /* non-fatal */ }
+      })();
+      const allMembersRows = await db.execute(sql.raw(`
+        SELECT u.id, u.name, u.email, u.avatar_url
+        FROM current_conversation_members ccm
+        JOIN users u ON u.id = ccm.user_id
+        WHERE ccm.conversation_id = ${convId}
+        ORDER BY u.name ASC
+      `));
+      const members = (allMembersRows.rows as any[]).map((u) => ({
+        id: Number(u.id), name: u.name, email: u.email, avatarUrl: u.avatar_url || null,
+      }));
+      res.status(201).json({ conversationId: convId, members });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/dms/:id/leave — leave a group DM (Phase 11B)
+  app.post("/api/current/dms/:id/leave", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const convId = Number(req.params.id);
+      if (!convId) return res.status(400).json({ message: "Invalid conversation id" });
+      const memberCheck = await db.execute(sql.raw(
+        `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+      ));
+      if (!memberCheck.rows.length)
+        return res.status(403).json({ message: "Not a member of this conversation" });
+      const convRow = await db.execute(sql.raw(
+        `SELECT type FROM current_conversations WHERE id = ${convId} LIMIT 1`
+      ));
+      if (!convRow.rows.length) return res.status(404).json({ message: "Conversation not found" });
+      if (String((convRow.rows[0] as any).type) !== 'group_dm')
+        return res.status(400).json({ message: "Cannot leave a 1:1 DM" });
+      await db.execute(sql.raw(
+        `DELETE FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId}`
+      ));
+      res.json({ ok: true, conversationId: convId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+    // ── Engagement scheduler + default rules ────────────────────────────────────
   seedDefaultRules().catch(err => console.error("[routes] seedDefaultRules error:", err));
   seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
   startEngagementScheduler();
