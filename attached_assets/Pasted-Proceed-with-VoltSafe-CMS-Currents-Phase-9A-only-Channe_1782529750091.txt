@@ -1,0 +1,302 @@
+Proceed with VoltSafe CMS Currents Phase 9A only: Channel Management.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, notification preferences, typing indicators, or unrelated task features.
+
+Goal
+
+Add basic internal channel management to Currents so authorized VoltSafe users can create, edit, and archive channels without developer/database intervention.
+
+Currents already supports channels, messages, threads, reactions, pins, attachments, search, summaries, structured items, tasks, DMs, DM attachments, and unread state. Phase 9A should make channel administration usable.
+
+Scope
+
+Add only:
+
+1. Create channel
+2. Edit channel name
+3. Edit channel description/purpose if supported
+4. Archive channel
+5. Hide archived channels from default channel list
+6. Safe archived-channel behavior for old messages/deep-links
+7. Basic permissions/admin guard
+8. Tests/audit for the above
+
+Do not add private channels, channel members, external guests, group DMs, notification preferences, or slash commands yet.
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* current_channels schema
+* existing channel list query
+* existing channel selection logic
+* existing default channel behavior
+* existing channel route(s)
+* existing Currents sidebar channel rendering
+* existing channel unread counts
+* existing message posting route
+* existing search behavior
+* existing summary behavior
+* existing structured item behavior
+* existing “View in Currents” deep-link behavior
+* existing auth/role/permission model
+
+Reuse existing tables and route patterns wherever possible.
+
+Data model requirements
+
+If not already present, add nullable/safe columns to current_channels:
+
+* description or purpose
+* is_archived
+* archived_at
+* archived_by
+* updated_at
+
+If a suitable column already exists, reuse it.
+
+Migration must be idempotent.
+
+Backend routes
+
+Add or update authenticated routes under /api/current.
+
+Create channel
+
+POST /api/current/channels
+
+Body:
+
+{
+  "name": "sales",
+  "description": "Sales and marina pipeline discussion"
+}
+
+Requirements:
+
+1. Requires authentication.
+2. Requires admin or appropriate internal permission.
+3. Name is required.
+4. Name is normalized safely:
+    * lowercase
+    * trim spaces
+    * convert spaces to hyphens
+    * remove unsafe characters
+5. Prevent duplicate active channel names/slugs.
+6. Create channel with is_archived = false.
+7. Return created channel.
+8. Channel appears in sidebar after creation.
+
+Edit channel
+
+PATCH /api/current/channels/:id
+
+Body may include:
+
+{
+  "name": "sales-team",
+  "description": "Sales team discussion"
+}
+
+Requirements:
+
+1. Requires authentication.
+2. Requires admin or appropriate internal permission.
+3. Cannot edit non-existent channel.
+4. Cannot rename to duplicate active channel name/slug.
+5. Safely normalizes name/slug.
+6. Updates updated_at.
+7. Sidebar updates after edit.
+8. Existing messages remain linked to the same channel id.
+
+Archive channel
+
+POST /api/current/channels/:id/archive
+
+Requirements:
+
+1. Requires authentication.
+2. Requires admin or appropriate internal permission.
+3. Sets is_archived = true.
+4. Sets archived_at.
+5. Sets archived_by.
+6. Archived channel disappears from default channel sidebar.
+7. Existing messages are not deleted.
+8. Deep-links to old messages in archived channel still open safely in read-only or archived state.
+9. Posting to archived channel should be blocked.
+
+Optional unarchive
+
+Only add POST /api/current/channels/:id/unarchive if it is trivial and safe.
+
+Otherwise defer.
+
+Frontend requirements
+
+Sidebar
+
+Add a small channel management UI near the Channels heading:
+
+* + button for New Channel
+* Optional settings/edit button on channel row or channel header
+
+Keep it clean and unobtrusive.
+
+Create Channel dialog
+
+Fields:
+
+* Channel name
+* Description/purpose optional
+
+Behavior:
+
+1. Opens from + near Channels.
+2. Shows normalized preview if easy, e.g. #sales-team.
+3. Validates required name.
+4. Shows duplicate-name errors clearly.
+5. Creates channel.
+6. Refreshes channel list.
+7. Selects newly created channel.
+
+Edit Channel dialog
+
+Accessible from current channel header or sidebar row.
+
+Fields:
+
+* Channel name
+* Description/purpose
+
+Behavior:
+
+1. Opens existing channel values.
+2. Saves changes.
+3. Refreshes channel list.
+4. Keeps user on same channel.
+5. Does not lose messages.
+
+Archive Channel
+
+Accessible from edit dialog or channel settings.
+
+Behavior:
+
+1. Requires confirmation.
+2. Clearly warns:
+    * Channel messages will remain searchable/viewable.
+    * New messages will be blocked.
+3. Archives channel.
+4. Removes it from default sidebar.
+5. Selects a safe fallback channel after archive.
+
+Archived channel view
+
+If user opens archived channel via deep-link:
+
+1. Show archived banner:
+    * This channel is archived. Messages are read-only.
+2. Hide or disable composer.
+3. Existing messages remain visible.
+4. Search/deep-links still work.
+
+Permission requirements
+
+Use existing admin/internal permission model.
+
+Preferred:
+
+* Only admins/master admins can create/edit/archive channels for Phase 9A.
+
+Verify:
+
+1. Normal users cannot create channels.
+2. Normal users cannot edit channels.
+3. Normal users cannot archive channels.
+4. Normal users can still read/post in non-archived channels if currently allowed.
+5. Archived channels block posting for everyone except maybe admin override; prefer block for everyone.
+
+Safety requirements
+
+1. Do not delete messages when archiving.
+2. Do not break channel IDs.
+3. Do not break task source links.
+4. Do not break View in Currents links.
+5. Do not break summaries/search/structured items for archived channels.
+6. Do not break DMs.
+7. Do not break Record Currents.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Existing channels display.
+4. New Channel button appears for admin.
+5. New Channel button hidden/disabled for non-admin if testable.
+6. Create channel works.
+7. Duplicate channel name is blocked.
+8. Unsafe channel name is normalized safely.
+9. Created channel appears in sidebar.
+10. Created channel can be selected.
+11. Posting in created channel works.
+12. Edit channel name works.
+13. Edit description works.
+14. Existing messages remain after edit.
+15. Archive channel requires confirmation.
+16. Archived channel disappears from default sidebar.
+17. Archived channel messages are not deleted.
+18. Archived channel deep-link opens safely.
+19. Archived channel shows read-only banner.
+20. Posting to archived channel is blocked.
+21. Fallback channel selected after archive.
+22. Channel unread counts still work.
+23. Currents nav unread badge still works.
+24. DMs still work.
+25. DM attachments still work.
+26. Attachment-only DMs still work.
+27. Record Currents still work.
+28. Search still works.
+29. Mentions panel still works.
+30. Structured panel still works.
+31. AI summaries still work.
+32. Create Task still works.
+33. View in Currents from Tasks still works.
+34. No browser console errors.
+35. No server errors.
+36. No SQL errors.
+37. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Channel schema/migration columns
+* Create channel route
+* Duplicate channel protection
+* Name normalization
+* Edit channel route
+* Archive channel route
+* Archived channel hidden from default list
+* Posting to archived channel blocked
+* Archived channel messages still viewable
+* Admin permission guard
+* DMs unaffected
+* Existing 8B/8C/8D DM tests remain passing
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing channel system audit summary
+2. Schema/migration changes
+3. Backend routes added/changed
+4. Frontend changes
+5. Permission model
+6. Archived-channel behavior
+7. Verification results
+8. Known issues
+9. Recommended next feature order
+
+Keep scope tight: internal Channel Management only.

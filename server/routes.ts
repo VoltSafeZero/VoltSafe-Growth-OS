@@ -33025,6 +33025,20 @@ export function registerConfluenceRoutes(app: Express) {
 
   // ── Current: internal team communication layer ───────────────────────────────
 
+  // Additive migration: channel management columns
+  db.execute(sql.raw(`
+    ALTER TABLE current_channels ADD COLUMN IF NOT EXISTS archived_by INTEGER REFERENCES users(id);
+    ALTER TABLE current_channels ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+  `)).catch(() => {});
+
+  function normalizeChannelSlug(name: string): string {
+    return name.toLowerCase().trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
   // GET /api/current/channels — list all channels with per-user unread counts
   app.get("/api/current/channels", requireAuth, async (req, res) => {
     try {
@@ -33059,6 +33073,112 @@ export function registerConfluenceRoutes(app: Express) {
         createdAt: r.created_at,
         unreadCount: Number(r.unread_count),
       })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/channels/:slug — single channel info (includes archived state)
+  app.get("/api/current/channels/:slug", requireAuth, async (req, res) => {
+    try {
+      const escapedSlug = String(req.params.slug).replace(/'/g, "''");
+      const rows = await db.execute(sql.raw(`
+        SELECT id, name, slug, description, is_private, created_at, archived_at, archived_by, updated_at
+        FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1
+      `));
+      if (!rows.rows.length) return res.status(404).json({ message: "Channel not found" });
+      const c = rows.rows[0] as any;
+      res.json({
+        id: c.id, name: c.name, slug: c.slug, description: c.description ?? null,
+        isPrivate: c.is_private, createdAt: c.created_at,
+        archivedAt: c.archived_at ?? null, archivedBy: c.archived_by ?? null,
+        updatedAt: c.updated_at ?? null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/channels — create a new channel (admin only)
+  app.post("/api/current/channels", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const name = String(req.body?.name || "").trim();
+      if (!name) return res.status(400).json({ message: "Channel name is required" });
+      if (name.length > 80) return res.status(400).json({ message: "Name too long (max 80 chars)" });
+      const slug = normalizeChannelSlug(name);
+      if (!slug) return res.status(400).json({ message: "Name must contain at least one letter or number" });
+      const description = req.body?.description != null ? String(req.body.description).trim() : null;
+      const dup = await db.execute(sql.raw(`SELECT id FROM current_channels WHERE slug = '${slug.replace(/'/g, "''")}' LIMIT 1`));
+      if (dup.rows.length) return res.status(409).json({ message: `A channel with slug #${slug} already exists` });
+      const escapedName = name.replace(/'/g, "''");
+      const descPart = description ? `'${description.replace(/'/g, "''")}'` : "NULL";
+      const ins = await db.execute(sql.raw(`
+        INSERT INTO current_channels (name, slug, description, is_private, created_at)
+        VALUES ('${escapedName}', '${slug}', ${descPart}, FALSE, NOW())
+        RETURNING id, name, slug, description, is_private, created_at
+      `));
+      const c = ins.rows[0] as any;
+      res.status(201).json({ id: c.id, name: c.name, slug: c.slug, description: c.description ?? null, isPrivate: c.is_private, createdAt: c.created_at, unreadCount: 0 });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/current/channels/:id — edit channel name/description (admin only)
+  app.patch("/api/current/channels/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid channel id" });
+      const existing = await db.execute(sql.raw(`SELECT id, slug FROM current_channels WHERE id = ${id} AND archived_at IS NULL LIMIT 1`));
+      if (!existing.rows.length) return res.status(404).json({ message: "Channel not found or archived" });
+      const updates: string[] = [];
+      const nameRaw = req.body?.name != null ? String(req.body.name).trim() : null;
+      const descRaw = req.body?.description !== undefined ? String(req.body.description ?? "").trim() : undefined;
+      if (nameRaw) {
+        if (nameRaw.length > 80) return res.status(400).json({ message: "Name too long (max 80 chars)" });
+        const slug = normalizeChannelSlug(nameRaw);
+        if (!slug) return res.status(400).json({ message: "Name must contain at least one letter or number" });
+        const dup = await db.execute(sql.raw(`SELECT id FROM current_channels WHERE slug = '${slug.replace(/'/g, "''")}' AND id != ${id} LIMIT 1`));
+        if (dup.rows.length) return res.status(409).json({ message: `A channel with slug #${slug} already exists` });
+        updates.push(`name = '${nameRaw.replace(/'/g, "''")}'`, `slug = '${slug}'`);
+      }
+      if (descRaw !== undefined) {
+        updates.push(descRaw ? `description = '${descRaw.replace(/'/g, "''")}'` : `description = NULL`);
+      }
+      if (!updates.length) return res.status(400).json({ message: "Nothing to update" });
+      updates.push(`updated_at = NOW()`);
+      const upd = await db.execute(sql.raw(`UPDATE current_channels SET ${updates.join(", ")} WHERE id = ${id} RETURNING id, name, slug, description, is_private, created_at`));
+      const c = upd.rows[0] as any;
+      res.json({ id: c.id, name: c.name, slug: c.slug, description: c.description ?? null, isPrivate: c.is_private, createdAt: c.created_at });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/channels/:id/archive — archive a channel (admin only)
+  app.post("/api/current/channels/:id/archive", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const userId = getSessionUserId(req);
+      if (!id) return res.status(400).json({ message: "Invalid channel id" });
+      const existing = await db.execute(sql.raw(`SELECT id, slug FROM current_channels WHERE id = ${id} AND archived_at IS NULL LIMIT 1`));
+      if (!existing.rows.length) return res.status(404).json({ message: "Channel not found or already archived" });
+      await db.execute(sql.raw(`UPDATE current_channels SET archived_at = NOW(), archived_by = ${userId} WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/channels/:id/unarchive — restore an archived channel (admin only)
+  app.post("/api/current/channels/:id/unarchive", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid channel id" });
+      const existing = await db.execute(sql.raw(`SELECT id FROM current_channels WHERE id = ${id} AND archived_at IS NOT NULL LIMIT 1`));
+      if (!existing.rows.length) return res.status(404).json({ message: "Channel not found or not archived" });
+      await db.execute(sql.raw(`UPDATE current_channels SET archived_at = NULL, archived_by = NULL WHERE id = ${id}`));
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33113,7 +33233,7 @@ export function registerConfluenceRoutes(app: Express) {
           WHERE a.object_type = 'current_message' AND a.object_id = m.id
         ) att ON true
         WHERE m.channel_id = (
-          SELECT id FROM current_channels WHERE slug = '${escapedSlug}' AND archived_at IS NULL LIMIT 1
+          SELECT id FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1
         )
           AND (m.parent_message_id IS NULL)
         ORDER BY m.created_at ASC

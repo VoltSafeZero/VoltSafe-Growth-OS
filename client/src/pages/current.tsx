@@ -32,6 +32,8 @@ import {
   UserRound,
   Plus,
   Users,
+  Settings,
+  Archive,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -104,6 +106,19 @@ interface Channel {
   description: string | null;
   isPrivate: boolean;
   unreadCount: number;
+  archivedAt?: string | null;
+}
+
+interface ChannelInfo {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  isPrivate: boolean;
+  createdAt: string;
+  archivedAt: string | null;
+  archivedBy: number | null;
+  updatedAt: string | null;
 }
 
 interface Reaction {
@@ -316,6 +331,14 @@ function isContinuation(prev: Message | undefined, curr: Message): boolean {
 
 function displaySlug(slug: string): string {
   return slug.replace(/-/g, "\u2011");
+}
+
+function normalizeChannelSlug(name: string): string {
+  return name.toLowerCase().trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function growTextarea(el: HTMLTextAreaElement, maxPx = 144) {
@@ -2536,6 +2559,13 @@ function StructuredItemsPanel({
 export default function CurrentPage() {
   const queryClient = useQueryClient();
   const [selectedSlug, setSelectedSlug] = useState<string>("general");
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [editChannelOpen, setEditChannelOpen] = useState(false);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [channelNameInput, setChannelNameInput] = useState("");
+  const [channelDescInput, setChannelDescInput] = useState("");
+  const [channelEditNameInput, setChannelEditNameInput] = useState("");
+  const [channelEditDescInput, setChannelEditDescInput] = useState("");
   const [draft, setDraft] = useState("");
   const [mainPendingFiles, setMainPendingFiles] = useState<File[]>([]);
   const mainFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -2611,6 +2641,18 @@ export default function CurrentPage() {
   const { data: channels = [], isLoading: channelsLoading } = useQuery<Channel[]>({
     queryKey: ["/api/current/channels"],
     refetchInterval: 15_000,
+  });
+
+  // Detect archived channel when slug is not in the active list (e.g. deep-link)
+  const { data: selectedChannelDirect } = useQuery<ChannelInfo | null>({
+    queryKey: ["/api/current/channels", selectedSlug, "info"],
+    queryFn: async () => {
+      const r = await fetch(`/api/current/channels/${encodeURIComponent(selectedSlug)}`, { credentials: "include" });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: !!selectedSlug && !channelsLoading && !channels.find((c) => c.slug === selectedSlug),
+    staleTime: 30_000,
   });
 
   const {
@@ -2795,6 +2837,63 @@ export default function CurrentPage() {
       queryKey: ["/api/current/channels", selectedSlug, "pins"],
     });
   };
+
+  // ── Channel management mutations ─────────────────────────────────────────
+
+  const createChannelMutation = useMutation({
+    mutationFn: async (data: { name: string; description: string }) => {
+      const r = await apiRequest("POST", "/api/current/channels", data);
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to create channel"); }
+      return r.json() as Promise<Channel>;
+    },
+    onSuccess: (channel) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
+      setCreateChannelOpen(false);
+      setChannelNameInput("");
+      setChannelDescInput("");
+      setSelectedSlug(channel.slug);
+      setView("channel");
+      toast({ title: "Channel created", description: `#${channel.slug} is ready.` });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const editChannelMutation = useMutation({
+    mutationFn: async (data: { name: string; description: string }) => {
+      const chan = channels.find((c) => c.slug === selectedSlug);
+      if (!chan) throw new Error("No channel selected");
+      const r = await apiRequest("PATCH", `/api/current/channels/${chan.id}`, data);
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to update channel"); }
+      return r.json();
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
+      setEditChannelOpen(false);
+      setArchiveConfirmOpen(false);
+      if (updated.slug && updated.slug !== selectedSlug) setSelectedSlug(updated.slug);
+      toast({ title: "Channel updated" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const archiveChannelMutation = useMutation({
+    mutationFn: async () => {
+      const chan = channels.find((c) => c.slug === selectedSlug);
+      if (!chan) throw new Error("No channel selected");
+      const r = await apiRequest("POST", `/api/current/channels/${chan.id}/archive`, {});
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to archive channel"); }
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
+      setEditChannelOpen(false);
+      setArchiveConfirmOpen(false);
+      const nextSlug = channels.find((c) => c.slug !== selectedSlug)?.slug ?? "general";
+      setSelectedSlug(nextSlug);
+      toast({ title: "Channel archived", description: "The channel is now read-only." });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
 
   // Post
   const postMutation = useMutation({
@@ -3027,6 +3126,7 @@ export default function CurrentPage() {
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const selectedChannel = channels.find((c) => c.slug === selectedSlug);
+  const isArchivedChannel = !selectedChannel && !channelsLoading && !!selectedChannelDirect?.archivedAt;
   const selectedDm = dmConversations.find((d) => d.conversationId === selectedDmId);
   const totalDmUnread = dmConversations.reduce((s, d) => s + d.unreadCount, 0);
   const totalUnread = channels.reduce((s, c) => s + c.unreadCount, 0) + totalDmUnread;
@@ -3059,10 +3159,20 @@ export default function CurrentPage() {
         </div>
 
         {/* Section label */}
-        <div className="px-4 pt-3 pb-1 shrink-0">
+        <div className="px-4 pt-3 pb-1 shrink-0 flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-            Currents
+            Channels
           </span>
+          {isAdmin && (
+            <button
+              data-testid="btn-new-channel"
+              onClick={() => { setChannelNameInput(""); setChannelDescInput(""); setCreateChannelOpen(true); }}
+              className="w-4 h-4 rounded flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground/80 hover:bg-muted/40 transition-colors"
+              title="New Channel"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          )}
         </div>
 
         {/* Channel list */}
@@ -3073,43 +3183,61 @@ export default function CurrentPage() {
             channels.map((channel) => {
               const active = view === "channel" && selectedSlug === channel.slug;
               return (
-                <button
-                  key={channel.slug}
-                  data-testid={`channel-item-${channel.slug}`}
-                  onClick={() => { setSelectedSlug(channel.slug); setView("channel"); }}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
-                    "transition-all duration-100 group",
-                    active
-                      ? "bg-primary/15 text-primary font-medium"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                  )}
-                >
-                  <Hash
+                <div key={channel.slug} className="relative group">
+                  <button
+                    data-testid={`channel-item-${channel.slug}`}
+                    onClick={() => { setSelectedSlug(channel.slug); setView("channel"); }}
                     className={cn(
-                      "w-3.5 h-3.5 shrink-0 transition-opacity",
+                      "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px]",
+                      "transition-all duration-100",
                       active
-                        ? "opacity-80"
-                        : "opacity-40 group-hover:opacity-60"
+                        ? "bg-primary/15 text-primary font-medium"
+                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                      isAdmin && "pr-7",
                     )}
-                  />
-                  <span className="flex-1 truncate text-left min-w-0">
-                    {displaySlug(channel.slug)}
-                  </span>
-                  {channel.unreadCount > 0 && (
-                    <span
+                  >
+                    <Hash
                       className={cn(
-                        "min-w-[18px] h-[18px] px-1 flex items-center justify-center",
-                        "rounded-full text-[10px] font-bold shrink-0",
-                        active
-                          ? "bg-primary/20 text-primary"
-                          : "bg-primary text-primary-foreground"
+                        "w-3.5 h-3.5 shrink-0 transition-opacity",
+                        active ? "opacity-80" : "opacity-40 group-hover:opacity-60"
                       )}
-                    >
-                      {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
+                    />
+                    <span className="flex-1 truncate text-left min-w-0">
+                      {displaySlug(channel.slug)}
                     </span>
+                    {channel.unreadCount > 0 && (
+                      <span
+                        className={cn(
+                          "min-w-[18px] h-[18px] px-1 flex items-center justify-center",
+                          "rounded-full text-[10px] font-bold shrink-0",
+                          active
+                            ? "bg-primary/20 text-primary"
+                            : "bg-primary text-primary-foreground"
+                        )}
+                      >
+                        {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                  {isAdmin && (
+                    <button
+                      data-testid={`btn-edit-channel-${channel.slug}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setChannelEditNameInput(channel.name);
+                        setChannelEditDescInput(channel.description ?? "");
+                        setSelectedSlug(channel.slug);
+                        setView("channel");
+                        setArchiveConfirmOpen(false);
+                        setEditChannelOpen(true);
+                      }}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 w-5 h-5 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted/60 transition-all"
+                      title="Edit channel"
+                    >
+                      <Settings className="w-3 h-3" />
+                    </button>
                   )}
-                </button>
+                </div>
               );
             })
           )}
@@ -3353,6 +3481,23 @@ export default function CurrentPage() {
                   : <Sparkles className="w-3 h-3" />}
                 <span className="hidden sm:inline">Summarize</span>
               </button>
+              {isAdmin && (
+                <button
+                  data-testid="btn-edit-channel-header"
+                  onClick={() => {
+                    if (selectedChannel) {
+                      setChannelEditNameInput(selectedChannel.name);
+                      setChannelEditDescInput(selectedChannel.description ?? "");
+                      setArchiveConfirmOpen(false);
+                      setEditChannelOpen(true);
+                    }
+                  }}
+                  title="Edit channel"
+                  className="shrink-0 w-7 h-7 p-0 rounded-md flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted/60 transition-colors"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                </button>
+              )}
               {msgsFetching && !msgsLoading && (
                 <div className="shrink-0 w-1.5 h-1.5 rounded-full bg-primary/30 animate-pulse" />
               )}
@@ -3671,7 +3816,16 @@ export default function CurrentPage() {
               )}
             </div>
 
+            {/* Archived banner */}
+            {isArchivedChannel && (
+              <div className="mx-4 mb-0 mt-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[12.5px] shrink-0">
+                <Archive className="w-3.5 h-3.5 shrink-0" />
+                <span>This channel is archived. Messages are read-only.</span>
+              </div>
+            )}
+
             {/* Composer */}
+            {!isArchivedChannel && (
             <div className="px-5 pt-3 pb-4 border-t border-border/60 shrink-0">
               {mainMention.mentionActive && mainMention.mentionAnchorRect && (
                 <MentionDropdown
@@ -3756,9 +3910,151 @@ export default function CurrentPage() {
                 Enter to send · Shift+Enter for new line · @ to mention · 📎 to attach
               </p>
             </div>
+            )}
           </>
         )}
       </div>
+
+      {/* ── Create Channel Dialog ─────────────────────────────────────── */}
+      <Dialog open={createChannelOpen} onOpenChange={setCreateChannelOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New Channel</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <div>
+              <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">Name</label>
+              <Input
+                data-testid="input-channel-name"
+                value={channelNameInput}
+                onChange={(e) => setChannelNameInput(e.target.value)}
+                placeholder="e.g. product-updates"
+                maxLength={80}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && channelNameInput.trim() && !createChannelMutation.isPending) {
+                    createChannelMutation.mutate({ name: channelNameInput.trim(), description: channelDescInput.trim() });
+                  }
+                }}
+              />
+              {channelNameInput.trim() && (
+                <p className="text-[11px] text-muted-foreground/60 mt-1">
+                  Slug: <span className="font-mono text-primary/70">#{normalizeChannelSlug(channelNameInput)}</span>
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">
+                Description <span className="text-muted-foreground/40">(optional)</span>
+              </label>
+              <Input
+                data-testid="input-channel-description"
+                value={channelDescInput}
+                onChange={(e) => setChannelDescInput(e.target.value)}
+                placeholder="What's this channel for?"
+                maxLength={200}
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-2">
+            <Button variant="ghost" size="sm" onClick={() => setCreateChannelOpen(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              data-testid="btn-create-channel-submit"
+              onClick={() => createChannelMutation.mutate({ name: channelNameInput.trim(), description: channelDescInput.trim() })}
+              disabled={!channelNameInput.trim() || createChannelMutation.isPending}
+            >
+              {createChannelMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+              Create Channel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Channel Dialog ───────────────────────────────────────── */}
+      <Dialog open={editChannelOpen} onOpenChange={(o) => { setEditChannelOpen(o); if (!o) setArchiveConfirmOpen(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {archiveConfirmOpen ? "Archive channel?" : `Edit #${displaySlug(selectedSlug)}`}
+            </DialogTitle>
+          </DialogHeader>
+          {archiveConfirmOpen ? (
+            <div className="space-y-3 pt-1">
+              <p className="text-[13px] text-muted-foreground leading-relaxed">
+                Archive <strong>#{displaySlug(selectedSlug)}</strong>? It will be removed from the sidebar. Messages are preserved in read-only mode.
+              </p>
+              <DialogFooter>
+                <Button variant="ghost" size="sm" onClick={() => setArchiveConfirmOpen(false)}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  data-testid="btn-confirm-archive-channel"
+                  onClick={() => archiveChannelMutation.mutate()}
+                  disabled={archiveChannelMutation.isPending}
+                >
+                  {archiveChannelMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                  Archive Channel
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">Name</label>
+                  <Input
+                    data-testid="input-edit-channel-name"
+                    value={channelEditNameInput}
+                    onChange={(e) => setChannelEditNameInput(e.target.value)}
+                    maxLength={80}
+                    autoFocus
+                  />
+                  {channelEditNameInput.trim() && normalizeChannelSlug(channelEditNameInput) !== selectedSlug && (
+                    <p className="text-[11px] text-muted-foreground/60 mt-1">
+                      New slug: <span className="font-mono text-primary/70">#{normalizeChannelSlug(channelEditNameInput)}</span>
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">Description</label>
+                  <Input
+                    data-testid="input-edit-channel-description"
+                    value={channelEditDescInput}
+                    onChange={(e) => setChannelEditDescInput(e.target.value)}
+                    placeholder="What's this channel for?"
+                    maxLength={200}
+                  />
+                </div>
+              </div>
+              <DialogFooter className="flex items-center justify-between sm:justify-between gap-2 mt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => setArchiveConfirmOpen(true)}
+                  data-testid="btn-archive-channel"
+                >
+                  <Archive className="w-3.5 h-3.5 mr-1.5" />
+                  Archive
+                </Button>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setEditChannelOpen(false)}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    data-testid="btn-edit-channel-submit"
+                    onClick={() => editChannelMutation.mutate({ name: channelEditNameInput.trim(), description: channelEditDescInput.trim() })}
+                    disabled={!channelEditNameInput.trim() || editChannelMutation.isPending}
+                  >
+                    {editChannelMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                    Save
+                  </Button>
+                </div>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <CreateTaskFromCurrentDialog
         open={createTaskSource !== null}
