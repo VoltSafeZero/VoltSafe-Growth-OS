@@ -1,0 +1,144 @@
+Proceed with VoltSafe CMS Navigation Cleanup Phase 4C only: Revenue Suite Placement Decision + Safe Nav Move.
+
+Use the planning document:
+
+docs/nav-more-decision-plan-2026-06-27.md
+
+Do not perform a full sidebar reorganization. Do not implement role-based nav. Do not consolidate Automations/Task Rules. Do not move Data Quality or Score Feedback. Do not touch CURRENTS, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Resolve the remaining Revenue-related items in the More group and move them to the most appropriate existing section if safe.
+
+Current remaining Revenue items in More:
+
+* Revenue Hub
+* Revenue Ops
+* Revenue Simulator
+
+Relationship Intelligence has already moved to Insights.
+
+Preferred direction
+
+Move these three Revenue items from More to Insights.
+
+Reason:
+
+* They are intelligence/analysis tools, not daily pipeline objects.
+* Pipeline should stay focused on operating records: Leads, Accounts, Contacts, Opportunities, Quotes, Renewals, Wins, Price Lists.
+* Insights is the better home for analytical/strategic revenue tools.
+* Avoid creating a new top-level Revenue group for now.
+
+Scope
+
+Allowed:
+
+1. Move Revenue Hub from More to Insights.
+2. Move Revenue Ops from More to Insights.
+3. Move Revenue Simulator from More to Insights.
+4. Keep labels unchanged.
+5. Keep routes unchanged.
+6. Keep components unchanged.
+7. Update nav tests to assert the new parent group.
+8. Verify no duplicate routes.
+
+Not allowed:
+
+1. Creating a new Revenue top-level group.
+2. Moving Pipeline records.
+3. Moving Data Quality.
+4. Moving Score Feedback.
+5. Consolidating Task Rules / Automations.
+6. Renaming Insights to Intelligence.
+7. Backend permission changes.
+8. New routes/components.
+9. Full sidebar redesign.
+10. CURRENTS changes.
+11. Gmail/mail/tracking changes.
+12. CRM behavior changes.
+
+Required changes
+
+Move these items:
+
+Revenue Hub
+
+From:
+
+* More
+
+To:
+
+* Insights
+
+Keep route unchanged.
+
+Revenue Ops
+
+From:
+
+* More
+
+To:
+
+* Insights
+
+Keep route unchanged.
+
+Revenue Simulator
+
+From:
+
+* More
+
+To:
+
+* Insights
+
+Keep route unchanged.
+
+Verification
+
+Verify:
+
+1. Sidebar renders.
+2. Revenue Hub appears under Insights.
+3. Revenue Ops appears under Insights.
+4. Revenue Simulator appears under Insights.
+5. None of the three remain under More.
+6. Routes are unchanged.
+7. Components are unchanged.
+8. No duplicate routes introduced.
+9. Prior Phase 1–4B nav tests still pass.
+10. No TypeScript errors.
+11. Browser console clean if app is run.
+
+Tests
+
+Update tests/nav-drift.test.cjs or equivalent checks for:
+
+1. Revenue Hub is under Insights.
+2. Revenue Hub is not under More.
+3. Revenue Hub route remains unchanged.
+4. Revenue Ops is under Insights.
+5. Revenue Ops is not under More.
+6. Revenue Ops route remains unchanged.
+7. Revenue Simulator is under Insights.
+8. Revenue Simulator is not under More.
+9. Revenue Simulator route remains unchanged.
+10. No duplicate nav routes.
+11. Prior nav cleanup tests still pass.
+
+Deliverable
+
+Return:
+
+1. Items moved
+2. Files changed
+3. Confirmation labels/routes/components unchanged
+4. Tests added/updated
+5. Verification results
+6. Remaining items in More
+7. Recommended next phase
+
+Keep scope tight: Revenue suite placement only.

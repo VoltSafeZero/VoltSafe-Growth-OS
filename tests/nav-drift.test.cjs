@@ -284,8 +284,44 @@ ok("Help route is /help (unchanged)",
 ok('Learn group exists with id "learn"',
   src.includes('id: "learn"'));
 
-// ── Phase 1–4B: Duplicate route guard ────────────────────────────────────────
-console.log("\nPhase 1–4B — Duplicate routes in NAV_CONFIG:");
+// ── Phase 4C: Revenue suite → Insights ───────────────────────────────────────
+console.log("\nPhase 4C — Revenue Hub, Ops, Simulator moved to Insights:");
+
+ok("Revenue Hub is in Insights group",
+  insightsSection.includes('/revenue'),
+  "Revenue Hub is an analytical tool, belongs in Insights");
+
+ok("Revenue Hub is NOT in More group",
+  !moreSection.includes('route: "/revenue"'),
+  "Must be removed from More");
+
+ok("Revenue Hub route is /revenue (unchanged)",
+  src.includes('route: "/revenue"'));
+
+ok("Revenue Ops is in Insights group",
+  insightsSection.includes('/revenue-ops'),
+  "Revenue Ops is an analytical tool, belongs in Insights");
+
+ok("Revenue Ops is NOT in More group",
+  !moreSection.includes('/revenue-ops'),
+  "Must be removed from More");
+
+ok("Revenue Ops route is /revenue-ops (unchanged)",
+  src.includes('route: "/revenue-ops"'));
+
+ok("Revenue Simulator is in Insights group",
+  insightsSection.includes('/revenue-sim'),
+  "Revenue Simulator is an analytical tool, belongs in Insights");
+
+ok("Revenue Simulator is NOT in More group",
+  !moreSection.includes('/revenue-sim'),
+  "Must be removed from More");
+
+ok("Revenue Simulator route is /revenue-sim (unchanged)",
+  src.includes('route: "/revenue-sim"'));
+
+// ── Phase 1–4C: Duplicate route guard ────────────────────────────────────────
+console.log("\nPhase 1–4C — Duplicate routes in NAV_CONFIG:");
 
 const routeMatches   = [...src.matchAll(/route: "([^"]+)"/g)];
 const routes         = routeMatches.map(m => m[1]);
