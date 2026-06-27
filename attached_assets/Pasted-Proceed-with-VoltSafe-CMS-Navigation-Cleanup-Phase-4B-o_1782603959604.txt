@@ -1,0 +1,147 @@
+Proceed with VoltSafe CMS Navigation Cleanup Phase 4B only: Digest Settings + Learn Section Placement.
+
+Use the planning document:
+
+docs/nav-more-decision-plan-2026-06-27.md
+
+Do not perform a full sidebar reorganization. Do not implement role-based nav. Do not move Revenue Hub, Revenue Ops, Revenue Simulator, Data Quality, Score Feedback, Task Rules, or Automations. Do not touch CURRENTS, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Continue reducing the More group by moving only the next low-risk, obvious items:
+
+1. Move Digest Settings to Work
+2. Create a small Learn section containing Training and Help
+
+This is a nav-config-only cleanup phase.
+
+Routes, components, permissions, backend behavior, and page functionality must remain unchanged.
+
+Scope
+
+Allowed:
+
+1. Move Digest Settings from More to Work.
+2. Create a new top-level Learn group if nav-config supports groups cleanly.
+3. Move Training from More to Learn.
+4. Move Help from More to Learn.
+5. Keep labels unchanged.
+6. Keep routes unchanged.
+7. Keep components unchanged.
+8. Update nav tests to assert the new parent groups.
+9. Verify no duplicate routes.
+
+Not allowed:
+
+1. Full sidebar redesign.
+2. Role-based nav.
+3. Backend permission changes.
+4. New routes/components.
+5. Moving remaining Revenue items.
+6. Moving Data Quality.
+7. Moving Score Feedback.
+8. Consolidating Task Rules / Automations.
+9. Renaming More.
+10. Changing CURRENTS, Gmail/mail, tracking, CRM behavior, or Polyweather.
+
+Required changes
+
+1. Digest Settings
+
+Move:
+
+* Digest Settings
+
+From:
+
+* More
+
+To:
+
+* Work
+
+Keep route unchanged:
+
+* /alerts-digest
+
+Keep component/page unchanged.
+
+Reason:
+
+* Digest Settings is a personal/work preference/configuration surface, similar to Email Signatures and AI Voice Profiles, which are now in Work.
+
+2. Training + Help
+
+Create or use a new parent group:
+
+* Learn
+
+Move:
+
+* Training
+* Help
+
+From:
+
+* More
+
+To:
+
+* Learn
+
+Keep routes unchanged.
+
+Keep components unchanged.
+
+Reason:
+
+* Training and Help are universal, general-user-facing support resources.
+* They do not belong in a miscellaneous catch-all drawer.
+* A small Learn group is clearer and low-risk.
+
+Verification
+
+Verify:
+
+1. Sidebar renders.
+2. Digest Settings appears under Work.
+3. Digest Settings no longer appears under More.
+4. Training appears under Learn.
+5. Help appears under Learn.
+6. Training and Help no longer appear under More.
+7. Routes are unchanged.
+8. Components are unchanged.
+9. No duplicate routes introduced.
+10. Prior Phase 1–4A nav tests still pass.
+11. No TypeScript errors.
+12. Browser console clean if app is run.
+
+Tests
+
+Update tests/nav-drift.test.cjs or equivalent checks for:
+
+1. Digest Settings is under Work.
+2. Digest Settings is not under More.
+3. Digest Settings route remains /alerts-digest.
+4. Training is under Learn.
+5. Training is not under More.
+6. Help is under Learn.
+7. Help is not under More.
+8. Training route remains unchanged.
+9. Help route remains unchanged.
+10. No duplicate nav routes.
+
+Deliverable
+
+Return:
+
+1. Items moved
+2. New section created, if applicable
+3. Files changed
+4. Confirmation labels/routes/components unchanged
+5. Tests added/updated
+6. Verification results
+7. Remaining items in More
+8. Recommended next phase
+
+Keep scope tight: Digest Settings + Learn section placement only.

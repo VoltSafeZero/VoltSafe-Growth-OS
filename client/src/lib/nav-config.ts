@@ -106,6 +106,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "email-signatures",  label: "Email Signatures",                               route: "/settings/signatures",      icon: PenSquare },
       { id: "ai-voice-profiles", label: "AI Voice Profiles",                              route: "/settings/voice-profiles",  icon: Mic },
       { id: "daily-execution",   label: "Daily Execution",                                route: "/execution/daily",          icon: PlayCircle },
+      { id: "digest-alerts",     label: "Digest Settings",                                route: "/alerts-digest",            icon: BellRing },
     ],
   },
   {
@@ -184,12 +185,18 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "revenue-ops",       label: "Revenue Ops",       route: "/revenue-ops",                   icon: Target,                                         advisorHidden: true },
       { id: "revenue-sim",       label: "Revenue Simulator", route: "/revenue-sim",                   icon: FlaskRound,                                     advisorHidden: true },
       { id: "score-feedback",    label: "Score Feedback",    route: "/scores/feedback",               icon: Target,                                         advisorHidden: true },
-      { id: "digest-alerts",     label: "Digest Settings",   route: "/alerts-digest",                 icon: BellRing },
       { id: "data-quality",      label: "Data Quality",      route: "/data-quality",                  icon: ShieldCheck, permKey: "crm",                   advisorHidden: true },
       { id: "task-rules",        label: "Task Rules",        route: "/automation/tasks",              icon: Zap },
       { id: "automations",       label: "Automations",       route: "/automations",                   icon: Zap },
-      { id: "training",          label: "Training",          route: "/training",                      icon: GraduationCap },
-      { id: "help",              label: "Help",              route: "/help",                          icon: HelpCircle },
+    ],
+  },
+  {
+    id: "learn",
+    label: "Learn",
+    icon: GraduationCap,
+    items: [
+      { id: "training", label: "Training", route: "/training", icon: GraduationCap },
+      { id: "help",     label: "Help",     route: "/help",     icon: HelpCircle },
     ],
   },
   // Desktop-only divider above the Admin section.

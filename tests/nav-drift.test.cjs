@@ -57,6 +57,7 @@ const workSection      = sectionText("work");
 const pipelineSection  = sectionText("pipeline");
 const opsSection       = sectionText("operations");
 const insightsSection  = sectionText("insights");
+const learnSection     = sectionText("learn");
 const moreSection      = sectionText("more");
 const channelsSection  = sectionText("channels");
 
@@ -244,8 +245,47 @@ ok("Relationship Intelligence route is /intelligence/rel-intelligence (unchanged
 ok('Relationship Intelligence label is still "Relationship Intelligence"',
   src.includes('label: "Relationship Intelligence"'));
 
-// ── Phase 1+2+3+4A: Duplicate route guard ────────────────────────────────────
-console.log("\nPhase 1–4A — Duplicate routes in NAV_CONFIG:");
+// ── Phase 4B: Digest Settings → Work; Training + Help → Learn ────────────────
+console.log("\nPhase 4B — Digest Settings to Work; Learn section created:");
+
+ok("Digest Settings is in Work group",
+  workSection.includes('/alerts-digest'),
+  "Personal settings belong with Email Signatures and AI Voice Profiles");
+
+ok("Digest Settings is NOT in More group",
+  !moreSection.includes('/alerts-digest'),
+  "Must be removed from More");
+
+ok("Digest Settings route is /alerts-digest (unchanged)",
+  src.includes('route: "/alerts-digest"'));
+
+ok("Training is in Learn group",
+  learnSection.includes('/training'),
+  "Universal support content belongs in Learn");
+
+ok("Training is NOT in More group",
+  !moreSection.includes('/training'),
+  "Must be removed from More");
+
+ok("Training route is /training (unchanged)",
+  src.includes('route: "/training"'));
+
+ok("Help is in Learn group",
+  learnSection.includes('/help'),
+  "Universal support content belongs in Learn");
+
+ok("Help is NOT in More group",
+  !moreSection.includes('/help'),
+  "Must be removed from More");
+
+ok("Help route is /help (unchanged)",
+  src.includes('route: "/help"'));
+
+ok('Learn group exists with id "learn"',
+  src.includes('id: "learn"'));
+
+// ── Phase 1–4B: Duplicate route guard ────────────────────────────────────────
+console.log("\nPhase 1–4B — Duplicate routes in NAV_CONFIG:");
 
 const routeMatches   = [...src.matchAll(/route: "([^"]+)"/g)];
 const routes         = routeMatches.map(m => m[1]);
