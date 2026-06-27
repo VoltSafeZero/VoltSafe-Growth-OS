@@ -35001,26 +35001,20 @@ export function registerConfluenceRoutes(app: Express) {
 
   // ── Direct Message Routes (Phase 8A) ────────────────────────────────────────
 
-  // GET /api/current/dms — list DM conversations for the current user
+  // GET /api/current/dms — list DM and group DM conversations for the current user (Phase 11A)
   app.get("/api/current/dms", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
+      // Single unified query — uses subquery aggregation so group_dm rows don't explode (no JOIN them)
       const rows = await db.execute(sql.raw(`
         SELECT
           cv.id AS conversation_id,
+          cv.type,
           cv.last_message_at,
           cv.updated_at,
-          ou.id AS other_user_id,
-          ou.name AS other_user_name,
-          ou.email AS other_user_email,
-          ou.avatar_url AS other_user_avatar,
           me.is_archived,
           me.is_muted,
           me.last_read_message_id,
-          lm.id AS last_message_id,
-          lm.body AS last_message_body,
-          lu.name AS last_message_user_name,
-          lm.created_at AS last_message_created_at,
           COALESCE(
             (SELECT COUNT(*)::int
              FROM current_messages cm
@@ -35028,11 +35022,22 @@ export function registerConfluenceRoutes(app: Express) {
                AND cm.deleted_at IS NULL
                AND cm.id > COALESCE(me.last_read_message_id, 0)
             ), 0
-          ) AS unread_count
+          ) AS unread_count,
+          (
+            SELECT json_agg(
+              json_build_object('id', u2.id, 'name', u2.name, 'email', u2.email, 'avatarUrl', u2.avatar_url)
+              ORDER BY u2.name
+            )
+            FROM current_conversation_members m2
+            JOIN users u2 ON u2.id = m2.user_id
+            WHERE m2.conversation_id = cv.id AND m2.user_id != ${userId}
+          ) AS other_members,
+          lm.id AS last_message_id,
+          lm.body AS last_message_body,
+          lu.name AS last_message_user_name,
+          lm.created_at AS last_message_created_at
         FROM current_conversation_members me
         JOIN current_conversations cv ON cv.id = me.conversation_id
-        JOIN current_conversation_members them ON them.conversation_id = cv.id AND them.user_id != ${userId}
-        JOIN users ou ON ou.id = them.user_id
         LEFT JOIN LATERAL (
           SELECT m.id, m.body, m.user_id, m.created_at
           FROM current_messages m
@@ -35042,39 +35047,103 @@ export function registerConfluenceRoutes(app: Express) {
         LEFT JOIN users lu ON lu.id = lm.user_id
         WHERE me.user_id = ${userId}
           AND me.is_archived = FALSE
+          AND cv.type IN ('dm', 'group_dm')
         ORDER BY COALESCE(cv.last_message_at, cv.created_at) DESC
       `));
-      res.json(rows.rows.map((r: any) => ({
-        conversationId: Number(r.conversation_id),
-        otherUser: {
-          id: Number(r.other_user_id),
-          name: r.other_user_name,
-          email: r.other_user_email,
-          avatarUrl: r.other_user_avatar || null,
-        },
-        isArchived: Boolean(r.is_archived),
-        isMuted: Boolean(r.is_muted),
-        unreadCount: Number(r.unread_count) || 0,
-        lastMessage: r.last_message_id ? {
-          id: Number(r.last_message_id),
-          body: r.last_message_body,
-          userName: r.last_message_user_name,
-          createdAt: r.last_message_created_at,
-        } : null,
-        lastMessageAt: r.last_message_at || r.updated_at || null,
-      })));
+      res.json(rows.rows.map((r: any) => {
+        const type = (r.type as string) || 'dm';
+        const otherMembers: any[] = r.other_members || [];
+        // displayName: first names joined (or full name for 1:1)
+        const displayName = type === 'dm'
+          ? (otherMembers[0]?.name || 'Direct Message')
+          : otherMembers.map((m: any) => (m.name || '').split(' ')[0]).join(', ');
+        return {
+          conversationId: Number(r.conversation_id),
+          type,
+          displayName,
+          // backward compat: 1:1 DMs still expose otherUser; group_dm sets it to first member for safety
+          otherUser: otherMembers[0]
+            ? { id: Number(otherMembers[0].id), name: otherMembers[0].name, email: otherMembers[0].email, avatarUrl: otherMembers[0].avatarUrl || null }
+            : null,
+          members: otherMembers.map((m: any) => ({ id: Number(m.id), name: m.name, email: m.email, avatarUrl: m.avatarUrl || null })),
+          isArchived: Boolean(r.is_archived),
+          isMuted: Boolean(r.is_muted),
+          unreadCount: Number(r.unread_count) || 0,
+          lastMessage: r.last_message_id ? {
+            id: Number(r.last_message_id),
+            body: r.last_message_body,
+            userName: r.last_message_user_name,
+            createdAt: r.last_message_created_at,
+          } : null,
+          lastMessageAt: r.last_message_at || r.updated_at || null,
+        };
+      }));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  // POST /api/current/dms — start or open existing 1:1 DM with another user
+  // POST /api/current/dms — start or open 1:1 DM (userId) or group DM (userIds) (Phase 11A)
   app.post("/api/current/dms", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
+
+      // ── Group DM path: userIds array ─────────────────────────────────────
+      if (Array.isArray(req.body?.userIds)) {
+        const rawIds: number[] = (req.body.userIds as any[])
+          .map(Number)
+          .filter((n) => !isNaN(n) && n > 0 && n !== userId);
+        const uniqueIds = [...new Set(rawIds)];
+        if (uniqueIds.length < 2)
+          return res.status(400).json({ message: "Group DM requires at least 2 other users (3 total with you)" });
+        if (uniqueIds.length > 19)
+          return res.status(400).json({ message: "Group DM limited to 20 members" });
+
+        // Validate all users exist and are active
+        const idList = uniqueIds.join(',');
+        const validRows = await db.execute(sql.raw(
+          `SELECT id, name, email, avatar_url FROM users WHERE id IN (${idList}) AND global_role NOT IN ('inactive')`
+        ));
+        if (validRows.rows.length !== uniqueIds.length)
+          return res.status(400).json({ message: "One or more users not found or inactive" });
+
+        // Deterministic participant_key: sorted IDs including creator
+        const allIds = [...uniqueIds, userId].sort((a, b) => a - b);
+        const groupKey = `group:${allIds.join(':')}`;
+
+        const existing = await db.execute(sql.raw(
+          `SELECT id FROM current_conversations WHERE participant_key = '${groupKey}' LIMIT 1`
+        ));
+        let conversationId: number;
+        if (existing.rows.length) {
+          conversationId = Number(existing.rows[0].id);
+          // Re-open for current user if they had archived it
+          await db.execute(sql.raw(
+            `UPDATE current_conversation_members SET is_archived = FALSE WHERE conversation_id = ${conversationId} AND user_id = ${userId}`
+          ));
+        } else {
+          const convIns = await db.execute(sql.raw(
+            `INSERT INTO current_conversations (type, created_by, participant_key) VALUES ('group_dm', ${userId}, '${groupKey}') RETURNING id`
+          ));
+          conversationId = Number(convIns.rows[0].id);
+          const memberValues = allIds.map((uid) => `(${conversationId}, ${uid})`).join(', ');
+          await db.execute(sql.raw(`
+            INSERT INTO current_conversation_members (conversation_id, user_id)
+            VALUES ${memberValues}
+            ON CONFLICT (conversation_id, user_id) DO NOTHING
+          `));
+        }
+        const members = (validRows.rows as any[]).map((u) => ({
+          id: Number(u.id), name: u.name, email: u.email, avatarUrl: u.avatar_url || null,
+        }));
+        const displayName = members.map((m) => m.name.split(' ')[0]).join(', ');
+        return res.status(201).json({ conversationId, type: 'group_dm', displayName, members });
+      }
+
+      // ── 1:1 DM path: single userId (backward compat) ─────────────────────
       const targetUserId = Number(req.body?.userId);
       if (!targetUserId || isNaN(targetUserId))
-        return res.status(400).json({ message: "userId is required" });
+        return res.status(400).json({ message: "userId or userIds is required" });
       if (targetUserId === userId)
         return res.status(400).json({ message: "Cannot start a DM with yourself" });
       const targetRows = await db.execute(sql.raw(
@@ -35108,6 +35177,7 @@ export function registerConfluenceRoutes(app: Express) {
       const t = targetRows.rows[0] as any;
       res.status(201).json({
         conversationId,
+        type: 'dm',
         otherUser: { id: Number(t.id), name: t.name, email: t.email, avatarUrl: t.avatar_url || null },
       });
     } catch (err: any) {
@@ -35240,9 +35310,17 @@ export function registerConfluenceRoutes(app: Express) {
             ? rawBody.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@$1').slice(0, 100).replace(/'/g, "''")
             : 'Sent an attachment';
           const escapedSender = senderName.replace(/'/g, "''");
+          // Phase 11A: use correct title for group DMs
+          const convTypeRow = await db.execute(sql.raw(
+            `SELECT type FROM current_conversations WHERE id = ${convId} LIMIT 1`
+          ));
+          const convType = String((convTypeRow.rows[0] as any)?.type || 'dm');
+          const notifTitle = convType === 'group_dm'
+            ? `New group message from ${escapedSender}`
+            : `New direct message from ${escapedSender}`;
           for (const row of others.rows as any[]) {
             const recipientId = Number(row.user_id);
-            // Respect DM mute preference — skip notification if recipient muted this DM
+            // Respect mute preference — skip notification if recipient muted this conversation
             const muteCheck = await db.execute(sql.raw(
               `SELECT is_muted FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${recipientId} LIMIT 1`
             ));
@@ -35251,7 +35329,7 @@ export function registerConfluenceRoutes(app: Express) {
             const dedupeKey = `dm_msg:${Number(msg.id)}:${recipientId}`;
             await db.execute(sql.raw(`
               INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
-              SELECT ${recipientId}, 'current_dm', 'New direct message from ${escapedSender}', '${preview}', 'medium', 'current_conversation', ${convId}, '${actionUrl}', FALSE, '${dedupeKey}'
+              SELECT ${recipientId}, 'current_dm', '${notifTitle}', '${preview}', 'medium', 'current_conversation', ${convId}, '${actionUrl}', FALSE, '${dedupeKey}'
               WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE dedupe_key = '${dedupeKey}')
             `));
           }

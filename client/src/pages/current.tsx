@@ -37,6 +37,7 @@ import {
   Bell,
   BellOff,
   BellRing,
+  Check,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -65,14 +66,19 @@ import type { CreateTaskSource } from "@/components/current/create-task-from-cur
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface DmMember {
+  id: number;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+}
+
 interface DmConversation {
   conversationId: number;
-  otherUser: {
-    id: number;
-    name: string;
-    email: string;
-    avatarUrl: string | null;
-  };
+  type: 'dm' | 'group_dm';
+  displayName: string;
+  otherUser: DmMember | null;
+  members: DmMember[];
   isArchived: boolean;
   isMuted: boolean;
   unreadCount: number;
@@ -1937,18 +1943,20 @@ function SearchResultCard({
 }
 
 // ── NewDmDialog ───────────────────────────────────────────────────────────────
+// Phase 11A: multi-select chip UI — 1 user → 1:1 DM, 2+ users → group DM
 
 function NewDmDialog({
   open,
   onOpenChange,
-  onSelect,
+  onConfirm,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onSelect: (userId: number) => void;
+  onConfirm: (userIds: number[]) => void;
 }) {
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
+  const [selectedUsers, setSelectedUsers] = useState<MentionUser[]>([]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 300);
@@ -1956,7 +1964,7 @@ function NewDmDialog({
   }, [q]);
 
   useEffect(() => {
-    if (!open) { setQ(""); setDebouncedQ(""); }
+    if (!open) { setQ(""); setDebouncedQ(""); setSelectedUsers([]); }
   }, [open]);
 
   const { data: users = [], isLoading } = useQuery<MentionUser[]>({
@@ -1969,20 +1977,68 @@ function NewDmDialog({
     enabled: open,
   });
 
+  const selectedIds = new Set(selectedUsers.map((u) => u.id));
+
+  function toggleUser(user: MentionUser) {
+    setSelectedUsers((prev) =>
+      prev.some((u) => u.id === user.id)
+        ? prev.filter((u) => u.id !== user.id)
+        : [...prev, user]
+    );
+  }
+
+  function handleConfirm() {
+    if (!selectedUsers.length) return;
+    onConfirm(selectedUsers.map((u) => u.id));
+    onOpenChange(false);
+  }
+
+  const isGroup = selectedUsers.length >= 2;
+  const canConfirm = selectedUsers.length >= 1;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="text-sm flex items-center gap-2">
-            <UserRound className="w-4 h-4 text-primary/70" />
-            New Direct Message
+            {isGroup
+              ? <Users className="w-4 h-4 text-primary/70" />
+              : <UserRound className="w-4 h-4 text-primary/70" />
+            }
+            {isGroup ? "New Group Message" : "New Direct Message"}
           </DialogTitle>
         </DialogHeader>
         <div className="py-1 space-y-3">
+          {/* Selected chips */}
+          {selectedUsers.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pb-1">
+              {selectedUsers.map((u) => (
+                <span
+                  key={u.id}
+                  data-testid={`dm-selected-chip-${u.id}`}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium",
+                    "bg-primary/15 text-primary border border-primary/20"
+                  )}
+                >
+                  {u.name.split(" ")[0]}
+                  <button
+                    onClick={() => toggleUser(u)}
+                    className="ml-0.5 rounded-full hover:bg-primary/20 p-px transition-colors"
+                    aria-label={`Remove ${u.name}`}
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Search */}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50 pointer-events-none" />
             <Input
-              placeholder="Search teammates…"
+              placeholder={selectedUsers.length ? "Add more teammates…" : "Search teammates…"}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="pl-8 text-sm h-8"
@@ -1990,7 +2046,9 @@ function NewDmDialog({
               data-testid="dm-user-search-input"
             />
           </div>
-          <div className="space-y-0.5 max-h-52 overflow-y-auto">
+
+          {/* Results */}
+          <div className="space-y-0.5 max-h-44 overflow-y-auto">
             {isLoading ? (
               <div className="flex items-center justify-center py-5 text-muted-foreground/40">
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -2000,37 +2058,63 @@ function NewDmDialog({
                 {debouncedQ ? "No teammates found" : "Start typing to search teammates"}
               </div>
             ) : (
-              users.map((user) => (
-                <button
-                  key={user.id}
-                  data-testid={`dm-user-option-${user.id}`}
-                  onClick={() => {
-                    onSelect(user.id);
-                    onOpenChange(false);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-muted/50 transition-colors"
-                >
-                  <div
+              users.map((user) => {
+                const selected = selectedIds.has(user.id);
+                return (
+                  <button
+                    key={user.id}
+                    data-testid={`dm-user-option-${user.id}`}
+                    onClick={() => toggleUser(user)}
                     className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                      "text-[11px] font-bold text-white",
-                      avatarBg(user.id)
+                      "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors",
+                      selected ? "bg-primary/10 hover:bg-primary/15" : "hover:bg-muted/50"
                     )}
                   >
-                    {initials(user.name)}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-medium text-foreground truncate">
-                      {user.name}
+                    <div
+                      className={cn(
+                        "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
+                        "text-[11px] font-bold text-white",
+                        avatarBg(user.id)
+                      )}
+                    >
+                      {initials(user.name)}
                     </div>
-                    <div className="text-[11px] text-muted-foreground truncate">
-                      {user.email}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-medium text-foreground truncate">
+                        {user.name}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        {user.email}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              ))
+                    {selected && (
+                      <div className="shrink-0 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+                        <Check className="w-2.5 h-2.5 text-primary-foreground" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
+
+          {/* Start conversation button */}
+          <button
+            data-testid="btn-dm-start-conversation"
+            disabled={!canConfirm}
+            onClick={handleConfirm}
+            className={cn(
+              "w-full py-1.5 rounded-lg text-[13px] font-medium transition-colors",
+              canConfirm
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "bg-muted/40 text-muted-foreground/40 cursor-not-allowed"
+            )}
+          >
+            {isGroup
+              ? `Start group message (${selectedUsers.length + 1} people)`
+              : "Start conversation"
+            }
+          </button>
         </div>
       </DialogContent>
     </Dialog>
@@ -3109,15 +3193,17 @@ export default function CurrentPage() {
   // ── DM mutations ──────────────────────────────────────────────────────────
 
   const startDmMutation = useMutation({
-    mutationFn: (userId: number) =>
-      apiRequest("POST", "/api/current/dms", { userId }).then((r) => r.json()),
+    mutationFn: (userIds: number[]) => {
+      const body = userIds.length === 1 ? { userId: userIds[0] } : { userIds };
+      return apiRequest("POST", "/api/current/dms", body).then((r) => r.json());
+    },
     onSuccess: (data: { conversationId: number }) => {
       setSelectedDmId(data.conversationId);
       setView("dm");
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms"] });
     },
     onError: (e: any) => {
-      toast({ title: "Could not start DM", description: e.message, variant: "destructive" });
+      toast({ title: "Could not start conversation", description: e.message, variant: "destructive" });
     },
   });
 
@@ -3490,19 +3576,31 @@ export default function CurrentPage() {
                           : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                     )}
                   >
-                    <div
-                      className={cn(
-                        "w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white",
-                        isMutedDm && !active && "opacity-40",
-                        avatarBg(dm.otherUser.id)
-                      )}
-                    >
-                      {initials(dm.otherUser.name)}
-                    </div>
+                    {dm.type === 'group_dm' ? (
+                      <div
+                        className={cn(
+                          "w-5 h-5 rounded-full flex items-center justify-center shrink-0",
+                          "bg-muted/60 border border-border/40",
+                          isMutedDm && !active && "opacity-40"
+                        )}
+                      >
+                        <Users className="w-3 h-3 text-muted-foreground/60" />
+                      </div>
+                    ) : (
+                      <div
+                        className={cn(
+                          "w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white",
+                          isMutedDm && !active && "opacity-40",
+                          avatarBg(dm.otherUser?.id ?? dm.conversationId)
+                        )}
+                      >
+                        {initials(dm.otherUser?.name ?? dm.displayName)}
+                      </div>
+                    )}
                     <div className={cn("flex-1 min-w-0 text-left", isMutedDm && !active && "opacity-50")}>
                       <div className="flex items-center gap-1">
                         <span className="truncate flex-1 font-medium">
-                          {dm.otherUser.name}
+                          {dm.displayName}
                         </span>
                         {isMutedDm && !active && (
                           <BellOff
@@ -3700,19 +3798,31 @@ export default function CurrentPage() {
             </>
           ) : view === "dm" ? (
             <>
-              <div
-                className={cn(
-                  "w-6 h-6 rounded-full flex items-center justify-center shrink-0",
-                  "text-[10px] font-bold text-white",
-                  selectedDm ? avatarBg(selectedDm.otherUser.id) : "bg-muted"
-                )}
-              >
-                {selectedDm ? initials(selectedDm.otherUser.name) : "?"}
-              </div>
+              {selectedDm?.type === 'group_dm' ? (
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-muted/60 border border-border/40"
+                >
+                  <Users className="w-3.5 h-3.5 text-muted-foreground/60" />
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    "w-6 h-6 rounded-full flex items-center justify-center shrink-0",
+                    "text-[10px] font-bold text-white",
+                    selectedDm ? avatarBg(selectedDm.otherUser?.id ?? selectedDm.conversationId) : "bg-muted"
+                  )}
+                >
+                  {selectedDm ? initials(selectedDm.otherUser?.name ?? selectedDm.displayName) : "?"}
+                </div>
+              )}
               <span className="font-semibold text-[14px] text-foreground shrink-0">
-                {selectedDm?.otherUser.name ?? "Direct Message"}
+                {selectedDm?.displayName ?? "Direct Message"}
               </span>
-              {selectedDm?.otherUser.email && (
+              {selectedDm?.type === 'group_dm' ? (
+                <span className="text-[12px] text-muted-foreground/60 truncate">
+                  {(selectedDm.members.length + 1)} members
+                </span>
+              ) : selectedDm?.otherUser?.email && (
                 <span className="text-[12px] text-muted-foreground/60 truncate">
                   {selectedDm.otherUser.email}
                 </span>
@@ -3831,21 +3941,27 @@ export default function CurrentPage() {
                 </div>
               ) : dmNonDeletedCount === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground/40">
-                  <div
-                    className={cn(
-                      "w-12 h-12 rounded-full flex items-center justify-center",
-                      "text-base font-bold text-white",
-                      selectedDm ? avatarBg(selectedDm.otherUser.id) : "bg-muted"
-                    )}
-                  >
-                    {selectedDm ? initials(selectedDm.otherUser.name) : "?"}
-                  </div>
+                  {selectedDm?.type === 'group_dm' ? (
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center bg-muted/60 border border-border/40">
+                      <Users className="w-6 h-6 text-muted-foreground/40" />
+                    </div>
+                  ) : (
+                    <div
+                      className={cn(
+                        "w-12 h-12 rounded-full flex items-center justify-center",
+                        "text-base font-bold text-white",
+                        selectedDm ? avatarBg(selectedDm.otherUser?.id ?? selectedDm.conversationId) : "bg-muted"
+                      )}
+                    >
+                      {selectedDm ? initials(selectedDm.otherUser?.name ?? selectedDm.displayName) : "?"}
+                    </div>
+                  )}
                   <div className="text-center">
                     <div className="text-[13px] font-medium text-foreground/60">
-                      {selectedDm?.otherUser.name ?? "Your teammate"}
+                      {selectedDm?.displayName ?? "Your teammate"}
                     </div>
                     <div className="text-[12px] mt-1">
-                      Start the conversation — say hi!
+                      {selectedDm?.type === 'group_dm' ? "Kick off the group conversation!" : "Start the conversation — say hi!"}
                     </div>
                   </div>
                 </div>
@@ -4351,7 +4467,7 @@ export default function CurrentPage() {
       <NewDmDialog
         open={newDmOpen}
         onOpenChange={setNewDmOpen}
-        onSelect={(userId) => startDmMutation.mutate(userId)}
+        onConfirm={(userIds) => startDmMutation.mutate(userIds)}
       />
 
       {/* ── Thread panel ────────────────────────────────────────────────── */}

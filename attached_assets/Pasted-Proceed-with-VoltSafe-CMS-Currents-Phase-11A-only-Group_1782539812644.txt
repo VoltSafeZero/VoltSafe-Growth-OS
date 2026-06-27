@@ -1,0 +1,380 @@
+Proceed with VoltSafe CMS Currents Phase 11A only: Group Direct Messages.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, typing indicators, channel search improvements, or unrelated task features.
+
+Goal
+
+Extend Currents Direct Messages from one-to-one conversations to small internal group DMs.
+
+Currents already has:
+
+* current_conversations
+* current_conversation_members
+* 1:1 DMs
+* DM attachments
+* Attachment-only DMs
+* DM unread/read-state
+* DM muting
+* Notification preferences
+* User picker
+* Conversation message feed
+
+Phase 11A should add internal group DMs using the existing conversation/member model.
+
+Scope
+
+Add only:
+
+1. Create group DM with 2+ other internal users
+2. Display group DM in Direct Messages list
+3. Send/read messages in group DM
+4. Group DM unread counts
+5. Group DM notifications
+6. Group DM mute preference
+7. Group DM attachments should work through existing DM attachment path
+8. Basic group DM header/member display
+
+Do not add:
+
+* external guests
+* channel-like membership management
+* adding/removing members after creation unless trivial
+* group DM naming/renaming unless simple
+* typing indicators
+* read receipts per person
+* slash commands
+
+Keep Phase 11A focused on creating and using small internal group DMs.
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* current_conversations.type
+* current_conversations.participant_key
+* current_conversation_members
+* GET /api/current/dms
+* POST /api/current/dms
+* GET /api/current/dms/:id/messages
+* POST /api/current/dms/:id/messages
+* POST /api/current/dms/:id/read
+* PUT /api/current/dms/:id/preference
+* DM notification creation
+* DM unread count query
+* New DM dialog/user picker
+* DM sidebar rendering
+* DM header rendering
+* DM attachment upload security guards
+* DM deep-link behavior
+* Existing tests for 8A/8B/8C/8D/10A/10B
+
+Data model
+
+Reuse existing tables if possible.
+
+Conversations
+
+Use:
+
+* current_conversations.type = 'group_dm'
+
+For group DMs, participant_key should be deterministic if useful:
+
+* sorted user IDs including creator
+* prefix: group:1:4:9
+
+Decision needed:
+
+* If exact same participant set starts a group DM again, prefer reopening existing conversation instead of duplicating.
+* If that is difficult, allow duplicate group DMs but document it.
+
+Preferred:
+
+* dedupe exact participant set via participant_key.
+
+Members
+
+Use current_conversation_members.
+
+Each member gets:
+
+* conversation_id
+* user_id
+* last_read_message_id
+* is_muted
+* created_at
+
+Backend routes
+
+Create/open DM
+
+Update existing:
+
+POST /api/current/dms
+
+Support either:
+
+{
+  "userId": 123
+}
+
+for 1:1 DMs, or:
+
+{
+  "userIds": [123, 456, 789]
+}
+
+for group DMs.
+
+Rules:
+
+1. Requires authentication.
+2. userId preserves existing 1:1 behavior.
+3. userIds creates group DM.
+4. Reject empty userIds.
+5. Reject self-only group.
+6. Remove duplicates.
+7. Exclude current user from submitted list, then add current user internally.
+8. Require at least 3 total members for group_dm:
+    * current user + at least 2 others
+9. Validate all users exist and are active/internal.
+10. Use deterministic participant key if deduping.
+11. Return existing exact group if participant key exists.
+12. Otherwise create conversation + all member rows transactionally if possible.
+13. Do not break existing 1:1 DMs.
+
+List DMs
+
+Update:
+
+GET /api/current/dms
+
+Return both:
+
+* dm
+* group_dm
+
+For each item include:
+
+{
+  "id": 123,
+  "type": "group_dm",
+  "displayName": "Alex, Sarah, Trevor",
+  "members": [
+    { "id": 1, "name": "Trevor", "email": "..." }
+  ],
+  "otherUsers": [
+    { "id": 4, "name": "Alex", "email": "..." }
+  ],
+  "lastMessage": {},
+  "unreadCount": 2,
+  "isMuted": false
+}
+
+For 1:1 DMs, preserve existing fields so frontend does not break.
+
+Send message
+
+Update notification creation in:
+
+POST /api/current/dms/:id/messages
+
+Rules:
+
+1. Sender must be member.
+2. Notify all other non-muted members.
+3. Do not notify sender.
+4. Respect is_muted.
+5. Attachment-only DMs still work.
+6. last_message_at updates.
+
+Read state
+
+Existing read route should work for any conversation member. Verify no 1:1 assumptions.
+
+Preference route
+
+Existing DM mute route should work for any conversation member. Verify no 1:1 assumptions.
+
+Attachment security
+
+Existing DM attachment guards should work for group conversations because they check membership. Verify.
+
+Frontend requirements
+
+New DM dialog
+
+Update the New DM flow to support selecting multiple users.
+
+Behavior:
+
+1. User can search internal users.
+2. User can select multiple users.
+3. Selected users appear as chips.
+4. User can remove selected users.
+5. Create button disabled until:
+    * 1 selected user: creates/opens 1:1 DM
+    * 2+ selected users: creates/opens group DM
+6. Existing single-user workflow still feels fast.
+
+Button copy:
+
+* Start DM
+* or Start conversation
+
+DM sidebar
+
+For group DMs:
+
+1. Show group avatar/stacked initials or group icon.
+2. Show display name from member names.
+3. Show last message preview.
+4. Show unread badge.
+5. Show mute state.
+6. Sort newest first with regular DMs.
+7. Truncate long group names cleanly.
+
+DM header
+
+For group DMs, show:
+
+* group icon/avatar
+* member names
+* member count, e.g. 4 members
+
+No need for full member management in Phase 11A.
+
+DM feed/composer
+
+Reuse existing DM feed and composer.
+
+Verify:
+
+* text-only group DM works
+* text + attachment works
+* attachment-only works
+* reactions/edit/delete behavior remains safe
+* read-state works
+
+Deep-link
+
+/current?dm=ID
+
+Should open group DM the same as 1:1 DM.
+
+Notification behavior
+
+For group DMs:
+
+1. Notify every member except sender.
+2. Skip muted members.
+3. Notification title:
+    * New group message from [Sender]
+    * or New message in [Group Display Name]
+4. Notification body:
+    * text preview or Sent an attachment
+5. Action URL:
+    * /current?dm=CONVERSATION_ID
+6. No duplicate notifications.
+
+Security requirements
+
+Verify:
+
+1. User cannot create group DM with inactive/deleted users.
+2. User cannot create group DM with external/guest users if such users exist.
+3. User cannot read a group DM unless member.
+4. User cannot send to group DM unless member.
+5. User cannot mark group DM read unless member.
+6. User cannot mute group DM unless member.
+7. User cannot upload/list/download attachments unless member.
+8. User cannot infer private group DM details from unauthorized route responses.
+9. Sender is not notified.
+10. Muted members are not notified.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Existing 1:1 DMs still list.
+4. Existing 1:1 DMs still open.
+5. Existing 1:1 send/read/mute still work.
+6. New DM dialog supports single select.
+7. New DM dialog supports multi-select.
+8. One selected user creates/opens 1:1 DM.
+9. Two or more selected users creates/opens group DM.
+10. Duplicate selected users are handled safely.
+11. Self is excluded.
+12. Inactive users are excluded.
+13. Group DM appears in sidebar.
+14. Group DM display name is readable.
+15. Group DM header shows member count.
+16. Group DM text message sends.
+17. Group DM text + attachment sends.
+18. Group DM attachment-only message sends.
+19. Group DM unread counts work.
+20. Opening group DM marks read.
+21. Group DM mute works.
+22. Muted group DM suppresses notifications.
+23. Sender is not notified.
+24. Other members are notified.
+25. Group DM deep-link opens correct conversation.
+26. Unauthorized user cannot open group DM.
+27. Unauthorized user cannot send to group DM.
+28. Unauthorized user cannot upload/list/download attachments.
+29. Existing channel Currents still work.
+30. Existing archived channel behavior still works.
+31. Existing notification preferences still work.
+32. Existing hide-muted badge preference still works.
+33. Record Currents still work.
+34. Search still works.
+35. Mentions panel still works.
+36. Structured panel still works.
+37. AI summaries still work.
+38. Create Task still works.
+39. View in Currents still works.
+40. No browser console errors.
+41. No server errors.
+42. No SQL errors.
+43. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Group DM create route
+* Duplicate user handling
+* Self exclusion
+* Minimum member count
+* Exact participant-set dedupe if implemented
+* GET /dms includes group DMs
+* Group DM display fields
+* Group DM send notification fan-out
+* Muted member notification suppression
+* Group DM read route membership guard
+* Group DM preference route membership guard
+* Group DM attachment membership guard
+* New DM dialog multi-select UI
+* Existing 1:1 DM tests still pass
+* Existing 8B/8C/8D tests pass
+* Existing 10A/10B tests pass
+* Existing 9A/9B/9C tests pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing DM system audit summary
+2. Schema/migration changes, if any
+3. Backend route changes
+4. Frontend changes
+5. Group DM behavior
+6. Notification behavior
+7. Security checks
+8. Verification results
+9. Known issues
+10. Recommended next feature order
+
+Keep scope tight: Group Direct Messages only.
