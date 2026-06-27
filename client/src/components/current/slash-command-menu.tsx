@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   CheckSquare, Bookmark, AlertTriangle, FileText, Pin, Sparkles, X,
 } from "lucide-react";
@@ -81,11 +81,20 @@ export interface SlashCommandHook {
 
 export function useSlashCommand(
   draft: string,
-  commands: SlashCommand[]
+  commands: SlashCommand[],
+  // Pass selectedSlug or selectedDmId so the hook resets when context switches.
+  resetKey?: string | number | null
 ): SlashCommandHook {
   const [selectedCommand, setSelectedCommand] = useState<SlashCommand | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [suppressedQuery, setSuppressedQuery] = useState<string | null>(null);
+
+  // Reset all state when the conversation context switches (channel/DM change).
+  useEffect(() => {
+    setSelectedCommand(null);
+    setSuppressedQuery(null);
+    setActiveIndex(0);
+  }, [resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Detect /word pattern at the start of the draft (no spaces allowed)
   const slashMatch = /^\/(\w*)$/.exec(draft);
@@ -97,6 +106,9 @@ export function useSlashCommand(
     const q = rawQuery.toLowerCase();
     return commands.filter((c) => c.id.startsWith(q));
   }, [commands, rawQuery]);
+
+  // Clamp activeIndex so it never points out-of-bounds when commands shrink.
+  const clampedActiveIndex = Math.min(activeIndex, Math.max(0, filteredCommands.length - 1));
 
   const menuOpen =
     rawQuery !== null &&
@@ -131,7 +143,7 @@ export function useSlashCommand(
     }
     if (e.key === "Enter" && filteredCommands.length > 0) {
       e.preventDefault();
-      const cmd = filteredCommands[activeIndex] ?? filteredCommands[0];
+      const cmd = filteredCommands[clampedActiveIndex] ?? filteredCommands[0];
       selectCommand(cmd);
       return cmd;
     }
@@ -147,7 +159,7 @@ export function useSlashCommand(
     menuOpen,
     slashQuery,
     filteredCommands,
-    activeIndex,
+    activeIndex: clampedActiveIndex,
     setActiveIndex,
     selectedCommand,
     selectCommand,

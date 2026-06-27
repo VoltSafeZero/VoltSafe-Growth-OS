@@ -73,13 +73,20 @@ check("selectCommand sets selectedCommand", menuSrc.includes("function selectCom
 check("clearCommand resets selectedCommand", menuSrc.includes("function clearCommand"));
 check("handleMenuKeyDown handles ArrowDown", menuSrc.includes('"ArrowDown"'));
 check("handleMenuKeyDown handles ArrowUp", menuSrc.includes('"ArrowUp"'));
-check("handleMenuKeyDown Enter selects active command",
-  menuSrc.includes("filteredCommands[activeIndex]"));
+check("handleMenuKeyDown Enter selects clamped active command",
+  menuSrc.includes("filteredCommands[clampedActiveIndex]"));
 check("handleMenuKeyDown Escape sets suppressedQuery",
   menuSrc.includes('setSuppressedQuery(slashQuery)'));
 check("Return type includes menuOpen", menuSrc.includes("menuOpen,"));
 check("Return type includes slashQuery", menuSrc.includes("slashQuery,"));
 check("Return type includes filteredCommands", menuSrc.includes("filteredCommands,"));
+check("Hook accepts optional resetKey param", menuSrc.includes("resetKey?"));
+check("Hook useEffect resets state on resetKey change",
+  menuSrc.includes("useEffect") && menuSrc.includes("[resetKey]"));
+check("Hook clamps activeIndex to filteredCommands bounds",
+  menuSrc.includes("clampedActiveIndex"));
+check("Return exposes clamped activeIndex",
+  menuSrc.includes("activeIndex: clampedActiveIndex"));
 
 // ── 3. SlashCommandMenu component ─────────────────────────────────────────────
 
@@ -135,10 +142,10 @@ check("Import from slash-command-menu module",
 
 console.log("\n7. Hook instantiation in current.tsx");
 
-check("channelSlash = useSlashCommand(draft, CHANNEL_COMMANDS)",
-  currentSrc.includes("useSlashCommand(draft, CHANNEL_COMMANDS)"));
-check("dmSlash = useSlashCommand(dmDraft, DM_COMMANDS)",
-  currentSrc.includes("useSlashCommand(dmDraft, DM_COMMANDS)"));
+check("channelSlash = useSlashCommand(draft, CHANNEL_COMMANDS, selectedSlug)",
+  currentSrc.includes("useSlashCommand(draft, CHANNEL_COMMANDS, selectedSlug)"));
+check("dmSlash = useSlashCommand(dmDraft, DM_COMMANDS, selectedDmId)",
+  currentSrc.includes("useSlashCommand(dmDraft, DM_COMMANDS, selectedDmId)"));
 check("threadSlash = useSlashCommand(replyDraft, THREAD_COMMANDS)",
   currentSrc.includes("useSlashCommand(replyDraft, THREAD_COMMANDS)"));
 
@@ -152,6 +159,18 @@ check("/summarize triggers channelSummaryMutation directly",
 check("Captures cmd before clearing",
   currentSrc.includes("const cmd = channelSlash.selectedCommand;") &&
   currentSrc.includes("channelSlash.clearCommand();"));
+check("Channel clearCommand fires after mutateAsync (retry-safe)",
+  (() => {
+    const sendBlock = currentSrc.slice(
+      currentSrc.indexOf("async function handleSend("),
+      currentSrc.indexOf("async function handleSend(") + 1500
+    );
+    const mutateIdx = sendBlock.indexOf("postMutation.mutateAsync(");
+    if (mutateIdx === -1) return false;
+    // The clearCommand for the normal-send path must appear AFTER mutateAsync
+    const clearAfterMutate = sendBlock.indexOf("channelSlash.clearCommand();", mutateIdx);
+    return clearAfterMutate > mutateIdx;
+  })());
 check("cmd.id=task calls handleCreateTaskFromMsg",
   currentSrc.includes('cmd.id === "task"') &&
   currentSrc.includes("handleCreateTaskFromMsg(newMsg as Message)"));
@@ -179,6 +198,16 @@ console.log("\n10. DM handleDmSend modifications");
 check("Captures dmSlash.selectedCommand before clearing",
   currentSrc.includes("const cmd = dmSlash.selectedCommand;") &&
   currentSrc.includes("dmSlash.clearCommand();"));
+check("DM clearCommand fires after mutateAsync (retry-safe)",
+  (() => {
+    const sendBlock = currentSrc.slice(
+      currentSrc.indexOf("async function handleDmSend("),
+      currentSrc.indexOf("async function handleDmSend(") + 1200
+    );
+    const clearIdx = sendBlock.indexOf("dmSlash.clearCommand();");
+    const mutateIdx = sendBlock.indexOf("dmPostMutation.mutateAsync(");
+    return mutateIdx !== -1 && clearIdx > mutateIdx;
+  })());
 check("DM task command calls handleCreateTaskFromMsg",
   currentSrc.includes('cmd?.id === "task" && newMsg?.id') &&
   currentSrc.includes("handleCreateTaskFromMsg(newMsg as Message)"));
@@ -212,6 +241,16 @@ console.log("\n13. Thread handleReplySend modifications");
 check("Captures threadSlash.selectedCommand before clearing",
   currentSrc.includes("const cmd = threadSlash.selectedCommand;") &&
   currentSrc.includes("threadSlash.clearCommand();"));
+check("Thread clearCommand fires after mutateAsync (retry-safe)",
+  (() => {
+    const replyBlock = currentSrc.slice(
+      currentSrc.indexOf("async function handleReplySend("),
+      currentSrc.indexOf("async function handleReplySend(") + 1200
+    );
+    const clearIdx = replyBlock.indexOf("threadSlash.clearCommand();");
+    const mutateIdx = replyBlock.indexOf("postReplyMutation.mutateAsync(");
+    return mutateIdx !== -1 && clearIdx > mutateIdx;
+  })());
 check("Thread task command calls onCreateTaskMsg",
   currentSrc.includes('cmd.id === "task" && onCreateTaskMsg') &&
   currentSrc.includes("onCreateTaskMsg(newMsg as Message, rootMessageId)"));

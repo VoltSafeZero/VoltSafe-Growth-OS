@@ -1,0 +1,318 @@
+Please perform a VoltSafe CMS Currents Phase 14A Slash Commands / Composer Quick Actions audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, workflow automation, DM unread badge work, private channels, channel search improvements, presence panels, message reactions, or unrelated task features.
+
+Goal
+
+Verify that Currents slash commands are secure, stable, polished, and regression-free.
+
+Phase 14A added:
+
+* client/src/components/current/slash-command-menu.tsx
+* useSlashCommand hook
+* SlashCommandMenu
+* SlashCommandPill
+* Channel composer slash commands
+* DM composer slash commands
+* Thread composer slash commands
+* /task
+* /decision
+* /risk
+* /requirement
+* /pin
+* /summarize
+* Keyboard navigation for command menu
+* Command execution after send
+
+Audit scope
+
+Audit only:
+
+1. Slash command detection
+2. Slash command menu UI
+3. Keyboard navigation
+4. Selected command pill
+5. Channel command execution
+6. DM command execution
+7. Thread command execution
+8. Integration with existing send/task/structured/pin/summary flows
+9. Security and permission behavior
+10. Existing Currents regressions caused by 14A
+
+Component checks
+
+useSlashCommand
+
+Verify:
+
+1. Detects / at draft start.
+2. Detects /word at draft start.
+3. Does not incorrectly trigger on normal text containing /.
+4. Filters commands correctly.
+5. Escape dismisses menu.
+6. Dismissed menu does not immediately reopen until appropriate.
+7. Arrow up/down navigation works.
+8. Enter selects highlighted command when menu is open.
+9. Enter still sends message when menu is closed.
+10. Selected command removes slash token from draft.
+11. Selected command pill can be cleared.
+12. Empty query behavior is sensible.
+13. Unknown command behavior is safe.
+14. Hook does not cause excessive re-renders.
+
+SlashCommandMenu
+
+Verify:
+
+1. Renders correct commands for channel context.
+2. Renders correct commands for DM context.
+3. Renders correct commands for thread context.
+4. Renders labels/descriptions/icons.
+5. Highlighted item is visually clear.
+6. Mouse click selects command.
+7. Dark mode styling is clean.
+8. Smaller screen layout is acceptable.
+9. Menu positioning does not overlap important composer controls.
+10. No React key warnings.
+
+SlashCommandPill
+
+Verify:
+
+1. Shows selected command name.
+2. Clear button works.
+3. Dark mode styling is clean.
+4. Does not crowd attachment chips or composer controls.
+5. Resets after successful send/action.
+6. Resets when switching conversation/context if appropriate.
+
+Command behavior checks
+
+Channel composer
+
+Verify:
+
+1. Normal send without command still works.
+2. /task sends message and opens/starts existing Create Task flow with correct source metadata.
+3. /decision sends message and marks sent message as Decision.
+4. /risk sends message and marks sent message as Risk.
+5. /requirement sends message and marks sent message as Requirement.
+6. /pin sends message and pins it.
+7. /summarize triggers existing channel summary action without requiring message text.
+8. /summarize does not send an empty message.
+9. Selected command clears after success.
+10. Selected command remains or errors gracefully if post-send action fails.
+11. Attachments still work with commands where supported.
+12. Attachment-only send still works without command.
+13. Empty draft with selected command is handled safely.
+14. Archived channels block unsupported write commands.
+15. Archived channels do not allow /pin, structured marks, or task-from-new-message if message cannot send.
+
+DM/group DM composer
+
+Verify:
+
+1. Normal DM send still works.
+2. /task is available.
+3. Unsupported commands are not shown.
+4. /task sends DM message and opens/starts existing Create Task flow with correct DM source metadata.
+5. Group DM /task works.
+6. DM attachments still work.
+7. DM attachment-only send still works.
+8. Group DM attachments still work.
+9. Group DM attachment-only send still works.
+10. Membership guards still apply.
+11. User who left group DM cannot use slash command path to send/create task from that conversation.
+
+Thread composer
+
+Verify:
+
+1. Normal thread reply still works.
+2. /task works if implemented.
+3. /decision marks sent reply as Decision.
+4. /risk marks sent reply as Risk.
+5. /requirement marks sent reply as Requirement.
+6. Unsupported commands are hidden.
+7. Archived channel thread behavior is safe.
+8. Thread reply typing indicators still work.
+9. Thread reply attachments, if supported, are unaffected.
+10. Command pill clears after success.
+
+Existing flow integration checks
+
+Verify slash commands reuse existing behavior rather than duplicating unsafe logic:
+
+1. Create Task uses existing task creation/source flow.
+2. Structured marks use existing structured item mutation.
+3. Pin uses existing pin mutation.
+4. Summarize uses existing summary mutation.
+5. Existing toast/error behavior is preserved.
+6. Query invalidation/refetch happens after command actions.
+7. Message ID from the sent message is correctly passed into post-send actions.
+8. Post-send actions do not run if message send fails.
+9. No command action runs twice on double Enter or rapid clicks.
+10. Pending state prevents duplicate sends/actions where appropriate.
+
+Security checks
+
+Verify:
+
+1. Slash commands do not bypass route authentication.
+2. Slash commands do not bypass archived channel write blocks.
+3. Slash commands do not bypass DM/group DM membership checks.
+4. Slash commands do not allow pinning archived channel messages.
+5. Slash commands do not allow marking deleted messages.
+6. Slash commands do not alter messages user cannot access.
+7. Slash commands use session user only.
+8. Invalid command is ignored or rejected safely.
+9. Frontend-only command selection does not create backend trust assumptions.
+10. Existing backend route guards remain the source of truth.
+
+UI / UX checks
+
+Verify:
+
+1. Typing / feels responsive.
+2. Menu does not flicker.
+3. Keyboard navigation works naturally.
+4. Enter behavior is predictable.
+5. Escape behavior is predictable.
+6. Selected command pill is understandable.
+7. Error state is understandable if command action fails.
+8. Hint text mentioning / is visible and not noisy.
+9. Mobile/small-screen composer still usable.
+10. Dark mode styling matches Currents.
+11. Attachment chips + slash command pill coexist cleanly.
+12. Typing indicators still render in the right place.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel messages
+* Channel unread counts
+* Channel notification preferences
+* Channel archived/read-only behavior
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Channel participants panel
+* Phase 12B DM/group DM presence
+* Phase 12A typing indicators
+* Mentions panel
+* Structured panel
+* Structured archived toggle/badges
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+* 1:1 DMs
+* 1:1 DM attachments
+* 1:1 attachment-only DMs
+* 1:1 DM reactions
+* 1:1 DM unread/read-state
+* 1:1 DM mute/unmute
+* Group DMs
+* Group DM add/leave members
+* Group DM attachments
+* Group DM reactions
+* Group DM unread/read-state
+* Hide-muted unread badge preference
+* Record Currents
+* Record attachments
+* Record search
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+* Duplicate mutation calls
+* Unexpected empty-message sends
+
+Specific concerns to audit
+
+Please specifically check these:
+
+1. Whether /summarize can accidentally send an empty channel message.
+2. Whether /task source metadata is correct for channel, DM, group DM, and thread contexts.
+3. Whether selected command state resets when switching channels/DMs/threads.
+4. Whether selected command state resets after send failure or remains intentionally for retry.
+5. Whether command menu keyboard handling conflicts with Enter-to-send.
+6. Whether command menu keyboard handling conflicts with mention dropdown keyboard handling.
+7. Whether slash commands work when draft contains a mention token.
+8. Whether attachment-only messages are accidentally blocked by command logic.
+9. Whether post-send actions run only after the message is actually persisted.
+10. Whether /pin is hidden or blocked everywhere it should be.
+
+Allowed fixes
+
+Only fix issues directly related to Phase 14A Slash Commands.
+
+Allowed:
+
+* Slash detection bug
+* Keyboard handling bug
+* Menu display bug
+* Pill reset bug
+* Command availability bug
+* /summarize empty-message bug
+* /task source metadata bug
+* Structured mark command bug
+* Pin command bug
+* Query invalidation bug
+* Duplicate action bug
+* Archived-channel command bug
+* DM/group DM membership command bug
+* Console/server errors caused by slash commands
+* Tests directly related to 14A
+
+Not allowed:
+
+* New commands beyond the Phase 14A list
+* Custom command management
+* External integrations
+* Guest/external collaborators
+* Workflow automation
+* Private channels
+* Channel search improvements
+* DM unread badge work
+* Presence panels
+* Message reactions
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Component checks
+5. Command behavior checks
+6. Existing flow integration checks
+7. Security checks
+8. UI/UX checks
+9. Regression results
+10. Known issues
+11. Final pass/fail status
+12. Recommended next feature order
+
+Keep scope tight: Slash Commands / Composer Quick Actions audit only.

@@ -1517,9 +1517,9 @@ function ThreadPanel({
     const trimmed = replyDraft.trim();
     if (!trimmed || postReplyMutation.isPending || isReplyUploading) return;
     const cmd = threadSlash.selectedCommand;
-    threadSlash.clearCommand();
     try {
       const newMsg = await postReplyMutation.mutateAsync(trimmed);
+      threadSlash.clearCommand();
       setReplyDraft("");
       replyMention.closeMention();
       if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
@@ -3235,8 +3235,8 @@ export default function CurrentPage() {
   const lastReadRef = useRef<number>(0);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainMention = useComposerMentions(textareaRef);
-  const channelSlash = useSlashCommand(draft, CHANNEL_COMMANDS);
-  const dmSlash = useSlashCommand(dmDraft, DM_COMMANDS);
+  const channelSlash = useSlashCommand(draft, CHANNEL_COMMANDS, selectedSlug);
+  const dmSlash = useSlashCommand(dmDraft, DM_COMMANDS, selectedDmId);
 
   const [createTaskSource, setCreateTaskSource] = useState<CreateTaskSource | null>(null);
 
@@ -3857,9 +3857,9 @@ export default function CurrentPage() {
     const trimmed = draft.trim();
     if (!trimmed || postMutation.isPending || isMainUploading) return;
     const cmd = channelSlash.selectedCommand;
-    channelSlash.clearCommand();
     try {
       const newMsg = await postMutation.mutateAsync(trimmed);
+      channelSlash.clearCommand();
       setDraft("");
       mainMention.closeMention();
       if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -3942,9 +3942,9 @@ export default function CurrentPage() {
     const hasFiles = dmPendingFiles.length > 0;
     if ((!trimmed && !hasFiles) || dmPostMutation.isPending || isDmUploading || !selectedDmId) return;
     const cmd = dmSlash.selectedCommand;
-    dmSlash.clearCommand();
     try {
       const newMsg = await dmPostMutation.mutateAsync({ body: trimmed, hasPendingAttachments: hasFiles });
+      dmSlash.clearCommand();
       setDmDraft("");
       dmMention.closeMention();
       if (dmTextareaRef.current) dmTextareaRef.current.style.height = "auto";
