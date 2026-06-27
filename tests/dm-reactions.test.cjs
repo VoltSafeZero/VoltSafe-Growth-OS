@@ -514,9 +514,10 @@ async function main() {
   let archivedChannelId = 0;
   let archivedChannelSlug = "";
   let archivedChannelMsgId = 0;
+  const tempChannelName = `Temp Audit 13A ${Date.now()}`;
 
   await test("archived channel: create temp channel (as admin)", async () => {
-    const r = await api("POST", "/api/current/channels", { name: "Temp Audit 13A", description: "" }, cookieTrevor);
+    const r = await api("POST", "/api/current/channels", { name: tempChannelName, description: "" }, cookieTrevor);
     assert.ok(r.status === 200 || r.status === 201, `expected 200/201, got ${r.status}: ${JSON.stringify(r.data)}`);
     archivedChannelId = r.data.id;
     archivedChannelSlug = r.data.slug;
