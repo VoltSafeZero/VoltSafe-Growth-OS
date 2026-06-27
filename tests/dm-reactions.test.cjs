@@ -491,6 +491,70 @@ async function main() {
     assert.ok(src.includes("PRESET_REACTIONS"), "PRESET_REACTIONS must be defined");
   });
 
+  // ── Source-grep: backend fix pins ─────────────────────────────────────────
+  console.log("\n  [source-grep: backend fix pins]");
+
+  await test("routes: reaction SELECT includes channel_id (required for archived channel guard to fire)", async () => {
+    assert.ok(
+      routes.includes("SELECT id, conversation_id, channel_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1"),
+      "reaction route SELECT must include channel_id — without it archived_at check is unreachable"
+    );
+  });
+
+  await test("routes: reaction route uses msgRows channel_id for archived check", async () => {
+    const idx = routes.indexOf('app.post("/api/current/messages/:id/reactions"');
+    const block = routes.slice(idx, idx + 1500);
+    assert.ok(block.includes("reactChannelId"), "reactChannelId must be derived from msgRows.rows[0].channel_id");
+    assert.ok(block.includes("SELECT archived_at FROM current_channels"), "archived_at check must query current_channels");
+  });
+
+  // ── Live: archived channel reaction blocked ────────────────────────────────
+  console.log("\n  [live: archived channel reaction block]");
+
+  let archivedChannelId = 0;
+  let archivedChannelSlug = "";
+  let archivedChannelMsgId = 0;
+
+  await test("archived channel: create temp channel (as admin)", async () => {
+    const r = await api("POST", "/api/current/channels", { name: "Temp Audit 13A", description: "" }, cookieTrevor);
+    assert.ok(r.status === 200 || r.status === 201, `expected 200/201, got ${r.status}: ${JSON.stringify(r.data)}`);
+    archivedChannelId = r.data.id;
+    archivedChannelSlug = r.data.slug;
+    assert.ok(archivedChannelId > 0, "should have channel id");
+    assert.ok(archivedChannelSlug, "should have channel slug");
+  });
+
+  await test("archived channel: post a message to temp channel (via slug)", async () => {
+    const r = await api("POST", `/api/current/channels/${archivedChannelSlug}/messages`, { body: "audit13a test" }, cookieTrevor);
+    assert.equal(r.status, 201, `expected 201, got ${r.status}: ${JSON.stringify(r.data)}`);
+    archivedChannelMsgId = r.data.id;
+    assert.ok(archivedChannelMsgId > 0, "should have message id");
+  });
+
+  await test("archived channel: can react before archiving → 200", async () => {
+    const r = await api("POST", `/api/current/messages/${archivedChannelMsgId}/reactions`, { emoji: "👍" }, cookieTrevor);
+    assert.equal(r.status, 200, `pre-archive reaction must succeed, got ${r.status}`);
+    // toggle off
+    await api("POST", `/api/current/messages/${archivedChannelMsgId}/reactions`, { emoji: "👍" }, cookieTrevor);
+  });
+
+  await test("archived channel: archive the temp channel (as admin)", async () => {
+    const r = await api("POST", `/api/current/channels/${archivedChannelId}/archive`, {}, cookieTrevor);
+    assert.ok(r.status === 200, `archive must succeed, got ${r.status}: ${JSON.stringify(r.data)}`);
+    assert.equal(r.data.ok, true);
+  });
+
+  await test("archived channel: react to channel message after archiving → 403", async () => {
+    const r = await api("POST", `/api/current/messages/${archivedChannelMsgId}/reactions`, { emoji: "👍" }, cookieTrevor);
+    assert.equal(r.status, 403, `archived channel reaction must be blocked (403), got ${r.status}: ${JSON.stringify(r.data)}`);
+    assert.ok((r.data?.message || "").includes("archived"), "error message must mention 'archived'");
+  });
+
+  await test("archived channel: unarchive to restore (cleanup)", async () => {
+    const r = await api("POST", `/api/current/channels/${archivedChannelId}/unarchive`, {}, cookieTrevor);
+    assert.ok(r.status === 200, `unarchive must succeed, got ${r.status}`);
+  });
+
   // ── Regression ─────────────────────────────────────────────────────────────
   console.log("\n  [regression]");
 

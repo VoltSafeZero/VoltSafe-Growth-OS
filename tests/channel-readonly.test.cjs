@@ -60,6 +60,12 @@ assertInFile(
   /reactChannelId.*SELECT archived_at FROM current_channels/s
 );
 
+assertInFile(
+  "B3a. Reaction SELECT includes channel_id (required for archived channel check to fire)",
+  ROUTES,
+  "SELECT id, conversation_id, channel_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1"
+);
+
 // ── Section 2: Backend edit guard ────────────────────────────────────────────
 console.log("\n── Backend: Edit ──");
 

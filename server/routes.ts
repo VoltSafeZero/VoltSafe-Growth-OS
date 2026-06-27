@@ -33617,7 +33617,7 @@ export function registerConfluenceRoutes(app: Express) {
       if (!messageId || !ALLOWED.includes(emoji))
         return res.status(400).json({ message: "Invalid message or emoji" });
       const msgRows = await db.execute(sql.raw(
-        `SELECT id, conversation_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+        `SELECT id, conversation_id, channel_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
       ));
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
       // If this is a DM message, enforce membership

@@ -1,0 +1,232 @@
+Please perform a VoltSafe CMS Currents Phase 13A DM / Group DM Reactions Parity audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, DM unread badge work, private channels, channel search improvements, presence panels, or unrelated task features.
+
+Goal
+
+Verify that DM and Group DM message reactions are secure, stable, polished, and regression-free.
+
+Phase 13A fixed the DM MessageRow reaction wiring:
+
+* replaced ignored onReact prop with onToggleReaction
+* fixed DM message grouping prop from isConsecutive to grouped
+* confirmed backend reaction route already supports DM/group DM messages
+* confirmed DM message fetch already returns reactions[]
+
+Audit scope
+
+Audit only:
+
+1. DM reaction frontend wiring
+2. Group DM reaction frontend wiring
+3. DM/group DM backend reaction behavior
+4. Reaction display and toggle behavior
+5. Attachment-only DM reactions
+6. Security/membership checks
+7. Existing channel reaction regressions caused by 13A
+8. Existing Currents regressions caused by 13A
+
+Backend checks
+
+Verify existing reaction route behavior:
+
+1. Requires authentication.
+2. Message must exist.
+3. Deleted messages cannot be reacted to.
+4. Invalid emoji rejected.
+5. Duplicate reaction from same user/message/emoji is prevented.
+6. Clicking same emoji again removes only current user’s reaction.
+7. Reaction counts aggregate correctly.
+8. reacted: true/false is scoped to current user.
+9. Channel message reactions still work.
+10. Archived channel message reactions are blocked.
+11. 1:1 DM message reactions work.
+12. Group DM message reactions work.
+13. Non-member cannot react to DM/group DM message.
+14. User who left group DM cannot react.
+15. Non-member cannot infer private DM/group details from reaction route.
+16. SQL injection is not possible through message ID or emoji.
+
+DM fetch checks
+
+Verify:
+
+1. GET /api/current/dms/:id/messages returns reactions for 1:1 DM messages.
+2. GET /api/current/dms/:id/messages returns reactions for group DM messages.
+3. Attachment-only DM messages include reactions.
+4. Reaction counts are correct.
+5. Current user’s reacted state is correct.
+6. Cross-user fetch shows reacted: false when another user reacted.
+7. Deleted messages do not expose reactions unexpectedly.
+8. Non-member cannot fetch messages/reactions.
+
+Frontend checks
+
+MessageRow wiring
+
+Verify:
+
+1. DM MessageRow uses onToggleReaction.
+2. DM MessageRow no longer passes ignored onReact.
+3. DM MessageRow passes grouped={isConsecutive}.
+4. DM MessageRow passes safe isArchived={false}.
+5. DM MessageRow passes safe isAdmin={false}.
+6. ReactionStrip receives onToggle.
+7. Reaction chip click calls the mutation.
+8. Hover/quick emoji button calls the mutation.
+9. No runtime TypeError when clicking a reaction.
+10. Grouped DM messages still render correctly.
+
+DM/group DM UI behavior
+
+Verify reactions work for:
+
+1. 1:1 DM text-only message.
+2. 1:1 DM text + attachment message.
+3. 1:1 DM attachment-only message.
+4. Group DM text-only message.
+5. Group DM text + attachment message.
+6. Group DM attachment-only message.
+7. Current user’s reaction chip is visually highlighted.
+8. Reaction count updates after toggle.
+9. Reaction removal updates count.
+10. Dark mode styling matches channel reactions.
+11. Layout remains compact.
+12. Consecutive DM message grouping still looks correct.
+
+Security checks
+
+Verify:
+
+1. Non-member cannot add reaction to 1:1 DM.
+2. Non-member cannot add reaction to group DM.
+3. User who left group DM cannot add reaction.
+4. Non-member cannot remove reaction.
+5. User cannot remove another user’s reaction.
+6. User cannot react to deleted message.
+7. User cannot react to archived channel message.
+8. Reaction route does not leak private DM/group data.
+9. Emoji validation is strict enough.
+10. Session user ID is used for all reaction ownership.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel reactions
+* Channel archived/read-only behavior
+* Channel messages
+* Channel unread counts
+* Channel notification preferences
+* Channel attachments
+* Channel threads
+* Channel pins
+* Channel participants panel
+* Phase 12B DM/group DM presence
+* Phase 12A typing indicators
+* Mentions panel
+* Structured panel
+* Structured archived toggle/badges
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+* 1:1 DMs
+* 1:1 DM attachments
+* 1:1 attachment-only DMs
+* 1:1 DM unread/read-state
+* 1:1 DM mute/unmute
+* Group DMs
+* Group DM add/leave members
+* Group DM attachments
+* Group DM unread/read-state
+* Hide-muted unread badge preference
+* Record Currents
+* Record attachments
+* Record search
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+
+Specific concerns to audit
+
+Please specifically check these:
+
+1. Whether onReact exists anywhere else as a dead/ignored prop.
+2. Whether onToggleReaction is consistently named across channel and DM call sites.
+3. Whether DM reaction mutation invalidates the correct query keys.
+4. Whether group DM reaction mutation invalidates the correct query keys.
+5. Whether attachment-only DM messages expose the reaction UI.
+6. Whether isArchived={false} on DM MessageRow is correct and safe.
+7. Whether isAdmin={false} on DM MessageRow hides channel-only admin controls.
+8. Whether consecutive message grouping changed visually after the grouped prop fix.
+9. Whether deleted DM messages can still be reacted to through the backend.
+10. Whether reaction tests cover both current-user reacted state and other-user non-reacted state.
+
+Allowed fixes
+
+Only fix issues directly related to Phase 13A DM / Group DM Reactions Parity.
+
+Allowed:
+
+* DM reaction prop wiring bug
+* Group DM reaction prop wiring bug
+* Reaction query invalidation bug
+* Reaction UI display bug
+* Attachment-only DM reaction bug
+* Backend reaction security bug
+* Deleted-message reaction bug
+* Left-member reaction bug
+* Channel reaction regression caused by 13A
+* Console/server errors caused by 13A
+* Tests directly related to 13A
+
+Not allowed:
+
+* New emoji picker libraries
+* Custom emoji management
+* Read receipts
+* Guest/external collaborators
+* Slash commands
+* Workflow automation
+* Channel search improvements
+* Private channels
+* Presence panels
+* DM unread badge work
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend checks
+5. DM fetch checks
+6. Frontend checks
+7. Security checks
+8. Regression results
+9. Known issues
+10. Final pass/fail status
+11. Recommended next feature order
+
+Keep scope tight: DM / Group DM Reactions Parity audit only.
