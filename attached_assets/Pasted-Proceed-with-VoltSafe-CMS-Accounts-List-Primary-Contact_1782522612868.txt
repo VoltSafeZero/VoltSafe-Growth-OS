@@ -1,0 +1,144 @@
+Proceed with VoltSafe CMS Accounts List Primary Contact Column only.
+
+Do not work on Currents, Training Hub, AI summaries, task features, Guest Currents, direct messages, workflow automation, or unrelated CRM features.
+
+Goal
+
+Improve the Accounts list/table view by adding a useful Primary Contact column or field so users can quickly see who the main person is for each account.
+
+The Accounts page now defaults to list view and A→Z sort. This task should only enhance that list row.
+
+Scope
+
+Work only on:
+
+1. Accounts list/table row
+2. Account API payload only if the primary contact data is not already available
+3. Minimal styling/layout changes to fit the new field cleanly
+
+Requirements
+
+Primary Contact display
+
+In the Accounts list/table, show the account’s primary contact if available.
+
+Preferred display:
+
+* Contact name
+* Contact title if available
+* Email or phone if space allows
+
+Example:
+
+Sarah Mitchell
+Marina Manager
+
+or compact:
+
+Sarah Mitchell · Marina Manager
+
+If there is no primary contact:
+
+* Show muted No primary contact
+* Do not leave the cell blank in a confusing way
+
+Data source audit
+
+Before coding, inspect:
+
+* Account API response
+* Account detail dialog data shape
+* Contact/person schema
+* Existing account-contact relationship tables
+* Any existing primaryContact, primary_contact, contacts, people, or account_contacts field
+* Existing CRM relationship logic
+
+Reuse existing data if possible.
+
+Do not invent a second contact relationship system.
+
+Backend
+
+Prefer no backend changes if Accounts API already returns the needed contact data.
+
+If backend change is needed, minimally include one primary contact object in the Accounts list response:
+
+{
+  "primaryContact": {
+    "id": 123,
+    "name": "Sarah Mitchell",
+    "title": "Marina Manager",
+    "email": "sarah@example.com",
+    "phone": "..."
+  }
+}
+
+Only return lightweight fields needed for the list.
+
+Do not load huge contact arrays for every account.
+
+Frontend UI
+
+Add a Primary Contact column to the list/table.
+
+Suggested placement:
+
+* After Account Name / Location
+* Before Type / Classification
+
+Keep the table readable.
+
+On narrower screens:
+
+* Hide title/email if needed
+* Or stack under account name if better
+* Do not make the row overly tall
+
+Interaction
+
+If contact id is available:
+
+* Clicking the contact name may open contact profile/detail if existing behavior is easy
+* Otherwise, display only
+
+Do not build a new contact modal.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. Accounts page loads.
+3. Accounts still default to list view.
+4. Accounts still sort A→Z.
+5. Primary Contact column appears.
+6. Accounts with a primary contact show name.
+7. Contact title/email/phone display only if available.
+8. Accounts without primary contact show muted fallback.
+9. Row click still opens account detail.
+10. Contact click, if implemented, does not break account row click.
+11. Search still works.
+12. Filters still work.
+13. Infinite scroll still works.
+14. New Account action still works.
+15. Account detail dialog still works.
+16. Account Currents still works.
+17. No browser console errors.
+18. No server errors.
+19. No SQL errors.
+20. No unrelated files changed unnecessarily.
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing account/contact data audit summary
+2. Files changed
+3. Backend changes, if any
+4. Primary contact selection logic
+5. Frontend display behavior
+6. Verification results
+7. Known issues
+8. Recommended next step
+
+Keep scope tight: Primary Contact column in Accounts list only.

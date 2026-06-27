@@ -91,7 +91,7 @@ export interface IStorage {
   ensureAccountForLead(leadId: number): Promise<void>;
   backfillAccountsForLeads(): Promise<number>;
 
-  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; page?: number; limit?: number; onlyPromoted?: boolean }): Promise<{ data: Account[]; total: number; page: number; totalPages: number }>;
+  getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; page?: number; limit?: number; onlyPromoted?: boolean }): Promise<{ data: (Account & { primaryContact: { id: number; name: string; title: string | null; email: string | null; phone: string | null } | null })[]; total: number; page: number; totalPages: number }>;
   getAccount(id: number): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   updateAccount(id: number, data: Partial<InsertAccount>): Promise<Account | undefined>;
@@ -749,7 +749,29 @@ export class DatabaseStorage implements IStorage {
       db.select({ count: sql<number>`count(*)` }).from(accounts).where(where),
     ]);
 
-    return { data, total: Number(countResult[0].count), page, totalPages: Math.ceil(Number(countResult[0].count) / limit) };
+    // Batch-fetch one primary contact per account (is_primary = true)
+    const accountIds = data.map(a => a.id);
+    const primaryContactMap: Record<number, { id: number; name: string; title: string | null; email: string | null; phone: string | null }> = {};
+    if (accountIds.length > 0) {
+      const primaryContacts = await db.select({
+        id: contacts.id,
+        accountId: contacts.accountId,
+        name: contacts.name,
+        title: contacts.title,
+        email: contacts.email,
+        phone: contacts.phone,
+      }).from(contacts).where(
+        and(inArray(contacts.accountId, accountIds), eq(contacts.isPrimary, true))
+      );
+      for (const c of primaryContacts) {
+        if (c.accountId && !primaryContactMap[c.accountId]) {
+          primaryContactMap[c.accountId] = { id: c.id, name: c.name, title: c.title, email: c.email, phone: c.phone };
+        }
+      }
+    }
+    const dataWithPrimary = data.map(a => ({ ...a, primaryContact: primaryContactMap[a.id] ?? null }));
+
+    return { data: dataWithPrimary, total: Number(countResult[0].count), page, totalPages: Math.ceil(Number(countResult[0].count) / limit) };
   }
 
   async getAccount(id: number) {

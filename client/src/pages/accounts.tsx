@@ -40,6 +40,9 @@ import StateProvinceSelect from "@/components/state-province-select";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { PIPELINE_STAGE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, NON_OPERATING_SEGMENTS, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry } from "@/lib/crm-taxonomy";
 
+type PrimaryContact = { id: number; name: string; title: string | null; email: string | null; phone: string | null };
+type AccountWithContact = Account & { primaryContact: PrimaryContact | null };
+
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
   corp: "bg-purple-500/10 text-purple-500 border-purple-500/20",
@@ -141,7 +144,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   }, []);
 
   const PAGE_SIZE = 100;
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: AccountWithContact[]; total: number; page: number; totalPages: number }>({
     queryKey: ["/api/accounts", { search, industry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "all" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, country: countryFilter === "all" ? "" : countryFilter, state: regionFilter === "all" ? "" : regionFilter, priority: priorityFilter === "all" ? "" : priorityFilter, sort: sortOption }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
@@ -637,6 +640,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                     </th>
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left">Company</th>
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden sm:table-cell">Location</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden lg:table-cell">Primary Contact</th>
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden md:table-cell">Type</th>
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden lg:table-cell">Classification</th>
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground text-left hidden sm:table-cell">Priority</th>
@@ -648,7 +652,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                   {isLoading ? (
                     [...Array(6)].map((_, i) => (
                       <tr key={i} className="border-b border-border/30">
-                        <td colSpan={8} className="p-3 sm:p-4"><Skeleton className="h-4" /></td>
+                        <td colSpan={9} className="p-3 sm:p-4"><Skeleton className="h-4" /></td>
                       </tr>
                     ))
                   ) : allAccounts.map((account) => (
@@ -669,6 +673,18 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                       </td>
                       <td className="p-3 sm:p-4 text-sm text-muted-foreground hidden sm:table-cell" onClick={() => setSelectedAccount(account)}>
                         {[account.city, account.stateProvince, account.country].filter(Boolean).join(", ") || account.region || "—"}
+                      </td>
+                      <td className="p-3 sm:p-4 hidden lg:table-cell" onClick={() => setSelectedAccount(account)} data-testid={`cell-primary-contact-${account.id}`}>
+                        {account.primaryContact ? (
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium block truncate max-w-[160px]" data-testid={`text-primary-contact-name-${account.id}`}>{account.primaryContact.name}</span>
+                            {account.primaryContact.title && (
+                              <span className="text-xs text-muted-foreground block truncate max-w-[160px]">{account.primaryContact.title}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground/50 italic">No primary contact</span>
+                        )}
                       </td>
                       <td className="p-3 sm:p-4 hidden md:table-cell" onClick={() => setSelectedAccount(account)}>
                         {account.orgType
@@ -698,7 +714,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                     </tr>
                   ))}
                   {!isLoading && allAccounts.length === 0 && (
-                    <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">
+                    <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">
                       No organizations found.{isFiltered && <> Try <button onClick={resetFilters} className="underline hover:text-foreground transition-colors">clearing filters</button>.</>}
                     </td></tr>
                   )}
