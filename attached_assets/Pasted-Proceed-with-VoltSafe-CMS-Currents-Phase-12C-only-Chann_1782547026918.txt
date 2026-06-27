@@ -1,0 +1,270 @@
+Proceed with VoltSafe CMS Currents Phase 12C only: Channel Member List / Online Presence Panel.
+
+Do not work on Accounts, Contacts, CRM list views, Guest Currents, external collaborators, slash commands, workflow automation, DM unread badge work, message reactions, channel search improvements, or unrelated task features.
+
+Goal
+
+Add a lightweight channel member / online presence panel to Currents channels.
+
+Phase 12B added online presence for DMs and group DMs. Phase 12C should extend that visibility to channels so users can see who is active in a channel.
+
+Keep this internal-only and simple.
+
+Scope
+
+Add only:
+
+1. Channel member/participant list UI
+2. Online presence display for channel users
+3. Channel header button/popover/dialog
+4. Backend route if needed to fetch channel participants
+5. Security/archived channel checks
+6. Tests/audit for the above
+
+Do not add:
+
+* channel roles/admins
+* inviting/removing channel members
+* private channels
+* guest users
+* external collaborators
+* WebSockets
+* read receipts
+* slash commands
+* workflow automation
+* channel search improvements
+
+Existing systems to audit first
+
+Before coding, inspect:
+
+* Current channel header area
+* Existing channel list route
+* Existing message author data
+* Existing user search/current users route
+* current_messages
+* current_channels
+* current_channel_preferences
+* presence routes from Phase 12B
+* PresenceDot component
+* typing indicator code
+* archived channel behavior
+* admin channel settings gear
+* existing popover/dialog UI patterns
+* existing tests for 12A/12B/11A/11B/10A/10B/9A/9B/9C
+
+Product behavior
+
+For each selected channel, show a small people/member control in the channel header.
+
+Example:
+
+* # general
+* 8 people · 3 online
+
+Clicking the control opens a popover or dialog showing channel participants.
+
+For now, “channel participants” can mean:
+
+1. Users who have posted in the channel, plus
+2. Users who have a channel preference row for that channel, plus
+3. Admin/internal active users if already easy and safe.
+
+Preferred simple approach:
+
+* Use users who have participated in the channel through messages and/or preferences.
+* Do not imply formal channel membership if none exists yet.
+* Label as People in this channel or Channel participants, not Members if channels are still public.
+
+Backend route
+
+Add an authenticated route if needed:
+
+GET /api/current/channels/:slug/participants
+
+Response:
+
+{
+  "channel": {
+    "id": 1,
+    "slug": "general",
+    "name": "General",
+    "isArchived": false
+  },
+  "participants": [
+    {
+      "id": 1,
+      "name": "Trevor",
+      "email": "trevor@voltsafe.com"
+    }
+  ]
+}
+
+Rules:
+
+1. Requires authentication.
+2. Channel slug must exist.
+3. Works for active channels.
+4. Archived channels can still show participants read-only.
+5. Return active/internal users only.
+6. Do not return suspended/deactivated users.
+7. Do not leak passwords, permissions, private fields, or session data.
+8. Sort participants:
+    * online first if presence is joined frontend-side, or
+    * alphabetical if backend-only.
+9. Cap results, e.g. 100.
+10. Avoid N+1 queries.
+
+Presence behavior
+
+Reuse Phase 12B presence route.
+
+Frontend should:
+
+1. Fetch channel participants for selected channel.
+2. Extract participant IDs.
+3. Include those IDs in the existing presence query if possible.
+4. Show online/offline in the channel participant panel.
+5. Show online count in channel header.
+
+Do not create another presence route unless necessary.
+
+Frontend requirements
+
+Channel header
+
+Add a compact people control near the channel name/header actions.
+
+Display:
+
+* N people
+* If online count > 0: N people · M online
+
+Click opens the panel.
+
+For archived channels:
+
+* still viewable
+* no write action implied
+
+Channel participant panel
+
+Show:
+
+* user initials/avatar
+* name
+* email
+* online dot/status
+* optional “You” label for current user
+
+Sort:
+
+1. current user first if present
+2. online users
+3. offline users
+4. alphabetical within groups
+
+Use existing visual patterns from GroupMemberDialog where possible.
+
+Empty state
+
+If no participants found:
+
+* No channel participants yet
+* or No one has posted in this channel yet
+
+UI polish
+
+1. Dark mode clean.
+2. No layout crowding in header.
+3. Works on smaller screens.
+4. Does not cause message feed jumps.
+5. Avoids over-fetching.
+6. Does not show presence dots on every message avatar unless already safe.
+
+Security/privacy requirements
+
+Verify:
+
+1. Auth required.
+2. Suspended/deactivated users excluded.
+3. No private fields leaked.
+4. Presence GET still only returns status.
+5. Channel participant route does not reveal DMs or private group data.
+6. Archived channel participants are read-only.
+7. Route handles invalid slug safely.
+8. SQL injection not possible through slug.
+9. Cap prevents huge result sets.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. Active channel header shows people control.
+4. People control opens participant panel.
+5. Participant panel shows name/email/status.
+6. Current user handling is sensible.
+7. Online users show online dot.
+8. Offline users show no dot or muted status.
+9. Header online count updates from presence.
+10. Empty channel state works.
+11. Archived channel can still show participants.
+12. Suspended/deactivated users excluded.
+13. Invalid slug returns safe error.
+14. Channel messages still send.
+15. Typing indicators still work.
+16. Presence heartbeat still works.
+17. DM presence still works.
+18. Group DM presence still works.
+19. Group member add/leave still works.
+20. Notification preferences still work.
+21. Hide-muted badge preference still works.
+22. Structured panel still works.
+23. AI summaries still work.
+24. Create Task still works.
+25. View in Currents still works.
+26. No browser console errors.
+27. No server errors.
+28. No SQL errors.
+29. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* Channel participants route auth
+* Invalid slug handling
+* Active channel participant response shape
+* Archived channel participant response works read-only
+* Suspended/deactivated users excluded
+* No private fields leaked
+* Cap at 100
+* Stable sorting
+* Frontend header people control
+* Participant panel rendering
+* Online count display
+* Presence route reused
+* Existing 12B presence tests pass
+* Existing 12A typing tests pass
+* Existing 11A/11B group DM tests pass
+* Existing 10A/10B notification tests pass
+* Existing 9A/9B/9C channel tests pass
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Existing channel/presence audit summary
+2. Backend route changes
+3. Frontend changes
+4. Presence behavior
+5. UI behavior
+6. Security/privacy checks
+7. Verification results
+8. Features intentionally deferred
+9. Known issues
+10. Recommended next feature order
+
+Keep scope tight: Channel Member List / Online Presence Panel only.

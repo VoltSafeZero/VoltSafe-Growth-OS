@@ -2383,6 +2383,130 @@ function GroupMemberDialog({
   );
 }
 
+// ── ChannelParticipantsDialog ────────────────────────────────────────────────
+// Phase 12C: shows channel participants with online presence indicators.
+
+interface ChannelParticipant {
+  id: number;
+  name: string;
+  email: string;
+}
+
+function ChannelParticipantsDialog({
+  open,
+  onOpenChange,
+  channelSlug,
+  participants,
+  currentUserId,
+  isArchived = false,
+  presenceMap = {},
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  channelSlug: string;
+  participants: ChannelParticipant[];
+  currentUserId: number;
+  isArchived?: boolean;
+  presenceMap?: Record<number, "online" | "offline">;
+}) {
+  const sorted = useMemo(() => {
+    const you = participants.filter((p) => p.id === currentUserId);
+    const others = participants.filter((p) => p.id !== currentUserId);
+    const online = others
+      .filter((p) => presenceMap[p.id] === "online")
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const offline = others
+      .filter((p) => presenceMap[p.id] !== "online")
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return [...you, ...online, ...offline];
+  }, [participants, currentUserId, presenceMap]);
+
+  function initials(name: string) {
+    return name
+      .split(" ")
+      .map((w) => w[0] ?? "")
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm w-full p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-4 pt-4 pb-3 border-b border-border/30">
+          <DialogTitle className="text-[14px] font-semibold flex items-center gap-2">
+            <Users className="w-4 h-4 text-muted-foreground/60" />
+            <span className="truncate">
+              #{displaySlug(channelSlug)} · {participants.length}{" "}
+              {participants.length === 1 ? "person" : "people"}
+            </span>
+            {isArchived && (
+              <span className="ml-auto shrink-0 text-[11px] font-normal text-muted-foreground/60 bg-muted/40 px-1.5 py-0.5 rounded">
+                Archived
+              </span>
+            )}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="overflow-y-auto max-h-[360px] py-1">
+          {sorted.length === 0 ? (
+            <p
+              className="px-4 py-6 text-center text-[13px] text-muted-foreground/50"
+              data-testid="channel-participants-empty"
+            >
+              No channel participants yet
+            </p>
+          ) : (
+            sorted.map((p) => {
+              const isYou = p.id === currentUserId;
+              const status = isYou ? "online" : (presenceMap[p.id] ?? "offline");
+              return (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-3 px-4 py-2 hover:bg-muted/30 transition-colors"
+                  data-testid={`channel-participant-row-${p.id}`}
+                >
+                  <div className="relative shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-[11px] font-semibold text-primary/80">
+                      {initials(p.name)}
+                    </div>
+                    <PresenceDot
+                      status={status}
+                      className="absolute -bottom-px -right-px w-2 h-2"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[13px] font-medium text-foreground truncate">
+                        {p.name}
+                      </span>
+                      {isYou && (
+                        <span className="text-[10.5px] text-muted-foreground/50 shrink-0">
+                          You
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11.5px] text-muted-foreground/60 truncate">
+                      {p.email}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-[11px]">
+                    {status === "online" ? (
+                      <span className="text-emerald-500/80">Online</span>
+                    ) : (
+                      <span className="text-muted-foreground/40">Offline</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── PresenceDot ──────────────────────────────────────────────────────────────
 // Phase 12B: small green dot indicating a user is online.
 function PresenceDot({
@@ -3025,6 +3149,7 @@ export default function CurrentPage() {
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [editChannelOpen, setEditChannelOpen] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [channelParticipantsOpen, setChannelParticipantsOpen] = useState(false);
   const [channelNameInput, setChannelNameInput] = useState("");
   const [channelDescInput, setChannelDescInput] = useState("");
   const [channelEditNameInput, setChannelEditNameInput] = useState("");
@@ -3187,15 +3312,31 @@ export default function CurrentPage() {
     enabled: !!selectedDmId && view === "dm",
   });
 
-  // Phase 12B: collect user IDs needing presence from the DM list
+  // Phase 12C: channel participants query (independent of presenceUserIds — feeds into it)
+  const { data: channelParticipantsData } = useQuery<{
+    channel: { id: number; slug: string; name: string; description: string | null; isArchived: boolean };
+    participants: ChannelParticipant[];
+  }>({
+    queryKey: ["/api/current/channels", selectedSlug, "participants"],
+    queryFn: () =>
+      fetch(`/api/current/channels/${encodeURIComponent(selectedSlug)}/participants`, { credentials: "include" }).then((r) => r.json()),
+    enabled: !!selectedSlug && view === "channel",
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const channelParticipants = channelParticipantsData?.participants ?? [];
+
+  // Phase 12B: collect user IDs needing presence from DM list + Phase 12C channel participants
   const presenceUserIds = useMemo(() => {
     const ids = new Set<number>();
     for (const dm of dmConversations) {
       if (dm.type === "dm" && dm.otherUser) ids.add(dm.otherUser.id);
       dm.members.forEach((m) => ids.add(m.id));
     }
+    // Phase 12C: include channel participant IDs so presence dot works in the panel
+    for (const p of channelParticipants) ids.add(p.id);
     return Array.from(ids).sort((a, b) => a - b);
-  }, [dmConversations]);
+  }, [dmConversations, channelParticipants]);
 
   const { data: presenceData } = useQuery<{ users: { userId: number; status: "online" | "offline" }[] }>({
     queryKey: ["/api/current/presence", presenceUserIds.join(",")],
@@ -3790,6 +3931,16 @@ export default function CurrentPage() {
     const othersOnline = selectedDm.members.filter((mem) => presenceMap[mem.id] === "online").length;
     return 1 + othersOnline; // +1 for current user (always online in Currents)
   }, [selectedDm, presenceMap]);
+
+  // Phase 12C: how many channel participants are currently online
+  const channelOnlineCount = useMemo(() => {
+    let count = 0;
+    for (const p of channelParticipants) {
+      if (p.id === currentUserId) { count += 1; continue; } // current user always online
+      if (presenceMap[p.id] === "online") count += 1;
+    }
+    return count;
+  }, [channelParticipants, currentUserId, presenceMap]);
   const hideMutedPref = currentPrefs?.hideMutedFromCurrentsBadge ?? false;
   const badgeDmUnread = hideMutedPref
     ? dmConversations.reduce((s, d) => s + (d.isMuted ? 0 : d.unreadCount), 0)
@@ -4318,6 +4469,25 @@ export default function CurrentPage() {
                   </span>
                 </div>
               )}
+              {/* Phase 12C: channel people / online presence control */}
+              <button
+                onClick={() => setChannelParticipantsOpen(true)}
+                data-testid="btn-channel-participants"
+                title="Channel participants"
+                className={cn(
+                  "ml-auto shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] font-medium transition-colors",
+                  "text-muted-foreground/50 hover:text-foreground hover:bg-muted/60",
+                )}
+              >
+                <Users className="w-3 h-3" />
+                <span className="hidden sm:inline" data-testid="channel-participants-label">
+                  {channelParticipants.length > 0
+                    ? channelOnlineCount > 0
+                      ? `${channelParticipants.length} people · ${channelOnlineCount} online`
+                      : `${channelParticipants.length} people`
+                    : "People"}
+                </span>
+              </button>
               <button
                 onClick={() => {
                   if (channelSummaryOpen) {
@@ -4331,7 +4501,7 @@ export default function CurrentPage() {
                 title="Summarize channel"
                 data-testid="btn-summarize-channel"
                 className={cn(
-                  "ml-auto shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] font-medium transition-colors",
+                  "shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] font-medium transition-colors",
                   channelSummaryOpen
                     ? "bg-primary/10 text-primary/80 hover:bg-primary/15"
                     : "text-muted-foreground/50 hover:text-foreground hover:bg-muted/60",
@@ -4960,6 +5130,17 @@ export default function CurrentPage() {
         onLeave={() => leaveDmMutation.mutate()}
         isAddPending={addMembersMutation.isPending}
         isLeavePending={leaveDmMutation.isPending}
+        presenceMap={presenceMap}
+      />
+
+      {/* Phase 12C: channel participants / online presence panel */}
+      <ChannelParticipantsDialog
+        open={channelParticipantsOpen}
+        onOpenChange={setChannelParticipantsOpen}
+        channelSlug={selectedSlug}
+        participants={channelParticipants}
+        currentUserId={currentUserId}
+        isArchived={isArchivedChannel}
         presenceMap={presenceMap}
       />
 

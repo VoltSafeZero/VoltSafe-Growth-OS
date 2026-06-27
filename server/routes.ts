@@ -33767,6 +33767,57 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
+  // GET /api/current/channels/:slug/participants — Phase 12C: people who have participated
+  // Returns users who have posted in this channel OR have a channel-preference row.
+  // Excludes suspended/deactivated users. Sorted alphabetically. Capped at 100.
+  app.get("/api/current/channels/:slug/participants", requireAuth, async (req, res) => {
+    try {
+      const rawSlug = String(req.params.slug || "").trim();
+      if (!rawSlug || rawSlug.length > 120) return res.status(400).json({ message: "Invalid channel slug" });
+      // Allow only slug-safe characters to prevent injection
+      if (!/^[a-z0-9_-]+$/i.test(rawSlug)) return res.status(400).json({ message: "Invalid channel slug" });
+      const escapedSlug = rawSlug.replace(/'/g, "''");
+      // Resolve channel first
+      const chanRows = await db.execute(sql.raw(
+        `SELECT id, name, slug, description, archived_at FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1`
+      ));
+      if (!chanRows.rows.length) return res.status(404).json({ message: "Channel not found" });
+      const chan = chanRows.rows[0] as any;
+      const channelId = Number(chan.id);
+      // Union: message authors + users with a pref row — joined to users for name/email
+      const participantRows = await db.execute(sql.raw(`
+        SELECT DISTINCT u.id, u.name, u.email
+        FROM users u
+        WHERE u.id IN (
+          SELECT DISTINCT user_id FROM current_messages
+            WHERE channel_id = ${channelId} AND deleted_at IS NULL
+          UNION
+          SELECT DISTINCT user_id FROM current_channel_preferences
+            WHERE channel_id = ${channelId}
+        )
+          AND (u.status IS NULL OR u.status NOT IN ('suspended', 'deactivated'))
+        ORDER BY u.name
+        LIMIT 100
+      `));
+      res.json({
+        channel: {
+          id: chan.id,
+          slug: chan.slug,
+          name: chan.name,
+          description: chan.description ?? null,
+          isArchived: !!chan.archived_at,
+        },
+        participants: participantRows.rows.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          email: r.email,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // POST /api/current/messages/:id/pin — pin a message
   app.post("/api/current/messages/:id/pin", requireAuth, async (req, res) => {
     try {
