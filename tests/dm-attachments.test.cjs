@@ -211,7 +211,7 @@ assertContains(
 assertContains(
   "GET attachments: looks up conversation_id from current_messages",
   routesSrc,
-  /SELECT conversation_id FROM current_messages WHERE id = \$\{Number\(objectId\)\}/
+  /SELECT conversation_id[\w\s,]* FROM current_messages WHERE id = \$\{Number\(objectId\)\}/
 );
 
 // ── 18. Security: file download DM membership guard ──────────────────────────

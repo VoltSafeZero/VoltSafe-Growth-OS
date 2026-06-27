@@ -198,7 +198,7 @@ has(
 has(
   "GET attachments: DM membership guard still present",
   routesSrc,
-  /SELECT conversation_id FROM current_messages WHERE id = \$\{Number\(objectId\)\}/
+  /SELECT conversation_id[\w\s,]* FROM current_messages WHERE id = \$\{Number\(objectId\)\}/
 );
 has(
   "file download: DM membership guard still present",
