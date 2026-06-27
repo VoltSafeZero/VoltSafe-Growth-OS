@@ -33270,6 +33270,7 @@ export function registerConfluenceRoutes(app: Express) {
           (SELECT COUNT(*)::int FROM current_messages cm
            WHERE cm.conversation_id = ccm.conversation_id
              AND cm.deleted_at IS NULL
+             AND cm.user_id != ${userId}
              AND cm.id > COALESCE(ccm.last_read_message_id, 0)
           )
         ), 0)::int AS dm_unread

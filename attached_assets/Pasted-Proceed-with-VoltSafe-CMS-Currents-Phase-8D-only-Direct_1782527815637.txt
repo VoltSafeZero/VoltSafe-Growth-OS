@@ -1,0 +1,204 @@
+Proceed with VoltSafe CMS Currents Phase 8D only: Direct Message Unread / Read-State Polish.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, channel management, notification preferences, typing indicators, or unrelated task features.
+
+Goal
+
+Polish Direct Message unread/read behavior so DMs feel reliable and Slack-like.
+
+Phase 8A added one-to-one DMs. Phase 8B added DM attachments. Phase 8C added attachment-only DMs. Now verify and improve unread badges, read-state updates, sidebar ordering, previews, and deep-link read behavior.
+
+Scope
+
+Add/fix only:
+
+1. DM unread count accuracy
+2. DM read-state update behavior
+3. DM sidebar ordering by latest activity
+4. DM preview consistency
+5. DM deep-link read behavior
+6. DM notification/read interaction
+7. Tests for the above
+
+Do not add group DMs, typing indicators, notification preferences, or channel management.
+
+Existing behavior to audit first
+
+Before coding, inspect:
+
+* GET /api/current/dms
+* POST /api/current/dms/:id/read
+* POST /api/current/dms/:id/messages
+* current_conversation_members.last_read_message_id
+* current_conversations.last_message_at
+* DM sidebar unread badge rendering
+* total Currents unread badge calculation
+* /current?dm=ID deep-link effect
+* DM message polling/refetch behavior
+* notification action URL behavior
+
+Desired behavior
+
+DM list ordering
+
+DM conversations should sort newest activity first:
+
+1. Most recent last_message_at
+2. Conversations with no messages should appear after active DMs
+3. Stable fallback sort by conversation id or created_at
+
+Unread count
+
+For each DM:
+
+1. Count messages after the current user’s last_read_message_id
+2. Do not count the current user’s own messages as unread
+3. Count text-only messages
+4. Count text + attachment messages
+5. Count attachment-only messages
+6. Deleted messages should not count as unread if they are hidden/redacted
+7. Opening a DM should mark it read
+8. Sending a DM should not create unread count for the sender
+9. Receiving a DM should increment unread count until opened
+
+Read behavior
+
+When a user opens a DM:
+
+1. Mark read to the latest visible message id
+2. Read state should never move backwards
+3. Reopening the same DM should not create extra writes if already read
+4. Switching between DMs should mark the selected DM read once messages load
+5. Deep-linking to /current?dm=ID should mark read after messages load
+6. Poll/refetch should not cause badge flicker
+
+Sidebar preview
+
+DM row preview should be sensible for:
+
+1. Text-only message
+2. Text + attachment message
+3. Attachment-only message: 📎 Attachment
+4. Deleted message: avoid showing deleted content
+5. Mention syntax: display @Name, not raw markdown mention token
+6. Long preview: truncate cleanly
+
+Total unread badge
+
+The Currents module total unread should include:
+
+1. Channel unread
+2. DM unread
+
+It should not double-count or include current user’s own messages.
+
+Backend checks/fixes
+
+Verify and fix if needed:
+
+1. GET /api/current/dms returns correct unread count.
+2. Query excludes current user’s own messages from unread.
+3. Query excludes deleted messages if appropriate.
+4. Query includes attachment-only messages as unread.
+5. Query sorts by latest activity.
+6. POST /api/current/dms/:id/read requires membership.
+7. Read route uses GREATEST() or equivalent so read state never moves backwards.
+8. Sending message updates last_message_at.
+9. Sending attachment-only message still updates last_message_at.
+10. No SQL errors with null body messages.
+
+Frontend checks/fixes
+
+Verify and fix if needed:
+
+1. DM unread badge displays only when unread > 0.
+2. Badge clears after opening/read.
+3. Total unread badge updates after DM read.
+4. DM list refetches after send/read.
+5. DM list row moves to top after new message.
+6. DM row preview updates immediately after send.
+7. Attachment-only preview is not blank.
+8. Deep-link to /current?dm=ID selects the DM and clears unread.
+9. Invalid/no-access deep-link fails safely.
+10. No stale selected channel state causes confusion.
+
+Security checks
+
+Verify:
+
+1. User cannot mark another user’s DM read.
+2. User cannot infer unread counts for conversations they are not part of.
+3. User cannot access invalid/no-access DM via deep-link.
+4. Read-state route cannot be used to enumerate private DMs.
+5. Existing Phase 8B attachment guards remain intact.
+
+Verification
+
+After implementation, verify:
+
+1. App starts successfully.
+2. /current loads.
+3. DM list loads.
+4. DM conversations sort newest first.
+5. Text-only incoming DM increments unread.
+6. Text + attachment incoming DM increments unread.
+7. Attachment-only incoming DM increments unread.
+8. Sender’s own DM does not increment their unread.
+9. Opening DM clears unread.
+10. Reopening already-read DM keeps unread at zero.
+11. Switching DMs marks selected DM read.
+12. /current?dm=ID opens correct DM and marks read.
+13. Invalid/no-access DM deep-link fails safely.
+14. Sidebar preview works for text-only DM.
+15. Sidebar preview works for text + attachment DM.
+16. Sidebar preview works for attachment-only DM.
+17. Deleted message preview does not leak content.
+18. Total Currents unread includes DM unread.
+19. Total Currents unread does not double-count.
+20. Channel unread behavior still works.
+21. Channel Currents still work.
+22. Record Currents still work.
+23. DM attachments still work.
+24. Attachment-only DMs still work.
+25. Mentions panel still works.
+26. Search still works.
+27. Structured panel still works.
+28. AI summaries still work.
+29. Create Task still works.
+30. View in Currents from Tasks still works.
+31. No browser console errors.
+32. No server errors.
+33. No SQL errors.
+34. No unrelated files changed unnecessarily.
+
+Testing
+
+Add/update tests for:
+
+* DM unread excludes sender’s own messages
+* DM unread includes attachment-only messages
+* DM read route uses membership guard
+* DM read route never moves backwards
+* DM list sorts by last activity
+* Sidebar preview for attachment-only message
+* Total unread includes DM unread
+* Deep-link opens and marks read
+* Existing 8B/8C tests remain passing
+
+Deliverable
+
+After implementation, stop and return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Backend unread/read-state checks
+5. Frontend unread/read-state checks
+6. Sidebar ordering/preview behavior
+7. Deep-link behavior
+8. Security checks
+9. Regression results
+10. Final pass/fail status
+11. Recommended next feature order
+
+Keep scope tight: Direct Message unread/read-state polish only.

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { ChevronRight, Sun, Moon, Flame, Ghost, Plus } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import voltSafeVIcon from "@assets/Screenshot_2026-04-15_at_7.26.57_PM_1776306420926.png";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
 import type { UserPermissions } from "@/App";
@@ -83,6 +84,15 @@ export function AppSidebar({
       items: s.items?.filter(item => canSeeItem(item)),
     })).filter(s => s.isDivider || !s.items || s.items.length > 0);
   }, [isAdmin, isAdvisor, perms]);
+
+  const { data: unreadCounts } = useQuery<{ total: number; dm: number; channels: Record<string, number> }>({
+    queryKey: ["/api/current/unread-counts"],
+    refetchInterval: 30_000,
+  });
+
+  const currentNavBadge = (unreadCounts?.total ?? 0) > 0
+    ? ((unreadCounts?.total ?? 0) > 99 ? "99+" : String(unreadCounts?.total))
+    : null;
 
   const handleSectionClick = (section: NavSection) => {
     if (section.url) {
@@ -178,11 +188,18 @@ export function AppSidebar({
                         >
                           <ItemIcon className={`w-3.5 h-3.5 shrink-0 ${isItemActive ? "text-primary" : ""}`} />
                           <span className="flex-1">{item.title}</span>
-                          {item.badge && (
+                          {item.id === "current" && currentNavBadge ? (
+                            <span
+                              data-testid="nav-currents-unread-badge"
+                              className="text-[10px] font-bold text-primary-foreground bg-primary min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full shrink-0"
+                            >
+                              {currentNavBadge}
+                            </span>
+                          ) : item.badge ? (
                             <span className="text-[10px] font-semibold text-muted-foreground/60 bg-secondary/60 px-1.5 py-0.5 rounded-full">
                               {item.badge}
                             </span>
-                          )}
+                          ) : null}
                         </Link>
                       );
                     })}
