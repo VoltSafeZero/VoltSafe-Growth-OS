@@ -111,9 +111,10 @@ const unreadSnippet = unreadIdx > -1 ? routes.slice(unreadIdx, unreadIdx + 3000)
 check("Loads preference from current_user_preferences", unreadSnippet.includes("current_user_preferences"));
 check("hideMuted/hide_muted_from_badge variable used", unreadSnippet.includes("hideMuted") || unreadSnippet.includes("hide_muted_from_badge"));
 check("Phase 10B: checks channel notification_level for muted", unreadSnippet.includes("notification_level") || unreadSnippet.includes("current_channel_preferences"));
+check("Phase 10B: LEFT JOIN on current_channel_preferences (no N+1)", unreadSnippet.includes("LEFT JOIN current_channel_preferences"));
 check("Phase 10B: checks DM is_muted flag", unreadSnippet.includes("is_muted"));
 check("Response includes hideMutedFromCurrentsBadge field", unreadSnippet.includes("hideMutedFromCurrentsBadge"));
-check("Per-channel dm_unread_count computed row-by-row", unreadSnippet.includes("dm_unread_count"));
+check("Per-channel dm_unread_count computed in DM query", unreadSnippet.includes("dm_unread_count"));
 check("DM loop skips muted DMs when hideMuted=true", unreadSnippet.includes("is_muted") && unreadSnippet.includes("continue"));
 
 // ──────────────────────────────────────────────────────────────────────────────

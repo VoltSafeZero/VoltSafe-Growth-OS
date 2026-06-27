@@ -33545,11 +33545,12 @@ export function registerConfluenceRoutes(app: Express) {
       ));
       const hideMuted = Boolean((prefRows.rows[0] as any)?.hide_muted_from_badge);
 
-      // Channel unread counts (always compute per-channel for response.channels)
+      // Channel unread counts — single query with LEFT JOIN on channel prefs (Phase 10B: no N+1)
       const rows = await db.execute(sql.raw(`
         SELECT
           c.slug,
           c.id AS channel_id,
+          COALESCE(cp.notification_level, 'all') AS notification_level,
           COALESCE(
             (SELECT COUNT(*)::int
              FROM current_messages m
@@ -33565,24 +33566,18 @@ export function registerConfluenceRoutes(app: Express) {
             ), 0
           ) AS unread_count
         FROM current_channels c
+        LEFT JOIN current_channel_preferences cp
+          ON cp.channel_id = c.id AND cp.user_id = ${userId}
         WHERE c.archived_at IS NULL
       `));
       const channels: Record<string, number> = {};
       let total = 0;
       for (const r of rows.rows) {
         const n = Number(r.unread_count);
-        const channelId = Number(r.channel_id);
         channels[r.slug as string] = n;
-        if (hideMuted && n > 0) {
-          // Phase 10B: skip muted channels from badge total
-          const mutedRow = await db.execute(sql.raw(
-            `SELECT notification_level FROM current_channel_preferences WHERE channel_id = ${channelId} AND user_id = ${userId} LIMIT 1`
-          ));
-          const level = (mutedRow.rows[0] as any)?.notification_level;
-          if (level !== 'muted') total += n;
-        } else {
-          total += n;
-        }
+        // Phase 10B: skip muted channels from badge total when preference is enabled
+        if (hideMuted && (r.notification_level as string) === 'muted') continue;
+        total += n;
       }
       // DM unread count (Phase 10B: optionally exclude muted DMs from total)
       const dmRows = await db.execute(sql.raw(`

@@ -1,0 +1,238 @@
+Please perform a VoltSafe CMS Currents Phase 10B Hide Muted From Badge audit and polish pass only.
+
+Do not work on Accounts, Contacts, CRM list views, group DMs, Guest Currents, external collaborators, slash commands, workflow automation, typing indicators, channel search improvements, or unrelated task features.
+
+Goal
+
+Verify that the new user preference for hiding muted unread messages from the main Currents nav badge is secure, accurate, performant enough, and regression-free.
+
+Phase 10B added:
+
+* current_user_preferences
+* hide_muted_from_badge
+* GET /api/current/preferences
+* PUT /api/current/preferences
+* /api/current/unread-counts preference-aware behavior
+* Currents sidebar toggle
+* Nav badge behavior excluding muted channel/DM unread when enabled
+
+Audit scope
+
+Audit only:
+
+1. Preference schema/migration
+2. Preference routes
+3. /api/current/unread-counts behavior
+4. Currents sidebar toggle
+5. Main nav badge behavior
+6. Row-level muted unread behavior
+7. Security/user scoping
+8. Performance of muted unread filtering
+9. Existing Currents regressions caused by 10B
+
+Schema checks
+
+Verify:
+
+1. current_user_preferences exists.
+2. user_id is unique.
+3. hide_muted_from_badge defaults to false.
+4. created_at and updated_at exist.
+5. Migration is idempotent.
+6. Existing users are unaffected.
+7. Deleting a user cascades preference row if intended.
+8. No conflict with current_channel_preferences or current_conversation_members.is_muted.
+
+Backend route checks
+
+GET /api/current/preferences
+
+Verify:
+
+1. Requires authentication.
+2. Returns only current user’s preference.
+3. Defaults cleanly when no row exists.
+4. Does not expose other users’ settings.
+5. Response shape is exactly:
+    * hideMutedFromCurrentsBadge: boolean
+
+PUT /api/current/preferences
+
+Verify:
+
+1. Requires authentication.
+2. Only updates current user’s row.
+3. Rejects non-boolean payload.
+4. Upsert works.
+5. Repeated updates work.
+6. updated_at changes.
+7. Does not expose other users’ settings.
+8. SQL injection is not possible.
+
+Unread-count behavior checks
+
+For GET /api/current/unread-counts, verify:
+
+1. Default behavior includes muted channel unread.
+2. Default behavior includes muted DM unread.
+3. When hideMutedFromCurrentsBadge = true, muted channel unread is excluded.
+4. When hideMutedFromCurrentsBadge = true, muted DM unread is excluded.
+5. Unmuted channel unread still counts.
+6. Unmuted DM unread still counts.
+7. Sender’s own messages are excluded.
+8. Deleted messages are excluded.
+9. Archived channel messages do not create new unread.
+10. Response includes hideMutedFromCurrentsBadge.
+11. Existing row-level /api/current/channels unread counts are unchanged.
+12. Existing row-level /api/current/dms unread counts are unchanged.
+
+Performance check
+
+Audit the current implementation.
+
+Known concern:
+
+* When hideMutedFromCurrentsBadge = true, the code may do one extra SQL query per channel with unread messages.
+
+Verify:
+
+1. This is acceptable at current channel scale.
+2. It does not create obvious N+1 problems for DMs.
+3. Server logs do not show slow query warnings.
+4. If a simple JOIN/batch improvement is low-risk, apply it.
+5. If not, document the current scale assumption clearly.
+
+Do not over-engineer.
+
+Frontend checks
+
+Verify:
+
+1. Toggle appears in Currents sidebar.
+2. Label is clear: Hide muted unread from badge.
+3. Helper text is clear.
+4. Toggle loads current preference.
+5. Toggle persists after reload.
+6. Toggle updates backend.
+7. Toggle shows success toast.
+8. Toggle refetches /api/current/unread-counts.
+9. Main nav badge updates after toggle.
+10. Muted channel row-level unread badge still appears subdued.
+11. Muted DM row-level unread badge still appears subdued.
+12. Active unmuted unread badges still work.
+13. Dark mode styling is polished.
+14. Toggle does not crowd the sidebar.
+15. No layout issues on smaller screens.
+
+Security checks
+
+Verify:
+
+1. User cannot read another user’s preference.
+2. User cannot update another user’s preference.
+3. Preference cannot leak DM/channel data.
+4. Invalid payload rejected server-side.
+5. Existing Phase 10A channel/DM preference routes remain secure.
+6. Existing unread-count route remains scoped to session user.
+7. No SQL injection exposure.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel list
+* Channel posting
+* Channel unread counts
+* Channel notification preferences
+* Channel muted visual state
+* Channel archived/read-only behavior
+* Channel attachments
+* Channel reactions
+* Channel threads
+* Channel pins
+* Channel search
+* Mentions panel
+* Structured panel
+* Structured archived toggle/badges
+* AI summaries
+* Create Task
+* View in Currents from Tasks
+* DMs
+* DM mute/unmute
+* DM attachments
+* Attachment-only DMs
+* DM unread/read-state
+* DM deep-links
+* Currents nav unread badge
+* Record Currents
+* Record attachments
+* Record search
+
+Verify task system still works:
+
+* Tasks Hub loads.
+* Task drawer opens.
+* Currents source block still renders.
+* View in Currents still works.
+* Non-Currents tasks still render normally.
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* Failed fetch handling
+* React warnings
+* Vite/build errors
+* TypeScript errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 10B.
+
+Allowed:
+
+* Preference schema/migration bug
+* Preference route validation bug
+* User scoping/security bug
+* Unread total bug
+* Muted filtering bug
+* Toggle/refetch bug
+* Nav badge update bug
+* Performance improvement if low-risk
+* Console/server errors caused by 10B
+* Tests directly related to 10B
+
+Not allowed:
+
+* Group DMs
+* Guest Currents
+* External collaborators
+* Slash commands
+* Workflow automation
+* Typing indicators
+* Channel search improvements
+* Accounts/Contacts/CRM list work
+* Unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Schema checks
+5. Backend route checks
+6. Unread-count behavior checks
+7. Performance check
+8. Frontend checks
+9. Security checks
+10. Regression results
+11. Final pass/fail status
+12. Recommended next feature order
+
+Keep scope tight: Phase 10B Hide Muted From Badge audit only.
