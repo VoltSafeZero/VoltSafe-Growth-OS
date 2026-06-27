@@ -94,14 +94,19 @@ has(
 // ── 4. Placeholder updated ────────────────────────────────────────────────────
 console.log("\n4. Placeholder");
 has(
-  "placeholder says 'Write a message or attach files'",
+  "placeholder is dynamic (group_dm or personal name)",
   src,
-  "Write a message or attach files"
+  "Message the group"
+);
+has(
+  "placeholder falls back to teammate name",
+  src,
+  /Message.*otherUser.*name.*displayName.*teammate/
 );
 hasNot(
-  "old context-dependent placeholder removed",
+  "old static placeholder removed",
   src,
-  /Message.*teammate.*optional/
+  "Write a message or attach files"
 );
 
 // ── 5. Sidebar preview handles null/empty body ────────────────────────────────
