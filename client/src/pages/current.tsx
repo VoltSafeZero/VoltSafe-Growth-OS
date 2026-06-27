@@ -3137,29 +3137,39 @@ export default function CurrentPage() {
                 >
                   <div
                     className={cn(
-                      "w-5 h-5 rounded-full flex items-center justify-center shrink-0",
-                      "text-[9px] font-bold text-white",
+                      "w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white",
                       avatarBg(dm.otherUser.id)
                     )}
                   >
                     {initials(dm.otherUser.name)}
                   </div>
-                  <span className="flex-1 truncate text-left min-w-0">
-                    {dm.otherUser.name}
-                  </span>
-                  {dm.unreadCount > 0 && (
-                    <span
-                      className={cn(
-                        "min-w-[18px] h-[18px] px-1 flex items-center justify-center",
-                        "rounded-full text-[10px] font-bold shrink-0",
-                        active
-                          ? "bg-primary/20 text-primary"
-                          : "bg-primary text-primary-foreground"
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="flex items-center gap-1">
+                      <span className="truncate flex-1 font-medium">
+                        {dm.otherUser.name}
+                      </span>
+                      {dm.unreadCount > 0 && (
+                        <span
+                          className={cn(
+                            "min-w-[16px] h-[16px] px-1 flex items-center justify-center",
+                            "rounded-full text-[10px] font-bold shrink-0",
+                            active
+                              ? "bg-primary/20 text-primary"
+                              : "bg-primary text-primary-foreground"
+                          )}
+                        >
+                          {dm.unreadCount > 99 ? "99+" : dm.unreadCount}
+                        </span>
                       )}
-                    >
-                      {dm.unreadCount > 99 ? "99+" : dm.unreadCount}
-                    </span>
-                  )}
+                    </div>
+                    {dm.lastMessage && (
+                      <div className="text-[11px] text-muted-foreground/50 truncate leading-tight">
+                        {dm.lastMessage.body
+                          ? dm.lastMessage.body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, "@$1").slice(0, 45)
+                          : "📎 Attachment"}
+                      </div>
+                    )}
+                  </div>
                 </button>
               );
             })

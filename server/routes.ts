@@ -33237,9 +33237,18 @@ export function registerConfluenceRoutes(app: Express) {
       if (!messageId || !ALLOWED.includes(emoji))
         return res.status(400).json({ message: "Invalid message or emoji" });
       const msgRows = await db.execute(sql.raw(
-        `SELECT id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+        `SELECT id, conversation_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
       ));
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
+      // If this is a DM message, enforce membership
+      const msgConvId = msgRows.rows[0].conversation_id ? Number(msgRows.rows[0].conversation_id) : null;
+      if (msgConvId) {
+        const memCheck = await db.execute(sql.raw(
+          `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${msgConvId} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!memCheck.rows.length)
+          return res.status(403).json({ message: "Not a member of this conversation" });
+      }
       const escaped = emoji.replace(/'/g, "''");
       const existing = await db.execute(sql.raw(
         `SELECT id FROM current_reactions WHERE message_id = ${messageId} AND user_id = ${userId} AND emoji = '${escaped}' LIMIT 1`
@@ -33642,6 +33651,7 @@ export function registerConfluenceRoutes(app: Express) {
   // GET /api/current/users?q= — teammate search for @mention autocomplete
   app.get("/api/current/users", requireAuth, async (req, res) => {
     try {
+      const currentUserId = getSessionUserId(req);
       const raw = String(req.query.q || "").trim();
       const q = raw.replace(/'/g, "''");
       const rows = await db.execute(sql.raw(`
@@ -33649,6 +33659,7 @@ export function registerConfluenceRoutes(app: Express) {
           COALESCE(department, '') AS department
         FROM users
         WHERE global_role NOT IN ('inactive')
+          AND id != ${currentUserId}
           ${q ? `AND (name ILIKE '%${q}%' OR email ILIKE '%${q}%')` : ''}
         ORDER BY name ASC
         LIMIT 10
@@ -34761,7 +34772,7 @@ export function registerConfluenceRoutes(app: Express) {
           ));
           const senderRows = await db.execute(sql.raw(`SELECT name FROM users WHERE id = ${userId} LIMIT 1`));
           const senderName = String((senderRows.rows[0] as any)?.name || "Someone");
-          const preview = body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@').slice(0, 100).replace(/'/g, "''");
+          const preview = body.replace(/@\[([^\]]+)\]\(user:\d+\)/g, '@$1').slice(0, 100).replace(/'/g, "''");
           const escapedSender = senderName.replace(/'/g, "''");
           for (const row of others.rows as any[]) {
             const recipientId = Number(row.user_id);

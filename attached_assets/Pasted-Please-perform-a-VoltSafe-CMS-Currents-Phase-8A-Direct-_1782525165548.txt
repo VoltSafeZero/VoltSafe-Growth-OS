@@ -1,0 +1,324 @@
+Please perform a VoltSafe CMS Currents Phase 8A Direct Messages audit and polish pass only.
+
+Do not add group DMs, Guest Currents, external collaborators, slash commands, workflow automation, channel management, notification preferences, unrelated CRM features, or unrelated task features.
+
+Goal
+
+Verify that one-to-one internal Direct Messages in Currents are secure, stable, polished, and regression-free.
+
+Phase 8A added:
+
+* current_conversations
+* current_conversation_members
+* current_messages.conversation_id
+* DM list
+* New DM user picker
+* DM message feed
+* DM composer
+* DM unread counts
+* DM notifications
+* /current?dm=ID deep-link behavior
+
+This audit should verify the full feature.
+
+Audit scope
+
+Audit only:
+
+1. DM schema/migrations
+2. DM backend routes
+3. DM membership/security checks
+4. DM unread behavior
+5. DM notifications
+6. DM list UI
+7. New DM user picker
+8. DM message feed/composer
+9. /current?dm=ID deep-link behavior
+10. Existing Currents regressions caused by Phase 8A
+
+Schema / migration checks
+
+Verify:
+
+1. current_conversations table exists.
+2. current_conversation_members table exists.
+3. current_messages.conversation_id column exists.
+4. Conversation type supports dm.
+5. One-to-one DMs are deduped via participant_key or equivalent.
+6. current_conversation_members has one row per participant.
+7. Membership uniqueness is enforced.
+8. last_read_message_id or read-state equivalent exists.
+9. Indexes exist for:
+    * conversation lookup
+    * member lookup
+    * message lookup by conversation
+    * participant key lookup
+10. Migration is idempotent.
+11. Existing channel and record messages remain valid.
+
+Backend route checks
+
+GET /api/current/dms
+
+Verify:
+
+1. Requires authentication.
+2. Returns only conversations where current user is a member.
+3. Does not expose conversations for other users.
+4. Includes other user metadata:
+    * id
+    * name
+    * email
+    * avatar if available
+5. Includes last message preview.
+6. Includes last message timestamp.
+7. Includes unread count.
+8. Includes archive/mute flags if implemented.
+9. Handles empty state cleanly.
+10. Does not leak deleted messages in preview.
+
+POST /api/current/dms
+
+Verify:
+
+1. Requires authentication.
+2. Validates userId.
+3. Rejects self-DM.
+4. Rejects inactive/deleted users.
+5. Returns existing conversation for same pair.
+6. Does not create duplicate 1:1 DMs.
+7. Creates exactly two member rows for a new DM.
+8. Uses deterministic participant key.
+9. Handles race/concurrent creation safely if possible.
+
+GET /api/current/dms/:id/messages
+
+Verify:
+
+1. Requires authentication.
+2. Current user must be a member.
+3. Unauthorized users receive 403/404 without data leakage.
+4. Returns messages only for that conversation.
+5. Does not return channel or record messages.
+6. Excludes or redacts deleted messages consistently with channel Currents.
+7. Includes author metadata.
+8. Includes edit/delete metadata if supported.
+9. Includes reactions/attachments/threads only if intentionally supported.
+10. Ordering matches existing Currents convention.
+
+POST /api/current/dms/:id/messages
+
+Verify:
+
+1. Requires authentication.
+2. Current user must be a member.
+3. Rejects empty body unless attachments are supported.
+4. Inserts message with conversation_id.
+5. Does not set channel_id.
+6. Does not set object_type/object_id.
+7. Updates conversation last_message_at.
+8. Creates notification for the recipient.
+9. Does not notify the sender.
+10. Handles invalid conversation safely.
+
+POST /api/current/dms/:id/read
+
+Verify:
+
+1. Requires authentication.
+2. Current user must be a member.
+3. Cannot mark another user’s DM read.
+4. Read state never moves backwards.
+5. Opening a DM marks it read.
+6. Unread count drops to zero after read.
+
+Security checks
+
+Verify:
+
+1. User A cannot list User B’s DMs.
+2. User A cannot read a DM where they are not a member.
+3. User A cannot send into a DM where they are not a member.
+4. User A cannot mark another user’s DM read.
+5. User A cannot infer private conversation existence through error differences if avoidable.
+6. Self-DM is blocked.
+7. Inactive/deleted users cannot be selected or messaged.
+8. SQL injection attempts are safely handled.
+9. Message edit/delete permissions remain safe.
+
+Frontend UI checks
+
+Direct Messages section
+
+Verify:
+
+1. Direct Messages section appears in /current.
+2. It is placed logically in the sidebar.
+3. It does not crowd Channels/Search/Mentions/Structured.
+4. DM unread badge appears beside each conversation.
+5. Total Currents unread includes DM unread if intended.
+6. Empty state is polished.
+7. DM rows show avatar/initials, name, preview, timestamp.
+8. Long names/previews truncate gracefully.
+9. Dark mode styling is polished.
+
+New DM dialog
+
+Verify:
+
+1. New DM button appears.
+2. Dialog opens.
+3. User search works.
+4. Search is debounced if implemented.
+5. Current user is excluded.
+6. Inactive users are excluded.
+7. Selecting user starts or opens DM.
+8. Starting the same DM twice opens existing conversation.
+9. Dialog closes cleanly.
+10. Loading/empty/error states are polished.
+
+DM message feed
+
+Verify:
+
+1. Selecting a DM opens the message view.
+2. Header shows other user name/avatar/email.
+3. Existing messages load.
+4. Empty state says something like No messages yet. Say hello to [Name].
+5. Composer sends message.
+6. Feed auto-scrolls to latest.
+7. Sending updates DM list preview.
+8. Opening marks conversation read.
+9. Switching DMs loads correct messages.
+10. No stale messages from previous DM remain.
+11. Emoji picker/mentions behavior does not break if reused.
+12. Attachments/reactions/edit/delete behavior is either working or clearly deferred.
+
+Notification checks
+
+Verify:
+
+1. Sending DM creates notification for recipient.
+2. Sender is not notified.
+3. Notification title/body is clear:
+    * New direct message from [Name]
+4. Notification action URL is:
+    * /current?dm=CONVERSATION_ID
+5. Clicking notification opens the DM conversation.
+6. Notification does not leak message content beyond intended preview.
+
+Deep-link checks
+
+Verify:
+
+/current?dm=CONVERSATION_ID
+
+Expected:
+
+1. Opens /current.
+2. Switches to Direct Messages view.
+3. Selects the correct DM conversation.
+4. Loads messages.
+5. Marks conversation read.
+6. Handles invalid/no-access conversation safely.
+7. Does not leave stale channel/message/thread params active.
+
+Regression checks
+
+Verify existing Currents features still work:
+
+* Channel list
+* Channel posting
+* Channel threads
+* Channel reactions
+* Channel pins
+* Channel edit/delete
+* Channel @mentions
+* Channel attachments
+* Channel search
+* Channel AI summaries
+* Channel Create Task
+* Channel View in Currents from Tasks
+* Mentions panel
+* Structured Panel
+* Structured notes/counts/export
+* Record Currents
+* Record threads
+* Record pins
+* Record @mentions
+* Record attachments
+* Record search
+* Record summaries
+* Record Create Task
+* Record View in Currents from Tasks
+* /execution/communications
+
+Verify task system still works:
+
+* Tasks Hub loads
+* Task drawer opens
+* Currents source block still renders
+* View in Currents still works
+* Non-Currents tasks still render normally
+
+Logs and errors
+
+Check:
+
+* Browser console
+* Server logs
+* SQL errors
+* React warnings
+* Failed fetch handling
+* Vite/build errors
+* Route auth/permission errors
+
+Allowed fixes
+
+Only fix issues directly related to Phase 8A Direct Messages.
+
+Allowed:
+
+* DM schema/index bug
+* DM route validation/security bug
+* Duplicate conversation bug
+* Membership access bug
+* Unread count/read-state bug
+* DM notification bug
+* DM deep-link bug
+* DM UI polish
+* Query invalidation/refetch bugs
+* Console/server errors caused by DMs
+
+Not allowed:
+
+* Group DMs
+* Guest Currents
+* External collaborators
+* Slash commands
+* Workflow automation
+* Channel management
+* Notification preferences
+* New unrelated CRM features
+* New unrelated task features
+
+Deliverable
+
+After the audit/polish pass, return:
+
+1. Issues found
+2. Fixes made
+3. Files changed
+4. Schema/migration checks
+5. Backend route checks
+6. Security checks
+7. Frontend UI checks
+8. Notification checks
+9. Deep-link checks
+10. Existing Currents regression results
+11. Existing task regression results
+12. Features intentionally deferred
+13. Final pass/fail status
+14. Recommended next feature order
+
+Keep scope tight: Currents Phase 8A Direct Messages audit only.
