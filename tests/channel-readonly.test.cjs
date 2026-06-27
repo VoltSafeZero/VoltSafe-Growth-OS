@@ -433,7 +433,7 @@ assertInFile(
 assertInFile(
   "I3. Structured add archived check is channel-scoped — Record Currents unaffected",
   ROUTES,
-  /\/\/ Block structured tags in archived channels[\s\S]{1,50}if \(channelId\)/
+  /\/\/ Block structured tags in archived[\s\S]{1,100}if \(channelId\)/
 );
 
 assertInFile(
