@@ -1,0 +1,220 @@
+Perform a read-only VoltSafe CMS navigation + permissions audit.
+
+Do not change any code, routes, components, permissions, labels, files, or sidebar structure. This is discovery only.
+
+Goal
+
+Before reorganizing the VoltSafe CMS sidebar, I need a factual map of what every current navigation item actually is:
+
+* real implemented feature
+* thin placeholder
+* stub / coming soon
+* duplicate / naming drift
+* role-specific/admin-only feature
+
+The goal is to reorganize from evidence, not assumptions.
+
+Part 1 — Full nav inventory
+
+Audit every item currently visible in the sidebar across:
+
+* Today
+* Work
+* Pipeline
+* Operations
+* Insights
+* Channels
+* More
+* Admin
+
+For every nav item, produce a markdown table with:
+
+1. Current parent group
+2. Current label
+3. Current route/path
+4. Component/page file rendered
+5. Real implemented page / thin placeholder / stub / coming soon
+6. Primary purpose of the page
+7. Whether it shares a route/component with another nav item
+8. Duplicate/overlap candidate? yes/no
+9. Evidence: file path, route config, component name, or relevant code reference
+10. Suggested disposition:
+
+* Keep
+* Rename
+* Move
+* Merge into X
+* Gate by role
+* Remove
+* Needs decision
+
+Do not guess. If ambiguous, mark it as ambiguous.
+
+Part 2 — Duplicate / overlap investigation
+
+For each suspected duplicate pair below, report definitively whether they are:
+
+* SAME underlying route/component — naming drift, safe to merge
+* DIFFERENT real features — keep separate
+* PARTIAL overlap — needs product decision
+* AMBIGUOUS — more clarification needed
+
+Investigate these specifically:
+
+1. Calendar vs Work Calendar
+2. Tasks vs Task Rules
+3. Signals & Alerts vs Digest & Alerts
+4. Revenue Intelligence vs Rel. Intelligence vs Revenue Hub vs Revenue Ops vs Revenue Simulator
+5. Territory & Geo vs Territory Routing
+6. Today vs Mission Control vs Company Overview vs Growth Dashboard vs Executive Dashboard vs My Dashboard
+7. Asset Library vs Assets
+8. Projects under Work vs Projects under Operations, if both exist
+9. Channels as business ecosystem vs CURRENTS channels
+10. Reports vs Executive Dashboard vs Company/Growth dashboard surfaces
+
+For each item, provide:
+
+* route/path evidence
+* component/page evidence
+* whether it is safe to merge/rename/move
+* recommended resolution
+
+Part 3 — Dashboard architecture audit
+
+Specifically audit dashboard surfaces.
+
+Determine whether these are genuinely separate pages or should be one dashboard engine with role/scope filters:
+
+* My Dashboard
+* Company Overview
+* Growth Dashboard
+* Executive Dashboard
+* Mission Control
+* Today
+
+Answer:
+
+1. Are these separate routes?
+2. Are they separate components?
+3. Do they share data/query logic?
+4. Are any just filtered versions of the same dashboard?
+5. Are any placeholders?
+6. Recommended future architecture:
+    * one dashboard engine with tabs/views
+    * separate pages
+    * hybrid
+7. Evidence for the recommendation
+
+Part 4 — Permissions audit
+
+Audit the actual current permission system. Separate these three layers clearly.
+
+A. Nav visibility
+
+Answer:
+
+1. Is the sidebar generated from a central config/array?
+2. Or is it hardcoded in JSX?
+3. Can individual nav items currently be hidden by role?
+4. If yes, where is that implemented?
+5. If no, what would be required?
+6. Are there existing role/permission fields used by the sidebar?
+7. Are hidden items only hidden visually, or also protected at route/API level?
+
+B. Route/page access
+
+Answer:
+
+1. Are frontend routes protected by role?
+2. Are backend API routes protected by role?
+3. If a user manually visits a route they should not see, what happens?
+4. Is unauthorized access blocked server-side?
+5. Or is the app relying mostly on nav hiding?
+6. Which modules have strong route-level protections?
+7. Which modules appear weak/unclear?
+
+Important: hiding a nav item is not security. Identify whether server-side enforcement exists.
+
+C. Action permissions
+
+Answer:
+
+1. Is there a central user role field?
+2. Is there a permissions table?
+3. Are view/edit/delete/export/admin actions gated consistently?
+4. Or are permissions implemented per module?
+5. Which modules have clear action permissions?
+6. Which modules are inconsistent or unclear?
+7. Are admin-only actions protected server-side?
+
+Part 5 — Role-based nav feasibility
+
+Based on the audit, determine whether VoltSafe CMS can safely support role-based sidebar views today.
+
+Evaluate likely roles:
+
+* General employee
+* Sales / BD
+* Operations
+* Engineering
+* Executive
+* Admin
+
+For each role, provide:
+
+1. Which nav groups/items should be visible
+2. Which should be hidden
+3. Whether current code supports hiding those items today
+4. Whether backend route security already supports the role split
+5. Gaps that must be fixed before relying on role-based nav
+
+Part 6 — Recommended future nav structure
+
+After the evidence-based audit, propose a cleaned-up sidebar structure.
+
+Do not implement it.
+
+Include:
+
+1. Proposed top-level groups
+2. Proposed sub-items
+3. Items to rename
+4. Items to merge
+5. Items to move into page tabs instead of sidebar
+6. Items to gate by role
+7. Items to remove or hide as placeholders
+
+Specifically evaluate whether Command Center should remain separate or be folded into Intelligence as the landing dashboard.
+
+Output format
+
+Produce one markdown document with these sections:
+
+1. Executive summary
+2. Full nav inventory table
+3. Duplicate/overlap findings
+4. Dashboard architecture findings
+5. Permission system findings
+6. Role-based nav feasibility
+7. Recommended nav structure
+8. Risks / unknowns
+9. Product decisions needed before implementation
+10. Suggested implementation phases after approval
+
+Hard constraints
+
+Do not change code.
+
+Do not rename anything.
+
+Do not move routes.
+
+Do not edit the sidebar.
+
+Do not implement permissions.
+
+Do not create migrations.
+
+Do not fix unrelated bugs.
+
+Stop after producing the audit document.
