@@ -1,0 +1,123 @@
+Proceed with VoltSafe CMS Navigation Cleanup Phase 4E only: Retire More Group via Admin Placement.
+
+Use the planning document:
+
+docs/nav-more-decision-plan-2026-06-27.md
+
+Do not perform a full sidebar reorganization. Do not implement role-based nav. Do not consolidate Task Rules into Automations yet. Do not touch CURRENTS, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Retire the More group by moving its final two remaining items into Admin as configuration/automation tools.
+
+This is a nav-config-only cleanup phase.
+
+Routes, components, permissions, backend behavior, and page functionality must remain unchanged.
+
+Current state
+
+More has only two remaining items:
+
+* Task Rules
+* Automations
+
+The recommended long-term improvement is to make Task Rules a tab inside Automations, but that requires frontend work. Do not do that now.
+
+For this phase, move both into Admin so the More group can be removed entirely.
+
+Scope
+
+Allowed:
+
+1. Move Task Rules from More to Admin.
+2. Move Automations from More to Admin.
+3. Remove/retire the empty More group.
+4. Keep labels unchanged.
+5. Keep routes unchanged.
+6. Keep components unchanged.
+7. Keep existing permissions unchanged.
+8. Update nav tests.
+9. Verify no duplicate routes.
+
+Not allowed:
+
+1. Consolidating Task Rules into Automations.
+2. New tabs inside Automations.
+3. New routes/components.
+4. Backend permission changes.
+5. Role-based nav.
+6. Full sidebar redesign.
+7. Moving any other items.
+8. CURRENTS changes.
+9. Gmail/mail/tracking changes.
+10. CRM behavior changes.
+
+Required changes
+
+Move:
+
+* Task Rules
+* Automations
+
+From:
+
+* More
+
+To:
+
+* Admin
+
+Then remove the empty More group from the nav config if safe.
+
+Keep routes unchanged.
+
+Keep labels unchanged.
+
+Keep components unchanged.
+
+Keep permissions unchanged.
+
+Verification
+
+Verify:
+
+1. Sidebar renders.
+2. More group no longer appears.
+3. Task Rules appears under Admin.
+4. Automations appears under Admin.
+5. Task Rules no longer appears under More.
+6. Automations no longer appears under More.
+7. Routes are unchanged.
+8. Components are unchanged.
+9. Permissions are unchanged.
+10. No duplicate routes introduced.
+11. Prior Phase 1–4D nav tests still pass.
+12. No TypeScript errors.
+13. Browser console clean if app is run.
+
+Tests
+
+Update tests/nav-drift.test.cjs or equivalent checks for:
+
+1. Task Rules is under Admin.
+2. Automations is under Admin.
+3. Task Rules route remains unchanged.
+4. Automations route remains unchanged.
+5. More group does not exist.
+6. No duplicate nav routes.
+7. Prior nav cleanup tests still pass.
+
+Deliverable
+
+Return:
+
+1. Items moved
+2. Confirmation More group retired
+3. Files changed
+4. Confirmation labels/routes/components unchanged
+5. Confirmation permissions unchanged
+6. Tests added/updated
+7. Verification results
+8. Recommended future improvement for Task Rules/Automations consolidation
+
+Keep scope tight: retire More via Admin placement only.

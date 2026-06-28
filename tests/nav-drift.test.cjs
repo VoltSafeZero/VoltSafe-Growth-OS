@@ -46,7 +46,7 @@ function sectionText(id) {
   // We look for id: "<id>" within ~80 chars of a line that starts the object,
   // then capture until the next top-level `},` or `},\n`.
   const pattern = new RegExp(
-    `id: "${id}"[\\s\\S]*?(?=\\n  (?:\\{|//|\\]))`,
+    `id: "${id}"[\\s\\S]*?(?=\\n  (?:\\{|//|\\])|\\n\\])`,
     "m"
   );
   const m = src.match(pattern);
@@ -58,7 +58,8 @@ const pipelineSection  = sectionText("pipeline");
 const opsSection       = sectionText("operations");
 const insightsSection  = sectionText("insights");
 const learnSection     = sectionText("learn");
-const moreSection      = sectionText("more");
+const adminSection     = sectionText("admin");
+const moreSection      = sectionText("more"); // expected to be empty after Phase 4E
 const channelsSection  = sectionText("channels");
 
 // ── Phase 1: Wrong-route guards ───────────────────────────────────────────────
@@ -348,8 +349,35 @@ ok("Data Quality route is /data-quality (unchanged)",
 ok('Data Quality permKey:"crm" is unchanged',
   src.match(/id: "data-quality"[\s\S]{0,120}permKey: "crm"/) !== null);
 
-// ── Phase 1–4D: Duplicate route guard ────────────────────────────────────────
-console.log("\nPhase 1–4D — Duplicate routes in NAV_CONFIG:");
+// ── Phase 4E: Task Rules + Automations → Admin; More group retired ───────────
+console.log("\nPhase 4E — Task Rules + Automations to Admin; More group retired:");
+
+ok('More group (id: "more") no longer exists in NAV_CONFIG',
+  !src.includes('id: "more"'),
+  "More group must be fully removed");
+
+ok("Task Rules is in Admin group",
+  adminSection.includes('/automation/tasks'),
+  "Config/automation tools belong in Admin");
+
+ok("Task Rules is NOT in More group",
+  !moreSection.includes('/automation/tasks'));
+
+ok("Task Rules route is /automation/tasks (unchanged)",
+  src.includes('route: "/automation/tasks"'));
+
+ok("Automations is in Admin group",
+  adminSection.includes('/automations'),
+  "Config/automation tools belong in Admin");
+
+ok("Automations is NOT in More group",
+  !moreSection.includes('/automations'));
+
+ok("Automations route is /automations (unchanged)",
+  src.includes('route: "/automations"'));
+
+// ── Phase 1–4E: Duplicate route guard ────────────────────────────────────────
+console.log("\nPhase 1–4E — Duplicate routes in NAV_CONFIG:");
 
 const routeMatches   = [...src.matchAll(/route: "([^"]+)"/g)];
 const routes         = routeMatches.map(m => m[1]);
