@@ -1,0 +1,149 @@
+Proceed with VoltSafe CMS Navigation Cleanup Phase 4F only: Final Nav Visual + Permission Regression Audit.
+
+Do not change navigation structure unless a direct regression is found. Do not implement role-based nav. Do not move more items. Do not rename labels. Do not touch CURRENTS, Gmail/mail-permissions, Polyweather, or unrelated modules.
+
+Goal
+
+Verify that the completed navigation cleanup is visually clean, permission-safe, and regression-free after retiring the More group.
+
+Completed cleanup phases:
+
+* Phase 1: drift fixes
+* Phase 2: label clarification
+* Phase 3: obvious More moves
+* Phase 4A: Relationship Intelligence → Insights
+* Phase 4B: Digest Settings → Work; Training + Help → Learn
+* Phase 4C: Revenue suite → Insights
+* Phase 4D: Score Feedback → Insights; Data Quality → Operations
+* Phase 4E: Task Rules + Automations → Admin; More retired
+
+tests/nav-drift.test.cjs currently passes 79/79.
+
+Scope
+
+Audit only:
+
+1. desktop sidebar rendering
+2. mobile nav rendering
+3. admin vs non-admin visibility
+4. advisor-hidden behavior
+5. permission-gated items
+6. route preservation
+7. duplicate route checks
+8. visual layout after More removal
+9. TypeScript/browser/server logs
+10. nav drift tests
+
+Visual verification
+
+Verify desktop sidebar:
+
+1. More group is gone.
+2. Learn group appears and looks correct.
+3. Admin divider still appears correctly.
+4. Task Rules and Automations appear under Admin.
+5. No weird gap remains where More used to be.
+6. Sidebar order feels logical.
+7. Long labels do not wrap badly.
+8. Operations is not overcrowded visually.
+9. Insights is not overcrowded visually.
+10. Work remains readable.
+11. Mobile nav still renders the moved items correctly.
+
+Permission verification
+
+Verify:
+
+1. Admin users can see Admin group.
+2. Non-admin users do not see admin-only items.
+3. Advisor-hidden items remain hidden for advisor users if that system is active.
+4. Data Quality keeps permKey:"crm".
+5. Score Feedback keeps advisorHidden:true.
+6. No moved item lost its existing permission flags.
+7. Hiding a nav item is not treated as route security.
+8. No route/API permission behavior was changed.
+
+Route preservation
+
+Verify all moved/renamed items still have the same routes/components as before:
+
+* Document Hub
+* Knowledge Assets
+* Digest Settings
+* Relationship Intelligence
+* Revenue Hub
+* Revenue Ops
+* Revenue Simulator
+* Score Feedback
+* Data Quality
+* Daily Execution
+* Price Lists
+* Territory Routing
+* Support Tickets
+* Winter Support
+* Training
+* Help
+* Task Rules
+* Automations
+
+Tests
+
+Run:
+
+1. tests/nav-drift.test.cjs
+2. any sidebar/nav-config tests if present
+3. TypeScript/build check
+4. browser console check
+5. server log check
+
+If possible, run an E2E smoke test:
+
+1. login as admin
+2. inspect sidebar
+3. confirm More absent
+4. open one moved Work item
+5. open one moved Operations item
+6. open one moved Insights item
+7. open Learn item
+8. open Admin → Automations
+9. repeat a reduced check as a non-admin/advisor if test account exists
+
+Allowed fixes
+
+Only fix direct regressions from the nav cleanup:
+
+* visual gap where More was removed
+* nav item missing from intended group
+* accidental route change
+* duplicate route
+* permission flag accidentally dropped
+* mobile nav mismatch
+* TypeScript/build error caused by nav changes
+
+Not allowed:
+
+* new IA changes
+* new role system
+* new top-level groups
+* additional label changes
+* route/component changes
+* backend permission changes
+* unrelated bug fixes
+
+Deliverable
+
+Return:
+
+1. Issues found
+2. Fixes made if any
+3. Files changed
+4. Desktop sidebar visual results
+5. Mobile nav results
+6. Admin/non-admin permission results
+7. Route preservation results
+8. Tests run
+9. TypeScript/browser/server log results
+10. Known unrelated issues
+11. Final nav cleanup readiness verdict
+
+Keep scope tight: final nav visual + permission regression audit only.

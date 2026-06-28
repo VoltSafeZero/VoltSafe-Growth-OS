@@ -1,6 +1,6 @@
 import type React from "react";
 import {
-  Sun, Briefcase, Target, SlidersHorizontal, Brain, Share2, MoreHorizontal,
+  Sun, Briefcase, Target, SlidersHorizontal, Brain, Share2,
   Settings2, LayoutDashboard, Mail, CalendarClock, CheckSquare, BarChart3,
   Sparkles, GitBranch, Building2, Contact, FileText, RefreshCcw, Trophy,
   StickyNote, Layers, Package, Megaphone, BookOpen, FolderOpen, TrendingUp,
