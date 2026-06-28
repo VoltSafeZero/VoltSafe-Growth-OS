@@ -33199,9 +33199,9 @@ export function registerConfluenceRoutes(app: Express) {
   function normalizeChannelSlug(name: string): string {
     return name.toLowerCase().trim()
       .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9-]/g, '')
+      .replace(/[^a-z0-9_-]/g, '')
       .replace(/-+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/^[-_]+|[-_]+$/g, '');
   }
 
   // ── Phase 15A: Private channel membership helpers ──────────────────────────

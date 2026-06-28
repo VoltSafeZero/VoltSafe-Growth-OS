@@ -458,20 +458,20 @@ assert(
 console.log("\n=== T003: Frontend — Create dialog private toggle ===");
 
 assert(
-  currentTsx.includes("createIsPrivate") && currentTsx.includes("setCreateIsPrivate"),
-  "createIsPrivate state declared"
+  currentTsx.includes("createVisibility") && currentTsx.includes("setCreateVisibility"),
+  "createVisibility state declared (replaced createIsPrivate in multi-step flow)"
 );
 assert(
   currentTsx.includes("createMemberIds") && currentTsx.includes("setCreateMemberIds"),
   "createMemberIds state declared"
 );
 assert(
-  currentTsx.includes("toggle-channel-private"),
-  "Private toggle has test-id in create dialog"
+  currentTsx.includes("visibility-option-private"),
+  "Private visibility radio card has test-id in create dialog (replaced toggle-channel-private)"
 );
 assert(
-  currentTsx.includes("isPrivate: createIsPrivate"),
-  "Create mutation sends isPrivate flag"
+  currentTsx.includes('isPrivate: createVisibility === "private"'),
+  "Create mutation sends isPrivate flag derived from createVisibility"
 );
 assert(
   currentTsx.includes("memberIds: createMemberIds"),

@@ -1,0 +1,118 @@
+Implement the Currents “Create Channel” flow with the following rules.
+
+Context:
+Currents is the internal communications feature. Managers and Admins can create channels.
+
+Goal:
+Update the Create Channel modal so channel creation follows this decision matrix:
+
+Step 1 — Name channel
+- User enters a channel name.
+- Always show the # prefix visually.
+- Channel name must be valid for a channel slug.
+- Allow lowercase letters, numbers, hyphens, and underscores only.
+- Convert spaces to hyphens if helpful, but store the final slug cleanly.
+- Prevent duplicate channel names.
+- Example valid names:
+  - #pickle
+  - #marina-sales
+  - #port-of-san-diego
+  - #engineering_qa
+- Example invalid names:
+  - #Pickle Party!
+  - #sales/channel
+  - #@general
+- Show validation copy:
+  “Channel names can only use letters, numbers, hyphens, and underscores.”
+- Keep the “Next” button disabled until the name is valid and not duplicated.
+
+Step 2A — Select visibility
+Show two options:
+
+Public:
+Label:
+“Public — all VoltSafe CMS users can view and post”
+
+Behavior:
+- Any VoltSafe CMS user can see the channel.
+- Any VoltSafe CMS user can post in the channel.
+- No member picker is needed.
+- “Create” button is enabled immediately.
+
+Private:
+Label:
+“Private — only invited users can view and post”
+
+Behavior:
+- Only invited users can see the channel.
+- Only invited users can post in the channel.
+- Channel creator must be included automatically.
+- After selecting Private, show Step 2B.
+
+Step 2B — Add private channel users
+Only show this section when Private is selected.
+
+Requirements:
+- Add a searchable multi-select user picker.
+- Let the channel creator select one or more users.
+- The creator is automatically included and cannot be removed.
+- Require at least one additional invited user before allowing channel creation.
+- If no additional users are selected, disable Create and show:
+  “Private channels need at least one invited user.”
+
+Permissions:
+- Admins can create public and private channels.
+- Managers can create public and private channels.
+- Regular users cannot create channels unless existing app permissions already allow it.
+
+Backend/data rules:
+Channel should support:
+
+{
+  name: string,
+  slug: string,
+  visibility: "public" | "private",
+  createdByUserId: string,
+  memberUserIds: string[]
+}
+
+For public channels:
+- memberUserIds can be empty.
+- Access is granted to all VoltSafe CMS users based on visibility = "public".
+
+For private channels:
+- memberUserIds must include creatorId plus selected invited user IDs.
+- Access is granted only to users in memberUserIds.
+
+Access control:
+- Public channels are visible/readable/postable by all authenticated VoltSafe CMS users.
+- Private channels are visible/readable/postable only by invited members.
+- Private channels should not appear in the sidebar/channel list for non-members.
+- Non-members should not be able to fetch messages or post messages to private channels by hitting the API directly.
+
+UI copy changes:
+Replace existing Step 2 visibility copy with:
+
+Public — all VoltSafe CMS users can view and post
+
+Private — only invited users can view and post
+
+Acceptance criteria:
+1. Admin/Manager can create a public channel with a valid name.
+2. Public channel appears for all users.
+3. All users can post in a public channel.
+4. Admin/Manager can create a private channel only after selecting at least one additional user.
+5. Private channel creator is automatically included.
+6. Private channel only appears for invited users.
+7. Non-invited users cannot see, read, or post in private channels.
+8. Invalid channel names are blocked.
+9. Duplicate channel names are blocked.
+10. Existing Currents channels still work after this change.
+
+Run all relevant tests and add/update tests for:
+- channel name validation
+- duplicate channel name prevention
+- public channel visibility
+- private channel membership
+- private channel API access control
+- manager/admin create permissions

@@ -453,9 +453,9 @@ function MemberPickerInline({
 function normalizeChannelSlug(name: string): string {
   return name.toLowerCase().trim()
     .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
+    .replace(/[^a-z0-9_-]/g, '')
     .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/^[-_]+|[-_]+$/g, '');
 }
 
 function growTextarea(el: HTMLTextAreaElement, maxPx = 144) {
@@ -3673,8 +3673,9 @@ export default function CurrentPage() {
 
   const [createTaskSource, setCreateTaskSource] = useState<CreateTaskSource | null>(null);
 
-  // Phase 15A: Private channel state
-  const [createIsPrivate, setCreateIsPrivate] = useState(false);
+  // Phase 15A / 15B: Private channel state — multi-step create flow
+  const [createStep, setCreateStep] = useState<1 | 2>(1);
+  const [createVisibility, setCreateVisibility] = useState<"public" | "private">("public");
   const [createMemberIds, setCreateMemberIds] = useState<number[]>([]);
   const [editIsPrivate, setEditIsPrivate] = useState(false);
 
@@ -3729,6 +3730,9 @@ export default function CurrentPage() {
   const { data: me } = useQuery<Me>({ queryKey: ["/api/auth/me"] });
   const currentUserId = me?.id ?? 0;
   const isAdmin = ["admin", "master_admin"].includes(me?.globalRole ?? "");
+  // Phase 15B: derived create-channel validation (computed after channels is available below)
+  // These are referenced inside the Create Channel Dialog JSX; defined as a getter-style block
+  // so they re-evaluate on every render using the live `channels` + `channelNameInput` values.
 
   // ── Queries ───────────────────────────────────────────────────────────────
   // Declared before useEffects that reference messages/channels to avoid TDZ.
@@ -4024,7 +4028,8 @@ export default function CurrentPage() {
       setCreateChannelOpen(false);
       setChannelNameInput("");
       setChannelDescInput("");
-      setCreateIsPrivate(false);
+      setCreateStep(1);
+      setCreateVisibility("public");
       setCreateMemberIds([]);
       setSelectedSlug(channel.slug);
       setView("channel");
@@ -4567,7 +4572,7 @@ export default function CurrentPage() {
           {isAdmin && (
             <button
               data-testid="btn-new-channel"
-              onClick={() => { setChannelNameInput(""); setChannelDescInput(""); setCreateChannelOpen(true); }}
+              onClick={() => { setChannelNameInput(""); setChannelDescInput(""); setCreateStep(1); setCreateVisibility("public"); setCreateMemberIds([]); setCreateChannelOpen(true); }}
               className="w-4 h-4 rounded flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground/80 hover:bg-muted/40 transition-colors"
               title="New Channel"
             >
@@ -5810,81 +5815,173 @@ export default function CurrentPage() {
         )}
       </div>
 
-      {/* ── Create Channel Dialog ─────────────────────────────────────── */}
-      <Dialog open={createChannelOpen} onOpenChange={setCreateChannelOpen}>
+      {/* ── Create Channel Dialog (multi-step) ─────────────────────────── */}
+      <Dialog open={createChannelOpen} onOpenChange={(o) => {
+        setCreateChannelOpen(o);
+        if (!o) { setCreateStep(1); setCreateVisibility("public"); setCreateMemberIds([]); setChannelNameInput(""); setChannelDescInput(""); }
+      }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>New Channel</DialogTitle>
+            <DialogTitle>{createStep === 1 ? "New Channel" : "Set Visibility"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 pt-1">
-            <div>
-              <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">Name</label>
-              <Input
-                data-testid="input-channel-name"
-                value={channelNameInput}
-                onChange={(e) => setChannelNameInput(e.target.value)}
-                placeholder="e.g. product-updates"
-                maxLength={80}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && channelNameInput.trim() && !createChannelMutation.isPending) {
-                    createChannelMutation.mutate({ name: channelNameInput.trim(), description: channelDescInput.trim(), isPrivate: createIsPrivate, memberIds: createMemberIds });
-                  }
-                }}
-              />
-              {channelNameInput.trim() && (
-                <p className="text-[11px] text-muted-foreground/60 mt-1">
-                  Slug: <span className="font-mono text-primary/70">#{normalizeChannelSlug(channelNameInput)}</span>
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">
-                Description <span className="text-muted-foreground/40">(optional)</span>
-              </label>
-              <Input
-                data-testid="input-channel-description"
-                value={channelDescInput}
-                onChange={(e) => setChannelDescInput(e.target.value)}
-                placeholder="What's this channel for?"
-                maxLength={200}
-              />
-            </div>
-            {/* Private toggle */}
-            <div className="flex items-center justify-between py-1">
+
+          {createStep === 1 ? (
+            /* ── Step 1: Name + Description ─────────────────── */
+            <div className="space-y-3 pt-1">
               <div>
-                <p className="text-[12px] font-medium text-foreground/80 leading-tight">Private channel</p>
-                <p className="text-[11px] text-muted-foreground/60 leading-tight mt-0.5">Only invited members can see it</p>
+                <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">Channel name</label>
+                <div className="flex items-center rounded-md border border-input overflow-hidden focus-within:ring-1 focus-within:ring-ring">
+                  <span className="px-3 h-9 flex items-center text-sm text-muted-foreground bg-muted/40 border-r border-input select-none shrink-0">#</span>
+                  <input
+                    data-testid="input-channel-name"
+                    value={channelNameInput}
+                    onChange={(e) => setChannelNameInput(e.target.value)}
+                    placeholder="e.g. marina-sales"
+                    maxLength={80}
+                    autoFocus
+                    className="flex-1 h-9 px-3 text-sm bg-transparent outline-none"
+                    onKeyDown={(e) => {
+                      const slug = normalizeChannelSlug(channelNameInput);
+                      const nameValid = slug.length > 0 && !channels.some((c) => c.slug === slug);
+                      if (e.key === "Enter" && nameValid) setCreateStep(2);
+                    }}
+                  />
+                </div>
+                {(() => {
+                  const slug = normalizeChannelSlug(channelNameInput);
+                  const raw = channelNameInput.trim();
+                  if (!raw) return (
+                    <p className="text-[11px] text-muted-foreground/40 mt-1">Letters, numbers, hyphens and underscores only.</p>
+                  );
+                  if (slug.length === 0) return (
+                    <p className="text-[11px] text-destructive mt-1" data-testid="create-slug-error">Channel names can only use letters, numbers, hyphens, and underscores.</p>
+                  );
+                  if (channels.some((c) => c.slug === slug)) return (
+                    <p className="text-[11px] text-destructive mt-1" data-testid="create-slug-error">A channel named <span className="font-mono">#{slug}</span> already exists.</p>
+                  );
+                  return (
+                    <p className="text-[11px] text-muted-foreground/60 mt-1">
+                      Slug: <span className="font-mono text-primary/70">#{normalizeChannelSlug(channelNameInput)}</span>
+                    </p>
+                  );
+                })()}
               </div>
-              <Switch
-                data-testid="toggle-channel-private"
-                checked={createIsPrivate}
-                onCheckedChange={setCreateIsPrivate}
-              />
-            </div>
-            {createIsPrivate && (
               <div>
                 <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">
-                  Members <span className="text-muted-foreground/40">(you are added automatically)</span>
+                  Description <span className="text-muted-foreground/40">(optional)</span>
                 </label>
-                <MemberPickerInline
-                  selectedIds={createMemberIds}
-                  onChange={setCreateMemberIds}
+                <Input
+                  data-testid="input-channel-description"
+                  value={channelDescInput}
+                  onChange={(e) => setChannelDescInput(e.target.value)}
+                  placeholder="What's this channel for?"
+                  maxLength={200}
                 />
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            /* ── Step 2: Visibility + Members ───────────────── */
+            <div className="space-y-3 pt-1">
+              <div className="space-y-2">
+                {/* Public option */}
+                <button
+                  type="button"
+                  data-testid="visibility-option-public"
+                  onClick={() => setCreateVisibility("public")}
+                  className={`w-full text-left rounded-lg border p-3 transition-all ${
+                    createVisibility === "public"
+                      ? "border-primary bg-primary/5"
+                      : "border-border/60 hover:border-border"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${createVisibility === "public" ? "border-primary" : "border-border"}`}>
+                      {createVisibility === "public" && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                    </div>
+                    <div>
+                      <p className="text-[12px] font-semibold leading-tight">Public</p>
+                      <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">All VoltSafe CMS users can view and post</p>
+                    </div>
+                  </div>
+                </button>
+                {/* Private option */}
+                <button
+                  type="button"
+                  data-testid="visibility-option-private"
+                  onClick={() => setCreateVisibility("private")}
+                  className={`w-full text-left rounded-lg border p-3 transition-all ${
+                    createVisibility === "private"
+                      ? "border-primary bg-primary/5"
+                      : "border-border/60 hover:border-border"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${createVisibility === "private" ? "border-primary" : "border-border"}`}>
+                      {createVisibility === "private" && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                    </div>
+                    <div>
+                      <p className="text-[12px] font-semibold leading-tight">Private</p>
+                      <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">Only invited users can view and post</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Member picker — only shown when Private selected */}
+              {createVisibility === "private" && (
+                <div>
+                  <label className="text-[12px] font-medium text-muted-foreground mb-1.5 block">
+                    Invite members <span className="text-muted-foreground/40">(you are added automatically)</span>
+                  </label>
+                  <MemberPickerInline
+                    selectedIds={createMemberIds}
+                    onChange={setCreateMemberIds}
+                  />
+                  {createMemberIds.length === 0 && (
+                    <p className="text-[11px] text-destructive mt-1.5" data-testid="private-member-error">
+                      Private channels need at least one invited user.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <DialogFooter className="mt-2">
-            <Button variant="ghost" size="sm" onClick={() => setCreateChannelOpen(false)}>Cancel</Button>
-            <Button
-              size="sm"
-              data-testid="btn-create-channel-submit"
-              onClick={() => createChannelMutation.mutate({ name: channelNameInput.trim(), description: channelDescInput.trim(), isPrivate: createIsPrivate, memberIds: createMemberIds })}
-              disabled={!channelNameInput.trim() || createChannelMutation.isPending}
-            >
-              {createChannelMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
-              Create Channel
-            </Button>
+            {createStep === 1 ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setCreateChannelOpen(false)}>Cancel</Button>
+                <Button
+                  size="sm"
+                  data-testid="btn-channel-next"
+                  onClick={() => setCreateStep(2)}
+                  disabled={(() => {
+                    const slug = normalizeChannelSlug(channelNameInput);
+                    return slug.length === 0 || channels.some((c) => c.slug === slug);
+                  })()}
+                >
+                  Next
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setCreateStep(1)}>Back</Button>
+                <Button
+                  size="sm"
+                  data-testid="btn-create-channel-submit"
+                  onClick={() => createChannelMutation.mutate({
+                    name: channelNameInput.trim(),
+                    description: channelDescInput.trim(),
+                    isPrivate: createVisibility === "private",
+                    memberIds: createMemberIds,
+                  })}
+                  disabled={createChannelMutation.isPending || (createVisibility === "private" && createMemberIds.length === 0)}
+                >
+                  {createChannelMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+                  Create Channel
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
