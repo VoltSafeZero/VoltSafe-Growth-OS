@@ -1,0 +1,312 @@
+Proceed with VoltSafe CMS CURRENTS Workspace Experience Phase 5A: Dedicated CURRENTS Page + Futuristic Waterflow Backdrop.
+
+Do not perform unrelated sidebar restructuring. Do not change CURRENTS messaging logic unless required for layout integration. Do not touch Gmail/mail-permissions, CRM behavior, Polyweather, or unrelated modules.
+
+Goal
+
+Transform CURRENTS from a normal Work subpage into its own premium, dedicated workspace experience — similar in importance to VoltSafe Mail.
+
+CURRENTS should open into its own unique page/shell and feel like a core VoltSafe operating layer for internal communication.
+
+Make it visually excellent.
+
+Product intent
+
+CURRENTS is VoltSafe’s internal communications layer — our own native Slack-like workspace inside VoltSafe CMS.
+
+It should feel:
+
+* premium
+* futuristic
+* marine/electrical
+* alive, but not distracting
+* distinctly VoltSafe
+* clearly separate from ordinary CRM/work pages
+
+Think:
+
+“VoltSafe’s internal team current — information flowing across the company.”
+
+Required experience
+
+When a user opens CURRENTS:
+
+1. They should enter a dedicated CURRENTS workspace page/shell.
+2. The page should not feel like a regular CMS form/table page.
+3. There should be a custom CURRENTS-themed backdrop.
+4. The backdrop should show a futuristic water-flow / energy-flow animation for the first few seconds.
+5. The animation should then stop or settle so users can work without distracting movement.
+6. The CURRENTS chat/channel UI should remain fully usable and readable.
+7. Existing CURRENTS functionality must remain intact.
+
+Visual theme
+
+Create a backdrop / screensaver-style environment inspired by:
+
+* futuristic marina water at night
+* digital current flow
+* subtle cyan/teal electrical energy
+* soft wave interference
+* prongless power / smart shore power
+* deep navy / black marine background
+* luminous water ripples
+* gentle flowing current lines
+* premium SaaS command-center feel
+
+Avoid:
+
+* cheesy ocean clip-art
+* loud neon overload
+* constant movement while working
+* low contrast text
+* anything that makes chat hard to read
+
+Animation behavior
+
+The background animation should:
+
+1. Play automatically when the CURRENTS workspace loads.
+2. Ebb and flow for approximately 3–6 seconds.
+3. Gradually settle/fade into a mostly static background.
+4. Stop continuous animation after settling.
+5. Respect reduced-motion preferences.
+6. Not keep consuming unnecessary CPU/GPU after the intro finishes.
+7. Not interfere with typing, scrolling, channel switching, uploads, or message actions.
+
+Implementation options:
+
+* CSS keyframes only, preferred if sufficient.
+* Canvas only if there is already a safe lightweight pattern.
+* No heavy animation libraries unless already installed.
+* No backend dependency.
+* No video asset unless absolutely necessary.
+
+Dedicated CURRENTS page/shell
+
+Audit the current CURRENTS route/page first.
+
+Then implement the smallest clean architecture.
+
+Preferred approach:
+
+1. Keep the existing CURRENTS route unchanged if possible.
+2. Wrap the existing CURRENTS app/page in a new CurrentsWorkspaceShell.
+3. The shell provides:
+    * custom full-page background
+    * intro animation layer
+    * settled static backdrop
+    * premium header/brand treatment if needed
+    * content container that preserves existing CURRENTS layout
+4. Do not rewrite CURRENTS internals.
+5. Do not break channels, DMs, unread badges, attachments, threads, search, tasks, or notifications.
+
+Sidebar/nav requirement
+
+CURRENTS should still be promoted out of Work and placed as its own distinctive top-level entry directly below Today.
+
+Desired sidebar order:
+
+Today
+CURRENTS
+Work
+Pipeline
+Operations
+Insights
+Ecosystem
+Learn
+Admin
+
+CURRENTS nav entry should feel unique:
+
+* uppercase CURRENTS
+* visually distinct
+* premium accent treatment
+* unread badge still works
+* active state clearly visible
+* not duplicated under Work
+
+Naming
+
+User-facing name remains:
+
+CURRENTS
+
+Optional page subtitle / tagline:
+
+Team Communication Flow
+
+or:
+
+VoltSafe Team Current
+
+Use whichever feels more premium in context, but do not rename the product away from CURRENTS.
+
+Functional preservation
+
+Do not break or change:
+
+* channels
+* private channels
+* DMs
+* group DMs
+* message posting
+* editing/deleting
+* reactions
+* threads
+* mentions
+* pins
+* files
+* search
+* AI summaries
+* task creation from messages
+* structured decisions/risks/requirements
+* unread counts
+* notification preferences
+* muted channel behavior
+* avatar/presence display
+* slash commands
+
+Accessibility
+
+Ensure:
+
+1. readable contrast
+2. no permanent motion
+3. prefers-reduced-motion disables animation
+4. keyboard navigation remains intact
+5. focus states remain visible
+6. screen-reader labels are not degraded
+7. background is decorative and not announced unnecessarily
+
+Performance
+
+Ensure:
+
+1. no heavy background loops after the intro settles
+2. no memory leak timers
+3. no continuous canvas render after settle
+4. no excessive repainting while user is working
+5. mobile does not stutter
+6. low-power devices get simpler animation if needed
+
+Implementation guidance
+
+Start with a read of:
+
+* CURRENTS page component
+* CURRENTS layout/container components
+* app sidebar/nav config
+* mobile nav if applicable
+* unread badge logic
+* existing route config
+* global CSS/theme tokens
+
+Then implement.
+
+Suggested file structure, only if it fits the existing codebase:
+
+* client/src/pages/currents.tsx
+* client/src/components/currents/currents-workspace-shell.tsx
+* client/src/components/currents/currents-waterflow-backdrop.tsx
+* existing CURRENTS components remain as-is
+
+If current files use different names, follow the existing convention.
+
+Visual requirements for backdrop
+
+The backdrop should include:
+
+1. dark marine base gradient
+2. subtle animated water-flow bands
+3. cyan/teal electrical current accents
+4. soft radial glow behind workspace area
+5. initial motion that feels like ebbing/flowing water
+6. settled static state after animation completes
+7. optional faint grid/digital shimmer if it feels premium
+8. no text obstruction
+
+The working chat panel should remain front and center with readable surfaces.
+
+Testing
+
+Add/update tests for:
+
+1. CURRENTS is no longer inside Work nav group.
+2. CURRENTS is directly below Today in nav order.
+3. CURRENTS route remains unchanged.
+4. CURRENTS label remains uppercase.
+5. CURRENTS nav item has featured/distinct metadata if implemented.
+6. No duplicate CURRENTS route/nav entry.
+7. More group remains retired.
+8. Existing nav drift tests still pass.
+9. CURRENTS page renders inside the new workspace shell.
+10. Backdrop component renders.
+11. Reduced-motion behavior exists or is source-checked.
+12. Existing CURRENTS tests still pass.
+
+Verification
+
+Run:
+
+1. existing CURRENTS test suite
+2. nav drift tests
+3. TypeScript/build check
+4. browser console check
+5. server log check
+
+Manual visual verification:
+
+1. open CURRENTS as admin
+2. confirm dedicated workspace feel
+3. confirm animated backdrop plays briefly
+4. confirm animation settles/stops
+5. confirm chat remains usable
+6. confirm unread badge still works
+7. confirm CURRENTS is below Today in sidebar
+8. confirm CURRENTS is not under Work
+9. confirm light/dark mode if supported
+10. confirm mobile layout does not break
+
+Allowed fixes
+
+Only fix issues directly caused by this implementation:
+
+* layout bugs in CURRENTS workspace shell
+* unread badge display regression
+* active nav state regression
+* backdrop animation performance issue
+* contrast/readability issue
+* duplicate nav entry
+* route mismatch
+* TypeScript/build errors
+
+Not allowed
+
+Do not add new messaging features.
+
+Do not rewrite CURRENTS architecture.
+
+Do not change database schema.
+
+Do not change APIs unless a route import/export issue requires a tiny frontend-only wiring fix.
+
+Do not alter mail, CRM, dashboard, pipeline, or admin functionality.
+
+Deliverable
+
+Return:
+
+1. Summary of CURRENTS workspace experience added
+2. Files changed
+3. Nav changes made
+4. Confirmation route/label/component behavior preserved
+5. Confirmation unread badge preserved
+6. Backdrop animation behavior summary
+7. Accessibility/reduced-motion handling
+8. Performance handling
+9. Tests run and results
+10. Visual verification summary
+11. Any known limitations
+12. Recommended next polish phase
+
+Make CURRENTS feel fucking awesome — but keep the implementation safe, scoped, and production-grade.
