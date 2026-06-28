@@ -4542,7 +4542,7 @@ export default function CurrentPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full overflow-hidden bg-background">
+    <div className="flex h-full overflow-hidden">
 
       {/* ── Channel sidebar ─────────────────────────────────────────────── */}
       <aside className="w-56 shrink-0 flex flex-col border-r border-border bg-sidebar/40 overflow-hidden">

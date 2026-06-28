@@ -61,6 +61,7 @@ const learnSection     = sectionText("learn");
 const adminSection     = sectionText("admin");
 const moreSection      = sectionText("more"); // expected to be empty after Phase 4E
 const channelsSection  = sectionText("channels");
+const currentsSection  = sectionText("currents");
 
 // ── Phase 1: Wrong-route guards ───────────────────────────────────────────────
 console.log("\nPhase 1 — Wrong-page nav item drift fixes:");
@@ -414,6 +415,45 @@ ok('Admin nav has 8 items (Task Rules removed, Automations kept)',
     return itemMatches.length === 9; // 1 group header + 8 items
   })(),
   "Admin section should have 8 nav items after Task Rules removal");
+
+// ── Phase 5A: CURRENTS promoted to top-level workspace ───────────────────────
+console.log("\nPhase 5A — CURRENTS as dedicated top-level nav section:");
+
+ok('CURRENTS top-level section exists with id "currents"',
+  currentsSection.length > 0,
+  'id: "currents" section not found in NAV_CONFIG');
+
+ok('CURRENTS section label is "CURRENTS" (uppercase)',
+  currentsSection.includes('"CURRENTS"'),
+  'label must remain uppercase CURRENTS');
+
+ok('CURRENTS section has url: "/current" (route unchanged)',
+  currentsSection.includes('"/current"') || currentsSection.includes("'/current'"),
+  'direct-link url must point to /current');
+
+ok("CURRENTS is NOT a child item of Work group",
+  !workSection.includes('"/current"'),
+  'route: "/current" must be removed from Work items');
+
+ok("CURRENTS section appears before Work in nav order",
+  (() => {
+    const ci = src.indexOf('id: "currents"');
+    const wi = src.indexOf('id: "work"');
+    return ci > -1 && wi > -1 && ci < wi;
+  })(),
+  "currents block must precede work block");
+
+ok("CURRENTS section appears after Today in nav order",
+  (() => {
+    const ti = src.indexOf('id: "today"');
+    const ci = src.indexOf('id: "currents"');
+    return ti > -1 && ci > -1 && ci > ti;
+  })(),
+  "currents block must follow today block");
+
+ok('More group (id: "more") still does not exist',
+  !src.includes('id: "more"'),
+  "More group must remain retired");
 
 // ── Phase 1–4G: Duplicate route guard ────────────────────────────────────────
 console.log("\nPhase 1–4G — Duplicate routes in NAV_CONFIG:");

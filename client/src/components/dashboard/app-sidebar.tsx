@@ -150,6 +150,8 @@ export function AppSidebar({
               : section.items?.some((item) => item.exactMatch ? location === item.url : location.startsWith(item.url) && item.url !== "/") ?? false;
             const SectionIcon = section.icon!;
 
+            const isCurrentsSection = section.id === "currents";
+
             return (
               <div key={section.id}>
                 <button
@@ -157,13 +159,32 @@ export function AppSidebar({
                   data-testid={`nav-section-${section.id}`}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-sm font-medium group ${
                     isSectionActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                      ? isCurrentsSection
+                        ? "bg-cyan-500/10 text-cyan-400"
+                        : "bg-primary/10 text-primary"
+                      : isCurrentsSection
+                        ? "text-cyan-400/65 hover:bg-cyan-500/8 hover:text-cyan-300"
+                        : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
                   }`}
                 >
-                  <SectionIcon className={`w-4 h-4 shrink-0 transition-colors ${isSectionActive ? "text-primary" : "group-hover:text-foreground"}`} />
-                  <span className="flex-1 text-left">{section.label}</span>
-                  {section.items && section.items.length > 0 && (
+                  <SectionIcon className={`w-4 h-4 shrink-0 transition-colors ${
+                    isSectionActive
+                      ? isCurrentsSection ? "text-cyan-400" : "text-primary"
+                      : isCurrentsSection ? "text-cyan-400/70 group-hover:text-cyan-300" : "group-hover:text-foreground"
+                  }`} />
+                  <span className={`flex-1 text-left ${isCurrentsSection ? "tracking-widest text-[11.5px] font-bold" : ""}`}>
+                    {section.label}
+                  </span>
+                  {/* CURRENTS unread badge — shown on the section button when top-level */}
+                  {isCurrentsSection && currentNavBadge ? (
+                    <span
+                      data-testid="nav-currents-unread-badge"
+                      className="text-[10px] font-bold text-white bg-cyan-500 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full shrink-0 shadow-sm shadow-cyan-500/30"
+                    >
+                      {currentNavBadge}
+                    </span>
+                  ) : null}
+                  {section.items && section.items.length > 0 && !section.url && (
                     <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isSectionOpen ? "rotate-90 text-primary" : "text-muted-foreground/50"}`} />
                   )}
                 </button>
