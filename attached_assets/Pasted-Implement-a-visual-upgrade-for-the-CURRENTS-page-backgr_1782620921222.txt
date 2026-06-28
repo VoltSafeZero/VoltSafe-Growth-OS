@@ -1,0 +1,76 @@
+Implement a visual upgrade for the CURRENTS page/background.
+
+Goal:
+Replace the current blurry/nondescript CURRENTS backdrop with a photorealistic, premium tropical water movement theme — green-blue ocean / clear river water / Gulf of Mexico vacation energy — while preserving excellent UI/UX readability, performance, accessibility, and load speed.
+
+Important product vibe:
+CURRENTS should feel like:
+- tropical water movement
+- clean Gulf of Mexico / clear river shimmer
+- premium, modern, calming, beautiful
+- “I’m on holiday even while I’m at work”
+- not cartoonish, not cheesy, not visually noisy
+
+Design requirements:
+1. Background should be photorealistic-looking tropical water movement.
+2. Use green/blue/aqua tones with subtle sunlight shimmer and flowing movement.
+3. Avoid blurry abstract blobs. It should look like real moving water.
+4. Do NOT let the background interfere with content readability.
+5. Add a dark translucent overlay / gradient layer over the moving water so text, cards, buttons, and channel content remain easy to read.
+6. Keep CURRENTS feeling professional, not like a beach party flyer. Tropical, but enterprise-grade.
+7. Use subtle animation only. No aggressive motion. No distracting waves.
+8. Respect reduced-motion preferences.
+9. Ensure page load stays fast. Do not use giant unoptimized assets or anything that makes the page slow.
+10. Preserve all existing CURRENTS functionality, routing, permissions, channels, messages, modals, and APIs.
+
+Implementation approach:
+- Find the CURRENTS page/layout component and its current backdrop/screensaver/background implementation.
+- Replace the current blurry background with a reusable CSS-based animated water layer where possible.
+- If an image/video asset is needed, use an optimized lightweight asset and lazy-load/preload appropriately.
+- Prefer CSS gradients, layered radial highlights, animated background-position, SVG/noise overlays, or a lightweight looping video only if already supported and performant.
+- Add a tasteful overlay:
+  - dark navy/teal glass layer
+  - subtle vignette at edges
+  - content panels should remain readable with sufficient contrast
+- Add `prefers-reduced-motion` fallback that pauses or significantly reduces background movement.
+- Ensure the animated background does not block clicks, scrolls, or keyboard focus.
+- Set pointer-events: none on decorative layers.
+- Keep z-index clean:
+  - water background lowest
+  - overlay above background
+  - actual UI above overlay
+- Do not introduce layout shift.
+
+Suggested visual language:
+- Deep teal base
+- Aqua/emerald moving highlights
+- Sunlit caustic shimmer
+- Soft current-like horizontal/diagonal movement
+- Slight parallax feel
+- Premium glassmorphism over the water, but not excessive blur
+
+UI/UX guardrails:
+- Text contrast must stay strong.
+- Channel list, message list, input box, and modals must remain readable.
+- Do not put high-detail water directly behind dense text without an overlay.
+- Do not animate inside cards or behind tiny text areas too aggressively.
+- Avoid pure white text on bright aqua without a dark scrim.
+- Keep motion slow and relaxing.
+- Maintain responsive behavior on desktop and mobile.
+- Avoid making the page feel visually heavier than VoltSafe Mail or the rest of the CMS.
+
+Acceptance criteria:
+1. CURRENTS background is visibly upgraded from blurry/abstract to beautiful photorealistic tropical moving water.
+2. The page still loads quickly and feels instant.
+3. All readable content remains readable.
+4. Animation is subtle and tasteful.
+5. Reduced-motion users get a still or near-still version.
+6. No regressions to channels, private/public channel creation, messaging, navigation, modals, or permissions.
+7. The design feels premium SaaS, not vacation brochure chaos.
+
+After implementation:
+- Show me the exact files changed.
+- Summarize the visual approach.
+- Confirm reduced-motion support.
+- Confirm no functional regressions.
+- Run available typecheck/build/lint/tests if present.

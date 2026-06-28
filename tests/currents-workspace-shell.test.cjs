@@ -143,20 +143,29 @@ console.log("\n=== R: Accessibility / reduced-motion ===");
 ok("R1: Backdrop CSS includes prefers-reduced-motion media query",
   backdrop.includes("prefers-reduced-motion"));
 
-ok("R2: Backdrop animations use iteration-count: 1 or 'forwards' fill-mode (no infinite loops)",
-  backdrop.includes("forwards") || backdrop.includes("1 forwards"));
+ok("R2: Backdrop pauses animations via animation-play-state under prefers-reduced-motion",
+  (() => {
+    // Phase 5B: gentle infinite CSS loops — reduced-motion freezes them with
+    // animation-play-state: paused (no animation: none needed).
+    const hasReducedBlock = backdrop.includes("prefers-reduced-motion");
+    const hasPaused = backdrop.includes("animation-play-state: paused") ||
+                      backdrop.includes("animation-play-state:paused");
+    return hasReducedBlock && hasPaused;
+  })());
 
 // ── P: Performance markers ────────────────────────────────────────────────────
-console.log("\n=== P: Performance — no continuous animation after settle ===");
+console.log("\n=== P: Performance — pure CSS, no JS animation ===");
 
-ok("P1: Backdrop animations use iteration count 1 (plays once, stops)",
+ok("P1: Backdrop uses pure CSS animation (no JS loops)",
   (() => {
-    // animation shorthand with "1 forwards" or explicit iteration-count: 1
-    const hasOnce = backdrop.includes("1 forwards") || backdrop.includes("iteration-count: 1");
-    // No 'infinite' keyword anywhere in animation definitions
-    const noInfinite = !backdrop.includes('"infinite"') && !backdrop.includes("'infinite'") &&
-      !backdrop.match(/animation[^}]*:\s*[^}]*infinite/);
-    return hasOnce || noInfinite;
+    // Phase 5B: animation is driven entirely by CSS keyframes (background-position,
+    // transform, opacity) — all GPU-composited.  No JS timer or RAF loop allowed.
+    const noJsLoop = !backdrop.includes("setInterval") &&
+                     !backdrop.includes("requestAnimationFrame") &&
+                     !backdrop.includes("useEffect");
+    // Must still declare at least one @keyframes block
+    const hasKeyframes = backdrop.includes("@keyframes");
+    return noJsLoop && hasKeyframes;
   })());
 
 ok("P2: No setInterval or requestAnimationFrame loop in backdrop",
