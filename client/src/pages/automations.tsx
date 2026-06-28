@@ -1,4 +1,5 @@
 import { useState } from "react";
+import TaskRulesSettingsPage from "./task-rules-settings";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -616,6 +617,7 @@ function RuleCard({
 export default function AutomationsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<"builder" | "task-rules">("builder");
   const [search, setSearch] = useState("");
   const [filterEnabled, setFilterEnabled] = useState<"all" | "enabled" | "disabled">("all");
   const [editorOpen, setEditorOpen] = useState(false);
@@ -669,48 +671,70 @@ export default function AutomationsPage() {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
-      <div className="border-b border-border px-6 py-4 shrink-0">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold flex items-center gap-2">
-              <Zap className="h-5 w-5 text-primary" /> Automation Builder
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {rules.length} rule{rules.length !== 1 ? "s" : ""} · {enabledCount} active
-            </p>
-          </div>
-          <Button onClick={() => openEditor()} data-testid="create-rule-button">
-            <Plus className="h-4 w-4 mr-1.5" /> New Rule
-          </Button>
-        </div>
-
-        {/* Filters */}
-        <div className="flex items-center gap-3 mt-3 flex-wrap">
-          <Input
-            placeholder="Search rules…"
-            className="h-8 w-64 text-sm"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            data-testid="search-rules-input"
-          />
-          <div className="flex items-center rounded-lg border border-border overflow-hidden">
-            {(["all", "enabled", "disabled"] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setFilterEnabled(f)}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${filterEnabled === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                data-testid={`filter-${f}`}
-              >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Tab bar */}
+      <div className="flex items-center border-b border-border/60 px-6 shrink-0" data-testid="automations-tab-bar">
+        {(["builder", "task-rules"] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setActiveTab(t)}
+            className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === t
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid={`tab-automations-${t}`}
+          >
+            {t === "builder" ? "Automation Builder" : "Task Rules"}
+          </button>
+        ))}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {activeTab === "task-rules" ? (
+        <TaskRulesSettingsPage />
+      ) : (
+        <>
+          {/* Builder header */}
+          <div className="border-b border-border px-6 py-4 shrink-0">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h1 className="text-xl font-semibold flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-primary" /> Automation Builder
+                </h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {rules.length} rule{rules.length !== 1 ? "s" : ""} · {enabledCount} active
+                </p>
+              </div>
+              <Button onClick={() => openEditor()} data-testid="create-rule-button">
+                <Plus className="h-4 w-4 mr-1.5" /> New Rule
+              </Button>
+            </div>
+
+            {/* Filters */}
+            <div className="flex items-center gap-3 mt-3 flex-wrap">
+              <Input
+                placeholder="Search rules…"
+                className="h-8 w-64 text-sm"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                data-testid="search-rules-input"
+              />
+              <div className="flex items-center rounded-lg border border-border overflow-hidden">
+                {(["all", "enabled", "disabled"] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setFilterEnabled(f)}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${filterEnabled === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                    data-testid={`filter-${f}`}
+                  >
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Builder content */}
+          <div className="flex-1 overflow-y-auto p-6">
         {isLoading ? (
           <div className="flex items-center justify-center h-40">
             <div className="animate-spin h-6 w-6 rounded-full border-2 border-primary border-t-transparent" />
@@ -781,7 +805,9 @@ export default function AutomationsPage() {
             )}
           </div>
         )}
-      </div>
+          </div>
+        </>
+      )}
 
       {/* Dialogs */}
       {editorOpen && (

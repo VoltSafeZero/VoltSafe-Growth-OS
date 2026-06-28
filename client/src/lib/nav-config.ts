@@ -206,7 +206,6 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "admin-mailboxes",    label: { desktop: "My Mailboxes", mobile: "Mailboxes" }, route: "/settings/mailbox",        icon: Mail,        adminOnly: true },
       { id: "admin-search",       label: "Global Search",                                  route: "/search",                  icon: Search,      adminOnly: true },
       { id: "admin-settings",     label: "Settings",                                       route: "/settings",                icon: Settings,    adminOnly: true, exactMatch: true },
-      { id: "task-rules",         label: "Task Rules",                                     route: "/automation/tasks",        icon: Zap },
       { id: "automations",        label: "Automations",                                    route: "/automations",             icon: Zap },
     ],
   },

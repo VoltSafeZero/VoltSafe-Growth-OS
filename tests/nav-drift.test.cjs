@@ -356,15 +356,12 @@ ok('More group (id: "more") no longer exists in NAV_CONFIG',
   !src.includes('id: "more"'),
   "More group must be fully removed");
 
-ok("Task Rules is in Admin group",
-  adminSection.includes('/automation/tasks'),
-  "Config/automation tools belong in Admin");
+ok("Task Rules standalone nav item removed from Admin (merged into Automations tab)",
+  !adminSection.includes('/automation/tasks'),
+  "Task Rules nav entry must be removed — functionality lives in Automations tab now");
 
-ok("Task Rules is NOT in More group",
+ok("Task Rules route not in More group",
   !moreSection.includes('/automation/tasks'));
-
-ok("Task Rules route is /automation/tasks (unchanged)",
-  src.includes('route: "/automation/tasks"'));
 
 ok("Automations is in Admin group",
   adminSection.includes('/automations'),
@@ -376,8 +373,50 @@ ok("Automations is NOT in More group",
 ok("Automations route is /automations (unchanged)",
   src.includes('route: "/automations"'));
 
-// ── Phase 1–4E: Duplicate route guard ────────────────────────────────────────
-console.log("\nPhase 1–4E — Duplicate routes in NAV_CONFIG:");
+// ── Phase 4G: Task Rules merged into Automations tab ─────────────────────────
+console.log("\nPhase 4G — Task Rules merged into Automations tab:");
+
+const automationsSrc = require("fs").readFileSync(
+  require("path").join(__dirname, "../client/src/pages/automations.tsx"), "utf8");
+const appSrc = require("fs").readFileSync(
+  require("path").join(__dirname, "../client/src/App.tsx"), "utf8");
+
+ok('Automations page imports TaskRulesSettingsPage',
+  automationsSrc.includes('import TaskRulesSettingsPage'),
+  "automations.tsx must import the task-rules component");
+
+ok('Automations page has tab-automations-* testid pattern',
+  automationsSrc.includes('tab-automations-${t}') || automationsSrc.includes('tab-automations-builder'),
+  "Tab buttons must have data-testid");
+
+ok('Automations page renders both builder and task-rules tabs',
+  automationsSrc.includes('"builder"') && automationsSrc.includes('"task-rules"'),
+  "Both tab values must be present in source");
+
+ok('Automations page renders <TaskRulesSettingsPage /> inside tab',
+  automationsSrc.includes('<TaskRulesSettingsPage />'),
+  "Task Rules content must be rendered in the tab panel");
+
+ok('activeTab state controls tab switching',
+  automationsSrc.includes('activeTab') && automationsSrc.includes('"task-rules"'),
+  "Tab state must be present");
+
+ok('/automation/tasks route still exists in App.tsx (backwards compat)',
+  appSrc.includes('/automation/tasks'),
+  "Standalone route kept for backwards compatibility");
+
+ok('Admin nav has 8 items (Task Rules removed, Automations kept)',
+  (() => {
+    const adminMatch = src.match(/id:\s*"admin[\s\S]*?^\s*\]/m);
+    if (!adminMatch) return false;
+    const adminBlock = adminMatch[0];
+    const itemMatches = [...adminBlock.matchAll(/\{\s*id:/g)];
+    return itemMatches.length === 9; // 1 group header + 8 items
+  })(),
+  "Admin section should have 8 nav items after Task Rules removal");
+
+// ── Phase 1–4G: Duplicate route guard ────────────────────────────────────────
+console.log("\nPhase 1–4G — Duplicate routes in NAV_CONFIG:");
 
 const routeMatches   = [...src.matchAll(/route: "([^"]+)"/g)];
 const routes         = routeMatches.map(m => m[1]);
