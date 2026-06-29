@@ -932,7 +932,11 @@ export function MyInboxWidget({ compact, isDragging, dragProps }: WidgetProps) {
   const { data, isLoading } = useInboxSummary();
   const inbox = data?.myInbox;
   const recent = inbox?.recent ?? [];
-  const notConnected = !inbox?.emailAddress || inbox.authStatus !== "active";
+  // Show "not connected" only when there is genuinely no account record.
+  // authStatus may be stale (e.g. 'expired' after a token refresh cycle) even
+  // when the account IS actively syncing — the inbox view handles reconnect
+  // warnings independently via its own health-check flow.
+  const notConnected = !inbox?.emailAddress;
 
   return (
     <ActionWidgetShell
