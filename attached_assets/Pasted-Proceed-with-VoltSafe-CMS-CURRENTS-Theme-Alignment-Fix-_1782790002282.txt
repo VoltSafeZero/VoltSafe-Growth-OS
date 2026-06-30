@@ -1,0 +1,251 @@
+Proceed with VoltSafe CMS CURRENTS Theme Alignment Fix: Remove Custom Waterflow/Dark Overlay and Match Global Light/Dark Theme.
+
+Do not add new CURRENTS features. Do not rewrite CURRENTS internals. Do not touch Gmail/mail-permissions, CRM behavior, Polyweather, backend APIs, or unrelated modules.
+
+Goal
+
+The current CURRENTS/Slack-lite custom background treatment does not work visually, especially in light mode. It makes CURRENTS feel disconnected from the rest of VoltSafe CMS.
+
+Change CURRENTS so it matches the existing VoltSafe CMS global light and dark themes.
+
+CURRENTS should still be polished and premium, but it should no longer use a separate futuristic waterflow/dark backdrop that overrides the app theme.
+
+Current problem
+
+In dark mode:
+
+* CURRENTS is readable but too separate from the CMS theme.
+* The custom dark/water backdrop makes it feel like a different product.
+* It creates unnecessary visual noise behind messages.
+
+In light mode:
+
+* The main CMS shell is light.
+* CURRENTS content remains dark.
+* This creates a jarring mixed-theme experience.
+* Text and contrast are weaker.
+* It feels unfinished instead of premium.
+
+Required outcome
+
+CURRENTS must use the same design language as the rest of VoltSafe CMS:
+
+Dark mode
+
+CURRENTS should use the normal dark theme surfaces:
+
+* app dark background
+* dark cards/panels
+* normal border tokens
+* normal muted text
+* normal active/hover states
+* subtle teal accents only where consistent with the app
+
+Light mode
+
+CURRENTS should use the normal light theme surfaces:
+
+* light page background
+* light sidebar/channel panel background
+* light message area
+* readable dark text
+* normal light borders
+* normal light hover/selected states
+* no dark overlay across the entire CURRENTS workspace
+
+Remove or disable
+
+Remove/disable the custom CURRENTS waterflow/backdrop visual treatment, including any:
+
+* full-screen dark overlay
+* animated waterflow background
+* dark fixed background layer
+* opacity layer that darkens light mode
+* custom screensaver/intro backdrop
+* moving background animation
+* special background that persists behind the chat
+
+If the component exists, either remove it from the render path or make it theme-neutral and non-invasive. Prefer removing it from active CURRENTS layout for now.
+
+Preserve
+
+Do not break or change:
+
+* CURRENTS route
+* CURRENTS nav placement
+* unread badge
+* channels
+* private channels
+* DMs
+* group DMs
+* message posting
+* editing/deleting
+* reactions
+* threads
+* mentions
+* pins
+* files
+* search
+* AI summaries
+* task creation
+* structured decisions/risks/requirements
+* notification preferences
+* muted channel behavior
+* avatar/presence display
+* slash commands
+
+Visual guidance
+
+CURRENTS can still have a slightly premium feel through normal app-compatible styling:
+
+Allowed:
+
+* subtle teal accent on active channel
+* slightly stronger active nav state
+* clean borders
+* refined hover states
+* balanced spacing
+* polished empty states
+* consistent card/surface layering
+* theme-token-based gradients only if extremely subtle and works in both modes
+
+Not allowed:
+
+* separate CURRENTS-only dark world
+* animated background
+* heavy backdrop image
+* unreadable transparency
+* dark overlay in light mode
+* visual effects that reduce message readability
+* neon/gaming look
+
+Implementation guidance
+
+Audit these areas first:
+
+1. CURRENTS page/shell component
+2. any CurrentsWorkspaceShell
+3. any CurrentsWaterflowBackdrop
+4. CURRENTS sidebar/channel list styling
+5. CURRENTS message panel styling
+6. CURRENTS composer styling
+7. light/dark theme token usage
+8. global theme classes
+9. nav/sidebar CURRENTS featured styling
+
+Then implement the smallest safe fix.
+
+Preferred approach:
+
+1. Remove the waterflow/backdrop component from CURRENTS render path.
+2. Replace hardcoded dark colors with theme tokens/classes.
+3. Ensure CURRENTS container uses the same base background as the rest of the app.
+4. Ensure channel sidebar, message area, header, tabs, and composer adapt to light/dark mode.
+5. Keep teal accents for selected/active states only.
+6. Avoid transparency that causes contrast issues.
+7. Keep CURRENTS as top-level nav item below Today.
+
+Specific visual expectations
+
+Light mode
+
+CURRENTS should look like a native VoltSafe CMS page:
+
+* white/light-gray shell
+* readable dark text
+* clean light panels
+* selected channel with subtle teal highlight
+* composer with light surface
+* no large dark rectangle behind the entire workspace
+
+Dark mode
+
+CURRENTS should look like a native VoltSafe CMS dark page:
+
+* dark shell
+* dark panels
+* readable light text
+* subtle teal selected states
+* no animated/distracting background
+* no heavy fog/water overlay
+
+Tests / source checks
+
+Update or add tests/source checks for:
+
+1. CURRENTS still appears as top-level nav below Today.
+2. CURRENTS is not inside Work.
+3. CURRENTS route remains unchanged.
+4. CURRENTS label remains uppercase.
+5. No duplicate CURRENTS nav entries.
+6. Waterflow/backdrop component is not rendered in the active CURRENTS page path.
+7. CURRENTS uses theme-aware classes/tokens rather than hardcoded dark-only styling where practical.
+8. Existing CURRENTS tests still pass.
+9. Existing nav drift tests still pass.
+
+Verification
+
+Run:
+
+1. CURRENTS test suite
+2. nav drift tests
+3. TypeScript/build check
+4. browser console check
+5. server log check
+
+Manual visual verification:
+
+1. open CURRENTS in dark mode
+2. confirm it matches the CMS dark theme
+3. open CURRENTS in light mode
+4. confirm it matches the CMS light theme
+5. confirm no dark waterflow overlay remains in light mode
+6. confirm message text is readable
+7. confirm composer is readable
+8. confirm channel list is readable
+9. confirm active/selected states are clear
+10. confirm unread badge still works
+11. confirm CURRENTS remains below Today in nav
+12. confirm CURRENTS is not duplicated under Work
+
+Allowed fixes
+
+Only fix issues directly related to CURRENTS theme alignment:
+
+* hardcoded dark colors
+* unreadable light mode text
+* excessive transparency
+* waterflow/backdrop removal
+* active/hover state contrast
+* composer contrast
+* channel list contrast
+* message area contrast
+* CURRENTS nav placement regression
+
+Not allowed
+
+Do not add new CURRENTS functionality.
+
+Do not rewrite the messaging system.
+
+Do not change database schema.
+
+Do not change backend APIs.
+
+Do not change Mail, CRM, Pipeline, Admin, or unrelated modules.
+
+Deliverable
+
+Return:
+
+1. Summary of theme alignment changes
+2. Files changed
+3. Confirmation custom waterflow/backdrop removed or disabled
+4. Confirmation CURRENTS now follows light/dark CMS theme
+5. Confirmation route/nav/unread behavior preserved
+6. Tests run and results
+7. Dark mode visual verification
+8. Light mode visual verification
+9. Any remaining visual polish recommendations
+
+Keep scope tight: make CURRENTS visually match VoltSafe CMS light/dark themes.

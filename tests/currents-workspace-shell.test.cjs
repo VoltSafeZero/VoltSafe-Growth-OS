@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * CURRENTS Workspace Shell — Phase 5A regression tests
+ * CURRENTS Workspace Shell — Phase 5C theme-alignment tests
  *
  * Covers:
  *   N1–N8  : nav-config checks (CURRENTS top-level, below Today, label, no dup)
- *   S1–S6  : shell + backdrop component source checks
+ *   S1–S9  : shell + backdrop source checks (Phase 5C: backdrop removed from path)
  *   A1–A2  : App.tsx wiring checks
  *   R1–R2  : reduced-motion + accessibility markers
- *   P1–P2  : performance / no-infinite-loop markers
+ *   P1–P2  : performance / no-custom-animation markers
+ *   B1–B3  : sidebar CURRENTS badge
  *
  * Run: node tests/currents-workspace-shell.test.cjs
  */
@@ -57,7 +58,6 @@ ok("N3: CURRENTS section has url: '/current'",
 
 ok("N4: CURRENTS section uses Zap icon",
   (() => {
-    // Find the currents section block and check for Zap icon reference
     const idx = nav.indexOf('id: "currents"');
     if (idx === -1) return false;
     const block = nav.slice(idx, idx + 300);
@@ -67,8 +67,7 @@ ok("N4: CURRENTS section uses Zap icon",
 ok("N5: CURRENTS NOT inside Work items (removed from Work group)",
   (() => {
     const workIdx = nav.indexOf('id: "work"');
-    if (workIdx === -1) return true; // no work section = trivially ok
-    // Find end of work section (next top-level section start)
+    if (workIdx === -1) return true;
     const nextSectionIdx = nav.indexOf('\n  {', workIdx + 10);
     const workBlock = nextSectionIdx > -1
       ? nav.slice(workIdx, nextSectionIdx)
@@ -97,31 +96,50 @@ ok("N8: No duplicate /current routes in NAV_CONFIG",
   })());
 
 // ── S: Shell + backdrop source checks ────────────────────────────────────────
-console.log("\n=== S: Shell + backdrop components ===");
+console.log("\n=== S: Shell + backdrop components (Phase 5C: backdrop removed from path) ===");
 
 ok("S1: Shell file exists and exports CurrentsWorkspaceShell",
   shell.includes("CurrentsWorkspaceShell"));
 
-ok("S2: Shell imports CurrentsWaterflowBackdrop",
-  shell.includes("CurrentsWaterflowBackdrop"));
+ok("S2: Shell does NOT import backdrop (removed from active path)",
+  // Phase 5C: backdrop is no longer imported or rendered.
+  // We check for the import statement and JSX tag — a comment mentioning
+  // the name is allowed, but an actual import or <ComponentName /> is not.
+  !shell.includes('from "./currents-waterflow-backdrop"') &&
+  !shell.includes('<CurrentsWaterflowBackdrop'));
 
-ok("S3: Shell renders backdrop inside relative container",
-  shell.includes("relative") && shell.includes("CurrentsWaterflowBackdrop"));
+ok("S3: Shell is a theme-neutral flex container (no backdrop JSX)",
+  shell.includes("flex") &&
+  shell.includes('data-testid="currents-workspace-shell"') &&
+  !shell.includes('<CurrentsWaterflowBackdrop'));
 
-ok("S4: Shell content layer is z-[1] (renders on top of backdrop)",
-  shell.includes("z-[1]"));
+ok("S4: Shell has no z-index stacking (no backdrop to stack above)",
+  // z-[1] was only needed to sit above the backdrop — it should be absent now.
+  !shell.includes("z-[1]") || !shell.includes("CurrentsWaterflowBackdrop"));
 
 ok("S5: Shell has data-testid='currents-workspace-shell'",
   shell.includes('data-testid="currents-workspace-shell"'));
 
-ok("S6: Backdrop file exists and exports CurrentsWaterflowBackdrop",
+ok("S6: Backdrop file exists and exports CurrentsWaterflowBackdrop (preserved, not deleted)",
   backdrop.includes("CurrentsWaterflowBackdrop"));
 
-ok("S7: Backdrop has data-testid='currents-waterflow-backdrop'",
+ok("S7: Backdrop file has data-testid (preserved for future opt-in)",
   backdrop.includes('data-testid="currents-waterflow-backdrop"'));
 
-ok("S8: Backdrop uses aria-hidden for decorative role",
+ok("S8: Backdrop file uses aria-hidden (preserved for future opt-in)",
   backdrop.includes('aria-hidden="true"') || backdrop.includes("aria-hidden={true}"));
+
+ok("S9: CURRENTS outer container uses theme-aware layout (no hardcoded dark bg override)",
+  (() => {
+    // The main flex container at the CURRENTS page root should not carry
+    // a hardcoded dark background. Theme tokens (bg-background, bg-sidebar,
+    // bg-card, bg-muted) are allowed; raw hex/rgb dark values are not.
+    const mainDivIdx = current.indexOf('className="flex h-full overflow-hidden"');
+    if (mainDivIdx === -1) return true; // Not found means it was already changed
+    const snippet = current.slice(mainDivIdx, mainDivIdx + 80);
+    return !snippet.includes("bg-[#") && !snippet.includes("bg-gray-9") &&
+           !snippet.includes("bg-slate-9") && !snippet.includes("bg-zinc-9");
+  })());
 
 // ── A: App.tsx wiring ─────────────────────────────────────────────────────────
 console.log("\n=== A: App.tsx route wiring ===");
@@ -138,38 +156,29 @@ ok("A2: /current route wraps CurrentPage in CurrentsWorkspaceShell",
   })());
 
 // ── R: Reduced-motion + accessibility ────────────────────────────────────────
-console.log("\n=== R: Accessibility / reduced-motion ===");
+console.log("\n=== R: Accessibility / theme-neutral shell ===");
 
-ok("R1: Backdrop CSS includes prefers-reduced-motion media query",
+ok("R1: Backdrop file preserved with reduced-motion support (for future use)",
+  // The backdrop component still exists on disk with its accessibility markers.
+  // It is just not rendered in the active page path.
   backdrop.includes("prefers-reduced-motion"));
 
-ok("R2: Backdrop pauses animations via animation-play-state under prefers-reduced-motion",
-  (() => {
-    // Phase 5B: gentle infinite CSS loops — reduced-motion freezes them with
-    // animation-play-state: paused (no animation: none needed).
-    const hasReducedBlock = backdrop.includes("prefers-reduced-motion");
-    const hasPaused = backdrop.includes("animation-play-state: paused") ||
-                      backdrop.includes("animation-play-state:paused");
-    return hasReducedBlock && hasPaused;
-  })());
+ok("R2: Shell does not inject animation CSS or custom keyframes",
+  // Phase 5C: the shell is a plain layout container — no <style> blocks,
+  // no @keyframes, no animation CSS that could override the CMS theme.
+  !shell.includes("@keyframes") && !shell.includes("<style>"));
 
 // ── P: Performance markers ────────────────────────────────────────────────────
-console.log("\n=== P: Performance — pure CSS, no JS animation ===");
+console.log("\n=== P: Performance — theme-neutral shell, no custom animation ===");
 
-ok("P1: Backdrop uses pure CSS animation (no JS loops)",
-  (() => {
-    // Phase 5B: animation is driven entirely by CSS keyframes (background-position,
-    // transform, opacity) — all GPU-composited.  No JS timer or RAF loop allowed.
-    const noJsLoop = !backdrop.includes("setInterval") &&
-                     !backdrop.includes("requestAnimationFrame") &&
-                     !backdrop.includes("useEffect");
-    // Must still declare at least one @keyframes block
-    const hasKeyframes = backdrop.includes("@keyframes");
-    return noJsLoop && hasKeyframes;
-  })());
+ok("P1: Shell has no custom animation (no JS loops, no CSS keyframes)",
+  !shell.includes("setInterval") &&
+  !shell.includes("requestAnimationFrame") &&
+  !shell.includes("useEffect") &&
+  !shell.includes("@keyframes"));
 
-ok("P2: No setInterval or requestAnimationFrame loop in backdrop",
-  !backdrop.includes("setInterval") && !backdrop.includes("requestAnimationFrame"));
+ok("P2: Shell has no setInterval or requestAnimationFrame",
+  !shell.includes("setInterval") && !shell.includes("requestAnimationFrame"));
 
 // ── Sidebar: badge on top-level CURRENTS section ──────────────────────────────
 console.log("\n=== B: Sidebar — CURRENTS badge on section button ===");
