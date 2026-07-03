@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import sharp from "sharp";
+
 import { cacheFor, cacheInvalidate, cacheGet, cacheSet } from "./cache";
 import { pick } from "./utils";
 import { normalizeSource, buildNormalizeCaseExpr, BUCKET_LABELS, SOURCE_BUCKETS } from "./source-attribution";
@@ -161,6 +162,19 @@ import { validateAudioChunk, storeChunk } from "./services/meeting-notes-audio";
 import { transcribeMeetingNote } from "./services/meeting-notes-transcription";
 import { processWithAI } from "./services/meeting-notes-ai";
 import { buildOpenAIModelParams } from "./services/openai-compat";
+
+// ── Avatar URL cache-busting helper ──────────────────────────────────────────
+// Module-level so it's accessible from all route handlers including Currents.
+// Appends ?v=<id> to /api/user-avatars/lib/<id> URLs for long-lived caching.
+// Returns null for broken stale disk-based paths → UI falls back to initials.
+function withAvatarVersion(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("/uploads/") || url.startsWith("/api/user-avatars/user-avatar-")) return null;
+  const m = /\/api\/user-avatars\/lib\/(\d+)/.exec(url);
+  if (!m) return url;
+  const id = m[1];
+  return `/api/user-avatars/lib/${id}?v=${id}`;
+}
 
 // ── Auth rate limiters ─────────────────────────────────────────────────────
 // Defense in depth against credential stuffing, password-reset spam, and
@@ -1341,18 +1355,6 @@ export async function registerRoutes(
   // ── User avatar library (Phase 18B hardened) ────────────────────────────────
   // Avatars are stored in PostgreSQL (base64) so they survive container restarts
   // and Replit deployments. Uploads are resized to 512×512 WebP before storage.
-
-  // Cache-busting helper: appends ?v=<id> to /api/user-avatars/lib/<id> URLs.
-  // Rejects stale disk-based paths (returns null → falls back to initials).
-  function withAvatarVersion(url: string | null | undefined): string | null {
-    if (!url) return null;
-    if (url.startsWith("/uploads/") || url.startsWith("/api/user-avatars/user-avatar-")) return null;
-    const m = /\/api\/user-avatars\/lib\/(\d+)/.exec(url);
-    if (!m) return url;
-    const id = m[1];
-    const base = `/api/user-avatars/lib/${id}`;
-    return `${base}?v=${id}`;
-  }
 
   (async () => {
     try {
