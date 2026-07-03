@@ -141,6 +141,52 @@ ok("S9: CURRENTS outer container uses theme-aware layout (no hardcoded dark bg o
            !snippet.includes("bg-slate-9") && !snippet.includes("bg-zinc-9");
   })());
 
+// ── T: Theme-alignment checks (Phase 20: bg-sidebar → bg-muted) ──────────────
+console.log("\n=== T: Theme-alignment — bg-sidebar removed from CURRENTS render path ===");
+
+ok("T1: CURRENTS channel sidebar uses bg-muted (not bg-sidebar)",
+  current.includes('bg-muted/30') &&
+  !current.includes('bg-sidebar/40'));
+
+ok("T2: CURRENTS main header uses bg-muted (not bg-sidebar)",
+  current.includes('bg-muted/20') &&
+  !current.includes('bg-sidebar/20'));
+
+ok("T3: CURRENTS tab row uses bg-muted (not bg-sidebar)",
+  current.includes('bg-muted/10') &&
+  !current.includes('bg-sidebar/10'));
+
+ok("T4: CURRENTS channel composer uses bg-muted (not bg-sidebar)",
+  (() => {
+    // Both composers (channel + DM) must use bg-muted, not bg-sidebar
+    const sidebarCount = (current.match(/bg-sidebar\/10/g) || []).length;
+    const mutedCount   = (current.match(/bg-muted\/10/g) || []).length;
+    return sidebarCount === 0 && mutedCount >= 2;
+  })());
+
+ok("T5: CURRENTS modal tab row uses bg-muted (not bg-sidebar)",
+  current.includes('bg-muted/5') &&
+  !current.includes('bg-sidebar/5'));
+
+ok("T6: No bg-sidebar remaining in CURRENTS active render path",
+  (() => {
+    // bg-sidebar/N patterns that were in the render path are all replaced
+    const renderPathPatterns = ["bg-sidebar/5", "bg-sidebar/10", "bg-sidebar/20", "bg-sidebar/40"];
+    return renderPathPatterns.every(p => !current.includes(p));
+  })());
+
+ok("T7: CURRENTS channel sidebar has border-r border-border (clean separation)",
+  current.includes('border-r border-border'));
+
+ok("T8: CURRENTS uses text-foreground and text-muted-foreground (theme tokens)",
+  current.includes('text-foreground') && current.includes('text-muted-foreground'));
+
+ok("T9: Waterflow backdrop NOT imported in current.tsx",
+  !current.includes('CurrentsWaterflowBackdrop') || current.includes('// CurrentsWaterflowBackdrop'));
+
+ok("T10: CURRENTS main layout uses flex h-full overflow-hidden (unchanged route shell)",
+  current.includes('className="flex h-full overflow-hidden"'));
+
 // ── A: App.tsx wiring ─────────────────────────────────────────────────────────
 console.log("\n=== A: App.tsx route wiring ===");
 

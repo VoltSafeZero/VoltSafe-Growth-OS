@@ -1,0 +1,154 @@
+The last completed task appears to have addressed avatar upload/storage hardening, not the requested CURRENTS theme-alignment issue.
+
+Proceed now with VoltSafe CMS CURRENTS Theme Alignment Fix only.
+
+Do not work on avatars. Do not work on avatar storage. Do not work on Sharp/WebP processing. Do not touch unrelated backend routes.
+
+Goal
+
+Fix CURRENTS so it visually matches the global VoltSafe CMS light and dark themes.
+
+The current CURRENTS custom background/waterflow/dark overlay does not work, especially in light mode. It makes CURRENTS feel disconnected from the rest of VoltSafe CMS.
+
+Required outcome
+
+CURRENTS should no longer look like a separate dark app inside VoltSafe CMS.
+
+It should use the same theme system as the rest of the CMS:
+
+Dark mode
+
+* dark CMS surfaces
+* readable light text
+* normal dark borders
+* subtle teal accents only
+* no distracting waterflow overlay
+
+Light mode
+
+* light CMS surfaces
+* readable dark text
+* light borders
+* light composer
+* light channel/sidebar surfaces
+* no dark full-page CURRENTS rectangle
+* no dark waterflow overlay
+
+Required work
+
+Audit and fix these files/areas:
+
+1. CURRENTS page/shell component
+2. any CurrentsWorkspaceShell
+3. any CurrentsWaterflowBackdrop
+4. CURRENTS sidebar/channel list styling
+5. CURRENTS message area styling
+6. CURRENTS header/tabs styling
+7. CURRENTS composer styling
+8. global theme token/class usage
+9. top-level CURRENTS nav styling if relevant
+
+Remove or disable
+
+Remove/disable from the active CURRENTS render path:
+
+* waterflow backdrop
+* animated background
+* dark overlay
+* full-screen dark CURRENTS-only background
+* persistent background image/effect
+* any opacity layer that darkens light mode
+
+If the backdrop component remains in the repo, it must not render in the active CURRENTS page path.
+
+Replace with theme-aware styling
+
+Replace hardcoded dark-only classes/colors with theme-aware classes/tokens.
+
+CURRENTS should inherit the same visual language as the rest of VoltSafe CMS.
+
+Allowed:
+
+* subtle teal selected channel state
+* clean borders
+* normal card/panel layering
+* normal hover/active states
+* slight premium polish that works in both light and dark mode
+
+Not allowed:
+
+* separate dark CURRENTS-only world
+* animated background
+* heavy backdrop
+* low-contrast transparency
+* neon/gaming look
+* unreadable light mode
+
+Preserve functionality
+
+Do not break:
+
+* route
+* nav placement
+* unread badge
+* channels
+* DMs
+* group DMs
+* private channels
+* message posting
+* threads
+* reactions
+* mentions
+* pins
+* files
+* search
+* AI summaries
+* task creation
+* structured items
+* notification preferences
+* avatars/presence
+* slash commands
+
+Tests / source checks
+
+Add or update checks for:
+
+1. CURRENTS route unchanged.
+2. CURRENTS label remains uppercase.
+3. CURRENTS remains top-level below Today.
+4. CURRENTS is not inside Work.
+5. No duplicate CURRENTS nav entry.
+6. Waterflow/backdrop component is not rendered in active CURRENTS page path.
+7. CURRENTS uses theme-aware styling instead of hardcoded dark-only full-page styling.
+8. Existing CURRENTS tests pass.
+9. Existing nav drift tests pass.
+
+Visual verification
+
+Capture/check:
+
+1. CURRENTS in dark mode.
+2. CURRENTS in light mode.
+3. Light mode must not show a dark CURRENTS rectangle.
+4. Message text readable.
+5. Channel list readable.
+6. Composer readable.
+7. Header/tabs readable.
+8. Active channel state visible.
+9. Unread badge still visible.
+10. Browser console clean.
+
+Deliverable
+
+Return:
+
+1. Files changed.
+2. What dark/waterflow/backdrop styling was removed or disabled.
+3. What theme-aware styling was added.
+4. Confirmation CURRENTS matches dark mode.
+5. Confirmation CURRENTS matches light mode.
+6. Confirmation route/nav/unread behavior preserved.
+7. Tests run and results.
+8. Screenshots/visual verification summary.
+
+Keep scope tight: fix CURRENTS theme alignment only.

@@ -2652,7 +2652,7 @@ function ChannelDetailsModal({
         </div>
 
         {/* Tab row */}
-        <div className="flex items-end px-2 border-b border-border/30 bg-sidebar/5 shrink-0 overflow-x-auto">
+        <div className="flex items-end px-2 border-b border-border/30 bg-muted/5 shrink-0 overflow-x-auto">
           {TABS.map((tab) => (
             <button
               key={tab}
@@ -4545,7 +4545,7 @@ export default function CurrentPage() {
     <div className="flex h-full overflow-hidden">
 
       {/* ── Channel sidebar ─────────────────────────────────────────────── */}
-      <aside className="w-56 shrink-0 flex flex-col border-r border-border bg-sidebar/40 overflow-hidden">
+      <aside className="w-56 shrink-0 flex flex-col border-r border-border bg-muted/30 overflow-hidden">
 
         {/* Module header */}
         <div className="px-4 py-3 border-b border-border/60 shrink-0 bg-gradient-to-b from-primary/[0.04] to-transparent">
@@ -4980,7 +4980,7 @@ export default function CurrentPage() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Header — adapts for channel vs. mentions view */}
-        <div className="px-5 py-3.5 border-b border-border/60 flex items-center gap-2.5 shrink-0 min-w-0 bg-sidebar/20">
+        <div className="px-5 py-3.5 border-b border-border/60 flex items-center gap-2.5 shrink-0 min-w-0 bg-muted/20">
           {view === "mentions" ? (
             <>
               <AtSign className="w-4 h-4 text-primary/60 shrink-0" />
@@ -5148,7 +5148,7 @@ export default function CurrentPage() {
 
         {/* Phase 19A: Slack-style tab row */}
         {(view === "channel" || view === "dm") && (
-          <div className="border-b border-border/40 px-4 bg-sidebar/10 shrink-0 flex items-end gap-0 overflow-x-auto">
+          <div className="border-b border-border/40 px-4 bg-muted/10 shrink-0 flex items-end gap-0 overflow-x-auto">
             {view === "channel" ? (
               <>
                 {(["messages", "files", "pins", "structured"] as const).map((tab) => {
@@ -5374,7 +5374,7 @@ export default function CurrentPage() {
             )}
 
             {/* DM Composer */}
-            <div className="px-4 pb-5 shrink-0 border-t border-border/50 bg-sidebar/10 pt-3">
+            <div className="px-4 pb-5 shrink-0 border-t border-border/50 bg-muted/10 pt-3">
               {dmMention.open && dmMention.results.length > 0 && (
                 <MentionDropdown
                   users={dmMention.results}
@@ -5706,7 +5706,7 @@ export default function CurrentPage() {
 
             {/* Composer */}
             {!isArchivedChannel && (
-            <div className="px-5 pt-3 pb-5 border-t border-border/50 shrink-0 bg-sidebar/10">
+            <div className="px-5 pt-3 pb-5 border-t border-border/50 shrink-0 bg-muted/10">
               {mainMention.mentionActive && mainMention.mentionAnchorRect && (
                 <MentionDropdown
                   users={mainMention.mentionUsers}
