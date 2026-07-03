@@ -1,0 +1,135 @@
+Proceed with VoltSafe CMS Release Readiness Checklist Document.
+
+Do not change product code. Do not change tests. Do not change navigation. Do not touch CURRENTS, Gmail/mail-permissions, CRM behavior, backend APIs, Polyweather, or unrelated modules.
+
+Goal
+
+Create a short reusable release-readiness checklist for future VoltSafe CMS deploys.
+
+This checklist should standardize how we verify changes before and after shipping, especially after the Navigation + CURRENTS release.
+
+Context
+
+Recent completed work:
+
+* Navigation cleanup shipped.
+* More group retired.
+* CURRENTS promoted directly below Today.
+* CURRENTS theme aligned with global light/dark CMS themes.
+* Document Hub label finalized.
+* Release closeout documented.
+* P1 test harness cleanup completed.
+* P2 Admin simplification completed.
+* P2 authenticated E2E smoke support added.
+
+We now need a reusable checklist so future releases are faster, cleaner, and less confusing.
+
+Deliverable
+
+Create:
+
+docs/release-readiness-checklist.md
+
+Required sections
+
+1. Purpose
+
+Explain that this checklist is used before and after shipping VoltSafe CMS changes.
+
+2. Pre-deploy checks
+
+Include:
+
+* identify changed feature area
+* confirm scope
+* run relevant unit/source tests
+* run nav-drift if nav/sidebar touched
+* run CURRENTS tests if CURRENTS touched
+* run mail/tracking tests if Gmail touched
+* confirm known live-only tests are guarded/skipped
+* inspect server logs
+* inspect browser console
+* verify no unrelated code was touched
+
+3. Deploy checks
+
+Include:
+
+* confirm app boots
+* confirm no startup errors beyond expected cold-start noise
+* confirm deployment logs stabilize
+* confirm no repeated 500s
+* confirm key API routes return expected status
+
+4. Post-deploy smoke checks
+
+Include:
+
+* production URL loads
+* login works if credentials available
+* sidebar renders
+* changed feature loads
+* no blank screens
+* no console errors
+* no server errors
+* relevant route opens
+* basic create/read action if safe
+
+5. Authenticated E2E smoke
+
+Document the new test:
+
+tests/e2e-smoke.test.js
+
+Include how to run:
+
+E2E_BASE_URL=http://localhost:5000 \
+E2E_EMAIL=your@email.com \
+E2E_PASSWORD=yourpassword \
+node tests/e2e-smoke.test.js
+
+Production:
+
+E2E_BASE_URL=https://yourapp.replit.app \
+E2E_EMAIL=your@email.com \
+E2E_PASSWORD=yourpassword \
+E2E_TIMEOUT_MS=30000 \
+node tests/e2e-smoke.test.js
+
+Mention that missing env vars skip cleanly.
+
+6. Known non-blockers
+
+Document:
+
+* tracking-proof and tracking-multi-proof skip unless RUN_LIVE_GMAIL_PROOF=true
+* production cold-start healthcheck noise can occur before server binds
+* stale workflow panels may show previous failures even when direct tests pass
+
+7. Release sign-off template
+
+Provide a reusable template:
+
+* Feature/area changed
+* Files changed
+* Tests run
+* Known non-blockers
+* Production URL checked
+* Post-deploy result
+* Ship verdict
+
+8. Golden rule
+
+End with:
+
+Speed, clarity, and trust are release features. If a change makes the app feel slower, more confusing, or harder to verify, it is not done.
+
+Constraints
+
+Documentation only.
+
+No code changes.
+
+No test changes.
+
+No product behavior changes.
