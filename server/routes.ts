@@ -147,7 +147,7 @@ import {
 } from "./services/booking-link-distribution";
 import {
   listMeetingNotes, createMeetingNote, getMeetingNoteDetail, updateMeetingNote,
-  startRecording, stopRecording, processMeetingNote, createTasksFromActionItems,
+  startRecording, stopRecording, cancelMeetingNote, processMeetingNote, createTasksFromActionItems,
   addNoteToTimeline, draftFollowup, linkRecord, updateActionItemStatus,
   getMeetingNoteByCalendarEvent, createMeetingNoteForCalendarEvent,
   sessionIsAdmin,
@@ -31665,6 +31665,26 @@ export function registerConfluenceRoutes(app: Express) {
           console.error(`[stop-route] transcription error noteId=${id}: ${e.message}`),
         );
       });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/meeting-notes/:id/cancel — discard a stuck or unwanted recording
+  // Works from any non-terminal status; most useful for notes stuck in "recording"
+  // after a browser close / container restart wiped the audio temp file.
+  app.post("/api/meeting-notes/:id/cancel", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId  = req.session.userId!;
+      const isAdmin = sessionIsAdmin(req.session);
+      const result  = await cancelMeetingNote(id, userId, isAdmin);
+      if (!result.ok) {
+        const status = result.error === "Not found" ? 404 : 409;
+        return res.status(status).json({ message: result.error });
+      }
+      res.json(result.note);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

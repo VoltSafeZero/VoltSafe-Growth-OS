@@ -572,6 +572,29 @@ export async function linkRecord(
 
 // ── Delete ────────────────────────────────────────────────────────────────────
 
+// ── Cancel / discard a stuck or unwanted recording ────────────────────────────
+// Allowed from any non-terminal status (useful for stuck "recording" notes
+// where the browser session was lost and no audio data was saved).
+export async function cancelMeetingNote(
+  id: number, userId: number, isAdmin: boolean,
+): Promise<{ ok: boolean; error?: string; note?: MeetingNote }> {
+  const note = await lookupNote(id, userId, isAdmin);
+  if (!note) return { ok: false, error: "Not found" };
+
+  const allowed = STATUS_TRANSITIONS[note.status] ?? [];
+  if (!allowed.includes("cancelled")) {
+    return { ok: false, error: `Cannot cancel from status '${note.status}'` };
+  }
+
+  const now = new Date();
+  const [updated] = await db
+    .update(meetingNotes)
+    .set({ status: "cancelled", updatedAt: now })
+    .where(eq(meetingNotes.id, id))
+    .returning();
+  return { ok: true, note: updated };
+}
+
 export async function deleteMeetingNote(
   id: number, userId: number, isAdmin: boolean,
 ): Promise<{ ok: boolean; error?: string }> {

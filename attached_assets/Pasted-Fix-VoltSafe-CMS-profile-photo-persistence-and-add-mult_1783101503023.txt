@@ -1,0 +1,119 @@
+Fix VoltSafe CMS profile photo persistence and add multi-photo avatar library.
+
+Current bug:
+When a user uploads a profile photo, it appears immediately in the current session, but after logout/login or refresh it disappears, corrupts, or falls back to initials. Screenshots show the uploaded profile photo works in the profile menu, but later the header/avatar/messages/sidebar show broken or inconsistent avatars.
+
+Root cause to investigate:
+The frontend is likely using a temporary blob/object URL or base64 preview as the avatar source, or the backend is not persisting the uploaded image URL correctly. The canonical avatar URL must survive refresh/login and be served from durable storage.
+
+Required fixes:
+
+1. Durable avatar storage
+- Do not store blob: URLs, object URLs, local preview URLs, or temporary FileReader-only data as the canonical user avatar.
+- Upload the image to durable server-side storage.
+- Save the permanent image URL/path in the database.
+- On every login/session hydrate, return the canonical avatar URL with the user object.
+- All avatar render locations must use the same canonical avatar source.
+
+2. Normalize avatar rendering
+Audit all avatar components:
+- top-right header avatar
+- profile dropdown avatar
+- Currents message avatar
+- Currents DM sidebar avatar
+- user profile/settings avatar
+- notification/user menu avatar
+
+They must all resolve avatar in this order:
+- selected active profile photo URL
+- fallback initials/avatar color
+
+There should not be separate stale avatar fields competing with each other.
+
+3. Add multi-photo support
+Users should be able to upload and store multiple profile photos, then switch between them.
+
+Add database table:
+
+profile_photos:
+- id
+- user_id
+- image_url
+- storage_key/path
+- original_filename
+- mime_type
+- file_size
+- width
+- height
+- is_active
+- created_at
+- updated_at
+
+Rules:
+- One active photo per user.
+- Uploading a new photo should add it to the library and optionally set it active.
+- User can select any previously uploaded photo as active.
+- User can delete old photos, except handle deleting the active photo by selecting another or falling back to initials.
+- Existing users with avatar_url should be migrated into profile_photos as their active photo if valid.
+
+4. Backend API
+Add or fix endpoints:
+
+GET /api/me/profile-photos
+Returns all photos for the logged-in user, newest first.
+
+POST /api/me/profile-photos
+Multipart upload.
+Validates:
+- image/jpeg, image/png, image/webp
+- max size around 5MB
+- image dimensions sane
+Stores file durably.
+Creates profile_photos row.
+Returns created photo.
+Optionally sets it active by default.
+
+PATCH /api/me/profile-photos/:id/active
+Sets that photo active for the logged-in user.
+Also updates users.avatar_url or equivalent canonical user avatar field.
+
+DELETE /api/me/profile-photos/:id
+Deletes/deactivates photo for the logged-in user.
+Must not allow deleting another user's image.
+Remove file from storage if applicable.
+
+5. Frontend UX
+In the profile dropdown/modal:
+- Keep “Change photo”
+- Add “Choose from photos”
+- Show uploaded photo library grid
+- Active photo has clear selected state
+- Upload new photo button
+- Remove photo button
+- Switching photos should update all visible avatars immediately without reload
+
+6. Cache busting
+After avatar update, force avatar refresh everywhere:
+- update current user/session cache
+- invalidate React Query/SWR cache if used
+- append version/hash if browser cache causes stale image
+Example: avatar_url + '?v=' + updated_at timestamp
+Do not rely on hard refresh.
+
+7. Tests
+Add regression tests:
+- Upload photo -> reload session -> avatar persists.
+- Logout/login -> avatar persists.
+- Currents message avatar and header avatar match active photo.
+- Upload multiple photos -> switch active -> all avatar locations update.
+- Delete inactive photo -> active unchanged.
+- Delete active photo -> fallback or next selected photo works.
+- Reject invalid file type and oversized image.
+- User cannot access/delete another user's photo.
+
+Acceptance criteria:
+- After uploading a profile photo, refresh, logout/login, and revisit Currents: the same photo appears consistently everywhere.
+- No broken image icons.
+- No corrupted tiny avatar artifacts.
+- No temporary blob URLs stored in database.
+- User can upload multiple profile photos and switch active photo at any time.

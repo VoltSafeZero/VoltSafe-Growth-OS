@@ -17,6 +17,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
+  WifiOff,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useMeetingRecorder } from "./use-meeting-recorder";
@@ -224,6 +225,24 @@ export function MeetingNoteCapturePanel({
       }),
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/meeting-notes/${note.id}/cancel`, {}),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["/api/meeting-notes", note.id],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/meeting-notes"] });
+      onRefetch();
+    },
+    onError: (err: unknown) =>
+      toast({
+        title: "Could not discard recording",
+        description: (err as Error).message,
+        variant: "destructive",
+      }),
+  });
+
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   function handleStart() {
@@ -347,6 +366,37 @@ export function MeetingNoteCapturePanel({
         >
           <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
           Flushing final chunk…
+        </div>
+      )}
+
+      {/* ── Stuck recording — interrupted session ── */}
+      {note.status === "recording" && !isActivelyRecording && !isStopping && !isProcessing && (
+        <div
+          className="flex flex-col gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20"
+          data-testid="status-stuck-recording"
+        >
+          <div className="flex items-center gap-2 text-amber-600 text-xs font-medium">
+            <WifiOff className="w-3.5 h-3.5 shrink-0" />
+            Recording was interrupted
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            The previous recording session was disconnected (e.g. page refresh or network issue). No audio was saved.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full gap-2 border-amber-500/30 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 text-xs"
+            onClick={() => cancelMutation.mutate()}
+            disabled={cancelMutation.isPending}
+            data-testid="button-discard-stuck-recording"
+          >
+            {cancelMutation.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <AlertCircle className="w-3.5 h-3.5" />
+            )}
+            {cancelMutation.isPending ? "Discarding…" : "Discard stuck recording"}
+          </Button>
         </div>
       )}
 
