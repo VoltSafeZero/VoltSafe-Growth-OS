@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
+import sharp from "sharp";
 import { cacheFor, cacheInvalidate, cacheGet, cacheSet } from "./cache";
 import { pick } from "./utils";
 import { normalizeSource, buildNormalizeCaseExpr, BUCKET_LABELS, SOURCE_BUCKETS } from "./source-attribution";
@@ -1333,13 +1334,26 @@ export async function registerRoutes(
       defaultCommandCenter: user.defaultCommandCenter,
       calendarBookingUrl: user.calendarBookingUrl ?? null,
       detectedTimezone: (req.session as any).detectedTimezone ?? null,
-      avatarUrl: user.avatarUrl ?? null,
+      avatarUrl: withAvatarVersion(user.avatarUrl),
     });
   });
 
-  // ── User avatar library (Phase 18B) ─────────────────────────────────────────
-  // Avatars are stored directly in PostgreSQL so they survive container restarts
-  // and Replit deployments. The old filesystem-based approach was ephemeral.
+  // ── User avatar library (Phase 18B hardened) ────────────────────────────────
+  // Avatars are stored in PostgreSQL (base64) so they survive container restarts
+  // and Replit deployments. Uploads are resized to 512×512 WebP before storage.
+
+  // Cache-busting helper: appends ?v=<id> to /api/user-avatars/lib/<id> URLs.
+  // Rejects stale disk-based paths (returns null → falls back to initials).
+  function withAvatarVersion(url: string | null | undefined): string | null {
+    if (!url) return null;
+    if (url.startsWith("/uploads/") || url.startsWith("/api/user-avatars/user-avatar-")) return null;
+    const m = /\/api\/user-avatars\/lib\/(\d+)/.exec(url);
+    if (!m) return url;
+    const id = m[1];
+    const base = `/api/user-avatars/lib/${id}`;
+    return `${base}?v=${id}`;
+  }
+
   (async () => {
     try {
       await db.execute(sql.raw(`
@@ -1352,6 +1366,16 @@ export async function registerRoutes(
         )
       `));
       await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_avatar_lib_user ON user_avatar_library(user_id)`));
+      // Add metadata columns (idempotent)
+      await db.execute(sql.raw(`ALTER TABLE user_avatar_library ADD COLUMN IF NOT EXISTS width INTEGER`));
+      await db.execute(sql.raw(`ALTER TABLE user_avatar_library ADD COLUMN IF NOT EXISTS height INTEGER`));
+      await db.execute(sql.raw(`ALTER TABLE user_avatar_library ADD COLUMN IF NOT EXISTS file_size INTEGER`));
+      // Clear broken stale disk-based avatar URLs (file is gone after container restart)
+      await db.execute(sql.raw(`
+        UPDATE users SET avatar_url = NULL
+        WHERE avatar_url IS NOT NULL
+          AND (avatar_url LIKE '/uploads/%' OR avatar_url LIKE '/api/user-avatars/user-avatar-%')
+      `));
       console.log("[migration] user_avatar_library schema ready.");
     } catch (e) {
       console.error("[migration] user_avatar_library error:", e);
@@ -1378,16 +1402,30 @@ export async function registerRoutes(
     });
   };
 
-  // Serve a library image directly from the DB (no filesystem)
+  // Serve a library image directly from the DB (no filesystem).
+  // Privacy: only serve if the requester owns the photo OR it is someone's active avatar.
   app.get("/api/user-avatars/lib/:id", requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id) || id <= 0) return res.status(404).json({ message: "Not found" });
-      const { rows } = await db.execute(sql`SELECT image_data, mime_type FROM user_avatar_library WHERE id = ${id}`);
+      const requesterId = req.session.userId!;
+      // Allow: photo owner OR it is currently set as ANY user's active avatar
+      const { rows } = await db.execute(sql`
+        SELECT al.image_data, al.mime_type
+        FROM user_avatar_library al
+        WHERE al.id = ${id}
+          AND (
+            al.user_id = ${requesterId}
+            OR EXISTS (
+              SELECT 1 FROM users u
+              WHERE u.avatar_url = '/api/user-avatars/lib/' || ${id}
+            )
+          )
+      `);
       if (!rows.length) return res.status(404).json({ message: "Not found" });
       const buf = Buffer.from((rows[0] as any).image_data as string, "base64");
-      res.setHeader("Content-Type", (rows[0] as any).mime_type ?? "image/jpeg");
-      res.setHeader("Cache-Control", "private, max-age=86400");
+      res.setHeader("Content-Type", (rows[0] as any).mime_type ?? "image/webp");
+      res.setHeader("Cache-Control", "private, max-age=3600, immutable");
       res.send(buf);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -1400,22 +1438,30 @@ export async function registerRoutes(
     res.status(404).json({ message: "Avatar migrated to database storage. Please upload a new photo." });
   });
 
-  // Upload → save to library + set as active avatar
+  // Upload → resize to 512×512 WebP → save to library + set as active avatar
   app.post("/api/me/avatar", requireAuth, userAvatarMiddleware, async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const userId = req.session.userId!;
-      const imageData = req.file.buffer.toString("base64");
-      const mimeType = req.file.mimetype;
+
+      // Resize to square 512×512, convert to WebP for uniform storage
+      const resized = await sharp(req.file.buffer)
+        .resize(512, 512, { fit: "cover", position: "centre" })
+        .webp({ quality: 85 })
+        .toBuffer();
+
+      const imageData = resized.toString("base64");
+      const mimeType = "image/webp";
+      const fileSize = resized.length;
       const { rows } = await db.execute(sql`
-        INSERT INTO user_avatar_library (user_id, image_data, mime_type)
-        VALUES (${userId}, ${imageData}, ${mimeType})
+        INSERT INTO user_avatar_library (user_id, image_data, mime_type, file_size, width, height)
+        VALUES (${userId}, ${imageData}, ${mimeType}, ${fileSize}, 512, 512)
         RETURNING id
       `);
       const libId = (rows[0] as any).id as number;
       const avatarUrl = `/api/user-avatars/lib/${libId}`;
       await db.update(users).set({ avatarUrl }).where(eq(users.id, userId));
-      res.json({ avatarUrl, libraryId: libId });
+      res.json({ avatarUrl: withAvatarVersion(avatarUrl), libraryId: libId });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1444,10 +1490,10 @@ export async function registerRoutes(
       const activeUrl = user?.avatarUrl ?? null;
       const items = rows.map((r: any) => ({
         id: r.id as number,
-        url: `/api/user-avatars/lib/${r.id}`,
+        url: withAvatarVersion(`/api/user-avatars/lib/${r.id}`),
         createdAt: r.created_at as string,
       }));
-      res.json({ items, activeUrl });
+      res.json({ items, activeUrl: withAvatarVersion(activeUrl) });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1463,7 +1509,7 @@ export async function registerRoutes(
       if (!rows.length) return res.status(404).json({ message: "Not found" });
       const avatarUrl = `/api/user-avatars/lib/${id}`;
       await db.update(users).set({ avatarUrl }).where(eq(users.id, userId));
-      res.json({ avatarUrl });
+      res.json({ avatarUrl: withAvatarVersion(avatarUrl) });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1484,9 +1530,9 @@ export async function registerRoutes(
         const { rows: next } = await db.execute(sql`SELECT id FROM user_avatar_library WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 1`);
         const newUrl = next.length ? `/api/user-avatars/lib/${(next[0] as any).id}` : null;
         await db.update(users).set({ avatarUrl: newUrl }).where(eq(users.id, userId));
-        return res.json({ avatarUrl: newUrl });
+        return res.json({ avatarUrl: withAvatarVersion(newUrl) });
       }
-      res.json({ avatarUrl: user?.avatarUrl ?? null });
+      res.json({ avatarUrl: withAvatarVersion(user?.avatarUrl) });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -33717,7 +33763,7 @@ export function registerConfluenceRoutes(app: Express) {
         deletedAt: r.deleted_at,
         createdAt: r.created_at,
         userName: r.user_name,
-        userAvatarUrl: r.user_avatar_url,
+        userAvatarUrl: withAvatarVersion(r.user_avatar_url),
         reactions: r.reactions || [],
         replyCount: Number(r.reply_count) || 0,
         latestReplyAt: r.latest_reply_at ?? null,
@@ -33793,7 +33839,7 @@ export function registerConfluenceRoutes(app: Express) {
         isEdited: msg.is_edited,
         createdAt: msg.created_at,
         userName: u.name || "Unknown",
-        userAvatarUrl: u.avatar_url || null,
+        userAvatarUrl: withAvatarVersion(u.avatar_url),
       });
       // Fire-and-forget mention sync
       syncCurrentMentions(Number(msg.id), userId, body, String(slug), null).catch(() => {});
@@ -34213,7 +34259,7 @@ export function registerConfluenceRoutes(app: Express) {
           id: Number(r.id),
           name: r.name,
           email: r.email,
-          avatarUrl: r.avatar_url ?? null,
+          avatarUrl: withAvatarVersion(r.avatar_url),
           joinedAt: r.joined_at,
         })),
       });
@@ -34423,7 +34469,7 @@ export function registerConfluenceRoutes(app: Express) {
         body: r.body, isEdited: r.is_edited, editedAt: r.edited_at,
         deletedAt: r.deleted_at, createdAt: r.created_at,
         parentMessageId: r.parent_message_id,
-        userName: r.user_name, userAvatarUrl: r.user_avatar_url,
+        userName: r.user_name, userAvatarUrl: withAvatarVersion(r.user_avatar_url),
         reactions: r.reactions || [],
         replyCount: 0, latestReplyAt: null,
         attachments: r.msg_attachments || [],
@@ -34524,7 +34570,7 @@ export function registerConfluenceRoutes(app: Express) {
         id: msg.id, channelId: msg.channel_id, userId: msg.user_id,
         body: msg.body, isEdited: false, editedAt: null, deletedAt: null,
         createdAt: msg.created_at, parentMessageId: msg.parent_message_id,
-        userName: u.name || "Unknown", userAvatarUrl: u.avatar_url || null,
+        userName: u.name || "Unknown", userAvatarUrl: withAvatarVersion(u.avatar_url),
         reactions: [], replyCount: 0, latestReplyAt: null,
       });
       // Fire-and-forget mention sync for thread replies
@@ -34658,7 +34704,7 @@ export function registerConfluenceRoutes(app: Express) {
         id: r.id,
         name: r.name,
         email: r.email,
-        avatarUrl: r.avatar_url || null,
+        avatarUrl: withAvatarVersion(r.avatar_url),
         department: r.department || null,
       })));
     } catch (err: any) {
@@ -34703,7 +34749,7 @@ export function registerConfluenceRoutes(app: Express) {
         objectType: r.object_type || null,
         objectId: r.object_id || null,
         userName: r.user_name,
-        userAvatarUrl: r.user_avatar_url,
+        userAvatarUrl: withAvatarVersion(r.user_avatar_url),
         channelSlug: r.channel_slug || null,
         channelName: r.channel_name || null,
         isChannelArchived: Boolean(r.is_channel_archived),
@@ -34782,7 +34828,7 @@ export function registerConfluenceRoutes(app: Express) {
       objectType: r.object_type,
       objectId: r.object_id,
       userName: r.user_name,
-      userAvatarUrl: r.user_avatar_url || null,
+      userAvatarUrl: withAvatarVersion(r.user_avatar_url),
       reactions: r.reactions || [],
       replyCount: Number(r.reply_count) || 0,
       latestReplyAt: r.latest_reply_at ?? null,
@@ -34846,7 +34892,7 @@ export function registerConfluenceRoutes(app: Express) {
         id: msg.id, objectType: msg.object_type, objectId: msg.object_id,
         userId: msg.user_id, body: msg.body, isEdited: false, editedAt: null,
         deletedAt: null, createdAt: msg.created_at, parentMessageId: null,
-        userName: u.name || "Unknown", userAvatarUrl: u.avatar_url || null,
+        userName: u.name || "Unknown", userAvatarUrl: withAvatarVersion(u.avatar_url),
         reactions: [], replyCount: 0, latestReplyAt: null,
       });
       // Fire-and-forget mention sync
@@ -35657,9 +35703,9 @@ export function registerConfluenceRoutes(app: Express) {
           displayName,
           // backward compat: 1:1 DMs still expose otherUser; group_dm sets it to first member for safety
           otherUser: otherMembers[0]
-            ? { id: Number(otherMembers[0].id), name: otherMembers[0].name, email: otherMembers[0].email, avatarUrl: otherMembers[0].avatarUrl || null }
+            ? { id: Number(otherMembers[0].id), name: otherMembers[0].name, email: otherMembers[0].email, avatarUrl: withAvatarVersion(otherMembers[0].avatarUrl) }
             : null,
-          members: otherMembers.map((m: any) => ({ id: Number(m.id), name: m.name, email: m.email, avatarUrl: m.avatarUrl || null })),
+          members: otherMembers.map((m: any) => ({ id: Number(m.id), name: m.name, email: m.email, avatarUrl: withAvatarVersion(m.avatarUrl) })),
           isArchived: Boolean(r.is_archived),
           isMuted: Boolean(r.is_muted),
           unreadCount: Number(r.unread_count) || 0,
@@ -35730,7 +35776,7 @@ export function registerConfluenceRoutes(app: Express) {
         const members = (validRows.rows as any[])
           .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)))
           .map((u: any) => ({
-            id: Number(u.id), name: u.name, email: u.email, avatarUrl: u.avatar_url || null,
+            id: Number(u.id), name: u.name, email: u.email, avatarUrl: withAvatarVersion(u.avatar_url),
           }));
         const displayName = members.map((m: any) => m.name.split(' ')[0]).join(', ');
         return res.status(201).json({ conversationId, type: 'group_dm', displayName, members });
@@ -35774,7 +35820,7 @@ export function registerConfluenceRoutes(app: Express) {
       res.status(201).json({
         conversationId,
         type: 'dm',
-        otherUser: { id: Number(t.id), name: t.name, email: t.email, avatarUrl: t.avatar_url || null },
+        otherUser: { id: Number(t.id), name: t.name, email: t.email, avatarUrl: withAvatarVersion(t.avatar_url) },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -35841,7 +35887,7 @@ export function registerConfluenceRoutes(app: Express) {
         deletedAt: r.deleted_at,
         createdAt: r.created_at,
         userName: r.user_name,
-        userAvatarUrl: r.user_avatar_url,
+        userAvatarUrl: withAvatarVersion(r.user_avatar_url),
         reactions: r.reactions || [],
         replyCount: 0,
         latestReplyAt: null,
@@ -35892,7 +35938,7 @@ export function registerConfluenceRoutes(app: Express) {
         isEdited: msg.is_edited,
         createdAt: msg.created_at,
         userName: u.name || "Unknown",
-        userAvatarUrl: u.avatar_url || null,
+        userAvatarUrl: withAvatarVersion(u.avatar_url),
         reactions: [],
         replyCount: 0,
         latestReplyAt: null,
@@ -36028,7 +36074,7 @@ export function registerConfluenceRoutes(app: Express) {
         ORDER BY u.name ASC
       `));
       const members = (allMembersRows.rows as any[]).map((u) => ({
-        id: Number(u.id), name: u.name, email: u.email, avatarUrl: u.avatar_url || null,
+        id: Number(u.id), name: u.name, email: u.email, avatarUrl: withAvatarVersion(u.avatar_url),
       }));
       res.status(201).json({ conversationId: convId, members });
     } catch (err: any) {

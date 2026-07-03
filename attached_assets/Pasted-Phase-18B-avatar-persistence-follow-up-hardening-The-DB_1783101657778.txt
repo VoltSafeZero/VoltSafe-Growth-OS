@@ -1,0 +1,107 @@
+Phase 18B avatar persistence follow-up hardening.
+
+The DB-backed avatar library fix is the right direction. Now harden it so it does not create new performance, cache, or privacy problems.
+
+Context:
+Profile photos previously disappeared because they were stored in uploads/user-avatars/ on Replit's ephemeral filesystem. The new implementation stores avatar images in PostgreSQL via user_avatar_library and adds a Manage Photos UI. Keep that architecture, but tighten it.
+
+Tasks:
+
+1. Enforce avatar size limits
+- Do not allow huge original phone photos to be stored in Postgres.
+- Add server-side validation:
+  - allowed mime types: image/jpeg, image/png, image/webp
+  - max upload size: 2MB absolute max
+  - reject anything larger with a clear error
+- If there is already a 5MB limit, reduce it to 2MB.
+
+2. Resize/compress before storage
+- Store only a normalized avatar image, not raw full-resolution originals.
+- Resize to a square avatar max 512x512.
+- Prefer webp if supported by current stack; otherwise jpeg/png is acceptable.
+- Preserve transparent PNG reasonably if conversion is not safe.
+- Store:
+  - image data/base64
+  - mime_type
+  - width
+  - height
+  - file_size
+  - created_at/updated_at
+
+3. Add cache-busting for active avatar
+- Every avatar URL used by the frontend must include a version key.
+- Use updated_at or avatar_photo_id as the version.
+- Example:
+  avatarUrl + "?v=" + avatarUpdatedAt
+- This must update immediately after:
+  - uploading a new photo
+  - selecting a different active photo
+  - deleting the active photo
+  - clearing avatar
+- No hard refresh should be required.
+
+4. Standardize avatar source everywhere
+Audit and fix all avatar render locations:
+- top-right header avatar
+- profile dropdown avatar
+- Currents message avatar
+- Currents DM/sidebar avatar
+- notifications/user menu avatar
+- any profile/settings avatar
+
+All locations must resolve in this order:
+- current user's active avatar URL from hydrated user/session object
+- fallback initials/color
+
+Remove or stop using competing stale fields such as:
+- profileImage
+- photoUrl
+- userAvatarUrl
+- local blob preview URL
+- old disk upload path
+unless they are intentionally mapped into the canonical avatar field.
+
+5. Lock down avatar library privacy
+- GET /api/me/profile-photos must only return the logged-in user's photos.
+- PATCH active must only allow selecting one of the logged-in user's own photos.
+- DELETE must only allow deleting the logged-in user's own photo.
+- Inactive library photos must not be publicly enumerable.
+- If there is a public avatar serve route, it should only serve what is intentionally public/active, not arbitrary private library photos.
+
+6. Safe migration behavior
+- Do not migrate broken disk URLs into user_avatar_library.
+- Only migrate old avatars if the source file actually exists and can be read.
+- If the old avatar_url points to a missing uploads/user-avatars file, clear it or leave fallback initials.
+- Do not preserve broken/corrupt URLs.
+
+7. Delete active photo behavior
+When deleting the active photo:
+- If other photos exist, automatically select the newest remaining photo as active.
+- If no photos remain, clear active avatar and use initials fallback.
+- The frontend must update immediately.
+
+8. Regression tests
+Add/update tests for:
+- upload avatar -> refresh session -> avatar persists
+- logout/login -> avatar persists
+- simulated restart/redeploy -> avatar still loads from DB
+- all avatar locations use the same active photo
+- upload multiple photos -> switch active -> every visible avatar updates
+- delete inactive photo -> active photo remains unchanged
+- delete active photo -> newest remaining photo becomes active or fallback initials appears
+- invalid mime type rejected
+- oversized image rejected
+- another user cannot list/activate/delete someone else's photo
+- no blob: URL or uploads/user-avatars ephemeral disk path is stored as canonical avatar
+
+Acceptance criteria:
+- Upload a profile photo.
+- Refresh page.
+- Logout/login.
+- Restart/redeploy server.
+- Open Currents.
+- Header, dropdown, Currents messages, and DM sidebar all show the same correct avatar.
+- No broken image icon.
+- No corrupted tiny avatar.
+- No filesystem dependency.
+- Users can manage multiple stored profile photos and switch instantly.
