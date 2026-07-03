@@ -1,0 +1,90 @@
+Proceed with VoltSafe CMS Authenticated Production Smoke Test: Sidebar + CURRENTS.
+
+Do not change code unless a direct production regression is found. Do not add features. Do not redesign anything. Do not touch Gmail/mail-permissions, tracking-proof, CRM behavior, backend APIs, Polyweather, or unrelated modules.
+
+Goal
+
+Perform one authenticated production smoke test inside the live deployed VoltSafe CMS app.
+
+Production URL:
+
+https://image-linker-burgesstrevor76.replit.app
+
+The previous smoke test confirmed the login page, backend health, CURRENTS heartbeat, and all tests. This task must verify the actual logged-in UI.
+
+Required authenticated checks
+
+Log in as an admin/test user if credentials are available.
+
+Then verify:
+
+1. Sidebar renders after login.
+2. Today appears first.
+3. CURRENTS appears directly below Today.
+4. CURRENTS is not under Work.
+5. More group is gone.
+6. Learn group appears with Training and Help.
+7. Document Hub appears instead of Asset Library.
+8. Knowledge Assets appears separately from Document Hub.
+9. Admin group appears correctly for admin.
+10. No duplicate nav entries.
+
+CURRENTS checks
+
+Open CURRENTS and verify:
+
+1. CURRENTS route opens successfully.
+2. Channel list loads.
+3. Messages load.
+4. Composer is visible and readable.
+5. Header/tabs are readable.
+6. Active channel state is visible.
+7. CURRENTS follows dark mode.
+8. Switch to light mode if available and verify CURRENTS follows light mode.
+9. No dark/waterflow backdrop appears.
+10. Unread badge displays if applicable.
+11. No browser console errors.
+
+Do not test destructive actions.
+
+If safe, send one short test message in an internal test channel:
+
+Production smoke test — please ignore.
+
+Only do this if there is an appropriate test/internal channel.
+
+Logs
+
+Check production logs during/after the authenticated test for:
+
+1. /api/current/* 200s
+2. no repeated 500s
+3. no route errors
+4. no auth/session errors
+5. no frontend asset errors
+
+If login credentials are not available
+
+Do not guess credentials.
+
+Instead return:
+
+1. login could not be completed
+2. what was verified unauthenticated
+3. what remains to be manually verified by Trevor
+4. exact manual checklist for Trevor
+
+Deliverable
+
+Return:
+
+1. whether authenticated login succeeded
+2. sidebar verification result
+3. CURRENTS verification result
+4. light/dark mode result
+5. production log result
+6. any regressions found
+7. fixes made, if any
+8. final authenticated production readiness verdict
+
+Keep scope tight: authenticated production smoke test only.
