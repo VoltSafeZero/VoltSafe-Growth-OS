@@ -6,10 +6,17 @@ import {
   Mail, Flame, AlertTriangle, Building2, Contact, FileText, Ticket, FolderOpen, Layers,
   Users, Target, StickyNote, ArrowRight, Sun, LayoutDashboard, Zap, Clock, GitBranch,
   ExternalLink, Copy, BookOpen, Sparkles, ChevronDown, ChevronUp, Camera, Trash2,
+  Images, Check, Plus as PlusIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import navLogo from "@assets/nav-logo.png";
 import {
   DropdownMenu,
@@ -1031,8 +1038,10 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
     ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
     : "VS";
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [photoLibraryOpen, setPhotoLibraryOpen] = useState(false);
   const mobileSearchRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const libraryFileInputRef = useRef<HTMLInputElement>(null);
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
 
@@ -1042,6 +1051,18 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
   });
   const currentAvatarUrl: string | null = meData?.avatarUrl ?? user?.avatarUrl ?? null;
 
+  // Avatar library — all photos stored in DB
+  const { data: libraryData, refetch: refetchLibrary } = useQuery<{
+    items: { id: number; url: string; createdAt: string }[];
+    activeUrl: string | null;
+  }>({
+    queryKey: ["/api/me/avatar-library"],
+    enabled: photoLibraryOpen,
+    staleTime: 0,
+  });
+  const libraryItems = libraryData?.items ?? [];
+  const activeUrl = libraryData?.activeUrl ?? currentAvatarUrl;
+
   const uploadAvatarMutation = useMutation({
     mutationFn: async (file: File) => {
       const formData = new FormData();
@@ -1050,7 +1071,34 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? "Upload failed");
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      refetchLibrary();
+    },
+  });
+
+  const activateAvatarMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/me/avatar-library/${id}/activate`, { method: "PATCH", credentials: "include" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? "Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      refetchLibrary();
+    },
+  });
+
+  const deleteFromLibraryMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/me/avatar-library/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? "Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      refetchLibrary();
+    },
   });
 
   const removeAvatarMutation = useMutation({
@@ -1059,7 +1107,10 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? "Remove failed");
       return res.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      refetchLibrary();
+    },
   });
 
   const { data: notifData } = useQuery<NotificationsResponse>({
@@ -1238,24 +1289,12 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="gap-2 cursor-pointer"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadAvatarMutation.isPending}
-                  data-testid="button-upload-avatar"
+                  onClick={() => setPhotoLibraryOpen(true)}
+                  data-testid="button-manage-photos"
                 >
-                  <Camera className="w-4 h-4 text-muted-foreground" />
-                  {uploadAvatarMutation.isPending ? "Uploading…" : currentAvatarUrl ? "Change photo" : "Upload photo"}
+                  <Images className="w-4 h-4 text-muted-foreground" />
+                  Manage photos
                 </DropdownMenuItem>
-                {currentAvatarUrl && (
-                  <DropdownMenuItem
-                    className="gap-2 cursor-pointer text-muted-foreground focus:text-muted-foreground"
-                    onClick={() => removeAvatarMutation.mutate()}
-                    disabled={removeAvatarMutation.isPending}
-                    data-testid="button-remove-avatar"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    {removeAvatarMutation.isPending ? "Removing…" : "Remove photo"}
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={onLogout}
@@ -1267,6 +1306,7 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            {/* Hidden file input for quick upload from library dialog */}
             <input
               ref={fileInputRef}
               type="file"
@@ -1279,9 +1319,153 @@ export function Header({ user, onLogout }: { user?: AuthUser; onLogout?: () => v
                 e.target.value = "";
               }}
             />
+            <input
+              ref={libraryFileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              data-testid="input-library-avatar-upload"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadAvatarMutation.mutate(file);
+                e.target.value = "";
+              }}
+            />
           </div>
         </>
       )}
+
+      {/* ── Photo Library Dialog ─────────────────────────────────────── */}
+      <Dialog open={photoLibraryOpen} onOpenChange={setPhotoLibraryOpen}>
+        <DialogContent className="max-w-md w-full p-0 gap-0 overflow-hidden">
+          <DialogHeader className="px-5 pt-5 pb-3 border-b border-border/50">
+            <DialogTitle className="text-base font-semibold">Profile photos</DialogTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Your photos are stored securely and persist across sessions. Click a photo to make it active.
+            </p>
+          </DialogHeader>
+
+          <div className="p-5 space-y-4">
+            {/* Current active photo preview */}
+            <div className="flex items-center gap-4">
+              <Avatar className="w-16 h-16 border-2 border-primary/40 bg-primary/10 shrink-0">
+                {currentAvatarUrl && <AvatarImage src={currentAvatarUrl} alt={user?.name ?? "User"} />}
+                <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{user?.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {libraryItems.length === 0 ? "No photos uploaded yet" : `${libraryItems.length} photo${libraryItems.length !== 1 ? "s" : ""} in library`}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 gap-1.5 text-xs"
+                onClick={() => libraryFileInputRef.current?.click()}
+                disabled={uploadAvatarMutation.isPending}
+                data-testid="button-library-upload"
+              >
+                {uploadAvatarMutation.isPending ? (
+                  <span className="animate-pulse">Uploading…</span>
+                ) : (
+                  <><PlusIcon className="w-3.5 h-3.5" /> Add photo</>
+                )}
+              </Button>
+            </div>
+
+            {/* Photo grid */}
+            {libraryItems.length > 0 && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">
+                  Your photos
+                </p>
+                <div className="grid grid-cols-4 gap-2">
+                  {libraryItems.map((item) => {
+                    const isActive = activeUrl === item.url;
+                    return (
+                      <div key={item.id} className="relative group">
+                        <button
+                          className={`relative w-full aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                            isActive
+                              ? "border-primary shadow-sm shadow-primary/30"
+                              : "border-border/40 hover:border-primary/50"
+                          }`}
+                          onClick={() => !isActive && activateAvatarMutation.mutate(item.id)}
+                          disabled={activateAvatarMutation.isPending || isActive}
+                          data-testid={`avatar-library-item-${item.id}`}
+                          title={isActive ? "Currently active" : "Click to use this photo"}
+                        >
+                          <img
+                            src={item.url}
+                            alt="Profile photo"
+                            className="w-full h-full object-cover"
+                          />
+                          {isActive && (
+                            <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center shadow-sm">
+                                <Check className="w-3.5 h-3.5 text-primary-foreground" />
+                              </div>
+                            </div>
+                          )}
+                        </button>
+                        {/* Delete button */}
+                        <button
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10"
+                          onClick={() => deleteFromLibraryMutation.mutate(item.id)}
+                          disabled={deleteFromLibraryMutation.isPending}
+                          data-testid={`avatar-library-delete-${item.id}`}
+                          title="Remove this photo"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {libraryItems.length === 0 && !uploadAvatarMutation.isPending && (
+              <div className="flex flex-col items-center gap-3 py-6 text-center">
+                <div className="w-12 h-12 rounded-full bg-muted/60 flex items-center justify-center">
+                  <Camera className="w-6 h-6 text-muted-foreground/50" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground/80">No photos yet</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Upload a photo to personalise your profile.</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-xs"
+                  onClick={() => libraryFileInputRef.current?.click()}
+                >
+                  <Camera className="w-3.5 h-3.5" /> Upload photo
+                </Button>
+              </div>
+            )}
+
+            {/* Active avatar controls */}
+            {currentAvatarUrl && (
+              <div className="pt-1 border-t border-border/40">
+                <button
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                  onClick={() => removeAvatarMutation.mutate()}
+                  disabled={removeAvatarMutation.isPending}
+                  data-testid="button-remove-active-avatar"
+                >
+                  {removeAvatarMutation.isPending ? "Removing…" : "Remove active photo (keep library)"}
+                </button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </header>
   );
 }

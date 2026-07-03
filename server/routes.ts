@@ -1337,27 +1337,39 @@ export async function registerRoutes(
     });
   });
 
-  // ── User avatar upload / serve (Phase 18A) ──────────────────────────────────
-  const USER_AVATARS_DIR = path.resolve("uploads/user-avatars");
-  if (!fs.existsSync(USER_AVATARS_DIR)) fs.mkdirSync(USER_AVATARS_DIR, { recursive: true });
+  // ── User avatar library (Phase 18B) ─────────────────────────────────────────
+  // Avatars are stored directly in PostgreSQL so they survive container restarts
+  // and Replit deployments. The old filesystem-based approach was ephemeral.
+  (async () => {
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS user_avatar_library (
+          id          SERIAL PRIMARY KEY,
+          user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          image_data  TEXT NOT NULL,
+          mime_type   TEXT NOT NULL DEFAULT 'image/jpeg',
+          created_at  TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_avatar_lib_user ON user_avatar_library(user_id)`));
+      console.log("[migration] user_avatar_library schema ready.");
+    } catch (e) {
+      console.error("[migration] user_avatar_library error:", e);
+    }
+  })();
 
-  const userAvatarUpload = multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => cb(null, USER_AVATARS_DIR),
-      filename: (_req, _file, cb) => {
-        cb(null, `user-avatar-${crypto.randomUUID()}.jpg`);
-      },
-    }),
+  // Memory storage — no local disk, buffer available in req.file.buffer
+  const userAvatarMemUpload = multer({
+    storage: multer.memoryStorage(),
     limits: { fileSize: 2 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
-      const allowed = ["image/jpeg", "image/png", "image/webp"];
-      if (allowed.includes(file.mimetype)) cb(null, true);
+      if (["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) cb(null, true);
       else cb(new Error("Only JPEG, PNG and WebP images are allowed"));
     },
   });
 
   const userAvatarMiddleware = (req: any, res: any, next: any) => {
-    userAvatarUpload.single("avatar")(req, res, (err: any) => {
+    userAvatarMemUpload.single("avatar")(req, res, (err: any) => {
       if (err) {
         const isSize = err.code === "LIMIT_FILE_SIZE";
         return res.status(isSize ? 413 : 400).json({ message: isSize ? "Image too large (max 2 MB)" : (err.message ?? "Upload error") });
@@ -1366,56 +1378,118 @@ export async function registerRoutes(
     });
   };
 
+  // Serve a library image directly from the DB (no filesystem)
+  app.get("/api/user-avatars/lib/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(404).json({ message: "Not found" });
+      const { rows } = await db.execute(sql`SELECT image_data, mime_type FROM user_avatar_library WHERE id = ${id}`);
+      if (!rows.length) return res.status(404).json({ message: "Not found" });
+      const buf = Buffer.from((rows[0] as any).image_data as string, "base64");
+      res.setHeader("Content-Type", (rows[0] as any).mime_type ?? "image/jpeg");
+      res.setHeader("Cache-Control", "private, max-age=86400");
+      res.send(buf);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Backward-compat stub — old filesystem paths gracefully 404 so the UI falls
+  // back to initials rather than showing a broken image.
+  app.get("/api/user-avatars/:fileName", requireAuth, (_req, res) => {
+    res.status(404).json({ message: "Avatar migrated to database storage. Please upload a new photo." });
+  });
+
+  // Upload → save to library + set as active avatar
   app.post("/api/me/avatar", requireAuth, userAvatarMiddleware, async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const userId = req.session.userId!;
-      const [user] = await db.select().from(users).where(eq(users.id, userId));
-      if (!user) { try { fs.unlinkSync(req.file.path); } catch {} return res.status(401).json({ message: "Not authenticated" }); }
-      const prev = user.avatarUrl;
-      if (prev) {
-        const prevName = path.basename(prev);
-        if (prevName.startsWith("user-avatar-")) {
-          try { fs.unlinkSync(path.join(USER_AVATARS_DIR, prevName)); } catch {}
-        }
-      }
-      const avatarUrl = `/api/user-avatars/${req.file.filename}`;
+      const imageData = req.file.buffer.toString("base64");
+      const mimeType = req.file.mimetype;
+      const { rows } = await db.execute(sql`
+        INSERT INTO user_avatar_library (user_id, image_data, mime_type)
+        VALUES (${userId}, ${imageData}, ${mimeType})
+        RETURNING id
+      `);
+      const libId = (rows[0] as any).id as number;
+      const avatarUrl = `/api/user-avatars/lib/${libId}`;
       await db.update(users).set({ avatarUrl }).where(eq(users.id, userId));
-      res.json({ id: user.id, name: user.name, email: user.email, avatarUrl });
+      res.json({ avatarUrl, libraryId: libId });
     } catch (err: any) {
-      if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
       res.status(500).json({ message: err.message });
     }
   });
 
+  // Clear the active avatar (library photos are kept)
   app.delete("/api/me/avatar", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const [user] = await db.select().from(users).where(eq(users.id, userId));
-      if (!user) return res.status(401).json({ message: "Not authenticated" });
-      const prev = user.avatarUrl;
-      if (prev) {
-        const prevName = path.basename(prev);
-        if (prevName.startsWith("user-avatar-")) {
-          try { fs.unlinkSync(path.join(USER_AVATARS_DIR, prevName)); } catch {}
-        }
-      }
       await db.update(users).set({ avatarUrl: null }).where(eq(users.id, userId));
-      res.json({ id: user.id, name: user.name, email: user.email, avatarUrl: null });
+      res.json({ avatarUrl: null });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.get("/api/user-avatars/:fileName", requireAuth, (req, res) => {
-    const fileName = path.basename(req.params.fileName);
-    if (!fileName.startsWith("user-avatar-")) return res.status(404).json({ message: "Not found" });
-    const filePath = path.join(USER_AVATARS_DIR, fileName);
-    const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(USER_AVATARS_DIR)) return res.status(403).json({ message: "Forbidden" });
-    if (!fs.existsSync(resolved)) return res.status(404).json({ message: "Not found" });
-    res.setHeader("Cache-Control", "private, max-age=3600");
-    res.sendFile(resolved);
+  // List all photos in the current user's avatar library
+  app.get("/api/me/avatar-library", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { rows } = await db.execute(sql`
+        SELECT id, mime_type, created_at FROM user_avatar_library
+        WHERE user_id = ${userId} ORDER BY created_at DESC
+      `);
+      const [user] = await db.select({ avatarUrl: users.avatarUrl }).from(users).where(eq(users.id, userId));
+      const activeUrl = user?.avatarUrl ?? null;
+      const items = rows.map((r: any) => ({
+        id: r.id as number,
+        url: `/api/user-avatars/lib/${r.id}`,
+        createdAt: r.created_at as string,
+      }));
+      res.json({ items, activeUrl });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Set a library photo as the active avatar
+  app.patch("/api/me/avatar-library/:id/activate", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid id" });
+      const { rows } = await db.execute(sql`SELECT id FROM user_avatar_library WHERE id = ${id} AND user_id = ${userId}`);
+      if (!rows.length) return res.status(404).json({ message: "Not found" });
+      const avatarUrl = `/api/user-avatars/lib/${id}`;
+      await db.update(users).set({ avatarUrl }).where(eq(users.id, userId));
+      res.json({ avatarUrl });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Delete a photo from the library; auto-switches active if needed
+  app.delete("/api/me/avatar-library/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid id" });
+      const { rows: owned } = await db.execute(sql`SELECT id FROM user_avatar_library WHERE id = ${id} AND user_id = ${userId}`);
+      if (!owned.length) return res.status(404).json({ message: "Not found" });
+      await db.execute(sql`DELETE FROM user_avatar_library WHERE id = ${id} AND user_id = ${userId}`);
+      const [user] = await db.select({ avatarUrl: users.avatarUrl }).from(users).where(eq(users.id, userId));
+      if (user?.avatarUrl === `/api/user-avatars/lib/${id}`) {
+        // Deleted photo was active — auto-switch to next most recent, or clear
+        const { rows: next } = await db.execute(sql`SELECT id FROM user_avatar_library WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 1`);
+        const newUrl = next.length ? `/api/user-avatars/lib/${(next[0] as any).id}` : null;
+        await db.update(users).set({ avatarUrl: newUrl }).where(eq(users.id, userId));
+        return res.json({ avatarUrl: newUrl });
+      }
+      res.json({ avatarUrl: user?.avatarUrl ?? null });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // POST /api/session/timezone — detect and persist the user's browser timezone
