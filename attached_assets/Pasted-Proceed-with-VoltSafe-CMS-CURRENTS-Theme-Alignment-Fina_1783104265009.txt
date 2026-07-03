@@ -1,0 +1,155 @@
+Proceed with VoltSafe CMS CURRENTS Theme Alignment Final QA Pass.
+
+Do not change code unless a direct regression is found. Do not add new CURRENTS features. Do not redesign CURRENTS. Do not touch Gmail/mail-permissions, CRM behavior, Polyweather, backend APIs, or unrelated modules.
+
+Goal
+
+Verify that the CURRENTS theme-alignment fix fully solved the visual issue in both light and dark mode.
+
+CURRENTS should now match the global VoltSafe CMS theme instead of looking like a separate dark embedded app.
+
+Context
+
+The root cause was found and fixed:
+
+* current.tsx used bg-sidebar/* surfaces.
+* In light mode, --sidebar-background is still dark.
+* This made CURRENTS stay dark even when the rest of VoltSafe CMS was light.
+* Those classes were replaced with bg-muted/* theme-aware surfaces.
+
+Tests already passed:
+
+* tests/currents-workspace-shell.test.cjs — 36/36
+* tests/nav-drift.test.cjs — 92/92
+* all 13 CURRENTS-related suites green
+
+Scope
+
+Audit only.
+
+Allowed fixes only if directly related to the CURRENTS theme alignment:
+
+* unreadable light-mode text
+* unreadable dark-mode text
+* composer contrast issue
+* tab/header contrast issue
+* channel list contrast issue
+* active/hover state contrast issue
+* leftover hardcoded dark-only background
+* mobile visual regression
+* browser console error caused by CURRENTS styling
+
+Not allowed:
+
+* new features
+* new background effects
+* waterflow backdrop
+* CURRENTS architecture rewrite
+* route changes
+* backend/API changes
+* unrelated visual changes
+* unrelated bug fixes
+
+Required visual checks
+
+Dark mode
+
+Open CURRENTS and verify:
+
+1. CURRENTS matches the VoltSafe CMS dark theme.
+2. Channel sidebar is readable.
+3. Main message area is readable.
+4. Header and tabs are readable.
+5. Composer is readable.
+6. Selected channel state is visible.
+7. Unread badges are visible.
+8. No distracting custom backdrop appears.
+9. No waterflow overlay appears.
+10. It still feels premium but native to the app.
+
+Light mode
+
+Switch to light mode and verify:
+
+1. CURRENTS matches the VoltSafe CMS light theme.
+2. There is no giant dark rectangle behind CURRENTS.
+3. Channel sidebar uses light/muted surfaces.
+4. Main message area uses light/muted surfaces.
+5. Composer is light and readable.
+6. Message text is readable.
+7. Date dividers are readable.
+8. Tabs are readable.
+9. Selected channel state is visible but not too loud.
+10. No dark overlay remains.
+
+Navigation
+
+Verify:
+
+1. CURRENTS remains directly below Today.
+2. CURRENTS is not under Work.
+3. CURRENTS label remains uppercase.
+4. CURRENTS route is still /current.
+5. CURRENTS unread badge still works.
+6. No duplicate CURRENTS entry exists.
+7. More group remains retired.
+
+Mobile / responsive
+
+If possible, verify:
+
+1. CURRENTS opens correctly on mobile width.
+2. Channel list/message area do not break.
+3. Composer remains usable.
+4. Light/dark mode still works.
+5. No horizontal overflow.
+
+Source checks
+
+Search for remaining risky styling in active CURRENTS render path:
+
+1. bg-sidebar/
+2. hardcoded dark colors
+3. waterflow backdrop render call
+4. full-page dark overlay
+5. fixed dark background
+6. opacity layer that darkens light mode
+
+Do not remove code unless it is actually rendered and causing the visual issue.
+
+Tests
+
+Run:
+
+1. tests/currents-workspace-shell.test.cjs
+2. tests/nav-drift.test.cjs
+3. all CURRENTS-related tests
+4. TypeScript/build check if available
+5. browser console check
+6. server log check
+
+Screenshots
+
+Capture or inspect:
+
+1. CURRENTS dark mode
+2. CURRENTS light mode
+3. active channel state
+4. composer area
+5. mobile/responsive view if practical
+
+Deliverable
+
+Return:
+
+1. Dark mode visual result
+2. Light mode visual result
+3. Navigation result
+4. Mobile/responsive result if checked
+5. Remaining hardcoded style findings, if any
+6. Fixes made, if any
+7. Files changed, if any
+8. Tests run and results
+9. Final readiness verdict
+
+Keep scope tight: final CURRENTS theme-alignment QA only.
