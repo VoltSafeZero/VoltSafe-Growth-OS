@@ -1,0 +1,145 @@
+Proceed with VoltSafe CMS P2 Admin Simplification: Merge Task Rules into Automations Tab.
+
+Do not change navigation broadly. Do not touch CURRENTS, Gmail/mail-permissions, tracking-proof, CRM behavior, Polyweather, or unrelated modules.
+
+Goal
+
+Reduce Admin sidebar clutter by merging Task Rules into Automations as a tab, then removing the standalone Task Rules nav item from Admin.
+
+This is the follow-up cleanup identified after retiring the More group.
+
+Current context
+
+Recent completed work:
+
+* More group retired.
+* Task Rules and Automations were moved into Admin.
+* Navigation + CURRENTS release shipped and production-confirmed.
+* P1 test harness cleanup completed:
+    * mail-permissions now 19/19
+    * tracking-proof and tracking-multi-proof are guarded behind RUN_LIVE_GMAIL_PROOF=true
+
+Current Admin still has both:
+
+* Task Rules
+* Automations
+
+These are conceptually related and should not be two separate sidebar entries long-term.
+
+Required outcome
+
+Admin should have:
+
+* Automations
+
+And inside Automations, there should be tabs such as:
+
+* Automations
+* Task Rules
+
+or clearer equivalents if the existing UI already has tab conventions.
+
+The standalone Task Rules sidebar item should be removed only after the Task Rules content is reachable inside Automations.
+
+Scope
+
+Allowed:
+
+1. Audit existing automations page/component.
+2. Audit existing task-rules-settings page/component.
+3. Add a tabbed interface to the Automations page if one does not already exist.
+4. Render the existing Task Rules content inside the Automations page as a tab.
+5. Remove standalone Task Rules nav item from Admin.
+6. Keep the existing Task Rules route working if safe, either:
+    * redirect /automation/tasks to /automations?tab=task-rules, or
+    * keep route as a compatibility route but remove it from nav.
+7. Update tests.
+8. Verify permissions remain unchanged.
+
+Not allowed:
+
+1. Changing task rule business logic.
+2. Changing automation business logic.
+3. Backend schema changes.
+4. Backend API changes unless a tiny route compatibility redirect is needed.
+5. Rewriting Automations.
+6. Full Admin redesign.
+7. CURRENTS changes.
+8. Gmail/mail/tracking changes.
+9. CRM behavior changes.
+
+Implementation guidance
+
+First inspect:
+
+* Automations page/component
+* Task Rules page/component
+* route definitions
+* nav config
+* admin permission gating
+* existing tab UI patterns elsewhere in the app
+
+Then implement the smallest safe change.
+
+Preferred implementation:
+
+1. Reuse the existing Task Rules component inside the Automations page.
+2. Add a simple tabs UI:
+    * Automations
+    * Task Rules
+3. Support deep linking if practical:
+    * /automations?tab=task-rules
+4. Remove Task Rules from Admin nav.
+5. Keep /automation/tasks from breaking if users bookmarked it.
+6. Do not duplicate logic.
+
+Verification
+
+Verify:
+
+1. Admin sidebar renders.
+2. Automations appears in Admin.
+3. Task Rules no longer appears as a standalone Admin nav item.
+4. Opening Automations shows the normal Automations view.
+5. Task Rules tab is visible inside Automations.
+6. Task Rules tab renders the existing Task Rules content.
+7. Existing Task Rules functionality still works.
+8. Existing Automations functionality still works.
+9. Permissions unchanged.
+10. No duplicate routes.
+11. No browser console errors.
+12. No server errors.
+
+Tests
+
+Add/update tests for:
+
+1. Admin nav includes Automations.
+2. Admin nav does not include standalone Task Rules.
+3. Task Rules content is reachable from Automations.
+4. /automation/tasks compatibility remains safe if route is retained or redirected.
+5. No duplicate nav routes.
+6. Existing nav-drift tests still pass.
+7. Existing automation/task-rules tests still pass if present.
+
+Run:
+
+1. nav-drift tests
+2. automation tests
+3. task-rules tests
+4. permissions tests if relevant
+5. nearby Admin tests
+
+Deliverable
+
+Return:
+
+1. Files changed
+2. How Task Rules was merged into Automations
+3. Whether /automation/tasks was retained, redirected, or removed
+4. Confirmation Admin nav has only Automations
+5. Confirmation permissions unchanged
+6. Tests run and results
+7. Any known limitations
+
+Keep scope tight: merge Task Rules into Automations tab and remove standalone Task Rules nav item only.

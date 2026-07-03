@@ -617,7 +617,10 @@ function RuleCard({
 export default function AutomationsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"builder" | "task-rules">("builder");
+  const [activeTab, setActiveTab] = useState<"builder" | "task-rules">(() => {
+    const p = new URLSearchParams(window.location.search).get("tab");
+    return p === "task-rules" ? "task-rules" : "builder";
+  });
   const [search, setSearch] = useState("");
   const [filterEnabled, setFilterEnabled] = useState<"all" | "enabled" | "disabled">("all");
   const [editorOpen, setEditorOpen] = useState(false);

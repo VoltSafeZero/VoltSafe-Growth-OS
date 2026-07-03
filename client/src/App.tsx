@@ -354,7 +354,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/executive-copilot">{() => wrap(<ExecutiveCopilotPage />)}</Route>
 
       <Route path="/automations">{() => wrap(<AutomationsPage />)}</Route>
-      <Route path="/automation/tasks">{() => wrap(<TaskRulesSettingsPage />)}</Route>
+      <Route path="/automation/tasks">{() => <Redirect to="/automations?tab=task-rules" />}</Route>
       <Route path="/execution/daily">{() => wrap(<DailyExecutionPage />)}</Route>
 
       <Route path="/admin/users">{() => wrap(<AdminUsersPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>
