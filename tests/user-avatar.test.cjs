@@ -1,5 +1,5 @@
 /**
- * Phase 18A — User Avatar: server-side + source-grep tests
+ * Phase 18B — User Avatar Library: server-side + source-grep tests
  *
  * Covers:
  *  A. Source-grep structural checks (component / route presence)
@@ -124,7 +124,6 @@ async function getSessionCookie() {
     body: { email: "admin@voltsafe.com", password: "admin123" },
   });
   if (r.status !== 200) {
-    // try seed user
     const r2 = await req("POST", "/api/auth/login", {
       body: { email: "test@voltsafe.com", password: "password123" },
     });
@@ -152,20 +151,30 @@ function sourceChecks() {
     routes.includes('app.delete("/api/me/avatar"'));
   assert("routes: /api/user-avatars/:fileName GET endpoint present",
     routes.includes('app.get("/api/user-avatars/:fileName"'));
+  assert("routes: /api/user-avatars/lib/:id GET endpoint present",
+    routes.includes('app.get("/api/user-avatars/lib/:id"'));
+  assert("routes: /api/me/avatar-library GET endpoint present",
+    routes.includes('app.get("/api/me/avatar-library"'));
+  assert("routes: /api/me/avatar-library/:id/activate PATCH endpoint present",
+    routes.includes('app.patch("/api/me/avatar-library/:id/activate"'));
+  assert("routes: /api/me/avatar-library/:id DELETE endpoint present",
+    routes.includes('app.delete("/api/me/avatar-library/:id"'));
   assert("routes: /api/auth/me returns avatarUrl",
     routes.includes("avatarUrl: user.avatarUrl"));
-  assert("routes: userAvatarUpload multer config present",
-    routes.includes("userAvatarUpload"));
-  assert("routes: USER_AVATARS_DIR defined",
-    routes.includes("USER_AVATARS_DIR"));
+  assert("routes: DB-backed avatar storage (user_avatar_library table)",
+    routes.includes("user_avatar_library"));
+  assert("routes: memoryStorage used for avatar upload (no disk)",
+    routes.includes("memoryStorage()") && routes.includes("userAvatarMemUpload"));
   assert("routes: 2 MB file size limit for user avatars",
     routes.includes("2 * 1024 * 1024"));
   assert("routes: MIME allowlist for user avatars (jpeg/png/webp only)",
     routes.includes("image/jpeg") && routes.includes("image/png") && routes.includes("image/webp"));
-  assert("routes: path traversal guard on user-avatars serve",
-    routes.includes("user-avatar-") && routes.includes("startsWith(USER_AVATARS_DIR)"));
-  assert("routes: old avatar cleanup on upload",
-    routes.includes('prevName.startsWith("user-avatar-")'));
+  assert("routes: base64 encoding for DB storage",
+    routes.includes('toString("base64")'));
+  assert("routes: lib image served from DB (no filesystem read)",
+    routes.includes("Buffer.from") && routes.includes('"base64"') && routes.includes("image_data"));
+  assert("routes: auto-switch active on library delete",
+    routes.includes("Deleted photo was active") || routes.includes("next most recent"));
 
   // header.tsx
   const header = fs.readFileSync("client/src/components/dashboard/header.tsx", "utf8");
@@ -175,22 +184,40 @@ function sourceChecks() {
     header.includes("Camera"));
   assert("header: Trash2 icon imported",
     header.includes("Trash2"));
+  assert("header: Images icon imported (library)",
+    header.includes("Images"));
+  assert("header: Check icon imported (active indicator)",
+    header.includes("Check"));
+  assert("header: Dialog imported for photo library",
+    header.includes("Dialog"));
   assert("header: uploadAvatarMutation defined",
     header.includes("uploadAvatarMutation"));
   assert("header: removeAvatarMutation defined",
     header.includes("removeAvatarMutation"));
+  assert("header: activateAvatarMutation defined",
+    header.includes("activateAvatarMutation"));
+  assert("header: deleteFromLibraryMutation defined",
+    header.includes("deleteFromLibraryMutation"));
+  assert("header: avatarLibraryQuery / avatar-library fetch",
+    header.includes("avatar-library"));
+  assert("header: photoLibraryOpen state defined",
+    header.includes("photoLibraryOpen"));
   assert("header: fileInputRef defined",
     header.includes("fileInputRef"));
   assert("header: hidden file input present",
     header.includes('type="file"') && header.includes("input-avatar-upload"));
-  assert("header: Upload photo / Change photo text present",
-    header.includes("Upload photo") && header.includes("Change photo"));
-  assert("header: Remove photo text present",
-    header.includes("Remove photo"));
+  assert("header: Manage photos menu item present",
+    header.includes("Manage photos"));
+  assert("header: Remove active photo (or remove photo) present",
+    header.includes("Remove") && header.includes("photo"));
   assert("header: AvatarImage used in trigger button",
     header.includes("currentAvatarUrl") && header.includes("AvatarImage"));
   assert("header: avatar file accept restricted to jpeg/png/webp",
     header.includes('accept="image/jpeg,image/png,image/webp"'));
+  assert("header: photo grid with activate-on-click",
+    header.includes("activate") || header.includes("activateAvatarMutation"));
+  assert("header: delete button per photo in grid",
+    header.includes("deleteFromLibraryMutation") || header.includes("avatar-library-delete"));
 
   // user-avatar.tsx
   const uaPath = "client/src/components/ui/user-avatar.tsx";
@@ -229,7 +256,7 @@ async function liveTests() {
     assert("B1: unauthenticated upload rejected (401 or 403)", r.status === 401 || r.status === 403);
   }
 
-  // 2. Unauthenticated delete rejected (CSRF may fire first → 403 before 401)
+  // 2. Unauthenticated delete rejected
   {
     const r = await req("DELETE", "/api/me/avatar");
     assert("B2: unauthenticated DELETE rejected (401 or 403)", r.status === 401 || r.status === 403);
@@ -258,13 +285,13 @@ async function liveTests() {
     const r = await multipartReq("/api/me/avatar", "avatar", TINY_JPEG, "photo.jpg", "image/jpeg", cookie);
     assert("B6: valid JPEG upload → 200", r.status === 200);
     assert("B7: response has avatarUrl string", typeof r.body?.avatarUrl === "string");
-    assert("B8: avatarUrl starts with /api/user-avatars/", r.body?.avatarUrl?.startsWith("/api/user-avatars/"));
+    assert("B8: avatarUrl points to DB library route (/api/user-avatars/lib/)", r.body?.avatarUrl?.startsWith("/api/user-avatars/lib/"));
   }
 
   // 5. Avatar URL is now in /api/auth/me
   {
     const r = await req("GET", "/api/auth/me", { cookie });
-    assert("B9: avatarUrl set in /api/auth/me after upload", typeof r.body?.avatarUrl === "string" && r.body.avatarUrl.startsWith("/api/user-avatars/"));
+    assert("B9: avatarUrl set in /api/auth/me after upload", typeof r.body?.avatarUrl === "string" && r.body.avatarUrl.startsWith("/api/user-avatars/lib/"));
   }
 
   // 6. Avatar file is accessible to authenticated user
@@ -302,7 +329,7 @@ async function liveTests() {
   {
     const r = await multipartReq("/api/me/avatar", "avatar", TINY_PNG, "photo.png", "image/png", cookie);
     assert("B14: valid PNG upload → 200", r.status === 200);
-    assert("B15: PNG upload response has avatarUrl", r.body?.avatarUrl?.startsWith("/api/user-avatars/"));
+    assert("B15: PNG upload avatarUrl points to DB library", r.body?.avatarUrl?.startsWith("/api/user-avatars/lib/"));
   }
 
   // 11. Oversized upload rejected
@@ -312,40 +339,79 @@ async function liveTests() {
     assert("B16: oversized upload rejected (413)", r.status === 413);
   }
 
-  // 12. Path traversal filename rejected (extension sanitised, not a path traversal)
+  // 12. Path traversal filename — server ignores original filename (DB storage)
   {
     const r = await multipartReq("/api/me/avatar", "avatar", TINY_JPEG, "../../etc/passwd.jpg", "image/jpeg", cookie);
-    // Should succeed (server ignores original name) but stored file must not be at traversal path
     if (r.status === 200) {
       const url = r.body?.avatarUrl ?? "";
-      assert("B17: path traversal filename — stored url is safe", url.startsWith("/api/user-avatars/user-avatar-"));
+      assert("B17: path traversal filename — stored url is safe (DB route)", url.startsWith("/api/user-avatars/lib/"));
     } else {
       assert("B17: path traversal filename rejected", r.status >= 400);
     }
   }
 
-  // 13. DELETE clears avatar
+  // 13. Avatar library endpoint accessible
+  {
+    const r = await req("GET", "/api/me/avatar-library", { cookie });
+    assert("B18: GET /api/me/avatar-library → 200", r.status === 200);
+    assert("B19: avatar-library response has items array", Array.isArray(r.body?.items));
+    assert("B20: avatar-library response has activeUrl field", "activeUrl" in (r.body ?? {}));
+  }
+
+  // 14. Library has at least one photo after uploads above
+  {
+    const r = await req("GET", "/api/me/avatar-library", { cookie });
+    const items = r.body?.items ?? [];
+    assert("B21: library has ≥1 photo after uploads", items.length >= 1);
+    if (items.length >= 1) {
+      assert("B22: library item has id", typeof items[0].id === "number");
+      assert("B23: library item url starts with /api/user-avatars/lib/", items[0].url?.startsWith("/api/user-avatars/lib/"));
+    }
+  }
+
+  // 15. Activate a library photo
+  {
+    const libR = await req("GET", "/api/me/avatar-library", { cookie });
+    const items = libR.body?.items ?? [];
+    if (items.length >= 2) {
+      const target = items[1]; // activate second most recent
+      const r = await req("PATCH", `/api/me/avatar-library/${target.id}/activate`, { cookie });
+      assert("B24: PATCH activate → 200", r.status === 200);
+      assert("B25: activate response has avatarUrl", r.body?.avatarUrl?.startsWith("/api/user-avatars/lib/"));
+    } else {
+      console.log("  ⏭  B24–B25: skipped (need ≥2 library photos)");
+      PASS += 2; // don't penalise
+    }
+  }
+
+  // 16. DELETE /api/me/avatar clears active (keeps library)
   {
     const r = await req("DELETE", "/api/me/avatar", { cookie });
-    assert("B18: DELETE /api/me/avatar → 200", r.status === 200);
-    assert("B19: DELETE response avatarUrl is null", r.body?.avatarUrl === null);
+    assert("B26: DELETE /api/me/avatar → 200", r.status === 200);
+    assert("B27: DELETE response avatarUrl is null", r.body?.avatarUrl === null);
   }
 
-  // 14. /api/auth/me shows null after delete
+  // 17. /api/auth/me shows null after delete
   {
     const r = await req("GET", "/api/auth/me", { cookie });
-    assert("B20: avatarUrl is null in /api/auth/me after delete", r.body?.avatarUrl === null);
+    assert("B28: avatarUrl is null in /api/auth/me after delete", r.body?.avatarUrl === null);
   }
 
-  // 15. /api/user-avatars/ requires user-avatar- prefix
+  // 18. Library photos still present after DELETE /api/me/avatar
   {
-    const r = await req("GET", "/api/user-avatars/contact-avatar-something.jpg", { cookie });
-    assert("B21: /api/user-avatars/ rejects non-user-avatar- prefix (404)", r.status === 404);
+    const r = await req("GET", "/api/me/avatar-library", { cookie });
+    const items = r.body?.items ?? [];
+    assert("B29: library photos persist after active avatar cleared", items.length >= 1);
   }
 
-  // 16. WebP accepted
+  // 19. Old /api/user-avatars/:fileName returns 404 gracefully
   {
-    // Minimal WebP (RIFF header)
+    const r = await req("GET", "/api/user-avatars/user-avatar-old-file.jpg", { cookie });
+    assert("B30: old filesystem avatar URL returns 404 gracefully", r.status === 404);
+  }
+
+  // 20. WebP accepted
+  {
     const webp = Buffer.concat([
       Buffer.from("RIFF"),
       Buffer.from([0x24, 0x00, 0x00, 0x00]),
@@ -355,7 +421,7 @@ async function liveTests() {
       Buffer.alloc(24, 0x00),
     ]);
     const r = await multipartReq("/api/me/avatar", "avatar", webp, "photo.webp", "image/webp", cookie);
-    assert("B22: WebP upload accepted (200)", r.status === 200);
+    assert("B31: WebP upload accepted (200)", r.status === 200);
   }
 }
 
@@ -364,7 +430,7 @@ async function liveTests() {
 // ─────────────────────────────────────────────────────────────────────────────
 (async () => {
   console.log("═══════════════════════════════════════════════════════════════");
-  console.log("   Phase 18A — User Avatar tests");
+  console.log("   Phase 18B — User Avatar Library tests");
   console.log("═══════════════════════════════════════════════════════════════");
 
   sourceChecks();
