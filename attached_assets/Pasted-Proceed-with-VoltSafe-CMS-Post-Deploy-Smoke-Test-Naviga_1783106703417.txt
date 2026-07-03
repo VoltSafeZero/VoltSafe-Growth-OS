@@ -1,0 +1,98 @@
+Proceed with VoltSafe CMS Post-Deploy Smoke Test: Navigation + CURRENTS + Document Hub.
+
+Do not change code unless a production-blocking regression is found. Do not add new features. Do not redesign anything. Do not touch Gmail/mail-permissions, tracking-proof, CRM behavior, backend APIs, Polyweather, or unrelated modules.
+
+Goal
+
+Verify that the deployed production app matches the validated local/dev state after publishing.
+
+Focus only on:
+
+1. Navigation cleanup
+2. CURRENTS placement and theme alignment
+3. Document Hub label
+4. Basic app health
+
+Production checks
+
+Use the deployed/live app URL, not only the Replit preview.
+
+Verify:
+
+1. App loads successfully.
+2. Login works.
+3. Sidebar renders.
+4. More group is gone.
+5. CURRENTS appears directly below Today.
+6. CURRENTS is not under Work.
+7. CURRENTS route opens correctly.
+8. CURRENTS unread badge still displays if applicable.
+9. CURRENTS works in dark mode.
+10. CURRENTS works in light mode.
+11. CURRENTS no longer has the dark/waterflow background issue.
+12. Document Hub appears instead of Asset Library.
+13. Knowledge Assets appears separately from Document Hub.
+14. Learn group appears with Training and Help.
+15. Admin group still appears correctly for admin users.
+16. No duplicate nav entries.
+17. No obvious browser console errors.
+18. No server errors related to nav or CURRENTS.
+
+Basic functional smoke test
+
+Inside CURRENTS, verify:
+
+1. Channel list loads.
+2. Existing messages load.
+3. Send a test message in an appropriate test/internal channel if safe.
+4. Open a DM if safe.
+5. Open a thread if available.
+6. Composer is readable.
+7. Message text is readable.
+8. Active channel state is visible.
+9. Light/dark theme switch does not break layout.
+
+Do not test destructive actions.
+
+Server/log check
+
+Check deployment logs for:
+
+1. boot errors
+2. nav-config errors
+3. CURRENTS route errors
+4. /api/current/* errors
+5. repeated 500s
+6. frontend asset load errors
+
+Ignore known unrelated noise only if clearly unrelated.
+
+If a regression is found
+
+Only fix direct regressions from this deploy:
+
+* CURRENTS not visible
+* CURRENTS duplicated
+* CURRENTS still under Work
+* More group still visible
+* CURRENTS route broken
+* CURRENTS unread badge broken
+* Document Hub label missing
+* light/dark theme broken
+* production build/runtime error
+
+Do not fix unrelated issues in this task.
+
+Deliverable
+
+Return:
+
+1. Production URL checked
+2. Smoke test result
+3. Screenshots or visual notes
+4. Any regressions found
+5. Fixes made, if any
+6. Production log summary
+7. Final production readiness verdict
+
+Keep scope tight: post-deploy smoke test only.
