@@ -1,0 +1,145 @@
+Proceed with VoltSafe CMS Navigation + CURRENTS Release Closeout: Release Notes + Follow-Up Backlog.
+
+Do not change product code. Do not change navigation. Do not touch CURRENTS internals, Gmail/mail-permissions, tracking-proof, CRM behavior, backend APIs, Polyweather, or unrelated modules.
+
+Goal
+
+Create a concise closeout document summarizing the completed navigation cleanup and CURRENTS production launch, plus a short follow-up backlog for later.
+
+Context
+
+This work is now confirmed live in production:
+
+1. More group retired.
+2. CURRENTS promoted directly below Today.
+3. CURRENTS removed from Work.
+4. CURRENTS theme aligned with global VoltSafe CMS light/dark themes.
+5. Waterflow/dark overlay removed from active render path.
+6. Asset Library renamed to Document Hub.
+7. Knowledge Assets remains separate.
+8. Learn group added with Training and Help.
+9. Production smoke confirmed healthy.
+10. Trevor visually confirmed production UI.
+
+Deliverable
+
+Create a markdown document:
+
+docs/releases/nav-currents-cleanup-release-2026-06-29.md
+
+If the docs/releases folder does not exist, create it.
+
+Required sections
+
+1. Release summary
+
+Summarize the release in plain English.
+
+Emphasize:
+
+* simplified navigation
+* retired More catch-all group
+* CURRENTS elevated as a core workspace
+* CURRENTS now follows light/dark CMS themes
+* production confirmed
+
+2. What changed
+
+Include bullets for:
+
+* More group retired
+* CURRENTS moved below Today
+* Work group cleaned up
+* Document Hub label finalized
+* Learn group added
+* Revenue tools moved to Insights
+* Data Quality moved to Operations
+* Task Rules and Automations moved to Admin
+* CURRENTS dark/light theme alignment fixed
+
+3. Final sidebar structure
+
+Document the final top-level nav structure:
+
+* Today
+* CURRENTS
+* Work
+* Pipeline
+* Operations
+* Insights
+* Ecosystem
+* Learn
+* Admin
+
+Briefly describe what belongs in each group.
+
+4. Production verification
+
+Summarize:
+
+* production app loaded
+* authenticated session healthy
+* CURRENTS heartbeat healthy
+* no production 500s
+* nav tests passed
+* asset-library tests passed
+* CURRENTS test suites passed
+* Trevor manually confirmed visual UI
+
+5. Tests
+
+List the key passing suites:
+
+* nav-drift.test.cjs — 92/92
+* asset-library.test.js — 91/91
+* currents-workspace-shell.test.cjs — 36/36
+* CURRENTS-related suites — 13/13 green
+* slash commands, DMs, group DMs, private channels, structured items all green
+
+6. Known non-blockers
+
+Document clearly:
+
+* mail-permissions CSRF/origin test harness issue — unrelated
+* tracking-proof live Gmail-send dependency — unrelated
+* stale workflow runs where direct tests pass — unrelated
+
+7. Follow-up backlog
+
+Create a short backlog with priority labels:
+
+P1 — Test harness cleanup
+
+* Fix mail-permissions CSRF/origin test harness issue.
+* Document or mock tracking-proof live Gmail-send dependency.
+
+P2 — Admin simplification
+
+* Consider merging Task Rules as a tab inside Automations.
+* Then remove standalone Task Rules from Admin.
+
+P2 — Authenticated E2E support
+
+* Add a safe authenticated Playwright/Cypress-style smoke test if test credentials become available.
+* Verify sidebar/CURRENTS visually post-deploy without manual checklist.
+
+P3 — CURRENTS polish later
+
+* Only after user feedback: small spacing, hover, or empty-state refinements.
+* Do not reintroduce custom waterflow/dark overlays.
+
+8. Ship verdict
+
+End with:
+
+Status: Shipped and production-confirmed.
+
+Constraints
+
+Do not edit product code.
+
+Do not modify tests.
+
+Do not run unrelated fixes.
+
+This is documentation/release closeout only.
