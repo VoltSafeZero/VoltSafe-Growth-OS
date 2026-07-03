@@ -1,0 +1,176 @@
+Proceed with VoltSafe CMS P2 Authenticated E2E Smoke Test Support.
+
+Do not change product behavior. Do not change navigation. Do not touch CURRENTS internals, Gmail/mail-permissions, tracking-proof, CRM behavior, backend business logic, Polyweather, or unrelated modules.
+
+Goal
+
+Add a safe authenticated smoke-test path so future deploy checks can verify the logged-in sidebar and CURRENTS UI automatically instead of relying only on manual visual confirmation.
+
+Context
+
+Recent completed work:
+
+* Navigation + CURRENTS release shipped and production-confirmed.
+* More group retired.
+* CURRENTS promoted directly below Today.
+* CURRENTS theme aligned with global light/dark CMS themes.
+* Document Hub label fixed.
+* P1 test harness cleanup completed.
+* P2 Admin simplification completed:
+    * Task Rules lives inside Automations
+    * /automation/tasks redirects to /automations?tab=task-rules
+    * Admin nav only shows Automations
+
+Remaining operational gap:
+
+* Automated checks can verify source/nav/tests and production logs.
+* But authenticated production sidebar/CURRENTS visual verification still requires Trevor manually logging in.
+
+Scope
+
+This is test/support infrastructure only.
+
+Allowed:
+
+1. Audit existing auth test helpers.
+2. Audit existing E2E/smoke test patterns.
+3. Add a safe authenticated smoke test for local/dev/test environment.
+4. Support production smoke testing only if credentials are provided via environment variables.
+5. Add clear skip behavior when credentials are missing.
+6. Verify sidebar order after login.
+7. Verify CURRENTS route opens.
+8. Verify CURRENTS basic UI selectors exist.
+9. Verify Document Hub / Learn / More retired labels.
+10. Document how to run the test.
+
+Not allowed:
+
+1. Hardcoding credentials.
+2. Guessing credentials.
+3. Weakening auth.
+4. Adding login bypasses to production.
+5. Changing production auth behavior.
+6. Product UI changes.
+7. CURRENTS feature changes.
+8. Backend business logic changes.
+9. Gmail/mail/tracking changes.
+10. Navigation changes unless a direct test selector issue requires a harmless data-testid addition.
+
+Preferred approach
+
+Find the existing testing approach first.
+
+Possible patterns:
+
+* Playwright
+* Cypress
+* Puppeteer
+* existing custom browser smoke script
+* source-grep tests only
+
+If there is already an E2E framework, reuse it.
+
+If no E2E framework exists, create the smallest safe script that can:
+
+1. open the app URL
+2. log in using env vars
+3. wait for the sidebar
+4. assert sidebar/nav labels
+5. open CURRENTS
+6. assert CURRENTS UI loaded
+7. exit cleanly
+
+Environment variables
+
+Use env vars only. Suggested names:
+
+* E2E_BASE_URL
+* E2E_EMAIL
+* E2E_PASSWORD
+
+If missing, the test must skip cleanly with an explicit message:
+
+skipped: requires E2E_BASE_URL, E2E_EMAIL, and E2E_PASSWORD
+
+Do not fail normal readiness reports because credentials are absent.
+
+Required assertions
+
+After login, verify:
+
+1. Today exists.
+2. CURRENTS exists.
+3. CURRENTS appears before Work.
+4. CURRENTS is not nested inside Work if detectable.
+5. More does not appear.
+6. Learn appears.
+7. Training appears.
+8. Help appears.
+9. Document Hub appears.
+10. Asset Library does not appear as a user-facing label.
+11. Automations appears under Admin for admin account if admin credentials are used.
+12. Task Rules is not a standalone sidebar label.
+
+CURRENTS assertions
+
+Open /current or click CURRENTS.
+
+Verify:
+
+1. CURRENTS route loads.
+2. CURRENTS heading/header visible.
+3. channel list area visible.
+4. message area visible.
+5. composer visible.
+6. no obvious crash/error boundary.
+7. no waterflow/backdrop element if selector/class exists.
+8. no full-page dark overlay class if detectable.
+
+Do not send messages by default.
+
+Light/dark theme check
+
+If easy and safe:
+
+1. Verify current theme renders without crash.
+2. If there is an existing theme toggle selector, switch theme and verify CURRENTS remains readable.
+3. If not easy, skip visual theme automation and leave it documented as manual.
+
+Do not build a new theme toggle just for the test.
+
+Documentation
+
+Add a short section to test docs or a new markdown file explaining:
+
+1. how to run authenticated smoke locally
+2. how to run against production with env vars
+3. why credentials are required
+4. why the test skips by default
+5. what it verifies
+
+Tests to run
+
+Run:
+
+1. the new authenticated smoke test with missing env vars to confirm clean skip
+2. nav-drift test
+3. currents-workspace-shell test
+4. automations-tab-merge test
+5. mail-permissions test
+6. tracking-proof tests to confirm guarded skip
+
+Deliverable
+
+Return:
+
+1. Existing E2E framework found, if any
+2. Files changed
+3. Authenticated smoke test added or reason not added
+4. Env vars used
+5. Skip behavior result
+6. Assertions covered
+7. Tests run and results
+8. How Trevor can run it with credentials
+9. Known limitations
+
+Keep scope tight: authenticated E2E smoke-test support only.
