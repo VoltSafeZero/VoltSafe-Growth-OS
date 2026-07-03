@@ -49,7 +49,7 @@ async function login(email, password) {
 
 const authed = (cookie) => async (url, opts = {}) => fetch(`${BASE}${url}`, {
   ...opts,
-  headers: { "Content-Type": "application/json", Cookie: cookie, ...(opts.headers || {}) },
+  headers: { "Content-Type": "application/json", Cookie: cookie, Origin: BASE, ...(opts.headers || {}) },
 });
 
 async function expect(label, p, ...statuses) {

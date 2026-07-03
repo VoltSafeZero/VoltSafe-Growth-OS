@@ -1,0 +1,160 @@
+Proceed with VoltSafe CMS P1 Test Harness Cleanup: Mail Permissions + Tracking Proof Noise.
+
+Do not change product behavior. Do not change navigation. Do not touch CURRENTS visuals, CRM behavior, backend business logic, Polyweather, or unrelated modules.
+
+Goal
+
+Clean up the remaining known non-blocking test/report noise so future readiness reports are easier to trust.
+
+Known noisy areas:
+
+1. mail-permissions — CSRF/origin guard blocks Gmail route tests in the test harness.
+2. tracking-proof / tracking-multi-proof — require live Gmail send or live external send behavior, which is not appropriate for normal dev/CI tests.
+3. stale workflow panel artifacts where direct tests pass but workflow status still shows old failures.
+
+This is test-harness cleanup only.
+
+Context
+
+The Navigation + CURRENTS release is already shipped and production-confirmed.
+
+Do not reopen that work.
+
+Recent confirmed status:
+
+* More group retired.
+* CURRENTS promoted below Today.
+* CURRENTS theme aligned with global light/dark CMS themes.
+* Document Hub label fixed.
+* Production smoke healthy.
+* Trevor manually confirmed UI.
+* Release closeout documented at:
+    docs/releases/nav-currents-cleanup-release-2026-06-29.md
+
+Scope
+
+Allowed:
+
+1. Audit the failing/noisy test files.
+2. Identify whether each failure is a real bug or a test harness problem.
+3. Fix test harness setup if safe.
+4. Add mocks/stubs for live-send dependencies if appropriate.
+5. Add explicit skip/guard messaging for tests that require live external services.
+6. Update test documentation if needed.
+7. Run affected tests.
+8. Run nearby mail/tracking tests.
+9. Confirm nav/CURRENTS tests still pass if practical.
+
+Not allowed:
+
+1. Changing production Gmail behavior.
+2. Weakening production CSRF/origin protection.
+3. Changing real tracking behavior.
+4. Changing live email send behavior.
+5. Navigation changes.
+6. CURRENTS changes.
+7. CRM feature changes.
+8. Backend business logic changes unrelated to the test harness.
+9. Broad refactors.
+
+Part A — mail-permissions CSRF/origin test harness
+
+Investigate the mail-permissions failures.
+
+Determine:
+
+1. Which route(s) fail.
+2. Whether failure is due to missing CSRF token.
+3. Whether failure is due to missing Origin/Referer header.
+4. Whether the test harness is calling routes differently than the app does.
+5. Whether production behavior is correct.
+
+If production behavior is correct, fix the test harness only.
+
+Acceptable fixes:
+
+* add the correct Origin header in the test request
+* add a valid CSRF token flow in the test setup
+* use the same authenticated request helper used by other passing Gmail route tests
+* document why CSRF/origin guard must remain enabled
+
+Do not bypass or weaken the production guard.
+
+Part B — tracking-proof live Gmail-send dependency
+
+Investigate:
+
+* tracking-proof
+* tracking-multi-proof
+
+Determine whether these tests are:
+
+1. true automated unit/integration tests, or
+2. live external service proofs that require real Gmail send behavior.
+
+If they require live Gmail sends, do not make them part of normal test readiness.
+
+Preferred fix:
+
+1. Add a clear environment guard such as RUN_LIVE_GMAIL_PROOF=true.
+2. If the env var is missing, skip with an explicit message:
+    skipped: requires RUN_LIVE_GMAIL_PROOF=true and live Gmail credentials
+3. Keep the live proof available for manual runs.
+4. Do not mark skipped live proof as a product failure.
+5. Add or confirm a separate mocked tracking test exists for normal CI/dev readiness.
+
+If no mocked tracking test exists, propose one but do not build a large new harness unless small and safe.
+
+Part C — stale workflow-status artifacts
+
+Investigate any workflow/status panel that still reports old failures even when direct tests pass.
+
+Determine:
+
+1. whether the status is stale
+2. whether it reflects a previous run
+3. whether the workflow command differs from the direct test command
+4. whether the workflow needs updated test commands or labels
+
+Only fix if the change is clearly test metadata/command hygiene.
+
+Required deliverable
+
+Return a concise report with:
+
+1. Files inspected
+2. Root cause of mail-permissions failure
+3. Fix made for mail-permissions, if any
+4. Root cause of tracking-proof failure
+5. Fix/guard made for tracking-proof, if any
+6. Workflow-status artifact finding
+7. Tests run and results
+8. Confirmation production behavior was not weakened
+9. Remaining known test limitations, if any
+10. Recommended next cleanup, if any
+
+Tests to run
+
+Run the affected tests first:
+
+1. mail-permissions
+2. tracking-proof
+3. tracking-multi-proof
+4. nearby Gmail/tracking tests
+
+Then run, if practical:
+
+1. nav-drift.test.cjs
+2. asset-library.test.js
+3. currents-workspace-shell.test.cjs
+
+Success criteria
+
+Success means:
+
+1. real regressions are fixed, or
+2. live-service tests are clearly guarded/skipped with explicit reason, and
+3. production security is not weakened, and
+4. readiness reports no longer look like product failures because of test harness noise.
+
+Keep scope tight: test harness cleanup only.

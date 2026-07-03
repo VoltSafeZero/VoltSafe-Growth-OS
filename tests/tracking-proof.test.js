@@ -37,6 +37,12 @@ async function login(email, password) {
 }
 
 async function main() {
+  if (!process.env.RUN_LIVE_GMAIL_PROOF) {
+    console.log("⏭  skipped: requires RUN_LIVE_GMAIL_PROOF=true and live Gmail credentials");
+    console.log("   To run manually: RUN_LIVE_GMAIL_PROOF=true node tests/tracking-proof.test.js");
+    process.exit(0);
+  }
+
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("DATABASE_URL not set");
   const pool = new pg.Pool({ connectionString: dbUrl });

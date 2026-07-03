@@ -37,6 +37,12 @@ async function login() {
 }
 
 async function main() {
+  if (!process.env.RUN_LIVE_GMAIL_PROOF) {
+    console.log("⏭  skipped: requires RUN_LIVE_GMAIL_PROOF=true and live Gmail credentials");
+    console.log("   To run manually: RUN_LIVE_GMAIL_PROOF=true node tests/tracking-multi-proof.test.js");
+    process.exit(0);
+  }
+
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   const client = await pool.connect();
 
