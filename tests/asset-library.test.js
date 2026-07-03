@@ -123,16 +123,16 @@ async function main() {
     process.exit(1);
   }
 
-  if (grep(docsSrc, /Asset Library/)) {
-    ok('"Asset Library" heading present (Document Hub renamed)');
+  if (grep(docsSrc, /Document Hub/)) {
+    ok('"Document Hub" heading present in documents.tsx');
   } else {
-    bad('"Asset Library" heading present', "page title still says Document Hub");
+    bad('"Document Hub" heading present', "page title does not show Document Hub");
   }
 
-  if (!grep(docsSrc, /"Document Hub"/)) {
-    ok('"Document Hub" string removed from page');
+  if (!grep(docsSrc, /Asset Library/)) {
+    ok('"Asset Library" label removed from documents.tsx (renamed to Document Hub)');
   } else {
-    bad('"Document Hub" string removed', "old name still present in documents.tsx");
+    bad('"Asset Library" label removed', "old name still present in documents.tsx");
   }
 
   if (grep(docsSrc, /ASSET_USE_CASES/)) {
@@ -507,16 +507,16 @@ async function main() {
     bad("read nav-config.ts", e.message);
   }
 
-  if (navSrc && grep(navSrc, /Asset Library/)) {
-    ok('"Asset Library" label in nav-config.ts');
+  if (navSrc && grep(navSrc, /Document Hub/)) {
+    ok('"Document Hub" label present in nav-config.ts');
   } else {
-    bad('"Asset Library" label in nav-config.ts', "nav still shows Documents or is missing");
+    bad('"Document Hub" label in nav-config.ts', "nav does not contain Document Hub label");
   }
 
-  if (navSrc && !grep(navSrc, /"Documents".*route.*\/documents|label.*"Documents"/)) {
-    ok('"Documents" label removed from nav (renamed to Asset Library)');
+  if (navSrc && !grep(navSrc, /["']Asset Library["']/)) {
+    ok('"Asset Library" label removed from nav-config.ts (renamed to Document Hub)');
   } else {
-    bad('"Documents" label removed from nav', "old Documents label still present");
+    bad('"Asset Library" label removed from nav', "old Asset Library label still present in nav");
   }
 
   // ── J: HTTP — quotes tab works ──────────────────────────────────────────────

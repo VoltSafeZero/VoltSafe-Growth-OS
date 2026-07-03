@@ -1,0 +1,89 @@
+Proceed with VoltSafe CMS Test Hygiene Fix: Asset Library Label Assertions Only.
+
+Do not change product behavior. Do not change navigation structure. Do not rename anything. Do not touch CURRENTS, Gmail/mail-permissions, CRM behavior, backend APIs, Polyweather, or unrelated modules.
+
+Goal
+
+Fix the stale asset-library test assertions that still expect the old label:
+
+Asset Library
+
+The product label was already intentionally renamed to:
+
+Document Hub
+
+This is a test-only cleanup so future readiness reports are cleaner.
+
+Context
+
+Recent final readiness checkpoint showed:
+
+* CURRENTS/nav suites green
+* nav-drift green
+* More group retired
+* CURRENTS promoted below Today
+* CURRENTS theme alignment complete
+* deploy verdict: ready
+
+Known unrelated failures:
+
+1. mail-permissions — CSRF/origin guard Gmail route test issue, do not touch now.
+2. asset-library — stale assertions expecting old Asset Library label.
+3. tracking-proof — live Gmail-send dependency, expected dev limitation.
+
+This task is only for item #2.
+
+Scope
+
+Allowed:
+
+1. Find the failing asset-library test file(s).
+2. Replace stale expected label text Asset Library with Document Hub where the assertion is about the current user-facing label.
+3. Preserve route expectations if the route is still /documents.
+4. Preserve component behavior.
+5. Run the asset-library tests.
+6. Run nav-drift tests to confirm label expectations remain consistent.
+
+Not allowed:
+
+1. Product code changes unless the test reveals an actual typo directly caused by the prior rename.
+2. Navigation restructuring.
+3. Changing routes.
+4. Changing components.
+5. Gmail/mail-permissions fixes.
+6. Tracking-proof fixes.
+7. CURRENTS changes.
+8. CRM behavior changes.
+9. Backend/API changes.
+
+Required checks
+
+Search for stale test references to:
+
+* Asset Library
+
+Then classify each occurrence:
+
+1. If it is checking the old nav/page label, update to Document Hub.
+2. If it is historical documentation or a comment, update only if helpful.
+3. If it refers to a different product concept, leave it unchanged and explain why.
+
+Tests
+
+Run:
+
+1. the specific asset-library test suite
+2. tests/nav-drift.test.cjs
+3. any nearby document/library tests if present
+
+Deliverable
+
+Return:
+
+1. Files changed
+2. Stale assertions updated
+3. Any Asset Library references intentionally left unchanged and why
+4. Tests run and results
+5. Confirmation no product behavior changed
+
+Keep scope tight: asset-library stale label test cleanup only.
