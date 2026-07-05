@@ -1397,8 +1397,23 @@ function AutomationPanel({ campaignId }: { campaignId: number }) {
     },
   });
 
-  if (isLoading) return null;
-  if (!autoStatus) return null;
+  if (isLoading) return (
+    <div className="px-6 pb-4">
+      <div className="rounded-xl border border-border/50 bg-card/40 p-4 animate-pulse">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-4 h-4 rounded bg-muted/30" />
+          <div className="h-4 w-28 rounded bg-muted/30" />
+          <div className="h-5 w-14 rounded-full bg-muted/20" />
+        </div>
+        <div className="h-3 w-48 rounded bg-muted/20" />
+      </div>
+    </div>
+  );
+  if (!autoStatus) return (
+    <div className="px-6 pb-2">
+      <p className="text-xs text-muted-foreground italic">Automation unavailable — campaign running in manual mode.</p>
+    </div>
+  );
 
   const status = autoStatus.automationStatus ?? "manual";
   const compliancePassed = autoStatus.complianceStatus === "preflight_passed";
@@ -1491,6 +1506,14 @@ function AutomationPanel({ campaignId }: { campaignId: number }) {
             <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
             <p className="text-xs text-red-300">
               Automation blocked — compliance check failed after start. Re-run preflight then resume.
+            </p>
+          </div>
+        )}
+        {isCompleted && (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 mb-3">
+            <CheckCircle className="w-3.5 h-3.5 text-cyan-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-cyan-300">
+              Sequence complete — all recipients have received the full drip sequence.
             </p>
           </div>
         )}

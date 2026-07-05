@@ -490,7 +490,14 @@ function AutomationMetricsSection() {
     staleTime: 60000,
   });
 
-  if (isLoading) return null;
+  if (isLoading) return (
+    <div className="animate-pulse space-y-2">
+      <div className="h-4 w-40 bg-muted/30 rounded" />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
+        {[1, 2, 3, 4].map(i => <div key={i} className="rounded-xl border border-border/50 bg-card/50 h-16" />)}
+      </div>
+    </div>
+  );
 
   const m = metrics ?? {
     activeCampaigns: 0, completedCampaigns: 0, automatedSends: 0,

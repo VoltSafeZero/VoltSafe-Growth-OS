@@ -35,6 +35,7 @@ export interface TickResult {
   sent: number;
   skipped: number;
   failed: number;
+  blocked: number;
 }
 
 export interface AutomationStatus {
@@ -80,7 +81,7 @@ export async function migrateAutomationSchema(): Promise<void> {
         ADD COLUMN IF NOT EXISTS automation_paused_at    timestamptz,
         ADD COLUMN IF NOT EXISTS automation_completed_at timestamptz,
         ADD COLUMN IF NOT EXISTS next_automation_run_at  timestamptz,
-        ADD COLUMN IF NOT EXISTS automation_timezone     text,
+        ADD COLUMN IF NOT EXISTS automation_timezone     text,       -- reserved for future timezone-aware scheduling; not used by tick engine yet
         ADD COLUMN IF NOT EXISTS automation_status       text       NOT NULL DEFAULT 'manual'
     `));
 
@@ -118,6 +119,11 @@ export async function migrateAutomationSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_cr_campaign_next_step_due
         ON campaign_recipients(campaign_id, next_step_due_at)
         WHERE next_step_due_at IS NOT NULL
+    `));
+    // Covers duplicate-send protection query: WHERE campaign_id=X AND recipient_id=Y AND event_type IN (...)
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_ce_camp_recip_event
+        ON campaign_events(campaign_id, recipient_id, event_type)
     `));
 
     console.log("[migration] Automation schema ready.");
@@ -157,7 +163,7 @@ async function recordEvent(
       VALUES
         (${campaignId}, ${rId}, ${cId}, ${aId}, '${eventType}', '${meta}'::jsonb, NOW())
     `));
-  } catch { /* non-critical — never block automation for audit failure */ }
+  } catch (err: any) { console.error("[automation] recordEvent failed (non-critical):", err?.message); }
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────
@@ -176,9 +182,6 @@ export async function validateAutomationStart(campaignId: number): Promise<Valid
 
   if (!["active", "scheduled"].includes(camp.status)) {
     errors.push(`Campaign must be active or scheduled to enable automation (current: ${camp.status})`);
-  }
-  if (["archived", "completed"].includes(camp.status)) {
-    errors.push("Cannot automate an archived or completed campaign");
   }
   if (camp.compliance_status !== "preflight_passed") {
     errors.push("Compliance preflight must pass before starting automation. Run 'Check Compliance' first.");
@@ -719,7 +722,15 @@ async function sendAutomationStep(params: {
     return { status: "failed", reason: `render_error: ${err?.message}` };
   }
 
-  // 9. Send event (before calling Gmail, mirrors campaign-sender.ts pattern)
+  // 9. Fail-closed on unresolved placeholders — mirrors campaign-sender.ts manual send path
+  if (rendered.unresolvedPlaceholders.length > 0) {
+    const missing = rendered.unresolvedPlaceholders.map((p: string) => `{{${p}}}`).join(", ");
+    await recordEvent(campaign.id, recipient.id, recipient.contact_id, recipient.account_id,
+      "automation_step_failed", { step_id: step.id, reason: "unresolved_placeholders", missing });
+    return { status: "failed", reason: `unresolved_placeholders: ${missing}` };
+  }
+
+  // 10. Send event (before calling Gmail, mirrors campaign-sender.ts pattern)
   await recordEvent(campaign.id, recipient.id, recipient.contact_id, recipient.account_id,
     "automation_step_due", {
       campaign_email_id: step.id,
@@ -832,7 +843,7 @@ export async function runCampaignAutomationTick(options?: { baseUrl?: string }):
   }
   _tickRunning = true;
 
-  const result: TickResult = { campaignsScanned: 0, recipientsDue: 0, sent: 0, skipped: 0, failed: 0 };
+  const result: TickResult = { campaignsScanned: 0, recipientsDue: 0, sent: 0, skipped: 0, failed: 0, blocked: 0 };
 
   try {
     const baseUrl = options?.baseUrl ?? "http://localhost:5000";
@@ -884,6 +895,7 @@ async function processCampaignTick(
     await recordEvent(campaign.id, null, null, null,
       "automation_blocked", { reason: "compliance_not_passed" });
     console.warn(`[automation-tick] Campaign ${campaign.id} blocked — compliance not passed`);
+    result.blocked++;
     return;
   }
 
@@ -930,8 +942,7 @@ async function processCampaignTick(
       const nextStep = steps.find(s => Number(s.step_number) > currentStep);
 
       if (!nextStep) {
-        // Recipient already past all steps — mark completed
-        await markRecipientTerminal(r.id, "suppressed", campaign.id);
+        // Recipient already past all steps — mark completed directly (no intermediate "suppressed" state)
         await db.execute(sql.raw(`
           UPDATE campaign_recipients
           SET automation_status = 'completed', sequence_completed_at = NOW(),
@@ -970,6 +981,19 @@ async function processCampaignTick(
         "automation_step_failed", { error: errMsg });
     }
   }
+
+  // Update next_automation_run_at to the earliest remaining due date across active recipients
+  await db.execute(sql.raw(`
+    UPDATE marketing_campaigns
+    SET next_automation_run_at = (
+      SELECT MIN(next_step_due_at)
+      FROM campaign_recipients
+      WHERE campaign_id = ${campaign.id}
+        AND automation_status = 'active'
+        AND next_step_due_at IS NOT NULL
+    ), updated_at = NOW()
+    WHERE id = ${campaign.id}
+  `)).catch(() => {});
 
   // After processing, check if all recipients are terminal → complete campaign
   const activeLeftRes = await db.execute(sql.raw(`

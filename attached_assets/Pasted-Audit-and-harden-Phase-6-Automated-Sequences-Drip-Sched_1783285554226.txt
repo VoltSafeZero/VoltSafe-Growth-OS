@@ -1,0 +1,309 @@
+Audit and harden Phase 6: Automated Sequences / Drip Scheduling.
+
+Context:
+Phase 6 has been built and merged.
+
+Implemented:
+
+* server/services/campaign-automation.ts
+* migrateAutomationSchema()
+* automation state machine:
+    * startCampaignAutomation
+    * pauseCampaignAutomation
+    * resumeCampaignAutomation
+    * stopCampaignAutomation
+* runCampaignAutomationTick()
+* module-level tick lock
+* delay_days relative to sequence_started_at
+* compliance re-check at campaign level
+* recipient suppression/unsubscribe/bounce re-check before each automated send
+* duplicate-send protection
+* fail-closed behavior
+* automation events
+* GET /api/marketing/campaigns/:id/automation/validate
+* GET /api/marketing/campaigns/:id/automation/status
+* POST /api/marketing/campaigns/:id/automation/start
+* POST /api/marketing/campaigns/:id/automation/pause
+* POST /api/marketing/campaigns/:id/automation/resume
+* POST /api/marketing/campaigns/:id/automation/stop
+* POST /api/marketing/automation/tick
+* GET /api/marketing/automation/metrics
+* Campaign Detail AutomationPanel
+* Campaigns list Automation column
+* Analytics AutomationMetricsSection
+* ENABLE_BACKGROUND_JOBS 10-minute drip tick
+* tests/campaign-automation.test.cjs with 22 tests passing
+
+Goal:
+Verify that automated campaign sequences are production-safe, idempotent, correctly scheduled, compliant, and observable. Fix issues found.
+
+1. Data Model / Migration Audit
+
+Audit migrateAutomationSchema().
+
+Verify:
+
+* migration is idempotent
+* all added columns exist
+* defaults are correct
+* enum/status values are consistent across DB, service, routes, and frontend
+* indexes exist:
+    * marketing_campaigns(automation_status)
+    * marketing_campaigns(next_automation_run_at)
+    * campaign_recipients(campaign_id, automation_status)
+    * campaign_recipients(next_step_due_at)
+    * campaign_recipients(campaign_id, next_step_due_at)
+* no duplicate columns or duplicate indexes are created on restart
+* migration does not lock large tables longer than needed
+* existing campaigns/recipients migrate into safe manual/not_started states
+
+2. Automation State Machine Audit
+
+Audit:
+
+* startCampaignAutomation
+* pauseCampaignAutomation
+* resumeCampaignAutomation
+* stopCampaignAutomation
+* getCampaignAutomationStatus
+
+Verify:
+
+* start is blocked unless compliance_status === preflight_passed
+* start is blocked with zero recipients
+* start is blocked with zero campaign emails
+* start is blocked for archived/completed campaigns
+* start is idempotent or returns a clean 409 if already active
+* pause only works from active/scheduled
+* resume only works from paused
+* stop terminally disables automation
+* completed campaigns cannot be resumed
+* archived campaigns cannot be automated
+* all state transitions create campaign_events
+* state transitions do not corrupt current_step
+* state transitions do not reset recipients incorrectly
+
+3. Scheduling Logic Audit
+
+Verify:
+
+* delay_days is consistently relative to sequence_started_at
+* Step 1 with delay_days = 0 becomes due immediately
+* future steps are not sent early
+* missed due steps send on next tick
+* next_step_due_at updates correctly after each step
+* recipient sequence_completed_at is set only after final step
+* campaign automation_completed_at is set only when all recipients are terminal
+* timezone field is either used correctly or clearly reserved for future use
+* automation_timezone does not create misleading behavior if unused
+
+4. Tick Engine Audit
+
+Audit runCampaignAutomationTick().
+
+Verify:
+
+* tick lock prevents concurrent runs
+* lock is released on errors
+* tick never sends duplicate steps
+* tick does not bypass compliance preflight
+* tick re-checks recipient suppression before every send
+* tick re-checks unsubscribe status before every send
+* tick re-checks bounced/do-not-email status before every send
+* tick re-checks campaign status before every send
+* tick handles partial failures without crashing the entire run
+* tick safely logs summary only
+* tick does not log full email bodies
+* tick does not log unsubscribe/preference tokens
+* tick does not log secrets
+* tick marks recipient failed/skipped/blocked with useful reason
+* tick marks campaign blocked if campaign-level compliance fails
+* tick returns accurate summary counts:
+    * campaignsScanned
+    * recipientsDue
+    * sent
+    * skipped
+    * failed
+    * blocked
+
+5. Send Path Integration Audit
+
+Verify automated sends use the same safe send/render path as manual sends.
+
+Check:
+
+* compliant footer is generated per recipient
+* unsubscribe/preference links are tokenized per recipient
+* open pixel is injected
+* click links are rewritten
+* unresolved placeholders are blocked
+* suppression checks are identical or stricter than manual send
+* duplicate-send protection uses campaign_email_id + recipient_id
+* events are created consistently with manual send events
+* account heat score can see automated events
+* analytics can distinguish automated vs manual sends if event metadata supports it
+
+6. API Route Audit
+
+Audit:
+
+* GET /api/marketing/campaigns/:id/automation/validate
+* GET /api/marketing/campaigns/:id/automation/status
+* POST /api/marketing/campaigns/:id/automation/start
+* POST /api/marketing/campaigns/:id/automation/pause
+* POST /api/marketing/campaigns/:id/automation/resume
+* POST /api/marketing/campaigns/:id/automation/stop
+* POST /api/marketing/automation/tick
+* GET /api/marketing/automation/metrics
+
+Verify:
+
+* all routes require auth except none should be public
+* start/pause/resume/stop require CRM/Marketing edit permission
+* tick endpoint is admin-only/internal-only
+* invalid campaign IDs return 400/404 cleanly
+* route errors do not leak stack traces
+* route responses use consistent camelCase/snake_case strategy matching frontend expectations
+* status endpoint does not perform side effects
+* validate endpoint does not perform side effects
+* automation metrics route does not use fake data
+
+7. Frontend Audit: Campaign Detail AutomationPanel
+
+Verify:
+
+* loading state
+* error state
+* empty state
+* start disabled when compliance not passed
+* start disabled with no recipients
+* start disabled with no emails
+* pause/resume/stop button gating is correct
+* status badge matches backend status
+* counts are real
+* step delay timeline is clear
+* warning copy explains compliance re-checks
+* UI refreshes after start/pause/resume/stop
+* no crash when automation fields are null
+* no crash for manual campaigns
+
+8. Frontend Audit: Campaigns List
+
+Verify:
+
+* Automation column uses real backend values
+* manual/scheduled/active/paused/completed/blocked badges render correctly
+* null automation_status shows Manual
+* table does not overflow
+* existing columns still align
+* search/sort still works if present
+
+9. Frontend Audit: Analytics AutomationMetricsSection
+
+Verify:
+
+* metrics use real backend values
+* empty state works
+* error state works
+* metrics do not double-count manual sends as automated unless intended
+* labels are clear:
+    * active automated campaigns
+    * completed automated campaigns
+    * automation skips
+    * automation failures
+* no fake/sample values appear
+
+10. Background Scheduler Audit
+
+Audit server/index.ts integration.
+
+Verify:
+
+* scheduler only starts when ENABLE_BACKGROUND_JOBS is enabled
+* interval is 10 minutes as intended
+* multiple app instances will not dangerously duplicate sends, or the service-level duplicate-send protection makes this safe
+* startup does not immediately fire a destructive tick unless intended
+* errors are caught and logged safely
+* scheduler does not block app startup
+* scheduler can be disabled in tests/dev
+
+11. Performance / Index Audit
+
+Check query plans or likely query paths for:
+
+* finding active campaigns
+* finding due recipients
+* checking already-sent campaign email step
+* updating recipient statuses
+* inserting automation events
+
+Add safe indexes if missing.
+
+12. Tests
+
+Add missing tests if gaps are found.
+
+Required coverage:
+
+* migration idempotency
+* start blocked without preflight_passed
+* start blocked with zero recipients
+* start blocked with zero emails
+* start blocked for archived campaigns
+* start idempotency/already-active behavior
+* pause/resume/stop transitions
+* Step 1 due immediately with delay_days 0
+* future steps not sent early
+* missed due step sends on next tick
+* duplicate-send prevention
+* unsubscribed recipient skipped
+* suppressed email skipped
+* suppressed domain skipped
+* bounced/do-not-email recipient skipped
+* campaign blocked if compliance fails after automation starts
+* completed recipient not sent again
+* campaign completes when all recipients terminal
+* tick lock releases after failure
+* tick endpoint admin-only
+* routes return clean 400/404 for bad IDs
+* metrics route returns real values
+* manual sending tests still pass
+* campaign tracking tests still pass
+* compliance tests still pass
+* account heat tests still pass
+* enrollment tests still pass
+* permissions tests still pass
+* nav-drift still passes
+
+13. Visual QA
+
+Take screenshots of:
+
+* Campaign Detail Automation panel before start
+* disabled start due to compliance not passed
+* automation active
+* automation paused
+* automation completed or blocked
+* Campaigns list Automation column
+* Analytics AutomationMetricsSection
+* error state if easy to simulate
+
+14. Final Report
+
+Return:
+
+* issues found
+* fixes made
+* files changed
+* migrations/indexes changed
+* tests run and passing
+* screenshots taken
+* performance notes
+* remaining gaps
+* recommended next phase
+
+Important:
+Do not add branching/conditional sequence logic in this audit.
+Do not add AI reply classification in this audit.
+Do not change the linear delay_days convention unless a bug requires it.
+Focus on safety, idempotency, compliance, and trust.
