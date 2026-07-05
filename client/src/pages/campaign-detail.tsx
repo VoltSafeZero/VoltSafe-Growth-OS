@@ -132,6 +132,10 @@ type EnrolledRecipient = {
   marina_persona: string | null;
   adoption_stage: string | null;
   account_name: string | null;
+  opened_count: number;
+  clicked_count: number;
+  replied_at: string | null;
+  unsubscribed_at: string | null;
 };
 
 const STAKEHOLDER_OPENINGS = [
@@ -433,6 +437,9 @@ export default function CampaignDetailPage() {
     if (recipientFilter === "failed") return r.status === "failed";
     if (recipientFilter === "skipped") return r.status === "skipped";
     if (recipientFilter === "suppressed") return r.status === "suppressed";
+    if (recipientFilter === "opened") return (r.opened_count ?? 0) > 0;
+    if (recipientFilter === "clicked") return (r.clicked_count ?? 0) > 0;
+    if (recipientFilter === "unsubscribed") return r.status === "unsubscribed";
     return true;
   });
 
@@ -832,12 +839,15 @@ export default function CampaignDetailPage() {
                 <span className="text-xs font-normal text-muted-foreground">({enrolledRecipients.length})</span>
               </h2>
               <div className="flex items-center gap-1">
-                {["all", "ready", "sent", "completed", "failed", "skipped", "suppressed"].map(f => {
+                {["all", "ready", "sent", "completed", "opened", "clicked", "unsubscribed", "failed", "skipped", "suppressed"].map(f => {
                   const counts: Record<string, number> = {
                     all: enrolledRecipients.length,
                     ready: enrolledRecipients.filter(r => r.status === "enrolled").length,
                     sent: enrolledRecipients.filter(r => r.status === "in_sequence" || r.status === "sent").length,
                     completed: enrolledRecipients.filter(r => r.status === "completed").length,
+                    opened: enrolledRecipients.filter(r => (r.opened_count ?? 0) > 0).length,
+                    clicked: enrolledRecipients.filter(r => (r.clicked_count ?? 0) > 0).length,
+                    unsubscribed: enrolledRecipients.filter(r => r.status === "unsubscribed").length,
                     failed: enrolledRecipients.filter(r => r.status === "failed").length,
                     skipped: enrolledRecipients.filter(r => r.status === "skipped").length,
                     suppressed: enrolledRecipients.filter(r => r.status === "suppressed").length,
@@ -864,7 +874,7 @@ export default function CampaignDetailPage() {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-muted/60 backdrop-blur-sm z-10">
                   <tr>
-                    {["Name", "Email", "Account", "Status", "Step", "Last Sent"].map(h => (
+                    {["Name", "Email", "Account", "Status", "Opened", "Clicked", "Step", "Last Sent"].map(h => (
                       <th key={h} className="text-left px-3 py-2 text-muted-foreground font-medium whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -872,7 +882,7 @@ export default function CampaignDetailPage() {
                 <tbody>
                   {filteredRecipients.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">No recipients match this filter.</td>
+                      <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">No recipients match this filter.</td>
                     </tr>
                   ) : filteredRecipients.map((r, i) => (
                     <tr key={r.id} className={`border-t border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"}`}
@@ -880,8 +890,20 @@ export default function CampaignDetailPage() {
                       <td className="px-3 py-2 font-medium text-foreground">{r.name || "—"}</td>
                       <td className="px-3 py-2 text-muted-foreground font-mono">{r.email}</td>
                       <td className="px-3 py-2 text-muted-foreground max-w-[120px] truncate">{r.account_name ?? "—"}</td>
-                      <td className={`px-3 py-2 font-medium ${recipientStatusColor(r.status)}`}>
-                        {recipientStatusLabel(r.status)}
+                      <td className={`px-3 py-2 font-medium ${
+                        r.status === "unsubscribed" ? "text-amber-400" : recipientStatusColor(r.status)
+                      }`}>
+                        {r.status === "unsubscribed" ? "Unsubscribed" : recipientStatusLabel(r.status)}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {(r.opened_count ?? 0) > 0
+                          ? <span className="text-emerald-400 font-medium">{r.opened_count}</span>
+                          : <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {(r.clicked_count ?? 0) > 0
+                          ? <span className="text-cyan-400 font-medium">{r.clicked_count}</span>
+                          : <span className="text-muted-foreground/40">—</span>}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground text-center">
                         {r.current_step > 1 ? `Step ${r.current_step - 1} done` : "—"}

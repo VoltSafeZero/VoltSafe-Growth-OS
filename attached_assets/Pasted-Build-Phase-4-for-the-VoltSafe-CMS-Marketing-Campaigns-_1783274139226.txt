@@ -1,0 +1,381 @@
+Build Phase 4 for the VoltSafe CMS Marketing / Campaigns module: Unsubscribe Handling + Open/Click/Reply Tracking.
+
+Context:
+Marketing Phases 1–3 are complete.
+
+Already implemented:
+
+* Campaign CRUD
+* Campaign detail page
+* Email sequence builder
+* AI copywriting
+* Templates
+* Suppression list
+* Audience segments
+* Real recipient enrollment from CRM segments
+* Recipient preview
+* Suppression-safe enrollment
+* Step-level send preview
+* Manual campaign step sending
+* Campaign event creation for send activity
+* Recipient status progression
+* Personalization fallback handling
+* Duplicate-send protection
+* Internal @voltsafe.com protection
+
+Known remaining gap:
+Campaigns can now send safely, but they do not yet track recipient engagement after sending. There is no unsubscribe handling, open tracking, click tracking, reply tracking, or account-level engagement heat.
+
+Goal:
+Implement safe engagement tracking for campaign emails:
+
+* unsubscribe handling
+* open tracking pixel
+* click tracking redirects
+* reply detection if existing mail infrastructure supports it
+* campaign recipient engagement fields
+* campaign analytics updates
+* account/contact engagement rollups
+
+Do not implement automated drip scheduling yet.
+
+Core principle:
+Every tracked engagement should tie back to:
+
+* campaign_id
+* campaign_email_id / step
+* campaign_recipient_id
+* contact_id
+* account_id
+
+1. Unsubscribe Handling
+
+Add a unique unsubscribe token for each campaign recipient.
+
+If the campaign_recipients table does not already have a token field, add:
+
+* unsubscribe_token
+* unsubscribed_at
+* unsubscribe_reason if useful
+
+Requirements:
+
+* token must be unique
+* token must not expose raw IDs
+* token should be generated at enrollment or before sending
+* unsubscribe links should be included in campaign emails
+* unsubscribe should suppress the exact email globally using campaign_suppression
+* recipient status should become unsubscribed
+* campaign_event should record unsubscribed
+* unsubscribe page should be simple, branded, and safe
+
+Add endpoint:
+GET /api/marketing/unsubscribe/:token
+
+This should show a confirmation page or return the unsubscribe state.
+
+Add endpoint:
+POST /api/marketing/unsubscribe/:token
+
+This should:
+
+* validate token
+* mark campaign_recipient unsubscribed
+* add email to campaign_suppression
+* create campaign_event event_type = unsubscribed
+* return success
+
+If the frontend routing pattern supports a public page, add:
+/public/unsubscribe/:token
+or equivalent route.
+
+Do not require authentication for unsubscribe.
+
+2. Open Tracking
+
+Add open tracking pixel support.
+
+When campaign email body is rendered for sending, append a tracking pixel:
+
+/api/marketing/track/open/:token.gif
+
+or similar.
+
+Endpoint:
+GET /api/marketing/track/open/:token.gif
+
+This should:
+
+* validate token
+* ignore known internal/test user agents if possible
+* ignore internal VoltSafe viewer activity if identifiable
+* create campaign_event event_type = opened
+* increment opened_count on campaign_recipients if field exists
+* store metadata:
+    * user_agent
+    * ip hash if appropriate
+    * timestamp
+    * campaign_email_id / step if encoded or available
+* return a transparent 1x1 GIF
+
+Important:
+Do not count @voltsafe.com internal opens if the opener can be identified. If not identifiable from pixel request alone, at minimum exclude obvious internal/test user agents.
+
+3. Click Tracking
+
+Rewrite campaign email links through a redirect endpoint before sending.
+
+Add table if needed:
+campaign_tracked_links:
+
+* id
+* campaign_id
+* campaign_email_id
+* campaign_recipient_id
+* original_url
+* tracking_token
+* created_at
+
+When rendering an email:
+
+* find links in body_html
+* replace each href with:
+    /api/marketing/track/click/:trackingToken
+
+Endpoint:
+GET /api/marketing/track/click/:trackingToken
+
+This should:
+
+* validate token
+* create campaign_event event_type = clicked
+* increment clicked_count on campaign_recipients if field exists
+* redirect to original_url
+* reject unsafe redirect URLs such as javascript:, data:, file:
+* preserve only safe http/https URLs
+
+4. Reply Tracking
+
+If existing VoltSafe Mail infrastructure can associate inbound replies to sent campaign messages, implement reply tracking.
+
+Requirements:
+
+* when a reply is detected, create campaign_event event_type = replied
+* set campaign_recipients.replied_at
+* optionally classify reply later via AI, but do not build full AI reply classifier unless simple
+* update campaign analytics
+
+If reply matching is not safely available yet, add a clear placeholder and report it as a remaining gap.
+
+Possible matching methods:
+
+* provider message ID
+* thread ID
+* campaign-specific reply-to tag
+* custom header if mail infrastructure supports it
+* subject/thread matching as fallback only if safe
+
+5. Email Rendering Updates
+
+Update renderCampaignEmail so it supports:
+
+* personalization variables
+* unsubscribe link variable
+* tracking pixel injection
+* click link rewriting
+* unresolved placeholder detection
+
+Required variables:
+
+* {{unsubscribe_url}}
+* {{first_name}}
+* {{last_name}}
+* {{contact_name}}
+* {{email}}
+* {{role}}
+* {{account_name}}
+* {{marina_name}}
+* {{marina_persona}}
+* {{adoption_stage}}
+* {{primary_pain}}
+
+If email template does not include {{unsubscribe_url}}, append a simple footer:
+“You are receiving this because your marina may be a fit for VoltSafe shore power modernization. Unsubscribe here: {{unsubscribe_url}}”
+
+Do not send campaign emails without an unsubscribe link.
+
+6. Analytics Updates
+
+Update Marketing Analytics and Campaign Detail metrics to show real engagement:
+
+* sent
+* opened
+* unique opens
+* clicked
+* unique clicks
+* replied
+* unsubscribed
+* bounced if available
+* open rate
+* click rate
+* reply rate
+* unsubscribe rate
+
+Break down by:
+
+* campaign
+* email step
+* stakeholder role
+* marina persona
+* adoption stage
+* account/marina
+
+Clearly distinguish:
+
+* real tracked data
+* benchmark targets
+
+7. Campaign Detail Updates
+
+Add Engagement section:
+
+* timeline of campaign events
+* per-step performance
+* recipient engagement table
+
+Recipient table should show:
+
+* sent status
+* opened count
+* clicked count
+* replied_at
+* unsubscribed_at
+* last engagement
+* current step
+* status
+
+Filters:
+
+* Sent
+* Opened
+* Clicked
+* Replied
+* Unsubscribed
+* No engagement
+
+8. Account-Level Engagement Rollup
+
+On account records, campaign engagement should be queryable or displayable.
+
+At minimum, backend should support getting account engagement from campaign_events.
+
+Useful rollup:
+
+* total campaign recipients at account
+* stakeholders contacted
+* opens
+* clicks
+* replies
+* unsubscribes
+* latest engagement
+* engaged stakeholder roles
+* active campaigns touching account
+
+If there is an existing Account Detail activity panel, add campaign events there if straightforward.
+
+9. Contact-Level Engagement
+
+On contact records, campaign engagement should be queryable or displayable.
+
+Useful fields:
+
+* campaigns received
+* last campaign sent
+* opens
+* clicks
+* replies
+* unsubscribed status
+* suppression status
+
+If there is an existing Contact Detail activity panel, add campaign events there if straightforward.
+
+10. Safety / Compliance
+
+Requirements:
+
+* unsubscribe must be one-click or very simple
+* unsubscribe must not require login
+* unsubscribe must globally suppress that email
+* tracking endpoints must not expose private data
+* click redirect must reject unsafe URLs
+* open tracking must return valid transparent GIF
+* missing/invalid tracking token should not crash
+* repeated opens/clicks should be recorded but unique counts should be calculable
+* do not log full email bodies in events
+* do not include sensitive recipient data in public tracking responses
+
+11. Tests
+
+Add tests for:
+
+* unsubscribe token generation
+* unsubscribe endpoint works without auth
+* unsubscribe marks recipient unsubscribed
+* unsubscribe adds suppression record
+* unsubscribe creates campaign_event
+* invalid unsubscribe token returns safe 404
+* open tracking endpoint returns 1x1 GIF
+* open tracking creates opened event
+* repeated opens increment/open events safely
+* click tracking redirects to original URL
+* click tracking creates clicked event
+* click tracking rejects unsafe URLs
+* rendered email includes unsubscribe link
+* rendered email includes tracking pixel
+* rendered email rewrites links
+* campaign analytics counts sent/open/click/unsubscribe correctly
+* internal/test user agents excluded if implemented
+* permission tests still pass
+* nav-drift tests still pass
+* campaign sending tests still pass
+* campaign enrollment tests still pass
+
+Run:
+
+* new tracking tests
+* campaign sending tests
+* campaign enrollment tests
+* permissions tests
+* nav-drift tests
+* openai-compat tests
+* affected frontend/typecheck tests
+
+12. Visual QA
+
+Take screenshots of:
+
+* unsubscribe page
+* unsubscribe success page
+* Campaign Detail engagement section
+* recipient table with opened/clicked/unsubscribed states
+* Marketing Analytics with real engagement metrics
+* Account/contact activity if implemented
+
+13. Final Report
+
+Return:
+
+* files changed
+* migration added if any
+* endpoints added
+* tracking URL format
+* unsubscribe behavior
+* analytics updated
+* tests run and passing
+* screenshots taken
+* remaining gaps
+
+Important:
+Do not implement automated drip scheduling in this phase.
+Do not overbuild AI reply classification yet.
+If reply tracking is not safely supported by existing mail infrastructure, report it clearly as a remaining gap.

@@ -134,16 +134,28 @@ function resolveVar(varName: string, r: RecipientData): string | undefined {
   }
 }
 
+export interface TrackingConfig {
+  pixelUrl: string;
+  unsubscribeUrl: string;
+}
+
+const UNSUBSCRIBE_FOOTER_HTML = (url: string) =>
+  `\n<div style="margin-top:32px;padding-top:12px;border-top:1px solid #e0e0e0;font-size:11px;color:#888;text-align:center;">\n  You are receiving this because your marina may be a fit for VoltSafe shore power modernization.<br>\n  <a href="${url}" style="color:#888;">Unsubscribe</a>\n</div>`;
+
 export function renderCampaignEmail(
   subject: string,
   bodyHtml: string | null,
   bodyText: string | null,
-  recipient: RecipientData
+  recipient: RecipientData,
+  tracking?: TrackingConfig
 ): RenderResult {
   const unresolved: string[] = [];
 
   const replace = (tmpl: string): string =>
     tmpl.replace(PLACEHOLDER_RE, (_match, varName) => {
+      if (varName === "unsubscribe_url") {
+        return tracking?.unsubscribeUrl ?? "";
+      }
       const val = resolveVar(varName, recipient);
       if (val !== undefined) return val;
       const fallback = SAFE_FALLBACKS[varName];
@@ -152,9 +164,32 @@ export function renderCampaignEmail(
       return "";
     });
 
+  // Auto-append unsubscribe footer to HTML if template doesn't include it
+  let rawHtml = bodyHtml ?? "";
+  if (tracking && rawHtml && !rawHtml.includes("{{unsubscribe_url}}")) {
+    const footer = UNSUBSCRIBE_FOOTER_HTML(tracking.unsubscribeUrl);
+    if (rawHtml.includes("</body>")) {
+      rawHtml = rawHtml.replace("</body>", `${footer}</body>`);
+    } else {
+      rawHtml = rawHtml + footer;
+    }
+  }
+
+  let renderedHtml = rawHtml ? replace(rawHtml) : "";
+
+  // Inject tracking pixel at end of HTML body
+  if (tracking?.pixelUrl && renderedHtml) {
+    const pixel = `<img src="${tracking.pixelUrl}" width="1" height="1" alt="" style="display:none;" />`;
+    if (renderedHtml.includes("</body>")) {
+      renderedHtml = renderedHtml.replace("</body>", `${pixel}</body>`);
+    } else {
+      renderedHtml = renderedHtml + pixel;
+    }
+  }
+
   return {
     subject: replace(subject),
-    bodyHtml: bodyHtml ? replace(bodyHtml) : "",
+    bodyHtml: renderedHtml,
     bodyText: bodyText ? replace(bodyText) : "",
     unresolvedPlaceholders: unresolved,
   };
@@ -415,7 +450,8 @@ export async function buildSendPreview(
 export async function executeSendStep(
   campaignId: number,
   campaignEmailId: number,
-  userId: number
+  userId: number,
+  baseUrl?: string
 ): Promise<SendStepResult> {
   const [campaign] = await db
     .select({
@@ -499,13 +535,44 @@ export async function executeSendStep(
   const maxStep = Number((maxStepRes.rows[0] as any)?.max_step ?? 1);
   const isLastStep = step.stepNumber >= maxStep;
 
+  const effectiveBaseUrl = baseUrl || "http://localhost:5000";
+
   for (const r of eligible) {
+    // Generate (or retrieve) unsubscribe token — idempotent
+    let unsubscribeToken = "";
+    try {
+      const { ensureUnsubscribeToken } = await import("./campaign-tracking");
+      unsubscribeToken = await ensureUnsubscribeToken(r.id);
+    } catch { /* non-critical — send will still proceed */ }
+
+    const tracking = unsubscribeToken
+      ? {
+          pixelUrl: `${effectiveBaseUrl}/api/marketing/track/open/${unsubscribeToken}.gif`,
+          unsubscribeUrl: `${effectiveBaseUrl}/unsubscribe/${unsubscribeToken}`,
+        }
+      : undefined;
+
     const rendered = renderCampaignEmail(
       step.subject,
       step.bodyHtml,
       step.bodyText,
-      r
+      r,
+      tracking
     );
+
+    // Rewrite links through click tracker (non-critical — original HTML used as fallback)
+    if (unsubscribeToken && rendered.bodyHtml) {
+      try {
+        const { createTrackedLinks } = await import("./campaign-tracking");
+        rendered.bodyHtml = await createTrackedLinks(
+          campaignId,
+          campaignEmailId,
+          r.id,
+          rendered.bodyHtml,
+          effectiveBaseUrl
+        );
+      } catch { /* non-critical */ }
+    }
 
     if (rendered.unresolvedPlaceholders.length > 0) {
       const errMsg = `Unresolved placeholders: ${rendered.unresolvedPlaceholders.map((p) => `{{${p}}}`).join(", ")}`;

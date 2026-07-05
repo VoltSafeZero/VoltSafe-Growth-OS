@@ -2200,3 +2200,41 @@ export async function migrateMeetingNoteAudioSplits(): Promise<void> {
     console.error("[migration] migrateMeetingNoteAudioSplits error (non-fatal):", err);
   }
 }
+
+export async function migrateCampaignTrackingSchema(): Promise<void> {
+  try {
+    const { db } = await import("./db");
+    const { sql: sqlTag } = await import("drizzle-orm");
+
+    await db.execute(sqlTag.raw(`
+      ALTER TABLE campaign_recipients
+        ADD COLUMN IF NOT EXISTS unsubscribe_token TEXT UNIQUE
+    `));
+
+    await db.execute(sqlTag.raw(`
+      CREATE TABLE IF NOT EXISTS campaign_tracked_links (
+        id               SERIAL PRIMARY KEY,
+        campaign_id      INTEGER NOT NULL,
+        campaign_email_id INTEGER NOT NULL,
+        recipient_id     INTEGER NOT NULL,
+        original_url     TEXT NOT NULL,
+        token            TEXT NOT NULL UNIQUE,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `));
+
+    await db.execute(sqlTag.raw(`
+      CREATE INDEX IF NOT EXISTS idx_campaign_tracked_links_token
+        ON campaign_tracked_links(token)
+    `));
+
+    await db.execute(sqlTag.raw(`
+      CREATE INDEX IF NOT EXISTS idx_campaign_recipients_unsub_token
+        ON campaign_recipients(unsubscribe_token)
+    `));
+
+    console.log("[migration] Campaign tracking schema ready.");
+  } catch (err) {
+    console.error("[migration] migrateCampaignTrackingSchema error (non-fatal):", err);
+  }
+}

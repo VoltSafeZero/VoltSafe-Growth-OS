@@ -1,0 +1,851 @@
+Build and integrate a CRM email marketing module for VoltSafe Inc. that supports compliant email campaigns in both Canada and the United States.
+
+Context:
+VoltSafe is a Canadian company that will send marketing and sales emails to contacts in Canada and to marinas located in the United States. The CRM must support jurisdiction-based compliance rules.
+
+Canada:
+Canadian commercial email must comply with Canada’s Anti-Spam Legislation, CASL. CASL generally requires valid consent before sending a commercial electronic message. Consent can be express or implied. Commercial messages must also identify the sender and include a working unsubscribe mechanism.
+
+United States:
+U.S. commercial email must comply with the CAN-SPAM Act. U.S. commercial B2B email is generally opt-out based, not prior-consent based like Canada. However, emails must have accurate sender information, non-deceptive subject lines, a valid physical postal address, and a clear unsubscribe mechanism. Opt-outs must be honoured.
+
+Primary goal:
+Build the module so VoltSafe can run email campaigns confidently while the system automatically blocks non-compliant sends.
+
+Core compliance principle:
+No valid permission path, no send.
+No sender identity, no send.
+No physical address, no send.
+No unsubscribe mechanism, no send.
+No sending to unsubscribed or suppressed contacts, ever.
+
+Brand principle:
+Build this like a circuit breaker for marketing. It should make compliant sending easy and non-compliant sending impossible.
+
+Definitions:
+A commercial email campaign is any email that promotes, markets, sells, invites, encourages commercial activity, announces products, offers demos, sends marina sales material, promotes VoltSafe Marine, promotes the Premier Access Package, shares commercial event invitations, or otherwise supports business development.
+
+Transactional or service emails are not marketing emails. Examples include password resets, invoices, account security notices, service alerts, safety notices, warranty notices, outage notices, order confirmations, and operational pedestal/system alerts. Do not allow promotional content inside transactional templates.
+
+Examples of commercial campaigns:
+
+* Newsletter
+* Product announcement
+* Demo invitation
+* Premier Access Package launch
+* Event invitation
+* Marina sales sequence
+* Case study email with a call to book a demo
+* VoltSafe Marine launch update
+* Promotional follow-up after a trade show
+* Cold email to a U.S. marina about VoltSafe Marine
+
+Examples of transactional/service campaigns:
+
+* Password reset
+* Invoice
+* Payment receipt
+* PO confirmation
+* System outage alert
+* Safety notice
+* Warranty/service notice
+* Account security notice
+* Pedestal status alert
+* Boater power interruption notification
+
+Required jurisdiction logic:
+Every contact must have a country and jurisdiction classification.
+
+Add:
+
+* recipient_country
+* province_state
+* jurisdiction, enum: Canada, United States, Other, Unknown
+* canada_contact, boolean
+* us_contact, boolean
+
+If jurisdiction is unknown, treat the contact as higher risk and do not allow commercial campaigns until jurisdiction is confirmed.
+
+Canada CASL rule:
+For Canadian recipients, require express consent or valid implied consent before sending commercial emails.
+
+U.S. CAN-SPAM rule:
+For U.S. recipients, prior express or implied consent is not always required for commercial B2B email, but every commercial email must pass CAN-SPAM checks:
+
+* accurate sender identity
+* valid reply-to
+* approved sending domain
+* non-deceptive subject line
+* physical postal address
+* clear unsubscribe link
+* suppression list applied
+* no unsubscribed recipients
+* opt-outs honoured immediately
+* audit log created
+
+Contact model:
+Add or update the contact model to include:
+
+* contact_id
+* email_address, required, unique
+* first_name
+* last_name
+* company
+* role_title
+* phone
+* website
+* recipient_country
+* province_state
+* jurisdiction
+* canada_contact
+* us_contact
+* lead_source
+* lead_source_detail
+* public_business_email_url
+* event_source
+* first_contact_reason
+* last_outreach_date
+* email_valid
+* created_at
+* updated_at
+
+Consent fields:
+
+* consent_status, enum: express_active, implied_active, implied_expired, unsubscribed, opted_out, unknown, suppressed, blocked, not_required_us_can_spam
+* consent_type, enum: express, implied, none, not_required_for_us_b2b
+* consent_source, enum or string: website_form, newsletter_signup, demo_request, contact_us, trade_show, event_scan, business_card, customer_account, quote_request, purchase_order, contract, manual_import, api_import, admin_entry, public_business_website, association_directory, referral, purchased_list, scraped_list, other
+* consent_timestamp
+* consent_capture_method, enum or string: checkbox, form_submission, signed_agreement, verbal_with_note, business_card, import_attestation, admin_entry, api, public_listing
+* consent_language_version
+* consent_language_text
+* consent_form_url
+* consent_ip_address
+* consent_user_agent
+* consent_referrer
+* related_business_relationship_type, enum or string: customer, active_contract, purchase_order, quote_request, demo_request, inquiry, event_conversation, public_business_listing, referral, none
+* related_business_relationship_date
+* implied_consent_expiry_date
+
+Unsubscribe and suppression fields:
+
+* unsubscribe_status, enum: subscribed, unsubscribed
+* unsubscribe_timestamp
+* unsubscribe_source, enum or string: email_link, preference_center, admin, api
+* suppression_status, enum: none, suppressed, blocked
+* suppression_reason, enum or string: unsubscribed, spam_complaint, hard_bounce, legal_request, manually_blocked, consent_expired, duplicate_merged, invalid_email, purchased_list, scraped_list, other
+
+Canada consent rules:
+Support express consent and implied consent for Canadian contacts.
+
+Express consent:
+
+* Express consent is the preferred consent state.
+* Express consent must require an affirmative action from the recipient.
+* Website forms must use an unchecked checkbox by default.
+* Store the exact consent wording displayed to the user.
+* Store timestamp, source, form URL, IP address, user agent, and referrer when available.
+* Express consent remains active unless the recipient unsubscribes or is suppressed.
+
+Example express consent checkbox copy:
+“I agree to receive emails from VoltSafe Inc. about VoltSafe Marine products, marina electrification, launch updates, events, and related commercial opportunities. I understand I can unsubscribe at any time.”
+
+Implied consent:
+Support implied consent only with documented proof and expiry logic.
+
+Common implied consent sources:
+
+* Existing customer relationship
+* Purchase order
+* Active contract
+* Product inquiry
+* Quote request
+* Demo request
+* Trade show badge scan where the discussion was relevant to VoltSafe
+* Business card provided in a relevant commercial context
+
+Recommended expiry rules:
+
+* Inquiry, demo request, quote request, or contact form without express marketing consent: implied consent expires 6 months after the relationship date.
+* Customer, purchase order, paid account, or contract relationship: implied consent expires 24 months after the last transaction, purchase, or contract end date unless renewed or converted to express consent.
+* Business card or event scan: implied consent expires 6 months after the event date unless converted to express consent.
+* If implied_consent_expiry_date is in the past, automatically set consent_status to implied_expired and prevent Canadian marketing sends.
+
+Do not rely on purchased lists, scraped lists, or contacts with unknown consent for Canada.
+
+Canada send eligibility logic:
+Before sending any commercial campaign to Canadian recipients, run a compliance preflight check for every recipient.
+
+A Canadian recipient is sendable only if:
+
+(
+consent_status = express_active
+OR
+consent_status = implied_active AND implied_consent_expiry_date >= today
+)
+AND unsubscribe_status != unsubscribed
+AND suppression_status = none
+AND email_valid = true
+AND sender_identity_present = true
+AND physical_postal_address_present = true
+AND unsubscribe_link_present = true
+
+Block Canadian commercial sending if:
+
+* consent_status is unknown
+* consent_status is implied_expired
+* consent_status is unsubscribed
+* consent_status is suppressed or blocked
+* unsubscribe_status is unsubscribed
+* suppression_status is not none
+* email_valid is false
+* consent proof is missing
+* implied consent has no expiry date
+* the campaign has no unsubscribe link
+* the campaign has no sender identity
+* the campaign has no physical mailing address
+* the campaign has no valid contact email or phone number
+* the campaign is commercial and has not been classified
+* the sender tries to bypass the compliance check
+
+U.S. CAN-SPAM rules:
+For U.S. commercial campaigns, prior express or implied consent is not required by default for B2B commercial email, but every email must pass CAN-SPAM checks.
+
+For U.S. recipients, commercial campaigns are allowed only if:
+
+recipient_country = United States
+AND unsubscribe_status != unsubscribed
+AND suppression_status = none
+AND email_valid = true
+AND sender_identity_present = true
+AND physical_postal_address_present = true
+AND unsubscribe_link_present = true
+AND subject_line_not_flagged_as_deceptive = true
+AND header_information_valid = true
+AND sending_domain_approved = true
+
+U.S. campaign requirements:
+
+1. Accurate sender identity:
+
+* From name must accurately identify VoltSafe Inc. or a real VoltSafe representative.
+* Reply-to email must be valid.
+* Sending domain must be approved and associated with VoltSafe.
+
+Good:
+From: Trevor Burgess, VoltSafe
+Reply-To: trevor@voltsafe.com
+
+Bad:
+From: Marina Safety Office
+Reply-To: randomdomain123.com
+
+2. No deceptive subject lines:
+
+* Subject line must accurately reflect the email content.
+* Flag risky phrases such as “urgent compliance notice,” “invoice,” “renewal,” “required action,” “safety violation,” or “final notice” unless the email is truly transactional, legally required, or accurately described.
+
+Good:
+“A safer shore power option for [Marina Name]”
+
+Risky:
+“Urgent electrical compliance notice”
+
+3. Advertisement/commercial disclosure:
+
+* Include a footer line for cold U.S. outreach:
+    “This is a commercial message from VoltSafe Inc. about marina shore power technology.”
+
+4. Physical postal address:
+
+* Every U.S. commercial email must include VoltSafe’s valid physical postal address.
+
+5. Unsubscribe:
+
+* Every U.S. commercial email must include a clear unsubscribe link.
+* Unsubscribe must not require login.
+* Unsubscribe must not require payment.
+* Unsubscribe must not require extra personal information beyond email address.
+* One-click unsubscribe is preferred.
+
+6. Opt-out handling:
+
+* When a U.S. recipient unsubscribes, immediately set:
+    unsubscribe_status = unsubscribed
+    suppression_status = suppressed
+    suppression_reason = unsubscribed
+    consent_status = opted_out
+* Block all future commercial emails to that address.
+* Honour opt-outs immediately.
+
+7. Unsubscribe link duration:
+
+* The unsubscribe mechanism must remain functional for at least 30 days after the campaign is sent.
+
+8. Suppression list:
+
+* Global suppression must override all U.S. campaigns, automations, imports, and manual sends.
+* No admin may send commercial emails to suppressed or unsubscribed contacts.
+
+9. Vendor responsibility:
+
+* If an external sender, email platform, agency, SDR tool, or API sends on VoltSafe’s behalf, log the vendor name and campaign source.
+* Apply the same CAN-SPAM preflight rules to vendor/API-driven sends.
+
+Safe U.S. lead source categories:
+
+* Public marina website
+* Trade show conversation
+* IBEX / Docks Expo / marine event lead
+* Referral
+* Inbound demo request
+* Association directory
+* Existing customer
+* Partner introduction
+
+Riskier U.S. source categories:
+
+* Purchased list
+* Scraped personal emails
+* Old conference list with no context
+* Generic emails blasted repeatedly
+* Role accounts with no relevance
+
+Purchased and scraped list handling:
+
+* Add lead_source values for purchased_list and scraped_list.
+* For Canada, block commercial sending to purchased or scraped list contacts.
+* For U.S., flag purchased or scraped list contacts as high risk and require admin/compliance review before campaign eligibility.
+* Never send to contacts who are unsubscribed, suppressed, bounced, complained, or legally blocked.
+
+Campaign model:
+Add or update campaign fields:
+
+* campaign_id
+* campaign_name
+* campaign_type, enum: commercial, transactional, service, safety_notice, billing, system_alert
+* campaign_topic, enum or string: product_updates, marina_news, event_invites, premier_access, demo_followup, investor_updates, customer_success, safety_alerts, transactional
+* target_jurisdiction, enum: Canada, United States, Mixed, Other
+* sender_name
+* sender_legal_entity, default: VoltSafe Inc.
+* from_email
+* reply_to_email
+* sending_domain
+* sending_domain_approved
+* contact_email
+* contact_phone
+* physical_mailing_address
+* subject_line
+* preview_text
+* html_body
+* text_body
+* unsubscribe_link_included, boolean
+* preference_center_link_included, boolean
+* commercial_disclosure_included, boolean
+* footer_version
+* compliance_status, enum: draft, preflight_passed, preflight_failed, sent, blocked
+* compliance_errors, array
+* recipient_count_before_preflight
+* recipient_count_after_suppression
+* blocked_recipient_count
+* created_by_user_id
+* approved_by_user_id
+* sent_at
+* created_at
+* updated_at
+
+Campaign type rules:
+If campaign_type is commercial, apply jurisdiction-based compliance:
+
+* Canada: CASL consent required.
+* United States: CAN-SPAM preflight required.
+
+If campaign_type is transactional, service, safety_notice, billing, or system_alert, consent may not be required, but the content must not include promotional material.
+
+Add a warning if a transactional email contains promotional keywords or links to product offers, demo booking, sales pages, promotions, newsletters, Premier Access Package, or product announcements.
+
+Required email footer:
+Automatically inject a compliant footer into all commercial emails.
+
+Footer must include:
+
+* Sender legal name: VoltSafe Inc.
+* Physical mailing address
+* Contact email and/or phone number
+* Clear unsubscribe link
+* Optional manage preferences link
+* Reason the recipient is receiving the email
+
+Example general footer:
+“You are receiving this email because you subscribed to VoltSafe updates, requested information from VoltSafe, attended an event, were identified as a relevant business contact, or have an existing business relationship with VoltSafe Inc.
+
+VoltSafe Inc.
+[Insert physical mailing address]
+[Insert contact email]
+[Insert contact phone if available]
+
+Unsubscribe | Manage preferences”
+
+For cold U.S. outreach, include:
+“This is a commercial message from VoltSafe Inc. about marina shore power technology.”
+
+Unsubscribe requirements:
+Build a global unsubscribe system.
+
+Requirements:
+
+* One-click unsubscribe from every commercial email.
+* No login required.
+* No password required.
+* No fee.
+* No mandatory survey.
+* No “email us to unsubscribe” as the only method.
+* Unsubscribe must work from both HTML and plain-text emails.
+* Immediately update the CRM contact record.
+* Immediately add the email address to the global suppression list.
+* Prevent all future commercial sends to that email address.
+* Log the unsubscribe event.
+* Provide a confirmation page that says the recipient has been unsubscribed.
+* Preference center can allow topic-level changes, but must always include “unsubscribe from all marketing emails.”
+
+For Canadian unsubscribe:
+Set:
+
+* unsubscribe_status = unsubscribed
+* consent_status = unsubscribed
+* suppression_status = suppressed
+* suppression_reason = unsubscribed
+
+For U.S. unsubscribe:
+Set:
+
+* unsubscribe_status = unsubscribed
+* consent_status = opted_out
+* suppression_status = suppressed
+* suppression_reason = unsubscribed
+
+Important:
+No admin user can manually resubscribe an unsubscribed contact. Resubscribe requires a new affirmative express consent action by the recipient through a subscription form or preference center.
+
+Suppression list:
+Build a global suppression list that overrides every campaign, list, segment, automation, and admin action.
+
+Suppression reasons:
+
+* unsubscribed
+* spam_complaint
+* hard_bounce
+* legal_request
+* manually_blocked
+* consent_expired
+* duplicate_merged
+* invalid_email
+* purchased_list
+* scraped_list
+* other
+
+Suppression logic:
+If email exists in suppression list, block commercial send regardless of list membership, jurisdiction, or campaign settings.
+
+Preference center:
+Build a recipient preference center with:
+
+* Unsubscribe from all marketing emails
+* VoltSafe Marine product updates
+* Marina electrification insights
+* Event invitations
+* Demo and pilot opportunities
+* Premier Access Package updates
+* Customer/operator updates
+* Investor communications, if applicable
+
+Preference center rules:
+
+* Global unsubscribe overrides topic preferences.
+* If user unsubscribes from all, update global suppression immediately.
+* If user changes topics but remains subscribed, update topic preferences and log the event.
+* If user resubscribes after a previous unsubscribe, capture fresh express consent with timestamp, IP, user agent, consent wording, and source.
+
+Import controls:
+When users import contacts, require source and jurisdiction documentation.
+
+Import fields required:
+
+* email_address
+* recipient_country
+* jurisdiction
+* lead_source
+* lead_source_detail
+* consent_type, required for Canada
+* consent_source, required for Canada
+* consent_timestamp or relationship date, required for Canada
+* consent proof or notes, required for Canada
+* implied_consent_expiry_date if consent_type = implied
+* relationship type if consent_type = implied
+
+Block import if:
+
+* jurisdiction is unknown
+* email address is already globally unsubscribed or suppressed
+* list is marked purchased or scraped for Canada
+* country is Canada and consent_type is missing
+* country is Canada and consent_source is missing
+* country is Canada and consent proof is missing
+* country is Canada and consent_type is implied and expiry date is missing
+* uploader does not certify compliance
+
+For U.S. imports:
+
+* Allow import without prior consent only if marked as U.S. B2B commercial outreach.
+* Require lead source.
+* Require user attestation.
+* Flag purchased or scraped lists as high risk and require compliance admin approval before sending.
+
+Import attestation checkbox:
+“I confirm that these contacts have been collected and imported for lawful business communication. For Canadian contacts, I confirm they have provided valid express consent or qualify under a lawful implied consent basis to receive commercial electronic messages from VoltSafe Inc. For U.S. contacts, I confirm this list will be used in accordance with CAN-SPAM requirements, including accurate sender identity, physical postal address, and clear unsubscribe functionality.”
+
+Imported contacts with incomplete proof should be placed into quarantine status and excluded from campaigns until reviewed.
+
+Lead forms and consent capture:
+Update all VoltSafe CRM forms to support compliant consent capture.
+
+Forms to support:
+
+* Contact us
+* Demo request
+* Newsletter signup
+* Event registration
+* Premier Access Package interest
+* Dealer inquiry
+* Investor inquiry
+* Download brochure
+* Waitlist
+* Priority PO interest form
+
+Each form must store:
+
+* form name
+* form URL
+* consent checkbox state
+* consent language version
+* exact consent language text
+* timestamp
+* IP address
+* user agent
+* referrer
+* submission payload
+* source campaign or UTM data if available
+
+Consent checkbox rules:
+
+* Checkbox must be optional unless the form is specifically a newsletter signup.
+* Checkbox must be unchecked by default.
+* Form submission alone must not automatically create express consent unless the user actively checks the marketing consent box.
+* A demo request or contact form without checked marketing consent may create implied consent with a 6-month expiry for Canadian contacts if the inquiry is commercial and relevant.
+* For U.S. contacts, form submissions may be recorded as lead_source and consent_source, but U.S. B2B commercial sending should still depend on CAN-SPAM preflight and unsubscribe status.
+
+Campaign preflight checklist:
+Before any commercial campaign sends, show and enforce the correct checklist by jurisdiction.
+
+Canada CASL Preflight:
+
+* Valid express or active implied consent exists for every Canadian recipient.
+* No unsubscribed contacts included.
+* No suppressed contacts included.
+* No expired implied consent included.
+* No invalid email addresses included.
+* Sender legal name included.
+* VoltSafe contact information included.
+* Physical mailing address included.
+* Unsubscribe link included.
+* Preference center link included if enabled.
+* Campaign classified correctly.
+* Footer injected.
+* Audit record created.
+* Final recipient count calculated after suppression.
+
+U.S. CAN-SPAM Preflight:
+
+* Accurate From name included.
+* Valid reply-to email included.
+* Approved sending domain used.
+* Header information is accurate.
+* Subject line is not deceptive.
+* Physical postal address included.
+* Unsubscribe link included.
+* Commercial disclosure included for cold outreach.
+* Suppression list applied.
+* No unsubscribed contacts included.
+* No suppressed contacts included.
+* No hard bounces included.
+* No spam complaints included.
+* Audit log created.
+* Final recipient count calculated after suppression.
+
+Mixed Canada/U.S. campaigns:
+If a campaign includes both Canadian and U.S. contacts:
+
+* Apply CASL rules to Canadian contacts.
+* Apply CAN-SPAM rules to U.S. contacts.
+* Apply suppression globally.
+* If either jurisdiction group fails, show separate error counts by jurisdiction.
+* Allow send only to recipients who pass their jurisdiction’s requirements.
+* Provide an option to exclude blocked recipients and send only to eligible recipients.
+
+If any required check fails, block the send and show exact errors.
+
+Compliance dashboard:
+Create a dashboard with:
+
+* Total contacts
+* Contacts by jurisdiction
+* Canadian express consent contacts
+* Canadian implied consent contacts
+* Canadian implied consent expiring in 30 days
+* Canadian implied consent expiring in 60 days
+* Canadian implied consent expiring in 90 days
+* Canadian expired implied consent contacts
+* Unknown jurisdiction contacts
+* Unknown consent contacts
+* U.S. B2B outreach contacts
+* U.S. opted-out contacts
+* Unsubscribed contacts
+* Suppressed contacts
+* Contacts missing Canadian consent proof
+* Quarantined imported contacts
+* Campaigns blocked by compliance
+* Unsubscribe rate by campaign
+* Spam complaint rate
+* Hard bounce rate
+* Consent source breakdown
+* Lead source breakdown
+* Form opt-in conversion rate
+
+Add automated warnings:
+“X Canadian contacts will become non-sendable in the next 30 days unless express consent is captured.”
+“X imported contacts are quarantined due to missing consent proof or jurisdiction.”
+“X Canadian contacts have expired implied consent and cannot receive commercial campaigns.”
+“X U.S. contacts are suppressed due to opt-out, bounce, complaint, or legal block.”
+
+Audit logging:
+Create immutable audit logs for all compliance-relevant events.
+
+Events to log:
+
+* consent_created
+* consent_updated
+* consent_expired
+* contact_imported
+* contact_quarantined
+* jurisdiction_updated
+* campaign_created
+* campaign_preflight_passed
+* campaign_preflight_failed
+* campaign_sent
+* campaign_blocked
+* unsubscribe_clicked
+* preference_updated
+* resubscribe_completed
+* suppression_applied
+* suppression_removed
+* admin_override_attempted
+* footer_version_used
+* consent_language_version_used
+* vendor_send_initiated
+* api_send_initiated
+
+Audit log fields:
+
+* event_id
+* contact_id
+* campaign_id
+* user_id
+* event_type
+* timestamp
+* old_value
+* new_value
+* source_ip
+* user_agent
+* source_page
+* jurisdiction
+* vendor_name
+* notes
+
+Admin permissions:
+Create role-based permissions.
+
+Roles:
+Viewer:
+
+* Can view contacts and campaigns.
+* Cannot edit consent.
+* Cannot send campaigns.
+
+Sales:
+
+* Can create and update contacts.
+* Can record relationship details.
+* Can request consent.
+* Cannot override unsubscribe or suppression.
+* Cannot send bulk campaigns unless allowed by admin.
+
+Marketer:
+
+* Can create campaigns.
+* Can segment lists.
+* Can send campaigns only if preflight passes.
+* Cannot override compliance blocks.
+* Cannot resubscribe contacts manually.
+
+Compliance Admin:
+
+* Can review consent records.
+* Can manage suppression reasons.
+* Can approve imports.
+* Can correct consent metadata with audit trail.
+* Cannot manually resubscribe a globally unsubscribed contact without recipient action.
+
+Super Admin:
+
+* Full access.
+* All sensitive actions logged.
+* Still cannot send commercial campaigns to unsubscribed or suppressed contacts.
+
+Hard rule:
+No role can send commercial emails to unsubscribed or suppressed contacts.
+
+Segmentation:
+Build campaign segments that automatically exclude:
+
+* unsubscribed contacts
+* suppressed contacts
+* hard bounces
+* spam complaints
+* expired implied consent for Canada
+* unknown consent for Canada
+* quarantined imports
+* invalid emails
+* unknown jurisdiction contacts
+
+Recommended default segments:
+
+* Canada, express consent
+* Canada, active implied consent
+* Canada, implied consent expiring within 30 days
+* United States, B2B marina outreach eligible
+* United States, opted out
+* Marina operators with valid sending eligibility
+* Premier Access interested with valid sending eligibility
+* Customers, transactional only
+* Unsubscribed/suppressed, excluded from all marketing
+* Unknown jurisdiction, excluded from marketing
+
+Automation:
+Build automated workflows:
+
+1. Canadian implied consent expiry warning:
+
+* 90 days before expiry: notify internal owner.
+* 60 days before expiry: notify internal owner.
+* 30 days before expiry: notify internal owner.
+* On expiry: set consent_status = implied_expired and suppress from Canadian commercial sends.
+
+2. Convert implied to express:
+
+* Allow sending a compliant consent request only where legally allowed and where a valid implied consent basis still exists.
+* Capture fresh express consent if the recipient opts in.
+
+3. U.S. opt-out handling:
+
+* On unsubscribe, immediately suppress from all future commercial campaigns.
+* Do not wait 10 business days. Suppress immediately.
+
+4. Bounce handling:
+
+* Hard bounce: suppress email.
+* Repeated soft bounce threshold: mark email invalid or review.
+
+5. Complaint handling:
+
+* Spam complaint: immediately suppress email.
+
+6. Jurisdiction cleanup:
+
+* Contacts with unknown country or jurisdiction should be flagged for review and excluded from commercial campaigns until resolved.
+
+API behavior:
+If contacts are created or updated via API:
+
+* Require jurisdiction or country.
+* If no jurisdiction is provided, default jurisdiction to Unknown and exclude from commercial campaigns.
+* For Canadian contacts, require consent_type and consent_source for marketing eligibility.
+* If no Canadian consent is provided, default consent_status to unknown.
+* Do not allow API to set Canadian express_active without consent_timestamp, source, and consent language.
+* For U.S. contacts, allow not_required_for_us_b2b but still require unsubscribe and suppression checks before send.
+* Do not allow API to remove unsubscribe or suppression unless it is part of a verified recipient resubscribe flow.
+* Apply the same compliance preflight to API-triggered sends.
+
+Testing and acceptance criteria:
+The build is complete when the following tests pass:
+
+Canada CASL tests:
+
+1. A Canadian commercial campaign to an express_active contact sends successfully when footer and unsubscribe are present.
+2. A Canadian commercial campaign to an implied_active contact sends successfully only before expiry.
+3. A Canadian commercial campaign to an implied_expired contact is blocked.
+4. A Canadian commercial campaign to an unknown consent contact is blocked.
+5. A Canadian commercial campaign to an unsubscribed contact is blocked.
+6. A Canadian commercial campaign to a suppressed contact is blocked.
+7. A Canadian commercial campaign without an unsubscribe link is blocked.
+8. A Canadian commercial campaign without VoltSafe Inc. sender identity is blocked.
+9. A Canadian commercial campaign without physical mailing address is blocked.
+10. Canadian imported contacts without consent source are quarantined.
+11. Canadian imported contacts without consent proof are blocked from marketing.
+12. Expired Canadian implied consent automatically becomes non-sendable.
+
+U.S. CAN-SPAM tests:
+13. A U.S. commercial B2B campaign sends without prior express consent only if CAN-SPAM preflight passes.
+14. A U.S. commercial campaign without accurate sender identity is blocked.
+15. A U.S. commercial campaign without a valid reply-to is blocked.
+16. A U.S. commercial campaign without an approved sending domain is blocked.
+17. A U.S. commercial campaign with a deceptive subject line is flagged or blocked.
+18. A U.S. commercial campaign without physical postal address is blocked.
+19. A U.S. commercial campaign without unsubscribe link is blocked.
+20. A U.S. commercial campaign to an unsubscribed contact is blocked.
+21. A U.S. commercial campaign to a suppressed contact is blocked.
+22. A U.S. opt-out immediately updates suppression status and blocks future commercial sends.
+23. A U.S. cold outreach email includes the commercial disclosure footer line.
+
+Global tests:
+24. A transactional email can send to a customer when it contains no promotional content.
+25. A transactional email with promotional/demo/sales content is flagged for review or blocked.
+26. One-click unsubscribe updates contact, consent/opt-out status, and suppression list immediately.
+27. Admin cannot manually resubscribe an unsubscribed contact.
+28. Recipient can resubscribe only through a new express consent form.
+29. Suppression list overrides all campaign lists and segments.
+30. All consent, opt-out, unsubscribe, import, and campaign preflight events appear in audit logs.
+31. Mixed Canada/U.S. campaigns apply the correct rules to each recipient based on jurisdiction.
+32. Unknown jurisdiction contacts are excluded from commercial campaigns.
+33. Campaign preflight shows clear reasons for blocked sends.
+34. Vendor/API-triggered sends are subject to the same compliance rules.
+
+UI copy:
+Use this internal compliance warning near campaign send buttons:
+“Compliance check: VoltSafe can only send commercial emails when the contact passes the correct jurisdiction rules. Canada requires valid consent under CASL. U.S. commercial emails must pass CAN-SPAM checks. If this fails, the send is blocked. Not because we hate marketing. Because we like staying in business.”
+
+Use this blocked-send message:
+“This campaign cannot be sent because one or more email compliance requirements failed. Fix the items below before sending.”
+
+Use this unsubscribe confirmation:
+“You have been unsubscribed from VoltSafe marketing emails. You may still receive transactional, service, safety, or account-related messages where applicable.”
+
+Use this resubscribe confirmation:
+“Thank you. Your express consent to receive VoltSafe marketing emails has been recorded. You can unsubscribe at any time.”
+
+Use this U.S. cold outreach footer disclosure:
+“This is a commercial message from VoltSafe Inc. about marina shore power technology.”
+
+Use this Canadian consent checkbox:
+“I agree to receive emails from VoltSafe Inc. about VoltSafe Marine products, marina electrification, launch updates, events, and related commercial opportunities. I understand I can unsubscribe at any time.”
+
+Final product rule:
+The CRM should let VoltSafe move fast, especially for U.S. marina outreach, but never like a spam cannon with a logo.

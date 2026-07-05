@@ -2963,11 +2963,12 @@ export const campaignRecipients = pgTable("campaign_recipients", {
   lastSentAt:     timestamp("last_sent_at"),
   openedCount:    integer("opened_count").notNull().default(0),
   clickedCount:   integer("clicked_count").notNull().default(0),
-  repliedAt:      timestamp("replied_at"),
-  bouncedAt:      timestamp("bounced_at"),
-  unsubscribedAt: timestamp("unsubscribed_at"),
-  createdAt:      timestamp("created_at").defaultNow().notNull(),
-  updatedAt:      timestamp("updated_at").defaultNow().notNull(),
+  repliedAt:        timestamp("replied_at"),
+  bouncedAt:        timestamp("bounced_at"),
+  unsubscribedAt:   timestamp("unsubscribed_at"),
+  unsubscribeToken: text("unsubscribe_token").unique(),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+  updatedAt:        timestamp("updated_at").defaultNow().notNull(),
 });
 export const insertCampaignRecipientSchema = createInsertSchema(campaignRecipients).omit({ id: true, createdAt: true, updatedAt: true });
 export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
@@ -3014,3 +3015,14 @@ export const campaignSuppression = pgTable("campaign_suppression", {
 export const insertCampaignSuppressionSchema = createInsertSchema(campaignSuppression).omit({ id: true, createdAt: true });
 export type CampaignSuppressionEntry = typeof campaignSuppression.$inferSelect;
 export type InsertCampaignSuppression = z.infer<typeof insertCampaignSuppressionSchema>;
+
+export const campaignTrackedLinks = pgTable("campaign_tracked_links", {
+  id:             serial("id").primaryKey(),
+  campaignId:     integer("campaign_id").notNull(),
+  campaignEmailId: integer("campaign_email_id").notNull(),
+  recipientId:    integer("recipient_id").notNull(),
+  originalUrl:    text("original_url").notNull(),
+  token:          text("token").notNull().unique(),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+export type CampaignTrackedLink = typeof campaignTrackedLinks.$inferSelect;

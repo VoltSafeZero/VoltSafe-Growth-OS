@@ -904,6 +904,76 @@ export async function registerRoutes(
     res.redirect(302, destUrl);
   });
 
+  // ── Campaign Tracking — Public endpoints (NO auth — served to email clients) ──
+
+  // Open tracking pixel (campaign-specific)
+  app.get("/api/marketing/track/open/:token.gif", async (req, res) => {
+    const token = req.params.token;
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress;
+    const ua = req.headers["user-agent"];
+    const pixel = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+    res.setHeader("Content-Type", "image/gif");
+    res.setHeader("Content-Length", pixel.length);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
+    res.end(pixel);
+    if (token) {
+      import("./services/campaign-tracking")
+        .then(({ recordCampaignOpen }) => recordCampaignOpen(token, ip as string | undefined, ua as string | undefined))
+        .catch(() => {});
+    }
+  });
+
+  // Click tracking redirect (campaign-specific)
+  app.get("/api/marketing/track/click/:token", async (req, res) => {
+    const token = req.params.token;
+    try {
+      const { resolveTrackedLink, isSafeCampaignUrl } = await import("./services/campaign-tracking");
+      const url = await resolveTrackedLink(token);
+      if (url && isSafeCampaignUrl(url)) {
+        return res.redirect(302, url);
+      }
+    } catch { /* fall through */ }
+    res.redirect(302, "/");
+  });
+
+  // Unsubscribe — GET (check token state, no auth)
+  app.get("/api/marketing/unsubscribe/:token", async (req, res) => {
+    const token = req.params.token;
+    if (!token || token.length < 8) return res.status(404).json({ error: "Invalid token" });
+    try {
+      const { getRecipientByUnsubscribeToken } = await import("./services/campaign-tracking");
+      const recipient = await getRecipientByUnsubscribeToken(token);
+      if (!recipient) return res.status(404).json({ error: "Token not found" });
+      res.json({
+        email: recipient.email,
+        already_unsubscribed: !!recipient.unsubscribedAt,
+      });
+    } catch (err) {
+      console.error("[marketing] unsubscribe GET error:", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Unsubscribe — POST (process, no auth)
+  app.post("/api/marketing/unsubscribe/:token", async (req, res) => {
+    const token = req.params.token;
+    if (!token || token.length < 8) return res.status(404).json({ error: "Invalid token" });
+    try {
+      const { processUnsubscribe } = await import("./services/campaign-tracking");
+      const result = await processUnsubscribe(token);
+      if (!result.success) return res.status(404).json({ error: "Token not found" });
+      res.json({
+        success: true,
+        already_unsubscribed: result.alreadyUnsubscribed,
+        email: result.email,
+      });
+    } catch (err) {
+      console.error("[marketing] unsubscribe POST error:", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
   // ── Public CTA asset file server (no auth — images served to email recipients) ──
   // Must be registered before auth middleware routes; UUID filename prevents enumeration.
   app.get("/assets/cta/:filename", async (req, res) => {
@@ -36544,7 +36614,7 @@ export function registerConfluenceRoutes(app: Express) {
           cr.id, cr.campaign_id, cr.contact_id, cr.account_id, cr.email, cr.name,
           cr.role, cr.marina_persona, cr.adoption_stage, cr.status,
           cr.current_step, cr.last_sent_at, cr.bounced_at, cr.unsubscribed_at,
-          cr.opened_count, cr.clicked_count, cr.created_at,
+          cr.opened_count, cr.clicked_count, cr.replied_at, cr.created_at,
           a.name AS account_name
         FROM campaign_recipients cr
         LEFT JOIN accounts a ON a.id = cr.account_id
@@ -36624,7 +36694,8 @@ export function registerConfluenceRoutes(app: Express) {
         return res.status(400).json({ error: "campaignEmailId is required" });
       }
       const { executeSendStep } = await import("./services/campaign-sender");
-      const result = await executeSendStep(campaignId, Number(campaignEmailId), req.session.userId as number);
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const result = await executeSendStep(campaignId, Number(campaignEmailId), req.session.userId as number, baseUrl);
       res.json(result);
     } catch (err: any) {
       const status = err?.statusCode ?? 500;
