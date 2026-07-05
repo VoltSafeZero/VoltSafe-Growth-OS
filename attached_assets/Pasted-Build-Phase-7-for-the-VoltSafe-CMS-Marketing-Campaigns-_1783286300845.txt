@@ -1,0 +1,419 @@
+Build Phase 7 for the VoltSafe CMS Marketing / Campaigns module: Reply Classification + Sales Task Automation.
+
+Context:
+VoltSafe CMS Marketing/Campaigns now includes:
+
+* Campaign CRUD
+* Audience segments
+* Real recipient enrollment
+* Suppression-safe enrollment
+* Manual step-level sending
+* Automated sequences / drip scheduling
+* Open tracking
+* Click tracking
+* Unsubscribe handling
+* Public preference center
+* CASL/CAN-SPAM compliance data model
+* Compliance preflight engine
+* Send-time compliance enforcement
+* Per-recipient jurisdiction-aware legal footer
+* Compliance dashboard/workflows
+* Account Heat Score
+* Buying Committee Intelligence
+* Campaign-level hot accounts
+* Automation audit/hardening completed:
+    * unresolved placeholders now fail closed
+    * recipient terminal-state corruption fixed
+    * blocked counts added
+    * next_automation_run_at updates after ticks
+    * duplicate-send index added
+    * automation UI loading/error/completed states improved
+
+Goal:
+Build reply classification and sales task automation so campaign replies and high-intent engagement automatically turn into actionable CRM follow-up.
+
+This phase should answer:
+
+* Did this recipient reply positively?
+* Is this a meeting request?
+* Is this a referral to another person?
+* Is this a “not now” nurture response?
+* Is this an objection?
+* Is this an unsubscribe/negative response?
+* What should sales do next?
+* Should a task be created automatically?
+
+Do not invent replies. Use real inbound email/reply data if available. If inbound reply infrastructure is incomplete, build the classification service and task creation workflow around existing campaign_events/replied events and clearly report the remaining mail-ingestion gap.
+
+1. Audit Existing Reply Infrastructure
+
+First inspect the codebase for:
+
+* inbound email sync
+* Gmail/VoltSafe Mail thread ingestion
+* reply tracking
+* campaign_events event_type = replied
+* provider message/thread IDs
+* campaign recipient reply fields
+* task system
+* CRM activity/timeline system
+* existing AI/OpenAI helper patterns
+* existing task creation routes/services
+
+Report what exists before building.
+
+2. Reply Data Model
+
+If needed, add a table:
+
+campaign_reply_classifications
+
+Fields:
+
+* id
+* campaign_id
+* campaign_email_id nullable
+* campaign_recipient_id
+* contact_id
+* account_id
+* source_message_id nullable
+* source_thread_id nullable
+* reply_body_preview
+* classification
+* confidence
+* sentiment
+* objection_type nullable
+* recommended_action
+* recommended_task_title
+* recommended_task_body
+* assigned_to_user_id nullable
+* task_id nullable
+* status default ‘pending’
+* reviewed_by_user_id nullable
+* reviewed_at nullable
+* created_at
+* updated_at
+* metadata_json
+
+Classification values:
+
+* interested
+* meeting_request
+* referral
+* not_now
+* objection
+* technical_question
+* pricing_question
+* procurement_question
+* wrong_person
+* unsubscribe
+* negative
+* out_of_office
+* auto_reply
+* unknown
+
+Status values:
+
+* pending
+* reviewed
+* task_created
+* ignored
+* dismissed
+
+Add indexes:
+
+* campaign_id
+* campaign_recipient_id
+* contact_id
+* account_id
+* classification
+* status
+* created_at
+
+3. Reply Classification Service
+
+Create:
+
+server/services/campaign-reply-classifier.ts
+
+Functions:
+
+* classifyCampaignReply(input)
+* classifyUnprocessedReplies(limit)
+* getReplyClassification(id)
+* listReplyClassifications(filters)
+* markClassificationReviewed(id, userId)
+* dismissClassification(id, userId)
+* createTaskFromClassification(id, userId)
+
+Classification should use deterministic rules first, AI second.
+
+Rule-based examples:
+
+* contains “unsubscribe”, “remove me”, “stop emailing” → unsubscribe
+* contains “not interested” → negative
+* contains “out of office”, “automatic reply” → out_of_office / auto_reply
+* contains “talk to”, “contact”, “try [name]”, “wrong person” → referral or wrong_person
+* contains “pricing”, “cost”, “budget” → pricing_question
+* contains “technical”, “install”, “electrical”, “CSA”, “UL”, “wiring” → technical_question
+* contains “procurement”, “RFP”, “tender”, “board”, “council” → procurement_question
+* contains “book”, “call”, “meeting”, “demo”, “calendar” → meeting_request
+* contains “interested”, “send more”, “tell me more” → interested
+* contains “later”, “next year”, “not now”, “circle back” → not_now
+
+AI fallback:
+Use the existing OpenAI compatibility helper pattern.
+Do not use bare max_tokens/temperature.
+The AI prompt should be marina/VoltSafe specific.
+Output strict JSON:
+{
+“classification”: “…”,
+“confidence”: 0.0-1.0,
+“sentiment”: “positive|neutral|negative|unknown”,
+“objection_type”: “…”,
+“recommended_action”: “…”,
+“recommended_task_title”: “…”,
+“recommended_task_body”: “…”
+}
+
+Fail safely:
+
+* if AI fails, return unknown with low confidence
+* do not block user workflow on AI failure
+* do not log full sensitive reply bodies
+
+4. Reply Ingestion / Matching
+
+If inbound email infrastructure exists:
+
+* match replies to campaign recipients using provider thread ID, message ID, reply-to tag, or custom header if available
+* create campaign_event event_type = replied
+* set campaign_recipients.replied_at
+* create campaign_reply_classifications record
+* update account heat score inputs
+
+If inbound matching is not available:
+
+* add a manual/test endpoint to classify a reply against a campaign_recipient_id
+* clearly report that automatic reply ingestion remains a gap
+
+Suggested endpoint for manual classification:
+POST /api/marketing/replies/classify
+
+Payload:
+
+* campaignRecipientId
+* replyBody
+* sourceMessageId optional
+* sourceThreadId optional
+
+5. API Routes
+
+Add:
+GET /api/marketing/replies
+GET /api/marketing/replies/:id
+POST /api/marketing/replies/classify
+POST /api/marketing/replies/:id/review
+POST /api/marketing/replies/:id/dismiss
+POST /api/marketing/replies/:id/create-task
+
+Filters for GET /api/marketing/replies:
+
+* classification
+* status
+* campaign_id
+* account_id
+* contact_id
+* confidence_min
+* date_from
+* date_to
+* limit
+
+6. Sales Task Automation
+
+If the CRM task system exists, integrate with it.
+
+Create tasks automatically or semi-automatically for high-intent classifications.
+
+Recommended defaults:
+
+* meeting_request → create task automatically
+* interested → create task automatically
+* pricing_question → create task automatically
+* technical_question → create task automatically
+* procurement_question → create task automatically
+* referral → create task automatically
+* not_now → create nurture task/reminder if task scheduling exists
+* objection → create review/follow-up task
+* unsubscribe/negative/out_of_office/auto_reply → do not create sales task automatically
+
+Task examples:
+
+* “Follow up: GM requested demo from Thunderbird Marina”
+* “Send pricing info to Thunderbird Marina”
+* “Technical follow-up: shore power install question”
+* “Referral received: contact marina manager”
+* “Nurture: circle back in 90 days”
+
+If automatic task creation is too risky, create a review queue with a “Create Task” button first.
+
+7. Frontend: Reply Intelligence Page
+
+Add a page under Marketing:
+
+Marketing → Replies
+
+Show:
+
+* reply classifications
+* campaign
+* contact
+* account/marina
+* classification
+* confidence
+* sentiment
+* recommended action
+* status
+* created date
+* Create Task button
+* Review button
+* Dismiss button
+
+Filters:
+
+* classification
+* status
+* campaign
+* confidence
+* sentiment
+
+8. Frontend: Campaign Detail
+
+Add section:
+
+Reply Intelligence
+
+Show campaign-specific:
+
+* total replies
+* interested
+* meeting requests
+* objections
+* pricing questions
+* technical questions
+* referrals
+* not now
+* negative/unsubscribe
+* reply list with recommended actions
+
+9. Frontend: Account Profile
+
+In Marketing Intelligence panel, add:
+
+* recent classified replies
+* reply sentiment
+* open follow-up tasks from replies
+* recommendation:
+    * “Call now”
+    * “Send technical info”
+    * “Route to procurement”
+    * “Move to nurture”
+    * “Do not contact”
+
+10. Heat Score Integration
+
+Update Account Heat Score:
+
+* interested reply: +20
+* meeting_request: +30
+* referral: +15
+* pricing_question: +15
+* technical_question: +12
+* procurement_question: +12
+* not_now: +5 but recommend nurture
+* objection: +5 but flag risk
+* negative: -15
+* unsubscribe: -25
+* out_of_office/auto_reply: 0
+
+Avoid double-counting if generic replied event already gives +20. Either replace generic reply score with classification-based scoring or cap reply contribution.
+
+11. Compliance / Safety
+
+If classification is unsubscribe:
+
+* process unsubscribe if not already processed
+* add suppression record
+* mark recipient unsubscribed
+* create campaign_event unsubscribed
+* do not create sales task
+
+If classification is negative:
+
+* do not automatically suppress unless explicit unsubscribe language exists
+* recommend human review
+
+Do not send automated replies in this phase.
+
+12. Tests
+
+Add tests for:
+
+* rule-based unsubscribe classification
+* rule-based meeting request classification
+* rule-based pricing question classification
+* rule-based technical question classification
+* rule-based procurement question classification
+* rule-based referral/wrong person classification
+* auto-reply/out-of-office classification
+* AI fallback uses OpenAI compatibility helper
+* AI failure returns unknown safely
+* manual classify endpoint creates campaign_event replied
+* manual classify endpoint sets campaign_recipients.replied_at
+* classification record created with correct fields
+* create-task endpoint creates CRM task if task system exists
+* unsubscribe classification suppresses contact and does not create sales task
+* reply list filters work
+* unauthorized users blocked
+* account heat score incorporates classifications
+* campaign detail reply stats route works if added
+* existing campaign automation tests still pass
+* campaign tracking tests still pass
+* compliance tests still pass
+* account heat tests still pass
+* enrollment tests still pass
+* permissions tests still pass
+* nav-drift tests still pass
+* openai-compat tests still pass
+
+13. Visual QA
+
+Take screenshots of:
+
+* Marketing Replies page
+* Reply classification row
+* Create Task button/result
+* Campaign Detail Reply Intelligence section
+* Account Profile recent replies
+* Empty state with no replies
+
+14. Final Report
+
+Return:
+
+* what reply infrastructure already existed
+* what was built
+* routes added
+* classification rules implemented
+* AI fallback behavior
+* task integration status
+* heat score integration
+* tests run and passing
+* screenshots taken
+* remaining gaps
+
+Important:
+Do not implement automated reply sending.
+Do not implement complex branch-based drip changes yet.
+Do not pretend inbound reply ingestion exists if it does not.
+Focus on classification, task creation, and sales actionability.

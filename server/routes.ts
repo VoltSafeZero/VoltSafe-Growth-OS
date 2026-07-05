@@ -25,6 +25,7 @@ import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActio
 import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
 import { listHotAccounts, calculateAccountHeatScore, getAccountBuyingCommittee, getAccountCampaignEngagement } from "./services/account-heat-score";
 import { validateAutomationStart, startCampaignAutomation, pauseCampaignAutomation, resumeCampaignAutomation, stopCampaignAutomation, getCampaignAutomationStatus, runCampaignAutomationTick, getAutomationMetrics } from "./services/campaign-automation";
+import { classifyCampaignReply, listReplyClassifications, getReplyClassification, markClassificationReviewed, dismissClassification, createTaskFromClassification, getCampaignReplyStats } from "./services/campaign-reply-classifier";
 import { sanitizeSignatureHtml } from "./services/signature-sanitizer";
 import { normalizeSignatureHtml, detectDocumentTags } from "./services/signature-normalizer";
 import { db } from "./db";
@@ -38002,6 +38003,104 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       res.json(metrics);
     } catch (err: any) {
       res.status(500).json({ error: "Failed to load automation metrics" });
+    }
+  });
+
+  // ── Campaign Reply Classification — Phase 7 ──────────────────────────────────
+
+  app.get("/api/marketing/replies", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const q = req.query as Record<string, string>;
+      const rows = await listReplyClassifications({
+        classification: q.classification || undefined,
+        status: q.status || undefined,
+        campaign_id: q.campaign_id ? Number(q.campaign_id) : undefined,
+        account_id: q.account_id ? Number(q.account_id) : undefined,
+        contact_id: q.contact_id ? Number(q.contact_id) : undefined,
+        confidence_min: q.confidence_min ? Number(q.confidence_min) : undefined,
+        sentiment: q.sentiment || undefined,
+        date_from: q.date_from || undefined,
+        date_to: q.date_to || undefined,
+        limit: q.limit ? Number(q.limit) : 100,
+      });
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to list reply classifications" });
+    }
+  });
+
+  app.get("/api/marketing/replies/:id", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      const row = await getReplyClassification(id);
+      if (!row) return res.status(404).json({ error: "Not found" });
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to get reply classification" });
+    }
+  });
+
+  app.post("/api/marketing/replies/classify", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { campaignRecipientId, replyBody, sourceMessageId, sourceThreadId } = req.body ?? {};
+      if (!campaignRecipientId || !replyBody) {
+        return res.status(400).json({ error: "campaignRecipientId and replyBody are required" });
+      }
+      const result = await classifyCampaignReply({
+        campaignRecipientId: Number(campaignRecipientId),
+        replyBody: String(replyBody),
+        sourceMessageId: sourceMessageId ?? null,
+        sourceThreadId: sourceThreadId ?? null,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to classify reply" });
+    }
+  });
+
+  app.post("/api/marketing/replies/:id/review", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      await markClassificationReviewed(id, (req as any).user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to mark reviewed" });
+    }
+  });
+
+  app.post("/api/marketing/replies/:id/dismiss", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      await dismissClassification(id, (req as any).user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to dismiss classification" });
+    }
+  });
+
+  app.post("/api/marketing/replies/:id/create-task", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      const { taskId, error } = await createTaskFromClassification(id, (req as any).user.id);
+      if (error) return res.status(422).json({ error });
+      res.json({ success: true, taskId });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to create task from classification" });
+    }
+  });
+
+  app.get("/api/marketing/campaign/:id/reply-stats", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      if (isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
+      const stats = await getCampaignReplyStats(campaignId);
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to load reply stats" });
     }
   });
 

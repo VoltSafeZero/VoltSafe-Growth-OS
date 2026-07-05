@@ -1059,6 +1059,9 @@ export default function CampaignDetailPage() {
       {/* ── Automation Panel ───────────────────────────────────────────────────── */}
       <AutomationPanel campaignId={id} />
 
+      {/* ── Reply Intelligence ─────────────────────────────────────────────────── */}
+      <ReplyIntelligencePanel campaignId={id} />
+
       {/* ── Accounts Heating Up From This Campaign ───────────────────────────── */}
       <AccountsHeatingUpSection campaignId={id} />
 
@@ -1368,6 +1371,147 @@ function automationStatusBadge(status: string) {
   if (status === "completed") return <Badge className="bg-cyan-500/15 text-cyan-400 border-cyan-500/30 text-xs">Completed</Badge>;
   if (status === "blocked") return <Badge className="bg-red-500/15 text-red-400 border-red-500/30 text-xs">Blocked</Badge>;
   return <Badge className="bg-muted/40 text-muted-foreground border-border/50 text-xs">Manual</Badge>;
+}
+
+// ── Reply Intelligence Panel ──────────────────────────────────────────────────
+
+const REPLY_CLASS_META: Record<string, { label: string; color: string }> = {
+  interested:           { label: "Interested",          color: "text-emerald-400" },
+  meeting_request:      { label: "Meeting Request",     color: "text-cyan-400" },
+  pricing_question:     { label: "Pricing Question",    color: "text-blue-400" },
+  technical_question:   { label: "Technical Question",  color: "text-violet-400" },
+  procurement_question: { label: "Procurement",         color: "text-amber-400" },
+  referral:             { label: "Referral",            color: "text-teal-400" },
+  not_now:              { label: "Not Now",             color: "text-orange-400" },
+  objection:            { label: "Objection",           color: "text-yellow-400" },
+  wrong_person:         { label: "Wrong Person",        color: "text-slate-400" },
+  unsubscribe:          { label: "Unsubscribe",         color: "text-rose-400" },
+  negative:             { label: "Negative",            color: "text-red-400" },
+  out_of_office:        { label: "Out of Office",       color: "text-slate-400" },
+  auto_reply:           { label: "Auto Reply",          color: "text-slate-400" },
+  unknown:              { label: "Unknown",             color: "text-muted-foreground" },
+};
+
+function ReplyIntelligencePanel({ campaignId }: { campaignId: number }) {
+  const { data: stats, isLoading: statsLoading } = useQuery<{
+    total: number;
+    byClassification: Record<string, number>;
+    pendingReview: number;
+    tasksCreated: number;
+  } | null>({
+    queryKey: ["/api/marketing/campaign", campaignId, "reply-stats"],
+    queryFn: () =>
+      fetch(`/api/marketing/campaign/${campaignId}/reply-stats`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+    staleTime: 30000,
+  });
+
+  const { data: replies, isLoading: repliesLoading } = useQuery<any[]>({
+    queryKey: ["/api/marketing/replies", { campaign_id: campaignId }],
+    queryFn: () =>
+      fetch(`/api/marketing/replies?campaign_id=${campaignId}&limit=10`)
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => []),
+    staleTime: 30000,
+  });
+
+  if (statsLoading) return (
+    <div className="rounded-xl border border-border/40 bg-card/60 p-5 animate-pulse">
+      <div className="h-4 w-40 bg-muted/40 rounded mb-4" />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[...Array(4)].map((_, i) => <div key={i} className="h-14 bg-muted/30 rounded" />)}
+      </div>
+    </div>
+  );
+
+  if (!stats || stats.total === 0) {
+    return (
+      <div className="rounded-xl border border-border/40 bg-card/60 p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <MessageSquare className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold">Reply Intelligence</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">No classified replies yet for this campaign.</p>
+        <p className="text-xs text-muted-foreground/60 mt-1">
+          Use <code className="font-mono">POST /api/marketing/replies/classify</code> with a <code className="font-mono">campaignRecipientId</code> to classify a known reply.
+        </p>
+      </div>
+    );
+  }
+
+  const highIntent = (stats.byClassification.meeting_request ?? 0) +
+    (stats.byClassification.interested ?? 0) +
+    (stats.byClassification.pricing_question ?? 0);
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card/60 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold">Reply Intelligence</h3>
+        </div>
+        <Link href={`/marketing/replies?campaign_id=${campaignId}`}>
+          <span className="text-xs text-primary hover:underline cursor-pointer">View all →</span>
+        </Link>
+      </div>
+
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        {[
+          { label: "Total Replies", value: stats.total },
+          { label: "High Intent", value: highIntent },
+          { label: "Pending Review", value: stats.pendingReview },
+          { label: "Tasks Created", value: stats.tasksCreated },
+        ].map(s => (
+          <div key={s.label} className="rounded-lg bg-muted/20 border border-border/30 p-3 text-center">
+            <p className="text-lg font-semibold text-foreground">{s.value}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Classification breakdown */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mb-4">
+        {Object.entries(stats.byClassification)
+          .filter(([, v]) => v > 0)
+          .sort(([, a], [, b]) => b - a)
+          .map(([key, count]) => {
+            const meta = REPLY_CLASS_META[key] ?? REPLY_CLASS_META.unknown;
+            return (
+              <div key={key} className="flex items-center justify-between rounded bg-muted/10 border border-border/20 px-2.5 py-1.5">
+                <span className={`text-xs ${meta.color}`}>{meta.label}</span>
+                <span className="text-xs font-semibold text-foreground">{count}</span>
+              </div>
+            );
+          })}
+      </div>
+
+      {/* Recent replies */}
+      {!repliesLoading && replies && replies.length > 0 && (
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2">Recent Replies</p>
+          <div className="space-y-1.5">
+            {replies.slice(0, 5).map((r: any) => {
+              const meta = REPLY_CLASS_META[r.classification] ?? REPLY_CLASS_META.unknown;
+              return (
+                <div key={r.id} className="flex items-start gap-2.5 rounded border border-border/20 bg-muted/10 px-2.5 py-2">
+                  <span className={`text-[10px] font-medium mt-0.5 shrink-0 ${meta.color}`}>{meta.label}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-foreground truncate">{r.contact_name ?? r.contact_email ?? "Unknown"}</p>
+                    {r.recommended_action && (
+                      <p className="text-[10px] text-muted-foreground truncate">{r.recommended_action}</p>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground/50 shrink-0 capitalize">{r.status}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function AutomationPanel({ campaignId }: { campaignId: number }) {

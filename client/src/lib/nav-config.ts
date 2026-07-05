@@ -201,6 +201,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "marketing-audiences",   label: "Audiences",       route: "/marketing/audiences",   icon: Users2 },
       { id: "marketing-templates",   label: "Templates",       route: "/marketing/templates",   icon: FileText },
       { id: "marketing-analytics",   label: "Analytics",       route: "/marketing/analytics",   icon: BarChart3 },
+      { id: "marketing-replies",     label: "Replies",         route: "/marketing/replies",     icon: MessageSquare },
       { id: "marketing-suppression", label: "Suppression",     route: "/marketing/suppression", icon: Ban },
       { id: "marketing-compliance",  label: "Compliance",      route: "/marketing/compliance",  icon: ShieldCheck },
     ],

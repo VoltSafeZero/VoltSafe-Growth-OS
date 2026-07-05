@@ -451,6 +451,22 @@ function formatAgoShort(ts: string | null): string {
   return `${Math.floor(d / 30)}mo ago`;
 }
 
+const REPLY_CLASS_COLORS: Record<string, string> = {
+  interested: "text-emerald-400", meeting_request: "text-cyan-400",
+  pricing_question: "text-blue-400", technical_question: "text-violet-400",
+  procurement_question: "text-amber-400", referral: "text-teal-400",
+  not_now: "text-orange-400", objection: "text-yellow-400",
+  wrong_person: "text-slate-400", unsubscribe: "text-rose-400",
+  negative: "text-red-400", out_of_office: "text-slate-400",
+  auto_reply: "text-slate-400", unknown: "text-muted-foreground",
+};
+const REPLY_RECOMMEND_ACTIONS: Record<string, string> = {
+  meeting_request: "Call now", interested: "Send follow-up", pricing_question: "Send pricing info",
+  technical_question: "Send technical info", procurement_question: "Route to procurement",
+  referral: "Contact referred person", not_now: "Move to nurture", objection: "Address objection",
+  negative: "Human review", unsubscribe: "Do not contact",
+};
+
 function MarketingIntelligencePanel({ accountId }: { accountId: number }) {
   const { data, isLoading } = useQuery<MarketingIntelData | null>({
     queryKey: ["/api/accounts", accountId, "marketing-intelligence"],
@@ -458,6 +474,15 @@ function MarketingIntelligencePanel({ accountId }: { accountId: number }) {
       fetch(`/api/accounts/${accountId}/marketing-intelligence`)
         .then(r => r.ok ? r.json() : null)
         .catch(() => null),
+    staleTime: 60000,
+  });
+
+  const { data: replyClassifications } = useQuery<any[]>({
+    queryKey: ["/api/marketing/replies", { account_id: accountId }],
+    queryFn: () =>
+      fetch(`/api/marketing/replies?account_id=${accountId}&limit=5`)
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => []),
     staleTime: 60000,
   });
 
@@ -620,6 +645,33 @@ function MarketingIntelligencePanel({ accountId }: { accountId: number }) {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Reply Intelligence — classified replies */}
+            {replyClassifications && replyClassifications.length > 0 && (
+              <div data-testid="account-reply-classifications">
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Reply Intelligence</div>
+                <div className="space-y-1.5">
+                  {replyClassifications.map((r: any) => {
+                    const clsColor = REPLY_CLASS_COLORS[r.classification] ?? "text-muted-foreground";
+                    const action = REPLY_RECOMMEND_ACTIONS[r.classification];
+                    return (
+                      <div key={r.id} className="rounded-lg border border-border/30 bg-muted/10 px-3 py-2 flex items-start gap-2.5">
+                        <span className={`text-[10px] font-semibold mt-0.5 shrink-0 capitalize ${clsColor}`}>
+                          {(r.classification ?? "unknown").replace(/_/g, " ")}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-foreground truncate">{r.contact_name ?? r.contact_email ?? "Unknown contact"}</p>
+                          {action && <p className="text-[10px] text-muted-foreground">{action}</p>}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                          {r.task_id ? "✓ Task" : r.status}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

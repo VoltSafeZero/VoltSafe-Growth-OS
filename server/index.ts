@@ -282,6 +282,9 @@ app.use((req, res, next) => {
     // Phase 6: Automation schema (additive columns + indexes on campaign tables)
     const { migrateAutomationSchema } = await import("./services/campaign-automation");
     await migrateAutomationSchema();
+    // Phase 7: Reply classification schema
+    const { migrateReplyClassificationSchema } = await import("./services/campaign-reply-classifier");
+    await migrateReplyClassificationSchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

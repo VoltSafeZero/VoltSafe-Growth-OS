@@ -1,5 +1,6 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { getAccountReplyClassificationScore } from "./campaign-reply-classifier";
 
 // ── Startup index migration ────────────────────────────────────────────────────
 // Ensures query performance on the two hot-path columns that lacked indexes.
@@ -324,11 +325,26 @@ export async function calculateAccountHeatScore(accountId: number): Promise<Acco
     scoreReasons.push(`${totalClicks} click${totalClicks !== 1 ? "s" : ""} on campaign link${totalClicks !== 1 ? "s" : ""}`);
   }
 
-  // Replies
-  if (totalReplies >= 1) {
-    const add = Math.min(totalReplies * 20, 60);
-    score += add;
-    scoreReasons.push(`${totalReplies} repl${totalReplies !== 1 ? "ies" : "y"} to campaign email`);
+  // Replies — classification-aware scoring (Phase 7)
+  // Use per-classification scores from campaign_reply_classifications when available.
+  // Falls back to the generic heuristic (+20/reply capped at 60) if no data exists yet.
+  try {
+    const replyClassScore = await getAccountReplyClassificationScore(accountId);
+    if (replyClassScore.delta !== 0 || replyClassScore.reasons.length > 0 || replyClassScore.negativeReasons.length > 0) {
+      score += replyClassScore.delta;
+      scoreReasons.push(...replyClassScore.reasons);
+      negativeReasons.push(...replyClassScore.negativeReasons);
+    } else if (totalReplies >= 1) {
+      const add = Math.min(totalReplies * 20, 60);
+      score += add;
+      scoreReasons.push(`${totalReplies} repl${totalReplies !== 1 ? "ies" : "y"} to campaign email`);
+    }
+  } catch {
+    if (totalReplies >= 1) {
+      const add = Math.min(totalReplies * 20, 60);
+      score += add;
+      scoreReasons.push(`${totalReplies} repl${totalReplies !== 1 ? "ies" : "y"} to campaign email`);
+    }
   }
 
   // Multi-contact engagement
