@@ -285,6 +285,9 @@ app.use((req, res, next) => {
     // Phase 7: Reply classification schema
     const { migrateReplyClassificationSchema } = await import("./services/campaign-reply-classifier");
     await migrateReplyClassificationSchema();
+    // Phase 8: Reply ingestion schema (campaign_sent_messages, campaign_unmatched_replies)
+    const { migrateReplyIngestionSchema } = await import("./services/campaign-reply-ingestion");
+    await migrateReplyIngestionSchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

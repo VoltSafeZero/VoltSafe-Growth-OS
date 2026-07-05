@@ -74,6 +74,8 @@ export type ClassifyInput = {
   replyBody: string;
   sourceMessageId?: string | null;
   sourceThreadId?: string | null;
+  /** Phase 8: "manual" (default) or "inbound_ingested" */
+  ingestionSource?: string | null;
 };
 
 type ClassifyResult = {
@@ -593,7 +595,7 @@ function shouldAutoCreateTask(classification: ReplyClassification): boolean {
 // ── Core classify function ────────────────────────────────────────────────────
 
 export async function classifyCampaignReply(input: ClassifyInput): Promise<ReplyClassificationRecord> {
-  const { campaignRecipientId, replyBody, sourceMessageId, sourceThreadId } = input;
+  const { campaignRecipientId, replyBody, sourceMessageId, sourceThreadId, ingestionSource } = input;
 
   const preview = replyBody.slice(0, 500).replace(/\n/g, " ").trim();
 
@@ -632,7 +634,7 @@ export async function classifyCampaignReply(input: ClassifyInput): Promise<Reply
         source_message_id, source_thread_id, reply_body_preview,
         classification, confidence, sentiment, objection_type,
         recommended_action, recommended_task_title, recommended_task_body,
-        status, created_at, updated_at)
+        status, ingestion_source, created_at, updated_at)
      VALUES
        (${campaignId !== null ? campaignId : "NULL"},
         ${campaignEmailId !== null ? campaignEmailId : "NULL"},
@@ -650,6 +652,7 @@ export async function classifyCampaignReply(input: ClassifyInput): Promise<Reply
         '${result.recommended_task_title.replace(/'/g, "''")}',
         '${result.recommended_task_body.replace(/'/g, "''")}',
         'pending',
+        '${(ingestionSource ?? "manual").replace(/'/g, "''")}',
         NOW(), NOW())
      RETURNING *`
   ))).rows as ReplyClassificationRecord[];

@@ -26,6 +26,7 @@ import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from
 import { listHotAccounts, calculateAccountHeatScore, getAccountBuyingCommittee, getAccountCampaignEngagement } from "./services/account-heat-score";
 import { validateAutomationStart, startCampaignAutomation, pauseCampaignAutomation, resumeCampaignAutomation, stopCampaignAutomation, getCampaignAutomationStatus, runCampaignAutomationTick, getAutomationMetrics } from "./services/campaign-automation";
 import { classifyCampaignReply, listReplyClassifications, getReplyClassification, markClassificationReviewed, dismissClassification, createTaskFromClassification, getCampaignReplyStats } from "./services/campaign-reply-classifier";
+import { processInboundEmailForCampaignReply, getUnmatchedReplies, processUnmatchedCampaignReplies, scanRecentInboundReplies } from "./services/campaign-reply-ingestion";
 import { sanitizeSignatureHtml } from "./services/signature-sanitizer";
 import { normalizeSignatureHtml, detectDocumentTags } from "./services/signature-normalizer";
 import { db } from "./db";
@@ -38101,6 +38102,90 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       res.json(stats);
     } catch (err: any) {
       res.status(500).json({ error: "Failed to load reply stats" });
+    }
+  });
+
+  // ── Phase 8: Reply Ingestion ───────────────────────────────────────────────
+
+  // Ingest a raw inbound email payload and attempt to match to a campaign recipient.
+  // Admin/internal only — not exposed to regular users.
+  app.post("/api/marketing/replies/ingest", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const {
+        fromEmail, toEmail, subject, bodyText, bodyHtml,
+        providerMessageId, providerThreadId, inReplyTo, references, receivedAt,
+      } = req.body ?? {};
+      if (!fromEmail) return res.status(400).json({ error: "fromEmail is required" });
+      const result = await processInboundEmailForCampaignReply({
+        fromEmail: String(fromEmail),
+        toEmail: toEmail ?? null,
+        subject: subject ?? null,
+        bodyText: bodyText ?? null,
+        bodyHtml: bodyHtml ?? null,
+        providerMessageId: providerMessageId ?? null,
+        providerThreadId: providerThreadId ?? null,
+        inReplyTo: inReplyTo ?? null,
+        references: references ?? null,
+        receivedAt: receivedAt ? new Date(receivedAt) : null,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to ingest reply" });
+    }
+  });
+
+  // Get unmatched reply queue
+  app.get("/api/marketing/unmatched-replies", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const q = req.query as Record<string, string>;
+      const rows = await getUnmatchedReplies({
+        status: q.status || undefined,
+        limit: q.limit ? Number(q.limit) : 50,
+      });
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to list unmatched replies" });
+    }
+  });
+
+  // Ignore an unmatched reply
+  app.post("/api/marketing/unmatched-replies/:id/ignore", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      await db.execute(sql`
+        UPDATE campaign_unmatched_replies
+        SET status = 'ignored', updated_at = NOW()
+        WHERE id = ${id}
+      `);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to ignore unmatched reply" });
+    }
+  });
+
+  // Scan recent inbound emails for unprocessed replies (admin trigger)
+  app.post("/api/marketing/replies/scan-recent", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { hoursBack, limit } = req.body ?? {};
+      const result = await scanRecentInboundReplies({
+        hoursBack: hoursBack ? Number(hoursBack) : 24,
+        limit: limit ? Number(limit) : 100,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to scan recent replies" });
+    }
+  });
+
+  // Retry unmatched queue (admin trigger)
+  app.post("/api/marketing/replies/retry-unmatched", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { limit } = req.body ?? {};
+      const result = await processUnmatchedCampaignReplies(limit ? Number(limit) : 20);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to retry unmatched replies" });
     }
   });
 

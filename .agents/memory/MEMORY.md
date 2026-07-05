@@ -51,3 +51,4 @@
 - [DM Reactions Parity Fix](dm-reactions-parity.md) — DM MessageRow needs grouped/isAdmin/isArchived/onToggleReaction (not isConsecutive/onReact); backend was already complete; source-grep windows: DM_MAP=2000, MSG_ROW=5000.
 - [Reaction Route channel_id Bug](reaction-channel-id-bug.md) — reaction SELECT missed channel_id; archived-channel guard was silently dead; fix: add channel_id to the SELECT list.
 - [Marketing Campaigns Module](marketing-campaigns-module.md) — routes.ts appends must go INSIDE registerRoutes(); imports at top; avoid heredoc append to routes.ts without checking function scope.
+- [Campaign Reply Ingestion Phase 8](campaign-reply-ingestion-p8.md) — inReplyTo not in Drizzle schema; persist via separate raw UPDATE after insert; sendEmail() returns Gmail API res.data {id,threadId}; test string patterns with .* must use && not regex-in-string.

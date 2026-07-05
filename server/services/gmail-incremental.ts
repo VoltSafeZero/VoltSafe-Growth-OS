@@ -155,6 +155,32 @@ export async function upsertMessageById(
         if (attachments.length) await insertAttachmentsForMessage(inserted.id, attachments);
         await runAssociationEngine(inserted.id);
         await routeEmailToFolders(inserted.id, ownerUserId, inserted.fromEmail ?? "");
+
+        // Phase 8: persist in_reply_to header (column added via migration; not in Drizzle schema)
+        if (emailData.inReplyTo) {
+          db.execute(sql.raw(
+            `UPDATE email_messages SET in_reply_to = '${emailData.inReplyTo.replace(/'/g, "''")}' WHERE id = ${inserted.id}`
+          )).catch(() => {});
+        }
+
+        // Phase 8: fire-and-forget campaign reply matching for new inbound replies
+        if (emailData.direction === "inbound" && emailData.isReply) {
+          import("./campaign-reply-ingestion").then(({ processInboundEmailForCampaignReply }) => {
+            processInboundEmailForCampaignReply({
+              fromEmail: emailData.fromEmail ?? "",
+              subject: emailData.normalizedSubject ?? emailData.subject ?? "",
+              bodyText: emailData.bodyText ?? "",
+              providerMessageId: emailData.gmailMessageId,
+              providerThreadId: emailData.gmailThreadId,
+              inReplyTo: emailData.inReplyTo ?? null,
+              receivedAt: emailData.sentAt ?? null,
+              emailMessageDbId: inserted.id,
+            }).catch((err: any) =>
+              log(`[reply-ingestion] processInbound err msgId=${emailData.gmailMessageId}: ${err.message}`)
+            );
+          }).catch(() => {});
+        }
+
         return { inserted: true, updatedLabels: false };
       }
       return { inserted: false, updatedLabels: false };

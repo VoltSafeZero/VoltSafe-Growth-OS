@@ -1,0 +1,303 @@
+Build Phase 8 for the VoltSafe CMS Marketing / Campaigns module: Inbound Reply Ingestion + Campaign Thread Matching.
+
+Context:
+VoltSafe CMS Marketing/Campaigns now includes:
+
+* Campaign CRUD
+* Audience segments and recipient enrollment
+* Manual campaign sending
+* Automated sequences / drip scheduling
+* Open/click tracking
+* Unsubscribe and preference center
+* CASL/CAN-SPAM compliance
+* Compliance preflight and send-time gate
+* Account Heat Score
+* Buying Committee Intelligence
+* Reply Classification
+* Sales task creation from reply classifications
+* Marketing Replies page
+* Campaign Detail Reply Intelligence panel
+* Account Profile classified replies section
+
+Known gap:
+Reply classification exists, but inbound reply ingestion is not automatic yet. The system currently does not automatically match Gmail/VoltSafe Mail inbound replies back to campaign recipients.
+
+Goal:
+Automatically detect inbound replies to campaign emails, match them to the correct campaign recipient, create a replied campaign_event, set campaign_recipients.replied_at, create a campaign_reply_classifications record, and optionally create a sales task based on classification.
+
+Do not implement automated reply sending.
+Do not implement branch-based drip changes yet.
+
+1. Audit Existing Mail Infrastructure
+
+First inspect:
+
+* Gmail sync / VoltSafe Mail ingestion services
+* email thread/message storage tables
+* sent email provider_message_id storage
+* thread_id storage
+* reply-to headers
+* custom message headers if any
+* existing activity/timeline system
+* current campaign sending provider path
+* campaign_events metadata_json
+* campaign_recipients fields
+* campaign_emails fields
+
+Report what exists before building.
+
+2. Outbound Campaign Message Metadata
+
+Ensure outbound campaign sends store enough metadata to match future replies.
+
+For each sent campaign email, persist:
+
+* campaign_id
+* campaign_email_id
+* campaign_recipient_id
+* contact_id
+* account_id
+* recipient email
+* provider_message_id if available
+* provider_thread_id if available
+* subject
+* sent_at
+* campaign tracking token or reply token if needed
+
+Best place:
+
+* campaign_events metadata_json for sent events, and/or
+* a new table if needed:
+
+campaign_sent_messages:
+
+* id
+* campaign_id
+* campaign_email_id
+* campaign_recipient_id
+* contact_id
+* account_id
+* recipient_email
+* provider_message_id nullable
+* provider_thread_id nullable
+* subject
+* sent_at
+* created_at
+* metadata_json
+
+Add indexes:
+
+* provider_message_id
+* provider_thread_id
+* campaign_recipient_id
+* contact_id
+* account_id
+* recipient_email
+
+If existing campaign_events metadata is enough, avoid unnecessary table creation. But do not rely on fragile subject-only matching if better IDs exist.
+
+3. Reply Matching Strategy
+
+Implement matching in this order:
+
+Priority 1:
+Provider thread ID match.
+
+Priority 2:
+In-Reply-To / References header matches provider_message_id.
+
+Priority 3:
+Reply-to token or custom campaign header if available.
+
+Priority 4:
+Sender email + normalized subject match + recent campaign send window.
+
+Fallback matching should be conservative. If uncertain, mark as unmatched rather than guessing.
+
+4. Inbound Reply Processor
+
+Create:
+
+server/services/campaign-reply-ingestion.ts
+
+Functions:
+
+* processInboundEmailForCampaignReply(input)
+* matchInboundReplyToCampaignRecipient(input)
+* processUnmatchedCampaignReplies(limit)
+* scanRecentInboundReplies(options)
+* getUnmatchedReplies(filters)
+
+Input should support:
+
+* from_email
+* to_email
+* subject
+* body_text
+* body_html
+* provider_message_id
+* provider_thread_id
+* in_reply_to
+* references
+* received_at
+* raw_headers metadata if available
+
+On successful match:
+
+* create campaign_event event_type = replied
+* update campaign_recipients.replied_at
+* create campaign_reply_classifications using existing classifier
+* update status as needed
+* avoid duplicate classification for same inbound message
+* update account heat score indirectly through classification data
+
+On unsubscribe-like reply:
+
+* classify as unsubscribe
+* process suppression/unsubscribe
+* do not create sales task
+
+5. Integration with Existing Mail Sync
+
+If there is an existing Gmail/VoltSafe Mail sync job:
+
+* hook reply ingestion into the sync path
+* process only inbound messages
+* skip outbound messages from @voltsafe.com
+* skip auto-replies/out-of-office for task creation
+* preserve existing mail behavior
+
+If the sync path is risky or unclear:
+
+* add an internal endpoint that accepts inbound email payloads for now
+* clearly report full Gmail sync integration as remaining work
+
+Suggested endpoint:
+POST /api/marketing/replies/ingest
+
+This should be admin/internal-only unless called by trusted mail sync code.
+
+6. Unmatched Replies Queue
+
+Add a lightweight unmatched queue:
+
+campaign_unmatched_replies:
+
+* id
+* from_email
+* subject
+* body_preview
+* provider_message_id
+* provider_thread_id
+* received_at
+* match_attempts
+* status: unmatched, matched, ignored
+* possible_matches_json
+* created_at
+* updated_at
+
+Do not silently drop unmatched replies.
+
+7. Frontend: Marketing Replies Page
+
+Enhance /marketing/replies with:
+
+* Matched replies tab
+* Unmatched replies tab
+* Source indicator:
+    * manual
+    * inbound_ingested
+    * unmatched
+* Provider/thread info if safe
+* Button to manually match an unmatched reply to a campaign recipient if implemented
+
+If manual matching is too large, show unmatched count and report manual matching as next phase.
+
+8. Campaign Detail
+
+Update Reply Intelligence panel to show:
+
+* auto-ingested replies
+* manual classifications
+* unmatched replies possibly related to this campaign if available
+* source label
+
+9. Account Profile
+
+Update Marketing Intelligence panel:
+
+* show auto-ingested replies
+* show latest reply classification source
+* show recommended next action from reply classification
+
+10. Safety / Compliance
+
+Rules:
+
+* never auto-create tasks from unsubscribe, negative, out_of_office, or auto_reply classifications
+* explicit unsubscribe replies should suppress contact globally
+* do not log full reply bodies unnecessarily
+* store preview/snippet, not full sensitive body unless existing mail system already stores bodies
+* avoid matching private unrelated emails to campaigns
+* fail conservative: unmatched is safer than wrong match
+* do not expose inbound bodies to unauthorized users
+
+11. Tests
+
+Add tests for:
+
+* provider_thread_id match
+* in_reply_to provider_message_id match
+* references header match
+* reply-token/header match if implemented
+* sender + subject fallback match within safe window
+* fallback does not match outside safe window
+* ambiguous match becomes unmatched
+* inbound reply creates replied campaign_event
+* inbound reply updates campaign_recipients.replied_at
+* inbound reply creates campaign_reply_classifications
+* duplicate inbound message is idempotent
+* unsubscribe reply suppresses contact
+* out-of-office reply does not create task
+* negative reply does not auto-create task
+* meeting_request can create/suggest task
+* @voltsafe.com inbound messages are skipped
+* unmatched queue stores unmatched replies
+* ingest endpoint is admin/internal-only
+* existing reply classifier tests still pass
+* campaign sending tests still pass
+* campaign automation tests still pass
+* tracking tests still pass
+* compliance tests still pass
+* account heat tests still pass
+* permissions tests still pass
+* nav-drift still passes
+* openai-compat still passes
+
+12. Visual QA
+
+Take screenshots of:
+
+* Marketing Replies page showing source labels
+* matched inbound reply
+* unmatched replies state
+* Campaign Detail Reply Intelligence with auto-ingested reply
+* Account Profile recent auto-ingested reply
+
+13. Final Report
+
+Return:
+
+* what mail infrastructure already existed
+* matching strategy implemented
+* storage approach chosen
+* routes added
+* ingestion integration status
+* tests run and passing
+* screenshots taken
+* remaining gaps
+
+Important:
+Do not implement automated reply sending.
+Do not implement branch-based drip automation yet.
+Do not over-match. Conservative unmatched handling is better than wrong matching.

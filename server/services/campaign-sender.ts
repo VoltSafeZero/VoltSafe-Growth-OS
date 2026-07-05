@@ -721,12 +721,16 @@ export async function executeSendStep(
 
     let sendOk = false;
     let errorMsg: string | null = null;
+    let providerMessageId: string | null = null;
+    let providerThreadId: string | null = null;
 
     if (senderInfo.mode === "live" && senderInfo.userId) {
       try {
         const { sendEmail } = await import("../gmail");
         const body = rendered.bodyHtml || `<p>${rendered.bodyText}</p>`;
-        await sendEmail(senderInfo.userId, r.email, rendered.subject, body);
+        const gmailResult = await sendEmail(senderInfo.userId, r.email, rendered.subject, body);
+        providerMessageId = (gmailResult as any)?.id ?? null;
+        providerThreadId = (gmailResult as any)?.threadId ?? null;
         sendOk = true;
       } catch (err: any) {
         errorMsg = err?.message ?? "Send failed";
@@ -749,8 +753,27 @@ export async function executeSendStep(
             step_number: step.stepNumber,
             subject: rendered.subject,
             dev_safe: senderInfo.mode === "dev_safe",
+            provider_message_id: providerMessageId,
+            provider_thread_id: providerThreadId,
           },
         } as any);
+      } catch { /* non-critical */ }
+
+      // Phase 8: persist provider IDs so inbound replies can be matched back
+      try {
+        const { storeSentCampaignMessage } = await import("./campaign-reply-ingestion");
+        await storeSentCampaignMessage({
+          campaignId,
+          campaignEmailId,
+          campaignRecipientId: r.id,
+          contactId: r.contactId,
+          accountId: r.accountId,
+          recipientEmail: r.email,
+          providerMessageId,
+          providerThreadId,
+          subject: rendered.subject,
+          sentAt: now,
+        });
       } catch { /* non-critical */ }
 
       const newStatus = isLastStep ? "completed" : "in_sequence";
