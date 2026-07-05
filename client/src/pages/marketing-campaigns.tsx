@@ -108,13 +108,13 @@ export default function MarketingCampaignsPage() {
     campaignType: "awareness",
     goal: "",
     notes: "",
-    target_jurisdiction: "unknown",
-    sender_name: "",
-    sender_legal_entity: "",
-    physical_mailing_address: "",
-    unsubscribe_link_included: true,
-    commercial_disclosure_included: false,
-    preference_center_link_included: false,
+    targetJurisdiction: "unknown",
+    senderName: "",
+    senderLegalEntity: "",
+    physicalMailingAddress: "",
+    unsubscribeLinkIncluded: true,
+    commercialDisclosureIncluded: false,
+    preferenceCenterLinkIncluded: false,
   });
 
   const { data: campaigns = [], isLoading } = useQuery<Campaign[]>({
@@ -126,7 +126,7 @@ export default function MarketingCampaignsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
       setShowCreate(false);
-      setForm({ campaignName: "", campaignType: "awareness", goal: "", notes: "", target_jurisdiction: "unknown", sender_name: "", sender_legal_entity: "", physical_mailing_address: "", unsubscribe_link_included: true, commercial_disclosure_included: false, preference_center_link_included: false });
+      setForm({ campaignName: "", campaignType: "awareness", goal: "", notes: "", targetJurisdiction: "unknown", senderName: "", senderLegalEntity: "", physicalMailingAddress: "", unsubscribeLinkIncluded: true, commercialDisclosureIncluded: false, preferenceCenterLinkIncluded: false });
       toast({ title: "Campaign created", description: "Draft campaign ready to build." });
     },
     onError: () => toast({ title: "Error", description: "Failed to create campaign.", variant: "destructive" }),
@@ -387,9 +387,9 @@ export default function MarketingCampaignsPage() {
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Compliance (CASL / CAN-SPAM)</p>
 
               <div className="space-y-1.5">
-                <Label htmlFor="target_jurisdiction" className="text-xs">Target Jurisdiction</Label>
-                <Select value={form.target_jurisdiction} onValueChange={v => setForm(f => ({ ...f, target_jurisdiction: v }))}>
-                  <SelectTrigger id="target_jurisdiction" className="h-8 text-xs" data-testid="select-target-jurisdiction">
+                <Label htmlFor="targetJurisdiction" className="text-xs">Target Jurisdiction</Label>
+                <Select value={form.targetJurisdiction} onValueChange={v => setForm(f => ({ ...f, targetJurisdiction: v }))}>
+                  <SelectTrigger id="targetJurisdiction" className="h-8 text-xs" data-testid="select-target-jurisdiction">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -404,46 +404,46 @@ export default function MarketingCampaignsPage() {
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="sender_name" className="text-xs">Sender Name</Label>
+                  <Label htmlFor="senderName" className="text-xs">Sender Name</Label>
                   <Input
-                    id="sender_name"
+                    id="senderName"
                     className="h-8 text-xs"
                     placeholder="VoltSafe Inc."
-                    value={form.sender_name}
-                    onChange={e => setForm(f => ({ ...f, sender_name: e.target.value }))}
+                    value={form.senderName}
+                    onChange={e => setForm(f => ({ ...f, senderName: e.target.value }))}
                     data-testid="input-sender-name"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="sender_legal_entity" className="text-xs">Legal Entity</Label>
+                  <Label htmlFor="senderLegalEntity" className="text-xs">Legal Entity</Label>
                   <Input
-                    id="sender_legal_entity"
+                    id="senderLegalEntity"
                     className="h-8 text-xs"
                     placeholder="VoltSafe Technologies Ltd."
-                    value={form.sender_legal_entity}
-                    onChange={e => setForm(f => ({ ...f, sender_legal_entity: e.target.value }))}
+                    value={form.senderLegalEntity}
+                    onChange={e => setForm(f => ({ ...f, senderLegalEntity: e.target.value }))}
                     data-testid="input-sender-legal-entity"
                   />
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="physical_mailing_address" className="text-xs">Physical Mailing Address</Label>
+                <Label htmlFor="physicalMailingAddress" className="text-xs">Physical Mailing Address</Label>
                 <Input
-                  id="physical_mailing_address"
+                  id="physicalMailingAddress"
                   className="h-8 text-xs"
                   placeholder="123 Main St, Vancouver, BC V6B 1A1"
-                  value={form.physical_mailing_address}
-                  onChange={e => setForm(f => ({ ...f, physical_mailing_address: e.target.value }))}
+                  value={form.physicalMailingAddress}
+                  onChange={e => setForm(f => ({ ...f, physicalMailingAddress: e.target.value }))}
                   data-testid="input-physical-mailing-address"
                 />
               </div>
 
               <div className="space-y-2 pt-1">
                 {[
-                  { key: "unsubscribe_link_included", label: "Unsubscribe link included in every email" },
-                  { key: "commercial_disclosure_included", label: "Commercial message disclosure included" },
-                  { key: "preference_center_link_included", label: "Preference centre link included" },
+                  { key: "unsubscribeLinkIncluded", label: "Unsubscribe link included in every email" },
+                  { key: "commercialDisclosureIncluded", label: "Commercial message disclosure included" },
+                  { key: "preferenceCenterLinkIncluded", label: "Preference centre link included" },
                 ].map(({ key, label }) => (
                   <label key={key} className="flex items-center gap-2 text-xs cursor-pointer" data-testid={`checkbox-${key}`}>
                     <input

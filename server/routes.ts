@@ -4333,7 +4333,24 @@ export async function registerRoutes(
 
   app.put("/api/contacts/:id", requirePermission("crm", "edit"), async (req, res) => {
     const _cid = Number(req.params.id);
-    const result = await storage.updateContact(_cid, req.body);
+    // Compliance-protected fields may not be set via the generic contact update route.
+    // They must go through dedicated consent-capture or compliance routes.
+    const COMPLIANCE_PROTECTED = new Set([
+      "consentStatus", "consent_status",
+      "unsubscribeStatus", "unsubscribe_status",
+      "unsubscribeTimestamp", "unsubscribe_timestamp",
+      "unsubscribeSource", "unsubscribe_source",
+      "suppressionStatus", "suppression_status",
+      "suppressionReason", "suppression_reason",
+    ]);
+    const body = req.body ?? {};
+    const blocked = Object.keys(body).filter(k => COMPLIANCE_PROTECTED.has(k));
+    if (blocked.length > 0) {
+      return res.status(400).json({
+        message: `Fields [${blocked.join(", ")}] must be updated via the compliance endpoints (/api/contacts/:id/unsubscribe or /api/contacts/:id/suppress).`,
+      });
+    }
+    const result = await storage.updateContact(_cid, body);
     if (!result) return res.status(404).json({ message: "Contact not found" });
     res.json(result);
     import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("contact", _cid, "fields")).catch(() => {});

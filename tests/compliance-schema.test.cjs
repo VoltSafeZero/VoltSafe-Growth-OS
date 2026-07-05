@@ -184,6 +184,13 @@ console.log("\n[3] API routes — server/routes.ts");
   check("suppress sets suppression_status = suppressed", src.includes("suppression_status = 'suppressed'"));
   check("suppress writes compliance_audit_log", src.includes("'suppressed', ${id}"));
 
+  // PUT /api/contacts/:id must reject protected compliance fields
+  check("PUT contact route has COMPLIANCE_PROTECTED guard", src.includes("COMPLIANCE_PROTECTED"));
+  check("PUT contact blocks consentStatus updates", src.includes('"consentStatus"') && src.includes("COMPLIANCE_PROTECTED"));
+  check("PUT contact blocks unsubscribeStatus updates", src.includes('"unsubscribeStatus"') && src.includes("COMPLIANCE_PROTECTED"));
+  check("PUT contact blocks suppressionStatus updates", src.includes('"suppressionStatus"') && src.includes("COMPLIANCE_PROTECTED"));
+  check("PUT contact returns 400 when protected field attempted", src.includes("must be updated via the compliance endpoints"));
+
   // GET audit log
   check("GET /api/contacts/:id/compliance/audit route", src.includes('app.get("/api/contacts/:id/compliance/audit"'));
   check("audit log query joins users for performed_by_name", src.includes("performed_by_name"));
@@ -237,18 +244,20 @@ console.log("\n[5] Campaign create dialog — client/src/pages/marketing-campaig
 {
   const src = readFile("client/src/pages/marketing-campaigns.tsx");
 
-  // Form state
-  check("Form includes target_jurisdiction field", src.includes("target_jurisdiction:"));
-  check("Form includes sender_name field", src.includes("sender_name:"));
-  check("Form includes sender_legal_entity field", src.includes("sender_legal_entity:"));
-  check("Form includes physical_mailing_address field", src.includes("physical_mailing_address:"));
-  check("Form includes unsubscribe_link_included boolean", src.includes("unsubscribe_link_included: true"));
-  check("Form includes commercial_disclosure_included boolean", src.includes("commercial_disclosure_included: false"));
-  check("Form includes preference_center_link_included boolean", src.includes("preference_center_link_included: false"));
+  // Form state — must use camelCase to match insertMarketingCampaignSchema in shared/schema.ts
+  check("Form includes targetJurisdiction field (camelCase)", src.includes("targetJurisdiction:"));
+  check("Form includes senderName field (camelCase)", src.includes("senderName:"));
+  check("Form includes senderLegalEntity field (camelCase)", src.includes("senderLegalEntity:"));
+  check("Form includes physicalMailingAddress field (camelCase)", src.includes("physicalMailingAddress:"));
+  check("Form includes unsubscribeLinkIncluded boolean (camelCase)", src.includes("unsubscribeLinkIncluded: true"));
+  check("Form includes commercialDisclosureIncluded boolean (camelCase)", src.includes("commercialDisclosureIncluded: false"));
+  check("Form includes preferenceCenterLinkIncluded boolean (camelCase)", src.includes("preferenceCenterLinkIncluded: false"));
+  // Must NOT use snake_case (would cause silent data drop on server)
+  check("Form does NOT use target_jurisdiction (snake_case)", !src.includes("target_jurisdiction:"));
 
   // Form reset includes new fields
   const resetIdx = src.indexOf("setForm({ campaignName: \"\", campaignType: \"awareness\"");
-  check("Form reset includes target_jurisdiction", src.slice(resetIdx, resetIdx + 500).includes("target_jurisdiction"));
+  check("Form reset includes targetJurisdiction", src.slice(resetIdx, resetIdx + 500).includes("targetJurisdiction"));
 
   // UI elements
   check("Compliance section header rendered", src.includes("Compliance (CASL / CAN-SPAM)"));
