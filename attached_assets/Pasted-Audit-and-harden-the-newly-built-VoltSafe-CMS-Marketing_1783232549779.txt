@@ -1,0 +1,296 @@
+Audit and harden the newly built VoltSafe CMS Marketing / Campaigns module.
+
+Context:
+The Marketing / Campaigns module was just implemented with migration 0022_marketing_campaigns.sql, 7 new marketing tables, backend routes, navigation, and frontend pages for Campaigns, Audiences, Templates, Analytics, Suppression, and Campaign Detail.
+
+The goal now is to verify that the feature is production-safe, usable, and correctly integrated with CRM accounts/contacts, permissions, AI generation, suppression rules, and campaign analytics.
+
+Please perform a full QA and hardening pass. Do not add large new features unless required to fix broken or incomplete behavior.
+
+Scope to audit:
+
+1. Database / Migration
+    Verify:
+
+* migration 0022_marketing_campaigns.sql is idempotent or safe in the project’s current migration pattern
+* all 7 tables exist:
+    * marketing_campaigns
+    * campaign_emails
+    * campaign_segments
+    * campaign_recipients
+    * campaign_events
+    * campaign_templates
+    * campaign_suppression
+* seeded starter templates are inserted safely without duplication
+* foreign keys are correct
+* timestamps are consistent
+* nullable vs required fields make sense
+* campaign status enum values are consistent across DB/backend/frontend
+* indexes exist for common queries:
+    * campaign_id
+    * contact_id
+    * account_id
+    * email
+    * status
+    * event_type
+    * event_timestamp
+    * segment_name
+    * campaign_name
+* suppression lookups are efficient by email and domain
+
+2. Schema / Types
+    Verify:
+
+* schema.ts exports all new tables correctly
+* insert/select types are available where needed
+* frontend/backend types match
+* no “any” or unsafe loose typing where proper types are obvious
+* account/contact additions for Marina Persona, Adoption Stage, Adoption Readiness Score, Primary Pain, etc. are wired consistently if they were added
+* casing is consistent between snake_case DB fields and camelCase API/frontend fields
+
+3. Backend Routes
+    Audit all marketing routes:
+
+* GET/POST/PATCH/DELETE /api/marketing/campaigns
+* GET/POST/DELETE /api/marketing/campaigns/:id/emails
+* POST /api/marketing/campaigns/:id/seed-sequence
+* GET/POST/DELETE /api/marketing/segments
+* GET/POST/DELETE /api/marketing/templates
+* GET/POST/DELETE /api/marketing/suppression
+* POST /api/marketing/ai/generate
+
+Verify:
+
+* all routes are inside registerRoutes
+* routes use the project’s existing auth/permission middleware pattern
+* no duplicate route definitions
+* no app-scope errors
+* no raw OpenAI parameters outside buildOpenAIModelParams
+* all input payloads are validated
+* bad inputs return useful 400s
+* missing records return 404s
+* permission failures return 403s
+* unexpected failures are logged safely and return 500s
+* no sensitive data is logged
+* campaign delete/archive behavior is safe
+* suppression delete behavior is safe
+* AI generation cannot be abused with empty/giant payloads
+* AI route has reasonable prompt boundaries and marina-specific output
+
+4. Permissions
+    Verify:
+
+* Marketing nav uses the correct permKey
+* users without permission cannot see the Marketing nav section
+* users without permission cannot directly access Marketing routes
+* only appropriate roles can create/send/archive campaigns
+* read-only users can view but not mutate where applicable
+* Marketing permission does not accidentally expose unrelated CRM admin capabilities
+
+5. Frontend Navigation
+    Verify:
+
+* Marketing appears in the sidebar between Ecosystem and Learn
+* no nav-drift test failures
+* route paths are consistent
+* active states work
+* page titles are correct
+* sidebar does not overflow
+* mobile/tablet sidebar still works
+* Marketing section does not break existing CRM/Learn/Ecosystem nav
+
+6. Campaigns Page
+    Verify:
+
+* campaign table loads cleanly
+* empty state is useful
+* loading state is useful
+* error state is useful
+* create campaign dialog validates required fields
+* search works
+* status actions work:
+    * launch
+    * pause
+    * resume
+    * archive
+* status labels and backend status values match
+* stats row matches real data
+* campaign creation does not produce broken records
+* archived campaigns behave correctly
+
+7. Campaign Detail Page
+    Verify:
+
+* campaign detail loads by ID
+* missing campaign shows clean 404/empty state
+* email sequence builder works
+* 5-email seed sequence works
+* emails can be added/deleted
+* sequence step ordering is stable
+* AI Generate dialog works
+* stakeholder opening lines render correctly
+* status controls work
+* invalid campaign state transitions are blocked or handled
+* there is no crash when campaign has zero emails
+* there is no crash when campaign has zero recipients
+
+8. Audiences / Segments Page
+    Verify:
+
+* dynamic segment builder works
+* AND-clause filters are saved and reloaded correctly
+* filters support persona, adoption stage, role, pain, and boolean fields
+* invalid filters are rejected
+* segment preview count is either accurate or clearly marked if not yet implemented
+* deleting a segment used by a campaign is handled safely
+* saved segments display correctly
+* static vs dynamic segment behavior is clear
+
+9. Templates Page
+    Verify:
+
+* 10 starter templates appear
+* starter templates are not duplicated after restart/reseed
+* persona/role/type filters work
+* preview works
+* duplicate flow works
+* custom template creation works if implemented
+* empty template fields are rejected
+* deleting templates is safe
+
+10. Analytics Page
+    Verify:
+
+* campaign performance table loads
+* analytics do not crash with no campaigns
+* analytics do not crash with no events
+* open/click/reply/demo metrics are calculated consistently
+* stakeholder benchmark section works
+* marina persona tier grid renders correctly
+* BC launch targets render correctly
+* numbers are clearly marked as sample/demo if they are not real
+* avoid misleading fake analytics as if they are real production results
+
+11. Suppression Page
+    Verify:
+
+* suppression list loads
+* email suppression works
+* domain suppression works
+* invalid emails/domains are rejected
+* duplicate suppression entries are prevented
+* deleting suppression entries works
+* campaign recipients correctly exclude suppressed emails/domains if recipient selection is implemented
+* compliance banner is visible and useful
+
+12. CRM Integration
+    Verify:
+
+* Campaigns connect cleanly to existing accounts and contacts
+* account/contact IDs are used correctly
+* no internal @voltsafe.com contacts are counted as external campaign engagement
+* account-level campaign engagement is technically possible from campaign_events
+* campaign influence on lead/account stage is not falsely shown if not fully implemented
+* campaign recipients can be tied back to account/contact records
+* no orphaned recipient/event records are created unnecessarily
+
+13. AI Generation
+    Verify:
+
+* AI generation uses the correct OpenAI compatibility helper
+* no bare max_tokens or temperature fields
+* prompt is VoltSafe/marina-specific
+* prompt supports:
+    * marina persona
+    * stakeholder role
+    * campaign goal
+    * CTA
+    * tone
+    * number of emails
+* output is valid enough for UI usage
+* errors from AI provider are handled cleanly
+* no user-facing crash if API key is missing
+* generated copy avoids unsupported claims
+* generated copy does not imply certifications, deployments, or results unless provided by CRM/context
+
+14. Testing
+    Run and report:
+
+* nav-drift tests
+* openai-compat tests
+* account/contact tests affected by schema additions
+* route smoke tests if available
+* frontend build/typecheck
+* any existing CRM tests that could be affected
+* full test suite if practical
+
+If tests fail:
+
+* identify exact failing test
+* fix root cause
+* rerun targeted tests
+* then rerun affected broader suite
+
+15. Visual QA
+    Take screenshots of:
+
+* sidebar with Marketing section
+* Campaigns page
+* Create Campaign dialog
+* Campaign Detail page
+* Audiences page
+* Templates page
+* Analytics page
+* Suppression page
+
+Check:
+
+* layout alignment
+* dark mode compatibility
+* no clipped modals
+* no right-edge cutoffs
+* buttons visible
+* tables readable
+* empty states polished
+* mobile/tablet obvious issues if easy to test
+
+16. Product Gaps to Identify
+    Create a short report of what is implemented vs still missing.
+
+Specifically identify whether these are fully implemented, partially implemented, or not implemented:
+
+* real recipient enrollment
+* actual campaign sending
+* scheduled sending
+* email open tracking
+* click tracking
+* reply tracking
+* unsubscribe link handling
+* bounce handling
+* dynamic segment live counts
+* account heat score
+* adoption readiness score auto-calculation
+* campaign-to-opportunity attribution
+* account-level buying committee engagement panel
+* AI reply classifier
+* AI persona strategy button
+
+Do not pretend incomplete features are complete. Label them clearly.
+
+17. Final Deliverable
+    Provide a report with:
+
+* Issues found
+* Fixes made
+* Tests run
+* Screenshots taken
+* Remaining gaps
+* Recommended next implementation phase
+
+The recommended next implementation phase should focus on the highest-value missing piece, likely one of:
+
+* real recipient enrollment from CRM segments
+* safe sending workflow with suppression/unsubscribe protection
+* campaign event tracking
+* account-level engagement / heat score
+* adoption readiness scoring

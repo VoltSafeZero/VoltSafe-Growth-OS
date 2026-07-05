@@ -126,10 +126,12 @@ export default function MarketingAnalyticsPage() {
 
             {/* Role breakdown */}
             <div>
-              <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                <Users className="w-4 h-4 text-primary" /> Performance by Stakeholder Role
-                <span className="text-xs font-normal text-muted-foreground">(benchmark targets)</span>
+              <h2 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-2">
+                <Users className="w-4 h-4 text-primary" /> Stakeholder Role Benchmarks
               </h2>
+              <p className="text-xs text-muted-foreground mb-3">
+                These are <strong>industry benchmark targets</strong>, not tracked campaign data. Real open/reply/demo rates will appear here once campaigns have sent volume.
+              </p>
               <div className="rounded-xl border border-border/50 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>

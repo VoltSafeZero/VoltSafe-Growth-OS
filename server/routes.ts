@@ -36369,6 +36369,10 @@ export function registerConfluenceRoutes(app: Express) {
   app.delete("/api/marketing/campaigns/:id", requireAuth, async (req: any, res) => {
     try {
       const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      const [row] = await db.select({ status: marketingCampaigns.status }).from(marketingCampaigns).where(eq(marketingCampaigns.id, id));
+      if (!row) return res.status(404).json({ error: "Not found" });
+      if (row.status === "active") return res.status(409).json({ error: "Cannot delete an active campaign — pause or archive it first" });
       await db.delete(marketingCampaigns).where(eq(marketingCampaigns.id, id));
       res.json({ ok: true });
     } catch (err) {
@@ -36419,6 +36423,10 @@ export function registerConfluenceRoutes(app: Express) {
   app.post("/api/marketing/campaigns/:id/seed-sequence", requireAuth, async (req: any, res) => {
     try {
       const campaignId = Number(req.params.id);
+      if (!campaignId || isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
+      const existing = await db.select({ id: campaignEmails.id }).from(campaignEmails)
+        .where(eq(campaignEmails.campaignId, campaignId)).limit(1);
+      if (existing.length > 0) return res.status(409).json({ error: "Sequence already exists — delete existing steps first" });
       const defaultSteps = [
         { stepNumber: 1, delayDays: 0,  subject: "The problem with legacy shore power",                 bodyText: "Shore power is the lifeblood of every marina — but most marinas are running infrastructure that hasn't changed in decades. Legacy pedestals create billing blind spots, safety risks, and boater friction. There's a smarter way." },
         { stepNumber: 2, delayDays: 4,  subject: "How smart shore power improves safety and visibility", bodyText: "Smart shore power gives marina teams real-time visibility into every slip — so problems are caught before they become incidents. No more mystery outages. No more manual meter reading rounds." },
@@ -36463,9 +36471,11 @@ export function registerConfluenceRoutes(app: Express) {
   app.delete("/api/marketing/segments/:id", requireAuth, async (req: any, res) => {
     try {
       const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid id" });
       await db.delete(campaignSegments).where(eq(campaignSegments.id, id));
       res.json({ ok: true });
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.code === "23503") return res.status(409).json({ error: "This segment is linked to one or more campaigns — unlink it first" });
       console.error("[marketing] DELETE /segments/:id:", err);
       res.status(500).json({ error: "Failed to delete segment" });
     }
@@ -36522,7 +36532,12 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.post("/api/marketing/suppression", requireAuth, async (req: any, res) => {
     try {
-      const parsed = insertCampaignSuppressionSchema.safeParse(req.body);
+      const body = {
+        ...req.body,
+        email:  req.body.email?.trim()  || null,
+        domain: req.body.domain?.trim() || null,
+      };
+      const parsed = insertCampaignSuppressionSchema.safeParse(body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.issues });
       if (!parsed.data.email && !parsed.data.domain) {
         return res.status(400).json({ error: "Email or domain required" });
@@ -36552,7 +36567,8 @@ export function registerConfluenceRoutes(app: Express) {
   app.post("/api/marketing/ai/generate", requireAuth, async (req: any, res) => {
     try {
       const { prompt, campaignName, campaignType, goal } = req.body;
-      if (!prompt) return res.status(400).json({ error: "prompt required" });
+      if (!prompt || typeof prompt !== "string") return res.status(400).json({ error: "prompt required" });
+      if (prompt.trim().length > 4000) return res.status(400).json({ error: "Prompt too long — 4000 character limit" });
 
       const systemPrompt = `You are a senior B2B sales and marketing strategist specializing in marina and marine infrastructure sales for VoltSafe. VoltSafe sells a smart shore power solution (marina pedestal + smart 30A connector + SaaS software) to marinas across North America.
 

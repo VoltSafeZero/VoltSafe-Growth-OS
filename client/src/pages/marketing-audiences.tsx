@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
-  Users, Plus, Trash2, RefreshCw, Filter, Save, ChevronDown, ChevronUp, Eye,
+  Users, Plus, Trash2, Filter, Save, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
