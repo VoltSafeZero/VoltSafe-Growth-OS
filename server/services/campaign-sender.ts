@@ -35,6 +35,10 @@ export interface RecipientData {
   accountName: string | null;
   currentStep: number;
   status: string;
+  /** Per-recipient jurisdiction fields for compliant footer generation */
+  canadaContact?: boolean | null;
+  usContact?: boolean | null;
+  recipientJurisdiction?: string | null;
 }
 
 export interface EligibilityRow extends RecipientData {
@@ -241,6 +245,7 @@ export async function checkSendEligibility(
       cr.marina_persona, cr.adoption_stage, cr.current_step, cr.status,
       cr.bounced_at, cr.unsubscribed_at,
       c.first_name, c.last_name, c.do_not_email, c.email_bounced, c.email_unsubscribed,
+      c.canada_contact, c.us_contact, c.jurisdiction AS contact_jurisdiction,
       a.name AS account_name, a.primary_pain
     FROM campaign_recipients cr
     LEFT JOIN contacts c ON c.id = cr.contact_id
@@ -282,6 +287,9 @@ export async function checkSendEligibility(
       accountName: raw.account_name || null,
       currentStep: raw.current_step || 0,
       status: raw.status || "enrolled",
+      canadaContact: raw.canada_contact ?? null,
+      usContact: raw.us_contact ?? null,
+      recipientJurisdiction: raw.contact_jurisdiction ?? null,
     };
 
     let exclusionReason: string | null = null;
@@ -572,27 +580,17 @@ export async function executeSendStep(
 
   const effectiveBaseUrl = baseUrl || "http://localhost:5000";
 
-  // Build jurisdiction-aware compliant footer template once per campaign send.
-  // Token placeholder is swapped per-recipient inside the loop.
-  let campaignCompliantFooterHtml: string | undefined;
-  let campaignCompliantFooterText: string | undefined;
-  try {
-    const { buildCompliantFooter, COMPLIANCE_TOKEN_PLACEHOLDER } = await import("./compliance-preflight");
-    const footerResult = buildCompliantFooter({
-      // Both URLs use the placeholder — swapped per-recipient below
-      unsubscribeUrl: `${effectiveBaseUrl}/unsubscribe?token=${COMPLIANCE_TOKEN_PLACEHOLDER}`,
-      preferencesUrl: `${effectiveBaseUrl}/preferences?token=${COMPLIANCE_TOKEN_PLACEHOLDER}`,
-      jurisdiction: (campaign as any).targetJurisdiction ?? "unknown",
-      senderName: (campaign as any).senderName ?? null,
-      senderLegalEntity: (campaign as any).senderLegalEntity ?? null,
-      physicalMailingAddress: (campaign as any).physicalMailingAddress ?? null,
-      contactEmail: (campaign as any).contactEmail ?? null,
-      contactPhone: (campaign as any).contactPhone ?? null,
-      commercialDisclosureIncluded: (campaign as any).commercialDisclosureIncluded ?? false,
-    });
-    campaignCompliantFooterHtml = footerResult.html;
-    campaignCompliantFooterText = footerResult.text;
-  } catch { /* non-critical — fall back to minimal footer in renderCampaignEmail */ }
+  // Pre-import compliance module once (outside loop for performance)
+  const complianceMod = await import("./compliance-preflight").catch(() => null);
+  const campaignFooterBase = {
+    senderName: (campaign as any).senderName ?? null,
+    senderLegalEntity: (campaign as any).senderLegalEntity ?? null,
+    physicalMailingAddress: (campaign as any).physicalMailingAddress ?? null,
+    contactEmail: (campaign as any).contactEmail ?? null,
+    contactPhone: (campaign as any).contactPhone ?? null,
+    commercialDisclosureIncluded: (campaign as any).commercialDisclosureIncluded ?? false,
+    campaignType: (campaign as any).campaignType ?? null,
+  };
 
   for (const r of eligible) {
     // Generate (or retrieve) marketing unsubscribe token — idempotent (for tracking pixel + click)
@@ -605,9 +603,8 @@ export async function executeSendStep(
     // Generate a HMAC compliance token for this recipient (unsubscribe + preferences URLs)
     let complianceToken = "";
     try {
-      const { signComplianceToken } = await import("./compliance-preflight");
-      if (r.email && r.contactId) {
-        complianceToken = signComplianceToken({
+      if (complianceMod && r.email && r.contactId) {
+        complianceToken = complianceMod.signComplianceToken({
           email: r.email,
           contactId: r.contactId,
           campaignId,
@@ -615,13 +612,39 @@ export async function executeSendStep(
       }
     } catch { /* non-critical */ }
 
-    // Swap placeholder with real per-recipient compliance token in footer templates
-    const recipFooterHtml = complianceToken
-      ? campaignCompliantFooterHtml?.replaceAll("__COMPLIANCE_TOKEN__", complianceToken)
-      : undefined;
-    const recipFooterText = complianceToken
-      ? campaignCompliantFooterText?.replaceAll("__COMPLIANCE_TOKEN__", complianceToken)
-      : undefined;
+    // Derive per-recipient jurisdiction for accurate footer content
+    // Prefer explicit contact-level data over campaign-level fallback
+    let recipJurisdiction: string;
+    if (r.canadaContact && r.usContact) {
+      recipJurisdiction = "mixed";
+    } else if (r.canadaContact) {
+      recipJurisdiction = "canada";
+    } else if (r.usContact) {
+      recipJurisdiction = "us";
+    } else if (r.recipientJurisdiction) {
+      recipJurisdiction = r.recipientJurisdiction;
+    } else {
+      // Fall back to campaign-level jurisdiction
+      recipJurisdiction = (campaign as any).targetJurisdiction ?? "unknown";
+    }
+
+    // Build footer per-recipient using their own jurisdiction
+    let recipFooterHtml: string | undefined;
+    let recipFooterText: string | undefined;
+    try {
+      if (complianceMod && complianceToken) {
+        const unsubUrl = `${effectiveBaseUrl}/unsubscribe?token=${complianceToken}`;
+        const prefUrl = `${effectiveBaseUrl}/preferences?token=${complianceToken}`;
+        const footerResult = complianceMod.buildCompliantFooter({
+          unsubscribeUrl: unsubUrl,
+          preferencesUrl: prefUrl,
+          jurisdiction: recipJurisdiction,
+          ...campaignFooterBase,
+        });
+        recipFooterHtml = footerResult.html;
+        recipFooterText = footerResult.text;
+      }
+    } catch { /* non-critical — fall back to minimal footer in renderCampaignEmail */ }
 
     // Marketing tracking URL still uses the campaign-tracking token (for open/click tracking)
     const recipUnsubUrl = unsubscribeToken
