@@ -1,8 +1,13 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import {
   BarChart3, TrendingUp, Mail, MousePointerClick, MessageSquare, Calendar,
-  Users, Target, ArrowUp, ArrowDown, Minus,
+  Users, Target, ArrowUp, ArrowDown, Minus, Flame, ThermometerSun,
+  AlertTriangle, ChevronDown, ChevronUp, Zap,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function pct(num: number, denom: number): string {
   if (!denom) return "—";
@@ -40,6 +45,226 @@ type CampaignSummary = {
   repliedCount: number;
   demoBookedCount: number;
 };
+
+type HeatAccount = {
+  accountId: number;
+  accountName: string;
+  marinaType: string | null;
+  region: string | null;
+  heatScore: number;
+  heatLabel: "Hot" | "Warm" | "Nurture" | "Low" | "Cold";
+  scoreReasons: string[];
+  negativeReasons: string[];
+  latestEngagementAt: string | null;
+  engagedContactsCount: number;
+  engagedRoles: string[];
+  openCount: number;
+  clickCount: number;
+  replyCount: number;
+  complianceRiskCount: number;
+  recommendedNextAction: string;
+};
+
+const HEAT_LABELS = ["Hot", "Warm", "Nurture", "Low", "Cold"] as const;
+
+function heatColor(label: string) {
+  if (label === "Hot") return "bg-red-500/15 text-red-400 border-red-500/30";
+  if (label === "Warm") return "bg-orange-500/15 text-orange-400 border-orange-500/30";
+  if (label === "Nurture") return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+  if (label === "Low") return "bg-slate-500/15 text-slate-400 border-slate-500/30";
+  return "bg-muted/30 text-muted-foreground border-border/50";
+}
+
+function heatDot(label: string) {
+  if (label === "Hot") return "bg-red-400";
+  if (label === "Warm") return "bg-orange-400";
+  if (label === "Nurture") return "bg-amber-400";
+  if (label === "Low") return "bg-slate-400";
+  return "bg-muted-foreground/40";
+}
+
+function formatAgo(ts: string | null): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  const diff = Date.now() - d.getTime();
+  const days = Math.floor(diff / 86400000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
+// ── Hot Marina Accounts section ───────────────────────────────────────────────
+function HotAccountsSection() {
+  const [labelFilter, setLabelFilter] = useState<string>("all");
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  const params = new URLSearchParams();
+  if (labelFilter !== "all") params.set("label", labelFilter);
+  params.set("limit", "30");
+
+  const { data: accounts = [], isLoading } = useQuery<HeatAccount[]>({
+    queryKey: ["/api/marketing/account-heat", labelFilter],
+    queryFn: () => fetch(`/api/marketing/account-heat?${params.toString()}`).then(r => r.json()),
+  });
+
+  return (
+    <div data-testid="hot-accounts-section">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <Flame className="w-4 h-4 text-red-400" /> Hot Marina Accounts
+          {accounts.length > 0 && (
+            <span className="text-xs font-normal text-muted-foreground">({accounts.length})</span>
+          )}
+        </h2>
+        <div className="flex gap-1">
+          {["all", ...HEAT_LABELS].map(l => (
+            <button
+              key={l}
+              onClick={() => setLabelFilter(l)}
+              className={`text-xs px-2.5 py-1 rounded-full transition-colors border ${
+                labelFilter === l
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "text-muted-foreground border-border/50 hover:text-foreground hover:border-border"
+              }`}
+              data-testid={`heat-filter-${l}`}
+            >
+              {l === "all" ? "All" : l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+        </div>
+      ) : accounts.length === 0 ? (
+        <div className="rounded-xl border border-border/40 bg-muted/20 px-6 py-10 text-center" data-testid="hot-accounts-empty">
+          <ThermometerSun className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+          <p className="text-sm font-medium text-foreground mb-1">No account heat data yet</p>
+          <p className="text-xs text-muted-foreground">
+            Enroll contacts into a campaign and start sending to begin tracking account heat scores.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border/50 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[900px]">
+              <thead>
+                <tr className="border-b border-border/50 bg-muted/30">
+                  {["Account / Marina", "Persona", "Heat Score", "Engaged Contacts", "Top Role", "Latest Engagement", "Compliance", "Recommended Action"].map(h => (
+                    <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.map((a, i) => (
+                  <>
+                    <tr
+                      key={a.accountId}
+                      className={`border-b border-border/20 cursor-pointer hover:bg-muted/20 transition-colors ${i % 2 === 0 ? "" : "bg-muted/10"}`}
+                      onClick={() => setExpanded(expanded === a.accountId ? null : a.accountId)}
+                      data-testid={`heat-row-${a.accountId}`}
+                    >
+                      <td className="px-4 py-3">
+                        <Link href={`/accounts/${a.accountId}`} onClick={e => e.stopPropagation()}>
+                          <span className="font-medium text-foreground hover:text-primary transition-colors">{a.accountName}</span>
+                        </Link>
+                        {a.region && <div className="text-xs text-muted-foreground">{a.region}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{a.marinaType ?? "—"}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-muted/40 flex items-center justify-center text-[10px] font-bold text-foreground">
+                            {a.heatScore}
+                          </div>
+                          <Badge variant="outline" className={`text-[10px] h-5 px-1.5 border ${heatColor(a.heatLabel)}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full mr-1 ${heatDot(a.heatLabel)}`} />
+                            {a.heatLabel}
+                          </Badge>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        <span className={`font-medium ${a.engagedContactsCount > 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
+                          {a.engagedContactsCount}
+                        </span>
+                        {a.engagedContactsCount === 0 && <span className="text-muted-foreground"> / none</span>}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{a.engagedRoles[0] ?? "—"}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{formatAgo(a.latestEngagementAt)}</td>
+                      <td className="px-4 py-3 text-xs">
+                        {a.complianceRiskCount > 0 ? (
+                          <span className="flex items-center gap-1 text-amber-400">
+                            <AlertTriangle className="w-3 h-3" />{a.complianceRiskCount} risk{a.complianceRiskCount !== 1 ? "s" : ""}
+                          </span>
+                        ) : <span className="text-muted-foreground/50">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground max-w-[220px]">
+                        <div className="flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-primary shrink-0" />
+                          <span className="truncate">{a.recommendedNextAction}</span>
+                        </div>
+                      </td>
+                    </tr>
+                    {expanded === a.accountId && (
+                      <tr key={`${a.accountId}-expand`} className="border-b border-border/20 bg-muted/5">
+                        <td colSpan={8} className="px-4 py-3">
+                          <div className="grid grid-cols-2 gap-4">
+                            {a.scoreReasons.length > 0 && (
+                              <div>
+                                <div className="text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wide">Why this account is heating up</div>
+                                <ul className="space-y-1">
+                                  {a.scoreReasons.map((r, ri) => (
+                                    <li key={ri} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                                      <div className="w-1 h-1 rounded-full bg-emerald-400/60 shrink-0" />{r}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {a.negativeReasons.length > 0 && (
+                              <div>
+                                <div className="text-xs font-medium text-red-400 mb-1.5 uppercase tracking-wide">Risk signals</div>
+                                <ul className="space-y-1">
+                                  {a.negativeReasons.map((r, ri) => (
+                                    <li key={ri} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                                      <div className="w-1 h-1 rounded-full bg-red-400/60 shrink-0" />{r}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            <div className="col-span-2 flex gap-6 pt-1 border-t border-border/20">
+                              {[
+                                { label: "Opens", value: a.openCount },
+                                { label: "Clicks", value: a.clickCount },
+                                { label: "Replies", value: a.replyCount },
+                              ].map(s => (
+                                <div key={s.label} className="text-xs">
+                                  <span className="text-muted-foreground">{s.label}: </span>
+                                  <span className="font-medium text-foreground">{s.value}</span>
+                                </div>
+                              ))}
+                              <Link href={`/accounts/${a.accountId}?tab=marketing`}>
+                                <span className="text-xs text-primary hover:underline">View full intelligence →</span>
+                              </Link>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function MarketingAnalyticsPage() {
   const { data: campaigns = [], isLoading } = useQuery<CampaignSummary[]>({
@@ -93,6 +318,9 @@ export default function MarketingAnalyticsPage() {
                 </div>
               ))}
             </div>
+
+            {/* Hot Marina Accounts */}
+            <HotAccountsSection />
 
             {/* Campaign performance table */}
             {active.length > 0 && (

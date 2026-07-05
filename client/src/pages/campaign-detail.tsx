@@ -5,7 +5,7 @@ import {
   Radio, ArrowLeft, Plus, Trash2, Play, Pause, CheckCircle, Edit2,
   Mail, MousePointerClick, MessageSquare, Calendar, Users, Target,
   Sparkles, Save, FileText, Clock, UserCheck, AlertTriangle, ChevronDown, ChevronUp,
-  RefreshCw, Filter, Send, Eye, ShieldCheck, Info, Zap, XCircle,
+  RefreshCw, Filter, Send, Eye, ShieldCheck, Info, Zap, XCircle, Flame,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1056,6 +1056,9 @@ export default function CampaignDetailPage() {
         )}
       </div>
 
+      {/* ── Accounts Heating Up From This Campaign ───────────────────────────── */}
+      <AccountsHeatingUpSection campaignId={id} />
+
       {/* ── Send Preview Modal ────────────────────────────────────────────────── */}
       <Dialog open={sendPreviewModalOpen} onOpenChange={(open) => {
         if (!sendStepLoading) setSendPreviewModalOpen(open);
@@ -1305,6 +1308,131 @@ export default function CampaignDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ── Accounts Heating Up From This Campaign ────────────────────────────────────
+
+type CampaignHeatAccount = {
+  accountId: number;
+  accountName: string;
+  marinaType: string | null;
+  heatScore: number;
+  heatLabel: string;
+  engagedContactsCount: number;
+  openCount: number;
+  clickCount: number;
+  replyCount: number;
+  complianceRiskCount: number;
+  recommendedNextAction: string;
+  latestEngagementAt: string | null;
+};
+
+function heatBadgeClass(label: string) {
+  if (label === "Hot") return "bg-red-500/15 text-red-400 border-red-500/30";
+  if (label === "Warm") return "bg-orange-500/15 text-orange-400 border-orange-500/30";
+  if (label === "Nurture") return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+  if (label === "Low") return "bg-slate-500/15 text-slate-400 border-slate-500/30";
+  return "bg-muted/30 text-muted-foreground border-border/50";
+}
+
+function agoStr(ts: string | null): string {
+  if (!ts) return "—";
+  const d = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
+  if (d === 0) return "Today";
+  if (d === 1) return "1d ago";
+  if (d < 7) return `${d}d ago`;
+  if (d < 30) return `${Math.floor(d / 7)}w ago`;
+  return `${Math.floor(d / 30)}mo ago`;
+}
+
+function AccountsHeatingUpSection({ campaignId }: { campaignId: number }) {
+  const { data: accounts = [], isLoading } = useQuery<CampaignHeatAccount[]>({
+    queryKey: ["/api/marketing/campaigns", campaignId, "hot-accounts"],
+    queryFn: () =>
+      fetch(`/api/marketing/campaigns/${campaignId}/hot-accounts`)
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => []),
+    staleTime: 60000,
+    enabled: !!campaignId,
+  });
+
+  if (isLoading) return null;
+
+  return (
+    <div className="px-6 pb-4" data-testid="accounts-heating-up-section">
+      <div className="flex items-center gap-2 mb-3">
+        <Flame className="w-4 h-4 text-red-400" />
+        <h2 className="text-sm font-semibold text-foreground">
+          Accounts Heating Up From This Campaign
+          {accounts.length > 0 && (
+            <span className="text-xs font-normal text-muted-foreground ml-1">({accounts.length})</span>
+          )}
+        </h2>
+      </div>
+
+      {accounts.length === 0 ? (
+        <div className="rounded-xl border border-border/40 bg-muted/20 px-5 py-6 text-center" data-testid="heating-up-empty">
+          <p className="text-sm text-muted-foreground">
+            No account heat data yet. Send to recipients to start tracking account engagement.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border/50 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[800px]">
+              <thead>
+                <tr className="border-b border-border/40 bg-muted/30">
+                  {["Account", "Heat Score", "Contacts", "Opens", "Clicks", "Replies", "Compliance", "Last Engagement", "Next Action"].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.map((a, i) => (
+                  <tr key={a.accountId}
+                    className={`border-b border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"}`}
+                    data-testid={`heating-row-${a.accountId}`}>
+                    <td className="px-3 py-2.5">
+                      <Link href={`/accounts/${a.accountId}`}>
+                        <span className="font-medium text-foreground hover:text-primary transition-colors">{a.accountName}</span>
+                      </Link>
+                      {a.marinaType && <div className="text-[10px] text-muted-foreground">{a.marinaType}</div>}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-foreground">{a.heatScore}</span>
+                        <Badge variant="outline" className={`text-[9px] h-4 px-1 border ${heatBadgeClass(a.heatLabel)}`}>{a.heatLabel}</Badge>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <span className={a.engagedContactsCount > 0 ? "text-emerald-400 font-medium" : "text-muted-foreground"}>{a.engagedContactsCount}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-foreground">{a.openCount}</td>
+                    <td className="px-3 py-2.5 text-center text-foreground">{a.clickCount}</td>
+                    <td className="px-3 py-2.5 text-center text-foreground">{a.replyCount}</td>
+                    <td className="px-3 py-2.5 text-center">
+                      {a.complianceRiskCount > 0 ? (
+                        <span className="flex items-center justify-center gap-0.5 text-amber-400">
+                          <AlertTriangle className="w-3 h-3" />{a.complianceRiskCount}
+                        </span>
+                      ) : <span className="text-muted-foreground/40">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-muted-foreground">{agoStr(a.latestEngagementAt)}</td>
+                    <td className="px-3 py-2.5 text-muted-foreground max-w-[180px]">
+                      <div className="flex items-center gap-1">
+                        <Zap className="w-3 h-3 text-primary shrink-0" />
+                        <span className="truncate">{a.recommendedNextAction}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

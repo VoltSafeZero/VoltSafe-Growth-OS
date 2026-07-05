@@ -13,6 +13,7 @@ import {
   CalendarDays, TrendingUp, TrendingDown, MessageSquare, AlertTriangle, RefreshCw,
   MapPin, Globe, Clock, ExternalLink, Send, Plus, User, Anchor, Pin,
   DollarSign, Package, BarChart2, Pencil, Trophy, Activity, MessagesSquare,
+  Flame, ThermometerSun,
 } from "lucide-react";
 import { AccountDetailDialog } from "./accounts";
 import { formatDistanceToNow, format, isPast } from "date-fns";
@@ -368,6 +369,261 @@ function AccountIntelligencePanel({ accountId }: { accountId: number }) {
               ))}
             </div>
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Marketing Intelligence Panel ──────────────────────────────────────────────
+
+type MarketingIntelData = {
+  heat: {
+    heatScore: number;
+    heatLabel: string;
+    scoreReasons: string[];
+    negativeReasons: string[];
+    latestEngagementAt: string | null;
+    engagedContactsCount: number;
+    engagedRoles: string[];
+    openCount: number;
+    clickCount: number;
+    replyCount: number;
+    complianceRiskCount: number;
+    recommendedNextAction: string;
+    campaignCount: number;
+  };
+  committee: Array<{
+    contactId: number;
+    name: string;
+    title: string | null;
+    email: string | null;
+    stakeholderType: string;
+    complianceStatus: string;
+    campaignsReceived: number;
+    openCount: number;
+    clickCount: number;
+    replyCount: number;
+    unsubscribed: boolean;
+    suppressed: boolean;
+    lastEngagementAt: string | null;
+    engagementLevel: string;
+    recommendedAction: string;
+  }>;
+  engagement: Array<{
+    campaignId: number;
+    campaignName: string;
+    campaignType: string;
+    status: string;
+    sentAt: string | null;
+    openCount: number;
+    clickCount: number;
+    replyCount: number;
+    unsubscribeCount: number;
+    recipientCount: number;
+  }>;
+};
+
+function heatColor(label: string) {
+  if (label === "Hot") return { badge: "bg-red-500/15 text-red-400 border-red-500/30", dot: "bg-red-400", ring: "ring-red-500/30" };
+  if (label === "Warm") return { badge: "bg-orange-500/15 text-orange-400 border-orange-500/30", dot: "bg-orange-400", ring: "ring-orange-500/30" };
+  if (label === "Nurture") return { badge: "bg-amber-500/15 text-amber-400 border-amber-500/30", dot: "bg-amber-400", ring: "ring-amber-500/30" };
+  if (label === "Low") return { badge: "bg-slate-500/15 text-slate-400 border-slate-500/30", dot: "bg-slate-400", ring: "ring-slate-500/30" };
+  return { badge: "bg-muted/30 text-muted-foreground border-border/50", dot: "bg-muted-foreground/40", ring: "ring-border/50" };
+}
+
+function engagementLevelColor(level: string) {
+  if (level === "Hot Contact") return "text-red-400";
+  if (level === "Engaged") return "text-emerald-400";
+  if (level === "Light Engagement") return "text-amber-400";
+  if (level === "Do Not Email") return "text-rose-500";
+  return "text-muted-foreground";
+}
+
+function formatAgoShort(ts: string | null): string {
+  if (!ts) return "—";
+  const diff = Date.now() - new Date(ts).getTime();
+  const d = Math.floor(diff / 86400000);
+  if (d === 0) return "Today";
+  if (d === 1) return "1d ago";
+  if (d < 7) return `${d}d ago`;
+  if (d < 30) return `${Math.floor(d / 7)}w ago`;
+  return `${Math.floor(d / 30)}mo ago`;
+}
+
+function MarketingIntelligencePanel({ accountId }: { accountId: number }) {
+  const { data, isLoading } = useQuery<MarketingIntelData | null>({
+    queryKey: ["/api/accounts", accountId, "marketing-intelligence"],
+    queryFn: () =>
+      fetch(`/api/accounts/${accountId}/marketing-intelligence`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+    staleTime: 60000,
+  });
+
+  const colors = heatColor(data?.heat.heatLabel ?? "");
+
+  return (
+    <Card className="border-border/50" data-testid="marketing-intelligence-panel">
+      <CardHeader className="pb-2 pt-4 px-4">
+        <div className="flex items-center gap-2">
+          <Flame className="h-4 w-4 text-red-400" />
+          <CardTitle className="text-sm font-semibold">Marketing Intelligence</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 pt-0 space-y-5">
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <Skeleton className="h-10 w-full rounded-xl" />
+          </div>
+        ) : !data || data.heat.campaignCount === 0 ? (
+          <div className="rounded-xl border border-border/40 bg-muted/20 px-5 py-8 text-center" data-testid="marketing-intel-empty">
+            <ThermometerSun className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="text-sm font-medium text-foreground mb-1">No campaign engagement yet</p>
+            <p className="text-xs text-muted-foreground">
+              Enroll contacts from this account into a campaign to begin tracking heat scores.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Heat Score card */}
+            <div className={`rounded-xl border ${colors.badge.split(" ").find(c => c.startsWith("border")) ?? "border-border/50"} bg-card/60 px-5 py-4`}
+              data-testid="heat-score-card">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`w-2 h-2 rounded-full ${colors.dot}`} />
+                    <span className={`text-xs font-semibold uppercase tracking-wide ${colors.badge.split(" ").find(c => c.startsWith("text")) ?? "text-muted-foreground"}`}>
+                      {data.heat.heatLabel}
+                    </span>
+                  </div>
+                  <div className="text-4xl font-bold text-foreground">{data.heat.heatScore}<span className="text-lg text-muted-foreground">/100</span></div>
+                  <div className="text-xs text-muted-foreground mt-1">Account Heat Score</div>
+                </div>
+                <div className="text-right space-y-1 text-xs">
+                  <div><span className="text-muted-foreground">Opens: </span><span className="font-medium text-foreground">{data.heat.openCount}</span></div>
+                  <div><span className="text-muted-foreground">Clicks: </span><span className="font-medium text-foreground">{data.heat.clickCount}</span></div>
+                  <div><span className="text-muted-foreground">Replies: </span><span className="font-medium text-foreground">{data.heat.replyCount}</span></div>
+                  <div><span className="text-muted-foreground">Contacts engaged: </span><span className="font-medium text-foreground">{data.heat.engagedContactsCount}</span></div>
+                  {data.heat.latestEngagementAt && (
+                    <div><span className="text-muted-foreground">Last: </span><span className="font-medium text-foreground">{formatAgoShort(data.heat.latestEngagementAt)}</span></div>
+                  )}
+                </div>
+              </div>
+
+              {/* Score reasons */}
+              {data.heat.scoreReasons.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-border/30">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-400 mb-1.5">Why this account is heating up</div>
+                  <ul className="space-y-0.5">
+                    {data.heat.scoreReasons.map((r, i) => (
+                      <li key={i} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <div className="w-1 h-1 rounded-full bg-emerald-400/60 shrink-0" />{r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Negative reasons */}
+              {data.heat.negativeReasons.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-red-400 mb-1.5">Risk signals</div>
+                  <ul className="space-y-0.5">
+                    {data.heat.negativeReasons.map((r, i) => (
+                      <li key={i} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <div className="w-1 h-1 rounded-full bg-red-400/60 shrink-0" />{r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Recommended next action */}
+              <div className="mt-3 rounded-lg bg-primary/5 border border-primary/20 px-3 py-2 flex items-start gap-2">
+                <Zap className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                <p className="text-xs text-foreground">{data.heat.recommendedNextAction}</p>
+              </div>
+            </div>
+
+            {/* Compliance risk */}
+            {data.heat.complianceRiskCount > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex items-center gap-2 text-xs">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="text-amber-300">{data.heat.complianceRiskCount} compliance risk signal{data.heat.complianceRiskCount !== 1 ? "s" : ""} at this account</span>
+              </div>
+            )}
+
+            {/* Buying Committee */}
+            {data.committee.length > 0 && (
+              <div data-testid="buying-committee-table">
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Buying Committee</div>
+                <div className="rounded-xl border border-border/50 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs min-w-[700px]">
+                      <thead>
+                        <tr className="border-b border-border/40 bg-muted/30">
+                          {["Contact", "Role", "Type", "Compliance", "Opens", "Clicks", "Replies", "Last Engagement", "Level", "Action"].map(h => (
+                            <th key={h} className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.committee.map((m, i) => (
+                          <tr key={m.contactId} className={`border-b border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"}`}
+                            data-testid={`committee-row-${m.contactId}`}>
+                            <td className="px-3 py-2 font-medium text-foreground">{m.name}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{m.title ?? "—"}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{m.stakeholderType}</td>
+                            <td className="px-3 py-2">
+                              <span className={`${m.complianceStatus === "OK" ? "text-muted-foreground/50" : m.complianceStatus === "Unsubscribed" || m.complianceStatus === "Suppressed" ? "text-red-400" : "text-amber-400"}`}>
+                                {m.complianceStatus}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-center text-foreground">{m.openCount}</td>
+                            <td className="px-3 py-2 text-center text-foreground">{m.clickCount}</td>
+                            <td className="px-3 py-2 text-center text-foreground">{m.replyCount}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{formatAgoShort(m.lastEngagementAt)}</td>
+                            <td className={`px-3 py-2 font-medium ${engagementLevelColor(m.engagementLevel)}`}>{m.engagementLevel}</td>
+                            <td className="px-3 py-2 text-muted-foreground max-w-[160px]">
+                              <span className="truncate block">{m.recommendedAction}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Campaign timeline */}
+            {data.engagement.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Campaigns Touching This Account</div>
+                <div className="space-y-2">
+                  {data.engagement.map(e => (
+                    <div key={e.campaignId} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-medium text-foreground">{e.campaignName}</div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            {e.campaignType} · {e.status}{e.sentAt ? ` · sent ${formatAgoShort(e.sentAt)}` : ""}
+                          </div>
+                        </div>
+                        <div className="flex gap-3 text-xs shrink-0">
+                          <span><span className="text-muted-foreground">Opens: </span><span className="font-medium text-foreground">{e.openCount}</span></span>
+                          <span><span className="text-muted-foreground">Clicks: </span><span className="font-medium text-foreground">{e.clickCount}</span></span>
+                          <span><span className="text-muted-foreground">Replies: </span><span className="font-medium text-foreground">{e.replyCount}</span></span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
@@ -949,6 +1205,9 @@ export default function AccountProfilePage() {
 
       {/* Account Intelligence */}
       <AccountIntelligencePanel accountId={id} />
+
+      {/* Marketing Intelligence */}
+      <MarketingIntelligencePanel accountId={id} />
 
       {/* Engagement Intelligence */}
       <Card className="border-border/50" data-testid="account-engagement-section">

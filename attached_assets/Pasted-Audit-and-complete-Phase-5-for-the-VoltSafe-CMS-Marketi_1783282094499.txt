@@ -1,0 +1,396 @@
+Audit and complete Phase 5 for the VoltSafe CMS Marketing / Campaigns module: Account Heat Score + Buying Committee Intelligence.
+
+Context:
+VoltSafe CMS Marketing/Campaigns now includes:
+
+* Campaign CRUD
+* Audience segments
+* Real recipient enrollment
+* Suppression-safe enrollment
+* Step-level campaign sending
+* Open tracking
+* Click tracking
+* Unsubscribe handling
+* Public preference center
+* CASL/CAN-SPAM compliance data model
+* Compliance preflight engine
+* Send-time compliance enforcement
+* Per-recipient jurisdiction-aware legal footer
+* Compliance dashboard
+* Compliance audit logging
+* Contact/campaign compliance filters
+* Consent-expiry cron with audit/activity records
+* Canadian consent proof validation on import
+* Campaign events
+* Recipient status progression
+
+Goal:
+Verify whether Phase 5 Account Heat Score + Buying Committee Intelligence has been implemented. If incomplete, build the missing pieces.
+
+This phase should answer:
+
+* Which marina accounts are heating up?
+* Which buying committee members are active?
+* Which stakeholder roles are engaging?
+* Which campaign created the heat?
+* Why is an account hot?
+* What should sales do next?
+
+Do not invent fake heat scores. Use real CRM/account/contact/campaign/compliance/campaign_events data only.
+
+1. Audit Existing Implementation
+
+First inspect the codebase and report whether these exist:
+
+Backend:
+
+* server/services/account-heat-score.ts or equivalent
+* GET /api/marketing/account-heat
+* GET /api/accounts/:id/marketing-intelligence
+* GET /api/marketing/campaigns/:id/hot-accounts, if implemented
+* heat score tests
+* buying committee tests
+
+Frontend:
+
+* Hot Marina Accounts section on Marketing Analytics
+* Marketing Intelligence panel/tab on Account Profile
+* Buying Committee engagement table
+* Accounts Heating Up section on Campaign Detail
+* Empty state for no engagement
+* Compliance risk shown in account intelligence
+
+If any are missing, implement them.
+
+2. Account Heat Score Service
+
+Create or complete:
+
+server/services/account-heat-score.ts
+
+Implement:
+
+* calculateAccountHeatScore(accountId)
+* listHotAccounts(filters)
+* getAccountBuyingCommittee(accountId)
+* getAccountCampaignEngagement(accountId)
+* getRecommendedNextAction(accountId)
+
+Score output should include:
+
+* account_id
+* account_name
+* heat_score
+* heat_label
+* score_reasons[]
+* negative_reasons[]
+* latest_engagement_at
+* engaged_contacts_count
+* engaged_roles[]
+* campaign_count
+* sent_count
+* open_count
+* click_count
+* reply_count
+* unsubscribe_count
+* spam_complaint_count
+* compliance_risk_count
+* recommended_next_action
+
+3. Scoring Model
+
+Use this scoring model:
+
+Engagement:
+
+* Unique open: +3
+* Total opens beyond first: +1 each, capped at +10
+* Unique click: +8
+* Total clicks beyond first: +2 each, capped at +12
+* Reply: +20
+* Meeting/demo booked if data exists: +30
+* Multiple engaged contacts at same account: +15
+* Engagement in last 7 days: +15
+* Engagement in last 30 days: +8
+
+Stakeholder role:
+
+* Owner/CEO/President engaged: +15
+* GM/Marina Manager engaged: +12
+* Harbormaster/Dockmaster engaged: +10
+* Marine Electrician/Facilities engaged: +8
+* Deckhand/staff engagement: +3
+
+Fit:
+
+* Adoption readiness score 80+: +15
+* Adoption readiness score 60–79: +10
+* Premium Independent Marina: +12
+* Marina Group / Multi-Site Operator: +15
+* Resort / Destination Marina: +12
+* Developer / New Build: +12
+* Port Authority Marina: +10
+* Municipal Marina: +5
+
+Compliance/risk:
+
+* Unsubscribed contact at account: -10
+* Suppressed email/domain at account: -30
+* Spam complaint tied to account: -40
+* Consent expired for key contact: -15
+* Do-not-email contact engaged previously: -20
+* No engagement after 3+ sent emails: -10
+* Mom & Pop Marina: -5 unless engagement is strong
+* Low adoption readiness score: -10
+
+Cap score at 100 and floor at 0.
+
+Heat labels:
+
+* 80–100: Hot
+* 60–79: Warm
+* 40–59: Nurture
+* 20–39: Low
+* 0–19: Cold / Do Not Chase Yet
+
+4. API Routes
+
+Add or complete:
+
+GET /api/marketing/account-heat
+
+Query params:
+
+* label
+* persona
+* adoption_stage
+* region
+* min_score
+* campaign_id
+* compliance_risk
+* limit
+* sort
+
+Returns ranked marina accounts with heat score, reasons, latest engagement, compliance risk, and recommended action.
+
+Add or complete:
+
+GET /api/accounts/:id/marketing-intelligence
+
+Returns:
+
+* heat score
+* score reasons
+* negative reasons
+* buying committee engagement
+* campaign activity
+* compliance risks
+* recent events
+* recommended next action
+
+Add if useful:
+
+GET /api/marketing/campaigns/:id/hot-accounts
+
+Returns accounts heating up from a specific campaign.
+
+5. Buying Committee Intelligence
+
+For each account/marina, show stakeholder-level engagement.
+
+Buying committee table columns:
+
+* Contact
+* Title / Role
+* Stakeholder Type
+* Email
+* Compliance Status
+* Campaigns Received
+* Sent
+* Opens
+* Clicks
+* Replies
+* Unsubscribed
+* Suppressed
+* Spam Complaint
+* Last Engagement
+* Engagement Level
+* Recommended Action
+
+Engagement Level:
+
+* Hot Contact
+* Engaged
+* Light Engagement
+* No Engagement
+* Do Not Email
+
+Recommended actions:
+
+* Call now
+* Send technical follow-up
+* Send ROI follow-up
+* Ask for referral to decision-maker
+* Move to nurture
+* Do not contact — unsubscribed/suppressed/compliance risk
+
+6. Marketing Analytics UI
+
+Add or complete section:
+
+Hot Marina Accounts
+
+Show:
+
+* Account / Marina
+* Persona
+* Adoption Stage
+* Heat Score
+* Heat Label
+* Engaged Contacts
+* Top Engaged Role
+* Latest Engagement
+* Compliance Risk
+* Recommended Action
+
+Filters:
+
+* Hot
+* Warm
+* Nurture
+* Persona
+* Adoption Stage
+* Region
+* Compliance Risk
+
+Clicking an account should open the account profile or marketing intelligence view.
+
+7. Campaign Detail UI
+
+Add or complete section:
+
+Accounts Heating Up From This Campaign
+
+Show:
+
+* Account name
+* Heat score
+* engaged contacts
+* opens
+* clicks
+* replies
+* compliance risk
+* recommended next action
+
+8. Account Profile UI
+
+Add or complete tab/panel:
+
+Marketing Intelligence
+
+Show:
+
+* Account Heat Score card
+* Heat label
+* Score reasons
+* Negative reasons
+* Compliance risk notes
+* Recommended next action
+* Buying committee engagement table
+* Recent campaign activity timeline
+* Campaigns touching this account
+
+If no campaign activity exists, show:
+“No campaign engagement yet. Enroll contacts from this account into a campaign to begin tracking heat.”
+
+9. Analytics Rules
+
+Use only real:
+
+* campaign_events
+* campaign_recipients
+* contacts
+* accounts
+* compliance audit records
+* suppression data
+
+Do not use placeholder benchmark data for heat score.
+
+If data is missing, show:
+
+* 0
+* Unknown
+* Not enough engagement yet
+
+10. Permissions
+
+Require Marketing/CRM permission to view account heat intelligence.
+
+Verify:
+
+* unauthorized users cannot access account heat routes
+* read-only users can view intelligence but not create tasks
+* admin-only compliance fields remain protected
+* compliance-risk data is not exposed to unauthorized users
+
+11. Tests
+
+Add or complete tests for:
+
+* account with no events returns heat score 0/low
+* opens increase heat score
+* clicks increase heat score more than opens
+* replies increase heat score significantly
+* multiple engaged contacts add score
+* senior stakeholder engagement adds score
+* unsubscribed/suppressed lowers score
+* spam complaint significantly lowers score
+* consent-expired contact creates negative reason
+* score caps at 100
+* score floors at 0
+* heat labels map correctly
+* account heat list returns ranked accounts
+* account marketing intelligence route returns buying committee data
+* campaign hot accounts route works if implemented
+* unauthorized request is blocked
+* campaign tracking tests still pass
+* campaign sending tests still pass
+* campaign enrollment tests still pass
+* compliance tests still pass
+* permissions tests still pass
+* nav-drift still passes
+* openai-compat still passes
+
+12. Visual QA
+
+Take screenshots of:
+
+* Marketing Analytics with Hot Marina Accounts
+* Account Profile Marketing Intelligence panel/tab
+* Buying Committee table
+* Campaign Detail Accounts Heating Up section
+* Empty state for no engagement
+* Hot account with score reasons
+* Account with compliance risk negative reasons
+
+13. Final Report
+
+Return:
+
+* what already existed before this task
+* what was missing
+* what was built/fixed
+* files changed
+* routes added
+* scoring model implemented
+* UI sections added
+* compliance risk handling added
+* tests run and passing
+* screenshots taken
+* remaining gaps
+
+Important:
+Do not implement automated drip scheduling in this phase.
+Do not invent fake heat scores.
+Do not mark accounts hot unless real CRM/campaign data supports it.
+Focus on making campaign engagement actionable for sales.

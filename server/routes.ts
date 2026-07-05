@@ -23,6 +23,7 @@ import { getBaseline, runSimulation } from "./services/revenue-simulator";
 import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActuals, chooseBoardPackScenario } from "./services/revenue-simulator-insights";
 import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActions, autoCreateTasksFromActions, snapshotGapStatus } from "./services/revenue-operating-system";
 import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
+import { listHotAccounts, calculateAccountHeatScore, getAccountBuyingCommittee, getAccountCampaignEngagement } from "./services/account-heat-score";
 import { sanitizeSignatureHtml } from "./services/signature-sanitizer";
 import { normalizeSignatureHtml, detectDocumentTags } from "./services/signature-normalizer";
 import { db } from "./db";
@@ -37839,6 +37840,61 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       }
     }
   );
+
+  // ── Account Heat Score + Buying Committee Intelligence (Phase 5) ─────────────
+
+  // GET /api/marketing/account-heat — ranked accounts by heat score
+  app.get("/api/marketing/account-heat", requireAuth, async (req: any, res) => {
+    try {
+      const { label, persona, adoption_stage, region, min_score, campaign_id, compliance_risk, limit, sort } = req.query as any;
+      const filters: any = {};
+      if (label) filters.label = String(label);
+      if (persona) filters.persona = String(persona);
+      if (adoption_stage) filters.adoptionStage = String(adoption_stage);
+      if (region) filters.region = String(region);
+      if (min_score) filters.minScore = Number(min_score);
+      if (campaign_id) filters.campaignId = Number(campaign_id);
+      if (compliance_risk === "true") filters.complianceRisk = true;
+      if (limit) filters.limit = Math.min(Number(limit), 200);
+      if (sort) filters.sort = sort;
+      const accounts = await listHotAccounts(filters);
+      res.json(accounts);
+    } catch (err: any) {
+      console.error("[heat] GET /api/marketing/account-heat:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/accounts/:id/marketing-intelligence — full intelligence for one account
+  app.get("/api/accounts/:id/marketing-intelligence", requireAuth, async (req: any, res) => {
+    try {
+      const accountId = Number(req.params.id);
+      if (!accountId || isNaN(accountId)) return res.status(400).json({ error: "Invalid account id" });
+      const [heat, committee, engagement] = await Promise.all([
+        calculateAccountHeatScore(accountId),
+        getAccountBuyingCommittee(accountId),
+        getAccountCampaignEngagement(accountId),
+      ]);
+      if (!heat) return res.status(404).json({ error: "Account not found" });
+      res.json({ heat, committee, engagement });
+    } catch (err: any) {
+      console.error("[heat] GET /api/accounts/:id/marketing-intelligence:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/marketing/campaigns/:id/hot-accounts — accounts heating up from a specific campaign
+  app.get("/api/marketing/campaigns/:id/hot-accounts", requireAuth, async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      if (!campaignId || isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
+      const accounts = await listHotAccounts({ campaignId, sort: "score" });
+      res.json(accounts);
+    } catch (err: any) {
+      console.error("[heat] GET /api/marketing/campaigns/:id/hot-accounts:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
