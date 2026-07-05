@@ -238,7 +238,7 @@ export default function MarketingCampaignsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/50 bg-muted/30">
-                  {["Campaign", "Type", "Status", "Audience", "Enrolled", "Open Rate", "Reply Rate", "Demos", ""].map(h => (
+                  {["Campaign", "Type", "Status", "Audience", "Enrolled", "Open Rate", "Reply Rate", "Demos", "Automation", ""].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">
                       {h}
                     </th>
@@ -281,6 +281,31 @@ export default function MarketingCampaignsPage() {
                       <td className="px-4 py-3 text-right font-mono text-xs">{pct(c.opened_count, c.sent_count)}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{pct(c.replied_count, c.sent_count)}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{c.demo_booked_count}</td>
+                      <td className="px-4 py-3">
+                        {c.automation_status === "active" && (
+                          <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
+                            <Play className="w-3 h-3" /> Active
+                          </span>
+                        )}
+                        {c.automation_status === "paused" && (
+                          <span className="inline-flex items-center gap-1 text-xs text-amber-400">
+                            <Pause className="w-3 h-3" /> Paused
+                          </span>
+                        )}
+                        {c.automation_status === "completed" && (
+                          <span className="inline-flex items-center gap-1 text-xs text-cyan-400">
+                            <CheckCircle className="w-3 h-3" /> Done
+                          </span>
+                        )}
+                        {c.automation_status === "blocked" && (
+                          <span className="inline-flex items-center gap-1 text-xs text-red-400">
+                            <Zap className="w-3 h-3" /> Blocked
+                          </span>
+                        )}
+                        {(!c.automation_status || c.automation_status === "manual") && (
+                          <span className="text-xs text-muted-foreground/40 italic">Manual</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

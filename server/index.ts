@@ -279,6 +279,9 @@ app.use((req, res, next) => {
     await migrateMeetingNoteAudioSplits();
     await migrateCampaignTrackingSchema();
     await migrateComplianceSchema();
+    // Phase 6: Automation schema (additive columns + indexes on campaign tables)
+    const { migrateAutomationSchema } = await import("./services/campaign-automation");
+    await migrateAutomationSchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }
@@ -350,6 +353,20 @@ app.use((req, res, next) => {
       if (process.env.ENABLE_BACKGROUND_JOBS !== "false") {
         startHourlySyncScheduler();
         startHelpCenterRefreshScheduler();
+        // Phase 6: Automation drip tick — every 10 minutes
+        (function scheduleAutomationTick() {
+          const INTERVAL_MS = 10 * 60 * 1000;
+          const _port = parseInt(process.env.PORT || "5000", 10);
+          async function runTick() {
+            try {
+              const { runCampaignAutomationTick } = await import("./services/campaign-automation");
+              await runCampaignAutomationTick({ baseUrl: `http://localhost:${_port}` });
+            } catch (err: any) {
+              log(`[automation-tick] scheduler error: ${err?.message}`);
+            }
+          }
+          setInterval(runTick, INTERVAL_MS);
+        })();
         // Phase 2A: Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
         const { startWatchRenewalScheduler } = await import("./services/gmail-watch");
         startWatchRenewalScheduler();

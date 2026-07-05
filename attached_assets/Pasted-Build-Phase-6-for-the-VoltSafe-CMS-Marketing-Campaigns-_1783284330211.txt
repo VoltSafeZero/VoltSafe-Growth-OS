@@ -1,0 +1,363 @@
+Build Phase 6 for the VoltSafe CMS Marketing / Campaigns module: Automated Sequences / Drip Scheduling.
+
+Context:
+VoltSafe CMS Marketing/Campaigns now includes:
+
+* Campaign CRUD
+* Audience segments
+* Real recipient enrollment from CRM segments
+* Suppression-safe enrollment
+* Manual step-level sending
+* Open tracking
+* Click tracking
+* Unsubscribe handling
+* Public preference center
+* CASL/CAN-SPAM compliance data model
+* Compliance preflight engine
+* Send-time compliance enforcement
+* Per-recipient jurisdiction-aware legal footer
+* Compliance dashboard/workflows
+* Account Heat Score
+* Buying Committee Intelligence
+* Hot Marina Accounts
+* Campaign-level hot accounts
+* Phase 5 audit/hardening completed:
+    * N+1 buying committee query fixed
+    * spam complaint count reads real campaign_events
+    * domain guard before SQL interpolation
+    * latestEngagementAt only advances on opened/clicked/replied
+    * heat score indexes added
+    * route param validation hardened
+    * frontend error state added
+    * React key bug fixed
+
+Goal:
+Build automated campaign sequence scheduling so enrolled recipients can move through campaign email steps automatically, safely, and compliantly.
+
+This phase should turn:
+“Manually send Step 1, then manually send Step 2 later”
+into:
+“Start sequence, and VoltSafe CMS sends each step on schedule only if the recipient remains eligible.”
+
+Core principle:
+Automation must be fail-closed. Before every scheduled send, re-check suppression, compliance, unsubscribe status, campaign status, recipient status, and duplicate-send protection.
+
+Do not remove manual sending. Automated scheduling should sit beside it.
+
+1. Data Model
+
+Add or confirm fields needed for sequence automation.
+
+On marketing_campaigns:
+
+* automation_enabled boolean default false
+* automation_started_at timestamp nullable
+* automation_paused_at timestamp nullable
+* automation_completed_at timestamp nullable
+* next_automation_run_at timestamp nullable
+* automation_timezone text nullable
+* automation_status text default ‘manual’
+    Suggested values:
+    * manual
+    * scheduled
+    * active
+    * paused
+    * completed
+    * blocked
+    * archived
+
+On campaign_recipients:
+
+* sequence_started_at timestamp nullable
+* next_step_due_at timestamp nullable
+* sequence_completed_at timestamp nullable
+* automation_paused_at timestamp nullable
+* last_automation_error text nullable
+* automation_status text default ‘not_started’
+    Suggested values:
+    * not_started
+    * active
+    * paused
+    * completed
+    * blocked
+    * suppressed
+    * unsubscribed
+    * failed
+
+If equivalent fields already exist, reuse them. Do not create duplicates.
+
+Add indexes:
+
+* marketing_campaigns(automation_status)
+* marketing_campaigns(next_automation_run_at)
+* campaign_recipients(campaign_id, automation_status)
+* campaign_recipients(next_step_due_at)
+* campaign_recipients(campaign_id, next_step_due_at)
+
+2. Automation Rules
+
+A campaign can only start automation if:
+
+* campaign status is active or scheduled
+* campaign compliance_status is preflight_passed
+* campaign has at least one enrolled recipient
+* campaign has at least one campaign email step
+* sender identity exists
+* campaign is not archived/completed
+* user has permission
+
+A recipient can only receive an automated step if:
+
+* recipient is enrolled/active
+* recipient is not unsubscribed
+* recipient is not suppressed
+* recipient has valid email
+* recipient has not already received that step
+* recipient passes send-time compliance
+* campaign passes send-time compliance
+* current time is >= next_step_due_at
+
+3. Sequence Timing
+
+Use campaign_emails.delay_days to schedule each step.
+
+Example:
+
+* Step 1 delay_days = 0 → send immediately after automation starts
+* Step 2 delay_days = 4 → due 4 days after Step 1 sent
+* Step 3 delay_days = 9 → due 9 days after Step 1 sent, or according to existing delay convention
+
+Choose one convention and document it clearly.
+
+Recommended convention:
+delay_days is relative to sequence start date, not previous step. This avoids drift and makes campaign schedules easier to reason about.
+
+Example:
+
+* sequence_started_at = July 1
+* Step 1 delay_days 0 → July 1
+* Step 2 delay_days 4 → July 5
+* Step 3 delay_days 9 → July 10
+
+4. Backend Service
+
+Create:
+
+server/services/campaign-automation.ts
+
+Functions:
+
+* validateAutomationStart(campaignId)
+* startCampaignAutomation(campaignId, userId)
+* pauseCampaignAutomation(campaignId, userId)
+* resumeCampaignAutomation(campaignId, userId)
+* stopCampaignAutomation(campaignId, userId)
+* getCampaignAutomationStatus(campaignId)
+* runCampaignAutomationTick(options)
+
+runCampaignAutomationTick should:
+
+* find campaigns with automation_status = active
+* find recipients with next_step_due_at <= now
+* for each due recipient, determine the next unsent campaign email step
+* call existing send logic or shared send helper
+* enforce all send-time rules
+* create campaign_events:
+    * automation_started
+    * automation_paused
+    * automation_resumed
+    * automation_completed
+    * automation_step_due
+    * automation_step_sent
+    * automation_step_skipped
+    * automation_step_failed
+* update recipient next_step_due_at
+* mark recipient completed when final step sent
+* mark campaign completed when all eligible recipients complete or are terminal
+* never send duplicate steps
+
+Important:
+Do not bypass existing compliance gate or send-time renderer. Use the same safe path as manual send wherever possible.
+
+5. API Routes
+
+Add:
+
+POST /api/marketing/campaigns/:id/automation/start
+POST /api/marketing/campaigns/:id/automation/pause
+POST /api/marketing/campaigns/:id/automation/resume
+POST /api/marketing/campaigns/:id/automation/stop
+GET /api/marketing/campaigns/:id/automation/status
+POST /api/marketing/automation/tick
+
+The tick endpoint should be admin-only or internal-only. If there is already a cron/internal task pattern, follow it.
+
+6. Scheduler / Cron
+
+Integrate an automation tick into the existing server startup/cron pattern.
+
+Recommended:
+
+* run every 5 minutes or 15 minutes
+* skip if another tick is already running
+* log safe summary only:
+    * campaigns scanned
+    * recipients due
+    * sent
+    * skipped
+    * failed
+* do not log email bodies
+* do not log secrets
+* do not log full compliance tokens
+
+If Replit/serverless constraints make long cron unreliable, keep the tick endpoint and add a server interval only if the existing project pattern supports it safely.
+
+7. Frontend: Campaign Detail Automation Panel
+
+Add section:
+
+Sequence Automation
+
+Show:
+
+* automation status
+* compliance status
+* enrolled recipients
+* active recipients
+* completed recipients
+* blocked recipients
+* next automation run
+* next step due count
+* sequence steps with delay days
+* start/pause/resume/stop buttons
+
+Buttons:
+
+* Start Automation
+* Pause
+* Resume
+* Stop
+
+Button gating:
+Start disabled if:
+
+* no enrolled recipients
+* no campaign emails
+* compliance_status !== preflight_passed
+* campaign archived/completed
+* user lacks permission
+
+Pause/resume/stop disabled when not applicable.
+
+Show warnings:
+
+* “Automation re-checks suppression and compliance before every send.”
+* “Manual sending remains available, but duplicate-send protection prevents the same step being sent twice.”
+
+8. Frontend: Campaigns Page
+
+Add automation status column:
+
+* Manual
+* Scheduled
+* Active
+* Paused
+* Completed
+* Blocked
+
+Add next automation run if available.
+
+9. Frontend: Analytics
+
+Add automation metrics if data exists:
+
+* automated sends
+* automation skips
+* automation failures
+* active automated campaigns
+* completed automated campaigns
+
+Do not fake metrics.
+
+10. Safety / Compliance
+
+Before every automated send:
+
+* re-run or verify compliance preflight
+* verify compliance_status is preflight_passed
+* re-check recipient suppression
+* re-check unsubscribe status
+* re-check campaign_suppression domain/email
+* verify footer/unsubscribe link can be generated
+* verify no unresolved placeholders
+* verify no duplicate sent event for same campaign_email_id/recipient
+* fail closed if uncertainty exists
+
+If preflight expires or campaign compliance fields change, automation should become blocked until preflight is rerun.
+
+If recipient becomes unsubscribed/suppressed mid-sequence, skip future steps and mark recipient terminal.
+
+11. Tests
+
+Add tests for:
+
+* cannot start automation without compliance preflight passed
+* cannot start automation with zero recipients
+* cannot start automation with zero emails
+* start automation sets campaign and recipient automation fields
+* delay_days schedules next_step_due_at correctly
+* automation tick sends due Step 1
+* automation tick does not send future steps early
+* automation tick advances recipient to next step
+* automation tick marks recipient completed after final step
+* automation tick does not duplicate-send already sent step
+* automation tick skips unsubscribed recipient
+* automation tick skips suppressed email
+* automation tick skips suppressed domain
+* automation tick blocks campaign if compliance fails
+* pause stops sends
+* resume continues sends
+* stop terminally disables automation
+* campaign completes when all recipients terminal
+* tick lock prevents concurrent runs
+* unauthorized users cannot start/pause/resume/stop
+* tick endpoint is admin/internal only
+* manual sending tests still pass
+* tracking tests still pass
+* compliance tests still pass
+* account heat tests still pass
+* enrollment tests still pass
+* permissions tests still pass
+* nav-drift still passes
+
+12. Visual QA
+
+Take screenshots of:
+
+* Campaign Detail Automation panel before start
+* Start Automation disabled because compliance not passed
+* Automation active state
+* Automation paused state
+* Automation completed state
+* Campaigns page automation status column
+* Analytics automation metrics if implemented
+
+13. Final Report
+
+Return:
+
+* files changed
+* migrations added
+* routes added
+* scheduler behavior
+* automation timing convention
+* safety checks implemented
+* tests run and passing
+* screenshots taken
+* remaining gaps
+
+Important:
+Do not implement AI reply classification in this phase.
+Do not implement complex branching logic yet.
+Do not implement “send different email if opened/clicked” yet.
+This phase is simple linear drip automation with strong compliance enforcement.

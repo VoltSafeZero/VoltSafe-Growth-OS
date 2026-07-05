@@ -24,6 +24,7 @@ import { deriveScenarioFromCRM, generateScenarioActions, computeForecastVsActual
 import { createPlanCommitFromScenario, computeGapToPlan, generateGapClosureActions, autoCreateTasksFromActions, snapshotGapStatus } from "./services/revenue-operating-system";
 import { generateDailyBrief, getTodaysBrief, getAlerts, updateAlertStatus } from "./services/executive-copilot";
 import { listHotAccounts, calculateAccountHeatScore, getAccountBuyingCommittee, getAccountCampaignEngagement } from "./services/account-heat-score";
+import { validateAutomationStart, startCampaignAutomation, pauseCampaignAutomation, resumeCampaignAutomation, stopCampaignAutomation, getCampaignAutomationStatus, runCampaignAutomationTick, getAutomationMetrics } from "./services/campaign-automation";
 import { sanitizeSignatureHtml } from "./services/signature-sanitizer";
 import { normalizeSignatureHtml, detectDocumentTags } from "./services/signature-normalizer";
 import { db } from "./db";
@@ -37901,6 +37902,106 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     } catch (err: any) {
       console.error("[heat] GET /api/marketing/campaigns/:id/hot-accounts:", err);
       res.status(500).json({ error: "Failed to load campaign hot accounts" });
+    }
+  });
+
+  // ── Phase 6: Campaign Automation / Drip Scheduling ───────────────────────────
+  // Validation check (no side effects)
+  app.get("/api/marketing/campaigns/:id/automation/validate", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid campaign id" });
+      const result = await validateAutomationStart(id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to validate automation" });
+    }
+  });
+
+  // Status + per-recipient stats
+  app.get("/api/marketing/campaigns/:id/automation/status", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid campaign id" });
+      const status = await getCampaignAutomationStatus(id);
+      res.json(status);
+    } catch (err: any) {
+      const code = (err as any).statusCode ?? 500;
+      res.status(code).json({ error: err.message ?? "Failed to get automation status" });
+    }
+  });
+
+  // Start automation
+  app.post("/api/marketing/campaigns/:id/automation/start", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid campaign id" });
+      await startCampaignAutomation(id, (req as any).user?.id ?? 0);
+      res.json({ ok: true, message: "Automation started" });
+    } catch (err: any) {
+      const code = (err as any).statusCode ?? 500;
+      const errors = (err as any).errors;
+      res.status(code).json({ error: err.message, ...(errors ? { errors } : {}) });
+    }
+  });
+
+  // Pause automation
+  app.post("/api/marketing/campaigns/:id/automation/pause", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid campaign id" });
+      await pauseCampaignAutomation(id, (req as any).user?.id ?? 0);
+      res.json({ ok: true, message: "Automation paused" });
+    } catch (err: any) {
+      const code = (err as any).statusCode ?? 500;
+      res.status(code).json({ error: err.message });
+    }
+  });
+
+  // Resume automation
+  app.post("/api/marketing/campaigns/:id/automation/resume", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid campaign id" });
+      await resumeCampaignAutomation(id, (req as any).user?.id ?? 0);
+      res.json({ ok: true, message: "Automation resumed" });
+    } catch (err: any) {
+      const code = (err as any).statusCode ?? 500;
+      res.status(code).json({ error: err.message });
+    }
+  });
+
+  // Stop automation (terminal — resets recipients to not_started)
+  app.post("/api/marketing/campaigns/:id/automation/stop", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid campaign id" });
+      await stopCampaignAutomation(id, (req as any).user?.id ?? 0);
+      res.json({ ok: true, message: "Automation stopped" });
+    } catch (err: any) {
+      const code = (err as any).statusCode ?? 500;
+      res.status(code).json({ error: err.message });
+    }
+  });
+
+  // Manual tick trigger — admin only, for testing / on-demand runs
+  app.post("/api/marketing/automation/tick", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const result = await runCampaignAutomationTick({ baseUrl });
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Tick failed" });
+    }
+  });
+
+  // Automation metrics for the analytics page
+  app.get("/api/marketing/automation/metrics", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
+    try {
+      const metrics = await getAutomationMetrics();
+      res.json(metrics);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to load automation metrics" });
     }
   });
 

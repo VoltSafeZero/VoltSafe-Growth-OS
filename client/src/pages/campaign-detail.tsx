@@ -5,7 +5,7 @@ import {
   Radio, ArrowLeft, Plus, Trash2, Play, Pause, CheckCircle, Edit2,
   Mail, MousePointerClick, MessageSquare, Calendar, Users, Target,
   Sparkles, Save, FileText, Clock, UserCheck, AlertTriangle, ChevronDown, ChevronUp,
-  RefreshCw, Filter, Send, Eye, ShieldCheck, Info, Zap, XCircle, Flame,
+  RefreshCw, Filter, Send, Eye, ShieldCheck, Info, Zap, XCircle, Flame, Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1056,6 +1056,9 @@ export default function CampaignDetailPage() {
         )}
       </div>
 
+      {/* ── Automation Panel ───────────────────────────────────────────────────── */}
+      <AutomationPanel campaignId={id} />
+
       {/* ── Accounts Heating Up From This Campaign ───────────────────────────── */}
       <AccountsHeatingUpSection campaignId={id} />
 
@@ -1335,6 +1338,222 @@ function heatBadgeClass(label: string) {
   if (label === "Nurture") return "bg-amber-500/15 text-amber-400 border-amber-500/30";
   if (label === "Low") return "bg-slate-500/15 text-slate-400 border-slate-500/30";
   return "bg-muted/30 text-muted-foreground border-border/50";
+}
+
+// ── Automation Panel ──────────────────────────────────────────────────────────
+
+type AutomationStatus = {
+  campaignId: number;
+  automationStatus: string;
+  automationEnabled: boolean;
+  automationStartedAt: string | null;
+  automationPausedAt: string | null;
+  automationCompletedAt: string | null;
+  nextAutomationRunAt: string | null;
+  complianceStatus: string | null;
+  enrolledCount: number;
+  activeCount: number;
+  completedCount: number;
+  blockedCount: number;
+  suppressedCount: number;
+  unsubscribedCount: number;
+  notStartedCount: number;
+  nextDueCount: number;
+  steps: Array<{ id: number; stepNumber: number; subject: string; delayDays: number; status: string }>;
+};
+
+function automationStatusBadge(status: string) {
+  if (status === "active") return <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-xs">Active</Badge>;
+  if (status === "paused") return <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-xs">Paused</Badge>;
+  if (status === "completed") return <Badge className="bg-cyan-500/15 text-cyan-400 border-cyan-500/30 text-xs">Completed</Badge>;
+  if (status === "blocked") return <Badge className="bg-red-500/15 text-red-400 border-red-500/30 text-xs">Blocked</Badge>;
+  return <Badge className="bg-muted/40 text-muted-foreground border-border/50 text-xs">Manual</Badge>;
+}
+
+function AutomationPanel({ campaignId }: { campaignId: number }) {
+  const { toast } = useToast();
+
+  const { data: autoStatus, isLoading, refetch } = useQuery<AutomationStatus>({
+    queryKey: ["/api/marketing/campaigns", campaignId, "automation", "status"],
+    queryFn: () =>
+      fetch(`/api/marketing/campaigns/${campaignId}/automation/status`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+    staleTime: 30000,
+    enabled: !!campaignId,
+  });
+
+  const controlMutation = useMutation({
+    mutationFn: ({ action }: { action: "start" | "pause" | "resume" | "stop" }) =>
+      apiRequest("POST", `/api/marketing/campaigns/${campaignId}/automation/${action}`, {}),
+    onSuccess: (_data, vars) => {
+      toast({ title: `Automation ${vars.action}ed`, description: `Drip sequence is now ${vars.action === "stop" ? "stopped" : vars.action + "d"}` });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", campaignId] });
+    },
+    onError: (err: any) => {
+      const message = err?.message || "Action failed";
+      toast({ title: "Automation error", description: message, variant: "destructive" });
+    },
+  });
+
+  if (isLoading) return null;
+  if (!autoStatus) return null;
+
+  const status = autoStatus.automationStatus ?? "manual";
+  const compliancePassed = autoStatus.complianceStatus === "preflight_passed";
+  const isRunning = status === "active";
+  const isPaused = status === "paused";
+  const isManual = status === "manual" || status === "stopped";
+  const isCompleted = status === "completed";
+  const isBlocked = status === "blocked";
+  const busy = controlMutation.isPending;
+
+  return (
+    <div className="px-6 pb-4" data-testid="automation-panel">
+      <div className="rounded-xl border border-border/50 bg-card/40 p-4">
+        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Drip Automation</h2>
+            {automationStatusBadge(status)}
+            {autoStatus.nextDueCount > 0 && (
+              <Badge className="bg-primary/10 text-primary border-primary/30 text-xs">
+                {autoStatus.nextDueCount} due now
+              </Badge>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {isManual && (
+              <Button
+                size="sm"
+                variant="default"
+                className="h-7 text-xs"
+                disabled={busy || !compliancePassed || autoStatus.enrolledCount === 0 || autoStatus.steps.length === 0}
+                onClick={() => controlMutation.mutate({ action: "start" })}
+                data-testid="automation-start-btn"
+                title={!compliancePassed ? "Compliance preflight must pass first" : ""}
+              >
+                <Play className="w-3.5 h-3.5 mr-1" /> Start Automation
+              </Button>
+            )}
+            {isRunning && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={busy}
+                onClick={() => controlMutation.mutate({ action: "pause" })}
+                data-testid="automation-pause-btn"
+              >
+                <Pause className="w-3.5 h-3.5 mr-1" /> Pause
+              </Button>
+            )}
+            {isPaused && (
+              <Button
+                size="sm"
+                variant="default"
+                className="h-7 text-xs"
+                disabled={busy || !compliancePassed}
+                onClick={() => controlMutation.mutate({ action: "resume" })}
+                data-testid="automation-resume-btn"
+              >
+                <Play className="w-3.5 h-3.5 mr-1" /> Resume
+              </Button>
+            )}
+            {(isRunning || isPaused || isBlocked) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs text-destructive hover:text-destructive"
+                disabled={busy}
+                onClick={() => controlMutation.mutate({ action: "stop" })}
+                data-testid="automation-stop-btn"
+              >
+                <Square className="w-3.5 h-3.5 mr-1 fill-current" /> Stop
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Compliance warning */}
+        {!compliancePassed && (isManual || isBlocked) && (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 mb-3">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-amber-300">
+              Compliance preflight required before starting automation. Check the Compliance section above.
+            </p>
+          </div>
+        )}
+        {isBlocked && (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 mb-3">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-red-300">
+              Automation blocked — compliance check failed after start. Re-run preflight then resume.
+            </p>
+          </div>
+        )}
+
+        {/* Stats row */}
+        {autoStatus.enrolledCount > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+            {[
+              { label: "Active", value: autoStatus.activeCount, color: "text-emerald-400" },
+              { label: "Completed", value: autoStatus.completedCount, color: "text-cyan-400" },
+              { label: "Suppressed", value: autoStatus.suppressedCount + autoStatus.unsubscribedCount, color: "text-amber-400" },
+              { label: "Blocked", value: autoStatus.blockedCount, color: "text-red-400" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2 text-center">
+                <div className={`text-lg font-bold ${value > 0 ? color : "text-muted-foreground/40"}`}>{value}</div>
+                <div className="text-xs text-muted-foreground">{label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Step timeline */}
+        {autoStatus.steps.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground font-medium mb-2">Sequence</p>
+            {autoStatus.steps.map((step, idx) => (
+              <div key={step.id} className="flex items-center gap-2 text-xs">
+                <div className="w-5 h-5 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center text-primary font-bold text-[10px] shrink-0">
+                  {step.stepNumber}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-foreground truncate block">{step.subject || `Step ${step.stepNumber}`}</span>
+                </div>
+                <div className="text-muted-foreground/60 whitespace-nowrap shrink-0">
+                  {step.delayDays === 0
+                    ? idx === 0 ? "Day 0 (immediately)" : "Day 0"
+                    : `Day ${step.delayDays}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {autoStatus.steps.length === 0 && (
+          <p className="text-xs text-muted-foreground/60 italic text-center py-2">
+            No email steps defined — add steps to enable automation
+          </p>
+        )}
+
+        {/* Timestamps */}
+        {(autoStatus.automationStartedAt || autoStatus.automationCompletedAt) && (
+          <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/30 text-xs text-muted-foreground">
+            {autoStatus.automationStartedAt && (
+              <span>Started: {new Date(autoStatus.automationStartedAt).toLocaleDateString()}</span>
+            )}
+            {autoStatus.automationCompletedAt && (
+              <span>Completed: {new Date(autoStatus.automationCompletedAt).toLocaleDateString()}</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function agoStr(ts: string | null): string {

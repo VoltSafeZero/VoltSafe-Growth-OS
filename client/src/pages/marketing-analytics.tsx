@@ -359,6 +359,9 @@ export default function MarketingAnalyticsPage() {
               </div>
             )}
 
+            {/* Automation Metrics */}
+            <AutomationMetricsSection />
+
             {/* Role breakdown */}
             <div>
               <h2 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-2">
@@ -469,6 +472,59 @@ export default function MarketingAnalyticsPage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function AutomationMetricsSection() {
+  const { data: metrics, isLoading } = useQuery<{
+    activeCampaigns: number;
+    completedCampaigns: number;
+    automatedSends: number;
+    automationSkips: number;
+    automationFailures: number;
+    activeRecipients: number;
+    completedRecipients: number;
+  }>({
+    queryKey: ["/api/marketing/automation/metrics"],
+    staleTime: 60000,
+  });
+
+  if (isLoading) return null;
+
+  const m = metrics ?? {
+    activeCampaigns: 0, completedCampaigns: 0, automatedSends: 0,
+    automationSkips: 0, automationFailures: 0, activeRecipients: 0, completedRecipients: 0,
+  };
+
+  const hasAny = m.activeCampaigns > 0 || m.completedCampaigns > 0 || m.automatedSends > 0;
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-2">
+        <Zap className="w-4 h-4 text-primary" /> Drip Automation Summary
+      </h2>
+      {!hasAny ? (
+        <p className="text-xs text-muted-foreground italic">
+          No automated campaigns running yet. Start a drip sequence from any campaign detail page.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
+          {[
+            { label: "Active Campaigns", value: m.activeCampaigns, color: "text-emerald-400" },
+            { label: "Completed Campaigns", value: m.completedCampaigns, color: "text-cyan-400" },
+            { label: "Automated Sends", value: m.automatedSends, color: "text-primary" },
+            { label: "Active Recipients", value: m.activeRecipients, color: "text-violet-400" },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="rounded-xl border border-border/50 bg-card/50 px-4 py-3">
+              <div className={`text-xl font-bold ${value > 0 ? color : "text-muted-foreground/40"}`}>
+                {value.toLocaleString()}
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
