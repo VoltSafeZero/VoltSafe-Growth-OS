@@ -1,0 +1,398 @@
+Build Phase 10 for the VoltSafe CMS Marketing / Campaigns module: Campaign ROI + Pipeline Attribution.
+
+Context:
+VoltSafe CMS Marketing/Campaigns now includes:
+
+* Campaign CRUD
+* Audience segments
+* Real recipient enrollment
+* Manual campaign sending
+* Automated linear drip sequences
+* Branching automations
+* Open/click tracking
+* Public unsubscribe and preference center
+* CASL/CAN-SPAM compliance
+* Compliance preflight and send-time enforcement
+* Account Heat Score
+* Buying Committee Intelligence
+* Reply Classification
+* Sales task creation from replies/branching
+* Inbound Reply Ingestion + Campaign Thread Matching
+* Phase 9 audit/hardening completed
+* Phase 9 live smoke test completed:
+    * 28/28 checks passed
+    * schema idempotency verified
+    * fake campaign isolation verified
+    * duplicate task prevention verified
+    * suppression/unsub/bounce guards verified
+    * fired_count accuracy verified
+    * route NaN guards verified
+    * automation tick status filtering verified
+    * auto_reply/out_of_office behavior verified
+    * send_specific_step deferral verified
+    * clean teardown verified
+
+Goal:
+Build campaign attribution so VoltSafe can see which campaigns, sequences, emails, personas, and stakeholders create pipeline.
+
+This phase should answer:
+
+* Which campaigns created meetings?
+* Which campaigns influenced opportunities?
+* Which marina personas produce the best engagement and pipeline?
+* Which stakeholder roles convert best?
+* Which campaigns are producing pilot candidates?
+* Which campaigns are producing revenue or forecasted revenue?
+* Which campaign touches happened before an opportunity/demo/proposal?
+
+Do not invent fake revenue. Use real CRM/opportunity/deal/proposal/task/meeting data if available. If opportunity objects are incomplete, build the attribution foundation and clearly report missing CRM revenue fields.
+
+1. Audit Existing CRM Revenue Objects
+
+First inspect the codebase for:
+
+* opportunities / deals table
+* proposals / quotes table
+* pilot/project table
+* meeting/demo/calendar activity table
+* tasks table
+* account stage / lead stage fields
+* sales pipeline stage fields
+* revenue/ARR/contract value fields
+* activity timeline model
+* existing attribution or source fields
+
+Report what exists before building.
+
+2. Attribution Data Model
+
+If needed, create:
+
+campaign_attribution_events
+
+Fields:
+
+* id
+* campaign_id
+* campaign_email_id nullable
+* campaign_recipient_id nullable
+* contact_id nullable
+* account_id nullable
+* opportunity_id nullable
+* proposal_id nullable
+* task_id nullable
+* meeting_id nullable
+* attribution_type
+* attribution_source
+* event_timestamp
+* value_cents nullable
+* currency default ‘CAD’
+* confidence
+* metadata_json
+* created_at
+
+Suggested attribution_type values:
+
+* meeting_booked
+* task_created
+* opportunity_created
+* opportunity_stage_changed
+* proposal_created
+* proposal_sent
+* pilot_candidate
+* pilot_started
+* deal_won
+* deal_lost
+* revenue_influenced
+
+Suggested attribution_source values:
+
+* campaign_reply
+* campaign_click
+* campaign_heat_score
+* manual_link
+* crm_stage_change
+* task_completion
+* meeting_created
+* opportunity_created
+
+Add indexes:
+
+* campaign_id
+* account_id
+* contact_id
+* opportunity_id
+* attribution_type
+* event_timestamp
+
+3. Campaign Influence Model
+
+Implement conservative attribution rules.
+
+Direct attribution:
+
+* campaign reply classified as meeting_request → meeting/task attribution
+* campaign-created task → task_created attribution
+* branch-created task → task_created attribution
+* account becomes opportunity within 30 days of campaign engagement → opportunity_created attribution
+* proposal sent within 60 days of campaign engagement → proposal_sent attribution
+* deal won within 180 days of campaign engagement → revenue_influenced attribution
+
+Influenced attribution:
+
+* any campaign touch/open/click/reply within X days before opportunity creation
+* stakeholder from same account engaged before opportunity creation
+* multiple campaign touches from same account before stage change
+
+Attribution confidence:
+
+* High: direct reply/task/meeting created from campaign
+* Medium: same contact/account engaged within 30 days before opportunity
+* Low: account was touched within 90 days, no direct action
+
+Do not overclaim.
+
+4. Backend Service
+
+Create:
+
+server/services/campaign-attribution.ts
+
+Functions:
+
+* migrateCampaignAttributionSchema()
+* recordCampaignAttributionEvent(input)
+* inferCampaignAttributionForAccount(accountId)
+* inferCampaignAttributionForCampaign(campaignId)
+* getCampaignAttributionSummary(campaignId)
+* getMarketingAttributionDashboard(filters)
+* getPersonaAttributionBreakdown(filters)
+* getStakeholderAttributionBreakdown(filters)
+* getAccountAttributionTimeline(accountId)
+* linkOpportunityToCampaign(input)
+* unlinkAttributionEvent(id)
+
+5. API Routes
+
+Add:
+
+* GET /api/marketing/attribution
+* GET /api/marketing/campaigns/:id/attribution
+* GET /api/accounts/:id/marketing-attribution
+* POST /api/marketing/attribution/link
+* DELETE /api/marketing/attribution/:id
+
+Filters:
+
+* campaign_id
+* account_id
+* persona
+* stakeholder_role
+* attribution_type
+* confidence
+* date_from
+* date_to
+* min_value
+* limit
+
+Permissions:
+
+* view attribution requires CRM/Marketing read
+* manual link/unlink requires CRM/Marketing edit
+* revenue values should only be visible to users with appropriate permission if the app has revenue permissions
+
+6. Attribution Integration Points
+
+Create attribution events when:
+
+* reply classification creates a task
+* branch automation creates a task
+* meeting_request classification occurs
+* account heat score crosses Hot threshold if useful
+* opportunity is created from or linked to an account with recent campaign engagement
+* proposal is created/sent if proposal objects exist
+* opportunity stage changes if opportunity objects exist
+* deal is won/lost if deal objects exist
+
+If some CRM objects do not exist yet, add TODO/remaining gap report rather than fake data.
+
+7. Frontend: Marketing Analytics
+
+Add section:
+
+Campaign ROI / Pipeline Attribution
+
+Show:
+
+* campaigns influenced
+* meetings/tasks created
+* opportunities influenced
+* proposals influenced
+* pipeline value influenced
+* won revenue influenced
+* top campaign by pipeline
+* top persona by pipeline
+* top stakeholder role by pipeline
+
+Tables:
+
+A. Campaign Attribution Table
+
+* Campaign
+* Sent
+* Replies
+* Tasks
+* Meetings
+* Opportunities
+* Proposals
+* Pipeline Value
+* Won Revenue
+* Confidence
+
+B. Persona Attribution Table
+
+* Marina Persona
+* Campaigns
+* Engaged Accounts
+* Opportunities
+* Pipeline Value
+* Won Revenue
+
+C. Stakeholder Attribution Table
+
+* Role
+* Replies
+* Tasks
+* Meetings
+* Opportunities
+* Pipeline Value
+
+If revenue data is unavailable, show:
+“Revenue fields are not yet available. Showing task/opportunity influence only.”
+
+8. Frontend: Campaign Detail
+
+Add section:
+
+Campaign Attribution
+
+Show:
+
+* tasks created from this campaign
+* replies that generated tasks
+* accounts influenced
+* opportunities influenced
+* attribution timeline
+* confidence levels
+
+9. Frontend: Account Profile
+
+Add section/tab:
+
+Marketing Attribution
+
+Show:
+
+* campaigns that touched this account
+* campaign engagement before opportunity/proposal
+* attribution timeline
+* tasks/meetings created from campaigns
+* linked opportunities/proposals if available
+* confidence badge
+
+10. Manual Attribution Linking
+
+Add UI or API support to manually link:
+
+* campaign → opportunity
+* campaign recipient → opportunity
+* campaign → proposal
+* campaign → meeting/task
+
+Manual link should record:
+
+* user_id
+* timestamp
+* reason
+* confidence = manual_high or manual_medium
+
+11. Safety / Trust Rules
+
+Do not overstate attribution.
+
+Use labels:
+
+* Direct
+* Influenced
+* Assisted
+* Manual
+* Low Confidence
+
+Never call influenced pipeline “won revenue” unless deal status is actually won.
+
+If an opportunity is attributed to multiple campaigns, show multi-touch influence instead of double-counting revenue silently.
+
+If revenue is included, show whether totals are:
+
+* unique opportunity value
+* multi-touch influenced value
+* weighted value
+
+12. Tests
+
+Add tests for:
+
+* attribution event creation
+* campaign task creates task attribution
+* meeting_request classification creates attribution
+* campaign attribution summary counts tasks/replies
+* account attribution timeline returns campaign touches
+* attribution confidence high for direct reply/task
+* attribution confidence medium for recent account engagement
+* opportunity attribution only if opportunity object exists
+* manual link requires edit permission
+* unlink requires edit permission
+* attribution list filters work
+* revenue is not shown/faked when missing
+* no double-counting within one campaign summary
+* multi-touch attribution is represented safely
+* route permission checks
+* invalid IDs return 400/404
+* existing branching tests still pass
+* reply ingestion tests still pass
+* automation tests still pass
+* compliance tests still pass
+* account heat tests still pass
+* nav-drift still passes
+* openai-compat still passes
+
+13. Visual QA
+
+Take screenshots of:
+
+* Marketing Analytics Campaign ROI section
+* Campaign Attribution table
+* Persona Attribution table
+* Stakeholder Attribution table
+* Campaign Detail Attribution section
+* Account Profile Marketing Attribution section
+* Empty state when no revenue/opportunity data exists
+
+14. Final Report
+
+Return:
+
+* existing CRM revenue objects found
+* data model added
+* routes added
+* attribution rules implemented
+* UI sections added
+* tests run and passing
+* screenshots taken
+* remaining CRM/revenue gaps
+
+Important:
+Do not invent revenue.
+Do not fake opportunities.
+Do not double-count pipeline as won revenue.
+Keep attribution conservative and clearly labeled.
