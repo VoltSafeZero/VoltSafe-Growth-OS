@@ -4,7 +4,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Radio, ArrowLeft, Plus, Trash2, Play, Pause, CheckCircle, Edit2,
   Mail, MousePointerClick, MessageSquare, Calendar, Users, Target,
-  Sparkles, Save, FileText, Clock,
+  Sparkles, Save, FileText, Clock, UserCheck, AlertTriangle, ChevronDown, ChevronUp,
+  RefreshCw, Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ type Campaign = {
   goal: string | null;
   status: string;
   notes: string | null;
+  segmentId: number | null;
   totalRecipients: number;
   sentCount: number;
   openedCount: number;
@@ -52,6 +54,49 @@ type CampaignEmail = {
   status: string;
 };
 
+type Segment = {
+  id: number;
+  segmentName: string;
+  description: string | null;
+  filtersJson: any;
+  recipientCount: number;
+};
+
+type RecipientResult = {
+  contactId: number;
+  accountId: number | null;
+  name: string;
+  email: string;
+  title: string | null;
+  roleType: string | null;
+  accountName: string | null;
+  marinaPersona: string | null;
+  adoptionStage: string | null;
+  primaryPain: string | null;
+  region: string | null;
+  status: "eligible" | "excluded" | "already_enrolled";
+  exclusionReason: string | null;
+};
+
+type PreviewResult = {
+  segmentName: string;
+  recipients: RecipientResult[];
+  totalMatched: number;
+  eligibleCount: number;
+  excludedCount: number;
+  alreadyEnrolledCount: number;
+  exclusionBreakdown: Record<string, number>;
+};
+
+type EnrollResult = {
+  enrolled_count: number;
+  skipped_count: number;
+  already_enrolled_count: number;
+  excluded_count: number;
+  exclusion_breakdown: Record<string, number>;
+  total_recipients: number;
+};
+
 const STAKEHOLDER_OPENINGS = [
   { role: "Owner", opening: "Many marinas are leaving money on the dock through outdated shore power billing." },
   { role: "GM", opening: "Managing shore power should not require manual readings, mystery outages, and boater complaints." },
@@ -61,25 +106,40 @@ const STAKEHOLDER_OPENINGS = [
   { role: "Developer", opening: "New marina projects should not be specifying yesterday's shore power infrastructure into tomorrow's waterfront." },
 ];
 
-const DEFAULT_SEQUENCE = [
-  { stepNumber: 1, delayDays: 0,  subject: "The problem with legacy shore power",                  bodyText: "Shore power is the lifeblood of every marina — but most marinas are running infrastructure that hasn't changed in decades. Legacy pedestals create billing blind spots, safety risks, and boater friction. There's a smarter way." },
-  { stepNumber: 2, delayDays: 4,  subject: "How smart shore power improves safety and visibility",  bodyText: "Smart shore power gives marina teams real-time visibility into every slip — so problems are caught before they become incidents. No more mystery outages. No more manual meter reading rounds." },
-  { stepNumber: 3, delayDays: 9,  subject: "A message for your role at the marina",               bodyText: "Depending on your role — whether you're the owner, GM, harbormaster, or electrician — the shore power problem shows up differently. But the solution is the same: better infrastructure, smarter visibility, less friction." },
-  { stepNumber: 4, delayDays: 16, subject: "ROI and metered billing for marina shore power",       bodyText: "Metered billing turns shore power from a utility cost into a visible revenue line. Marinas using smart metering report fewer billing disputes, better revenue capture, and happier boaters." },
-  { stepNumber: 5, delayDays: 25, subject: "One quick question",                                  bodyText: "I know this isn't top of mind for everyone right now. Is upgrading your shore power infrastructure something you'd explore in the next 6–12 months? Happy to share what other marinas in the region are doing." },
-];
+function exclusionLabel(reason: string): string {
+  const map: Record<string, string> = {
+    missing_email: "No email",
+    invalid_email: "Invalid email",
+    internal_voltsafe_email: "Internal address",
+    do_not_email: "Do not email",
+    bounced: "Bounced",
+    unsubscribed: "Unsubscribed",
+    suppressed_email: "Suppressed email",
+    suppressed_domain: "Suppressed domain",
+    duplicate_email: "Duplicate email",
+    already_enrolled: "Already enrolled",
+  };
+  return map[reason] ?? reason;
+}
+
+const PREVIEW_TABLE_LIMIT = 100;
 
 export default function CampaignDetailPage() {
   const [, params] = useRoute("/marketing/campaigns/:id");
   const id = Number((params as any)?.id);
   const { toast } = useToast();
+
   const [showAddEmail, setShowAddEmail] = useState(false);
-  const [editingEmail, setEditingEmail] = useState<CampaignEmail | null>(null);
   const [showAI, setShowAI] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiResult, setAiResult] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [emailForm, setEmailForm] = useState({ subject: "", bodyText: "", delayDays: 0 });
+
+  const [preview, setPreview] = useState<PreviewResult | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewFilter, setPreviewFilter] = useState<"all" | "eligible" | "excluded" | "already_enrolled">("all");
+  const [enrollResult, setEnrollResult] = useState<EnrollResult | null>(null);
 
   const { data: campaign, isLoading } = useQuery<Campaign>({
     queryKey: ["/api/marketing/campaigns", id],
@@ -91,11 +151,27 @@ export default function CampaignDetailPage() {
     enabled: !!id,
   });
 
+  const { data: segments = [] } = useQuery<Segment[]>({
+    queryKey: ["/api/marketing/segments"],
+    enabled: !!id,
+  });
+
   const statusMutation = useMutation({
     mutationFn: (status: string) => apiRequest("PATCH", `/api/marketing/campaigns/${id}`, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
+    },
+  });
+
+  const segmentMutation = useMutation({
+    mutationFn: (segmentId: number | null) => apiRequest("PATCH", `/api/marketing/campaigns/${id}`, { segmentId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
+      setPreview(null);
+      setEnrollResult(null);
+      toast({ title: "Segment updated" });
     },
   });
 
@@ -120,13 +196,47 @@ export default function CampaignDetailPage() {
   });
 
   const seedSequenceMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", `/api/marketing/campaigns/${id}/seed-sequence`, {}),
+    mutationFn: () => apiRequest("POST", `/api/marketing/campaigns/${id}/seed-sequence`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", id, "emails"] });
       toast({ title: "Default 5-email sequence added" });
     },
+    onError: (err: any) => {
+      toast({ title: "Sequence already exists", description: "Delete existing steps first.", variant: "destructive" });
+    },
   });
+
+  const enrollMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/marketing/campaigns/${id}/enroll-recipients`, {}),
+    onSuccess: async (res) => {
+      const data: EnrollResult = await res.json();
+      setEnrollResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
+      toast({ title: `Enrolled ${data.enrolled_count} recipients`, description: `${data.excluded_count} excluded, ${data.already_enrolled_count} already enrolled` });
+    },
+    onError: async (err: any) => {
+      const msg = err?.message ?? "Enrollment failed";
+      toast({ title: "Enrollment failed", description: msg, variant: "destructive" });
+    },
+  });
+
+  async function runPreview() {
+    if (!campaign?.segmentId) return;
+    setPreviewLoading(true);
+    setPreview(null);
+    setEnrollResult(null);
+    try {
+      const res = await apiRequest("POST", `/api/marketing/campaigns/${id}/preview-recipients`, {});
+      const data: PreviewResult = await res.json();
+      setPreview(data);
+      setPreviewFilter("all");
+    } catch (err: any) {
+      toast({ title: "Preview failed", description: err?.message ?? "Unknown error", variant: "destructive" });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
   async function runAI() {
     if (!aiPrompt.trim()) return;
@@ -163,6 +273,18 @@ export default function CampaignDetailPage() {
     completed: { label: "Reactivate",      next: "active",   icon: Play },
   };
   const action = statusActions[campaign.status];
+
+  const selectedSegment = segments.find(s => s.id === campaign.segmentId) ?? null;
+  const canEnroll = campaign.status !== "archived" && campaign.status !== "completed" && !!campaign.segmentId;
+
+  const filteredPreviewRows = preview
+    ? preview.recipients.filter(r => previewFilter === "all" || r.status === previewFilter).slice(0, PREVIEW_TABLE_LIMIT)
+    : [];
+
+  const statusColor = (s: RecipientResult["status"]) =>
+    s === "eligible" ? "text-emerald-400" :
+    s === "already_enrolled" ? "text-blue-400" :
+    "text-amber-400";
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-background">
@@ -242,6 +364,204 @@ export default function CampaignDetailPage() {
               <p className="text-sm text-foreground leading-relaxed">{campaign.notes}</p>
             </div>
           )}
+        </div>
+
+        {/* ── Audience Enrollment ───────────────────────────────────────────────── */}
+        <div className="rounded-xl border border-border/50 bg-card/50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-4 border-b border-border/30">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" />
+              Audience Enrollment
+            </h2>
+          </div>
+
+          <div className="px-4 py-4 space-y-4">
+            {/* Segment selector */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Selected Segment</Label>
+                <Select
+                  value={campaign.segmentId ? String(campaign.segmentId) : "__none__"}
+                  onValueChange={v => segmentMutation.mutate(v === "__none__" ? null : Number(v))}
+                >
+                  <SelectTrigger className="h-9 text-sm" data-testid="select-campaign-segment">
+                    <SelectValue placeholder="No segment assigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No segment</SelectItem>
+                    {segments.map(seg => (
+                      <SelectItem key={seg.id} value={String(seg.id)}>
+                        {seg.segmentName}
+                        {seg.recipientCount > 0 && ` (~${seg.recipientCount.toLocaleString()} contacts)`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="pt-5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={runPreview}
+                  disabled={!campaign.segmentId || previewLoading}
+                  data-testid="btn-preview-recipients"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${previewLoading ? "animate-spin" : ""}`} />
+                  {previewLoading ? "Loading…" : "Preview Audience"}
+                </Button>
+              </div>
+            </div>
+
+            {!campaign.segmentId && (
+              <div className="rounded-lg bg-muted/20 border border-dashed border-border/40 px-4 py-5 text-center">
+                <Users className="w-6 h-6 text-muted-foreground/40 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Assign a segment above to preview and enroll CRM contacts into this campaign.</p>
+              </div>
+            )}
+
+            {/* Preview summary */}
+            {preview && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: "Total Matched", value: preview.totalMatched.toLocaleString(), color: "text-foreground" },
+                    { label: "Eligible", value: preview.eligibleCount.toLocaleString(), color: "text-emerald-400" },
+                    { label: "Excluded", value: preview.excludedCount.toLocaleString(), color: "text-amber-400" },
+                    { label: "Already Enrolled", value: preview.alreadyEnrolledCount.toLocaleString(), color: "text-blue-400" },
+                  ].map(s => (
+                    <div key={s.label} className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 text-center">
+                      <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
+                      <div className="text-xs text-muted-foreground">{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Exclusion breakdown */}
+                {Object.keys(preview.exclusionBreakdown).length > 0 && (
+                  <div className="rounded-lg bg-muted/20 px-3 py-2">
+                    <div className="text-xs font-medium text-muted-foreground mb-1.5">Exclusion Breakdown</div>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(preview.exclusionBreakdown).map(([reason, count]) => (
+                        <span key={reason} className="inline-flex items-center gap-1 text-xs bg-muted/40 px-2 py-0.5 rounded-full text-muted-foreground">
+                          {exclusionLabel(reason)}: <strong>{count}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Enroll button */}
+                {!enrollResult && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      {preview.eligibleCount === 0
+                        ? "No eligible recipients to enroll."
+                        : `Ready to enroll ${preview.eligibleCount} eligible recipient${preview.eligibleCount !== 1 ? "s" : ""}.`
+                      }
+                    </p>
+                    <Button
+                      size="sm"
+                      onClick={() => enrollMutation.mutate()}
+                      disabled={!canEnroll || preview.eligibleCount === 0 || enrollMutation.isPending}
+                      data-testid="btn-enroll-recipients"
+                    >
+                      <UserCheck className="w-4 h-4 mr-2" />
+                      {enrollMutation.isPending ? "Enrolling…" : `Enroll ${preview.eligibleCount} Recipients`}
+                    </Button>
+                  </div>
+                )}
+
+                {/* Enrollment success state */}
+                {enrollResult && (
+                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-4 py-3" data-testid="enrollment-success">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <UserCheck className="w-4 h-4 text-emerald-400" />
+                      <span className="text-sm font-semibold text-emerald-400">Enrollment complete</span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      <div><span className="text-muted-foreground">Enrolled: </span><strong className="text-emerald-400">{enrollResult.enrolled_count}</strong></div>
+                      <div><span className="text-muted-foreground">Skipped: </span><strong className="text-foreground">{enrollResult.skipped_count}</strong></div>
+                      <div><span className="text-muted-foreground">Already enrolled: </span><strong className="text-blue-400">{enrollResult.already_enrolled_count}</strong></div>
+                      <div><span className="text-muted-foreground">Total recipients: </span><strong className="text-foreground">{enrollResult.total_recipients}</strong></div>
+                    </div>
+                    <Button variant="ghost" size="sm" className="mt-2 text-xs h-7" onClick={runPreview}>
+                      <RefreshCw className="w-3 h-3 mr-1" /> Re-preview
+                    </Button>
+                  </div>
+                )}
+
+                {/* Recipient preview table */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-medium text-muted-foreground flex items-center gap-2">
+                      <Filter className="w-3.5 h-3.5" />
+                      Preview (showing up to {PREVIEW_TABLE_LIMIT})
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {(["all", "eligible", "excluded", "already_enrolled"] as const).map(f => (
+                        <button
+                          key={f}
+                          onClick={() => setPreviewFilter(f)}
+                          className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
+                            previewFilter === f
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                          data-testid={`filter-${f}`}
+                        >
+                          {f === "all" ? "All" : f === "eligible" ? "Eligible" : f === "excluded" ? "Excluded" : "Enrolled"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border/40 overflow-hidden">
+                    <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-muted/60 backdrop-blur-sm z-10">
+                          <tr>
+                            {["Contact", "Email", "Role", "Account / Marina", "Persona", "Stage", "Status", "Reason"].map(h => (
+                              <th key={h} className="text-left px-3 py-2 text-muted-foreground font-medium whitespace-nowrap">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredPreviewRows.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
+                                No recipients match this filter.
+                              </td>
+                            </tr>
+                          ) : filteredPreviewRows.map((r, i) => (
+                            <tr key={`${r.contactId}-${i}`} className={`border-t border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"}`}
+                              data-testid={`preview-row-${r.contactId}`}>
+                              <td className="px-3 py-2 font-medium text-foreground">{r.name}</td>
+                              <td className="px-3 py-2 text-muted-foreground font-mono">{r.email}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{r.roleType ?? r.title ?? "—"}</td>
+                              <td className="px-3 py-2 text-muted-foreground max-w-[140px] truncate">{r.accountName ?? "—"}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{r.marinaPersona ?? "—"}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{r.adoptionStage ?? "—"}</td>
+                              <td className={`px-3 py-2 font-medium ${statusColor(r.status)}`}>
+                                {r.status === "eligible" ? "Eligible" : r.status === "already_enrolled" ? "Enrolled" : "Excluded"}
+                              </td>
+                              <td className="px-3 py-2 text-muted-foreground">
+                                {r.exclusionReason ? exclusionLabel(r.exclusionReason) : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {filteredPreviewRows.length === PREVIEW_TABLE_LIMIT && (
+                      <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border/20 bg-muted/20">
+                        Showing first {PREVIEW_TABLE_LIMIT} of {preview.recipients.filter(r => previewFilter === "all" || r.status === previewFilter).length} contacts.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Stakeholder opening lines */}

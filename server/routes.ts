@@ -43,6 +43,7 @@ import {
   insertRolloutPhaseSchema,
   insertTradeshowEventSchema,
   marketingCampaigns, campaignEmails, campaignSegments, campaignTemplates, campaignSuppression,
+  campaignRecipients, campaignEvents,
   insertMarketingCampaignSchema, insertCampaignEmailSchema, insertCampaignSegmentSchema,
   insertCampaignTemplateSchema, insertCampaignSuppressionSchema,
 } from "@shared/schema";
@@ -36309,12 +36310,20 @@ export function registerConfluenceRoutes(app: Express) {
   // Marketing / Campaign Intelligence (Phase 16)
   // ─────────────────────────────────────────────────────────────────────────────
 
+  function sqlLit(s: string): string { return "'" + (s ?? "").replace(/'/g, "''") + "'"; }
+
   // ── Campaigns ────────────────────────────────────────────────────────────────
 
   app.get("/api/marketing/campaigns", requireAuth, async (req: any, res) => {
     try {
-      const rows = await db.select().from(marketingCampaigns).orderBy(sql`updated_at DESC`);
-      res.json(rows);
+      const rows = await db.execute(sql.raw(`
+        SELECT mc.*, cs.segment_name, cs.recipient_count AS segment_recipient_count,
+          (SELECT COUNT(*) FROM campaign_recipients cr WHERE cr.campaign_id = mc.id AND cr.status = 'enrolled')::int AS enrolled_count
+        FROM marketing_campaigns mc
+        LEFT JOIN campaign_segments cs ON cs.id = mc.segment_id
+        ORDER BY mc.updated_at DESC
+      `));
+      res.json(rows.rows);
     } catch (err) {
       console.error("[marketing] GET /campaigns:", err);
       res.status(500).json({ error: "Failed to load campaigns" });
@@ -36441,6 +36450,85 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err) {
       console.error("[marketing] POST /campaigns/:id/seed-sequence:", err);
       res.status(500).json({ error: "Failed to seed sequence" });
+    }
+  });
+
+  // ── Recipient preview & enrollment ───────────────────────────────────────────
+
+  app.post("/api/marketing/campaigns/:id/preview-recipients", requireAuth, async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      if (!campaignId || isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
+      const [campaign] = await db.select({ segmentId: marketingCampaigns.segmentId }).from(marketingCampaigns).where(eq(marketingCampaigns.id, campaignId));
+      if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+      if (!campaign.segmentId) return res.status(422).json({ error: "Campaign has no audience segment. Assign a segment first." });
+      const [segment] = await db.select({ filtersJson: campaignSegments.filtersJson, segmentName: campaignSegments.segmentName })
+        .from(campaignSegments).where(eq(campaignSegments.id, campaign.segmentId));
+      if (!segment) return res.status(404).json({ error: "Segment not found" });
+      const { resolveSegmentRecipients } = await import("./services/campaign-segment-resolver");
+      const result = await resolveSegmentRecipients(campaignId, segment.filtersJson as any, 5000);
+      res.json({ segmentName: segment.segmentName, ...result });
+    } catch (err) {
+      console.error("[marketing] POST /campaigns/:id/preview-recipients:", err);
+      res.status(500).json({ error: "Failed to preview recipients" });
+    }
+  });
+
+  app.post("/api/marketing/campaigns/:id/enroll-recipients", requireAuth, async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      if (!campaignId || isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
+      const [campaign] = await db.select({ segmentId: marketingCampaigns.segmentId, status: marketingCampaigns.status })
+        .from(marketingCampaigns).where(eq(marketingCampaigns.id, campaignId));
+      if (!campaign) return res.status(404).json({ error: "Campaign not found" });
+      if (!campaign.segmentId) return res.status(422).json({ error: "Campaign has no audience segment. Assign a segment first." });
+      if (campaign.status === "archived" || campaign.status === "completed") {
+        return res.status(409).json({ error: `Cannot enroll recipients into a ${campaign.status} campaign` });
+      }
+      const [segment] = await db.select({ filtersJson: campaignSegments.filtersJson, segmentName: campaignSegments.segmentName })
+        .from(campaignSegments).where(eq(campaignSegments.id, campaign.segmentId));
+      if (!segment) return res.status(404).json({ error: "Segment not found" });
+      const { resolveSegmentRecipients } = await import("./services/campaign-segment-resolver");
+      const result = await resolveSegmentRecipients(campaignId, segment.filtersJson as any, 10000);
+      const eligible = result.recipients.filter(r => r.status === "eligible");
+      let enrolledCount = 0;
+      let skippedCount = 0;
+      for (const r of eligible) {
+        try {
+          await db.execute(sql.raw(`
+            INSERT INTO campaign_recipients (campaign_id, contact_id, account_id, email, name, marina_persona, adoption_stage, role, status, current_step)
+            VALUES (${campaignId}, ${r.contactId}, ${r.accountId ?? "NULL"}, ${sqlLit(r.email)}, ${sqlLit(r.name)},
+              ${r.marinaPersona ? sqlLit(r.marinaPersona) : "NULL"}, ${r.adoptionStage ? sqlLit(r.adoptionStage) : "NULL"},
+              ${r.roleType ? sqlLit(r.roleType) : "NULL"}, 'enrolled', 1)
+            ON CONFLICT (campaign_id, email) DO NOTHING
+          `));
+          enrolledCount++;
+        } catch {
+          skippedCount++;
+        }
+      }
+      await db.update(marketingCampaigns).set({ totalRecipients: enrolledCount + result.alreadyEnrolledCount, updatedAt: new Date() })
+        .where(eq(marketingCampaigns.id, campaignId));
+      await db.update(campaignSegments).set({ recipientCount: result.eligibleCount + result.alreadyEnrolledCount })
+        .where(eq(campaignSegments.id, campaign.segmentId!));
+      try {
+        await db.insert(campaignEvents).values({
+          campaignId,
+          eventType: "recipients_enrolled",
+          metadata: { enrolled_count: enrolledCount, skipped_count: skippedCount, already_enrolled_count: result.alreadyEnrolledCount, excluded_count: result.excludedCount },
+        } as any);
+      } catch { /* non-critical */ }
+      res.json({
+        enrolled_count: enrolledCount,
+        skipped_count: skippedCount,
+        already_enrolled_count: result.alreadyEnrolledCount,
+        excluded_count: result.excludedCount,
+        exclusion_breakdown: result.exclusionBreakdown,
+        total_recipients: enrolledCount + result.alreadyEnrolledCount,
+      });
+    } catch (err) {
+      console.error("[marketing] POST /campaigns/:id/enroll-recipients:", err);
+      res.status(500).json({ error: "Failed to enroll recipients" });
     }
   });
 

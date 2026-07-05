@@ -5,7 +5,7 @@ import {
   Radio, Plus, Search, Filter, MoreHorizontal, Play, Pause,
   CheckCircle, Clock, Archive, FileText, Zap, TrendingUp,
   Users, Mail, MousePointerClick, MessageSquare, Calendar,
-  ChevronRight,
+  ChevronRight, UserCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,17 +82,20 @@ function StatusBadge({ status }: { status: string }) {
 
 type Campaign = {
   id: number;
-  campaignName: string;
-  campaignType: string;
+  campaign_name: string;
+  campaign_type: string;
   goal: string | null;
   status: string;
-  totalRecipients: number;
-  sentCount: number;
-  openedCount: number;
-  clickedCount: number;
-  repliedCount: number;
-  demoBookedCount: number;
-  updatedAt: string;
+  segment_id: number | null;
+  segment_name: string | null;
+  total_recipients: number;
+  enrolled_count: number;
+  sent_count: number;
+  opened_count: number;
+  clicked_count: number;
+  replied_count: number;
+  demo_booked_count: number;
+  updated_at: string;
 };
 
 export default function MarketingCampaignsPage() {
@@ -129,7 +132,7 @@ export default function MarketingCampaignsPage() {
   });
 
   const filtered = campaigns.filter(c => {
-    const matchSearch = !search || c.campaignName.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search || c.campaign_name.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || c.status === statusFilter;
     return matchSearch && matchStatus;
   });
@@ -137,8 +140,8 @@ export default function MarketingCampaignsPage() {
   const stats = {
     total: campaigns.length,
     active: campaigns.filter(c => c.status === "active").length,
-    totalSent: campaigns.reduce((a, c) => a + c.sentCount, 0),
-    totalOpened: campaigns.reduce((a, c) => a + c.openedCount, 0),
+    totalSent: campaigns.reduce((a, c) => a + (c.sent_count ?? 0), 0),
+    totalOpened: campaigns.reduce((a, c) => a + (c.opened_count ?? 0), 0),
   };
 
   return (
@@ -228,7 +231,7 @@ export default function MarketingCampaignsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/50 bg-muted/30">
-                  {["Campaign", "Type", "Status", "Recipients", "Open Rate", "Click Rate", "Reply Rate", "Demos", ""].map(h => (
+                  {["Campaign", "Type", "Status", "Audience", "Enrolled", "Open Rate", "Reply Rate", "Demos", ""].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">
                       {h}
                     </th>
@@ -237,7 +240,8 @@ export default function MarketingCampaignsPage() {
               </thead>
               <tbody>
                 {filtered.map((c, i) => {
-                  const typeLabel = CAMPAIGN_TYPES.find(t => t.value === c.campaignType)?.label ?? c.campaignType;
+                  const typeLabel = CAMPAIGN_TYPES.find(t => t.value === c.campaign_type)?.label ?? c.campaign_type;
+                  const enrolledCount = c.enrolled_count ?? 0;
                   return (
                     <tr
                       key={c.id}
@@ -246,18 +250,30 @@ export default function MarketingCampaignsPage() {
                     >
                       <td className="px-4 py-3">
                         <Link href={`/marketing/campaigns/${c.id}`} className="font-medium text-foreground hover:text-primary transition-colors flex items-center gap-1">
-                          {c.campaignName}
+                          {c.campaign_name}
                           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/50" />
                         </Link>
-                        {c.goal && <div className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]">{c.goal}</div>}
+                        {c.goal && <div className="text-xs text-muted-foreground mt-0.5 truncate max-w-[200px]">{c.goal}</div>}
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{typeLabel}</td>
                       <td className="px-4 py-3"><StatusBadge status={c.status} /></td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{c.totalRecipients.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{pct(c.openedCount, c.sentCount)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{pct(c.clickedCount, c.sentCount)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{pct(c.repliedCount, c.sentCount)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{c.demoBookedCount}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground max-w-[140px]">
+                        {c.segment_name
+                          ? <span className="truncate block" title={c.segment_name}>{c.segment_name}</span>
+                          : <span className="text-muted-foreground/40 italic">No segment</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {enrolledCount > 0
+                            ? <><UserCheck className="w-3 h-3 text-emerald-400" /><span className="font-mono text-xs text-emerald-400">{enrolledCount.toLocaleString()}</span></>
+                            : <span className="text-xs text-muted-foreground/40 italic">Not enrolled</span>
+                          }
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{pct(c.opened_count, c.sent_count)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{pct(c.replied_count, c.sent_count)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{c.demo_booked_count}</td>
                       <td className="px-4 py-3">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

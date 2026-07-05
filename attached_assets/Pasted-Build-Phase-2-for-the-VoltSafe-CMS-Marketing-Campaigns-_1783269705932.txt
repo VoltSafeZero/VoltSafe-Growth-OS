@@ -1,0 +1,307 @@
+Build Phase 2 for the VoltSafe CMS Marketing / Campaigns module: Real Recipient Enrollment from CRM Segments.
+
+Context:
+The Marketing / Campaigns module has already been built and hardened. It includes campaign CRUD, campaign detail, sequence builder, AI copywriting, templates, suppression list, audience segment definitions, analytics shells with real DB counts, and marketing navigation.
+
+The known remaining gap is that saved audience segments are currently definitions only. They do not yet resolve into actual CRM contacts/accounts, exclude suppressed contacts/domains, or populate campaign_recipients.
+
+Goal:
+Implement real recipient enrollment so a campaign can take a saved segment, resolve matching CRM contacts/accounts, show a safe preview, exclude invalid/suppressed/internal contacts, and then populate campaign_recipients.
+
+This phase should not implement actual email sending yet. The goal is safe, accurate enrollment and preview.
+
+Core requirements:
+
+1. Segment Resolver
+
+Create backend logic that can resolve a campaign segment’s filters_json against CRM accounts and contacts.
+
+It should support the existing segment filters already available in the Audiences UI, especially:
+
+* Marina Persona
+* Adoption Stage
+* Contact Role / Stakeholder Role
+* Primary Pain
+* Region / province / state / country if available
+* Slip count / marina size if available
+* Active opportunity yes/no if available
+* Suppression status
+* Has email
+* Last contacted / last engaged if available
+
+The resolver should return matching CRM contacts with their related account data.
+
+Each resolved recipient should include:
+
+* contact_id
+* account_id
+* contact name
+* email
+* title / role
+* stakeholder role if available
+* account / marina name
+* marina_persona
+* adoption_stage
+* primary_pain
+* region
+* exclusion status
+* exclusion reason if excluded
+
+2. Enrollment Preview Endpoint
+
+Add an endpoint like:
+
+POST /api/marketing/campaigns/:id/preview-recipients
+
+or:
+
+GET /api/marketing/campaigns/:id/recipient-preview
+
+Use whichever route style best matches the existing codebase.
+
+The preview should:
+
+* resolve the campaign’s selected segment
+* show total matched contacts
+* show eligible recipients
+* show excluded recipients
+* group exclusion reasons
+
+Exclusion reasons should include:
+
+* missing_email
+* invalid_email
+* internal_voltsafe_email
+* suppressed_email
+* suppressed_domain
+* duplicate_email
+* already_enrolled
+* bounced_or_unsubscribed if data exists
+* account_excluded_active_opportunity if this filter exists
+* no_matching_account if relevant
+
+Important:
+Do not include @voltsafe.com emails as eligible campaign recipients.
+
+3. Enroll Audience Endpoint
+
+Add an endpoint like:
+
+POST /api/marketing/campaigns/:id/enroll-recipients
+
+This should:
+
+* resolve the selected segment
+* apply all exclusions
+* insert eligible recipients into campaign_recipients
+* avoid duplicate enrollment
+* be idempotent
+* return a summary:
+    * enrolled_count
+    * skipped_count
+    * already_enrolled_count
+    * excluded_count
+    * exclusion_breakdown
+
+If called multiple times, it should not duplicate recipients.
+
+4. Campaign Recipient Schema / Data
+
+Populate campaign_recipients with:
+
+* campaign_id
+* contact_id
+* account_id
+* marina_persona
+* adoption_stage
+* role
+* email
+* status: enrolled or pending
+* current_step: 0 or 1 depending on existing convention
+* created_at
+* updated_at
+
+Use existing schema fields if already present. Do not create duplicate fields unnecessarily.
+
+Add any missing indexes needed for:
+
+* campaign_id
+* contact_id
+* account_id
+* email
+* campaign_id + contact_id uniqueness if appropriate
+* campaign_id + email uniqueness if safer
+
+5. Suppression Rules
+
+Use the existing campaign_suppression table.
+
+Suppression must work for:
+
+* exact email match
+* domain match
+
+Examples:
+
+* email suppression: john@examplemarina.com
+* domain suppression: examplemarina.com
+
+If a contact email is john@examplemarina.com and examplemarina.com is suppressed, exclude them with suppressed_domain.
+
+Normalize emails/domains before comparison:
+
+* lowercase
+* trim whitespace
+* remove leading @ from domains if needed
+
+6. Duplicate Protection
+
+If multiple contacts have the same email:
+
+* include one eligible recipient
+* exclude the rest as duplicate_email
+
+If the same contact is already in campaign_recipients for that campaign:
+
+* exclude or skip as already_enrolled
+
+7. Frontend: Campaign Detail Page
+
+Add a new section to Campaign Detail:
+
+Audience Enrollment
+
+It should show:
+
+* selected segment name
+* total matched contacts
+* eligible recipients
+* excluded recipients
+* already enrolled recipients
+* exclusion breakdown
+* button: Preview Audience
+* button: Enroll Eligible Recipients
+
+The Enroll button should be disabled if:
+
+* campaign has no segment
+* preview has zero eligible recipients
+* campaign is archived/completed if that is the existing status logic
+* user lacks permission
+
+After enrollment, show:
+
+* enrolled count
+* skipped count
+* updated recipient total
+* clear success message
+
+8. Frontend: Recipient Preview Table
+
+Show a preview table with:
+
+* Contact
+* Email
+* Role
+* Account / Marina
+* Marina Persona
+* Adoption Stage
+* Status
+* Reason
+
+Status should be:
+
+* Eligible
+* Excluded
+* Already Enrolled
+
+The table should support at least simple filtering:
+
+* All
+* Eligible
+* Excluded
+* Already Enrolled
+
+If the list is large, cap preview display to a reasonable number like 100 or use pagination if the project already has a pattern.
+
+9. Frontend: Campaigns Page
+
+Update the Campaigns table to show:
+
+* recipient count if available
+* enrolled count if available
+* segment name if available
+
+Do not fake counts. If recipient enrollment has not happened, show 0 or “Not enrolled”.
+
+10. Analytics / Events
+
+Do not implement open/click/reply tracking in this phase.
+
+However, optionally create a campaign_event when recipients are enrolled:
+
+* event_type: recipients_enrolled
+* metadata_json: summary counts
+
+Only do this if it fits the existing event model cleanly.
+
+11. Permissions
+
+Enrollment should require the same permission level as campaign creation/editing.
+
+Verify:
+
+* users without Marketing permission cannot preview/enroll
+* read-only users cannot enroll
+* endpoint is protected server-side, not just frontend-hidden
+
+12. Tests
+
+Add or update tests for:
+
+* segment resolver returns matching contacts/accounts
+* suppression by email excludes correctly
+* suppression by domain excludes correctly
+* @voltsafe.com emails excluded
+* duplicate email handling
+* already enrolled handling
+* enrollment is idempotent
+* invalid campaign ID returns 400/404 as appropriate
+* missing campaign segment returns useful error
+* permission checks
+* no FK crash on enrollment
+
+Run:
+
+* marketing route tests if available
+* permissions tests
+* nav-drift tests
+* openai-compat tests to ensure no unrelated regression
+* any CRM/account/contact tests affected by resolver logic
+
+13. Visual QA
+
+Take screenshots of:
+
+* Campaign Detail page with new Audience Enrollment section
+* Recipient preview with eligible contacts
+* Recipient preview with excluded contacts
+* Enrollment success state
+* Campaigns table showing recipient count
+
+14. Final Report
+
+Return a concise report with:
+
+* files changed
+* endpoints added
+* resolver filters supported
+* exclusion rules implemented
+* tests run and passing
+* screenshots taken
+* remaining gaps
+
+Important:
+Do not implement actual email sending in this phase. Do not wire campaigns to send outbound emails yet. This phase is only about resolving, previewing, validating, and enrolling recipients safely.
+
+The next phase after this should be suppression-safe campaign sending and event tracking.
