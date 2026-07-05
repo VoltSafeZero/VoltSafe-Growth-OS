@@ -2348,6 +2348,32 @@ export async function migrateComplianceSchema(): Promise<void> {
         ON contact_topic_preferences(contact_id)
     `));
 
+    // ── contact_import_batches table ──────────────────────────────────────────
+    await db.execute(sqlTag.raw(`
+      CREATE TABLE IF NOT EXISTS contact_import_batches (
+        id               SERIAL PRIMARY KEY,
+        batch_uuid       TEXT NOT NULL UNIQUE,
+        file_name        TEXT,
+        imported_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        jurisdiction     TEXT,
+        consent_source   TEXT,
+        consent_type     TEXT,
+        attestation_text TEXT,
+        total_rows       INTEGER NOT NULL DEFAULT 0,
+        inserted_rows    INTEGER NOT NULL DEFAULT 0,
+        quarantined_rows INTEGER NOT NULL DEFAULT 0,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `));
+
+    // ── contacts: import tracking & quarantine ────────────────────────────────
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS import_batch_id INTEGER REFERENCES contact_import_batches(id) ON DELETE SET NULL`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS quarantine_reason TEXT`));
+
+    // ── marketing_campaigns: transactional flag ───────────────────────────────
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS is_transactional BOOLEAN NOT NULL DEFAULT FALSE`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS transactional_reason TEXT`));
+
     console.log("[migration] CASL/CAN-SPAM compliance schema ready.");
   } catch (err) {
     console.error("[migration] migrateComplianceSchema error (non-fatal):", err);

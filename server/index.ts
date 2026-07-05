@@ -356,6 +356,95 @@ app.use((req, res, next) => {
         // Calendar auto-sync (15-min interval; no-op when no connections are configured)
         const { startCalendarSyncScheduler } = await import("./calendar-sync");
         startCalendarSyncScheduler();
+        // Compliance: expire stale CASL implied consent + generate 90/60/30-day warning records
+        (function scheduleConsentExpiryJob() {
+          const INTERVAL_MS = 24 * 60 * 60 * 1000;
+          async function runConsentExpiry() {
+            try {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              const today = new Date().toISOString().slice(0, 10);
+
+              // Step 1: Find and expire overdue contacts (get IDs first for audit)
+              const expiredContacts = (await db.execute(sql.raw(`
+                SELECT id, email FROM contacts
+                WHERE canada_contact = TRUE
+                  AND consent_status = 'implied_active'
+                  AND implied_consent_expiry_date IS NOT NULL
+                  AND implied_consent_expiry_date::date < '${today}'::date
+              `))).rows as any[];
+
+              if (expiredContacts.length > 0) {
+                await db.execute(sql.raw(`
+                  UPDATE contacts
+                  SET consent_status = 'implied_expired', updated_at = NOW()
+                  WHERE id IN (${expiredContacts.map((c: any) => c.id).join(",")})
+                `));
+
+                // Write per-contact audit log rows
+                for (const c of expiredContacts) {
+                  await db.execute(sql.raw(`
+                    INSERT INTO compliance_audit_log (event_type, contact_id, performed_by, new_values, notes)
+                    VALUES ('implied_consent_expired', ${c.id}, NULL,
+                      '{"source":"cron","reason":"implied_consent_expiry_date_passed"}'::jsonb,
+                      'Automated: implied consent expired past expiry date')
+                  `)).catch(() => {});
+                }
+                log(`[cron:consent-expiry] Marked implied-expired: ${expiredContacts.length} contacts; audit rows written`);
+              }
+
+              // Step 2: Generate 90/60/30-day warning activity records for approaching expiry
+              for (const days of [90, 60, 30]) {
+                const windowStart = new Date(Date.now() + (days - 1) * 86400000).toISOString().slice(0, 10);
+                const windowEnd   = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+
+                const upcoming = (await db.execute(sql.raw(`
+                  SELECT c.id, c.name, c.email, c.implied_consent_expiry_date::text AS expiry_date, c.account_id
+                  FROM contacts c
+                  WHERE c.canada_contact = TRUE
+                    AND c.consent_status = 'implied_active'
+                    AND c.implied_consent_expiry_date IS NOT NULL
+                    AND c.implied_consent_expiry_date::date >= '${windowStart}'::date
+                    AND c.implied_consent_expiry_date::date <= '${windowEnd}'::date
+                `))).rows as any[];
+
+                for (const c of upcoming) {
+                  // Only create one warning per contact per window (skip if already created today)
+                  const alreadyExists = (await db.execute(sql.raw(`
+                    SELECT id FROM activities
+                    WHERE linked_object_type = 'contact'
+                      AND linked_object_id = ${c.id}
+                      AND type = 'compliance_warning'
+                      AND summary LIKE '%${days}-day%'
+                      AND created_at::date = '${today}'::date
+                  `))).rows as any[];
+                  if (alreadyExists.length > 0) continue;
+
+                  const safeName = (c.name || "Contact").replace(/'/g, "''");
+                  const safeExpiry = (c.expiry_date || "").replace(/'/g, "''");
+                  const safeEmail = (c.email || "").replace(/'/g, "''");
+                  const safeSubject = `CASL Implied Consent Expiring in ${days} Days`;
+                  const safeSummary = `Contact ${safeName} (${safeEmail}) implied consent expires on ${safeExpiry}. Renew or upgrade to express consent to maintain sendability.`;
+                  await db.execute(sql.raw(`
+                    INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_at)
+                    VALUES ('contact', ${Number(c.id)}, 'compliance_warning',
+                      '${safeSubject.replace(/'/g, "''")}',
+                      '${safeSummary.replace(/'/g, "''")}',
+                      NOW())
+                  `)).catch(() => {});
+                }
+
+                if (upcoming.length > 0) {
+                  log(`[cron:consent-expiry] ${days}-day warning: ${upcoming.length} contacts approaching expiry`);
+                }
+              }
+            } catch (err: any) {
+              log(`[cron:consent-expiry] Error: ${err?.message}`);
+            }
+          }
+          runConsentExpiry();
+          setInterval(runConsentExpiry, INTERVAL_MS);
+        })();
       } else {
         log("[schedulers] ENABLE_BACKGROUND_JOBS=false — skipping background job startup");
       }

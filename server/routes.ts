@@ -37469,6 +37469,377 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+
+  // ── Compliance Dashboard Stats ────────────────────────────────────────────
+  // GET /api/marketing/compliance/stats — all 22 dashboard metrics
+  app.get("/api/marketing/compliance/stats", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const now = new Date().toISOString().slice(0, 10);
+      const d30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+      const d60 = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+      const d90 = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
+
+      const [jur] = (await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE jurisdiction = 'canada' OR canada_contact = TRUE) AS canada_count,
+          COUNT(*) FILTER (WHERE jurisdiction = 'us' OR us_contact = TRUE) AS us_count,
+          COUNT(*) FILTER (WHERE jurisdiction NOT IN ('canada','us') AND jurisdiction IS NOT NULL AND jurisdiction != 'unknown' AND canada_contact = FALSE AND us_contact = FALSE) AS other_count,
+          COUNT(*) FILTER (WHERE jurisdiction IS NULL OR jurisdiction = 'unknown') AS unknown_jurisdiction_count,
+          COUNT(*) AS total_contacts
+        FROM contacts
+        WHERE email IS NOT NULL AND email != ''
+      `))).rows as any[];
+
+      const [consent] = (await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE (jurisdiction = 'canada' OR canada_contact = TRUE) AND consent_status = 'express_active') AS canada_express_count,
+          COUNT(*) FILTER (WHERE (jurisdiction = 'canada' OR canada_contact = TRUE) AND consent_status = 'implied_active') AS canada_implied_active_count,
+          COUNT(*) FILTER (WHERE (jurisdiction = 'canada' OR canada_contact = TRUE) AND consent_status = 'implied_active' AND implied_consent_expiry_date IS NOT NULL AND implied_consent_expiry_date::date <= '${d30}'::date AND implied_consent_expiry_date::date > '${now}'::date) AS implied_expiring_30,
+          COUNT(*) FILTER (WHERE (jurisdiction = 'canada' OR canada_contact = TRUE) AND consent_status = 'implied_active' AND implied_consent_expiry_date IS NOT NULL AND implied_consent_expiry_date::date <= '${d60}'::date AND implied_consent_expiry_date::date > '${now}'::date) AS implied_expiring_60,
+          COUNT(*) FILTER (WHERE (jurisdiction = 'canada' OR canada_contact = TRUE) AND consent_status = 'implied_active' AND implied_consent_expiry_date IS NOT NULL AND implied_consent_expiry_date::date <= '${d90}'::date AND implied_consent_expiry_date::date > '${now}'::date) AS implied_expiring_90,
+          COUNT(*) FILTER (WHERE (jurisdiction = 'canada' OR canada_contact = TRUE) AND (consent_status = 'implied_expired' OR (consent_status = 'implied_active' AND implied_consent_expiry_date IS NOT NULL AND implied_consent_expiry_date::date < '${now}'::date))) AS implied_expired_count,
+          COUNT(*) FILTER (WHERE consent_status IS NULL OR consent_status = 'unknown') AS unknown_consent_count,
+          COUNT(*) FILTER (WHERE (jurisdiction = 'canada' OR canada_contact = TRUE) AND (consent_type IS NULL OR consent_source IS NULL) AND import_batch_id IS NULL) AS missing_canada_proof_count
+        FROM contacts
+        WHERE email IS NOT NULL AND email != ''
+      `))).rows as any[];
+
+      const [usStats] = (await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE (jurisdiction = 'us' OR us_contact = TRUE) AND suppression_status = 'none' AND (unsubscribe_status IS NULL OR unsubscribe_status = 'subscribed')) AS us_b2b_eligible_count,
+          COUNT(*) FILTER (WHERE (jurisdiction = 'us' OR us_contact = TRUE) AND (unsubscribe_status = 'unsubscribed' OR suppression_status != 'none')) AS us_opted_out_count
+        FROM contacts
+        WHERE email IS NOT NULL AND email != ''
+      `))).rows as any[];
+
+      const [subStats] = (await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE unsubscribe_status = 'unsubscribed') AS unsubscribed_count,
+          COUNT(*) FILTER (WHERE suppression_status IS NOT NULL AND suppression_status != 'none') AS suppressed_count,
+          COUNT(*) FILTER (WHERE suppression_status = 'quarantined') AS quarantined_count
+        FROM contacts
+        WHERE email IS NOT NULL AND email != ''
+      `))).rows as any[];
+
+      let campStats: any = { campaigns_blocked_count: 0, avg_unsub_rate: 0, avg_bounce_rate: 0 };
+      let campaignHealthBreakdown: any[] = [];
+      try {
+        const [cs] = (await db.execute(sql.raw(`
+          SELECT
+            COUNT(*) FILTER (WHERE compliance_status = 'preflight_failed' AND status IN ('draft','scheduled')) AS campaigns_blocked_count,
+            COALESCE(ROUND(AVG(CASE WHEN COALESCE(total_sent,0) > 0 THEN COALESCE(unsubscribed_count,0)::float / total_sent * 100 ELSE NULL END)::numeric, 2), 0) AS avg_unsub_rate,
+            COALESCE(ROUND(AVG(CASE WHEN COALESCE(total_sent,0) > 0 THEN COALESCE(bounced_count,0)::float / total_sent * 100 ELSE NULL END)::numeric, 2), 0) AS avg_bounce_rate
+          FROM marketing_campaigns
+          WHERE status NOT IN ('archived')
+        `))).rows as any[];
+        if (cs) campStats = cs;
+        // Per-campaign health breakdown (latest 10 active/sent campaigns)
+        const chRows = (await db.execute(sql.raw(`
+          SELECT id, campaign_name, status, compliance_status,
+            COALESCE(total_sent, 0) AS total_sent,
+            COALESCE(unsubscribed_count, 0) AS unsubscribed_count,
+            COALESCE(bounced_count, 0) AS bounced_count,
+            CASE WHEN COALESCE(total_sent,0) > 0
+              THEN ROUND(COALESCE(unsubscribed_count,0)::numeric / total_sent * 100, 2)
+              ELSE 0 END AS unsub_rate,
+            CASE WHEN COALESCE(total_sent,0) > 0
+              THEN ROUND(COALESCE(bounced_count,0)::numeric / total_sent * 100, 2)
+              ELSE 0 END AS bounce_rate
+          FROM marketing_campaigns
+          WHERE status NOT IN ('archived')
+          ORDER BY created_at DESC LIMIT 10
+        `))).rows as any[];
+        campaignHealthBreakdown = chRows.map((r: any) => ({
+          id: Number(r.id),
+          name: String(r.campaign_name ?? ""),
+          status: String(r.status ?? ""),
+          complianceStatus: String(r.compliance_status ?? ""),
+          totalSent: Number(r.total_sent),
+          unsubscribedCount: Number(r.unsubscribed_count),
+          bouncedCount: Number(r.bounced_count),
+          unsubRate: Number(r.unsub_rate),
+          bounceRate: Number(r.bounce_rate),
+        }));
+      } catch (_ce: any) { /* columns may not exist in this DB */ }
+
+      const consentSources = (await db.execute(sql.raw(`
+        SELECT consent_source, COUNT(*) AS cnt
+        FROM contacts
+        WHERE consent_source IS NOT NULL AND email IS NOT NULL AND email != ''
+        GROUP BY consent_source ORDER BY cnt DESC LIMIT 10
+      `))).rows as any[];
+
+      const leadSources = (await db.execute(sql.raw(`
+        SELECT lead_source, COUNT(*) AS cnt
+        FROM contacts
+        WHERE lead_source IS NOT NULL AND email IS NOT NULL AND email != ''
+        GROUP BY lead_source ORDER BY cnt DESC LIMIT 10
+      `))).rows as any[];
+
+      const formOptInRate = (await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE consent_capture_method = 'form') AS form_captured,
+          COUNT(*) AS total_with_consent
+        FROM contacts
+        WHERE consent_status IN ('express_active','implied_active') AND email IS NOT NULL AND email != ''
+      `))).rows[0] as any;
+
+      res.json({
+        totalContacts: Number(jur?.total_contacts ?? 0),
+        canadaCount: Number(jur?.canada_count ?? 0),
+        usCount: Number(jur?.us_count ?? 0),
+        otherCount: Number(jur?.other_count ?? 0),
+        unknownJurisdictionCount: Number(jur?.unknown_jurisdiction_count ?? 0),
+        canadaExpressCount: Number(consent?.canada_express_count ?? 0),
+        canadaImpliedActiveCount: Number(consent?.canada_implied_active_count ?? 0),
+        impliedExpiring30: Number(consent?.implied_expiring_30 ?? 0),
+        impliedExpiring60: Number(consent?.implied_expiring_60 ?? 0),
+        impliedExpiring90: Number(consent?.implied_expiring_90 ?? 0),
+        impliedExpiredCount: Number(consent?.implied_expired_count ?? 0),
+        unknownConsentCount: Number(consent?.unknown_consent_count ?? 0),
+        missingCanadaProofCount: Number(consent?.missing_canada_proof_count ?? 0),
+        usBizEligibleCount: Number(usStats?.us_b2b_eligible_count ?? 0),
+        usOptedOutCount: Number(usStats?.us_opted_out_count ?? 0),
+        unsubscribedCount: Number(subStats?.unsubscribed_count ?? 0),
+        suppressedCount: Number(subStats?.suppressed_count ?? 0),
+        quarantinedCount: Number(subStats?.quarantined_count ?? 0),
+        campaignsBlockedCount: Number(campStats?.campaigns_blocked_count ?? 0),
+        avgUnsubRate: Number(campStats?.avg_unsub_rate ?? 0),
+        avgBounceRate: Number(campStats?.avg_bounce_rate ?? 0),
+        spamComplaintRate: await (async () => {
+          try {
+            const [spamRow] = (await db.execute(sql.raw(`
+              SELECT
+                COUNT(*) FILTER (WHERE event_type IN ('spam_complaint','complaint','spam')) AS complaints,
+                COUNT(DISTINCT contact_id) AS total_tracked
+              FROM email_engagement_events
+              WHERE created_at > NOW() - INTERVAL '90 days'
+            `))).rows as any[];
+            const complaints = Number(spamRow?.complaints ?? 0);
+            const tracked = Number(spamRow?.total_tracked ?? 0);
+            return tracked > 0 ? Math.round((complaints / tracked) * 10000) / 100 : 0;
+          } catch { return 0; }
+        })(),
+        consentSourceBreakdown: consentSources.map((r: any) => ({ source: r.consent_source, count: Number(r.cnt) })),
+        leadSourceBreakdown: leadSources.map((r: any) => ({ source: r.lead_source, count: Number(r.cnt) })),
+        campaignHealthBreakdown,
+        formOptInRate: formOptInRate?.total_with_consent > 0
+          ? Math.round((Number(formOptInRate.form_captured) / Number(formOptInRate.total_with_consent)) * 100)
+          : 0,
+      });
+    } catch (err: any) {
+      console.error("[compliance] GET /stats:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Compliance Audit Log Viewer ───────────────────────────────────────────
+  app.get("/api/marketing/compliance/audit-log", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.min(100, Number(req.query.limit) || 50);
+      const offset = (page - 1) * limit;
+      const eventType = req.query.event_type as string | undefined;
+      const contactId = req.query.contact_id ? Number(req.query.contact_id) : undefined;
+      const campaignId = req.query.campaign_id ? Number(req.query.campaign_id) : undefined;
+
+      let where = "WHERE 1=1";
+      if (eventType) where += ` AND cal.event_type = '${String(eventType).replace(/'/g, "''")}'`;
+      if (contactId) where += ` AND cal.contact_id = ${contactId}`;
+      if (campaignId) where += ` AND cal.campaign_id = ${campaignId}`;
+
+      const rows = (await db.execute(sql.raw(`
+        SELECT cal.id, cal.event_type, cal.contact_id, cal.campaign_id,
+               cal.performed_by, cal.old_values, cal.new_values, cal.notes, cal.created_at,
+               c.name AS contact_name, c.email AS contact_email,
+               mc.campaign_name, u.name AS performed_by_name
+        FROM compliance_audit_log cal
+        LEFT JOIN contacts c ON c.id = cal.contact_id
+        LEFT JOIN marketing_campaigns mc ON mc.id = cal.campaign_id
+        LEFT JOIN users u ON u.id = cal.performed_by
+        ${where}
+        ORDER BY cal.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `))).rows as any[];
+
+      const [countRow] = (await db.execute(sql.raw(`
+        SELECT COUNT(*) AS total FROM compliance_audit_log cal ${where}
+      `))).rows as any[];
+
+      res.json({ rows, total: Number(countRow?.total ?? 0), page, limit });
+    } catch (err: any) {
+      console.error("[compliance] GET /audit-log:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Contact Batch Import ──────────────────────────────────────────────────
+  app.post("/api/marketing/contacts/import",
+    requireAuth, requirePermission("crm", "edit"),
+    upload.single("file"),
+    async (req: any, res) => {
+      try {
+        const userId = getSessionUserId(req);
+        const { jurisdiction, consentSource, consentType, attestation } = req.body ?? {};
+
+        if (!req.file) return res.status(400).json({ message: "No CSV file uploaded" });
+        if (!jurisdiction || jurisdiction === "unknown") {
+          return res.status(400).json({ message: "Jurisdiction is required (canada, us, or other)" });
+        }
+        if (attestation !== "true") {
+          return res.status(400).json({ message: "Attestation must be confirmed before importing" });
+        }
+
+        const csvText = fs.readFileSync(req.file.path, "utf-8");
+        fs.unlinkSync(req.file.path);
+
+        function parseCsvLine(line: string): string[] {
+          const fields: string[] = [];
+          let cur = "";
+          let inQ = false;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"' && !inQ) { inQ = true; continue; }
+            if (ch === '"' && inQ) { if (line[i+1] === '"') { cur += '"'; i++; } else inQ = false; continue; }
+            if (ch === "," && !inQ) { fields.push(cur.trim()); cur = ""; continue; }
+            cur += ch;
+          }
+          fields.push(cur.trim());
+          return fields;
+        }
+
+        const allLines = csvText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(l => l.trim());
+        if (!allLines.length) return res.status(400).json({ message: "CSV file is empty" });
+
+        const headers = parseCsvLine(allLines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9_]/g, "_"));
+        const csvRows = allLines.slice(1).map(l => {
+          const vals = parseCsvLine(l);
+          const obj: Record<string, string> = {};
+          headers.forEach((h, i) => { obj[h] = vals[i] ?? ""; });
+          return obj;
+        }).filter(r => Object.values(r).some(v => v));
+
+        const batchUuid = crypto.randomUUID();
+        const attestationText = "I confirm that all contacts in this file have provided valid consent to receive commercial electronic messages in accordance with applicable legislation (CASL/CAN-SPAM).";
+
+        const [batch] = (await db.execute(sql.raw(`
+          INSERT INTO contact_import_batches
+            (batch_uuid, file_name, imported_by, jurisdiction, consent_source, consent_type, attestation_text, total_rows)
+          VALUES
+            ('${batchUuid}', '${String(req.file.originalname ?? "import.csv").replace(/'/g, "''")}',
+             ${userId ?? "NULL"}, '${String(jurisdiction).replace(/'/g, "''")}',
+             '${String(consentSource ?? "").replace(/'/g, "''")}',
+             '${String(consentType ?? "").replace(/'/g, "''")}',
+             '${attestationText.replace(/'/g, "''")}', ${csvRows.length})
+          RETURNING id
+        `))).rows as any[];
+        const batchId = batch.id;
+
+        const suppRows = (await db.execute(sql.raw(`SELECT email FROM campaign_suppression WHERE email IS NOT NULL`))).rows as any[];
+        const suppressed = new Set(suppRows.map((r: any) => (r.email ?? "").toLowerCase()));
+
+        let insertedRows = 0;
+        let quarantinedRows = 0;
+        const report: any[] = [];
+
+        let defaultAccountId: number | null = null;
+        const [defAcc] = (await db.execute(sql.raw(`SELECT id FROM accounts LIMIT 1`))).rows as any[];
+        if (defAcc) defaultAccountId = defAcc.id;
+
+        for (const row of csvRows) {
+          const email = (row.email || row.email_address || "").toLowerCase().trim();
+          const name = (row.name || row.full_name || `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Unknown");
+
+          if (!email || !email.includes("@")) {
+            quarantinedRows++;
+            report.push({ email, name, status: "quarantined", reason: "Invalid or missing email" });
+            continue;
+          }
+          if (suppressed.has(email)) {
+            quarantinedRows++;
+            report.push({ email, name, status: "quarantined", reason: "Email on suppression list" });
+            continue;
+          }
+
+          let quarantineReason: string | null = null;
+          if (jurisdiction === "canada") {
+            const ct = row.consent_type || consentType || "";
+            const cs = row.consent_source || consentSource || "";
+            const cp = row.consent_proof || row.consent_proof_url || "";
+            if (!ct) quarantineReason = "Canadian contact missing consent_type";
+            else if (!cs) quarantineReason = "Canadian contact missing consent_source";
+            else if (ct === "express" && !cp) quarantineReason = "Canadian express consent missing consent_proof (proof URL or reference)";
+            else if (ct === "implied" && !row.implied_consent_expiry_date) quarantineReason = "Canadian implied consent missing expiry date";
+          }
+
+          const safeEmail = email.replace(/'/g, "''");
+          const safeName = name.replace(/'/g, "''");
+          const safeJur = String(jurisdiction).replace(/'/g, "''");
+          const safeCS = String(row.consent_status || (jurisdiction === "canada" ? (row.consent_type || consentType || "implied") === "express" ? "express_active" : "implied_active" : "unknown")).replace(/'/g, "''");
+          const safeCT = String(row.consent_type || consentType || "").replace(/'/g, "''");
+          const safeCSrc = String(row.consent_source || consentSource || "").replace(/'/g, "''");
+          const safeSupSt = quarantineReason ? "quarantined" : "none";
+          const safeQR = quarantineReason ? `'${quarantineReason.replace(/'/g, "''")}'` : "NULL";
+          const expiryVal = row.implied_consent_expiry_date ? `'${row.implied_consent_expiry_date.replace(/'/g, "''")}'` : "NULL";
+          const isCA = jurisdiction === "canada" ? "TRUE" : "FALSE";
+          const isUS = jurisdiction === "us" ? "TRUE" : "FALSE";
+          const accId = row.account_id ? Number(row.account_id) : defaultAccountId;
+
+          if (!accId) {
+            quarantineReason = quarantineReason || "No account available for import";
+            quarantinedRows++;
+            report.push({ email, name, status: "quarantined", reason: quarantineReason });
+            continue;
+          }
+
+          try {
+            await db.execute(sql.raw(`
+              INSERT INTO contacts
+                (account_id, name, email, jurisdiction, canada_contact, us_contact,
+                 consent_status, consent_type, consent_source, consent_timestamp,
+                 implied_consent_expiry_date, suppression_status, quarantine_reason,
+                 import_batch_id, lead_source, created_at, updated_at)
+              VALUES
+                (${accId}, '${safeName}', '${safeEmail}', '${safeJur}',
+                 ${isCA}, ${isUS}, '${safeCS}', '${safeCT}', '${safeCSrc}', NOW(),
+                 ${expiryVal}, '${safeSupSt}', ${safeQR},
+                 ${batchId}, '${String(row.lead_source || "import").replace(/'/g, "''")}', NOW(), NOW())
+              ON CONFLICT DO NOTHING
+            `));
+          } catch (_insertErr: any) {
+            quarantineReason = `Insert failed: ${String(_insertErr?.message).slice(0,80)}`;
+          }
+
+          if (quarantineReason) {
+            quarantinedRows++;
+            report.push({ email, name, status: "quarantined", reason: quarantineReason });
+          } else {
+            insertedRows++;
+            report.push({ email, name, status: "inserted" });
+            db.execute(sql.raw(`
+              INSERT INTO compliance_audit_log (event_type, contact_id, performed_by, new_values, notes)
+              SELECT 'contact_imported', c.id, ${userId ?? "NULL"},
+                     '{"source":"batch_import","batch_uuid":"${batchUuid}"}'::jsonb,
+                     'Imported via batch import'
+              FROM contacts c WHERE c.email = '${safeEmail}' ORDER BY c.id DESC LIMIT 1
+            `)).catch(() => {});
+          }
+        }
+
+        await db.execute(sql.raw(`
+          UPDATE contact_import_batches
+          SET inserted_rows = ${insertedRows}, quarantined_rows = ${quarantinedRows}
+          WHERE id = ${batchId}
+        `));
+
+        res.json({ batchId, batchUuid, totalRows: csvRows.length, insertedRows, quarantinedRows, report: report.slice(0, 500) });
+      } catch (err: any) {
+        console.error("[compliance] POST /contacts/import:", err);
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
 }

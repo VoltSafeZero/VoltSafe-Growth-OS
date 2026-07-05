@@ -197,11 +197,12 @@ export const NAV_CONFIG: NavSection[] = [
     icon: Megaphone,
     permKey: "crm",
     items: [
-      { id: "marketing-campaigns",   label: "Campaigns",       route: "/marketing/campaigns",  icon: Radio },
-      { id: "marketing-audiences",   label: "Audiences",       route: "/marketing/audiences",  icon: Users2 },
-      { id: "marketing-templates",   label: "Templates",       route: "/marketing/templates",  icon: FileText },
-      { id: "marketing-analytics",   label: "Analytics",       route: "/marketing/analytics",  icon: BarChart3 },
+      { id: "marketing-campaigns",   label: "Campaigns",       route: "/marketing/campaigns",   icon: Radio },
+      { id: "marketing-audiences",   label: "Audiences",       route: "/marketing/audiences",   icon: Users2 },
+      { id: "marketing-templates",   label: "Templates",       route: "/marketing/templates",   icon: FileText },
+      { id: "marketing-analytics",   label: "Analytics",       route: "/marketing/analytics",   icon: BarChart3 },
       { id: "marketing-suppression", label: "Suppression",     route: "/marketing/suppression", icon: Ban },
+      { id: "marketing-compliance",  label: "Compliance",      route: "/marketing/compliance",  icon: ShieldCheck },
     ],
   },
   {
