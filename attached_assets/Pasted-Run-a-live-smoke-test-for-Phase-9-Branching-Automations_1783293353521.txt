@@ -1,0 +1,161 @@
+Run a live smoke test for Phase 9 Branching Automations after the audit fixes.
+
+Goal:
+Verify the branching automation system behaves correctly in a realistic end-to-end flow using a test campaign and test recipients only.
+
+Do not modify production campaigns.
+Do not send real customer emails.
+Use only test data or a clearly marked internal test campaign.
+
+Smoke test checklist:
+
+1. Create or identify a test campaign
+
+* Name should clearly include TEST / INTERNAL.
+* Use internal VoltSafe test recipients only.
+* Confirm no real customer/prospect recipients are included.
+
+2. Verify branching rule setup
+    Create or use rules that cover:
+
+* open trigger
+* click trigger
+* reply trigger
+* no-action / no-trigger case
+* also_create_task behavior
+* sales_engaged stop behavior
+* unsubscribe/suppression guard behavior
+
+3. Verify idempotency
+    Trigger the same event multiple times for the same:
+
+* campaign_recipient_id
+* rule_id
+* trigger_event_type
+
+Expected:
+
+* Only one effective branching event should fire.
+* No duplicate automation action should occur.
+* No duplicate task should be created.
+
+4. Verify duplicate task prevention
+    Trigger multiple click URLs that match the same rule with also_create_task enabled.
+
+Expected:
+
+* Only one branch task is created for the recipient/rule.
+* A task_created event is logged once.
+* Further matching events do not create duplicate tasks.
+
+5. Verify compliance suppression
+    Add a test email to campaign_suppression.
+
+Then trigger a branching action that would normally move/send to that recipient.
+
+Expected:
+
+* Action is blocked.
+* Event is logged as skipped_compliance or equivalent.
+* No email is sent.
+* No sequence advancement occurs.
+
+6. Verify unsubscribed and bounced recipient guards
+    Set test recipient unsubscribed_at.
+    Trigger automation.
+
+Expected:
+
+* Blocked safely.
+
+Set test recipient bounced_at.
+Trigger automation.
+
+Expected:
+
+* Blocked safely.
+
+7. Verify fired_count accuracy
+    Create a mix of:
+
+* real fired events
+* skipped_compliance events
+* move_to_step_skipped events
+* send_specific_step_deferred events
+* no_action events
+
+Expected:
+
+* fired_count only counts real action events.
+* skipped/deferred/no_action events do not inflate fired_count.
+* last_fired_at only reflects real action events.
+
+8. Verify route NaN guards
+    Hit all Phase 9 route handlers with non-numeric IDs.
+
+Expected:
+
+* Return 400.
+* Clean error message.
+* No stack trace.
+* No DB mutation.
+
+9. Verify automation tick behavior
+    Confirm recipients with:
+
+* automation_status = active are eligible
+* automation_status = blocked are skipped
+* automation_status = paused are skipped
+* branch_status = sales_engaged are skipped
+
+Expected:
+
+* Tick only acts on active eligible recipients.
+
+10. Verify auto_reply / out_of_office behavior
+    Simulate auto_reply and out_of_office classifications.
+
+Expected:
+
+* They do not trigger branch task creation.
+* They do not stop the sequence.
+* They do not incorrectly classify as sales engagement.
+
+11. Verify send_specific_step deferral
+    Trigger a send_specific_step rule.
+
+Expected:
+
+* It logs send_specific_step_deferred.
+* It does not send immediately unless that behavior is explicitly implemented elsewhere.
+* No accidental email is sent.
+
+12. Produce final report
+    Return a concise report with:
+
+* Test campaign ID/name
+* Test recipients used
+* Each scenario tested
+* Expected result
+* Actual result
+* Pass/fail
+* Any DB rows inspected
+* Any logs captured
+* Any remaining issues
+
+Important constraints:
+
+* No real customer/prospect emails.
+* No production campaign sends.
+* Do not change feature behavior unless a smoke test reveals a bug.
+* If a bug is found, stop and report it before patching unless the fix is obviously small and safe.
+
+Definition of done:
+
+* End-to-end smoke test completed.
+* Compliance guard verified live.
+* Idempotency verified live.
+* Duplicate task prevention verified live.
+* Route guards verified live.
+* No accidental sends.
+* Final report produced.
