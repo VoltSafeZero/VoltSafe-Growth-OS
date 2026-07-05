@@ -64,6 +64,8 @@ export async function migrateBranchingSchema(): Promise<void> {
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crre_campaign_id        ON campaign_recipient_rule_events(campaign_id)`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crre_campaign_recipient ON campaign_recipient_rule_events(campaign_recipient_id)`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crre_rule_id            ON campaign_recipient_rule_events(rule_id)`));
+  // Composite index for the idempotency check: (recipient, rule, trigger_type) narrowed first, then JSON filter on tiny result set
+  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_crre_idempotency ON campaign_recipient_rule_events(campaign_recipient_id, rule_id, trigger_event_type)`));
 
   // Additive columns on campaign_recipients for branch state
   await db.execute(sql.raw(`ALTER TABLE campaign_recipients ADD COLUMN IF NOT EXISTS branch_status    TEXT`));
@@ -202,7 +204,9 @@ export async function evaluateRulesForRecipient(
         }
 
         // 5. Compliance guard — rules NEVER fire for suppressed/unsubscribed/bounced recipients
-        if (recipient.unsubscribed_at || recipient.bounced_at) {
+        //    Checks both the recipient-row columns AND the campaign_suppression table.
+        const isSuppressed = await checkSuppression(recipient.email);
+        if (recipient.unsubscribed_at || recipient.bounced_at || isSuppressed) {
           await writeRuleEvent(campaignId, campaignRecipientId, rule.id, context.triggerType,
             "skipped_compliance",
             { reason: "recipient_unsubscribed_or_bounced", trigger_key: triggerKey });
@@ -347,10 +351,10 @@ export async function applyRuleAction(
         "branching_sequence_stopped",
         { rule_id: rule.id, rule_name: rule.name, branch_status: branchStatus, trigger_key: triggerKey });
 
-      // Composite: also create task
+      // Composite: also create task (deduped by rule_id)
       if (actionCfg.also_create_task) {
         await createBranchTask(campaignId, recipientId, recipient.contact_id, recipient.account_id,
-          actionCfg, context);
+          actionCfg, context, rule.id);
       }
       // Composite: also suppress
       if (actionCfg.also_suppress) {
@@ -451,7 +455,7 @@ export async function applyRuleAction(
     // ─────────────────────────────────────────────────────
     case "create_task": {
       await createBranchTask(campaignId, recipientId, recipient.contact_id, recipient.account_id,
-        actionCfg, context);
+        actionCfg, context, rule.id);
       return "create_task";
     }
 
@@ -534,6 +538,20 @@ function deriveBranchStatus(triggerType: string, triggerValue?: string): string 
   return "stopped_by_reply";
 }
 
+/** Check whether an email address is in the campaign_suppression table. */
+async function checkSuppression(email: string): Promise<boolean> {
+  try {
+    const res = await db.execute(sql.raw(`
+      SELECT id FROM campaign_suppression
+      WHERE email = ${sq(email.toLowerCase().trim())}
+      LIMIT 1
+    `));
+    return res.rows.length > 0;
+  } catch {
+    return false; // fail-open for suppression lookup so compliance guard below still works
+  }
+}
+
 async function suppressEmail(email: string, reason: string): Promise<void> {
   await db.execute(sql.raw(`
     INSERT INTO campaign_suppression (email, reason, source, created_at)
@@ -567,9 +585,27 @@ async function createBranchTask(
   contactId: number | null,
   accountId: number | null,
   actionCfg: Record<string, any>,
-  context: RuleContext
+  context: RuleContext,
+  ruleId?: number
 ): Promise<void> {
   try {
+    // Dedup guard: don't create more than one task per recipient + rule
+    // This prevents duplicate tasks when multiple trigger_keys match the same rule
+    // (e.g. two different clicked links both matching the ROI rule with also_create_task)
+    if (ruleId) {
+      const dupCheck = await db.execute(sql.raw(`
+        SELECT id FROM campaign_recipient_rule_events
+        WHERE campaign_recipient_id = ${recipientId}
+          AND rule_id = ${ruleId}
+          AND action_taken = 'task_created'
+        LIMIT 1
+      `)).catch(() => ({ rows: [] }));
+      if (dupCheck.rows.length > 0) {
+        console.log(`[branching] Task dedup: rule ${ruleId} already created task for recipient ${recipientId} — skipping`);
+        return;
+      }
+    }
+
     const title = (actionCfg.task_title ?? `Follow up — Campaign reply (${context.triggerValue ?? "branching rule"})`).slice(0, 200);
     const desc = (actionCfg.task_description ?? `Branching rule triggered for campaign ${campaignId}. Trigger: ${context.triggerType} = ${context.triggerValue ?? ""}`).slice(0, 1000);
     const priority = actionCfg.task_priority ?? "high";
@@ -585,6 +621,12 @@ async function createBranchTask(
         NOW(), NOW()
       )
     `)).catch(() => {});
+
+    // Record the task creation in rule events for dedup tracking
+    if (ruleId) {
+      await writeRuleEvent(campaignId, recipientId, ruleId, context.triggerType,
+        "task_created", { trigger_key: context.triggerValue ?? context.triggerType, task_title: title });
+    }
   } catch { /* non-critical */ }
 }
 
@@ -628,10 +670,21 @@ async function writeRuleEvent(
 // ── CRUD ───────────────────────────────────────────────────────────────────────
 
 export async function listCampaignRules(campaignId: number): Promise<any[]> {
+  if (!campaignId || isNaN(campaignId)) return [];
   const res = await db.execute(sql.raw(`
     SELECT r.*,
-           COUNT(e.id)::int    AS fired_count,
-           MAX(e.created_at)   AS last_fired_at
+           COUNT(e.id) FILTER (
+             WHERE e.action_taken NOT LIKE 'skipped%'
+               AND e.action_taken NOT LIKE '%_skipped_%'
+               AND e.action_taken != 'send_specific_step_deferred'
+               AND e.action_taken != 'no_action'
+           )::int      AS fired_count,
+           MAX(e.created_at) FILTER (
+             WHERE e.action_taken NOT LIKE 'skipped%'
+               AND e.action_taken NOT LIKE '%_skipped_%'
+               AND e.action_taken != 'send_specific_step_deferred'
+               AND e.action_taken != 'no_action'
+           )           AS last_fired_at
     FROM campaign_automation_rules r
     LEFT JOIN campaign_recipient_rule_events e ON e.rule_id = r.id
     WHERE r.campaign_id = ${campaignId}

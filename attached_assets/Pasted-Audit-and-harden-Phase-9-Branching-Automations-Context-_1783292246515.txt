@@ -1,0 +1,340 @@
+Audit and harden Phase 9: Branching Automations.
+
+Context:
+Phase 9 has been built and merged.
+
+Implemented:
+
+* server/services/campaign-branching-automation.ts
+* campaign_automation_rules table
+* campaign_recipient_rule_events table
+* campaign_recipients branch fields:
+    * branch_status
+    * branch_reason
+    * branch_rule_id
+    * sales_engaged_at
+* priority-ordered rule evaluation engine
+* idempotent trigger_key logic
+* compliance-gated actions
+* move_to_step safety guards
+* send_specific_step deferred/logged
+* 7 default marina campaign rules
+* reply ingestion → reply_classification trigger
+* click tracking → clicked_link trigger
+* 7 API routes with CRM view/edit and admin permissions
+* Campaign Detail BranchingRulesPanel
+* Marketing Replies branch status pill
+* 154/154 tests passing
+
+Goal:
+Verify that branching automations are safe, idempotent, correctly permissioned, do not bypass compliance, and do not corrupt recipient automation state. Fix any issues found.
+
+1. Schema / Migration Audit
+
+Audit the Phase 9 migration.
+
+Verify:
+
+* migration is idempotent
+* campaign_automation_rules exists with all expected columns
+* campaign_recipient_rule_events exists with all expected columns
+* campaign_recipients branch fields exist
+* indexes exist for:
+    * campaign_automation_rules(campaign_id)
+    * campaign_automation_rules(trigger_type)
+    * campaign_automation_rules(is_active)
+    * campaign_recipient_rule_events(campaign_id)
+    * campaign_recipient_rule_events(campaign_recipient_id)
+    * campaign_recipient_rule_events(rule_id)
+    * campaign_recipient_rule_events trigger key / uniqueness if used
+* idempotency cannot be defeated by duplicate rule/event inserts
+* no duplicate rows are created by seeding default rules multiple times
+
+2. Rule Engine Audit
+
+Audit:
+
+* evaluateRulesForRecipient
+* evaluateRulesForEvent
+* applyRuleAction
+* seedDefaultCampaignRules
+* listCampaignRules
+* create/update/delete rule functions
+* getRecipientRuleHistory
+
+Verify:
+
+* rules are evaluated by ascending priority
+* inactive rules never fire
+* rules only fire once per recipient + triggering event
+* trigger_key is stable and collision-resistant enough
+* malformed trigger_config_json fails safely
+* malformed action_config_json fails safely
+* missing campaign/recipient/event returns clean error
+* rule evaluation logs skipped actions with reason
+* composite actions are applied atomically where needed
+* partial action failure does not corrupt recipient state
+* action history is complete and useful
+
+3. Trigger Audit
+
+Verify trigger behavior:
+
+reply_classification:
+
+* meeting_request triggers stop_sequence + create_task
+* interested triggers stop_sequence + create_task
+* unsubscribe triggers stop_sequence + suppress_recipient
+* negative triggers stop_sequence + add_note
+* auto_reply/out_of_office do not create sales tasks
+
+clicked_link:
+
+* technical terms match only intended links
+* ROI/pricing terms match only intended links
+* unsafe/empty URLs do not fire rules
+* click event still works if branching evaluation fails
+
+no_open_after_step / no_click_after_step:
+
+* if implemented, verify timing logic
+* if not fully implemented, ensure it is clearly marked as unsupported/deferred
+
+recipient_status:
+
+* unsubscribed/suppressed recipients stop future automation
+* bounced/do-not-email recipients do not branch into sends
+
+account_heat_score:
+
+* if implemented, verify score threshold behavior
+* if not fully implemented, ensure it is deferred clearly
+
+4. Action Audit
+
+Verify action behavior:
+
+stop_sequence:
+
+* recipient automation_status becomes terminal/paused as intended
+* future automation tick skips recipient
+* branch_status and branch_reason are set
+* current_step is not corrupted
+
+pause_sequence:
+
+* recipient is paused and tick skips recipient
+
+move_to_step:
+
+* refuses missing step
+* refuses already-sent step
+* refuses lower/invalid step if unsafe
+* updates current_step / next_step_due_at consistently
+* does not send immediately unless intended
+
+skip_step:
+
+* if implemented, verify next valid step selected safely
+* if not implemented, mark deferred
+
+create_task:
+
+* creates only one task per rule/event
+* task title/body are useful and not full private email bodies
+* assignment follows existing task conventions
+* no task created for unsubscribe/negative/out_of_office/auto_reply
+
+suppress_recipient:
+
+* sets suppression state
+* writes campaign_suppression when appropriate
+* creates audit/event trail
+* does not allow future sends
+
+send_specific_step:
+
+* confirmed deferred/logged, not accidentally active
+* cannot bypass compliance if later enabled
+
+add_note:
+
+* writes safe note/activity if implemented
+* if not implemented, logged as deferred
+
+5. Compliance / Safety Audit
+
+Verify rules never override:
+
+* unsubscribe
+* suppression
+* bounce
+* do-not-email
+* compliance preflight failure
+* duplicate-send protection
+* missing footer/token/unsubscribe requirements
+* unresolved placeholder guard
+
+If a branching action conflicts with compliance, it should skip and log:
+action_taken = skipped_compliance
+
+6. Automation Integration Audit
+
+Verify:
+
+* automation tick skips branch_status stopped_by_* recipients
+* automation tick skips sales_engaged recipients
+* branch move_to_step does not break delay_days convention
+* branch_status does not conflict with automation_status
+* completed recipients do not branch into more sends
+* branch rules do not cause infinite loops
+
+7. Reply Ingestion Integration Audit
+
+Verify:
+
+* reply ingestion calls rule evaluation after classification
+* classification source inbound_ingested is preserved
+* manual classifications also trigger rules if intended
+* duplicate inbound reply does not fire rules twice
+* unsubscribe reply path triggers suppression and branch stop
+* high-intent replies stop sequence before next automation tick
+
+8. Click Tracking Integration Audit
+
+Verify:
+
+* click tracking calls rule evaluation after click event
+* click tracking still redirects even if branching fails
+* branch evaluation failure does not block user redirect
+* clicked_link event metadata includes enough original_url data
+* technical/ROI matching uses original URL, not tracking URL
+
+9. API Route Audit
+
+Audit:
+
+* GET /api/marketing/campaigns/:id/automation-rules
+* POST /api/marketing/campaigns/:id/automation-rules
+* POST /api/marketing/campaigns/:id/automation-rules/seed-defaults
+* PATCH /api/marketing/automation-rules/:ruleId
+* DELETE /api/marketing/automation-rules/:ruleId
+* GET /api/marketing/recipients/:recipientId/rule-history
+* POST /api/marketing/automation-rules/evaluate-event/:eventId
+
+Verify:
+
+* view routes require CRM/Marketing read
+* mutation routes require CRM/Marketing edit
+* evaluate-event is admin/internal-only
+* invalid campaign/rule/recipient IDs return clean 400/404
+* JSON config body size is bounded
+* trigger_type and action_type are allowlisted
+* route errors do not leak stack traces
+* delete is safe if rule has history
+* seed-defaults is idempotent
+
+10. Frontend Audit: Campaign Detail BranchingRulesPanel
+
+Verify:
+
+* loading state
+* empty state
+* error state
+* Seed Recommended Rules works
+* Create Rule validates required fields
+* Edit Rule validates required fields
+* JSON config errors are shown clearly
+* active/inactive toggle works
+* delete confirm works
+* fired count and last fired are real
+* compliance warning banner appears
+* table does not overflow
+* no crash when rules array is empty
+* no crash when config JSON is null/malformed
+
+11. Frontend Audit: Marketing Replies
+
+Verify:
+
+* branch status pill appears correctly
+* stopped_by_* states are clear
+* sales_engaged state is clear
+* no branch status shows cleanly
+* expanded rows still work
+* create task/review/dismiss buttons still work
+
+12. Heat Score / Buying Committee Audit
+
+Verify:
+
+* sales_engaged recipients show in account intelligence
+* account heat does not recommend more campaign sends to stopped/sales_engaged recipients
+* recommended action prioritizes direct sales follow-up
+* branch stop reasons are visible if available
+
+13. Tests
+
+Add missing tests if gaps are found.
+
+Required coverage:
+
+* seeding default rules twice does not duplicate
+* inactive rule never fires
+* priority order is respected
+* malformed trigger config fails safely
+* malformed action config fails safely
+* same event does not fire rule twice
+* meeting_request stops sequence and creates one task
+* interested stops sequence and creates one task
+* unsubscribe stops sequence and suppresses recipient
+* negative stops sequence without task
+* auto_reply/out_of_office create no task
+* technical clicked link fires technical rule
+* ROI clicked link fires ROI rule
+* empty/unsafe clicked URL does not fire
+* automation tick skips stopped recipients
+* automation tick skips sales_engaged recipients
+* move_to_step refuses missing step
+* move_to_step refuses already-sent step
+* action conflict with suppression logs skipped_compliance
+* API permission checks
+* frontend source-grep for Branching Rules panel
+* reply ingestion tests still pass
+* automation tests still pass
+* tracking tests still pass
+* compliance tests still pass
+* account heat tests still pass
+* nav-drift still passes
+* openai-compat still passes
+
+14. Visual QA
+
+Take screenshots of:
+
+* Branching Rules panel empty state
+* Seed Recommended Rules result
+* Rule create/edit dialog
+* Active/inactive rule toggle
+* Rule history for a recipient if visible
+* Marketing Replies branch status pill
+* Sales-engaged/stopped recipient state
+
+15. Final Report
+
+Return:
+
+* issues found
+* fixes made
+* files changed
+* migration/index changes
+* tests run and passing
+* screenshots taken
+* remaining gaps
+* recommended next phase
+
+Important:
+Do not build a visual drag-and-drop workflow builder.
+Do not implement automated reply sending.
+Do not loosen compliance constraints.
+Focus on safety, idempotency, and reliable sales action.

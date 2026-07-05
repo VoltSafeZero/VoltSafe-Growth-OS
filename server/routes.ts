@@ -38194,8 +38194,11 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // GET /api/marketing/campaigns/:id/automation-rules — list rules for a campaign
   app.get("/api/marketing/campaigns/:id/automation-rules", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
     try {
+      const campaignId = Number(req.params.id);
+      if (!Number.isInteger(campaignId) || campaignId <= 0)
+        return res.status(400).json({ error: "Invalid campaign ID" });
       const { listCampaignRules } = await import("./services/campaign-branching-automation");
-      const rules = await listCampaignRules(Number(req.params.id));
+      const rules = await listCampaignRules(campaignId);
       res.json(rules);
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to list automation rules" });
@@ -38205,12 +38208,13 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // POST /api/marketing/campaigns/:id/automation-rules — create a new rule
   app.post("/api/marketing/campaigns/:id/automation-rules", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
     try {
-      const { createCampaignRule } = await import("./services/campaign-branching-automation");
       const campaignId = Number(req.params.id);
+      if (!Number.isInteger(campaignId) || campaignId <= 0)
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      const { createCampaignRule } = await import("./services/campaign-branching-automation");
       const { name, triggerType, triggerConfigJson, actionType, actionConfigJson, priority, isActive } = req.body ?? {};
-      if (!name || !triggerType || !actionType) {
+      if (!name || !triggerType || !actionType)
         return res.status(400).json({ error: "name, triggerType, and actionType are required" });
-      }
       const rule = await createCampaignRule({ campaignId, name, triggerType, triggerConfigJson, actionType, actionConfigJson, priority, isActive });
       res.status(201).json(rule);
     } catch (err: any) {
@@ -38221,8 +38225,11 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // POST /api/marketing/campaigns/:id/automation-rules/seed-defaults — idempotent seed
   app.post("/api/marketing/campaigns/:id/automation-rules/seed-defaults", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
     try {
+      const campaignId = Number(req.params.id);
+      if (!Number.isInteger(campaignId) || campaignId <= 0)
+        return res.status(400).json({ error: "Invalid campaign ID" });
       const { seedDefaultCampaignRules } = await import("./services/campaign-branching-automation");
-      const created = await seedDefaultCampaignRules(Number(req.params.id));
+      const created = await seedDefaultCampaignRules(campaignId);
       res.json({ created: created.length, rules: created });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to seed default rules" });
@@ -38232,8 +38239,11 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // PATCH /api/marketing/automation-rules/:ruleId — update a rule
   app.patch("/api/marketing/automation-rules/:ruleId", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
     try {
+      const ruleId = Number(req.params.ruleId);
+      if (!Number.isInteger(ruleId) || ruleId <= 0)
+        return res.status(400).json({ error: "Invalid rule ID" });
       const { updateCampaignRule } = await import("./services/campaign-branching-automation");
-      const rule = await updateCampaignRule(Number(req.params.ruleId), req.body ?? {});
+      const rule = await updateCampaignRule(ruleId, req.body ?? {});
       res.json(rule);
     } catch (err: any) {
       res.status(err.statusCode ?? 500).json({ error: err.message ?? "Failed to update rule" });
@@ -38243,8 +38253,11 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // DELETE /api/marketing/automation-rules/:ruleId — delete a rule
   app.delete("/api/marketing/automation-rules/:ruleId", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
     try {
+      const ruleId = Number(req.params.ruleId);
+      if (!Number.isInteger(ruleId) || ruleId <= 0)
+        return res.status(400).json({ error: "Invalid rule ID" });
       const { deleteCampaignRule } = await import("./services/campaign-branching-automation");
-      await deleteCampaignRule(Number(req.params.ruleId));
+      await deleteCampaignRule(ruleId);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to delete rule" });
@@ -38254,8 +38267,11 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // GET /api/marketing/recipients/:recipientId/rule-history — per-recipient rule audit log
   app.get("/api/marketing/recipients/:recipientId/rule-history", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
     try {
+      const recipientId = Number(req.params.recipientId);
+      if (!Number.isInteger(recipientId) || recipientId <= 0)
+        return res.status(400).json({ error: "Invalid recipient ID" });
       const { getRecipientRuleHistory } = await import("./services/campaign-branching-automation");
-      const history = await getRecipientRuleHistory(Number(req.params.recipientId));
+      const history = await getRecipientRuleHistory(recipientId);
       res.json(history);
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to load rule history" });
@@ -38265,8 +38281,11 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // POST /api/marketing/automation-rules/evaluate-event/:eventId — admin: manually trigger evaluation
   app.post("/api/marketing/automation-rules/evaluate-event/:eventId", requireAuth, requireAdmin, async (req: any, res) => {
     try {
+      const eventId = Number(req.params.eventId);
+      if (!Number.isInteger(eventId) || eventId <= 0)
+        return res.status(400).json({ error: "Invalid event ID" });
       const { evaluateRulesForEvent } = await import("./services/campaign-branching-automation");
-      const result = await evaluateRulesForEvent(Number(req.params.eventId));
+      const result = await evaluateRulesForEvent(eventId);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to evaluate event" });
