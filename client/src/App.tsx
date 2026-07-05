@@ -65,6 +65,7 @@ const ProjectsPage = lazy(() => import("@/pages/projects"));
 const ResetPasswordPage = lazy(() => import("@/pages/reset-password"));
 const UnsubscribePage = lazy(() => import("@/pages/unsubscribe"));
 const PreferencesPage = lazy(() => import("@/pages/preferences"));
+const ComplianceUnsubscribePage = lazy(() => import("@/pages/unsubscribe-compliance"));
 const RelationshipIntelligencePage = lazy(() => import("@/pages/relationship-intelligence"));
 const ContactProfilePage = lazy(() => import("@/pages/contact-profile"));
 const AccountProfilePage = lazy(() => import("@/pages/account-profile"));
@@ -525,6 +526,8 @@ function App() {
           }>
             {window.location.pathname === "/book" ? (
               <BookingPublicPage />
+            ) : window.location.pathname === "/unsubscribe" && window.location.search.includes("token=") ? (
+              <Suspense fallback={<PageLoader />}><ComplianceUnsubscribePage /></Suspense>
             ) : window.location.pathname.startsWith("/unsubscribe/") ? (
               <UnsubscribePage />
             ) : window.location.pathname.startsWith("/preferences") ? (

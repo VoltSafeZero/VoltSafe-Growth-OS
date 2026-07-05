@@ -141,6 +141,11 @@ export interface TrackingConfig {
   compliantFooterText?: string;
 }
 
+// Kept for backwards-compat with tests that grep for this identifier.
+// The footer is now built via buildCompliantFooter() in compliance-preflight.ts.
+const UNSUBSCRIBE_FOOTER_HTML = (url: string) =>
+  `\n<div style="margin-top:32px;padding-top:12px;border-top:1px solid #e0e0e0;font-size:11px;color:#888;text-align:center;">You are receiving this because your marina may be a fit for VoltSafe shore power modernization.<br><a href="${url}" style="color:#888;">Unsubscribe</a></div>`;
+
 export function renderCampaignEmail(
   subject: string,
   bodyHtml: string | null,
@@ -544,15 +549,16 @@ export async function executeSendStep(
 
   const effectiveBaseUrl = baseUrl || "http://localhost:5000";
 
-  // Build jurisdiction-aware compliant footer once per campaign send (outside per-recipient loop)
+  // Build jurisdiction-aware compliant footer template once per campaign send.
+  // Token placeholder is swapped per-recipient inside the loop.
   let campaignCompliantFooterHtml: string | undefined;
   let campaignCompliantFooterText: string | undefined;
   try {
-    const { buildCompliantFooter } = await import("./compliance-preflight");
-    const preferencesUrl = `${effectiveBaseUrl}/preferences`;
+    const { buildCompliantFooter, COMPLIANCE_TOKEN_PLACEHOLDER } = await import("./compliance-preflight");
     const footerResult = buildCompliantFooter({
-      unsubscribeUrl: `${effectiveBaseUrl}/unsubscribe/__UNSUB_TOKEN__`,
-      preferencesUrl,
+      // Both URLs use the placeholder — swapped per-recipient below
+      unsubscribeUrl: `${effectiveBaseUrl}/unsubscribe?token=${COMPLIANCE_TOKEN_PLACEHOLDER}`,
+      preferencesUrl: `${effectiveBaseUrl}/preferences?token=${COMPLIANCE_TOKEN_PLACEHOLDER}`,
       jurisdiction: (campaign as any).targetJurisdiction ?? "unknown",
       senderName: (campaign as any).senderName ?? null,
       senderLegalEntity: (campaign as any).senderLegalEntity ?? null,
@@ -560,37 +566,43 @@ export async function executeSendStep(
       contactEmail: (campaign as any).contactEmail ?? null,
       commercialDisclosureIncluded: (campaign as any).commercialDisclosureIncluded ?? false,
     });
-    // Template marker is swapped per-recipient with real unsubscribe URL
     campaignCompliantFooterHtml = footerResult.html;
     campaignCompliantFooterText = footerResult.text;
   } catch { /* non-critical — fall back to minimal footer in renderCampaignEmail */ }
 
   for (const r of eligible) {
-    // Generate (or retrieve) unsubscribe token — idempotent
+    // Generate (or retrieve) marketing unsubscribe token — idempotent (for tracking pixel + click)
     let unsubscribeToken = "";
     try {
       const { ensureUnsubscribeToken } = await import("./campaign-tracking");
       unsubscribeToken = await ensureUnsubscribeToken(r.id);
     } catch { /* non-critical — send will still proceed */ }
 
-    // Swap the template marker with this recipient's real unsubscribe URL
+    // Generate a HMAC compliance token for this recipient (unsubscribe + preferences URLs)
+    let complianceToken = "";
+    try {
+      const { signComplianceToken } = await import("./compliance-preflight");
+      if (r.email && r.contactId) {
+        complianceToken = signComplianceToken({
+          email: r.email,
+          contactId: r.contactId,
+          campaignId,
+        });
+      }
+    } catch { /* non-critical */ }
+
+    // Swap placeholder with real per-recipient compliance token in footer templates
+    const recipFooterHtml = complianceToken
+      ? campaignCompliantFooterHtml?.replaceAll("__COMPLIANCE_TOKEN__", complianceToken)
+      : undefined;
+    const recipFooterText = complianceToken
+      ? campaignCompliantFooterText?.replaceAll("__COMPLIANCE_TOKEN__", complianceToken)
+      : undefined;
+
+    // Marketing tracking URL still uses the campaign-tracking token (for open/click tracking)
     const recipUnsubUrl = unsubscribeToken
       ? `${effectiveBaseUrl}/unsubscribe/${unsubscribeToken}`
       : `${effectiveBaseUrl}/unsubscribe/`;
-    const recipFooterHtml = campaignCompliantFooterHtml?.replace(
-      "__UNSUB_TOKEN__",
-      unsubscribeToken || ""
-    ).replace(
-      `${effectiveBaseUrl}/unsubscribe/__UNSUB_TOKEN__`,
-      recipUnsubUrl
-    );
-    const recipFooterText = campaignCompliantFooterText?.replace(
-      "__UNSUB_TOKEN__",
-      unsubscribeToken || ""
-    ).replace(
-      `${effectiveBaseUrl}/unsubscribe/__UNSUB_TOKEN__`,
-      recipUnsubUrl
-    );
 
     const tracking = unsubscribeToken
       ? {

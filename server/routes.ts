@@ -37211,6 +37211,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
             unsubscribe_source = 'one_click_link',
             suppression_status = 'suppressed',
             suppression_reason = 'unsubscribed',
+            consent_status = 'withdrew_consent',
             updated_at = '${now}'
           WHERE id = ${payload.contactId}
         `));
@@ -37336,6 +37337,135 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       res.json({ token });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? "Failed to generate token" });
+    }
+  });
+
+  // ── Alias routes: /api/unsubscribe and /api/preferences (spec-required public paths) ──
+  // These mirror the /api/compliance/* endpoints for client compatibility.
+  app.get("/api/unsubscribe", async (req: any, res) => {
+    try {
+      const token = String(req.query.token ?? "");
+      if (!token) return res.status(400).json({ error: "token required" });
+      const { verifyComplianceToken } = await import("./services/compliance-preflight");
+      const payload = verifyComplianceToken(token);
+      if (!payload) return res.status(400).json({ error: "Invalid or expired token" });
+      const rows = await db.execute(sql.raw(
+        `SELECT id, email, unsubscribe_status FROM contacts WHERE id = ${payload.contactId}`
+      ));
+      const contact = rows.rows[0] as any;
+      if (!contact) return res.status(404).json({ error: "Contact not found" });
+      res.json({
+        email: payload.email,
+        alreadyUnsubscribed: contact.unsubscribe_status === "unsubscribed",
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to verify token" });
+    }
+  });
+
+  app.post("/api/unsubscribe", async (req: any, res) => {
+    // Alias for POST /api/compliance/unsubscribe
+    const token = String(req.body?.token ?? req.query?.token ?? "");
+    if (!token) return res.status(400).json({ error: "token required" });
+    try {
+      const { verifyComplianceToken } = await import("./services/compliance-preflight");
+      const payload = verifyComplianceToken(token);
+      if (!payload) return res.status(400).json({ error: "Invalid or expired token" });
+      const now = new Date().toISOString();
+      const alreadyRow = await db.execute(sql.raw(
+        `SELECT id, unsubscribe_status FROM contacts WHERE id = ${payload.contactId}`
+      ));
+      const contact = alreadyRow.rows[0] as any;
+      if (!contact) return res.status(404).json({ error: "Contact not found" });
+      const alreadyUnsubscribed = contact.unsubscribe_status === "unsubscribed";
+      if (!alreadyUnsubscribed) {
+        await db.execute(sql.raw(`
+          UPDATE contacts SET
+            unsubscribe_status = 'unsubscribed',
+            unsubscribe_timestamp = '${now}',
+            unsubscribe_source = 'one_click_link',
+            suppression_status = 'suppressed',
+            suppression_reason = 'unsubscribed',
+            consent_status = 'withdrew_consent',
+            updated_at = '${now}'
+          WHERE id = ${payload.contactId}
+        `));
+        try {
+          const campaignClause = payload.campaignId ? `, 'campaign_id', '${payload.campaignId}'` : "";
+          await db.execute(sql.raw(`
+            INSERT INTO compliance_audit_log (event_type, contact_id, performed_by, new_values, notes)
+            VALUES ('unsubscribed', ${payload.contactId}, NULL,
+              jsonb_build_object('source', 'alias_unsubscribe'${campaignClause}),
+              'Public one-click unsubscribe via /api/unsubscribe alias')
+          `));
+        } catch { /* non-critical */ }
+      }
+      res.json({ email: payload.email, alreadyUnsubscribed, success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to process unsubscribe" });
+    }
+  });
+
+  app.get("/api/preferences", async (req: any, res) => {
+    // Alias for GET /api/compliance/preferences
+    try {
+      const token = String(req.query.token ?? "");
+      if (!token) return res.status(400).json({ error: "token required" });
+      const { verifyComplianceToken } = await import("./services/compliance-preflight");
+      const payload = verifyComplianceToken(token);
+      if (!payload) return res.status(400).json({ error: "Invalid or expired token" });
+      const rows = await db.execute(sql.raw(
+        `SELECT id, email, unsubscribe_status FROM contacts WHERE id = ${payload.contactId}`
+      ));
+      const contact = rows.rows[0] as any;
+      if (!contact) return res.status(404).json({ error: "Contact not found" });
+      const prefsRow = await db.execute(sql.raw(
+        `SELECT preference_json FROM contact_email_preferences WHERE contact_id = ${payload.contactId} LIMIT 1`
+      )).catch(() => ({ rows: [] }));
+      const prefJson = (prefsRow.rows[0] as any)?.preference_json ?? null;
+      res.json({
+        email: contact.email,
+        unsubscribeStatus: contact.unsubscribe_status,
+        preferences: prefJson ? (typeof prefJson === "string" ? JSON.parse(prefJson) : prefJson) : {},
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to fetch preferences" });
+    }
+  });
+
+  app.post("/api/preferences", async (req: any, res) => {
+    // Alias for POST /api/compliance/preferences
+    try {
+      const token = String(req.body?.token ?? "");
+      if (!token) return res.status(400).json({ error: "token required" });
+      const { verifyComplianceToken } = await import("./services/compliance-preflight");
+      const payload = verifyComplianceToken(token);
+      if (!payload) return res.status(400).json({ error: "Invalid or expired token" });
+      const { preferences, globalUnsubscribe } = req.body ?? {};
+      const now = new Date().toISOString();
+      if (globalUnsubscribe === true) {
+        await db.execute(sql.raw(`
+          UPDATE contacts SET
+            unsubscribe_status = 'unsubscribed',
+            unsubscribe_timestamp = '${now}',
+            unsubscribe_source = 'preference_center',
+            suppression_status = 'suppressed',
+            suppression_reason = 'unsubscribed',
+            consent_status = 'withdrew_consent',
+            updated_at = '${now}'
+          WHERE id = ${payload.contactId}
+        `));
+      }
+      if (preferences && typeof preferences === "object") {
+        await db.execute(sql.raw(`
+          INSERT INTO contact_email_preferences (contact_id, preference_json, updated_at)
+          VALUES (${payload.contactId}, '${JSON.stringify(preferences).replace(/'/g, "''")}', '${now}')
+          ON CONFLICT (contact_id) DO UPDATE SET preference_json = EXCLUDED.preference_json, updated_at = '${now}'
+        `)).catch(() => { /* table may not exist yet */ });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to save preferences" });
     }
   });
 

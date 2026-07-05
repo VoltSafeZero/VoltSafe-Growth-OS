@@ -201,6 +201,28 @@ function checkCampaignCanSpam(campaign: any): ComplianceError[] {
     });
   }
 
+  // CAN-SPAM §15 USC 7704(a)(1): commercial emails must be clearly identified as commercial
+  // when cold outreach is involved and no explicit consent on file.
+  if (campaign.commercial_disclosure_included === false && campaign.campaign_type === "cold_outreach") {
+    errors.push({
+      code: "canspam_no_commercial_disclosure",
+      message: "CAN-SPAM requires commercial emails to clearly identify themselves as advertisements when no prior consent is established.",
+      jurisdiction: "can_spam",
+      severity: "blocking",
+    });
+  }
+
+  // CAN-SPAM §15 USC 7704(a)(2): prohibits deceptive subject lines.
+  // If a subject field is blank the email is likely invalid; guard against empty subjects.
+  if (campaign.subject !== undefined && !String(campaign.subject ?? "").trim()) {
+    errors.push({
+      code: "canspam_missing_subject",
+      message: "CAN-SPAM prohibits deceptive subject lines. A non-blank, accurate subject is required in every commercial email.",
+      jurisdiction: "can_spam",
+      severity: "blocking",
+    });
+  }
+
   return errors;
 }
 
@@ -348,6 +370,9 @@ export interface FooterOptions {
   contactEmail: string | null;
   commercialDisclosureIncluded: boolean;
 }
+
+// Token placeholder — swap per-recipient after building footer template
+export const COMPLIANCE_TOKEN_PLACEHOLDER = "__COMPLIANCE_TOKEN__";
 
 export function buildCompliantFooter(opts: FooterOptions): { html: string; text: string } {
   const {
