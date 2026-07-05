@@ -42,6 +42,30 @@ type Campaign = {
   bouncedCount: number;
   demoBookedCount: number;
   updatedAt: string;
+  complianceStatus?: string | null;
+  complianceErrors?: any[] | null;
+  senderName?: string | null;
+  physicalMailingAddress?: string | null;
+};
+
+type ComplianceError = {
+  code: string;
+  message: string;
+  jurisdiction: "casl" | "can_spam" | "general";
+  severity: "blocking" | "warning";
+};
+
+type PreflightResult = {
+  passed: boolean;
+  errors: ComplianceError[];
+  canadaCount: number;
+  usCount: number;
+  otherCount: number;
+  blockedCount: number;
+  eligibleCount: number;
+  totalEnrolled: number;
+  warnings: string[];
+  compliance_status: string;
 };
 
 type CampaignEmail = {
@@ -215,6 +239,8 @@ export default function CampaignDetailPage() {
   const [sendStepLoading, setSendStepLoading] = useState(false);
   const [sendStepResults, setSendStepResults] = useState<Record<number, SendStepResult>>({});
   const [recipientFilter, setRecipientFilter] = useState("all");
+  const [preflightResult, setPreflightResult] = useState<PreflightResult | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
 
   const { data: campaign, isLoading } = useQuery<Campaign>({
     queryKey: ["/api/marketing/campaigns", id],
@@ -375,6 +401,27 @@ export default function CampaignDetailPage() {
       toast({ title: "Send failed", description: err.message, variant: "destructive" });
     } finally {
       setSendStepLoading(false);
+    }
+  }
+
+  async function runPreflight() {
+    if (!id) return;
+    setPreflightLoading(true);
+    try {
+      const res = await apiRequest("POST", `/api/marketing/campaigns/${id}/preflight`, {});
+      const data = await res.json();
+      setPreflightResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", id] });
+      if (data.passed) {
+        toast({ title: "Compliance check passed", description: `${data.eligibleCount} eligible recipients.` });
+      } else {
+        const blockCount = data.errors?.filter((e: ComplianceError) => e.severity === "blocking").length ?? 0;
+        toast({ title: "Compliance check failed", description: `${blockCount} blocking issue${blockCount !== 1 ? "s" : ""} found.`, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Preflight error", description: err.message, variant: "destructive" });
+    } finally {
+      setPreflightLoading(false);
     }
   }
 
@@ -749,6 +796,95 @@ export default function CampaignDetailPage() {
               </Button>
             </div>
           </div>
+
+          {/* ── Compliance Preflight Panel ───────────────────────────────── */}
+          {(() => {
+            const result = preflightResult;
+            const savedStatus = campaign?.complianceStatus;
+            const hasSavedErrors = (campaign?.complianceErrors ?? []).length > 0;
+            const isPassed = result ? result.passed : savedStatus === "preflight_passed";
+            const isFailed = result ? !result.passed : savedStatus === "preflight_failed";
+            const blockingErrors: ComplianceError[] = result?.errors?.filter(e => e.severity === "blocking") ?? (campaign?.complianceErrors ?? []).filter((e: any) => e.severity === "blocking");
+            const warnings = result?.warnings ?? [];
+
+            return (
+              <div className={`rounded-xl border mb-3 overflow-hidden ${
+                isPassed ? "border-emerald-500/30 bg-emerald-500/5" :
+                isFailed ? "border-red-500/30 bg-red-500/5" :
+                "border-amber-500/30 bg-amber-500/5"
+              }`} data-testid="compliance-panel">
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    {isPassed ? (
+                      <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                    ) : isFailed ? (
+                      <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                    )}
+                    <span className="text-sm font-medium text-foreground">
+                      {isPassed ? "Compliance Check Passed" : isFailed ? "Compliance Check Failed" : "Compliance Check Required"}
+                    </span>
+                    {result && (
+                      <span className="text-xs text-muted-foreground">
+                        — {result.eligibleCount} eligible / {result.totalEnrolled} enrolled
+                        {result.canadaCount > 0 && ` · ${result.canadaCount} CA`}
+                        {result.usCount > 0 && ` · ${result.usCount} US`}
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={isPassed ? "outline" : isFailed ? "destructive" : "default"}
+                    className={isPassed ? "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10" : ""}
+                    onClick={runPreflight}
+                    disabled={preflightLoading}
+                    data-testid="btn-run-preflight"
+                  >
+                    {preflightLoading ? (
+                      <><RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Checking…</>
+                    ) : (
+                      <><ShieldCheck className="w-3.5 h-3.5 mr-1.5" />{isPassed || isFailed ? "Re-check" : "Check Compliance"}</>
+                    )}
+                  </Button>
+                </div>
+
+                {!isPassed && !isFailed && (
+                  <div className="px-4 pb-3 text-xs text-amber-300/80">
+                    Run a compliance check (CASL / CAN-SPAM) before sending. Sends are blocked until compliance is confirmed.
+                  </div>
+                )}
+
+                {blockingErrors.length > 0 && (
+                  <div className="px-4 pb-3 space-y-1.5">
+                    {blockingErrors.map((e: ComplianceError, i: number) => (
+                      <div key={i} className="flex items-start gap-2 text-xs">
+                        <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                        <span className="text-red-300/90">{e.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {warnings.length > 0 && (
+                  <div className="px-4 pb-3 space-y-1">
+                    {warnings.map((w: string, i: number) => (
+                      <div key={i} className="flex items-start gap-2 text-xs">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <span className="text-amber-300/80">{w}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {isPassed && result && (
+                  <div className="px-4 pb-3 text-xs text-emerald-400/80">
+                    All CASL/CAN-SPAM requirements satisfied. Campaign is cleared to send.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Safety notice */}
           {emails.length > 0 && campaign.totalRecipients > 0 && (

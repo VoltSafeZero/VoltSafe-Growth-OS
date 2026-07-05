@@ -64,6 +64,7 @@ const AdminRolesPage = lazy(() => import("@/pages/admin-roles"));
 const ProjectsPage = lazy(() => import("@/pages/projects"));
 const ResetPasswordPage = lazy(() => import("@/pages/reset-password"));
 const UnsubscribePage = lazy(() => import("@/pages/unsubscribe"));
+const PreferencesPage = lazy(() => import("@/pages/preferences"));
 const RelationshipIntelligencePage = lazy(() => import("@/pages/relationship-intelligence"));
 const ContactProfilePage = lazy(() => import("@/pages/contact-profile"));
 const AccountProfilePage = lazy(() => import("@/pages/account-profile"));
@@ -526,6 +527,8 @@ function App() {
               <BookingPublicPage />
             ) : window.location.pathname.startsWith("/unsubscribe/") ? (
               <UnsubscribePage />
+            ) : window.location.pathname.startsWith("/preferences") ? (
+              <Suspense fallback={<PageLoader />}><PreferencesPage /></Suspense>
             ) : window.location.pathname.startsWith("/reset-password") || resetToken ? (
               <ResetPasswordPage token={resetToken ?? ""} onLogin={setUser} />
             ) : !user ? (
