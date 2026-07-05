@@ -260,15 +260,27 @@ export async function runCampaignPreflight(campaignId: number): Promise<Prefligh
            from_email, sending_domain, sending_domain_approved,
            contact_email, contact_phone, physical_mailing_address,
            unsubscribe_link_included, preference_center_link_included,
-           commercial_disclosure_included, compliance_status
+           commercial_disclosure_included, compliance_status,
+           campaign_type
     FROM marketing_campaigns WHERE id = ${campaignId}
   `));
+
+  // Fetch the first email step subject for non-deceptive subject check
+  const subjRes = await db.execute(sql.raw(`
+    SELECT subject FROM campaign_emails
+    WHERE campaign_id = ${campaignId}
+    ORDER BY step_number ASC LIMIT 1
+  `)).catch(() => ({ rows: [] }));
 
   if (!campRes.rows.length) {
     throw Object.assign(new Error("Campaign not found"), { statusCode: 404 });
   }
 
   const campaign = campRes.rows[0] as any;
+  // Attach email step subject to campaign object for CAN-SPAM subject check
+  if (subjRes.rows.length) {
+    campaign.subject = (subjRes.rows[0] as any).subject ?? "";
+  }
 
   const recipRes = await db.execute(sql.raw(`
     SELECT
@@ -368,6 +380,7 @@ export interface FooterOptions {
   senderLegalEntity: string | null;
   physicalMailingAddress: string | null;
   contactEmail: string | null;
+  contactPhone?: string | null;
   commercialDisclosureIncluded: boolean;
 }
 
@@ -383,12 +396,16 @@ export function buildCompliantFooter(opts: FooterOptions): { html: string; text:
     senderLegalEntity,
     physicalMailingAddress,
     contactEmail,
+    contactPhone,
     commercialDisclosureIncluded,
   } = opts;
 
   const displayName = senderLegalEntity || senderName || "VoltSafe";
   const address = physicalMailingAddress || "VoltSafe Marine Technologies";
-  const contact = contactEmail || "";
+  const contactParts: string[] = [];
+  if (contactEmail) contactParts.push(contactEmail);
+  if (contactPhone) contactParts.push(contactPhone);
+  const contact = contactParts.join(" | ");
 
   const isUs = jurisdiction === "us" || jurisdiction === "mixed";
   const isCanada = jurisdiction === "canada" || jurisdiction === "mixed";

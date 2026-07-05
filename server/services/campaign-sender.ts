@@ -469,6 +469,7 @@ export async function executeSendStep(
       senderLegalEntity: (marketingCampaigns as any).senderLegalEntity,
       physicalMailingAddress: (marketingCampaigns as any).physicalMailingAddress,
       contactEmail: (marketingCampaigns as any).contactEmail,
+      contactPhone: (marketingCampaigns as any).contactPhone,
       commercialDisclosureIncluded: (marketingCampaigns as any).commercialDisclosureIncluded,
     })
     .from(marketingCampaigns)
@@ -564,6 +565,7 @@ export async function executeSendStep(
       senderLegalEntity: (campaign as any).senderLegalEntity ?? null,
       physicalMailingAddress: (campaign as any).physicalMailingAddress ?? null,
       contactEmail: (campaign as any).contactEmail ?? null,
+      contactPhone: (campaign as any).contactPhone ?? null,
       commercialDisclosureIncluded: (campaign as any).commercialDisclosureIncluded ?? false,
     });
     campaignCompliantFooterHtml = footerResult.html;

@@ -463,7 +463,7 @@ export default function CampaignDetailPage() {
 
   const selectedSegment = segments.find(s => s.id === campaign.segmentId) ?? null;
   const canEnroll = campaign.status !== "archived" && campaign.status !== "completed" && !!campaign.segmentId;
-  const canSend = campaign.status !== "archived" && campaign.totalRecipients > 0;
+  const canSend = campaign.status !== "archived" && campaign.totalRecipients > 0 && campaign.complianceStatus === "preflight_passed";
 
   const filteredPreviewRows = preview
     ? preview.recipients.filter(r => previewFilter === "all" || r.status === previewFilter).slice(0, PREVIEW_TABLE_LIMIT)
