@@ -36585,8 +36585,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          max_tokens: 1500,
-          temperature: 0.7,
+          ...buildOpenAIModelParams("gpt-4o-mini", { tokenLimit: 1500, temperature: 0.7 }),
         }),
       });
 
