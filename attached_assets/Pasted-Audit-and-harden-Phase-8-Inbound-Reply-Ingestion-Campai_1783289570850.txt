@@ -1,0 +1,278 @@
+Audit and harden Phase 8: Inbound Reply Ingestion + Campaign Thread Matching.
+
+Context:
+Phase 8 has been built and merged.
+
+Implemented:
+
+* server/services/campaign-reply-ingestion.ts
+* migrateReplyIngestionSchema()
+* campaign_sent_messages table
+* campaign_unmatched_replies table
+* in_reply_to added to email_messages
+* ingestion_source added to campaign_reply_classifications
+* 4-priority matching:
+    1. provider_thread_id
+    2. In-Reply-To header
+    3. References header
+    4. fromEmail + normalized subject fallback within 30 days only when unambiguous
+* processInboundEmailForCampaignReply()
+* scanRecentInboundReplies()
+* unmatched queue with retry attempts
+* internal @voltsafe.com / @voltsafe.test skip
+* campaign-sender.ts stores Gmail provider id/threadId after live send
+* gmail-incremental.ts fire-and-forget hook for inbound replies
+* email-parser.ts exposes inReplyTo and References
+* campaign-reply-classifier.ts stores ingestionSource manual/inbound_ingested
+* API routes:
+    * POST /api/marketing/replies/ingest
+    * GET /api/marketing/unmatched-replies
+    * POST /api/marketing/unmatched-replies/:id/ignore
+    * POST /api/marketing/replies/scan-recent
+    * POST /api/marketing/unmatched-replies/retry
+* Marketing Replies page with Matched Replies / Unmatched Queue tabs and source labels
+* tests/campaign-reply-ingestion.test.cjs passing 107/107
+
+Goal:
+Verify that inbound reply ingestion is safe, conservative, idempotent, correctly matched, and does not leak or misclassify unrelated emails. Fix any issues found.
+
+1. Schema / Migration Audit
+
+Audit migrateReplyIngestionSchema().
+
+Verify:
+
+* migration is idempotent
+* campaign_sent_messages exists with correct columns
+* campaign_unmatched_replies exists with correct columns
+* email_messages.in_reply_to is added safely
+* campaign_reply_classifications.ingestion_source is added safely
+* indexes exist for:
+    * campaign_sent_messages(provider_message_id)
+    * campaign_sent_messages(provider_thread_id)
+    * campaign_sent_messages(campaign_recipient_id)
+    * campaign_sent_messages(contact_id)
+    * campaign_sent_messages(account_id)
+    * campaign_sent_messages(recipient_email)
+    * campaign_unmatched_replies(provider_message_id)
+    * campaign_unmatched_replies(provider_thread_id)
+    * campaign_unmatched_replies(status)
+    * campaign_unmatched_replies(received_at)
+* unique/idempotency constraints prevent duplicate sent message metadata and duplicate unmatched rows
+* no migration locks large tables longer than needed
+
+2. Matching Logic Audit
+
+Audit matchInboundReplyToCampaignRecipient().
+
+Verify matching priority order is exactly:
+
+1. provider_thread_id
+2. In-Reply-To
+3. References
+4. from_email + normalized subject + 30-day window + unambiguous only
+
+Check:
+
+* thread ID match requires sender email to match the campaign recipient or known contact where possible
+* In-Reply-To and References parsing handles angle brackets, whitespace, comma/space-separated references
+* subject normalization strips Re:, Fwd:, extra whitespace, and case differences
+* fallback matching refuses ambiguous matches
+* fallback matching refuses old sends outside 30 days
+* fallback matching refuses mismatched sender emails
+* fallback does not match on subject alone
+* no @voltsafe.com / @voltsafe.test inbound gets processed
+* matching never guesses when uncertain
+
+3. Idempotency Audit
+
+Verify:
+
+* same inbound provider_message_id processed twice does not create duplicate replied events
+* same inbound provider_message_id processed twice does not create duplicate classifications
+* same inbound provider_message_id processed twice does not create duplicate tasks
+* same unmatched provider_message_id does not create duplicate unmatched records
+* retrying unmatched replies does not create duplicate matched records
+* scanRecentInboundReplies is idempotent
+* Gmail incremental fire-and-forget hook is safe if the same email is seen again
+
+4. Event / Classification Audit
+
+On successful match, verify:
+
+* campaign_event event_type = replied is created
+* campaign_recipients.replied_at is set
+* campaign_reply_classifications record is created
+* ingestion_source = inbound_ingested
+* source_message_id/source_thread_id are stored
+* classification uses existing classifier
+* reply preview is stored, not excessive full sensitive body unless existing system already stores body
+* account heat score can see the classification
+* campaign detail reply stats can see the classification
+
+5. Task Automation Audit
+
+Verify:
+
+* tasks are auto-created only for meeting_request and interested
+* tasks are not auto-created for unsubscribe
+* tasks are not auto-created for negative
+* tasks are not auto-created for out_of_office
+* tasks are not auto-created for auto_reply
+* duplicate inbound message does not create duplicate task
+* task title/body include enough context but not excessive private email body
+* task assignment follows existing task system conventions
+
+6. Unsubscribe / Compliance Audit
+
+Verify:
+
+* explicit unsubscribe reply triggers global suppression
+* unsubscribe reply marks campaign recipient unsubscribed
+* unsubscribe reply creates unsubscribe/suppression event where appropriate
+* unsubscribe reply does not create a sales task
+* negative reply does not automatically suppress unless unsubscribe language exists
+* out-of-office/auto-reply does not suppress and does not create task
+* compliance audit trail is preserved if available
+
+7. Gmail Incremental Hook Audit
+
+Audit the fire-and-forget hook in gmail-incremental.ts.
+
+Verify:
+
+* only inbound replies are passed to ingestion
+* outbound sent emails are skipped
+* internal VoltSafe messages are skipped
+* failure in reply ingestion does not break Gmail sync
+* failures are logged safely
+* no secrets/tokens/full bodies are logged
+* hook does not slow down main mail sync path noticeably
+
+8. API Route Audit
+
+Audit:
+
+* POST /api/marketing/replies/ingest
+* GET /api/marketing/unmatched-replies
+* POST /api/marketing/unmatched-replies/:id/ignore
+* POST /api/marketing/replies/scan-recent
+* POST /api/marketing/unmatched-replies/retry
+
+Verify:
+
+* ingest is admin/internal-only
+* scan-recent is admin-only
+* retry-unmatched is admin-only or appropriately permissioned
+* unmatched list requires auth + Marketing/CRM permission
+* invalid IDs return clean 400/404
+* route errors do not leak stack traces
+* limits are capped
+* status filters are validated
+* body size is bounded
+* no public route exposes inbound reply body data
+
+9. Frontend Audit: Marketing Replies Page
+
+Verify:
+
+* Matched Replies tab works
+* Unmatched Queue tab works
+* source labels show Auto-ingested vs Manual correctly
+* unmatched rows show safe preview only
+* ignore action works
+* retry action works if implemented
+* loading state works
+* empty state works
+* error state works
+* filters still work
+* old “inbound gap” banner has been replaced with accurate ingestion status
+* page does not crash when unmatched list is empty
+
+10. Campaign Detail / Account Profile Audit
+
+Verify:
+
+* Campaign Detail Reply Intelligence shows inbound_ingested replies
+* manual classifications still show as manual
+* Account Profile recent replies include inbound-ingested source
+* heat score changes based on classified inbound replies
+* no UI crashes on missing source fields
+
+11. Performance Audit
+
+Check:
+
+* provider_thread_id matching is indexed
+* provider_message_id matching is indexed
+* References matching does not do full table scans if avoidable
+* fallback matching is bounded by 30-day window and sender email
+* scanRecentInboundReplies has a limit and does not scan forever
+* unmatched retry has a limit and max retry attempts
+
+12. Tests
+
+Add missing tests if gaps are found.
+
+Required coverage:
+
+* provider_thread_id match requires safe sender validation
+* In-Reply-To handles angle brackets
+* References handles multiple IDs
+* subject normalization handles Re:/Fwd:
+* fallback refuses ambiguous matches
+* fallback refuses old sends outside 30 days
+* fallback refuses mismatched sender
+* internal @voltsafe.com skipped
+* duplicate inbound provider_message_id idempotent
+* duplicate unmatched provider_message_id idempotent
+* retry unmatched idempotent
+* scan recent idempotent
+* matched reply creates replied event
+* matched reply updates replied_at
+* matched reply creates classification with ingestion_source inbound_ingested
+* interested/meeting_request creates one task
+* unsubscribe creates suppression and no task
+* auto_reply creates no task
+* negative creates no task
+* unmatched queue stores safe preview
+* ingest endpoint admin/internal-only
+* unmatched list permission-gated
+* existing reply classifier tests still pass
+* campaign sending tests still pass
+* automation tests still pass
+* tracking tests still pass
+* compliance tests still pass
+* account heat tests still pass
+* permissions tests still pass
+* nav-drift still passes
+* openai-compat still passes
+
+13. Visual QA
+
+Take screenshots of:
+
+* Marketing Replies page Matched tab with Auto-ingested source
+* Marketing Replies page Unmatched Queue tab
+* unmatched empty state
+* Campaign Detail Reply Intelligence with inbound reply
+* Account Profile recent inbound reply
+
+14. Final Report
+
+Return:
+
+* issues found
+* fixes made
+* files changed
+* migration/index changes
+* tests run and passing
+* screenshots taken
+* remaining gaps
+* recommended next phase
+
+Important:
+Do not implement automated reply sending.
+Do not implement branching campaign automations.
+Do not loosen matching to improve match rate at the expense of correctness.
+Conservative unmatched handling is better than a wrong match.

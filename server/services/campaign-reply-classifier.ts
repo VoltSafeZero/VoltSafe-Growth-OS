@@ -6,10 +6,11 @@
  * Classifies campaign replies using deterministic rules first, AI second.
  * Creates CRM tasks automatically for high-intent classifications.
  *
- * IMPORTANT GAP: Automatic inbound reply ingestion does NOT exist.
- * Gmail sync is outbound-focused; there is no code that takes an inbound
- * Gmail message and matches it back to a campaign_recipient. The manual
- * POST /api/marketing/replies/classify endpoint is the primary path.
+ * Phase 8 (Inbound Reply Ingestion) added automatic matching: Gmail sync
+ * now hooks new inbound replies to processInboundEmailForCampaignReply()
+ * in campaign-reply-ingestion.ts, which matches and classifies automatically.
+ * The manual POST /api/marketing/replies/classify endpoint remains for
+ * manual override and backfill.
  */
 
 import OpenAI from "openai";

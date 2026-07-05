@@ -32,6 +32,14 @@ Any new matching priority should be inserted before subject_fallback. Subject fa
 ## Test pattern gotcha
 Source-grep tests using `hasPattern(str, "pattern.*with.*regex")` where the second arg is a STRING, not a regex literal, performs a literal substring search — the `.*` won't work. Use `hasPattern(a, "foo") && hasPattern(a, "bar")` for multi-part checks, or pass an actual regex literal `/foo.*bar/s`.
 
+## Audit hardening (applied post-merge)
+
+- `storeSentCampaignMessage` `ON CONFLICT DO NOTHING` was broken — no unique constraint on `provider_message_id` so the conflict clause never fired. Fix: change index to UNIQUE and use `ON CONFLICT (provider_message_id) WHERE provider_message_id IS NOT NULL DO NOTHING`.
+- Thread-ID and References matching initially had no sender email validation. A forwarded email in the same Gmail thread from a 3rd party could match the wrong campaign recipient. Fix: add `AND recipient_email ILIKE ${sq(fromEmail)}` to both queries.
+- `campaign_unmatched_replies` was missing `idx_cur_received_at` index.
+- Inbound unsubscribe reply did not trigger suppression. Fix: after classification, if `unsubscribe`, UPDATE `campaign_recipients.unsubscribed_at` and INSERT into `campaign_suppression` (reason=unsubscribe_reply, source=inbound_ingestion).
+- `getUnmatchedReplies` status filter had no allowlist validation. Fix: `VALID_UNMATCHED_STATUSES` Set gates the filter.
+
 ## New tables
 - `campaign_sent_messages`: tracks outbound send with provider_message_id + provider_thread_id for reply matching
 - `campaign_unmatched_replies`: queue for inbound replies that didn't match any campaign recipient; retried up to 5 times

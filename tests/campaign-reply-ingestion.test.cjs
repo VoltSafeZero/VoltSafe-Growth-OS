@@ -59,8 +59,10 @@ assert(hasPattern(ingestion, "recipient_email"), "recipient_email column exists"
 assert(hasPattern(ingestion, "in_reply_to"), "in_reply_to column added to email_messages via migration");
 assert(hasPattern(ingestion, "ingestion_source"), "ingestion_source column added to campaign_reply_classifications");
 assert(hasPattern(ingestion, "idx_csm_provider_message_id"), "index on campaign_sent_messages.provider_message_id");
+assert(hasPattern(ingestion, "CREATE UNIQUE INDEX IF NOT EXISTS idx_csm_provider_message_id"), "campaign_sent_messages provider_message_id index is UNIQUE");
 assert(hasPattern(ingestion, "idx_csm_provider_thread_id"), "index on campaign_sent_messages.provider_thread_id");
 assert(hasPattern(ingestion, "idx_cur_provider_message_id"), "unique index on campaign_unmatched_replies.provider_message_id");
+assert(hasPattern(ingestion, "idx_cur_received_at"), "index on campaign_unmatched_replies.received_at");
 assert(hasPattern(index, "migrateReplyIngestionSchema"), "server/index.ts calls migrateReplyIngestionSchema");
 assert(hasPattern(index, "campaign-reply-ingestion"), "server/index.ts imports campaign-reply-ingestion");
 
@@ -71,7 +73,7 @@ console.log("\n── Section 2: campaign_sent_messages storage ─────�
 assert(hasPattern(ingestion, "storeSentCampaignMessage"), "storeSentCampaignMessage function exported");
 assert(hasPattern(ingestion, "campaign_id"), "campaign_id stored in campaign_sent_messages");
 assert(hasPattern(ingestion, "campaign_recipient_id"), "campaign_recipient_id stored");
-assert(hasPattern(ingestion, "ON CONFLICT DO NOTHING"), "storeSentCampaignMessage is idempotent (ON CONFLICT DO NOTHING)");
+assert(hasPattern(ingestion, "ON CONFLICT (provider_message_id) WHERE provider_message_id IS NOT NULL DO NOTHING"), "storeSentCampaignMessage is idempotent with correct conflict target");
 assert(hasPattern(sender, "storeSentCampaignMessage"), "campaign-sender calls storeSentCampaignMessage");
 assert(hasPattern(sender, "providerMessageId"), "campaign-sender captures providerMessageId from sendEmail");
 assert(hasPattern(sender, "providerThreadId"), "campaign-sender captures providerThreadId from sendEmail");
@@ -95,6 +97,8 @@ assert(hasPattern(ingestion, "LIMIT 2"), "ambiguous subject-match query fetches 
 assert(hasPattern(ingestion, "rows.length === 1"), "subject fallback only matches when exactly 1 candidate found");
 assert(hasPattern(ingestion, "30 days"), "subject fallback limited to 30-day window");
 assert(hasPattern(ingestion, /matched: false.*reason|reason.*No matching/s), "returns matched: false when no match found");
+assert(hasPattern(ingestion, "recipient_email ILIKE"), "thread_id match validates sender email against recipient (prevents forwarded-email false matches)");
+assert(hasPattern(ingestion, "Require sender email match"), "sender validation is documented in comments");
 
 // ── Section 4: processInboundEmailForCampaignReply ─────────────────────────────
 
@@ -117,6 +121,10 @@ assert(hasPattern(ingestion, "AUTO_TASK_CLASSIFICATIONS"), "auto-task set define
 assert(hasPattern(ingestion, "meeting_request"), "meeting_request triggers auto-task");
 assert(hasPattern(ingestion, "interested"), "interested triggers auto-task");
 assert(!hasPattern(ingestion, "unsubscribe.*AUTO_TASK|AUTO_TASK.*unsubscribe"), "unsubscribe NOT in auto-task set");
+assert(hasPattern(ingestion, "classification.classification === \"unsubscribe\""), "unsubscribe reply triggers compliance path");
+assert(hasPattern(ingestion, "unsubscribed_at"), "unsubscribe reply sets unsubscribed_at on campaign_recipients");
+assert(hasPattern(ingestion, "unsubscribe_reply"), "unsubscribe reply inserts into campaign_suppression with reason=unsubscribe_reply");
+assert(hasPattern(ingestion, "inbound_ingestion"), "unsubscribe suppression source is inbound_ingestion");
 
 // ── Section 5: Unmatched queue ────────────────────────────────────────────────
 
@@ -129,6 +137,7 @@ assert(hasPattern(ingestion, "processUnmatchedCampaignReplies"), "processUnmatch
 assert(hasPattern(ingestion, "match_attempts < 5"), "retry loop stops after 5 attempts");
 assert(hasPattern(ingestion, "ON CONFLICT"), "storeUnmatchedReply is idempotent on provider_message_id");
 assert(hasPattern(ingestion, "status = 'matched'"), "updates status to matched when retry succeeds");
+assert(hasPattern(ingestion, "VALID_UNMATCHED_STATUSES"), "status filter uses allowlist validation");
 
 // ── Section 6: scanRecentInboundReplies ───────────────────────────────────────
 
@@ -209,9 +218,19 @@ assert(hasPattern(ingestion, "fail-conservative"), "conservative matching docume
 assert(!hasPattern(ingestion, "unsubscribe.*AUTO_TASK|AUTO_TASK.*unsubscribe"), "unsubscribe blocked from auto-task");
 assert(hasPattern(ingestion, /preview.*300|300.*preview|slice.*300/), "body preview truncated to 300 chars max");
 
-// ── Section 13: Cross-suite regression ────────────────────────────────────────
+// ── Section 13: Audit hardening checks ────────────────────────────────────────
 
-console.log("\n── Section 13: Cross-suite regression ──────────────────────────────");
+console.log("\n── Section 13: Audit hardening checks ──────────────────────────────");
+
+assert(hasPattern(ingestion, "UNIQUE INDEX") && hasPattern(ingestion, "idx_csm_provider_message_id"), "storeSentCampaignMessage has UNIQUE index for idempotency");
+assert(!hasPattern(classifier, "IMPORTANT GAP"), "stale IMPORTANT GAP comment removed from classifier");
+assert(hasPattern(classifier, "Phase 8"), "classifier documents Phase 8 automatic ingestion");
+assert(hasPattern(ingestion, "VALID_UNMATCHED_STATUSES"), "status filter validated against allowlist before SQL");
+assert(hasPattern(ingestion, "recipient_email ILIKE") && hasPattern(ingestion, "fromEmail"), "all header-based matches require sender email validation");
+
+// ── Section 14: Cross-suite regression ────────────────────────────────────────
+
+console.log("\n── Section 14: Cross-suite regression ──────────────────────────────");
 
 const phase7Test = load("tests/campaign-reply-classifier.test.cjs");
 const automationTest = load("tests/campaign-automation.test.cjs");

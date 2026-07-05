@@ -45,7 +45,7 @@ export async function migrateReplyIngestionSchema(): Promise<void> {
       metadata_json         JSONB
     )
   `));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_csm_provider_message_id ON campaign_sent_messages(provider_message_id) WHERE provider_message_id IS NOT NULL`));
+  await db.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS idx_csm_provider_message_id ON campaign_sent_messages(provider_message_id) WHERE provider_message_id IS NOT NULL`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_csm_provider_thread_id  ON campaign_sent_messages(provider_thread_id)  WHERE provider_thread_id  IS NOT NULL`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_csm_campaign_recipient  ON campaign_sent_messages(campaign_recipient_id)`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_csm_contact_id          ON campaign_sent_messages(contact_id) WHERE contact_id IS NOT NULL`));
@@ -74,6 +74,7 @@ export async function migrateReplyIngestionSchema(): Promise<void> {
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_cur_status          ON campaign_unmatched_replies(status)`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_cur_provider_thread ON campaign_unmatched_replies(provider_thread_id) WHERE provider_thread_id IS NOT NULL`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_cur_from_email      ON campaign_unmatched_replies(from_email)`));
+  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_cur_received_at     ON campaign_unmatched_replies(received_at)`));
 
   // Additive columns
   await db.execute(sql.raw(`ALTER TABLE email_messages           ADD COLUMN IF NOT EXISTS in_reply_to     TEXT`));
@@ -146,7 +147,7 @@ export async function storeSentCampaignMessage(data: {
         ${data.sentAt ? sq(data.sentAt.toISOString()) : "NOW()"},
         ${data.metadata ? sq(JSON.stringify(data.metadata)) : "NULL"}
       )
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (provider_message_id) WHERE provider_message_id IS NOT NULL DO NOTHING
     `));
   } catch (err: any) {
     // Non-critical — campaign send already recorded; this is just for reply matching
@@ -162,11 +163,14 @@ export async function matchInboundReplyToCampaignRecipient(
   const { fromEmail, subject, providerThreadId, providerMessageId, inReplyTo, references } = input;
 
   // ── Priority 1: Provider thread ID ──────────────────────────────────────────
-  if (providerThreadId) {
+  // Require sender email match to prevent false matches when a forwarded
+  // email in the same thread generates a reply from a different sender.
+  if (providerThreadId && fromEmail) {
     const [row] = (await db.execute(sql.raw(`
       SELECT id, campaign_id, campaign_recipient_id, contact_id, account_id
       FROM campaign_sent_messages
       WHERE provider_thread_id = ${sq(providerThreadId)}
+        AND recipient_email ILIKE ${sq(fromEmail)}
       ORDER BY sent_at DESC
       LIMIT 1
     `))).rows as any[];
@@ -208,7 +212,8 @@ export async function matchInboundReplyToCampaignRecipient(
   }
 
   // ── Priority 3: References header (any contained ID) ──────────────────────
-  if (references) {
+  // Require sender email match to prevent false matches from forwarded threads.
+  if (references && fromEmail) {
     const refIds = references
       .split(/[\s,]+/)
       .map(r => r.replace(/[<>]/g, "").trim())
@@ -218,6 +223,7 @@ export async function matchInboundReplyToCampaignRecipient(
         SELECT id, campaign_id, campaign_recipient_id, contact_id, account_id
         FROM campaign_sent_messages
         WHERE provider_message_id = ${sq(refId)}
+          AND recipient_email ILIKE ${sq(fromEmail)}
         LIMIT 1
       `))).rows as any[];
       if (row) {
@@ -357,6 +363,24 @@ export async function processInboundEmailForCampaignReply(input: InboundReplyInp
     });
     classificationId = classification.id;
 
+    // Compliance: unsubscribe reply must trigger suppression immediately
+    if (classification.classification === "unsubscribe") {
+      try {
+        await db.execute(sql.raw(`
+          UPDATE campaign_recipients
+          SET unsubscribed_at = NOW(), updated_at = NOW()
+          WHERE id = ${campaignRecipientId} AND unsubscribed_at IS NULL
+        `));
+      } catch { /* non-critical */ }
+      try {
+        await db.execute(sql.raw(`
+          INSERT INTO campaign_suppression (email, reason, source, created_at)
+          VALUES (${sq(input.fromEmail ?? "")}, 'unsubscribe_reply', 'inbound_ingestion', NOW())
+          ON CONFLICT DO NOTHING
+        `));
+      } catch { /* non-critical */ }
+    }
+
     // Auto-create task only for highest-intent, non-sensitive classifications
     if (classification.id && AUTO_TASK_CLASSIFICATIONS.has(classification.classification)) {
       createTaskFromClassification(classification.id, null).catch(() => {});
@@ -401,12 +425,17 @@ async function storeUnmatchedReply(input: InboundReplyInput): Promise<void> {
 
 // ── Get unmatched replies ─────────────────────────────────────────────────────
 
+const VALID_UNMATCHED_STATUSES = new Set(["unmatched", "matched", "ignored"]);
+
 export async function getUnmatchedReplies(filters: {
   status?: string;
   limit?: number;
 } = {}): Promise<any[]> {
-  const statusClause = filters.status
-    ? `WHERE status = ${sq(filters.status)}`
+  const safeStatus = filters.status && VALID_UNMATCHED_STATUSES.has(filters.status)
+    ? filters.status
+    : null;
+  const statusClause = safeStatus
+    ? `WHERE status = ${sq(safeStatus)}`
     : `WHERE status != 'matched'`;
   const limit = Math.min(filters.limit ?? 50, 200);
   return (await db.execute(sql.raw(`
