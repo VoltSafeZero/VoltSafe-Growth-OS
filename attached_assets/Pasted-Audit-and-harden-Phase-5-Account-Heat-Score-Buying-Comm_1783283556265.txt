@@ -1,0 +1,266 @@
+Audit and harden Phase 5: Account Heat Score + Buying Committee Intelligence.
+
+Context:
+Phase 5 has been built and merged.
+
+Implemented:
+
+* server/services/account-heat-score.ts
+* GET /api/marketing/account-heat
+* GET /api/accounts/:id/marketing-intelligence
+* GET /api/marketing/campaigns/:id/hot-accounts
+* Marketing Analytics Hot Accounts section
+* Account Profile Marketing Intelligence panel
+* Campaign Detail Accounts Heating Up section
+* account-heat-score tests with 60+ checks
+* Static top-level import fix in routes.ts to avoid lazy import/esbuild issue
+
+Goal:
+Verify the scoring, joins, filters, UI, permissions, and edge cases are production-safe. Fix any issues found.
+
+1. Backend Service Audit
+
+Audit server/services/account-heat-score.ts.
+
+Verify:
+
+* calculateAccountHeatScore(accountId) handles missing account safely
+* accounts with no campaign activity return score 0 or Cold
+* null account fields do not crash scoring
+* null contact fields do not crash role/persona logic
+* score always caps at 100
+* score never drops below 0
+* heat labels are correct:
+    * 80–100 Hot
+    * 60–79 Warm
+    * 40–59 Nurture
+    * 20–39 Low
+    * 0–19 Cold / Do Not Chase Yet
+* score reasons are human-readable
+* negative reasons are human-readable
+* recommended_next_action matches the actual reason/score state
+* no placeholder/fake engagement data is used
+* no benchmark data is used in heat score
+* compliance risk signals use real suppression/compliance data only
+
+2. SQL / Join Audit
+
+Verify all account heat queries use correct joins between:
+
+* accounts
+* contacts
+* campaign_recipients
+* campaign_events
+* campaign_suppression
+* compliance audit tables if used
+* marketing_campaigns
+* campaign_emails if used
+
+Check for:
+
+* accidental row multiplication inflating opens/clicks
+* duplicate events being counted incorrectly
+* unique opens/clicks vs total opens/clicks handled intentionally
+* campaign_id filter actually scopes heat to that campaign
+* account_id filter works
+* contacts without account_id handled safely
+* deleted/archived campaigns handled appropriately
+* unsubscribed/suppressed contacts counted as risk but not false engagement
+
+3. API Route Audit
+
+Audit:
+
+* GET /api/marketing/account-heat
+* GET /api/accounts/:id/marketing-intelligence
+* GET /api/marketing/campaigns/:id/hot-accounts
+
+Verify:
+
+* all routes require auth
+* all routes require correct Marketing/CRM permission
+* unauthorized users receive 401/403
+* invalid account/campaign IDs return 400 or 404 cleanly
+* query params are validated:
+    * label
+    * persona
+    * adoption_stage
+    * region
+    * min_score
+    * campaign_id
+    * compliance_risk
+    * limit
+    * sort
+* limit is capped to prevent huge responses
+* min_score is numeric and bounded
+* route errors do not leak stack traces
+* no sensitive compliance data is exposed to unauthorized users
+
+4. Frontend Audit: Marketing Analytics
+
+Audit the Hot Accounts section.
+
+Verify:
+
+* loading state
+* empty state
+* error state
+* filter pills work
+* heat score displays clearly
+* heat label colors/statuses are understandable
+* compliance risk is visible
+* score reasons expand/collapse correctly if implemented
+* clicking an account navigates correctly
+* no fake/sample data appears
+* no crash when returned accounts array is empty
+* no crash when account fields are null
+
+5. Frontend Audit: Account Profile
+
+Audit Marketing Intelligence panel.
+
+Verify:
+
+* account with no campaign engagement shows clean empty state
+* heat score card renders
+* score reasons render
+* negative reasons render
+* recommended next action renders
+* buying committee table renders
+* campaign timeline renders
+* unsubscribed/suppressed/compliance-risk contacts are clearly marked
+* no crash if account has no contacts
+* no crash if contacts have no campaign events
+* no admin-only compliance fields are exposed improperly
+
+6. Frontend Audit: Campaign Detail
+
+Audit Accounts Heating Up section.
+
+Verify:
+
+* section loads only for valid campaign
+* empty state works
+* account rows show correct campaign-scoped heat
+* opens/clicks/replies are campaign-scoped
+* compliance risk displays
+* recommended next action displays
+* no crash when campaign has no recipients/events
+
+7. Scoring Validation Scenarios
+
+Create or verify test fixtures for:
+
+A. Cold account
+
+* account exists
+* no campaign events
+    Expected:
+* score 0
+* label Cold / Do Not Chase Yet
+* empty or “no engagement yet” reason
+
+B. Open-only account
+
+* one contact opened one email
+    Expected:
+* low but nonzero score
+
+C. Click account
+
+* one contact clicked
+    Expected:
+* higher than open-only account
+
+D. Multi-stakeholder account
+
+* GM + harbormaster both engage
+    Expected:
+* multiple engaged contacts bonus
+* role reasons present
+
+E. Hot account
+
+* owner/GM clicks and recent engagement
+    Expected:
+* Hot or Warm depending exact score
+
+F. Compliance-risk account
+
+* unsubscribed/suppressed/spam complaint/expired consent
+    Expected:
+* negative reasons present
+* score penalty applied
+* recommended action avoids sending
+
+G. Campaign-scoped heat
+
+* account has heat from Campaign A and Campaign B
+    Expected:
+* /campaigns/:id/hot-accounts only reflects that campaign’s events
+
+8. Performance Audit
+
+Check:
+
+* /api/marketing/account-heat does not scan massive tables unnecessarily
+* indexes exist or are proposed for:
+    * campaign_events(account_id)
+    * campaign_events(contact_id)
+    * campaign_events(campaign_id)
+    * campaign_events(event_type)
+    * campaign_events(event_timestamp)
+    * campaign_recipients(account_id)
+    * campaign_recipients(contact_id)
+    * campaign_recipients(campaign_id)
+    * campaign_recipients(email)
+* response time is acceptable for current dataset
+* large accounts/campaigns do not time out
+
+If indexes are missing and safe to add, add a startup migration or SQL migration following the project’s existing migration style.
+
+9. Tests
+
+Run and fix:
+
+* account-heat-score tests
+* campaign tracking tests
+* campaign sending tests
+* campaign enrollment tests
+* compliance tests
+* permissions tests
+* nav-drift tests
+* openai-compat tests
+* any analytics/frontend tests affected
+
+Add missing tests if gaps are found.
+
+10. Visual QA
+
+Take screenshots of:
+
+* Marketing Analytics Hot Accounts
+* Account Profile Marketing Intelligence
+* Buying Committee table
+* Campaign Detail Accounts Heating Up
+* Empty state for no engagement
+* Account with compliance-risk negative reasons
+
+11. Final Report
+
+Return:
+
+* issues found
+* fixes made
+* files changed
+* tests run and passing
+* screenshots taken
+* performance/index notes
+* remaining gaps
+* recommended next phase
+
+Important:
+Do not add automated drip scheduling in this audit.
+Do not add fake heat data.
+Do not change the scoring model unless a bug or clear misweighting is found.
+Focus on correctness, safety, and trustworthiness.

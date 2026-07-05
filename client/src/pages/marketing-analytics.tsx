@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -104,9 +104,12 @@ function HotAccountsSection() {
   if (labelFilter !== "all") params.set("label", labelFilter);
   params.set("limit", "30");
 
-  const { data: accounts = [], isLoading } = useQuery<HeatAccount[]>({
+  const { data: accounts = [], isLoading, isError } = useQuery<HeatAccount[]>({
     queryKey: ["/api/marketing/account-heat", labelFilter],
-    queryFn: () => fetch(`/api/marketing/account-heat?${params.toString()}`).then(r => r.json()),
+    queryFn: () =>
+      fetch(`/api/marketing/account-heat?${params.toString()}`)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
+        .catch(() => []),
   });
 
   return (
@@ -148,6 +151,11 @@ function HotAccountsSection() {
             Enroll contacts into a campaign and start sending to begin tracking account heat scores.
           </p>
         </div>
+      ) : isError ? (
+        <div className="rounded-xl border border-border/40 bg-muted/20 px-6 py-8 text-center" data-testid="hot-accounts-error">
+          <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">Could not load account heat data. Please try refreshing.</p>
+        </div>
       ) : (
         <div className="rounded-xl border border-border/50 overflow-hidden">
           <div className="overflow-x-auto">
@@ -161,9 +169,8 @@ function HotAccountsSection() {
               </thead>
               <tbody>
                 {accounts.map((a, i) => (
-                  <>
+                  <Fragment key={a.accountId}>
                     <tr
-                      key={a.accountId}
                       className={`border-b border-border/20 cursor-pointer hover:bg-muted/20 transition-colors ${i % 2 === 0 ? "" : "bg-muted/10"}`}
                       onClick={() => setExpanded(expanded === a.accountId ? null : a.accountId)}
                       data-testid={`heat-row-${a.accountId}`}
@@ -209,7 +216,7 @@ function HotAccountsSection() {
                       </td>
                     </tr>
                     {expanded === a.accountId && (
-                      <tr key={`${a.accountId}-expand`} className="border-b border-border/20 bg-muted/5">
+                      <tr className="border-b border-border/20 bg-muted/5">
                         <td colSpan={8} className="px-4 py-3">
                           <div className="grid grid-cols-2 gap-4">
                             {a.scoreReasons.length > 0 && (
@@ -255,7 +262,7 @@ function HotAccountsSection() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

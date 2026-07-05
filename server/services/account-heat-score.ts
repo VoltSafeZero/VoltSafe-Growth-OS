@@ -1,6 +1,24 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
+// ── Startup index migration ────────────────────────────────────────────────────
+// Ensures query performance on the two hot-path columns that lacked indexes.
+// Uses IF NOT EXISTS so it is idempotent and fast after the first run.
+(async () => {
+  try {
+    await db.execute(sql.raw(
+      `CREATE INDEX IF NOT EXISTS idx_camp_events_account
+       ON campaign_events (account_id)`
+    ));
+    await db.execute(sql.raw(
+      `CREATE INDEX IF NOT EXISTS idx_camp_events_account_type
+       ON campaign_events (account_id, event_type)`
+    ));
+  } catch {
+    // Non-fatal — index may already exist or table may not yet exist on first boot
+  }
+})();
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface AccountHeatScore {
@@ -163,6 +181,20 @@ function nextAction(score: number, engagedRoles: string[], totalReplies: number,
   return `${accountName} not yet ready — revisit in 90 days`;
 }
 
+/** Safe domain extractor — rejects anything that doesn't look like a hostname */
+function extractDomain(website: string | null | undefined): string | null {
+  if (!website) return null;
+  const raw = website
+    .replace(/^https?:\/\//i, "")
+    .split("/")[0]
+    .split("?")[0]
+    .toLowerCase()
+    .trim();
+  // Must look like a real hostname: letters, digits, hyphens, dots only
+  if (!raw || !/^[a-z0-9]([a-z0-9\-\.]*[a-z0-9])?$/.test(raw)) return null;
+  return raw;
+}
+
 // ── calculateAccountHeatScore ─────────────────────────────────────────────────
 
 export async function calculateAccountHeatScore(accountId: number): Promise<AccountHeatScore | null> {
@@ -198,15 +230,19 @@ export async function calculateAccountHeatScore(accountId: number): Promise<Acco
   ));
   const contacts = ctRows.rows as any[];
 
-  // Campaign events for timing signals
+  // Campaign events for timing signals + spam complaints
   const evtRows = await db.execute(sql.raw(
     `SELECT event_type, event_timestamp, contact_id
      FROM campaign_events
      WHERE account_id = ${safeId}
-       AND event_type IN ('opened', 'clicked', 'replied')
      ORDER BY event_timestamp DESC`
   ));
   const events = evtRows.rows as any[];
+
+  // Spam complaints from campaign events
+  const spamComplaintCount = events.filter(e =>
+    e.event_type === "spam_complaint" || e.event_type === "complained"
+  ).length;
 
   // Distinct campaign count
   const campRows = await db.execute(sql.raw(
@@ -214,14 +250,12 @@ export async function calculateAccountHeatScore(accountId: number): Promise<Acco
   ));
   const campaignCount = Number((campRows.rows[0] as any)?.n ?? 0);
 
-  // Domain suppression check
-  const rawDomain = ((acct.website ?? "") as string)
-    .replace(/^https?:\/\//i, "").split("/")[0].split("?")[0];
+  // Domain suppression check — only if domain passes format validation
+  const rawDomain = extractDomain(acct.website);
   let isDomainSuppressed = false;
   if (rawDomain) {
-    const safeDomain = rawDomain.replace(/'/g, "''");
     const suppRows = await db.execute(sql.raw(
-      `SELECT id FROM campaign_suppression WHERE domain = '${safeDomain}' LIMIT 1`
+      `SELECT id FROM campaign_suppression WHERE domain = '${rawDomain}' LIMIT 1`
     ));
     isDomainSuppressed = suppRows.rows.length > 0;
   }
@@ -250,6 +284,7 @@ export async function calculateAccountHeatScore(accountId: number): Promise<Acco
   }
 
   for (const e of events) {
+    if (!["opened", "clicked", "replied"].includes(e.event_type)) continue;
     const ts = new Date(e.event_timestamp);
     if (!latestEngagementAt || ts > latestEngagementAt) latestEngagementAt = ts;
   }
@@ -341,6 +376,12 @@ export async function calculateAccountHeatScore(accountId: number): Promise<Acco
     negativeReasons.push(`${totalUnsubs} contact${totalUnsubs !== 1 ? "s" : ""} unsubscribed`);
   }
 
+  // Negative: spam complaints
+  if (spamComplaintCount > 0) {
+    score -= 20;
+    negativeReasons.push(`${spamComplaintCount} spam complaint${spamComplaintCount !== 1 ? "s" : ""} received`);
+  }
+
   // Negative: domain suppressed
   if (isDomainSuppressed) {
     score -= 30;
@@ -387,8 +428,8 @@ export async function calculateAccountHeatScore(accountId: number): Promise<Acco
     clickCount: totalClicks,
     replyCount: totalReplies,
     unsubscribeCount: totalUnsubs,
-    spamComplaintCount: 0,
-    complianceRiskCount: consentExpiredCount + (isDomainSuppressed ? 1 : 0),
+    spamComplaintCount,
+    complianceRiskCount: consentExpiredCount + (isDomainSuppressed ? 1 : 0) + spamComplaintCount,
     recommendedNextAction: nextAction(score, engagedRoles, totalReplies, acct.name),
   };
 }
@@ -398,7 +439,10 @@ export async function calculateAccountHeatScore(accountId: number): Promise<Acco
 export async function listHotAccounts(filters: HotAccountsFilter = {}): Promise<AccountHeatScore[]> {
   let baseQ = `SELECT DISTINCT cr.account_id FROM campaign_recipients cr WHERE cr.account_id IS NOT NULL`;
   if (filters.campaignId) baseQ += ` AND cr.campaign_id = ${Number(filters.campaignId)}`;
-  if (filters.adoptionStage) baseQ += ` AND cr.adoption_stage = '${filters.adoptionStage.replace(/'/g, "''")}'`;
+  if (filters.adoptionStage) {
+    const safe = filters.adoptionStage.replace(/'/g, "''").slice(0, 100);
+    baseQ += ` AND cr.adoption_stage = '${safe}'`;
+  }
 
   const idRows = await db.execute(sql.raw(baseQ));
   const ids = (idRows.rows as any[]).map(r => Number(r.account_id)).filter(Boolean);
@@ -408,10 +452,17 @@ export async function listHotAccounts(filters: HotAccountsFilter = {}): Promise<
   let results = scores.filter((s): s is AccountHeatScore => s !== null);
 
   if (filters.label) results = results.filter(r => r.heatLabel === filters.label);
-  if (filters.minScore !== undefined) results = results.filter(r => r.heatScore >= filters.minScore!);
+  if (filters.minScore !== undefined) {
+    const bound = Math.max(0, Math.min(100, filters.minScore));
+    results = results.filter(r => r.heatScore >= bound);
+  }
   if (filters.persona) {
     const pl = filters.persona.toLowerCase();
-    results = results.filter(r => (r.marinaType ?? "").toLowerCase().includes(pl));
+    // Match against both marinaType and the region field for broader coverage
+    results = results.filter(r =>
+      (r.marinaType ?? "").toLowerCase().includes(pl) ||
+      (r.region ?? "").toLowerCase().includes(pl)
+    );
   }
   if (filters.region) {
     const rl = filters.region.toLowerCase();
@@ -435,6 +486,8 @@ export async function listHotAccounts(filters: HotAccountsFilter = {}): Promise<
 }
 
 // ── getAccountBuyingCommittee ─────────────────────────────────────────────────
+// Batched: all contact stats in one SQL query + one query for latest events.
+// Avoids the N+1 pattern of per-contact queries.
 
 export async function getAccountBuyingCommittee(accountId: number): Promise<BuyingCommitteeMember[]> {
   const safeId = Number(accountId);
@@ -446,30 +499,50 @@ export async function getAccountBuyingCommittee(accountId: number): Promise<Buyi
      FROM contacts WHERE account_id = ${safeId} ORDER BY name`
   ));
   const contacts = ctRows.rows as any[];
+  if (!contacts.length) return [];
 
-  const members: BuyingCommitteeMember[] = [];
+  const contactIds = contacts.map(c => Number(c.id));
+  const idsLiteral = contactIds.join(",");
+
+  // Batch: aggregated campaign stats per contact
+  const statsRows = await db.execute(sql.raw(
+    `SELECT
+       cr.contact_id,
+       COUNT(DISTINCT cr.campaign_id)                              AS campaigns_received,
+       COUNT(*)                                                    AS sent_count,
+       COALESCE(SUM(cr.opened_count), 0)                          AS open_count,
+       COALESCE(SUM(cr.clicked_count), 0)                         AS click_count,
+       COUNT(*) FILTER (WHERE cr.replied_at IS NOT NULL)          AS reply_count,
+       COUNT(*) FILTER (WHERE cr.unsubscribed_at IS NOT NULL)     AS unsub_count
+     FROM campaign_recipients cr
+     WHERE cr.contact_id IN (${idsLiteral})
+     GROUP BY cr.contact_id`
+  ));
+  const statsMap = new Map<number, any>();
+  for (const r of statsRows.rows as any[]) {
+    statsMap.set(Number(r.contact_id), r);
+  }
+
+  // Batch: latest engagement timestamp per contact
+  const evtRows = await db.execute(sql.raw(
+    `SELECT DISTINCT ON (contact_id)
+       contact_id, event_timestamp
+     FROM campaign_events
+     WHERE contact_id IN (${idsLiteral})
+       AND event_type IN ('opened', 'clicked', 'replied')
+     ORDER BY contact_id, event_timestamp DESC`
+  ));
+  const evtMap = new Map<number, any>();
+  for (const r of evtRows.rows as any[]) {
+    evtMap.set(Number(r.contact_id), r.event_timestamp);
+  }
+
   const now = new Date();
+  const members: BuyingCommitteeMember[] = [];
 
   for (const c of contacts) {
-    const statsRows = await db.execute(sql.raw(
-      `SELECT
-         COUNT(DISTINCT campaign_id)                                             AS campaigns_received,
-         COUNT(*)                                                                AS sent_count,
-         COALESCE(SUM(opened_count), 0)                                         AS open_count,
-         COALESCE(SUM(clicked_count), 0)                                        AS click_count,
-         COUNT(*) FILTER (WHERE replied_at IS NOT NULL)                         AS reply_count,
-         COUNT(*) FILTER (WHERE unsubscribed_at IS NOT NULL)                    AS unsub_count
-       FROM campaign_recipients WHERE contact_id = ${Number(c.id)}`
-    ));
-    const st = (statsRows.rows[0] as any) ?? {};
-
-    const evtRows = await db.execute(sql.raw(
-      `SELECT event_timestamp FROM campaign_events
-       WHERE contact_id = ${Number(c.id)}
-         AND event_type IN ('opened', 'clicked', 'replied')
-       ORDER BY event_timestamp DESC LIMIT 1`
-    ));
-    const lastEvt = (evtRows.rows[0] as any)?.event_timestamp ?? null;
+    const st = statsMap.get(Number(c.id)) ?? {};
+    const lastEvt = evtMap.get(Number(c.id)) ?? null;
 
     const opens = Number(st.open_count ?? 0);
     const clicks = Number(st.click_count ?? 0);

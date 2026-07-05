@@ -37847,21 +37847,29 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   app.get("/api/marketing/account-heat", requireAuth, async (req: any, res) => {
     try {
       const { label, persona, adoption_stage, region, min_score, campaign_id, compliance_risk, limit, sort } = req.query as any;
+      const VALID_LABELS = ["Hot", "Warm", "Nurture", "Low", "Cold"];
+      const VALID_SORTS = ["score", "latest", "clicks"];
       const filters: any = {};
-      if (label) filters.label = String(label);
-      if (persona) filters.persona = String(persona);
-      if (adoption_stage) filters.adoptionStage = String(adoption_stage);
-      if (region) filters.region = String(region);
-      if (min_score) filters.minScore = Number(min_score);
-      if (campaign_id) filters.campaignId = Number(campaign_id);
+      if (label && VALID_LABELS.includes(String(label))) filters.label = String(label);
+      if (persona) filters.persona = String(persona).slice(0, 100);
+      if (adoption_stage) filters.adoptionStage = String(adoption_stage).slice(0, 100);
+      if (region) filters.region = String(region).slice(0, 100);
+      if (min_score !== undefined) {
+        const ms = Number(min_score);
+        if (!isNaN(ms)) filters.minScore = Math.max(0, Math.min(100, ms));
+      }
+      if (campaign_id) {
+        const cid = Number(campaign_id);
+        if (!isNaN(cid) && cid > 0) filters.campaignId = cid;
+      }
       if (compliance_risk === "true") filters.complianceRisk = true;
-      if (limit) filters.limit = Math.min(Number(limit), 200);
-      if (sort) filters.sort = sort;
+      if (limit) filters.limit = Math.min(Math.max(1, Number(limit) || 50), 200);
+      if (sort && VALID_SORTS.includes(String(sort))) filters.sort = String(sort);
       const accounts = await listHotAccounts(filters);
       res.json(accounts);
     } catch (err: any) {
       console.error("[heat] GET /api/marketing/account-heat:", err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Failed to load account heat data" });
     }
   });
 
@@ -37879,7 +37887,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       res.json({ heat, committee, engagement });
     } catch (err: any) {
       console.error("[heat] GET /api/accounts/:id/marketing-intelligence:", err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Failed to load marketing intelligence" });
     }
   });
 
@@ -37892,7 +37900,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       res.json(accounts);
     } catch (err: any) {
       console.error("[heat] GET /api/marketing/campaigns/:id/hot-accounts:", err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Failed to load campaign hot accounts" });
     }
   });
 
