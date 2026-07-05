@@ -28,6 +28,44 @@ function readFile(rel) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 0. Typed data model in shared/schema.ts
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[0] Typed data model — shared/schema.ts");
+{
+  const src = readFile("shared/schema.ts");
+
+  // contacts compliance columns
+  const contactSchemaFields = [
+    "recipientCountry", "provinceState", "jurisdiction",
+    "canadaContact", "usContact",
+    "consentStatus", "consentType", "consentSource", "consentTimestamp",
+    "consentCaptureMethod", "consentLanguageVersion", "consentLanguageText",
+    "consentFormUrl", "consentIpAddress", "consentUserAgent", "consentReferrer",
+    "relatedBusinessRelationshipType", "relatedBusinessRelationshipDate",
+    "impliedConsentExpiryDate",
+    "unsubscribeStatus", "unsubscribeTimestamp", "unsubscribeSource",
+    "suppressionStatus", "suppressionReason",
+    "emailValid", "leadSource", "leadSourceDetail",
+    "publicBusinessEmailUrl", "eventSource", "firstContactReason", "lastOutreachDate",
+  ];
+  for (const f of contactSchemaFields) {
+    check(`contacts schema field: ${f}`, src.includes(f));
+  }
+
+  // marketingCampaigns compliance columns
+  const campaignSchemaFields = [
+    "targetJurisdiction", "senderName", "senderLegalEntity",
+    "physicalMailingAddress", "unsubscribeLinkIncluded",
+    "commercialDisclosureIncluded", "preferenceCenterLinkIncluded",
+    "complianceStatus", "complianceErrors", "approvedByUserId",
+    "recipientCountBeforePreflight", "recipientCountAfterSuppression", "blockedRecipientCount",
+  ];
+  for (const f of campaignSchemaFields) {
+    check(`marketingCampaigns schema field: ${f}`, src.includes(f));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 1. Migration in seed-production.ts
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n[1] Migration — seed-production.ts");
@@ -113,19 +151,25 @@ console.log("\n[3] API routes — server/routes.ts");
   check("PATCH /api/contacts/:id/compliance route", src.includes('app.patch("/api/contacts/:id/compliance"'));
   check("PATCH compliance requires crm edit permission", src.includes('app.patch("/api/contacts/:id/compliance", requirePermission("crm", "edit")'));
 
-  // ALLOWED_FIELDS guards unsubscribe_status
-  check("ALLOWED_FIELDS set excludes unsubscribe_status", (() => {
-    const allowed = src.indexOf("ALLOWED_FIELDS");
-    const unsubInSet = src.indexOf('"unsubscribe_status"', allowed);
-    // Should not appear inside the ALLOWED_FIELDS set definition (only outside in audit reads)
+  // ALLOWED_FIELDS must NOT contain consent_status, unsubscribe_status, suppression_status
+  // (those require dedicated routes to prevent unauthorized resubscribe state changes)
+  check("ALLOWED_FIELDS set excludes consent_status", (() => {
+    const allowed = src.indexOf("const ALLOWED_FIELDS = new Set");
     const setEnd = src.indexOf("]);", allowed);
-    return unsubInSet === -1 || unsubInSet > setEnd;
+    const inSet = src.indexOf('"consent_status"', allowed);
+    return inSet === -1 || inSet > setEnd;
+  })());
+  check("ALLOWED_FIELDS set excludes unsubscribe_status", (() => {
+    const allowed = src.indexOf("const ALLOWED_FIELDS = new Set");
+    const setEnd = src.indexOf("]);", allowed);
+    const inSet = src.indexOf('"unsubscribe_status"', allowed);
+    return inSet === -1 || inSet > setEnd;
   })());
   check("ALLOWED_FIELDS set excludes suppression_status", (() => {
-    const allowed = src.indexOf("ALLOWED_FIELDS");
-    const suppInSet = src.indexOf('"suppression_status"', allowed);
+    const allowed = src.indexOf("const ALLOWED_FIELDS = new Set");
     const setEnd = src.indexOf("]);", allowed);
-    return suppInSet === -1 || suppInSet > setEnd;
+    const inSet = src.indexOf('"suppression_status"', allowed);
+    return inSet === -1 || inSet > setEnd;
   })());
 
   // POST unsubscribe
@@ -179,7 +223,11 @@ console.log("\n[4] Contact profile UI — client/src/pages/contact-profile.tsx")
   // TimelineSection updated with isAdmin
   check("TimelineSection accepts isAdmin prop", src.includes("isAdmin?: boolean"));
   check("TimelineSection passes isAdmin to ComplianceTab", src.includes("isAdmin={isAdmin ?? false}"));
-  check("TimelineSection call passes isAdmin", src.includes("isAdmin={true}"));
+  // isAdmin derived from real /api/auth/me query (not hardcoded true)
+  check("isAdmin derived from /api/auth/me query", src.includes('queryKey: ["/api/auth/me"]'));
+  check("isAdmin checks role master_admin or admin", src.includes("master_admin") && src.includes("currentUserIsAdmin"));
+  check("TimelineSection call uses currentUserIsAdmin variable", src.includes("isAdmin={currentUserIsAdmin}"));
+  check("TimelineSection call does NOT hardcode isAdmin=true", !src.includes("isAdmin={true}"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

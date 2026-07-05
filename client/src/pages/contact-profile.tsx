@@ -214,6 +214,12 @@ export default function ContactProfilePage() {
   const [currentInitMsg, setCurrentInitMsg] = useState<number | undefined>();
   const [currentInitThread, setCurrentInitThread] = useState<number | undefined>();
 
+  const { data: currentUser } = useQuery<any>({
+    queryKey: ["/api/auth/me"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const currentUserIsAdmin = currentUser?.role === "master_admin" || currentUser?.role === "admin" || currentUser?.globalRole === "admin";
+
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     const tab = p.get("tab");
@@ -802,7 +808,7 @@ export default function ContactProfilePage() {
         initialTab={currentInitTab}
         initialMessageId={currentInitMsg}
         initialThreadId={currentInitThread}
-        isAdmin={true}
+        isAdmin={currentUserIsAdmin}
       />
 
       <EditContactDialog

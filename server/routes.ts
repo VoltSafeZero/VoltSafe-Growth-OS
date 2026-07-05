@@ -22378,11 +22378,14 @@ export function registerConfluenceRoutes(app: Express) {
       if (!id) return res.status(400).json({ message: "Invalid contact ID" });
       const userId = req.session.userId;
 
-      // Fields that can be updated via this route (excludes unsubscribe_status / suppression_status)
+      // Fields that can be updated via this route.
+      // consent_status is intentionally excluded — it must only be changed via
+      // the dedicated consent-capture flow or the unsubscribe/suppress endpoints.
+      // unsubscribe_status and suppression_status are also excluded for the same reason.
       const ALLOWED_FIELDS = new Set([
         "recipient_country", "province_state", "jurisdiction",
         "canada_contact", "us_contact",
-        "consent_status", "consent_type", "consent_source", "consent_timestamp",
+        "consent_type", "consent_source", "consent_timestamp",
         "consent_capture_method", "consent_language_version", "consent_language_text",
         "consent_form_url", "consent_ip_address", "consent_user_agent", "consent_referrer",
         "related_business_relationship_type", "related_business_relationship_date",
@@ -36617,7 +36620,16 @@ export function registerConfluenceRoutes(app: Express) {
     try {
       const id = Number(req.params.id);
       if (!id) return res.status(400).json({ error: "Invalid id" });
-      const allowed = ["campaignName","campaignType","goal","status","notes","segmentId","startDate","endDate","totalRecipients","sentCount","openedCount","clickedCount","repliedCount","bouncedCount","demoBookedCount","unsubscribedCount"];
+      const allowed = [
+        "campaignName","campaignType","goal","status","notes","segmentId","startDate","endDate",
+        "totalRecipients","sentCount","openedCount","clickedCount","repliedCount","bouncedCount","demoBookedCount","unsubscribedCount",
+        // compliance fields
+        "targetJurisdiction","senderName","senderLegalEntity","fromEmail","replyToEmail",
+        "sendingDomain","sendingDomainApproved","contactEmail","contactPhone","physicalMailingAddress",
+        "previewText","unsubscribeLinkIncluded","preferenceCenterLinkIncluded","commercialDisclosureIncluded",
+        "footerVersion","complianceStatus","complianceErrors",
+        "recipientCountBeforePreflight","recipientCountAfterSuppression","blockedRecipientCount","approvedByUserId",
+      ];
       const patch: Record<string, any> = {};
       for (const k of allowed) if (k in req.body) patch[k] = req.body[k];
       patch.updatedAt = new Date();
