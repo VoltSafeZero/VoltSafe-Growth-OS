@@ -36489,7 +36489,8 @@ export function registerConfluenceRoutes(app: Express) {
         .from(campaignSegments).where(eq(campaignSegments.id, campaign.segmentId));
       if (!segment) return res.status(404).json({ error: "Segment not found" });
       const { resolveSegmentRecipients } = await import("./services/campaign-segment-resolver");
-      const result = await resolveSegmentRecipients(campaignId, segment.filtersJson as any, 10000);
+      const enrollLimit = (req.body?.limit && !isNaN(Number(req.body.limit))) ? Math.min(Number(req.body.limit), 10000) : 10000;
+      const result = await resolveSegmentRecipients(campaignId, segment.filtersJson as any, enrollLimit);
       const eligible = result.recipients.filter(r => r.status === "eligible");
       let enrolledCount = 0;
       let skippedCount = 0;
@@ -36529,6 +36530,106 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err) {
       console.error("[marketing] POST /campaigns/:id/enroll-recipients:", err);
       res.status(500).json({ error: "Failed to enroll recipients" });
+    }
+  });
+
+  // ── Campaign Recipients list ──────────────────────────────────────────────────
+
+  app.get("/api/marketing/campaigns/:id/recipients", requireAuth, async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      if (!campaignId || isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          cr.id, cr.campaign_id, cr.contact_id, cr.account_id, cr.email, cr.name,
+          cr.role, cr.marina_persona, cr.adoption_stage, cr.status,
+          cr.current_step, cr.last_sent_at, cr.bounced_at, cr.unsubscribed_at,
+          cr.opened_count, cr.clicked_count, cr.created_at,
+          a.name AS account_name
+        FROM campaign_recipients cr
+        LEFT JOIN accounts a ON a.id = cr.account_id
+        WHERE cr.campaign_id = ${campaignId}
+        ORDER BY cr.created_at ASC
+      `));
+      res.json(rows.rows);
+    } catch (err) {
+      console.error("[marketing] GET /campaigns/:id/recipients:", err);
+      res.status(500).json({ error: "Failed to load recipients" });
+    }
+  });
+
+  // ── Campaign Events list ───────────────────────────────────────────────────────
+
+  app.get("/api/marketing/campaigns/:id/events", requireAuth, async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      if (!campaignId || isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
+      const rows = await db.select().from(campaignEvents)
+        .where(eq(campaignEvents.campaignId, campaignId))
+        .orderBy(sql`event_timestamp DESC`)
+        .limit(500);
+      res.json(rows);
+    } catch (err) {
+      console.error("[marketing] GET /campaigns/:id/events:", err);
+      res.status(500).json({ error: "Failed to load events" });
+    }
+  });
+
+  // ── Send Preview ───────────────────────────────────────────────────────────────
+
+  app.post("/api/marketing/campaigns/:id/send-preview", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      if (!campaignId || isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
+      const { campaignEmailId } = req.body;
+      if (!campaignEmailId || isNaN(Number(campaignEmailId))) {
+        return res.status(400).json({ error: "campaignEmailId is required" });
+      }
+      const { buildSendPreview } = await import("./services/campaign-sender");
+      const userId = req.session.userId as number;
+      const result = await buildSendPreview(campaignId, Number(campaignEmailId), userId);
+      // Record preview event (non-critical)
+      try {
+        await db.insert(campaignEvents).values({
+          campaignId,
+          eventType: "send_preview_generated",
+          metadata: {
+            campaign_email_id: Number(campaignEmailId),
+            step_number: result.step.stepNumber,
+            eligible_count: result.eligibleCount,
+            excluded_count: result.excludedCount,
+            previewed_by: userId,
+          },
+        } as any);
+      } catch { /* non-critical */ }
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.statusCode ?? 500;
+      console.error("[marketing] POST /campaigns/:id/send-preview:", err);
+      res.status(status).json({ error: err?.message ?? "Failed to build send preview" });
+    }
+  });
+
+  // ── Send Step ─────────────────────────────────────────────────────────────────
+
+  app.post("/api/marketing/campaigns/:id/send-step", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      if (!campaignId || isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
+      const { campaignEmailId, confirm } = req.body;
+      if (confirm !== true) {
+        return res.status(400).json({ error: "confirm must be true to execute send" });
+      }
+      if (!campaignEmailId || isNaN(Number(campaignEmailId))) {
+        return res.status(400).json({ error: "campaignEmailId is required" });
+      }
+      const { executeSendStep } = await import("./services/campaign-sender");
+      const result = await executeSendStep(campaignId, Number(campaignEmailId), req.session.userId as number);
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.statusCode ?? 500;
+      console.error("[marketing] POST /campaigns/:id/send-step:", err);
+      res.status(status).json({ error: err?.message ?? "Failed to execute send step" });
     }
   });
 

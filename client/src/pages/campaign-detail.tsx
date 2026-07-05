@@ -5,7 +5,7 @@ import {
   Radio, ArrowLeft, Plus, Trash2, Play, Pause, CheckCircle, Edit2,
   Mail, MousePointerClick, MessageSquare, Calendar, Users, Target,
   Sparkles, Save, FileText, Clock, UserCheck, AlertTriangle, ChevronDown, ChevronUp,
-  RefreshCw, Filter,
+  RefreshCw, Filter, Send, Eye, ShieldCheck, Info, Zap, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,6 +97,43 @@ type EnrollResult = {
   total_recipients: number;
 };
 
+type SendPreviewResult = {
+  campaign: { id: number; name: string; status: string };
+  step: { id: number; stepNumber: number; subject: string; delayDays: number; bodyText: string | null };
+  eligibleCount: number;
+  excludedCount: number;
+  exclusionBreakdown: Record<string, number>;
+  sampleEligible: Array<{ id: number; email: string; name: string; marinaPersona: string | null; adoptionStage: string | null; role: string | null; sendStatus: string }>;
+  sampleExcluded: Array<{ id: number; email: string; name: string; exclusionReason: string | null; sendStatus: string }>;
+  subjectPreview: string;
+  senderInfo: { mode: "live" | "dev_safe"; senderEmail: string | null; reason: string };
+  warnings: string[];
+};
+
+type SendStepResult = {
+  attempted_count: number;
+  sent_count: number;
+  failed_count: number;
+  skipped_count: number;
+  dev_safe_mode: boolean;
+  exclusion_breakdown: Record<string, number>;
+  failures: Array<{ email: string; error: string }>;
+  campaign_totals: { total_recipients: number; sent_count: number; enrolled_count: number };
+};
+
+type EnrolledRecipient = {
+  id: number;
+  email: string;
+  name: string;
+  role: string | null;
+  status: string;
+  current_step: number;
+  last_sent_at: string | null;
+  marina_persona: string | null;
+  adoption_stage: string | null;
+  account_name: string | null;
+};
+
 const STAKEHOLDER_OPENINGS = [
   { role: "Owner", opening: "Many marinas are leaving money on the dock through outdated shore power billing." },
   { role: "GM", opening: "Managing shore power should not require manual readings, mystery outages, and boater complaints." },
@@ -118,8 +155,33 @@ function exclusionLabel(reason: string): string {
     suppressed_domain: "Suppressed domain",
     duplicate_email: "Duplicate email",
     already_enrolled: "Already enrolled",
+    already_sent_step: "Already sent this step",
   };
   return map[reason] ?? reason;
+}
+
+function recipientStatusColor(s: string): string {
+  if (s === "in_sequence" || s === "sent") return "text-blue-400";
+  if (s === "completed") return "text-emerald-400";
+  if (s === "failed") return "text-red-400";
+  if (s === "suppressed" || s === "skipped") return "text-amber-400";
+  if (s === "bounced" || s === "unsubscribed") return "text-rose-400";
+  return "text-muted-foreground";
+}
+
+function recipientStatusLabel(s: string): string {
+  const map: Record<string, string> = {
+    enrolled: "Enrolled",
+    in_sequence: "In sequence",
+    completed: "Completed",
+    failed: "Failed",
+    skipped: "Skipped",
+    suppressed: "Suppressed",
+    bounced: "Bounced",
+    unsubscribed: "Unsubscribed",
+    sent: "Sent",
+  };
+  return map[s] ?? s;
 }
 
 const PREVIEW_TABLE_LIMIT = 100;
@@ -141,6 +203,15 @@ export default function CampaignDetailPage() {
   const [previewFilter, setPreviewFilter] = useState<"all" | "eligible" | "excluded" | "already_enrolled">("all");
   const [enrollResult, setEnrollResult] = useState<EnrollResult | null>(null);
 
+  // Send Campaign Step state
+  const [sendPreviewModalOpen, setSendPreviewModalOpen] = useState(false);
+  const [selectedStepForSend, setSelectedStepForSend] = useState<CampaignEmail | null>(null);
+  const [sendPreviewResult, setSendPreviewResult] = useState<SendPreviewResult | null>(null);
+  const [sendPreviewLoading, setSendPreviewLoading] = useState(false);
+  const [sendStepLoading, setSendStepLoading] = useState(false);
+  const [sendStepResults, setSendStepResults] = useState<Record<number, SendStepResult>>({});
+  const [recipientFilter, setRecipientFilter] = useState("all");
+
   const { data: campaign, isLoading } = useQuery<Campaign>({
     queryKey: ["/api/marketing/campaigns", id],
     enabled: !!id,
@@ -153,6 +224,12 @@ export default function CampaignDetailPage() {
 
   const { data: segments = [] } = useQuery<Segment[]>({
     queryKey: ["/api/marketing/segments"],
+    enabled: !!id,
+  });
+
+  const { data: enrolledRecipients = [], refetch: refetchRecipients } = useQuery<EnrolledRecipient[]>({
+    queryKey: ["/api/marketing/campaigns", id, "recipients"],
+    queryFn: () => apiRequest("GET", `/api/marketing/campaigns/${id}/recipients`).then(r => r.json()),
     enabled: !!id,
   });
 
@@ -201,7 +278,7 @@ export default function CampaignDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", id, "emails"] });
       toast({ title: "Default 5-email sequence added" });
     },
-    onError: (err: any) => {
+    onError: () => {
       toast({ title: "Sequence already exists", description: "Delete existing steps first.", variant: "destructive" });
     },
   });
@@ -213,11 +290,11 @@ export default function CampaignDetailPage() {
       setEnrollResult(data);
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
+      refetchRecipients();
       toast({ title: `Enrolled ${data.enrolled_count} recipients`, description: `${data.excluded_count} excluded, ${data.already_enrolled_count} already enrolled` });
     },
     onError: async (err: any) => {
-      const msg = err?.message ?? "Enrollment failed";
-      toast({ title: "Enrollment failed", description: msg, variant: "destructive" });
+      toast({ title: "Enrollment failed", description: err?.message ?? "Enrollment failed", variant: "destructive" });
     },
   });
 
@@ -235,6 +312,65 @@ export default function CampaignDetailPage() {
       toast({ title: "Preview failed", description: err?.message ?? "Unknown error", variant: "destructive" });
     } finally {
       setPreviewLoading(false);
+    }
+  }
+
+  async function openSendPreview(step: CampaignEmail) {
+    setSelectedStepForSend(step);
+    setSendPreviewResult(null);
+    setSendPreviewModalOpen(true);
+    setSendPreviewLoading(true);
+    try {
+      const res = await apiRequest("POST", `/api/marketing/campaigns/${id}/send-preview`, {
+        campaignEmailId: step.id,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Preview failed");
+      }
+      const data: SendPreviewResult = await res.json();
+      setSendPreviewResult(data);
+    } catch (err: any) {
+      toast({ title: "Send preview failed", description: err.message, variant: "destructive" });
+      setSendPreviewModalOpen(false);
+    } finally {
+      setSendPreviewLoading(false);
+    }
+  }
+
+  async function executeSendStep() {
+    if (!selectedStepForSend || !sendPreviewResult) return;
+    if (sendPreviewResult.eligibleCount === 0) {
+      toast({ title: "No eligible recipients", description: "All recipients are excluded for this step.", variant: "destructive" });
+      return;
+    }
+    setSendStepLoading(true);
+    try {
+      const res = await apiRequest("POST", `/api/marketing/campaigns/${id}/send-step`, {
+        campaignEmailId: selectedStepForSend.id,
+        confirm: true,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Send failed");
+      }
+      const data: SendStepResult = await res.json();
+      setSendStepResults(prev => ({ ...prev, [selectedStepForSend.id]: data }));
+      setSendPreviewModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
+      refetchRecipients();
+      toast({
+        title: data.dev_safe_mode
+          ? `Dev-safe: ${data.sent_count} events recorded (no real emails sent)`
+          : `Sent to ${data.sent_count} recipient${data.sent_count !== 1 ? "s" : ""}`,
+        description: data.failed_count > 0 ? `${data.failed_count} failed` : undefined,
+        variant: data.failed_count > 0 ? "destructive" : "default",
+      });
+    } catch (err: any) {
+      toast({ title: "Send failed", description: err.message, variant: "destructive" });
+    } finally {
+      setSendStepLoading(false);
     }
   }
 
@@ -276,6 +412,7 @@ export default function CampaignDetailPage() {
 
   const selectedSegment = segments.find(s => s.id === campaign.segmentId) ?? null;
   const canEnroll = campaign.status !== "archived" && campaign.status !== "completed" && !!campaign.segmentId;
+  const canSend = campaign.status !== "archived" && campaign.totalRecipients > 0;
 
   const filteredPreviewRows = preview
     ? preview.recipients.filter(r => previewFilter === "all" || r.status === previewFilter).slice(0, PREVIEW_TABLE_LIMIT)
@@ -285,6 +422,19 @@ export default function CampaignDetailPage() {
     s === "eligible" ? "text-emerald-400" :
     s === "already_enrolled" ? "text-blue-400" :
     "text-amber-400";
+
+  const sortedEmails = [...emails].sort((a, b) => a.stepNumber - b.stepNumber);
+
+  const filteredRecipients = enrolledRecipients.filter(r => {
+    if (recipientFilter === "all") return true;
+    if (recipientFilter === "ready") return r.status === "enrolled";
+    if (recipientFilter === "sent") return r.status === "in_sequence" || r.status === "sent";
+    if (recipientFilter === "completed") return r.status === "completed";
+    if (recipientFilter === "failed") return r.status === "failed";
+    if (recipientFilter === "skipped") return r.status === "skipped";
+    if (recipientFilter === "suppressed") return r.status === "suppressed";
+    return true;
+  });
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-background">
@@ -366,7 +516,7 @@ export default function CampaignDetailPage() {
           )}
         </div>
 
-        {/* ── Audience Enrollment ───────────────────────────────────────────────── */}
+        {/* ── Audience Enrollment ──────────────────────────────────────────── */}
         <div className="rounded-xl border border-border/50 bg-card/50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-4 border-b border-border/30">
             <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -376,7 +526,6 @@ export default function CampaignDetailPage() {
           </div>
 
           <div className="px-4 py-4 space-y-4">
-            {/* Segment selector */}
             <div className="flex items-center gap-3">
               <div className="flex-1">
                 <Label className="text-xs text-muted-foreground mb-1.5 block">Selected Segment</Label>
@@ -419,7 +568,6 @@ export default function CampaignDetailPage() {
               </div>
             )}
 
-            {/* Preview summary */}
             {preview && (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -436,7 +584,6 @@ export default function CampaignDetailPage() {
                   ))}
                 </div>
 
-                {/* Exclusion breakdown */}
                 {Object.keys(preview.exclusionBreakdown).length > 0 && (
                   <div className="rounded-lg bg-muted/20 px-3 py-2">
                     <div className="text-xs font-medium text-muted-foreground mb-1.5">Exclusion Breakdown</div>
@@ -450,7 +597,6 @@ export default function CampaignDetailPage() {
                   </div>
                 )}
 
-                {/* Enroll button */}
                 {!enrollResult && (
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">
@@ -471,7 +617,6 @@ export default function CampaignDetailPage() {
                   </div>
                 )}
 
-                {/* Enrollment success state */}
                 {enrollResult && (
                   <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-4 py-3" data-testid="enrollment-success">
                     <div className="flex items-center gap-2 mb-1.5">
@@ -482,7 +627,7 @@ export default function CampaignDetailPage() {
                       <div><span className="text-muted-foreground">Enrolled: </span><strong className="text-emerald-400">{enrollResult.enrolled_count}</strong></div>
                       <div><span className="text-muted-foreground">Skipped: </span><strong className="text-foreground">{enrollResult.skipped_count}</strong></div>
                       <div><span className="text-muted-foreground">Already enrolled: </span><strong className="text-blue-400">{enrollResult.already_enrolled_count}</strong></div>
-                      <div><span className="text-muted-foreground">Total recipients: </span><strong className="text-foreground">{enrollResult.total_recipients}</strong></div>
+                      <div><span className="text-muted-foreground">Total: </span><strong className="text-foreground">{enrollResult.total_recipients}</strong></div>
                     </div>
                     <Button variant="ghost" size="sm" className="mt-2 text-xs h-7" onClick={runPreview}>
                       <RefreshCw className="w-3 h-3 mr-1" /> Re-preview
@@ -490,7 +635,6 @@ export default function CampaignDetailPage() {
                   </div>
                 )}
 
-                {/* Recipient preview table */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-xs font-medium text-muted-foreground flex items-center gap-2">
@@ -564,7 +708,7 @@ export default function CampaignDetailPage() {
           </div>
         </div>
 
-        {/* Stakeholder opening lines */}
+        {/* ── Stakeholder opening lines ────────────────────────────────────── */}
         <div className="rounded-xl border border-border/50 bg-card/50 px-4 py-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Stakeholder-Specific Opening Lines</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -577,7 +721,7 @@ export default function CampaignDetailPage() {
           </div>
         </div>
 
-        {/* Email sequence */}
+        {/* ── Email Sequence + Send Controls ──────────────────────────────── */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -599,6 +743,14 @@ export default function CampaignDetailPage() {
             </div>
           </div>
 
+          {/* Safety notice */}
+          {emails.length > 0 && campaign.totalRecipients > 0 && (
+            <div className="flex items-start gap-2 rounded-lg bg-blue-500/5 border border-blue-500/20 px-3 py-2.5 mb-3 text-xs text-blue-400">
+              <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>Recipients are re-checked against suppression and internal email rules immediately before sending. No blind sends.</span>
+            </div>
+          )}
+
           {emails.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border/50 bg-muted/10 py-10 text-center">
               <Mail className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
@@ -609,37 +761,311 @@ export default function CampaignDetailPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {[...emails].sort((a, b) => a.stepNumber - b.stepNumber).map((email) => (
-                <div key={email.id} className="rounded-xl border border-border/50 bg-card/50 px-4 py-3 flex items-start gap-4"
-                  data-testid={`email-step-${email.id}`}>
-                  <div className="flex flex-col items-center gap-1 shrink-0">
-                    <div className="w-7 h-7 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center">
-                      {email.stepNumber}
-                    </div>
-                    {email.delayDays > 0 && (
-                      <div className="text-xs text-muted-foreground flex items-center gap-0.5">
-                        <Clock className="w-3 h-3" /> D+{email.delayDays}
+              {sortedEmails.map((email) => {
+                const stepResult = sendStepResults[email.id];
+                return (
+                  <div key={email.id} className="rounded-xl border border-border/50 bg-card/50 overflow-hidden"
+                    data-testid={`email-step-${email.id}`}>
+                    <div className="px-4 py-3 flex items-start gap-4">
+                      <div className="flex flex-col items-center gap-1 shrink-0">
+                        <div className="w-7 h-7 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center">
+                          {email.stepNumber}
+                        </div>
+                        {email.delayDays > 0 && (
+                          <div className="text-xs text-muted-foreground flex items-center gap-0.5">
+                            <Clock className="w-3 h-3" /> D+{email.delayDays}
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm text-foreground">{email.subject}</div>
+                        {email.bodyText && (
+                          <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{email.bodyText}</div>
+                        )}
+                        {stepResult && (
+                          <div className={`mt-2 text-xs flex items-center gap-3 ${stepResult.dev_safe_mode ? "text-amber-400" : "text-emerald-400"}`}>
+                            {stepResult.dev_safe_mode ? (
+                              <><Zap className="w-3 h-3" /> Dev-safe: {stepResult.sent_count} recorded, not delivered</>
+                            ) : (
+                              <><CheckCircle className="w-3 h-3" /> Sent to {stepResult.sent_count}</>
+                            )}
+                            {stepResult.failed_count > 0 && <span className="text-red-400 ml-2">· {stepResult.failed_count} failed</span>}
+                            {stepResult.skipped_count > 0 && <span className="text-muted-foreground ml-2">· {stepResult.skipped_count} skipped</span>}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openSendPreview(email)}
+                          disabled={!canSend || campaign.status === "archived"}
+                          data-testid={`btn-send-preview-${email.id}`}
+                        >
+                          <Eye className="w-3.5 h-3.5 mr-1.5" />
+                          Preview Send
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="w-7 h-7 text-muted-foreground hover:text-destructive shrink-0"
+                          onClick={() => deleteEmailMutation.mutate(email.id)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm text-foreground">{email.subject}</div>
-                    {email.bodyText && (
-                      <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{email.bodyText}</div>
-                    )}
-                  </div>
-                  <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-destructive shrink-0"
-                    onClick={() => deleteEmailMutation.mutate(email.id)}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
+
+        {/* ── Enrolled Recipients Table ────────────────────────────────────── */}
+        {enrolledRecipients.length > 0 && (
+          <div className="rounded-xl border border-border/50 bg-card/50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+              <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-primary" />
+                Enrolled Recipients
+                <span className="text-xs font-normal text-muted-foreground">({enrolledRecipients.length})</span>
+              </h2>
+              <div className="flex items-center gap-1">
+                {["all", "ready", "sent", "completed", "failed", "skipped", "suppressed"].map(f => {
+                  const counts: Record<string, number> = {
+                    all: enrolledRecipients.length,
+                    ready: enrolledRecipients.filter(r => r.status === "enrolled").length,
+                    sent: enrolledRecipients.filter(r => r.status === "in_sequence" || r.status === "sent").length,
+                    completed: enrolledRecipients.filter(r => r.status === "completed").length,
+                    failed: enrolledRecipients.filter(r => r.status === "failed").length,
+                    skipped: enrolledRecipients.filter(r => r.status === "skipped").length,
+                    suppressed: enrolledRecipients.filter(r => r.status === "suppressed").length,
+                  };
+                  if (f !== "all" && counts[f] === 0) return null;
+                  return (
+                    <button
+                      key={f}
+                      onClick={() => setRecipientFilter(f)}
+                      className={`text-xs px-2 py-0.5 rounded-full transition-colors capitalize ${
+                        recipientFilter === f
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                      data-testid={`recipient-filter-${f}`}
+                    >
+                      {f} {counts[f] > 0 && f !== "all" ? `(${counts[f]})` : ""}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="overflow-x-auto max-h-96 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-muted/60 backdrop-blur-sm z-10">
+                  <tr>
+                    {["Name", "Email", "Account", "Status", "Step", "Last Sent"].map(h => (
+                      <th key={h} className="text-left px-3 py-2 text-muted-foreground font-medium whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRecipients.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">No recipients match this filter.</td>
+                    </tr>
+                  ) : filteredRecipients.map((r, i) => (
+                    <tr key={r.id} className={`border-t border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"}`}
+                      data-testid={`recipient-row-${r.id}`}>
+                      <td className="px-3 py-2 font-medium text-foreground">{r.name || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground font-mono">{r.email}</td>
+                      <td className="px-3 py-2 text-muted-foreground max-w-[120px] truncate">{r.account_name ?? "—"}</td>
+                      <td className={`px-3 py-2 font-medium ${recipientStatusColor(r.status)}`}>
+                        {recipientStatusLabel(r.status)}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground text-center">
+                        {r.current_step > 1 ? `Step ${r.current_step - 1} done` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {r.last_sent_at ? new Date(r.last_sent_at).toLocaleDateString() : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Add email step dialog */}
+      {/* ── Send Preview Modal ────────────────────────────────────────────────── */}
+      <Dialog open={sendPreviewModalOpen} onOpenChange={(open) => {
+        if (!sendStepLoading) setSendPreviewModalOpen(open);
+      }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="w-5 h-5 text-primary" />
+              Send Campaign Step
+              {selectedStepForSend && (
+                <span className="text-sm font-normal text-muted-foreground ml-1">
+                  — Step {selectedStepForSend.stepNumber}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          {sendPreviewLoading && (
+            <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+              <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Checking eligibility…
+            </div>
+          )}
+
+          {!sendPreviewLoading && sendPreviewResult && (
+            <div className="space-y-4 py-2">
+              {/* Step info */}
+              <div className="rounded-lg bg-muted/20 px-4 py-3 space-y-1.5">
+                <div className="text-xs text-muted-foreground">Subject</div>
+                <div className="text-sm font-medium text-foreground">{sendPreviewResult.subjectPreview}</div>
+                {sendPreviewResult.step.bodyText && (
+                  <div className="text-xs text-muted-foreground mt-1 line-clamp-3">{sendPreviewResult.step.bodyText}</div>
+                )}
+              </div>
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-center">
+                  <div className="text-2xl font-bold text-emerald-400">{sendPreviewResult.eligibleCount}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Eligible to receive</div>
+                </div>
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-center">
+                  <div className="text-2xl font-bold text-amber-400">{sendPreviewResult.excludedCount}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Excluded</div>
+                </div>
+              </div>
+
+              {/* Sender info */}
+              <div className={`flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs ${
+                sendPreviewResult.senderInfo.mode === "live"
+                  ? "bg-emerald-500/5 border border-emerald-500/20 text-emerald-400"
+                  : "bg-amber-500/5 border border-amber-500/20 text-amber-400"
+              }`}>
+                {sendPreviewResult.senderInfo.mode === "live" ? (
+                  <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                )}
+                <div>
+                  <span className="font-medium">
+                    {sendPreviewResult.senderInfo.mode === "live" ? "Live send" : "Dev-safe mode"}
+                  </span>
+                  {sendPreviewResult.senderInfo.senderEmail && (
+                    <span className="text-muted-foreground ml-1">via {sendPreviewResult.senderInfo.senderEmail}</span>
+                  )}
+                  <div className="text-muted-foreground mt-0.5">{sendPreviewResult.senderInfo.reason}</div>
+                </div>
+              </div>
+
+              {/* Exclusion breakdown */}
+              {Object.keys(sendPreviewResult.exclusionBreakdown).length > 0 && (
+                <div className="rounded-lg bg-muted/20 px-3 py-2.5">
+                  <div className="text-xs font-medium text-muted-foreground mb-1.5">Exclusion Breakdown</div>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(sendPreviewResult.exclusionBreakdown).map(([reason, count]) => (
+                      <span key={reason} className="inline-flex items-center gap-1 text-xs bg-muted/40 px-2 py-0.5 rounded-full text-muted-foreground">
+                        {exclusionLabel(reason)}: <strong>{count}</strong>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Warnings */}
+              {sendPreviewResult.warnings.length > 0 && (
+                <div className="space-y-1.5">
+                  {sendPreviewResult.warnings.map((w, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                      <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-400" />
+                      {w}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Sample eligible */}
+              {sendPreviewResult.sampleEligible.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground mb-2">
+                    Sample Eligible Recipients ({Math.min(sendPreviewResult.sampleEligible.length, 10)} of {sendPreviewResult.eligibleCount})
+                  </div>
+                  <div className="rounded-lg border border-border/40 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <tbody>
+                        {sendPreviewResult.sampleEligible.slice(0, 10).map((r, i) => (
+                          <tr key={r.id} className={`border-t border-border/20 first:border-0 ${i % 2 === 0 ? "" : "bg-muted/10"}`}>
+                            <td className="px-3 py-2 font-medium text-foreground">{r.name || "—"}</td>
+                            <td className="px-3 py-2 text-muted-foreground font-mono">{r.email}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{r.marinaPersona ?? r.role ?? "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Sample excluded */}
+              {sendPreviewResult.sampleExcluded.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground mb-2">
+                    Sample Excluded ({Math.min(sendPreviewResult.sampleExcluded.length, 5)} shown)
+                  </div>
+                  <div className="rounded-lg border border-border/40 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <tbody>
+                        {sendPreviewResult.sampleExcluded.slice(0, 5).map((r, i) => (
+                          <tr key={r.id} className={`border-t border-border/20 first:border-0 ${i % 2 === 0 ? "" : "bg-muted/10"}`}>
+                            <td className="px-3 py-2 font-medium text-foreground">{r.name || "—"}</td>
+                            <td className="px-3 py-2 text-muted-foreground font-mono">{r.email}</td>
+                            <td className="px-3 py-2 text-amber-400">{exclusionLabel(r.exclusionReason ?? "unknown")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {sendPreviewResult.eligibleCount === 0 && (
+                <div className="flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  No eligible recipients — all contacts for this step have been excluded.
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="pt-2">
+            <Button variant="outline" onClick={() => setSendPreviewModalOpen(false)} disabled={sendStepLoading}>
+              Cancel
+            </Button>
+            <Button
+              onClick={executeSendStep}
+              disabled={!sendPreviewResult || sendPreviewResult.eligibleCount === 0 || sendStepLoading || sendPreviewLoading}
+              data-testid="btn-confirm-send"
+            >
+              <Send className="w-4 h-4 mr-2" />
+              {sendStepLoading
+                ? "Sending…"
+                : sendPreviewResult?.senderInfo.mode === "dev_safe"
+                  ? `Record ${sendPreviewResult?.eligibleCount ?? 0} (Dev-safe)`
+                  : `Send to ${sendPreviewResult?.eligibleCount ?? 0} Recipients`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add email step dialog ─────────────────────────────────────────────── */}
       <Dialog open={showAddEmail} onOpenChange={setShowAddEmail}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -666,6 +1092,9 @@ export default function CampaignDetailPage() {
                 onChange={e => setEmailForm(f => ({ ...f, bodyText: e.target.value }))}
                 data-testid="textarea-email-body" />
             </div>
+            <div className="text-xs text-muted-foreground bg-muted/20 rounded-lg px-3 py-2">
+              Supported personalization: <code className="text-primary">{"{{first_name}}"}</code> <code className="text-primary">{"{{account_name}}"}</code> <code className="text-primary">{"{{marina_persona}}"}</code> <code className="text-primary">{"{{adoption_stage}}"}</code> <code className="text-primary">{"{{role}}"}</code>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddEmail(false)}>Cancel</Button>
@@ -678,7 +1107,7 @@ export default function CampaignDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* AI Generate dialog */}
+      {/* ── AI Generate dialog ────────────────────────────────────────────────── */}
       <Dialog open={showAI} onOpenChange={setShowAI}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -694,7 +1123,6 @@ export default function CampaignDetailPage() {
               <div className="font-medium text-foreground">Example prompts:</div>
               <div>• "Create a 4-email campaign for municipal marina managers in BC focused on shore power safety, metered billing, and infrastructure modernization. CTA: book a 20-minute intro."</div>
               <div>• "Write 3 subject line variations for a harbormaster safety campaign. Keep them specific and non-salesy."</div>
-              <div>• "Generate role-specific opening lines for Owner, GM, and Harbormaster for a shore power ROI campaign."</div>
             </div>
             <Textarea
               rows={4}

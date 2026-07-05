@@ -1,0 +1,414 @@
+Build Phase 3 for the VoltSafe CMS Marketing / Campaigns module: Suppression-Safe Campaign Sending + Event Tracking.
+
+Context:
+Marketing Phase 1 and Phase 2 are complete.
+
+Already implemented:
+
+* Campaign CRUD
+* Campaign detail page
+* Email sequence builder
+* AI copywriting
+* Templates
+* Suppression list
+* Audience segments
+* Campaign analytics shells
+* Real recipient enrollment from CRM segments
+* Recipient preview
+* Suppression-safe enrollment
+* Exclusion handling
+* campaign_recipients population
+* Campaigns table showing segment name and enrolled count
+
+Known remaining gap:
+Campaigns can now enroll real recipients, but they cannot yet safely send campaign emails, track sent events, or advance recipients through campaign email steps.
+
+Goal:
+Implement a safe manual campaign sending workflow for enrolled recipients.
+
+Do not build a full automated drip scheduler yet. This phase should support manual sending of a selected campaign email step to eligible enrolled recipients, with suppression re-checks at send time, event creation, recipient status updates, and a clear pre-send review.
+
+Core principle:
+Never send blindly. Every send must have a preview, suppression checks, permission checks, and audit trail.
+
+1. Campaign Sending Model
+
+Support sending one campaign email step at a time.
+
+Example:
+
+* Campaign has 5 email steps
+* User selects Step 1
+* CMS previews eligible enrolled recipients for Step 1
+* User confirms send
+* CMS sends Step 1 to those recipients
+* campaign_events records sent/delivered-or-attempted events
+* campaign_recipients current_step and status are updated
+
+This phase should not implement automatic scheduling, open tracking, click tracking, reply tracking, or unsubscribe links unless the infrastructure already exists and can be reused safely.
+
+2. Backend: Send Preview Endpoint
+
+Add endpoint:
+
+POST /api/marketing/campaigns/:id/send-preview
+
+Payload:
+
+* campaignEmailId or stepNumber
+* optional limit / test mode if useful
+
+The endpoint should:
+
+* validate campaign ID
+* validate campaign exists
+* validate campaign is not archived/completed
+* validate campaign email step exists
+* validate campaign has enrolled recipients
+* re-check every recipient against suppression list
+* exclude internal @voltsafe.com emails
+* exclude invalid emails
+* exclude bounced/unsubscribed/do-not-email if those fields exist
+* exclude recipients that have already received this same campaign email step
+* return:
+    * campaign summary
+    * email step summary
+    * eligible recipient count
+    * excluded recipient count
+    * exclusion breakdown
+    * sample eligible recipients
+    * sample excluded recipients
+    * subject preview
+    * sender identity
+
+Exclusion reasons should include:
+
+* invalid_email
+* internal_voltsafe_email
+* do_not_email
+* bounced
+* unsubscribed
+* suppressed_email
+* suppressed_domain
+* already_sent_step
+* campaign_archived
+* campaign_completed
+* missing_email
+* missing_campaign_email
+
+3. Backend: Send Endpoint
+
+Add endpoint:
+
+POST /api/marketing/campaigns/:id/send-step
+
+Payload:
+
+* campaignEmailId or stepNumber
+* confirm: true
+
+The endpoint should:
+
+* require confirm === true
+* run the exact same eligibility logic as send-preview
+* block if zero eligible recipients
+* send only to eligible recipients
+* create campaign_events for each attempted send
+* update campaign_recipients:
+    * status
+    * current_step
+    * last_sent_at
+* update campaign email status if needed
+* return summary:
+    * attempted_count
+    * sent_count
+    * failed_count
+    * skipped_count
+    * exclusion_breakdown
+    * failures with safe error messages
+    * campaign recipient totals
+
+Important:
+Use existing VoltSafe mail sending infrastructure if available. Do not invent a parallel mail system if the app already has Gmail/VoltSafe Mail send services.
+
+If no production-safe send service exists yet, implement a dry-run/dev-safe mode and clearly label it as not sending real emails. Do not fake that emails were sent.
+
+4. Email Personalization
+
+Before sending, support simple variable replacement in subject/body.
+
+Required variables:
+
+* {{first_name}}
+* {{last_name}}
+* {{contact_name}}
+* {{email}}
+* {{role}}
+* {{account_name}}
+* {{marina_name}}
+* {{marina_persona}}
+* {{adoption_stage}}
+* {{primary_pain}}
+
+If a variable is missing, use a safe fallback:
+
+* first_name → contact name first word if available
+* account_name/marina_name → “your marina”
+* role → blank or “your team”
+* primary_pain → blank
+
+Do not send emails with visible broken placeholders like {{first_name}}.
+
+Add a backend helper:
+renderCampaignEmail({ subject, bodyHtml, bodyText, recipient })
+
+It should return rendered subject/body and a list of unresolved placeholders.
+
+Block sending if unresolved placeholders remain, unless they are explicitly allowed and removed.
+
+5. Event Tracking
+
+Create campaign_events entries.
+
+Required event types:
+
+* send_preview_generated
+* send_attempted
+* sent
+* send_failed
+* skipped_at_send
+* step_completed if all eligible recipients for that step were sent
+
+Each event should include:
+
+* campaign_id
+* recipient_id when relevant
+* contact_id
+* account_id
+* event_type
+* event_timestamp
+* metadata_json
+
+metadata_json may include:
+
+* campaign_email_id
+* step_number
+* subject
+* exclusion_reason
+* provider_message_id if available
+* error_code if failed
+* safe_error_message
+
+Do not log full email bodies into metadata_json unless the existing product pattern explicitly supports it.
+
+6. Recipient Status Rules
+
+Use campaign_recipients status values consistently.
+
+Suggested statuses:
+
+* enrolled
+* ready
+* sent
+* in_sequence
+* completed
+* skipped
+* failed
+* unsubscribed
+* bounced
+* suppressed
+
+For this phase:
+
+* enrolled recipients become sent or in_sequence after Step 1 is sent
+* current_step should move forward after a successful step send
+* if final step is sent, mark completed if appropriate
+* if a recipient is skipped due to suppression at send time, mark suppressed or skipped, depending on existing conventions
+* failed sends should mark failed only if the send failed for recipient-specific reasons
+
+Do not overcomplicate lifecycle automation yet.
+
+7. Frontend: Campaign Detail Sending UI
+
+On Campaign Detail page, add a section:
+
+Send Campaign Step
+
+For each email step, show:
+
+* step number
+* subject
+* delay day
+* recipient send status summary
+* Preview Send button
+* Send Step button
+
+Preview modal should show:
+
+* campaign name
+* email step
+* subject preview
+* eligible count
+* excluded count
+* exclusion breakdown
+* sample eligible recipients
+* sample excluded recipients
+* warning that suppression is re-checked at send time
+* confirmation checkbox or clear confirm action
+
+Send button should be disabled if:
+
+* campaign is archived/completed
+* campaign has no enrolled recipients
+* selected step has no email
+* preview has not been run
+* eligible count is zero
+* user lacks permission
+
+After sending, show:
+
+* sent count
+* failed count
+* skipped count
+* updated recipient summary
+* link/table to failed recipients if any
+
+8. Frontend: Campaign Detail Recipient Status
+
+Enhance the recipient/enrollment table to show:
+
+* current_step
+* status
+* last_sent_at
+* sent steps if available
+* exclusion/suppression status if skipped at send
+
+Add filters:
+
+* All
+* Ready
+* Sent
+* Failed
+* Skipped
+* Suppressed
+* Completed
+
+9. Campaigns Page Updates
+
+Update Campaigns table to show:
+
+* enrolled count
+* sent count if available
+* last sent date
+* campaign status
+
+Do not fake values. If no sends have happened, show “Not sent”.
+
+10. Analytics Updates
+
+Update analytics to include real send counts from campaign_events:
+
+* total sent
+* total failed
+* total skipped
+* send rate
+* campaigns with activity
+* recent send activity
+
+Clearly separate real tracked data from benchmark/target data.
+
+11. Permissions
+
+Sending must require a stronger permission than viewing.
+
+Verify:
+
+* users without Marketing permission cannot access send endpoints
+* read-only users cannot send
+* unauthorized direct API calls fail server-side
+* archived/completed campaigns cannot send
+* sending actions are auditable
+
+12. Safety / Compliance
+
+Before every real send:
+
+* re-check suppression
+* re-check internal @voltsafe.com exclusion
+* prevent duplicate sends for the same campaign email step
+* validate subject/body are not empty
+* validate no unresolved template placeholders
+* validate campaign has a sender identity
+* validate recipient email format
+* return clear warnings
+
+Add a visible warning in UI:
+“Recipients are re-checked against suppression and internal email rules immediately before sending.”
+
+13. Tests
+
+Add or update tests for:
+
+* send preview requires valid campaign
+* send preview requires valid email step
+* send preview excludes suppressed email
+* send preview excludes suppressed domain
+* send preview excludes internal @voltsafe.com
+* send preview excludes already-sent recipients for the same step
+* send endpoint requires confirm true
+* send endpoint blocks zero eligible recipients
+* send endpoint is idempotent for same step
+* campaign_events created for sent/skipped/failed
+* campaign_recipients status/current_step/last_sent_at update correctly
+* unresolved placeholders block send
+* archived campaigns cannot send
+* permission checks
+* no bare OpenAI params regression
+* nav-drift still passes
+
+Run:
+
+* new campaign sending tests
+* campaign enrollment tests
+* permissions tests
+* nav-drift tests
+* openai-compat tests
+* any existing mail/send tests affected
+
+14. Visual QA
+
+Take screenshots of:
+
+* Campaign Detail with Send Campaign Step section
+* Send Preview modal
+* Exclusion breakdown in send preview
+* Successful send result
+* Recipient table after send
+* Campaigns table showing sent count / last sent
+
+15. Final Report
+
+Return a concise report with:
+
+* files changed
+* endpoints added
+* mail sending method used
+* personalization variables supported
+* safety checks implemented
+* tests run and passing
+* screenshots taken
+* remaining gaps
+
+Important:
+If there is no safe production mail provider/service already available in the codebase, do not pretend sends are real. Implement a clearly labeled dry-run/dev-safe send path and report that actual provider wiring remains the next step.
+
+Do not implement automated drip scheduling yet.
+Do not implement open/click/reply tracking yet unless existing infrastructure makes it trivial and safe.
+Do not implement unsubscribe links yet unless existing unsubscribe infrastructure already exists.
+
+The next phase after this should be:
+
+* unsubscribe handling
+* open/click/reply tracking
+* scheduled drip automation
+* account heat score
