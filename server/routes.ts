@@ -42,6 +42,9 @@ import {
   insertSaasBillingLineSchema,
   insertRolloutPhaseSchema,
   insertTradeshowEventSchema,
+  marketingCampaigns, campaignEmails, campaignSegments, campaignTemplates, campaignSuppression,
+  insertMarketingCampaignSchema, insertCampaignEmailSchema, insertCampaignSegmentSchema,
+  insertCampaignTemplateSchema, insertCampaignSuppressionSchema,
 } from "@shared/schema";
 import multer from "multer";
 import { z } from "zod";
@@ -36301,6 +36304,306 @@ export function registerConfluenceRoutes(app: Express) {
   seedAutomationTemplates().catch(err => console.error("[automations] seed error:", err));
   startEngagementScheduler();
   startFollowupScheduler();
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Marketing / Campaign Intelligence (Phase 16)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── Campaigns ────────────────────────────────────────────────────────────────
+
+  app.get("/api/marketing/campaigns", requireAuth, async (req: any, res) => {
+    try {
+      const rows = await db.select().from(marketingCampaigns).orderBy(sql`updated_at DESC`);
+      res.json(rows);
+    } catch (err) {
+      console.error("[marketing] GET /campaigns:", err);
+      res.status(500).json({ error: "Failed to load campaigns" });
+    }
+  });
+
+  app.post("/api/marketing/campaigns", requireAuth, async (req: any, res) => {
+    try {
+      const parsed = insertMarketingCampaignSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.issues });
+      const [row] = await db.insert(marketingCampaigns).values({
+        ...parsed.data,
+        ownerUserId: req.user?.id,
+      }).returning();
+      res.json(row);
+    } catch (err) {
+      console.error("[marketing] POST /campaigns:", err);
+      res.status(500).json({ error: "Failed to create campaign" });
+    }
+  });
+
+  app.get("/api/marketing/campaigns/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ error: "Invalid id" });
+      const [row] = await db.select().from(marketingCampaigns).where(eq(marketingCampaigns.id, id));
+      if (!row) return res.status(404).json({ error: "Not found" });
+      res.json(row);
+    } catch (err) {
+      console.error("[marketing] GET /campaigns/:id:", err);
+      res.status(500).json({ error: "Failed to load campaign" });
+    }
+  });
+
+  app.patch("/api/marketing/campaigns/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ error: "Invalid id" });
+      const allowed = ["campaignName","campaignType","goal","status","notes","segmentId","startDate","endDate","totalRecipients","sentCount","openedCount","clickedCount","repliedCount","bouncedCount","demoBookedCount","unsubscribedCount"];
+      const patch: Record<string, any> = {};
+      for (const k of allowed) if (k in req.body) patch[k] = req.body[k];
+      patch.updatedAt = new Date();
+      const [row] = await db.update(marketingCampaigns).set(patch).where(eq(marketingCampaigns.id, id)).returning();
+      if (!row) return res.status(404).json({ error: "Not found" });
+      res.json(row);
+    } catch (err) {
+      console.error("[marketing] PATCH /campaigns/:id:", err);
+      res.status(500).json({ error: "Failed to update campaign" });
+    }
+  });
+
+  app.delete("/api/marketing/campaigns/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      await db.delete(marketingCampaigns).where(eq(marketingCampaigns.id, id));
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[marketing] DELETE /campaigns/:id:", err);
+      res.status(500).json({ error: "Failed to delete campaign" });
+    }
+  });
+
+  // ── Campaign emails (sequence steps) ─────────────────────────────────────────
+
+  app.get("/api/marketing/campaigns/:id/emails", requireAuth, async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      const rows = await db.select().from(campaignEmails)
+        .where(eq(campaignEmails.campaignId, campaignId))
+        .orderBy(campaignEmails.stepNumber);
+      res.json(rows);
+    } catch (err) {
+      console.error("[marketing] GET /campaigns/:id/emails:", err);
+      res.status(500).json({ error: "Failed to load emails" });
+    }
+  });
+
+  app.post("/api/marketing/campaigns/:id/emails", requireAuth, async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      const parsed = insertCampaignEmailSchema.safeParse({ ...req.body, campaignId });
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.issues });
+      const [row] = await db.insert(campaignEmails).values(parsed.data).returning();
+      res.json(row);
+    } catch (err) {
+      console.error("[marketing] POST /campaigns/:id/emails:", err);
+      res.status(500).json({ error: "Failed to add email step" });
+    }
+  });
+
+  app.delete("/api/marketing/campaigns/:id/emails/:emailId", requireAuth, async (req: any, res) => {
+    try {
+      const emailId = Number(req.params.emailId);
+      await db.delete(campaignEmails).where(eq(campaignEmails.id, emailId));
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[marketing] DELETE /campaigns/:id/emails/:emailId:", err);
+      res.status(500).json({ error: "Failed to delete email step" });
+    }
+  });
+
+  app.post("/api/marketing/campaigns/:id/seed-sequence", requireAuth, async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      const defaultSteps = [
+        { stepNumber: 1, delayDays: 0,  subject: "The problem with legacy shore power",                 bodyText: "Shore power is the lifeblood of every marina — but most marinas are running infrastructure that hasn't changed in decades. Legacy pedestals create billing blind spots, safety risks, and boater friction. There's a smarter way." },
+        { stepNumber: 2, delayDays: 4,  subject: "How smart shore power improves safety and visibility", bodyText: "Smart shore power gives marina teams real-time visibility into every slip — so problems are caught before they become incidents. No more mystery outages. No more manual meter reading rounds." },
+        { stepNumber: 3, delayDays: 9,  subject: "A message for your role at the marina",              bodyText: "Depending on your role — whether you're the owner, GM, harbormaster, or electrician — the shore power problem shows up differently. But the solution is the same: better infrastructure, smarter visibility, less friction." },
+        { stepNumber: 4, delayDays: 16, subject: "ROI and metered billing for marina shore power",      bodyText: "Metered billing turns shore power from a utility cost into a visible revenue line. Marinas using smart metering report fewer billing disputes, better revenue capture, and happier boaters." },
+        { stepNumber: 5, delayDays: 25, subject: "One quick question",                                 bodyText: "I know this isn't top of mind for everyone right now. Is upgrading your shore power infrastructure something you'd explore in the next 6–12 months? Happy to share what other marinas in the region are doing." },
+      ];
+      const rows = await db.insert(campaignEmails).values(
+        defaultSteps.map(s => ({ ...s, campaignId, status: "draft" }))
+      ).returning();
+      res.json(rows);
+    } catch (err) {
+      console.error("[marketing] POST /campaigns/:id/seed-sequence:", err);
+      res.status(500).json({ error: "Failed to seed sequence" });
+    }
+  });
+
+  // ── Segments / Audiences ──────────────────────────────────────────────────────
+
+  app.get("/api/marketing/segments", requireAuth, async (req: any, res) => {
+    try {
+      const rows = await db.select().from(campaignSegments).orderBy(sql`created_at DESC`);
+      res.json(rows);
+    } catch (err) {
+      console.error("[marketing] GET /segments:", err);
+      res.status(500).json({ error: "Failed to load segments" });
+    }
+  });
+
+  app.post("/api/marketing/segments", requireAuth, async (req: any, res) => {
+    try {
+      const parsed = insertCampaignSegmentSchema.safeParse({ ...req.body, savedByUserId: req.user?.id });
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.issues });
+      const [row] = await db.insert(campaignSegments).values(parsed.data).returning();
+      res.json(row);
+    } catch (err) {
+      console.error("[marketing] POST /segments:", err);
+      res.status(500).json({ error: "Failed to create segment" });
+    }
+  });
+
+  app.delete("/api/marketing/segments/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      await db.delete(campaignSegments).where(eq(campaignSegments.id, id));
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[marketing] DELETE /segments/:id:", err);
+      res.status(500).json({ error: "Failed to delete segment" });
+    }
+  });
+
+  // ── Templates ─────────────────────────────────────────────────────────────────
+
+  app.get("/api/marketing/templates", requireAuth, async (req: any, res) => {
+    try {
+      const rows = await db.select().from(campaignTemplates).orderBy(sql`is_starter DESC, created_at ASC`);
+      res.json(rows);
+    } catch (err) {
+      console.error("[marketing] GET /templates:", err);
+      res.status(500).json({ error: "Failed to load templates" });
+    }
+  });
+
+  app.post("/api/marketing/templates", requireAuth, async (req: any, res) => {
+    try {
+      const parsed = insertCampaignTemplateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.issues });
+      const [row] = await db.insert(campaignTemplates).values(parsed.data).returning();
+      res.json(row);
+    } catch (err) {
+      console.error("[marketing] POST /templates:", err);
+      res.status(500).json({ error: "Failed to create template" });
+    }
+  });
+
+  app.delete("/api/marketing/templates/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [existing] = await db.select({ isStarter: campaignTemplates.isStarter }).from(campaignTemplates).where(eq(campaignTemplates.id, id));
+      if (existing?.isStarter) return res.status(403).json({ error: "Cannot delete starter templates" });
+      await db.delete(campaignTemplates).where(eq(campaignTemplates.id, id));
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[marketing] DELETE /templates/:id:", err);
+      res.status(500).json({ error: "Failed to delete template" });
+    }
+  });
+
+  // ── Suppression list ──────────────────────────────────────────────────────────
+
+  app.get("/api/marketing/suppression", requireAuth, async (req: any, res) => {
+    try {
+      const rows = await db.select().from(campaignSuppression).orderBy(sql`created_at DESC`);
+      res.json(rows);
+    } catch (err) {
+      console.error("[marketing] GET /suppression:", err);
+      res.status(500).json({ error: "Failed to load suppression list" });
+    }
+  });
+
+  app.post("/api/marketing/suppression", requireAuth, async (req: any, res) => {
+    try {
+      const parsed = insertCampaignSuppressionSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.issues });
+      if (!parsed.data.email && !parsed.data.domain) {
+        return res.status(400).json({ error: "Email or domain required" });
+      }
+      const [row] = await db.insert(campaignSuppression).values(parsed.data).returning();
+      res.json(row);
+    } catch (err: any) {
+      if (err?.code === "23505") return res.status(409).json({ error: "Already in suppression list" });
+      console.error("[marketing] POST /suppression:", err);
+      res.status(500).json({ error: "Failed to add suppression entry" });
+    }
+  });
+
+  app.delete("/api/marketing/suppression/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      await db.delete(campaignSuppression).where(eq(campaignSuppression.id, id));
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[marketing] DELETE /suppression/:id:", err);
+      res.status(500).json({ error: "Failed to delete entry" });
+    }
+  });
+
+  // ── AI Campaign Generator ─────────────────────────────────────────────────────
+
+  app.post("/api/marketing/ai/generate", requireAuth, async (req: any, res) => {
+    try {
+      const { prompt, campaignName, campaignType, goal } = req.body;
+      if (!prompt) return res.status(400).json({ error: "prompt required" });
+
+      const systemPrompt = `You are a senior B2B sales and marketing strategist specializing in marina and marine infrastructure sales for VoltSafe. VoltSafe sells a smart shore power solution (marina pedestal + smart 30A connector + SaaS software) to marinas across North America.
+
+You understand marina buying committees: Owner, GM, Harbormaster, Dockmaster, Marine Electrician, Port Manager, Developer. You know the key pains: aging shore power, manual meter reading, revenue leakage, safety/compliance concerns, boater experience, infrastructure modernization.
+
+Your campaigns are direct, specific, marina-focused, and never generic. You always tie messaging to real marina pain and real VoltSafe value.`;
+
+      const contextLines = [
+        campaignName ? `Campaign: ${campaignName}` : "",
+        campaignType ? `Type: ${campaignType}` : "",
+        goal ? `Goal: ${goal}` : "",
+      ].filter(Boolean).join("\n");
+
+      const userPrompt = contextLines
+        ? `Campaign context:\n${contextLines}\n\nRequest:\n${prompt}`
+        : prompt;
+
+      const openaiBase = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+      const openaiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+      if (!openaiBase || !openaiKey) {
+        return res.status(503).json({ error: "AI integration not configured" });
+      }
+
+      const aiRes = await fetch(`${openaiBase}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          max_tokens: 1500,
+          temperature: 0.7,
+        }),
+      });
+
+      if (!aiRes.ok) {
+        const errText = await aiRes.text();
+        console.error("[marketing] AI error:", errText);
+        return res.status(502).json({ error: "AI service error" });
+      }
+
+      const aiData = await aiRes.json();
+      const result = aiData.choices?.[0]?.message?.content ?? "";
+      res.json({ result });
+    } catch (err) {
+      console.error("[marketing] POST /ai/generate:", err);
+      res.status(500).json({ error: "AI generation failed" });
+    }
+  });
 
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));

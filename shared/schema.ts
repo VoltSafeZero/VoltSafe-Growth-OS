@@ -2884,3 +2884,133 @@ export const teamWorkScheduleAuditLog = pgTable("team_work_schedule_audit_log", 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 export type TeamWorkScheduleAuditLog = typeof teamWorkScheduleAuditLog.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Marketing / Campaign Intelligence (Phase 16)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const campaignSegments = pgTable("campaign_segments", {
+  id:              serial("id").primaryKey(),
+  segmentName:     text("segment_name").notNull(),
+  description:     text("description"),
+  filtersJson:     jsonb("filters_json"),
+  segmentType:     text("segment_type").notNull().default("dynamic"),
+  savedByUserId:   integer("saved_by_user_id"),
+  recipientCount:  integer("recipient_count").notNull().default(0),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+  updatedAt:       timestamp("updated_at").defaultNow().notNull(),
+});
+export const insertCampaignSegmentSchema = createInsertSchema(campaignSegments).omit({ id: true, createdAt: true, updatedAt: true });
+export type CampaignSegment = typeof campaignSegments.$inferSelect;
+export type InsertCampaignSegment = z.infer<typeof insertCampaignSegmentSchema>;
+
+export const marketingCampaigns = pgTable("marketing_campaigns", {
+  id:                serial("id").primaryKey(),
+  campaignName:      text("campaign_name").notNull(),
+  campaignType:      text("campaign_type").notNull().default("awareness"),
+  goal:              text("goal"),
+  status:            text("status").notNull().default("draft"),
+  ownerUserId:       integer("owner_user_id"),
+  segmentId:         integer("segment_id"),
+  startDate:         date("start_date"),
+  endDate:           date("end_date"),
+  totalRecipients:   integer("total_recipients").notNull().default(0),
+  sentCount:         integer("sent_count").notNull().default(0),
+  deliveredCount:    integer("delivered_count").notNull().default(0),
+  openedCount:       integer("opened_count").notNull().default(0),
+  clickedCount:      integer("clicked_count").notNull().default(0),
+  repliedCount:      integer("replied_count").notNull().default(0),
+  bouncedCount:      integer("bounced_count").notNull().default(0),
+  unsubscribedCount: integer("unsubscribed_count").notNull().default(0),
+  demoBookedCount:   integer("demo_booked_count").notNull().default(0),
+  notes:             text("notes"),
+  createdAt:         timestamp("created_at").defaultNow().notNull(),
+  updatedAt:         timestamp("updated_at").defaultNow().notNull(),
+});
+export const insertMarketingCampaignSchema = createInsertSchema(marketingCampaigns).omit({ id: true, createdAt: true, updatedAt: true });
+export type MarketingCampaign = typeof marketingCampaigns.$inferSelect;
+export type InsertMarketingCampaign = z.infer<typeof insertMarketingCampaignSchema>;
+
+export const campaignEmails = pgTable("campaign_emails", {
+  id:           serial("id").primaryKey(),
+  campaignId:   integer("campaign_id").notNull(),
+  stepNumber:   integer("step_number").notNull().default(1),
+  subject:      text("subject").notNull(),
+  bodyHtml:     text("body_html"),
+  bodyText:     text("body_text"),
+  delayDays:    integer("delay_days").notNull().default(0),
+  senderUserId: integer("sender_user_id"),
+  status:       text("status").notNull().default("draft"),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  updatedAt:    timestamp("updated_at").defaultNow().notNull(),
+});
+export const insertCampaignEmailSchema = createInsertSchema(campaignEmails).omit({ id: true, createdAt: true, updatedAt: true });
+export type CampaignEmail = typeof campaignEmails.$inferSelect;
+export type InsertCampaignEmail = z.infer<typeof insertCampaignEmailSchema>;
+
+export const campaignRecipients = pgTable("campaign_recipients", {
+  id:             serial("id").primaryKey(),
+  campaignId:     integer("campaign_id").notNull(),
+  contactId:      integer("contact_id"),
+  accountId:      integer("account_id"),
+  email:          text("email").notNull(),
+  name:           text("name"),
+  marinaPersona:  text("marina_persona"),
+  adoptionStage:  text("adoption_stage"),
+  role:           text("role"),
+  status:         text("status").notNull().default("pending"),
+  currentStep:    integer("current_step").notNull().default(0),
+  lastSentAt:     timestamp("last_sent_at"),
+  openedCount:    integer("opened_count").notNull().default(0),
+  clickedCount:   integer("clicked_count").notNull().default(0),
+  repliedAt:      timestamp("replied_at"),
+  bouncedAt:      timestamp("bounced_at"),
+  unsubscribedAt: timestamp("unsubscribed_at"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  updatedAt:      timestamp("updated_at").defaultNow().notNull(),
+});
+export const insertCampaignRecipientSchema = createInsertSchema(campaignRecipients).omit({ id: true, createdAt: true, updatedAt: true });
+export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
+export type InsertCampaignRecipient = z.infer<typeof insertCampaignRecipientSchema>;
+
+export const campaignEvents = pgTable("campaign_events", {
+  id:             serial("id").primaryKey(),
+  campaignId:     integer("campaign_id").notNull(),
+  recipientId:    integer("recipient_id"),
+  contactId:      integer("contact_id"),
+  accountId:      integer("account_id"),
+  eventType:      text("event_type").notNull(),
+  eventTimestamp: timestamp("event_timestamp").defaultNow().notNull(),
+  metadata:       jsonb("metadata"),
+});
+export type CampaignEvent = typeof campaignEvents.$inferSelect;
+
+export const campaignTemplates = pgTable("campaign_templates", {
+  id:              serial("id").primaryKey(),
+  templateName:    text("template_name").notNull(),
+  persona:         text("persona"),
+  stakeholderRole: text("stakeholder_role"),
+  campaignType:    text("campaign_type"),
+  subject:         text("subject"),
+  bodyHtml:        text("body_html"),
+  bodyText:        text("body_text"),
+  recommendedCta:  text("recommended_cta"),
+  isStarter:       boolean("is_starter").notNull().default(false),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+  updatedAt:       timestamp("updated_at").defaultNow().notNull(),
+});
+export const insertCampaignTemplateSchema = createInsertSchema(campaignTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+export type CampaignTemplate = typeof campaignTemplates.$inferSelect;
+export type InsertCampaignTemplate = z.infer<typeof insertCampaignTemplateSchema>;
+
+export const campaignSuppression = pgTable("campaign_suppression", {
+  id:        serial("id").primaryKey(),
+  email:     text("email"),
+  domain:    text("domain"),
+  reason:    text("reason"),
+  source:    text("source"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const insertCampaignSuppressionSchema = createInsertSchema(campaignSuppression).omit({ id: true, createdAt: true });
+export type CampaignSuppressionEntry = typeof campaignSuppression.$inferSelect;
+export type InsertCampaignSuppression = z.infer<typeof insertCampaignSuppressionSchema>;

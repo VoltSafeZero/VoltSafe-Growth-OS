@@ -1,0 +1,1073 @@
+Build out VoltSafe CMS marketing and campaign capabilities for targeting marina stakeholders.
+
+Context:
+VoltSafe sells a smart shore power marina solution that includes a marina pedestal, smart 30A shore power connector, and software. The software is sold as a SaaS monthly subscription. VoltSafe targets marinas and marine infrastructure stakeholders including owners, GMs, harbormasters, dockmasters, deckhands, marine electricians, municipal marina managers, port authorities, yacht clubs, resort marinas, developers, and marina groups.
+
+Goal:
+Create a full “Growth / Campaigns” capability inside VoltSafe CMS that helps VoltSafe identify, segment, target, educate, and convert marina stakeholders through campaigns, while tying all engagement back into CRM accounts, contacts, lead stages, opportunities, and follow-up tasks.
+
+This should not be a generic newsletter tool. It should be a marina-specific growth engine.
+
+Build the feature around the idea that VoltSafe sells into a multi-stakeholder buying committee. A marina owner may approve the spend, a GM may drive the project, a harbormaster may feel the operational/safety pain, a marine electrician may validate the technical side, and a port/municipality may control procurement. Campaigns must therefore support both contact-level targeting and account-level buying committee insight.
+
+Recommended navigation:
+
+Growth
+
+* Dashboard
+* Campaigns
+* Audiences / Segments
+* Templates
+* Assets
+* Forms
+* Suppression List
+* Analytics
+
+If “Growth” is too large for the first implementation, use:
+
+Marketing
+
+* Campaigns
+* Audiences
+* Templates
+* Assets
+* Analytics
+
+Core feature areas to build:
+
+1. Audience Builder
+
+Create an Audience / Segment Builder that lets VoltSafe build dynamic and static campaign audiences from CRM data.
+
+Account / marina filters should include:
+
+* Marina name
+* Region / province / state / country
+* City
+* Slip count
+* Marina size bucket: 0–50, 51–150, 151–500, 500+
+* Marina Persona
+* Ownership type
+* Lead stage
+* Account stage
+* Priority score
+* Adoption readiness score
+* Adoption stage
+* Known shore power infrastructure type
+* Current power: 30A, 50A, mixed, unknown
+* Primary pain
+* Secondary pain
+* Has known infrastructure upgrade planned
+* Has known metered billing pain
+* Has known safety/compliance concern
+* Has sustainability/electrification mandate
+* Active opportunity: yes/no
+* Last contacted date
+* Last engaged date
+* No activity in X days
+* Existing customer / pilot / prospect / dormant
+
+Contact / stakeholder filters should include:
+
+* Contact role/title
+* Contact seniority
+* Contact type: decision-maker, influencer, technical validator, user, blocker, unknown
+* Email availability
+* Phone availability
+* Opened previous campaign
+* Clicked previous campaign
+* Replied to previous campaign
+* Booked meeting
+* Unsubscribed
+* Bounced
+* Suppressed
+* Last contacted date
+* Last engagement date
+
+Example saved segment:
+“BC marinas with 100+ slips, municipal or port-owned, with GM or harbormaster contacts, not contacted in 90 days.”
+
+2. Marina Persona Classification
+
+Add a required or strongly recommended account-level field called:
+
+Marina Persona
+
+Recommended dropdown options:
+
+* Mom & Pop Marina
+* Premium Independent Marina
+* Marina Group / Multi-Site Operator
+* Municipal Marina
+* Port Authority Marina
+* Yacht Club
+* Resort / Destination Marina
+* Developer / New Build
+* Working Harbour / Commercial Marina
+* Government / Institutional Dock
+* Unknown
+
+Each marina account should also have these related fields:
+
+* Adoption Stage
+* Adoption Readiness Score
+* Ownership Type
+* Decision Complexity
+* Procurement Style
+* Likely Buyer
+* Likely Influencers
+* Primary Pain
+* Secondary Pain
+* Recommended Campaign
+* Recommended CTA
+* Recommended First Play
+
+Adoption Stage dropdown:
+
+* Innovator
+* Early Adopter
+* Early Majority
+* Late Majority
+* Laggard
+* Unknown
+
+Decision Complexity dropdown:
+
+* Low
+* Medium
+* High
+* Very High
+* Unknown
+
+Primary Pain dropdown:
+
+* Aging Shore Power
+* Safety / Compliance
+* Manual Meter Reading
+* Revenue Leakage
+* Boater Experience
+* Electrical Reliability
+* Infrastructure Modernization
+* Sustainability / Electrification
+* New Build Specification
+* Unknown
+
+Ownership Type dropdown:
+
+* Private Independent
+* Private Group
+* Municipal
+* Port Authority
+* Yacht Club / Member-Owned
+* Resort / Hospitality
+* Developer
+* Government / Institutional
+* Unknown
+
+Procurement Style dropdown:
+
+* Owner-Led
+* GM-Led
+* Executive-Led
+* Board-Led
+* Municipal Procurement
+* Port Procurement
+* Developer Spec
+* Committee-Based
+* Unknown
+
+3. Rogers’ Adoption Curve Mapping
+
+Map Marina Personas to adoption stages.
+
+Recommended mapping:
+
+* Innovators: Developers / New Builds, strategic public infrastructure pilots, premium destination marinas, government/institutional docks
+* Early Adopters: Premium Independent Marinas, Marina Groups / Multi-Site Operators, Resort / Destination Marinas, progressive Port Authorities
+* Early Majority: Municipal Marinas, larger independent marinas, Yacht Clubs, Working Harbours with known power issues
+* Late Majority: Mom & Pop Marinas, smaller budget-constrained marinas, low-tech independents
+* Laggards: very small, low-budget, low-urgency marinas with no known infrastructure pain
+
+Prioritization:
+Tier 1 — Chase Now:
+
+1. Premium Independent Marinas
+2. Marina Groups / Multi-Site Operators
+3. Resort / Destination Marinas
+4. Developers / New Builds
+5. Progressive Port Authorities
+
+Tier 2 — Nurture + Selectively Chase:
+6. Municipal Marinas
+7. Yacht Clubs
+8. Larger Independent Marinas
+9. Working Harbours with known power issues
+
+Tier 3 — Do Not Spend Heavy Sales Time Yet:
+10. Mom & Pop Marinas
+11. Very small marinas under 50 slips
+12. Low-budget clubs
+13. Marinas with no known infrastructure pain
+
+Strategic rule:
+VoltSafe should not initially target every marina. VoltSafe should target marinas where safety, modernization, customer experience, metered billing, or infrastructure leadership already matter.
+
+Early-adopter formula:
+High-value marina + clear pain + decision-maker access + modernization mindset
+
+4. Adoption Readiness Score
+
+Add an Adoption Readiness Score field from 0–100.
+
+Suggested scoring model:
+
+* Premium / high-end customer base: +10
+* 100+ slips: +10
+* Multi-site operator: +15
+* Known infrastructure upgrade planned: +20
+* Aging shore power pain identified: +15
+* Metered billing pain: +10
+* Safety/compliance concern: +15
+* Sustainability/electrification mandate: +10
+* Decision-maker identified: +10
+* Technical influencer identified: +5
+* Prior engagement with VoltSafe: +10
+* Public grant / funding opportunity: +10
+* Slow procurement / board-heavy decision: -10
+* Very small marina under 50 slips: -10
+* No known power pain: -15
+
+Score labels:
+
+* 80–100: Prime Early Adopter
+* 60–79: Strong Target
+* 40–59: Nurture
+* 20–39: Low Priority
+* 0–19: Do Not Chase Yet
+
+The score should be shown on the account profile and usable in campaign segmentation.
+
+5. Campaign Types
+
+Create campaign types by goal/objective.
+
+Campaign type options:
+
+* Awareness Campaign
+* Problem-Based Campaign
+* Stakeholder-Specific Campaign
+* Event Campaign
+* Re-Engagement Campaign
+* Product Update Campaign
+* Pilot Recruitment Campaign
+* Partner / Channel Campaign
+* Municipal / Port Infrastructure Campaign
+* Developer / New Build Specification Campaign
+
+Examples:
+
+Awareness Campaign:
+Name: The Future of Shore Power Safety
+Audience: owners, GMs, harbormasters
+Goal: open, click, reply, book intro
+Topics:
+
+1. Why traditional shore power pedestals are outdated
+2. The hidden cost of manual meter reading
+3. Leakage, corrosion, and electrical risk at marinas
+4. Smart shore power as marina infrastructure modernization
+5. Book a 20-minute marina assessment
+
+Problem-Based Campaign:
+Name: Stop Losing Revenue on Shore Power
+Audience: owners, finance, marina managers
+Goal: get replies and demos
+Angles:
+
+* Manual billing misses revenue
+* Boaters dislike unclear power billing
+* Old pedestals become maintenance magnets
+* Smart metering creates recurring visibility
+* SaaS turns marina power into a managed asset
+
+Stakeholder-Specific Campaigns:
+
+* Owner ROI Campaign
+* GM Operations Campaign
+* Harbormaster Safety Campaign
+* Marine Electrician Technical Campaign
+* Municipal Infrastructure Campaign
+
+Event Campaigns:
+
+* VoltSafe visiting San Diego marinas
+* Pacific Marine Expo follow-up
+* Washington Public Ports outreach
+* BC marina roadshow
+
+Re-Engagement Campaign:
+Audience:
+
+* No activity in 90+ days
+* Opened old emails but never replied
+* Proposal sent but stalled
+* Demo happened but no next step
+
+6. Campaign Builder Flow
+
+Create a campaign creation wizard with these steps:
+
+Step 1 — Campaign Goal
+Options:
+
+* Book demos
+* Educate market
+* Follow up with warm leads
+* Promote event
+* Re-engage old leads
+* Announce product update
+* Target pilot candidates
+* Build partner/channel interest
+* Drive event meetings
+* Target new-build/developer opportunities
+
+Step 2 — Choose Audience
+Allow users to choose saved segments or build filters manually.
+
+Example audiences:
+
+* BC Marina Owners
+* Washington Public Ports
+* Harbormasters — 100+ slips
+* Marine Electricians
+* Warm Leads — opened but no reply
+* Proposal Sent — no activity 30 days
+* Premium Independent Marinas
+* Marina Groups
+* Resort / Destination Marinas
+* Port Authority Targets
+* Municipal Marinas With Upgrade Potential
+* New Build / Redevelopment Projects
+* Mom & Pop Nurture
+* Yacht Club Nurture
+
+Step 3 — Choose Stakeholder Personalization
+Allow role-based variations in campaign messaging.
+
+Example role openings:
+Owner:
+“Many marinas are leaving money on the dock through outdated shore power billing.”
+
+GM:
+“Managing shore power should not require manual readings, mystery outages, and boater complaints.”
+
+Harbormaster:
+“Shore power problems usually land on your team first — even when the infrastructure is the real issue.”
+
+Marine Electrician:
+“VoltSafe gives marinas smarter shore power without relying on exposed legacy connection points.”
+
+Port / Municipal:
+“Public marina infrastructure is under pressure to become safer, smarter, and more resilient.”
+
+Developer:
+“New marina projects should not be specifying yesterday’s shore power infrastructure into tomorrow’s waterfront.”
+
+Step 4 — Build Email Sequence
+Support:
+
+* Single email blast
+* 3-step sequence
+* 5-step nurture
+* Event sequence
+* Manual approval before send
+* Scheduled send
+* Pause/resume
+
+Recommended default sequence:
+
+* Email 1, Day 1: Problem + value
+* Email 2, Day 4: Proof / use case
+* Email 3, Day 9: Role-specific pain
+* Email 4, Day 16: Case study / pilot angle
+* Email 5, Day 25: Simple breakup / ask
+
+Step 5 — Review + Approve
+Before launch, show:
+
+* Total recipients
+* Contacts missing role
+* Contacts missing email
+* Internal VoltSafe emails excluded
+* Duplicate contacts
+* Duplicate domains
+* Suppression list conflicts
+* Unsubscribed contacts excluded
+* Bounced contacts excluded
+* Expected send volume
+* Personalization preview
+* Role breakdown
+* Persona breakdown
+* Account breakdown
+* Warning if multiple people at same marina are receiving the same generic message
+
+7. Campaign Dashboard
+
+Each campaign needs a performance dashboard.
+
+Track:
+
+* Sent
+* Delivered
+* Opened
+* Clicked
+* Replied
+* Bounced
+* Unsubscribed
+* Demo booked
+* Meeting booked
+* Lead created
+* Opportunity created
+* Revenue influenced
+* Pipeline influenced
+* Tasks created
+* Positive replies
+* Negative replies
+* Not-now replies
+* Referral replies
+* Wrong-person replies
+
+Important tracking rule:
+Do not count opens from @voltsafe.com or internal VoltSafeMailViewer activity.
+
+Dashboard breakdowns:
+
+* Performance by Marina Persona
+* Performance by Adoption Stage
+* Performance by stakeholder role
+* Performance by region
+* Performance by campaign step
+* Performance by subject line
+* Performance by account
+* Performance by sender
+
+Example role performance table:
+Role | Open Rate | Reply Rate | Demo Rate
+Owner | 42% | 8% | 3%
+GM | 49% | 11% | 5%
+Harbormaster | 53% | 14% | 6%
+Electrician | 38% | 7% | 2%
+
+8. Smart Follow-Up Engine
+
+When a contact or account engages, VoltSafe CMS should recommend next actions.
+
+Trigger examples:
+
+* Contact opens 3+ times → Mark as warm
+* Contact clicks demo CTA → Create sales task
+* Contact replies positively → Move lead stage to Engaged
+* No open after 2 emails → Suggest different subject line
+* Multiple contacts at same marina engage → Flag account as high-intent
+* GM and Harbormaster both engage → Recommend account-level outreach
+* Electrician clicks technical PDF → Suggest technical follow-up email
+* Owner clicks ROI calculator → Suggest business case email
+* Port authority contact clicks infrastructure PDF → Suggest public infrastructure briefing follow-up
+
+Recommended actions should create tasks, suggest emails, update CRM stages, and surface high-intent accounts.
+
+9. Campaign-to-CRM Funnel
+
+Campaigns should feed the CRM automatically.
+
+Recommended lead funnel:
+
+* Targeted
+* Reached
+* Engaged
+* Qualified Interest
+* Meeting Booked
+* Discovery Complete
+* Pilot Candidate
+* Proposal Sent
+* Negotiation
+* Won
+* Lost
+* Nurture
+
+Important distinction:
+Campaign status is not the same as sales stage. Campaigns create motion. Sales stages show deal progress.
+
+10. Campaign Data Model
+
+Create or adapt these core objects:
+
+Campaign:
+
+* id
+* campaign_name
+* campaign_type
+* goal
+* status: draft, scheduled, active, paused, completed, archived
+* owner_user_id
+* audience_segment_id
+* start_date
+* end_date
+* total_recipients
+* created_at
+* updated_at
+
+Campaign Segment:
+
+* id
+* segment_name
+* description
+* filters_json
+* saved_by_user_id
+* recipient_count
+* dynamic_or_static
+* created_at
+* updated_at
+
+Campaign Email:
+
+* id
+* campaign_id
+* step_number
+* subject
+* body_html
+* body_text
+* delay_days
+* sender_user_id
+* status
+* created_at
+* updated_at
+
+Campaign Recipient:
+
+* id
+* campaign_id
+* contact_id
+* account_id
+* marina_persona
+* adoption_stage
+* role
+* email
+* status
+* current_step
+* last_sent_at
+* opened_count
+* clicked_count
+* replied_at
+* bounced_at
+* unsubscribed_at
+* created_at
+* updated_at
+
+Campaign Event:
+
+* id
+* campaign_id
+* recipient_id
+* contact_id
+* account_id
+* event_type: sent, delivered, opened, clicked, replied, bounced, unsubscribed, booked_demo, meeting_booked, task_created, opportunity_created
+* event_timestamp
+* metadata_json
+
+Suppression List:
+
+* id
+* email
+* domain
+* reason
+* source
+* created_at
+
+Campaign Template:
+
+* id
+* template_name
+* persona
+* stakeholder_role
+* campaign_type
+* subject
+* body_html
+* body_text
+* recommended_cta
+* created_at
+* updated_at
+
+11. Account-Level Buying Committee View
+
+Each marina account should have a campaign engagement panel showing:
+
+* Which stakeholders received campaigns
+* Who opened
+* Who clicked
+* Who replied
+* Who booked
+* Which assets they viewed
+* Which campaign they came from
+* Current heat score
+* Recommended next action
+
+Example:
+Account: Thunderbird Marina
+Marina Persona: Premium Independent Marina
+Adoption Stage: Early Adopter
+Adoption Readiness Score: 86
+Ownership Type: Private
+Decision Complexity: Medium
+Procurement Style: Owner/GM-led
+Likely Buyer: GM
+Likely Influencers: Owner, Harbormaster, Marine Electrician
+Primary Pain: Aging shore power + boater experience
+Recommended Campaign: Premium Marina Modernization
+Recommended CTA: Book 20-minute modernization call
+
+Buying committee engagement:
+
+* Owner opened ROI email twice
+* GM clicked demo CTA
+* Harbormaster opened safety email
+* Electrician clicked technical sheet
+
+CMS recommendation:
+High-intent account. Create account-level sales play.
+
+12. Campaign Templates to Start With
+
+Build these starter templates:
+
+A. Marina Owner ROI Campaign
+Audience: owners, CEOs, developers
+Message:
+
+* Shore power is not just a utility
+* It is billable infrastructure
+* Smarter systems improve revenue capture
+* SaaS gives recurring visibility
+* VoltSafe modernizes the dock experience
+    CTA:
+    Book a marina revenue + shore power assessment
+
+B. GM Operations Campaign
+Audience: GMs, marina managers
+Message:
+
+* Reduce manual work
+* Improve boater experience
+* Fewer billing disputes
+* Better power visibility
+* Less staff time spent chasing dock issues
+    CTA:
+    See how smart shore power simplifies marina operations
+
+C. Harbormaster Safety Campaign
+Audience: harbormasters
+Message:
+
+* Shore power issues become safety issues
+* Legacy connectors/pedestals create risk
+* Smart monitoring catches problems earlier
+* Better visibility protects staff and boaters
+    CTA:
+    Review VoltSafe’s marina safety approach
+
+D. Marine Electrician Technical Campaign
+Audience: electricians, maintenance leads
+Message:
+
+* Safer connection design
+* Smart diagnostics
+* Install/service clarity
+* Standards-aware infrastructure
+* Fewer mystery failures
+    CTA:
+    Request technical overview
+
+E. Municipal / Port Infrastructure Campaign
+Audience: public ports, city-owned marinas, economic development
+Message:
+
+* Infrastructure modernization
+* Climate/electrification alignment
+* Safety and compliance
+* Demand response readiness
+* Public asset improvement
+    CTA:
+    Explore smart shore power for public marina infrastructure
+
+F. Premium Independent Marina Campaign
+Audience: premium privately owned marinas
+Message:
+
+* Modernize the dock
+* Improve boater experience
+* Safer connection
+* Smart metering
+* Reduce operational friction
+    CTA:
+    Book a marina modernization call
+
+G. Marina Group Campaign
+Audience: multi-site operators
+Message:
+
+* Standardize across locations
+* Centralized dashboard
+* Better visibility
+* Recurring software value
+* Scalable deployment model
+    CTA:
+    Review portfolio-wide shore power strategy
+
+H. Resort / Destination Marina Campaign
+Audience: resort and hospitality marinas
+Message:
+
+* Premium guest experience
+* Clean dock design
+* Safety
+* Convenience
+* Brand differentiation
+    CTA:
+    Upgrade the guest power experience
+
+I. Developer / New Build Campaign
+Audience: developers, architects, engineers, marina consultants
+Message:
+
+* Specify next-generation shore power from day one
+* Avoid installing legacy infrastructure that will need replacing
+* Support smart metering, safety, and future electrification
+    CTA:
+    Discuss VoltSafe for new marina projects
+
+J. Mom & Pop Nurture Campaign
+Audience: small independent marinas
+Message:
+
+* Fewer headaches
+* Safer dock power
+* Easier billing
+* Practical modernization
+    CTA:
+    See if VoltSafe fits your marina
+
+13. Recommended First Campaign
+
+Build and launch this as the first default campaign:
+
+Campaign Name:
+Smart Shore Power Modernization — BC Marinas
+
+Audience:
+
+* BC marinas
+* 50+ slips
+* Contacts with roles: Owner, GM, Harbormaster, Operations, Marine Electrician
+* Exclude active opportunities
+* Exclude unsubscribed contacts
+* Exclude bounced contacts
+* Exclude suppressed contacts
+* Prioritize Premium Independent Marinas, Marina Groups, Resort/Destination Marinas, Port Authority Marinas, and Developers/New Builds
+
+Sequence:
+
+* Email 1: The problem with legacy shore power
+* Email 2: How smart shore power improves safety + visibility
+* Email 3: Role-specific email for owner/GM/harbormaster/electrician
+* Email 4: ROI + metered billing angle
+* Email 5: Simple meeting ask
+
+CTA:
+Book a 20-minute VoltSafe marina modernization call
+
+Success metrics:
+
+* 40%+ open rate
+* 8%+ click rate
+* 3%+ reply rate
+* 2–5 booked calls from first 100 qualified contacts
+
+14. AI Features
+
+Add AI capabilities that help generate and manage campaigns.
+
+AI Campaign Generator:
+Input:
+
+* audience
+* goal
+* product angle
+* tone
+* number of emails
+* stakeholder role
+* marina persona
+* CTA
+
+Output:
+
+* subject lines
+* full email sequence
+* role-specific variations
+* persona-specific variations
+* CTA options
+* follow-up task suggestions
+
+Example input:
+“Create a 4-email campaign for municipal marina managers in BC focused on shore power safety, metered billing, and infrastructure modernization. CTA: book a 20-minute intro.”
+
+AI Personalization by Contact Role:
+For every recipient, generate a first line based on:
+
+* contact title
+* marina name
+* region
+* persona
+* known pain points
+* prior activity
+* previous emails
+* CRM notes
+
+AI Reply Classifier:
+Classify replies as:
+
+* Interested
+* Meeting request
+* Not now
+* Wrong person
+* Referral
+* Objection
+* Cost concern
+* Timing concern
+* Technical concern
+* Procurement concern
+* Unsubscribe
+* Negative
+* Other
+
+Then suggest next action.
+
+AI Account Heat Score:
+Score each marina account based on:
+
+* number of engaged contacts
+* seniority of engaged contacts
+* opens/clicks/replies
+* website visits if tracked
+* CRM stage
+* manual priority
+* event attendance
+* proposal history
+* adoption readiness score
+* marina persona fit
+
+Example:
+Account Heat Score: 87/100 — High Intent
+
+Why:
+
+* GM opened 4 times
+* Harbormaster clicked safety PDF
+* Owner viewed ROI email
+* No active opportunity yet
+
+Recommended action:
+Call GM within 24 hours.
+
+AI Persona Strategy Button:
+Add a button on Account records:
+
+Generate Persona Strategy
+
+Output should include:
+
+* Marina Persona
+* Adoption Stage
+* Why this account matters
+* Best stakeholders
+* Best campaign
+* Best opening message
+* Recommended next action
+
+Example:
+Persona: Premium Independent Marina
+Adoption Stage: Early Adopter
+Why this account matters:
+
+* Private decision structure
+* Likely customer experience focus
+* Good visual case study potential
+
+Best stakeholders:
+
+* Owner
+* GM
+* Harbormaster
+* Marine electrician
+
+Best campaign:
+
+* Premium Marina Modernization
+
+Best opening message:
+“Many premium marinas are modernizing shore power because boaters now expect safer, cleaner, smarter dock infrastructure.”
+
+Recommended next action:
+Send owner/GM intro email and create follow-up task for 3 business days later.
+
+15. MVP Build Order
+
+Phase 1 — Basic Campaigns
+Build:
+
+* Campaign list
+* Create campaign
+* Select saved segment
+* Create email sequence
+* Send or schedule campaign
+* Track opens/clicks/replies
+* Manual pause/resume
+* Suppression list
+
+Phase 2 — Segmentation + Marina Personas
+Build:
+
+* Advanced audience filters
+* Saved dynamic segments
+* Marina Persona account field
+* Adoption Stage
+* Adoption Readiness Score
+* Role-based stakeholder targeting
+* Account-level audience preview
+* Duplicate/suppression checks
+
+Phase 3 — AI Generation
+Build:
+
+* AI email sequence generator
+* Role-based variations
+* Persona-based variations
+* AI subject line generator
+* AI reply classifier
+* Suggested next actions
+* Generate Persona Strategy button
+
+Phase 4 — Sales Integration
+Build:
+
+* Auto-create follow-up tasks
+* Auto-update lead/account stage
+* Campaign influence on opportunities
+* Account heat score
+* Pipeline attribution
+* Account-level buying committee engagement view
+
+Phase 5 — Multi-Channel
+Later add:
+
+* LinkedIn task prompts
+* Call tasks
+* SMS only if consented
+* Event invites
+* Landing pages
+* Forms
+* ROI calculator capture
+* Partner/channel campaign tracking
+
+16. UX Requirements
+
+Campaigns Main Page:
+Tabs:
+
+* Overview
+* Campaigns
+* Segments
+* Templates
+* Assets
+* Suppression List
+* Analytics
+
+Campaigns Table Columns:
+
+* Campaign
+* Audience
+* Persona Focus
+* Status
+* Sent
+* Open Rate
+* Click Rate
+* Reply Rate
+* Demos
+* Owner
+* Last Updated
+
+Campaign Detail Page Sections:
+
+* Campaign summary
+* Audience breakdown
+* Marina Persona breakdown
+* Stakeholder role breakdown
+* Email sequence
+* Live performance
+* Recipient activity
+* Account engagement
+* Recommended follow-ups
+* Notes/tasks
+* Related opportunities
+
+Account Profile Additions:
+
+* Marina Persona
+* Adoption Stage
+* Adoption Readiness Score
+* Ownership Type
+* Decision Complexity
+* Procurement Style
+* Likely Buyer
+* Likely Influencers
+* Primary Pain
+* Secondary Pain
+* Recommended Campaign
+* Recommended CTA
+* Recommended First Play
+* Campaign Engagement Panel
+* Buying Committee Engagement
+* Account Heat Score
+
+17. Compliance / Safety Requirements
+
+Include:
+
+* Suppression list
+* Unsubscribe tracking
+* Bounce handling
+* Do-not-email status
+* Internal open exclusion
+* Duplicate recipient protection
+* Same-domain warning
+* Manual review before campaign launch
+* Audit log for sends
+* Permission checks for who can create/send campaigns
+* Ability to pause campaign immediately
+* Ability to exclude accounts with active opportunities
+* Ability to exclude existing customers or pilots if needed
+
+18. Final Product Definition
+
+VoltSafe CMS Campaigns should help us identify, educate, and activate the right marina stakeholders at the right accounts, then automatically turn engagement into sales follow-up.
+
+This should create a marketing system that answers:
+
+* Which marina personas should we target first?
+* Which accounts are most ready to adopt?
+* Which stakeholders matter inside each marina?
+* Which message works for each role?
+* Which marinas are heating up?
+* Who should sales follow up with next?
+* Which campaigns are creating pipeline?
+
+Do not build this as a simple email blast tool. Build it as a marina-specific campaign and buying committee intelligence layer inside VoltSafe CMS.

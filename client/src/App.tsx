@@ -108,6 +108,12 @@ const CurrentPage = lazy(() => import("@/pages/current"));
 const CurrentsWorkspaceShell = lazy(() =>
   import("@/components/currents/currents-workspace-shell").then(m => ({ default: m.CurrentsWorkspaceShell }))
 );
+const MarketingCampaignsPage = lazy(() => import("@/pages/marketing-campaigns"));
+const MarketingAudiencesPage = lazy(() => import("@/pages/marketing-audiences"));
+const MarketingTemplatesPage = lazy(() => import("@/pages/marketing-templates"));
+const MarketingAnalyticsPage = lazy(() => import("@/pages/marketing-analytics"));
+const MarketingSuppressionPage = lazy(() => import("@/pages/marketing-suppression"));
+const CampaignDetailPage = lazy(() => import("@/pages/campaign-detail"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
 const DemonAtmospherics = lazy(() => import("@/components/demon-atmospherics").then(m => ({ default: m.DemonAtmospherics })));
 
@@ -355,6 +361,13 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       <Route path="/automations">{() => wrap(<AutomationsPage />)}</Route>
       <Route path="/automation/tasks">{() => <Redirect to="/automations?tab=task-rules" />}</Route>
+      <Route path="/marketing/campaigns/:id">{() => guard("crm", <CampaignDetailPage />)}</Route>
+      <Route path="/marketing/campaigns">{() => guard("crm", <MarketingCampaignsPage />)}</Route>
+      <Route path="/marketing/audiences">{() => guard("crm", <MarketingAudiencesPage />)}</Route>
+      <Route path="/marketing/templates">{() => guard("crm", <MarketingTemplatesPage />)}</Route>
+      <Route path="/marketing/analytics">{() => guard("crm", <MarketingAnalyticsPage />)}</Route>
+      <Route path="/marketing/suppression">{() => guard("crm", <MarketingSuppressionPage />)}</Route>
+      <Route path="/marketing">{() => <Redirect to="/marketing/campaigns" />}</Route>
       <Route path="/execution/daily">{() => wrap(<DailyExecutionPage />)}</Route>
 
       <Route path="/admin/users">{() => wrap(<AdminUsersPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>

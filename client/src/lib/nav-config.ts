@@ -8,6 +8,7 @@ import {
   Newspaper, PlayCircle, FlaskRound, BellRing, MapPin, ShieldCheck, Tags,
   Zap, HelpCircle, ClipboardList, Snowflake, Search, Settings, Smartphone,
   Mic, Car, PenSquare, GraduationCap, CalendarDays, MessageSquare,
+  Radio, Ban,
 } from "lucide-react";
 
 // Note: a few items intentionally use a different icon on mobile than on desktop
@@ -188,6 +189,19 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "govt",      label: "Government & Grants",                                    route: "/strategy/partnerships/government-public",     icon: Landmark,    advisorHidden: true },
       { id: "referrals", label: "Referrals",                                              route: "/strategy/partnerships/other",                 icon: Circle,      advisorHidden: true },
       { id: "media",     label: { desktop: "Media & Tradeshows",    mobile: "Media"    }, route: "/strategy/partnerships/media-tradeshows",      icon: Newspaper,   advisorHidden: true },
+    ],
+  },
+  {
+    id: "marketing",
+    label: "Marketing",
+    icon: Megaphone,
+    permKey: "crm",
+    items: [
+      { id: "marketing-campaigns",   label: "Campaigns",       route: "/marketing/campaigns",  icon: Radio },
+      { id: "marketing-audiences",   label: "Audiences",       route: "/marketing/audiences",  icon: Users2 },
+      { id: "marketing-templates",   label: "Templates",       route: "/marketing/templates",  icon: FileText },
+      { id: "marketing-analytics",   label: "Analytics",       route: "/marketing/analytics",  icon: BarChart3 },
+      { id: "marketing-suppression", label: "Suppression",     route: "/marketing/suppression", icon: Ban },
     ],
   },
   {
