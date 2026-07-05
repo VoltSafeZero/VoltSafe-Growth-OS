@@ -394,6 +394,24 @@ export async function processInboundEmailForCampaignReply(input: InboundReplyInp
         campaignId,
       }).catch(() => {});
     }).catch(() => {});
+
+    // Phase 10: record attribution event for high-intent classifications (fire-and-forget)
+    if (AUTO_TASK_CLASSIFICATIONS.has(classification.classification)) {
+      import("./campaign-attribution").then(({ recordCampaignAttributionEvent }) => {
+        const eventType = classification.classification === "meeting_request" ? "meeting_booked" : "task_created";
+        recordCampaignAttributionEvent({
+          campaignId,
+          campaignRecipientId,
+          accountId:       accountId  ?? null,
+          contactId:       contactId  ?? null,
+          eventType,
+          attributionType: "direct",
+          confidence:      "high",
+          sourceEventType: "reply_classification",
+          metadata:        { classification: classification.classification, match_method: matchMethod },
+        }).catch(() => {});
+      }).catch(() => {});
+    }
   } catch (err: any) {
     console.error("[reply-ingestion] Classification error:", err.message);
   }

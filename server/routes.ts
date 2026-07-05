@@ -38292,6 +38292,97 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // ── Phase 10: Campaign ROI + Pipeline Attribution Routes ────────────────────
+
+  // GET /api/marketing/attribution — dashboard (all campaigns, aggregated)
+  app.get("/api/marketing/attribution", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const { getMarketingAttributionDashboard, getPersonaAttributionBreakdown, getStakeholderAttributionBreakdown } =
+        await import("./services/campaign-attribution");
+      const [campaigns, personas, stakeholders] = await Promise.all([
+        getMarketingAttributionDashboard({ limit: 50 }),
+        getPersonaAttributionBreakdown(),
+        getStakeholderAttributionBreakdown(),
+      ]);
+      res.json({ campaigns, personas, stakeholders });
+    } catch (err: any) {
+      console.error("[attribution] GET /api/marketing/attribution:", err.message);
+      res.status(500).json({ error: err.message ?? "Failed to load attribution dashboard" });
+    }
+  });
+
+  // GET /api/marketing/campaigns/:id/attribution — per-campaign attribution detail
+  app.get("/api/marketing/campaigns/:id/attribution", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      if (!Number.isInteger(campaignId) || campaignId <= 0)
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      const { getCampaignAttributionSummary } = await import("./services/campaign-attribution");
+      const summary = await getCampaignAttributionSummary(campaignId);
+      res.json(summary);
+    } catch (err: any) {
+      console.error("[attribution] GET /api/marketing/campaigns/:id/attribution:", err.message);
+      res.status(500).json({ error: err.message ?? "Failed to load campaign attribution" });
+    }
+  });
+
+  // GET /api/accounts/:id/marketing-attribution — account-level attribution timeline
+  app.get("/api/accounts/:id/marketing-attribution", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const accountId = Number(req.params.id);
+      if (!Number.isInteger(accountId) || accountId <= 0)
+        return res.status(400).json({ error: "Invalid account ID" });
+      const { getAccountAttributionTimeline } = await import("./services/campaign-attribution");
+      const timeline = await getAccountAttributionTimeline(accountId);
+      res.json(timeline);
+    } catch (err: any) {
+      console.error("[attribution] GET /api/accounts/:id/marketing-attribution:", err.message);
+      res.status(500).json({ error: err.message ?? "Failed to load account attribution" });
+    }
+  });
+
+  // POST /api/marketing/attribution/link — manually link an opportunity to a campaign
+  app.post("/api/marketing/attribution/link", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const { campaignId, opportunityId, accountId, contactId, pipelineValue, wonRevenue, notes } = req.body ?? {};
+      if (!Number.isInteger(Number(campaignId)) || Number(campaignId) <= 0)
+        return res.status(400).json({ error: "Invalid campaignId" });
+      if (!Number.isInteger(Number(opportunityId)) || Number(opportunityId) <= 0)
+        return res.status(400).json({ error: "Invalid opportunityId" });
+      const { linkOpportunityToCampaign } = await import("./services/campaign-attribution");
+      const id = await linkOpportunityToCampaign({
+        campaignId:    Number(campaignId),
+        opportunityId: Number(opportunityId),
+        accountId:     accountId   ? Number(accountId)   : null,
+        contactId:     contactId   ? Number(contactId)   : null,
+        pipelineValue: pipelineValue != null ? Number(pipelineValue) : null,
+        wonRevenue:    wonRevenue   != null ? Number(wonRevenue)     : null,
+        notes:         notes ? String(notes) : null,
+        linkedBy:      req.session?.userId ?? 0,
+      });
+      res.json({ id, ok: true });
+    } catch (err: any) {
+      console.error("[attribution] POST /api/marketing/attribution/link:", err.message);
+      res.status(500).json({ error: err.message ?? "Failed to link opportunity" });
+    }
+  });
+
+  // DELETE /api/marketing/attribution/:id — unlink/delete an attribution event
+  app.delete("/api/marketing/attribution/:id", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0)
+        return res.status(400).json({ error: "Invalid attribution event ID" });
+      const { unlinkAttributionEvent } = await import("./services/campaign-attribution");
+      const deleted = await unlinkAttributionEvent(id);
+      if (!deleted) return res.status(404).json({ error: "Attribution event not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[attribution] DELETE /api/marketing/attribution/:id:", err.message);
+      res.status(500).json({ error: err.message ?? "Failed to delete attribution event" });
+    }
+  });
+
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
 }

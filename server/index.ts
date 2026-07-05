@@ -291,6 +291,9 @@ app.use((req, res, next) => {
     // Phase 9: Branching automation schema (campaign_automation_rules, campaign_recipient_rule_events)
     const { migrateBranchingSchema } = await import("./services/campaign-branching-automation");
     await migrateBranchingSchema();
+    // Phase 10: Campaign attribution schema (campaign_attribution_events)
+    const { migrateCampaignAttributionSchema } = await import("./services/campaign-attribution");
+    await migrateCampaignAttributionSchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

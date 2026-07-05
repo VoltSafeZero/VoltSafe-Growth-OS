@@ -1069,6 +1069,9 @@ export default function CampaignDetailPage() {
       {/* ── Accounts Heating Up From This Campaign ───────────────────────────── */}
       <AccountsHeatingUpSection campaignId={id} />
 
+      {/* ── Pipeline Attribution ─────────────────────────────────────────────── */}
+      <CampaignAttributionSection campaignId={id} />
+
       {/* ── Send Preview Modal ────────────────────────────────────────────────── */}
       <Dialog open={sendPreviewModalOpen} onOpenChange={(open) => {
         if (!sendStepLoading) setSendPreviewModalOpen(open);
@@ -2319,6 +2322,208 @@ function AccountsHeatingUpSection({ campaignId }: { campaignId: number }) {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Phase 10: Campaign Attribution Section ────────────────────────────────────
+
+type CampaignAttributionSummary = {
+  campaignId:            number;
+  totalEvents:           number;
+  taskCreated:           number;
+  meetingBooked:         number;
+  opportunityInfluenced: number;
+  proposalSent:          number;
+  dealWon:               number;
+  dealLost:              number;
+  manualLinks:           number;
+  totalPipelineValue:    number | null;
+  totalWonRevenue:       number | null;
+  noRevenueData:         boolean;
+  events:                AttributionEvent[];
+};
+
+type AttributionEvent = {
+  id:               number;
+  event_type:       string;
+  attribution_type: string;
+  confidence:       string;
+  notes:            string | null;
+  pipeline_value:   number | null;
+  won_revenue:      number | null;
+  account_name:     string | null;
+  contact_name:     string | null;
+  occurred_at:      string;
+  campaign_name:    string | null;
+};
+
+function confidenceBadgeClass(conf: string) {
+  if (conf === "high")   return "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+  if (conf === "medium") return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+  return "bg-muted/30 text-muted-foreground border-border/50";
+}
+
+function attributionBadgeClass(type: string) {
+  if (type === "direct")     return "bg-primary/15 text-primary border-primary/30";
+  if (type === "influenced") return "bg-violet-500/15 text-violet-400 border-violet-500/30";
+  if (type === "assisted")   return "bg-blue-500/15 text-blue-400 border-blue-500/30";
+  return "bg-muted/30 text-muted-foreground border-border/50";
+}
+
+function eventTypeLabel(et: string) {
+  const map: Record<string, string> = {
+    reply_task_created:     "Reply → Task",
+    meeting_booked:         "Meeting Booked",
+    task_created:           "Task Created",
+    opportunity_influenced: "Opportunity Influenced",
+    proposal_sent:          "Proposal Sent",
+    deal_won:               "Deal Won",
+    deal_lost:              "Deal Lost",
+    manual_link:            "Manual Link",
+  };
+  return map[et] ?? et;
+}
+
+function CampaignAttributionSection({ campaignId }: { campaignId: number }) {
+  const { data: summary, isLoading } = useQuery<CampaignAttributionSummary>({
+    queryKey: ["/api/marketing/campaigns", campaignId, "attribution"],
+    queryFn: () =>
+      fetch(`/api/marketing/campaigns/${campaignId}/attribution`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+    staleTime: 60000,
+    enabled: !!campaignId,
+  });
+
+  return (
+    <div className="px-6 pb-6" data-testid="campaign-attribution-section">
+      <div className="flex items-center gap-2 mb-3">
+        <TrendingUp className="w-4 h-4 text-cyan-400" />
+        <h2 className="text-sm font-semibold text-foreground">
+          Pipeline Attribution
+        </h2>
+        {summary && summary.totalEvents > 0 && (
+          <span className="text-xs font-normal text-muted-foreground">
+            ({summary.totalEvents} event{summary.totalEvents !== 1 ? "s" : ""})
+          </span>
+        )}
+      </div>
+
+      {isLoading && (
+        <div className="rounded-xl border border-border/40 bg-muted/10 px-5 py-6 text-center text-sm text-muted-foreground">
+          Loading attribution…
+        </div>
+      )}
+
+      {!isLoading && summary && (
+        <>
+          {/* Stats row */}
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
+            {[
+              { label: "Tasks",        value: summary.taskCreated,           color: "text-violet-400" },
+              { label: "Meetings",     value: summary.meetingBooked,         color: "text-emerald-400" },
+              { label: "Opportunities",value: summary.opportunityInfluenced, color: "text-cyan-400" },
+              { label: "Proposals",    value: summary.proposalSent,          color: "text-blue-400" },
+              { label: "Won",          value: summary.dealWon,               color: "text-emerald-400" },
+              { label: "Manual Links", value: summary.manualLinks,           color: "text-muted-foreground" },
+            ].map(s => (
+              <div key={s.label} className="rounded-lg border border-border/40 bg-card/30 px-3 py-2 text-center">
+                <div className={`text-lg font-bold ${s.value > 0 ? s.color : "text-muted-foreground/40"}`}>{s.value}</div>
+                <div className="text-[10px] text-muted-foreground">{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Revenue row */}
+          {summary.noRevenueData ? (
+            <div className="rounded-lg border border-dashed border-border/40 bg-muted/10 px-4 py-3 mb-4 text-xs text-muted-foreground text-center" data-testid="no-revenue-data">
+              Revenue fields are not yet available. Showing task/opportunity influence only.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="rounded-lg border border-border/40 bg-card/30 px-4 py-3">
+                <div className="text-xs text-muted-foreground mb-1">Influenced Pipeline</div>
+                <div className="text-lg font-bold text-cyan-400">
+                  {summary.totalPipelineValue != null
+                    ? `$${summary.totalPipelineValue.toLocaleString()}`
+                    : "—"}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">Direct + Influenced, not double-counted</div>
+              </div>
+              <div className="rounded-lg border border-border/40 bg-card/30 px-4 py-3">
+                <div className="text-xs text-muted-foreground mb-1">Won Revenue</div>
+                <div className="text-lg font-bold text-emerald-400">
+                  {summary.totalWonRevenue != null
+                    ? `$${summary.totalWonRevenue.toLocaleString()}`
+                    : "—"}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">Closed-won only</div>
+              </div>
+            </div>
+          )}
+
+          {/* Events timeline */}
+          {summary.events.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border/40 bg-muted/10 px-5 py-8 text-center" data-testid="attribution-empty">
+              <TrendingUp className="w-7 h-7 text-muted-foreground/30 mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">No attribution events yet.</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                Attribution events are recorded automatically when campaign replies create tasks or meetings.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border/50 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs min-w-[700px]">
+                  <thead>
+                    <tr className="border-b border-border/40 bg-muted/30">
+                      {["Event", "Type", "Account / Contact", "Confidence", "Pipeline", "Date"].map(h => (
+                        <th key={h} className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.events.slice(0, 50).map((e, i) => (
+                      <tr key={e.id}
+                        className={`border-b border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"}`}
+                        data-testid={`attribution-event-${e.id}`}
+                      >
+                        <td className="px-3 py-2.5 font-medium text-foreground">{eventTypeLabel(e.event_type)}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${attributionBadgeClass(e.attribution_type)}`}>
+                            {e.attribution_type}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-muted-foreground">
+                          {e.account_name ?? e.contact_name ?? <span className="italic text-muted-foreground/40">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${confidenceBadgeClass(e.confidence)}`}>
+                            {e.confidence}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-foreground">
+                          {e.pipeline_value != null ? `$${Number(e.pipeline_value).toLocaleString()}` : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
+                          {e.occurred_at ? new Date(e.occurred_at).toLocaleDateString() : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!isLoading && !summary && (
+        <div className="rounded-xl border border-border/40 bg-muted/10 px-5 py-6 text-center text-sm text-muted-foreground">
+          Could not load attribution data.
         </div>
       )}
     </div>
