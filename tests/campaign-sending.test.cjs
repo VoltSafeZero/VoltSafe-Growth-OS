@@ -115,14 +115,34 @@ async function cleanupSegment(segId) {
   await request("DELETE", `/api/marketing/segments/${segId}`, null);
 }
 
+// ─── Patch a campaign with compliance fields so sends are not blocked ─────────
+
+async function patchComplianceFields(campaignId) {
+  return request("PATCH", `/api/marketing/campaigns/${campaignId}`, {
+    targetJurisdiction: "us",
+    senderName: "VoltSafe Sales",
+    senderLegalEntity: "VoltSafe Marine Technologies Inc.",
+    physicalMailingAddress: "1234 Waterfront Blvd, Suite 100, Seattle, WA 98101",
+    unsubscribeLinkIncluded: true,
+    sendingDomainApproved: true,
+    commercialDisclosureIncluded: true,
+  });
+}
+
 // ─── Full scenario setup: campaign + segment + enrolled recipients + email step ─
 
-async function setupScenario(name, filters) {
+async function setupScenario(name, filters, skipCompliance) {
   const seg = await createSegment(`${name}_seg`, filters ?? [
     { id: "1", field: "has_email", operator: "eq", value: "" },
   ]);
   const camp = await createCampaign(`${name}_camp`);
   await linkSegment(camp.id, seg.id);
+  // Patch compliance fields so the send-time compliance gate passes
+  if (!skipCompliance) {
+    await patchComplianceFields(camp.id);
+    // Run preflight so compliance_status is saved as preflight_passed
+    await request("POST", `/api/marketing/campaigns/${camp.id}/preflight`, {});
+  }
   const enrolled = await enrollRecipients(camp.id);
   const emailStep = await addEmailStep(camp.id, {
     stepNumber: 1,

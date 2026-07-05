@@ -36908,33 +36908,47 @@ export function registerConfluenceRoutes(app: Express) {
         return res.status(400).json({ error: "campaignEmailId is required" });
       }
       // ── Compliance preflight gate ────────────────────────────────────────────
-      // Check whether the campaign has a passing preflight. If compliance_status
-      // is not 'preflight_passed', run a quick preflight check inline and block
-      // with 422 + details if blocking errors exist.
-      try {
-        const campRow = await db.execute(sql.raw(`SELECT compliance_status FROM marketing_campaigns WHERE id = ${campaignId}`));
-        const complianceStatus = (campRow.rows[0] as any)?.compliance_status ?? "pending";
-        if (complianceStatus !== "preflight_passed") {
-          const { runCampaignPreflight } = await import("./services/compliance-preflight");
-          const pf = await runCampaignPreflight(campaignId);
-          // Save the result to the campaign
-          const errJson = JSON.stringify(pf.errors).replace(/'/g, "''");
-          const newStatus = pf.passed ? "preflight_passed" : "preflight_failed";
-          await db.execute(sql.raw(
-            `UPDATE marketing_campaigns SET compliance_status='${newStatus}', compliance_errors='${errJson}'::jsonb, updated_at=NOW() WHERE id=${campaignId}`
-          ));
-          if (!pf.passed) {
-            const blockingErrors = pf.errors.filter((e: any) => e.severity === "blocking");
-            return res.status(422).json({
-              error: "Campaign failed compliance preflight. Run 'Check Compliance' from the campaign page before sending.",
-              compliance_errors: blockingErrors,
-              compliance_status: newStatus,
-            });
+      // Check campaign status first: archived/completed skip to executeSendStep (→ 409).
+      // For active campaigns, enforce compliance_status=preflight_passed before sending.
+      // This gate is fail-CLOSED: any unexpected error blocks the send.
+      {
+        const campRow = await db.execute(sql.raw(
+          `SELECT compliance_status, status FROM marketing_campaigns WHERE id = ${campaignId}`
+        ));
+        const campInfo = campRow.rows[0] as any;
+        // Archived/completed campaigns: let executeSendStep return the proper 409
+        if (campInfo?.status !== "archived" && campInfo?.status !== "completed") {
+          const complianceStatus = campInfo?.compliance_status ?? "pending";
+          if (complianceStatus !== "preflight_passed") {
+            let pfResult: any = null;
+            try {
+              const { runCampaignPreflight } = await import("./services/compliance-preflight");
+              pfResult = await runCampaignPreflight(campaignId);
+              const errJson = JSON.stringify(pfResult.errors).replace(/'/g, "''");
+              const newStatus = pfResult.passed ? "preflight_passed" : "preflight_failed";
+              try {
+                await db.execute(sql.raw(
+                  `UPDATE marketing_campaigns SET compliance_status='${newStatus}', compliance_errors='${errJson}'::jsonb, updated_at=NOW() WHERE id=${campaignId}`
+                ));
+              } catch { /* non-critical persist */ }
+              if (!pfResult.passed) {
+                const blockingErrors = pfResult.errors.filter((e: any) => e.severity === "blocking");
+                return res.status(422).json({
+                  error: "Campaign failed compliance preflight. Run 'Check Compliance' from the campaign page before sending.",
+                  compliance_errors: blockingErrors,
+                  compliance_status: newStatus,
+                });
+              }
+            } catch (pfErr: any) {
+              // Fail-CLOSED: if compliance check throws, block the send
+              console.error("[marketing] preflight check failed (blocking send):", pfErr?.message);
+              return res.status(422).json({
+                error: "Compliance check could not be completed. Please try again or run 'Check Compliance' manually.",
+                compliance_status: "error",
+              });
+            }
           }
         }
-      } catch (pfErr: any) {
-        // Non-fatal if preflight service fails — log and continue
-        console.warn("[marketing] preflight check error (non-fatal):", pfErr?.message);
       }
       const { executeSendStep } = await import("./services/campaign-sender");
       const baseUrl = `${req.protocol}://${req.get("host")}`;

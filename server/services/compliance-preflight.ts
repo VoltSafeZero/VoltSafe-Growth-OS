@@ -195,13 +195,39 @@ function checkCampaignCanSpam(campaign: any): ComplianceError[] {
   if (campaign.sending_domain_approved === false) {
     errors.push({
       code: "canspam_unapproved_sending_domain",
-      message: "The sending domain has not been approved. CAN-SPAM prohibits deceptive header information.",
+      message: "The sending domain has not been approved. CAN-SPAM §15 USC 7704 prohibits deceptive header information and routing.",
       jurisdiction: "can_spam",
-      severity: "warning",
+      severity: "blocking",
     });
   }
 
   return errors;
+}
+
+// ─── Human-readable aggregated recipient error messages ──────────────────────
+
+function recipientErrorMessage(code: string, count: number): string {
+  const n = count === 1 ? "1 recipient" : `${count} recipients`;
+  switch (code) {
+    case "casl_no_consent":
+      return `${n} lack valid CASL consent (express or implied).`;
+    case "casl_implied_consent_expired":
+      return `${n} have expired implied consent under CASL.`;
+    case "casl_unsubscribed":
+      return `${n} have unsubscribed and cannot receive commercial email under CASL.`;
+    case "casl_suppressed":
+      return `${n} are on the suppression list and will be blocked.`;
+    case "casl_invalid_email":
+      return `${n} have invalid email addresses (CASL requires valid contact).`;
+    case "canspam_unsubscribed":
+      return `${n} have unsubscribed and must be honored within 10 business days under CAN-SPAM.`;
+    case "canspam_suppressed":
+      return `${n} are suppressed and will be blocked.`;
+    case "canspam_invalid_email":
+      return `${n} have invalid email addresses.`;
+    default:
+      return `${n} blocked due to compliance rule: ${code}.`;
+  }
 }
 
 // ─── Main preflight runner ────────────────────────────────────────────────────
@@ -256,7 +282,8 @@ export async function runCampaignPreflight(campaignId: number): Promise<Prefligh
   let usCount = 0;
   let otherCount = 0;
   let blockedCount = 0;
-  const perRecipientBlockingCodes = new Set<string>();
+  // Collect per-recipient blocking errors, aggregated by code (not per-email, to avoid PII explosion)
+  const recipientErrorCounts: Record<string, number> = {};
 
   for (const r of recipients) {
     const isCanada = r.canada_contact || r.jurisdiction === "canada";
@@ -270,14 +297,24 @@ export async function runCampaignPreflight(campaignId: number): Promise<Prefligh
     if (isCanada) recipErrors.push(...checkCaslRecipient(r));
     if (isUs || (!isCanada && !isUs)) recipErrors.push(...checkCanSpamRecipient(r));
 
-    const isBlocked = recipErrors.some((e) => e.severity === "blocking");
-    if (isBlocked) {
+    const blockingForThisRecip = recipErrors.filter((e) => e.severity === "blocking");
+    if (blockingForThisRecip.length > 0) {
       blockedCount++;
-      for (const e of recipErrors) perRecipientBlockingCodes.add(e.code);
+      for (const e of blockingForThisRecip) {
+        recipientErrorCounts[e.code] = (recipientErrorCounts[e.code] ?? 0) + 1;
+      }
     }
   }
 
-  const allErrors = [...dedupedCampaignErrors];
+  // Build aggregated recipient-level errors with counts (no per-email PII)
+  const recipientErrors: ComplianceError[] = Object.entries(recipientErrorCounts).map(([code, count]) => ({
+    code,
+    message: recipientErrorMessage(code, count),
+    jurisdiction: code.startsWith("casl_") ? "casl" : "can_spam",
+    severity: "blocking" as const,
+  }));
+
+  const allErrors = [...dedupedCampaignErrors, ...recipientErrors];
   const passed = allErrors.filter((e) => e.severity === "blocking").length === 0 && blockedCount === 0;
   const eligibleCount = recipients.length - blockedCount;
 
@@ -371,7 +408,15 @@ export function buildCompliantFooter(opts: FooterOptions): { html: string; text:
 // ─── HMAC compliance token (30-day TTL) ───────────────────────────────────────
 
 function getSecret(): string {
-  return process.env.SESSION_SECRET || "dev-fallback-secret-32-chars-xxxx";
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.length < 32) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("SESSION_SECRET must be set and at least 32 characters in production.");
+    }
+    // Dev-only deterministic fallback — NOT safe for production
+    return "dev-compliance-fallback-secret!!";
+  }
+  return secret;
 }
 
 export interface ComplianceTokenPayload {
