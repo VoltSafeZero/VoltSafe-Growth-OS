@@ -108,6 +108,13 @@ export default function MarketingCampaignsPage() {
     campaignType: "awareness",
     goal: "",
     notes: "",
+    target_jurisdiction: "unknown",
+    sender_name: "",
+    sender_legal_entity: "",
+    physical_mailing_address: "",
+    unsubscribe_link_included: true,
+    commercial_disclosure_included: false,
+    preference_center_link_included: false,
   });
 
   const { data: campaigns = [], isLoading } = useQuery<Campaign[]>({
@@ -119,7 +126,7 @@ export default function MarketingCampaignsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
       setShowCreate(false);
-      setForm({ campaignName: "", campaignType: "awareness", goal: "", notes: "" });
+      setForm({ campaignName: "", campaignType: "awareness", goal: "", notes: "", target_jurisdiction: "unknown", sender_name: "", sender_legal_entity: "", physical_mailing_address: "", unsubscribe_link_included: true, commercial_disclosure_included: false, preference_center_link_included: false });
       toast({ title: "Campaign created", description: "Draft campaign ready to build." });
     },
     onError: () => toast({ title: "Error", description: "Failed to create campaign.", variant: "destructive" }),
@@ -373,6 +380,82 @@ export default function MarketingCampaignsPage() {
                 onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                 data-testid="textarea-campaign-notes"
               />
+            </div>
+
+            {/* ── Compliance Section ────────────────────────────────── */}
+            <div className="border border-border/40 rounded-lg p-3 space-y-3 bg-muted/20">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Compliance (CASL / CAN-SPAM)</p>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="target_jurisdiction" className="text-xs">Target Jurisdiction</Label>
+                <Select value={form.target_jurisdiction} onValueChange={v => setForm(f => ({ ...f, target_jurisdiction: v }))}>
+                  <SelectTrigger id="target_jurisdiction" className="h-8 text-xs" data-testid="select-target-jurisdiction">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unknown">Unknown / Mixed</SelectItem>
+                    <SelectItem value="canada">Canada (CASL)</SelectItem>
+                    <SelectItem value="usa">United States (CAN-SPAM)</SelectItem>
+                    <SelectItem value="both">Canada + USA</SelectItem>
+                    <SelectItem value="other">Other / International</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="sender_name" className="text-xs">Sender Name</Label>
+                  <Input
+                    id="sender_name"
+                    className="h-8 text-xs"
+                    placeholder="VoltSafe Inc."
+                    value={form.sender_name}
+                    onChange={e => setForm(f => ({ ...f, sender_name: e.target.value }))}
+                    data-testid="input-sender-name"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sender_legal_entity" className="text-xs">Legal Entity</Label>
+                  <Input
+                    id="sender_legal_entity"
+                    className="h-8 text-xs"
+                    placeholder="VoltSafe Technologies Ltd."
+                    value={form.sender_legal_entity}
+                    onChange={e => setForm(f => ({ ...f, sender_legal_entity: e.target.value }))}
+                    data-testid="input-sender-legal-entity"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="physical_mailing_address" className="text-xs">Physical Mailing Address</Label>
+                <Input
+                  id="physical_mailing_address"
+                  className="h-8 text-xs"
+                  placeholder="123 Main St, Vancouver, BC V6B 1A1"
+                  value={form.physical_mailing_address}
+                  onChange={e => setForm(f => ({ ...f, physical_mailing_address: e.target.value }))}
+                  data-testid="input-physical-mailing-address"
+                />
+              </div>
+
+              <div className="space-y-2 pt-1">
+                {[
+                  { key: "unsubscribe_link_included", label: "Unsubscribe link included in every email" },
+                  { key: "commercial_disclosure_included", label: "Commercial message disclosure included" },
+                  { key: "preference_center_link_included", label: "Preference centre link included" },
+                ].map(({ key, label }) => (
+                  <label key={key} className="flex items-center gap-2 text-xs cursor-pointer" data-testid={`checkbox-${key}`}>
+                    <input
+                      type="checkbox"
+                      className="accent-primary"
+                      checked={!!(form as any)[key]}
+                      onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
           <DialogFooter>

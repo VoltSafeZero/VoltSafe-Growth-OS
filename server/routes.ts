@@ -22341,6 +22341,191 @@ export function registerConfluenceRoutes(app: Express) {
     res.sendFile(resolved);
   });
 
+  // ─── Contact Compliance (CASL / CAN-SPAM) ────────────────────────────────
+
+  // GET — read all compliance fields for a contact
+  app.get("/api/contacts/:id/compliance", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid contact ID" });
+      const rows = (await db.execute(sql.raw(`
+        SELECT
+          id, name, email,
+          recipient_country, province_state, jurisdiction,
+          canada_contact, us_contact,
+          consent_status, consent_type, consent_source, consent_timestamp,
+          consent_capture_method, consent_language_version, consent_language_text,
+          consent_form_url, consent_ip_address, consent_user_agent, consent_referrer,
+          related_business_relationship_type, related_business_relationship_date,
+          implied_consent_expiry_date,
+          unsubscribe_status, unsubscribe_timestamp, unsubscribe_source,
+          suppression_status, suppression_reason,
+          email_valid, lead_source, lead_source_detail,
+          public_business_email_url, event_source, first_contact_reason, last_outreach_date
+        FROM contacts WHERE id = ${id}
+      `))).rows as any[];
+      if (!rows[0]) return res.status(404).json({ message: "Contact not found" });
+      res.json(rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH — update allowed compliance fields (cannot directly set unsubscribe_status or suppression_status)
+  app.patch("/api/contacts/:id/compliance", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid contact ID" });
+      const userId = req.session.userId;
+
+      // Fields that can be updated via this route (excludes unsubscribe_status / suppression_status)
+      const ALLOWED_FIELDS = new Set([
+        "recipient_country", "province_state", "jurisdiction",
+        "canada_contact", "us_contact",
+        "consent_status", "consent_type", "consent_source", "consent_timestamp",
+        "consent_capture_method", "consent_language_version", "consent_language_text",
+        "consent_form_url", "consent_ip_address", "consent_user_agent", "consent_referrer",
+        "related_business_relationship_type", "related_business_relationship_date",
+        "implied_consent_expiry_date",
+        "email_valid", "lead_source", "lead_source_detail",
+        "public_business_email_url", "event_source", "first_contact_reason", "last_outreach_date",
+      ]);
+
+      const body = req.body ?? {};
+      const updates: string[] = [];
+      const newValues: Record<string, any> = {};
+
+      for (const [k, v] of Object.entries(body)) {
+        if (!ALLOWED_FIELDS.has(k)) continue;
+        const safeKey = k.replace(/[^a-z_]/g, "");
+        if (v === null || v === undefined) {
+          updates.push(`${safeKey} = NULL`);
+        } else if (typeof v === "boolean") {
+          updates.push(`${safeKey} = ${v}`);
+        } else {
+          const safeVal = String(v).replace(/'/g, "''");
+          updates.push(`${safeKey} = '${safeVal}'`);
+        }
+        newValues[k] = v;
+      }
+
+      if (updates.length === 0) return res.status(400).json({ message: "No valid fields to update" });
+
+      // Fetch old values for audit log
+      const oldRows = (await db.execute(sql.raw(`
+        SELECT ${[...ALLOWED_FIELDS].join(", ")} FROM contacts WHERE id = ${id}
+      `))).rows as any[];
+      if (!oldRows[0]) return res.status(404).json({ message: "Contact not found" });
+
+      await db.execute(sql.raw(`UPDATE contacts SET ${updates.join(", ")}, updated_at = NOW() WHERE id = ${id}`));
+
+      // Write audit log
+      const oldJson = JSON.stringify(oldRows[0]).replace(/'/g, "''");
+      const newJson = JSON.stringify(newValues).replace(/'/g, "''");
+      await db.execute(sql.raw(`
+        INSERT INTO compliance_audit_log (event_type, contact_id, performed_by, old_values, new_values)
+        VALUES ('compliance_updated', ${id}, ${userId}, '${oldJson}'::jsonb, '${newJson}'::jsonb)
+      `));
+
+      const updated = (await db.execute(sql.raw(`SELECT * FROM contacts WHERE id = ${id}`))).rows[0];
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST — record unsubscribe for a contact (sets unsubscribe_status + suppression + consent per jurisdiction)
+  app.post("/api/contacts/:id/unsubscribe", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid contact ID" });
+      const userId = req.session.userId;
+      const { source = "admin_manual", notes = null } = req.body ?? {};
+
+      const existing = (await db.execute(sql.raw(`
+        SELECT id, unsubscribe_status, suppression_status, jurisdiction FROM contacts WHERE id = ${id}
+      `))).rows as any[];
+      if (!existing[0]) return res.status(404).json({ message: "Contact not found" });
+
+      const safeSource = String(source).replace(/'/g, "''");
+      const now = new Date().toISOString();
+
+      await db.execute(sql.raw(`
+        UPDATE contacts SET
+          unsubscribe_status = 'unsubscribed',
+          unsubscribe_timestamp = '${now}',
+          unsubscribe_source = '${safeSource}',
+          suppression_status = 'suppressed',
+          suppression_reason = 'unsubscribed',
+          consent_status = 'withdrawn',
+          updated_at = NOW()
+        WHERE id = ${id}
+      `));
+
+      const auditNotes = notes ? String(notes).replace(/'/g, "''") : null;
+      const notesClause = auditNotes ? `'${auditNotes}'` : "NULL";
+      await db.execute(sql.raw(`
+        INSERT INTO compliance_audit_log (event_type, contact_id, performed_by, new_values, notes)
+        VALUES ('unsubscribed', ${id}, ${userId}, '{"source":"${safeSource}"}'::jsonb, ${notesClause})
+      `));
+
+      res.json({ success: true, unsubscribed: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST — manually suppress a contact (e.g. bounce, complaint, legal request)
+  app.post("/api/contacts/:id/suppress", requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid contact ID" });
+      const userId = req.session.userId;
+      const { reason = "manual_suppress", notes = null } = req.body ?? {};
+
+      const existing = (await db.execute(sql.raw(`SELECT id FROM contacts WHERE id = ${id}`))).rows as any[];
+      if (!existing[0]) return res.status(404).json({ message: "Contact not found" });
+
+      const safeReason = String(reason).replace(/'/g, "''");
+      await db.execute(sql.raw(`
+        UPDATE contacts SET
+          suppression_status = 'suppressed',
+          suppression_reason = '${safeReason}',
+          updated_at = NOW()
+        WHERE id = ${id}
+      `));
+
+      const auditNotes = notes ? String(notes).replace(/'/g, "''") : null;
+      const notesClause = auditNotes ? `'${auditNotes}'` : "NULL";
+      await db.execute(sql.raw(`
+        INSERT INTO compliance_audit_log (event_type, contact_id, performed_by, new_values, notes)
+        VALUES ('suppressed', ${id}, ${userId}, '{"reason":"${safeReason}"}'::jsonb, ${notesClause})
+      `));
+
+      res.json({ success: true, suppressed: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET — compliance audit log for a contact
+  app.get("/api/contacts/:id/compliance/audit", requirePermission("crm", "view"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const rows = (await db.execute(sql.raw(`
+        SELECT cal.*, u.name AS performed_by_name
+        FROM compliance_audit_log cal
+        LEFT JOIN users u ON u.id = cal.performed_by
+        WHERE cal.contact_id = ${id}
+        ORDER BY cal.created_at DESC
+        LIMIT 50
+      `))).rows;
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ─── Mail Folders ────────────────────────────────────────────────────────
 
   app.get("/api/mail-folders", requireAuth, async (req, res) => {

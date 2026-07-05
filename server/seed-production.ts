@@ -2238,3 +2238,118 @@ export async function migrateCampaignTrackingSchema(): Promise<void> {
     console.error("[migration] migrateCampaignTrackingSchema error (non-fatal):", err);
   }
 }
+
+export async function migrateComplianceSchema(): Promise<void> {
+  try {
+    const { db } = await import("./db");
+    const { sql: sqlTag } = await import("drizzle-orm");
+
+    // ── contacts: jurisdiction & location ─────────────────────────────────────
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS recipient_country TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS province_state TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS jurisdiction TEXT DEFAULT 'unknown'`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS canada_contact BOOLEAN NOT NULL DEFAULT FALSE`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS us_contact BOOLEAN NOT NULL DEFAULT FALSE`));
+
+    // ── contacts: consent fields ───────────────────────────────────────────────
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_status TEXT DEFAULT 'unknown'`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_type TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_source TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_timestamp TIMESTAMPTZ`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_capture_method TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_language_version TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_language_text TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_form_url TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_ip_address TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_user_agent TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_referrer TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS related_business_relationship_type TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS related_business_relationship_date DATE`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS implied_consent_expiry_date DATE`));
+
+    // ── contacts: unsubscribe & suppression ───────────────────────────────────
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS unsubscribe_status TEXT DEFAULT 'subscribed'`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS unsubscribe_timestamp TIMESTAMPTZ`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS unsubscribe_source TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS suppression_status TEXT DEFAULT 'none'`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS suppression_reason TEXT`));
+
+    // ── contacts: validation & attribution ────────────────────────────────────
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_valid BOOLEAN`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS lead_source TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS lead_source_detail TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS public_business_email_url TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS event_source TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS first_contact_reason TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_outreach_date DATE`));
+
+    // ── marketing_campaigns: compliance & sender identity ─────────────────────
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS target_jurisdiction TEXT DEFAULT 'unknown'`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS sender_name TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS sender_legal_entity TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS from_email TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS reply_to_email TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS sending_domain TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS sending_domain_approved BOOLEAN NOT NULL DEFAULT FALSE`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS contact_email TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS contact_phone TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS physical_mailing_address TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS preview_text TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS unsubscribe_link_included BOOLEAN NOT NULL DEFAULT TRUE`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS preference_center_link_included BOOLEAN NOT NULL DEFAULT FALSE`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS commercial_disclosure_included BOOLEAN NOT NULL DEFAULT FALSE`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS footer_version TEXT`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS compliance_status TEXT DEFAULT 'pending'`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS compliance_errors JSONB`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS recipient_count_before_preflight INTEGER`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS recipient_count_after_suppression INTEGER`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS blocked_recipient_count INTEGER`));
+    await db.execute(sqlTag.raw(`ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS approved_by_user_id INTEGER`));
+
+    // ── compliance_audit_log table ─────────────────────────────────────────────
+    await db.execute(sqlTag.raw(`
+      CREATE TABLE IF NOT EXISTS compliance_audit_log (
+        id               SERIAL PRIMARY KEY,
+        event_type       TEXT NOT NULL,
+        contact_id       INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+        campaign_id      INTEGER REFERENCES marketing_campaigns(id) ON DELETE SET NULL,
+        performed_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        old_values       JSONB,
+        new_values       JSONB,
+        ip_address       TEXT,
+        user_agent       TEXT,
+        notes            TEXT,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `));
+    await db.execute(sqlTag.raw(`
+      CREATE INDEX IF NOT EXISTS idx_compliance_audit_contact
+        ON compliance_audit_log(contact_id)
+      WHERE contact_id IS NOT NULL
+    `));
+    await db.execute(sqlTag.raw(`
+      CREATE INDEX IF NOT EXISTS idx_compliance_audit_created
+        ON compliance_audit_log(created_at DESC)
+    `));
+
+    // ── contact_topic_preferences table ───────────────────────────────────────
+    await db.execute(sqlTag.raw(`
+      CREATE TABLE IF NOT EXISTS contact_topic_preferences (
+        id               SERIAL PRIMARY KEY,
+        contact_id       INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        topic            TEXT NOT NULL,
+        subscribed       BOOLEAN NOT NULL DEFAULT TRUE,
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(contact_id, topic)
+      )
+    `));
+    await db.execute(sqlTag.raw(`
+      CREATE INDEX IF NOT EXISTS idx_contact_topic_prefs_contact
+        ON contact_topic_preferences(contact_id)
+    `));
+
+    console.log("[migration] CASL/CAN-SPAM compliance schema ready.");
+  } catch (err) {
+    console.error("[migration] migrateComplianceSchema error (non-fatal):", err);
+  }
+}

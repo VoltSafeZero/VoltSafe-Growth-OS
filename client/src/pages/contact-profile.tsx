@@ -802,6 +802,7 @@ export default function ContactProfilePage() {
         initialTab={currentInitTab}
         initialMessageId={currentInitMsg}
         initialThreadId={currentInitThread}
+        isAdmin={true}
       />
 
       <EditContactDialog
@@ -839,13 +840,142 @@ export default function ContactProfilePage() {
   );
 }
 
+function ComplianceTab({ contactId, isAdmin }: { contactId: number; isAdmin: boolean }) {
+  const { toast } = useToast();
+  const { data: compliance, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/contacts", contactId, "compliance"],
+    queryFn: async () => {
+      const r = await fetch(`/api/contacts/${contactId}/compliance`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load compliance");
+      return r.json();
+    },
+  });
+
+  const suppressMut = useMutation({
+    mutationFn: (reason: string) => apiRequest("POST", `/api/contacts/${contactId}/suppress`, { reason }),
+    onSuccess: () => { refetch(); toast({ title: "Contact suppressed" }); },
+    onError: () => toast({ title: "Failed to suppress", variant: "destructive" }),
+  });
+
+  const unsubMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/contacts/${contactId}/unsubscribe`, { source: "admin_manual" }),
+    onSuccess: () => { refetch(); toast({ title: "Contact marked as unsubscribed" }); },
+    onError: () => toast({ title: "Failed to unsubscribe", variant: "destructive" }),
+  });
+
+  if (isLoading) return <div className="py-6 text-center text-xs text-muted-foreground">Loading compliance data…</div>;
+  if (!compliance) return <div className="py-6 text-center text-xs text-muted-foreground">No compliance data found.</div>;
+
+  const statusColor = (status: string | null) => {
+    if (status === "subscribed" || status === "express" || status === "implied") return "text-emerald-400 bg-emerald-400/10 border-emerald-400/30";
+    if (status === "unsubscribed" || status === "withdrawn" || status === "suppressed") return "text-red-400 bg-red-400/10 border-red-400/30";
+    return "text-amber-400 bg-amber-400/10 border-amber-400/30";
+  };
+
+  const impliedExpiry = compliance.implied_consent_expiry_date ? new Date(compliance.implied_consent_expiry_date) : null;
+  const expiryPast = impliedExpiry ? impliedExpiry < new Date() : false;
+
+  return (
+    <div className="space-y-4 py-2" data-testid="contact-compliance-tab">
+      {/* Status badges row */}
+      <div className="flex flex-wrap gap-2">
+        <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${statusColor(compliance.consent_status)}`} data-testid="badge-consent-status">
+          Consent: {compliance.consent_status ?? "unknown"}
+        </span>
+        <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${statusColor(compliance.unsubscribe_status)}`} data-testid="badge-unsubscribe-status">
+          Unsub: {compliance.unsubscribe_status ?? "subscribed"}
+        </span>
+        <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${statusColor(compliance.suppression_status ?? "none")}`} data-testid="badge-suppression-status">
+          Suppression: {compliance.suppression_status ?? "none"}
+        </span>
+        {compliance.jurisdiction && compliance.jurisdiction !== "unknown" && (
+          <span className="text-xs px-2.5 py-1 rounded-full border border-blue-400/30 bg-blue-400/10 text-blue-400 font-medium" data-testid="badge-jurisdiction">
+            {compliance.jurisdiction.toUpperCase()}
+          </span>
+        )}
+      </div>
+
+      {/* Implied consent expiry warning */}
+      {impliedExpiry && (
+        <div className={`text-xs px-3 py-2 rounded-lg border ${expiryPast ? "border-red-400/30 bg-red-400/5 text-red-400" : "border-amber-400/30 bg-amber-400/5 text-amber-400"}`}
+          data-testid="implied-consent-expiry">
+          {expiryPast
+            ? `⚠ Implied consent expired ${format(impliedExpiry, "MMM d, yyyy")}`
+            : `Implied consent expires ${format(impliedExpiry, "MMM d, yyyy")} (${formatDistanceToNow(impliedExpiry, { addSuffix: true })})`}
+        </div>
+      )}
+
+      {/* Consent details grid */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+        {[
+          ["Jurisdiction", compliance.jurisdiction],
+          ["Country", compliance.recipient_country],
+          ["Province/State", compliance.province_state],
+          ["Consent Type", compliance.consent_type],
+          ["Consent Source", compliance.consent_source],
+          ["Consent Date", compliance.consent_timestamp ? format(new Date(compliance.consent_timestamp), "MMM d, yyyy") : null],
+          ["Capture Method", compliance.consent_capture_method],
+          ["Lead Source", compliance.lead_source],
+          ["First Contact Reason", compliance.first_contact_reason],
+          ["Last Outreach", compliance.last_outreach_date ? format(new Date(compliance.last_outreach_date), "MMM d, yyyy") : null],
+          ["Business Rel. Type", compliance.related_business_relationship_type],
+          ["Business Rel. Date", compliance.related_business_relationship_date ? format(new Date(compliance.related_business_relationship_date), "MMM d, yyyy") : null],
+          ["Unsubscribe Date", compliance.unsubscribe_timestamp ? format(new Date(compliance.unsubscribe_timestamp), "MMM d, yyyy") : null],
+          ["Unsubscribe Source", compliance.unsubscribe_source],
+          ["Suppression Reason", compliance.suppression_reason],
+          ["Email Valid", compliance.email_valid === true ? "Yes" : compliance.email_valid === false ? "No" : null],
+          ["Consent Language", compliance.consent_language_version],
+          ["Public Biz Email URL", compliance.public_business_email_url],
+          ["Event Source", compliance.event_source],
+        ].map(([label, value]) => value ? (
+          <div key={label as string}>
+            <div className="text-muted-foreground/60 text-[10px] uppercase tracking-wide">{label}</div>
+            <div className="text-foreground truncate" data-testid={`compliance-field-${String(label).toLowerCase().replace(/\s/g,"-")}`}>{value}</div>
+          </div>
+        ) : null)}
+      </div>
+
+      {/* Admin-only actions */}
+      {isAdmin && (
+        <div className="flex gap-2 pt-2 border-t border-border/30">
+          {compliance.unsubscribe_status !== "unsubscribed" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-7 border-amber-400/40 text-amber-400 hover:bg-amber-400/10"
+              onClick={() => unsubMut.mutate()}
+              disabled={unsubMut.isPending}
+              data-testid="btn-admin-unsubscribe"
+            >
+              Mark Unsubscribed
+            </Button>
+          )}
+          {compliance.suppression_status !== "suppressed" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-7 border-red-400/40 text-red-400 hover:bg-red-400/10"
+              onClick={() => suppressMut.mutate("admin_manual")}
+              disabled={suppressMut.isPending}
+              data-testid="btn-admin-suppress"
+            >
+              Suppress Contact
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TimelineSection({
-  contactId, initialTab, initialMessageId, initialThreadId,
+  contactId, initialTab, initialMessageId, initialThreadId, isAdmin,
 }: {
   contactId: number;
   initialTab?: string;
   initialMessageId?: number;
   initialThreadId?: number;
+  isAdmin?: boolean;
 }) {
   return (
     <div className="mt-2">
@@ -856,6 +986,7 @@ function TimelineSection({
           <TabsTrigger value="current" className="text-xs flex items-center gap-1" data-testid="tab-contact-current">
             <MessagesSquare className="h-3 w-3" /> CURRENTS
           </TabsTrigger>
+          <TabsTrigger value="compliance" className="text-xs" data-testid="tab-contact-compliance">Compliance</TabsTrigger>
         </TabsList>
         <TabsContent value="timeline">
           <TimelineTab objectType="contact" objectId={contactId} />
@@ -872,6 +1003,9 @@ function TimelineSection({
               initialThreadId={initialThreadId}
             />
           </div>
+        </TabsContent>
+        <TabsContent value="compliance">
+          <ComplianceTab contactId={contactId} isAdmin={isAdmin ?? false} />
         </TabsContent>
       </Tabs>
     </div>
