@@ -271,7 +271,7 @@ export async function resolveTrackedLink(token: string): Promise<string | null> 
 
     const meta = JSON.stringify({ original_url: originalUrl, link_token: token });
 
-    // Fire-and-forget click event + count updates
+    // Fire-and-forget click event + count updates + Phase 9 branching rule evaluation
     db.execute(
       sql`INSERT INTO campaign_events
             (campaign_id, recipient_id, contact_id, account_id, event_type, event_timestamp, metadata)
@@ -297,6 +297,18 @@ export async function resolveTrackedLink(token: string): Promise<string | null> 
               WHERE id = ${row.campaign_id}`
         )
       )
+      .then(() => {
+        // Phase 9: evaluate clicked_link branching rules
+        import("./campaign-branching-automation").then(({ evaluateRulesForRecipient }) => {
+          evaluateRulesForRecipient(Number(row.recipient_id), {
+            triggerType: "clicked_link",
+            triggerValue: originalUrl,
+            contactId: row.contact_id ? Number(row.contact_id) : null,
+            accountId: row.account_id ? Number(row.account_id) : null,
+            campaignId: Number(row.campaign_id),
+          }).catch(() => {});
+        }).catch(() => {});
+      })
       .catch(() => {});
 
     return originalUrl;

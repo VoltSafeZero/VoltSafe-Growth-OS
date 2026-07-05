@@ -385,6 +385,15 @@ export async function processInboundEmailForCampaignReply(input: InboundReplyInp
     if (classification.id && AUTO_TASK_CLASSIFICATIONS.has(classification.classification)) {
       createTaskFromClassification(classification.id, null).catch(() => {});
     }
+
+    // Phase 9: evaluate branching rules for this reply classification (fire-and-forget)
+    import("./campaign-branching-automation").then(({ evaluateRulesForRecipient }) => {
+      evaluateRulesForRecipient(campaignRecipientId, {
+        triggerType: "reply_classification",
+        triggerValue: classification.classification,
+        campaignId,
+      }).catch(() => {});
+    }).catch(() => {});
   } catch (err: any) {
     console.error("[reply-ingestion] Classification error:", err.message);
   }

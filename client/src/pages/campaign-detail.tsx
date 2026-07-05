@@ -6,6 +6,7 @@ import {
   Mail, MousePointerClick, MessageSquare, Calendar, Users, Target,
   Sparkles, Save, FileText, Clock, UserCheck, AlertTriangle, ChevronDown, ChevronUp,
   RefreshCw, Filter, Send, Eye, ShieldCheck, Info, Zap, XCircle, Flame, Square,
+  GitBranch, ToggleLeft, ToggleRight, Pencil, Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1059,6 +1060,9 @@ export default function CampaignDetailPage() {
       {/* ── Automation Panel ───────────────────────────────────────────────────── */}
       <AutomationPanel campaignId={id} />
 
+      {/* ── Branching Rules ────────────────────────────────────────────────────── */}
+      <BranchingRulesPanel campaignId={id} />
+
       {/* ── Reply Intelligence ─────────────────────────────────────────────────── */}
       <ReplyIntelligencePanel campaignId={id} />
 
@@ -1341,6 +1345,504 @@ function heatBadgeClass(label: string) {
   if (label === "Nurture") return "bg-amber-500/15 text-amber-400 border-amber-500/30";
   if (label === "Low") return "bg-slate-500/15 text-slate-400 border-slate-500/30";
   return "bg-muted/30 text-muted-foreground border-border/50";
+}
+
+// ── Branching Rules Panel ─────────────────────────────────────────────────────
+
+type AutomationRule = {
+  id: number;
+  campaign_id: number;
+  name: string;
+  trigger_type: string;
+  trigger_config_json: Record<string, any>;
+  action_type: string;
+  action_config_json: Record<string, any>;
+  priority: number;
+  is_active: boolean;
+  fired_count: number;
+  last_fired_at: string | null;
+  created_at: string;
+};
+
+const TRIGGER_LABELS: Record<string, string> = {
+  reply_classification: "Reply Classification",
+  clicked_link: "Clicked Link",
+  opened_email: "Email Opened",
+  no_open_after_step: "No Open After Step",
+  no_click_after_step: "No Click After Step",
+  recipient_status: "Recipient Status",
+  account_heat_score: "Account Heat Score",
+  manual: "Manual",
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  stop_sequence: "Stop Sequence",
+  pause_sequence: "Pause Sequence",
+  move_to_step: "Move to Step",
+  skip_step: "Skip Step",
+  create_task: "Create Task",
+  mark_sales_engaged: "Mark Sales Engaged",
+  suppress_recipient: "Suppress Recipient",
+  send_specific_step: "Send Specific Step",
+  add_note: "Add Note",
+  no_action: "No Action",
+};
+
+const TRIGGER_TYPES = Object.keys(TRIGGER_LABELS);
+const ACTION_TYPES = Object.keys(ACTION_LABELS);
+
+function ruleConfigSummary(rule: AutomationRule): string {
+  const tcfg = rule.trigger_config_json ?? {};
+  const acfg = rule.action_config_json ?? {};
+  const parts: string[] = [];
+  if (tcfg.classification) parts.push(`= ${tcfg.classification}`);
+  if (tcfg.url_keywords?.length) parts.push(`url contains: ${(tcfg.url_keywords as string[]).slice(0, 3).join(", ")}`);
+  if (tcfg.status) parts.push(`= ${tcfg.status}`);
+  if (acfg.target_step) parts.push(`→ step ${acfg.target_step}`);
+  if (acfg.also_create_task) parts.push("+ create task");
+  if (acfg.also_suppress) parts.push("+ suppress");
+  if (acfg.also_add_note) parts.push("+ note");
+  return parts.join(" · ") || "—";
+}
+
+function BranchingRulesPanel({ campaignId }: { campaignId: number }) {
+  const { toast } = useToast();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingRule, setEditingRule] = useState<AutomationRule | null>(null);
+  const [newRule, setNewRule] = useState({
+    name: "", triggerType: "reply_classification",
+    triggerConfigJson: "{}", actionType: "stop_sequence", actionConfigJson: "{}",
+    priority: 100, isActive: true,
+  });
+
+  const { data: rules = [], isLoading, refetch } = useQuery<AutomationRule[]>({
+    queryKey: ["/api/marketing/campaigns", campaignId, "automation-rules"],
+    queryFn: () =>
+      fetch(`/api/marketing/campaigns/${campaignId}/automation-rules`)
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => []),
+    staleTime: 30000,
+    enabled: !!campaignId,
+  });
+
+  const seedMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/marketing/campaigns/${campaignId}/automation-rules/seed-defaults`, {}),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", campaignId, "automation-rules"] });
+      toast({ title: `${data?.created ?? 0} default rules seeded` });
+    },
+    onError: () => toast({ title: "Failed to seed rules", variant: "destructive" }),
+  });
+
+  const createMut = useMutation({
+    mutationFn: (payload: typeof newRule) => apiRequest("POST", `/api/marketing/campaigns/${campaignId}/automation-rules`, {
+      ...payload,
+      triggerConfigJson: safeParseJson(payload.triggerConfigJson),
+      actionConfigJson: safeParseJson(payload.actionConfigJson),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", campaignId, "automation-rules"] });
+      setShowCreate(false);
+      setNewRule({ name: "", triggerType: "reply_classification", triggerConfigJson: "{}", actionType: "stop_sequence", actionConfigJson: "{}", priority: 100, isActive: true });
+      toast({ title: "Rule created" });
+    },
+    onError: (err: any) => toast({ title: err?.message ?? "Failed to create rule", variant: "destructive" }),
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
+      apiRequest("PATCH", `/api/marketing/automation-rules/${id}`, { isActive }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", campaignId, "automation-rules"] });
+    },
+    onError: () => toast({ title: "Failed to toggle rule", variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/marketing/automation-rules/${id}`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", campaignId, "automation-rules"] });
+      toast({ title: "Rule deleted" });
+    },
+    onError: () => toast({ title: "Failed to delete rule", variant: "destructive" }),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: any }) =>
+      apiRequest("PATCH", `/api/marketing/automation-rules/${id}`, {
+        ...payload,
+        triggerConfigJson: safeParseJson(payload.triggerConfigJson),
+        actionConfigJson: safeParseJson(payload.actionConfigJson),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", campaignId, "automation-rules"] });
+      setEditingRule(null);
+      toast({ title: "Rule updated" });
+    },
+    onError: (err: any) => toast({ title: err?.message ?? "Failed to update rule", variant: "destructive" }),
+  });
+
+  const activeRules = rules.filter(r => r.is_active).length;
+  const firedTotal = rules.reduce((s, r) => s + (r.fired_count ?? 0), 0);
+
+  return (
+    <div className="px-6 pb-4" data-testid="branching-rules-panel">
+      <div className="flex items-center gap-2 mb-3">
+        <GitBranch className="w-4 h-4 text-primary" />
+        <h2 className="text-sm font-semibold text-foreground">
+          Branching Rules
+          {rules.length > 0 && (
+            <span className="text-xs font-normal text-muted-foreground ml-1">({rules.length})</span>
+          )}
+        </h2>
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+            onClick={() => refetch()} data-testid="button-refresh-rules">
+            <RefreshCw className="w-3 h-3" />
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+            onClick={() => seedMut.mutate()} disabled={seedMut.isPending}
+            data-testid="button-seed-default-rules">
+            <Sparkles className="w-3 h-3" />Seed Recommended Rules
+          </Button>
+          <Button size="sm" className="h-7 text-xs gap-1.5"
+            onClick={() => setShowCreate(true)}
+            data-testid="button-create-rule">
+            <Plus className="w-3 h-3" />Create Rule
+          </Button>
+        </div>
+      </div>
+
+      {/* Warning banner */}
+      <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 mb-4 text-xs text-amber-400/80">
+        <Shield className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+        <span>
+          Branching rules are evaluated after tracking/replies and before future automated sends.
+          Compliance and suppression are still checked before every send.
+        </span>
+      </div>
+
+      {/* Stats */}
+      {rules.length > 0 && (
+        <div className="flex gap-4 mb-3 text-xs text-muted-foreground">
+          <span><span className="font-medium text-foreground">{activeRules}</span> active</span>
+          <span><span className="font-medium text-foreground">{rules.length - activeRules}</span> inactive</span>
+          <span><span className="font-medium text-foreground">{firedTotal}</span> total fires</span>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="rounded-lg border border-border/40 bg-card/50 h-14 animate-pulse" />
+          ))}
+        </div>
+      ) : rules.length === 0 ? (
+        <div className="rounded-xl border border-border/40 bg-muted/20 px-5 py-8 text-center" data-testid="branching-rules-empty">
+          <GitBranch className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground font-medium">No branching rules yet</p>
+          <p className="text-xs text-muted-foreground/60 mt-1 max-w-sm mx-auto">
+            Seed recommended rules to get started, or create custom rules to control what happens when recipients reply, click, or go silent.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border/50 overflow-hidden" data-testid="branching-rules-list">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border/40 bg-muted/30">
+                {["Priority", "Name", "Trigger", "Action", "Config", "Fired", "Last Fired", "Active", ""].map(h => (
+                  <th key={h} className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((rule, i) => (
+                <tr key={rule.id}
+                  className={`border-b border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"} ${!rule.is_active ? "opacity-50" : ""}`}
+                  data-testid={`rule-row-${rule.id}`}>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className="font-mono text-muted-foreground">{rule.priority}</span>
+                  </td>
+                  <td className="px-3 py-2.5 max-w-[160px]">
+                    <span className="font-medium text-foreground truncate block">{rule.name}</span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-primary/30 text-primary/80 bg-primary/5">
+                      {TRIGGER_LABELS[rule.trigger_type] ?? rule.trigger_type}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Badge variant="outline" className={`text-[9px] h-4 px-1.5 ${
+                      rule.action_type === "stop_sequence" ? "border-red-500/30 text-red-400 bg-red-500/5" :
+                      rule.action_type === "create_task" ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/5" :
+                      rule.action_type === "move_to_step" ? "border-cyan-500/30 text-cyan-400 bg-cyan-500/5" :
+                      "border-border/50 text-muted-foreground"
+                    }`}>
+                      {ACTION_LABELS[rule.action_type] ?? rule.action_type}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-2.5 max-w-[200px]">
+                    <span className="text-[10px] text-muted-foreground/70 truncate block">{ruleConfigSummary(rule)}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={rule.fired_count > 0 ? "text-primary font-medium" : "text-muted-foreground"}>
+                      {rule.fired_count ?? 0}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-muted-foreground/60 whitespace-nowrap">
+                    {rule.last_fired_at ? new Date(rule.last_fired_at).toLocaleDateString() : "—"}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <button
+                      className="text-muted-foreground hover:text-primary transition-colors"
+                      onClick={() => toggleMut.mutate({ id: rule.id, isActive: !rule.is_active })}
+                      disabled={toggleMut.isPending}
+                      title={rule.is_active ? "Disable rule" : "Enable rule"}
+                      data-testid={`button-toggle-rule-${rule.id}`}>
+                      {rule.is_active
+                        ? <ToggleRight className="w-4 h-4 text-emerald-400" />
+                        : <ToggleLeft className="w-4 h-4 text-muted-foreground/40" />}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        className="text-muted-foreground/50 hover:text-primary transition-colors"
+                        onClick={() => setEditingRule({
+                          ...rule,
+                          trigger_config_json: rule.trigger_config_json,
+                          action_config_json: rule.action_config_json,
+                        })}
+                        title="Edit rule"
+                        data-testid={`button-edit-rule-${rule.id}`}>
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        className="text-muted-foreground/40 hover:text-red-400 transition-colors"
+                        onClick={() => { if (confirm(`Delete rule "${rule.name}"?`)) deleteMut.mutate(rule.id); }}
+                        disabled={deleteMut.isPending}
+                        title="Delete rule"
+                        data-testid={`button-delete-rule-${rule.id}`}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Create rule dialog */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-primary" />Create Branching Rule
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Name</Label>
+              <Input
+                value={newRule.name}
+                onChange={e => setNewRule(p => ({ ...p, name: e.target.value }))}
+                placeholder="e.g. Stop on meeting request"
+                className="h-8 text-sm"
+                data-testid="input-rule-name"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Trigger Type</Label>
+                <Select value={newRule.triggerType} onValueChange={v => setNewRule(p => ({ ...p, triggerType: v }))}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-trigger-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRIGGER_TYPES.map(t => <SelectItem key={t} value={t}>{TRIGGER_LABELS[t]}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Action Type</Label>
+                <Select value={newRule.actionType} onValueChange={v => setNewRule(p => ({ ...p, actionType: v }))}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-action-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ACTION_TYPES.map(t => <SelectItem key={t} value={t}>{ACTION_LABELS[t]}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Trigger Config (JSON)</Label>
+              <Textarea
+                value={newRule.triggerConfigJson}
+                onChange={e => setNewRule(p => ({ ...p, triggerConfigJson: e.target.value }))}
+                className="text-xs font-mono min-h-[60px]"
+                placeholder='{"classification": "meeting_request"}'
+                data-testid="input-trigger-config"
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Action Config (JSON)</Label>
+              <Textarea
+                value={newRule.actionConfigJson}
+                onChange={e => setNewRule(p => ({ ...p, actionConfigJson: e.target.value }))}
+                className="text-xs font-mono min-h-[60px]"
+                placeholder='{"also_create_task": true, "task_priority": "high"}'
+                data-testid="input-action-config"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Priority (lower = higher)</Label>
+                <Input
+                  type="number"
+                  value={newRule.priority}
+                  onChange={e => setNewRule(p => ({ ...p, priority: Number(e.target.value) }))}
+                  className="h-8 text-sm"
+                  data-testid="input-rule-priority"
+                />
+              </div>
+              <div className="flex items-end pb-1">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-foreground">
+                  <input type="checkbox" checked={newRule.isActive}
+                    onChange={e => setNewRule(p => ({ ...p, isActive: e.target.checked }))}
+                    data-testid="checkbox-rule-active" />
+                  Active
+                </label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button size="sm" onClick={() => createMut.mutate(newRule)} disabled={!newRule.name || createMut.isPending}
+              data-testid="button-submit-create-rule">
+              Create Rule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit rule dialog */}
+      {editingRule && (
+        <Dialog open={!!editingRule} onOpenChange={open => { if (!open) setEditingRule(null); }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-primary" />Edit Rule
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Name</Label>
+                <Input
+                  value={editingRule.name}
+                  onChange={e => setEditingRule(r => r ? { ...r, name: e.target.value } : r)}
+                  className="h-8 text-sm"
+                  data-testid="input-edit-rule-name"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Trigger Type</Label>
+                  <Select value={editingRule.trigger_type} onValueChange={v => setEditingRule(r => r ? { ...r, trigger_type: v } : r)}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-edit-trigger-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRIGGER_TYPES.map(t => <SelectItem key={t} value={t}>{TRIGGER_LABELS[t]}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Action Type</Label>
+                  <Select value={editingRule.action_type} onValueChange={v => setEditingRule(r => r ? { ...r, action_type: v } : r)}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-edit-action-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ACTION_TYPES.map(t => <SelectItem key={t} value={t}>{ACTION_LABELS[t]}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Trigger Config (JSON)</Label>
+                <Textarea
+                  value={typeof editingRule.trigger_config_json === "string"
+                    ? editingRule.trigger_config_json
+                    : JSON.stringify(editingRule.trigger_config_json, null, 2)}
+                  onChange={e => setEditingRule(r => r ? { ...r, trigger_config_json: e.target.value as any } : r)}
+                  className="text-xs font-mono min-h-[60px]"
+                  data-testid="input-edit-trigger-config"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Action Config (JSON)</Label>
+                <Textarea
+                  value={typeof editingRule.action_config_json === "string"
+                    ? editingRule.action_config_json
+                    : JSON.stringify(editingRule.action_config_json, null, 2)}
+                  onChange={e => setEditingRule(r => r ? { ...r, action_config_json: e.target.value as any } : r)}
+                  className="text-xs font-mono min-h-[60px]"
+                  data-testid="input-edit-action-config"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Priority</Label>
+                  <Input
+                    type="number"
+                    value={editingRule.priority}
+                    onChange={e => setEditingRule(r => r ? { ...r, priority: Number(e.target.value) } : r)}
+                    className="h-8 text-sm"
+                    data-testid="input-edit-priority"
+                  />
+                </div>
+                <div className="flex items-end pb-1">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-foreground">
+                    <input type="checkbox" checked={editingRule.is_active}
+                      onChange={e => setEditingRule(r => r ? { ...r, is_active: e.target.checked } : r)}
+                      data-testid="checkbox-edit-active" />
+                    Active
+                  </label>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setEditingRule(null)}>Cancel</Button>
+              <Button size="sm"
+                onClick={() => updateMut.mutate({
+                  id: editingRule.id,
+                  payload: {
+                    name: editingRule.name,
+                    triggerType: editingRule.trigger_type,
+                    triggerConfigJson: editingRule.trigger_config_json,
+                    actionConfigJson: editingRule.action_config_json,
+                    actionType: editingRule.action_type,
+                    priority: editingRule.priority,
+                    isActive: editingRule.is_active,
+                  },
+                })}
+                disabled={updateMut.isPending}
+                data-testid="button-submit-edit-rule">
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
+function safeParseJson(v: string): Record<string, any> {
+  try { return JSON.parse(v); } catch { return {}; }
 }
 
 // ── Automation Panel ──────────────────────────────────────────────────────────

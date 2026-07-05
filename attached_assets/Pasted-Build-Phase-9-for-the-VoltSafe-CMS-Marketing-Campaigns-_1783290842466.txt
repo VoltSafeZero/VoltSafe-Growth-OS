@@ -1,0 +1,376 @@
+Build Phase 9 for the VoltSafe CMS Marketing / Campaigns module: Branching Automations.
+
+Context:
+VoltSafe CMS Marketing/Campaigns now includes:
+
+* Campaign CRUD
+* Audience segments
+* Real recipient enrollment
+* Manual campaign sending
+* Automated linear drip sequences
+* Open/click tracking
+* Public unsubscribe and preference center
+* CASL/CAN-SPAM compliance
+* Compliance preflight and send-time enforcement
+* Account Heat Score
+* Buying Committee Intelligence
+* Reply Classification
+* Sales task creation from reply classifications
+* Inbound Reply Ingestion + Campaign Thread Matching
+* Phase 8 audit/hardening completed:
+    * sent-message idempotency fixed with unique provider_message_id
+    * sender validation added for thread/reference matching
+    * unsubscribe replies now suppress contacts
+    * unmatched reply received_at index added
+    * unmatched status allowlist added
+    * stale inbound-ingestion gap comment removed
+
+Goal:
+Add simple, safe branching automation to campaign sequences so recipient behavior can influence what happens next.
+
+This phase should enable:
+
+* Stop sequence when recipient replies positively
+* Stop sequence when recipient unsubscribes/negative replies
+* Create sales task when high-intent reply occurs
+* Send technical follow-up if recipient clicks technical asset
+* Send ROI/business follow-up if recipient clicks ROI asset
+* Move no-engagement recipients to a different follow-up path
+* Skip future emails when recipient is already sales-engaged
+
+Do not build a giant visual workflow builder yet. Start with rule-based branching attached to campaign steps.
+
+1. Data Model
+
+Add or reuse tables:
+
+campaign_automation_rules:
+
+* id
+* campaign_id
+* name
+* trigger_type
+* trigger_config_json
+* action_type
+* action_config_json
+* priority integer default 100
+* is_active boolean default true
+* created_at
+* updated_at
+
+campaign_recipient_rule_events:
+
+* id
+* campaign_id
+* campaign_recipient_id
+* rule_id
+* trigger_event_type
+* action_taken
+* action_metadata_json
+* created_at
+
+Recommended trigger_type values:
+
+* reply_classification
+* clicked_link
+* opened_email
+* no_open_after_step
+* no_click_after_step
+* recipient_status
+* account_heat_score
+* manual
+
+Recommended action_type values:
+
+* stop_sequence
+* pause_sequence
+* move_to_step
+* skip_step
+* create_task
+* mark_sales_engaged
+* suppress_recipient
+* send_specific_step
+* add_note
+* no_action
+
+Add indexes:
+
+* campaign_automation_rules(campaign_id)
+* campaign_automation_rules(trigger_type)
+* campaign_automation_rules(is_active)
+* campaign_recipient_rule_events(campaign_id)
+* campaign_recipient_rule_events(campaign_recipient_id)
+* campaign_recipient_rule_events(rule_id)
+
+2. Rule Engine Service
+
+Create:
+
+server/services/campaign-branching-automation.ts
+
+Functions:
+
+* evaluateRulesForRecipient(campaignRecipientId, context)
+* evaluateRulesForEvent(campaignEventId)
+* applyRuleAction(rule, recipient, context)
+* listCampaignRules(campaignId)
+* createCampaignRule(input)
+* updateCampaignRule(id, input)
+* deleteCampaignRule(id)
+* seedDefaultCampaignRules(campaignId)
+* getRecipientRuleHistory(campaignRecipientId)
+
+Rules should be:
+
+* deterministic
+* priority ordered
+* idempotent
+* fail-closed
+* auditable
+
+If a rule already fired for the same recipient and same triggering event, do not fire it again.
+
+3. Default Rules
+
+Add a “Seed Recommended Rules” action that creates default rules:
+
+Rule 1:
+Name: Stop on meeting request
+Trigger: reply_classification = meeting_request
+Action: stop_sequence + create_task
+
+Rule 2:
+Name: Stop on interested reply
+Trigger: reply_classification = interested
+Action: stop_sequence + create_task
+
+Rule 3:
+Name: Stop on unsubscribe
+Trigger: reply_classification = unsubscribe OR recipient_status = unsubscribed
+Action: stop_sequence + suppress_recipient
+
+Rule 4:
+Name: Stop on negative reply
+Trigger: reply_classification = negative
+Action: stop_sequence + add_note
+
+Rule 5:
+Name: Send technical follow-up
+Trigger: clicked_link where original_url contains technical, install, electrical, UL, CSA, spec, datasheet
+Action: send_specific_step or move_to_step for a technical follow-up step if present
+
+Rule 6:
+Name: Send ROI follow-up
+Trigger: clicked_link where original_url contains ROI, pricing, revenue, billing, savings, calculator
+Action: send_specific_step or move_to_step for ROI follow-up step if present
+
+Rule 7:
+Name: No engagement nurture path
+Trigger: no_open_after_step = step 2 after X days
+Action: move_to_step or add_note depending on campaign structure
+
+Keep these defaults simple and editable.
+
+4. Integration Points
+
+Rules should evaluate when:
+
+* campaign_event is created for clicked
+* campaign_event is created for opened if needed
+* reply classification is created
+* unsubscribe happens
+* automation tick runs and a recipient is due
+* manual send/automated send completes
+
+Minimum required integration:
+
+* On reply classification creation → evaluate reply_classification rules
+* On click tracking → evaluate clicked_link rules
+* On unsubscribe → evaluate recipient_status/unsubscribe rules
+* During automation tick → respect stopped/paused/moved recipient state
+
+5. Recipient Automation State
+
+Add or reuse fields on campaign_recipients:
+
+* branch_status text nullable
+    Values:
+    * none
+    * stopped_by_reply
+    * stopped_by_unsubscribe
+    * stopped_by_negative
+    * moved_to_step
+    * sales_engaged
+    * branched
+* branch_reason text nullable
+* branch_rule_id integer nullable
+* sales_engaged_at timestamp nullable
+
+If existing automation_status is enough, reuse it carefully. Do not corrupt linear automation state.
+
+6. Send-Specific-Step / Move-To-Step Safety
+
+If a rule sends or moves to a specific step:
+
+* ensure step exists
+* ensure step has not already been sent to recipient
+* ensure recipient is eligible
+* run compliance/suppression checks
+* prevent duplicate sends
+* do not send if recipient replied high-intent and sequence should stop
+* do not send if recipient unsubscribed/suppressed/bounced
+
+If too risky for this phase, implement move_to_step and stop_sequence first, and report send_specific_step as remaining gap.
+
+7. API Routes
+
+Add:
+GET /api/marketing/campaigns/:id/automation-rules
+POST /api/marketing/campaigns/:id/automation-rules
+POST /api/marketing/campaigns/:id/automation-rules/seed-defaults
+PATCH /api/marketing/automation-rules/:ruleId
+DELETE /api/marketing/automation-rules/:ruleId
+GET /api/marketing/recipients/:recipientId/rule-history
+POST /api/marketing/automation-rules/evaluate-event/:eventId
+
+Permissions:
+
+* viewing rules requires Marketing/CRM read
+* creating/updating/deleting rules requires Marketing/CRM edit
+* evaluate-event should be admin/internal-only unless needed for testing
+
+8. Frontend: Campaign Detail
+
+Add section:
+
+Branching Rules
+
+Show:
+
+* rules list
+* trigger
+* action
+* priority
+* active/inactive
+* fired count
+* last fired date
+
+Actions:
+
+* Seed Recommended Rules
+* Create Rule
+* Edit Rule
+* Disable/Enable
+* Delete
+
+Keep create/edit simple:
+
+* name
+* trigger type
+* trigger value/config
+* action type
+* action value/config
+* priority
+* active
+
+Add warning:
+“Branching rules are evaluated after tracking/replies and before future automated sends. Compliance and suppression are still checked before every send.”
+
+9. Frontend: Recipient Detail / Campaign Recipient Table
+
+If recipient table exists, show:
+
+* branch_status
+* branch_reason
+* sales_engaged_at
+* rule history link or expandable row
+
+10. Frontend: Marketing Replies Page
+
+For high-intent replies:
+
+* show whether a branching rule fired
+* show created task if any
+* show “Sequence stopped” if applicable
+
+11. Heat Score Integration
+
+Update account heat / buying committee views:
+
+* show sales_engaged status
+* show sequence stopped because of high-intent reply
+* do not recommend further campaign sends to sales_engaged recipients
+* recommended action should prefer direct sales follow-up
+
+12. Safety / Compliance
+
+Rules must never override:
+
+* unsubscribe
+* suppression
+* bounce
+* do-not-email
+* compliance preflight failure
+* duplicate-send protection
+
+If a rule action conflicts with compliance/suppression, skip action and log rule event with action_taken = skipped_compliance.
+
+13. Tests
+
+Add tests for:
+
+* seed default rules creates expected rules idempotently
+* rule priority ordering
+* reply_classification meeting_request stops sequence and creates task
+* interested reply stops sequence and creates task
+* unsubscribe stops sequence and suppresses recipient
+* negative reply stops sequence without sales task
+* clicked technical link fires technical rule
+* clicked ROI link fires ROI rule
+* rule does not fire twice for same event
+* inactive rule does not fire
+* move_to_step refuses missing step
+* move_to_step refuses already-sent step
+* rule actions respect suppressed recipient
+* rule actions respect unsubscribed recipient
+* automation tick skips stopped/sales_engaged recipients
+* branch_status appears in recipient data
+* API permission checks
+* frontend source-grep for Branching Rules section
+* existing automation tests still pass
+* reply ingestion tests still pass
+* reply classifier tests still pass
+* tracking tests still pass
+* compliance tests still pass
+* account heat tests still pass
+* nav-drift still passes
+* openai-compat still passes
+
+14. Visual QA
+
+Take screenshots of:
+
+* Campaign Detail Branching Rules section
+* Seed Recommended Rules result
+* Rule list with active/inactive rules
+* Recipient row showing stopped/sales_engaged state
+* Marketing Replies page showing sequence stopped/task created
+
+15. Final Report
+
+Return:
+
+* files changed
+* migrations added
+* rules implemented
+* integration points added
+* safety checks
+* tests run and passing
+* screenshots taken
+* remaining gaps
+
+Important:
+Do not build a full drag-and-drop visual workflow builder.
+Do not implement automated reply sending.
+Do not let branching bypass compliance or suppression.
+Start with simple rule-based branching.

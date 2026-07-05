@@ -288,6 +288,9 @@ app.use((req, res, next) => {
     // Phase 8: Reply ingestion schema (campaign_sent_messages, campaign_unmatched_replies)
     const { migrateReplyIngestionSchema } = await import("./services/campaign-reply-ingestion");
     await migrateReplyIngestionSchema();
+    // Phase 9: Branching automation schema (campaign_automation_rules, campaign_recipient_rule_events)
+    const { migrateBranchingSchema } = await import("./services/campaign-branching-automation");
+    await migrateBranchingSchema();
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

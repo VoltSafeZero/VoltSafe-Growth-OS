@@ -38189,6 +38189,90 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // ── Phase 9: Branching Automation Rules ──────────────────────────────────────
+
+  // GET /api/marketing/campaigns/:id/automation-rules — list rules for a campaign
+  app.get("/api/marketing/campaigns/:id/automation-rules", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const { listCampaignRules } = await import("./services/campaign-branching-automation");
+      const rules = await listCampaignRules(Number(req.params.id));
+      res.json(rules);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Failed to list automation rules" });
+    }
+  });
+
+  // POST /api/marketing/campaigns/:id/automation-rules — create a new rule
+  app.post("/api/marketing/campaigns/:id/automation-rules", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const { createCampaignRule } = await import("./services/campaign-branching-automation");
+      const campaignId = Number(req.params.id);
+      const { name, triggerType, triggerConfigJson, actionType, actionConfigJson, priority, isActive } = req.body ?? {};
+      if (!name || !triggerType || !actionType) {
+        return res.status(400).json({ error: "name, triggerType, and actionType are required" });
+      }
+      const rule = await createCampaignRule({ campaignId, name, triggerType, triggerConfigJson, actionType, actionConfigJson, priority, isActive });
+      res.status(201).json(rule);
+    } catch (err: any) {
+      res.status(err.statusCode ?? 500).json({ error: err.message ?? "Failed to create rule" });
+    }
+  });
+
+  // POST /api/marketing/campaigns/:id/automation-rules/seed-defaults — idempotent seed
+  app.post("/api/marketing/campaigns/:id/automation-rules/seed-defaults", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const { seedDefaultCampaignRules } = await import("./services/campaign-branching-automation");
+      const created = await seedDefaultCampaignRules(Number(req.params.id));
+      res.json({ created: created.length, rules: created });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Failed to seed default rules" });
+    }
+  });
+
+  // PATCH /api/marketing/automation-rules/:ruleId — update a rule
+  app.patch("/api/marketing/automation-rules/:ruleId", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const { updateCampaignRule } = await import("./services/campaign-branching-automation");
+      const rule = await updateCampaignRule(Number(req.params.ruleId), req.body ?? {});
+      res.json(rule);
+    } catch (err: any) {
+      res.status(err.statusCode ?? 500).json({ error: err.message ?? "Failed to update rule" });
+    }
+  });
+
+  // DELETE /api/marketing/automation-rules/:ruleId — delete a rule
+  app.delete("/api/marketing/automation-rules/:ruleId", requireAuth, requirePermission("crm", "edit"), async (req: any, res) => {
+    try {
+      const { deleteCampaignRule } = await import("./services/campaign-branching-automation");
+      await deleteCampaignRule(Number(req.params.ruleId));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Failed to delete rule" });
+    }
+  });
+
+  // GET /api/marketing/recipients/:recipientId/rule-history — per-recipient rule audit log
+  app.get("/api/marketing/recipients/:recipientId/rule-history", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const { getRecipientRuleHistory } = await import("./services/campaign-branching-automation");
+      const history = await getRecipientRuleHistory(Number(req.params.recipientId));
+      res.json(history);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Failed to load rule history" });
+    }
+  });
+
+  // POST /api/marketing/automation-rules/evaluate-event/:eventId — admin: manually trigger evaluation
+  app.post("/api/marketing/automation-rules/evaluate-event/:eventId", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const { evaluateRulesForEvent } = await import("./services/campaign-branching-automation");
+      const result = await evaluateRulesForEvent(Number(req.params.eventId));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Failed to evaluate event" });
+    }
+  });
+
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
 }

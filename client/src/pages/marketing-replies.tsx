@@ -335,6 +335,31 @@ function MatchedRepliesTab() {
                         <p className="text-xs text-emerald-400">Task: {reply.task_title}</p>
                       </div>
                     )}
+                    {reply.branch_status && reply.branch_status !== "none" && (
+                      <div className={`flex items-center gap-2 mb-3 rounded px-3 py-1.5 border ${
+                        reply.branch_status.startsWith("stopped")
+                          ? "bg-red-500/8 border-red-500/20"
+                          : reply.branch_status === "sales_engaged"
+                          ? "bg-cyan-500/8 border-cyan-500/20"
+                          : "bg-muted/30 border-border/40"
+                      }`} data-testid={`branch-status-${reply.id}`}>
+                        <Zap className={`h-3.5 w-3.5 shrink-0 ${
+                          reply.branch_status.startsWith("stopped") ? "text-red-400" :
+                          reply.branch_status === "sales_engaged" ? "text-cyan-400" :
+                          "text-muted-foreground"
+                        }`} />
+                        <span className={`text-xs font-medium ${
+                          reply.branch_status.startsWith("stopped") ? "text-red-400" :
+                          reply.branch_status === "sales_engaged" ? "text-cyan-400" :
+                          "text-muted-foreground"
+                        }`}>
+                          Branch: {reply.branch_status.replace(/_/g, " ")}
+                        </span>
+                        {reply.branch_reason && (
+                          <span className="text-[10px] text-muted-foreground/60 truncate ml-1">· {reply.branch_reason}</span>
+                        )}
+                      </div>
+                    )}
                     {reply.source_message_id && (
                       <p className="text-[10px] text-muted-foreground/40 mb-2 font-mono">
                         msg: {reply.source_message_id.slice(0, 24)}…
