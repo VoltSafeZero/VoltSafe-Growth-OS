@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
-import { CheckCircle, XCircle, Mail, Loader2, ShieldCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { CheckCircle, XCircle, Loader2, ShieldCheck } from "lucide-react";
 
-type PageState = "loading" | "confirm" | "success" | "already" | "invalid";
+type PageState = "loading" | "success" | "already" | "invalid";
 
 export default function ComplianceUnsubscribePage() {
   const params = new URLSearchParams(window.location.search);
@@ -10,11 +9,15 @@ export default function ComplianceUnsubscribePage() {
 
   const [state, setState] = useState<PageState>("loading");
   const [email, setEmail] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     if (!token) { setState("invalid"); return; }
-    fetch(`/api/compliance/unsubscribe?token=${encodeURIComponent(token)}`)
+    // One-click unsubscribe: process immediately on page load (idempotent).
+    fetch("/api/compliance/unsubscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    })
       .then((r) => {
         if (!r.ok) { setState("invalid"); return; }
         return r.json();
@@ -22,30 +25,10 @@ export default function ComplianceUnsubscribePage() {
       .then((data) => {
         if (!data) return;
         setEmail(data.email ?? null);
-        setState(data.alreadyUnsubscribed ? "already" : "confirm");
+        setState(data.alreadyUnsubscribed ? "already" : "success");
       })
       .catch(() => setState("invalid"));
   }, [token]);
-
-  async function handleUnsubscribe() {
-    if (!token) return;
-    setPending(true);
-    try {
-      const res = await fetch("/api/compliance/unsubscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
-      if (!res.ok) { setState("invalid"); return; }
-      const data = await res.json();
-      setEmail(data.email ?? email);
-      setState(data.alreadyUnsubscribed ? "already" : "success");
-    } catch {
-      setState("invalid");
-    } finally {
-      setPending(false);
-    }
-  }
 
   return (
     <div className="min-h-screen bg-[#0a0f1a] flex flex-col items-center justify-center px-4">
@@ -62,43 +45,6 @@ export default function ComplianceUnsubscribePage() {
             <>
               <Loader2 className="w-10 h-10 text-cyan-400 mx-auto animate-spin" />
               <p className="text-white/60">Verifying your request…</p>
-            </>
-          )}
-
-          {state === "confirm" && (
-            <>
-              <div className="w-12 h-12 rounded-full bg-cyan-500/10 flex items-center justify-center mx-auto">
-                <Mail className="w-6 h-6 text-cyan-400" />
-              </div>
-              <div>
-                <h1 className="text-white text-xl font-semibold mb-2">Unsubscribe</h1>
-                {email && (
-                  <p className="text-white/50 text-sm">
-                    Unsubscribing <span className="text-white/80 font-medium">{email}</span>
-                  </p>
-                )}
-                <p className="text-white/50 text-sm mt-1">
-                  You will no longer receive marketing emails from VoltSafe.
-                </p>
-              </div>
-              <Button
-                data-testid="button-confirm-unsubscribe"
-                className="w-full bg-cyan-600 hover:bg-cyan-500 text-white"
-                onClick={handleUnsubscribe}
-                disabled={pending}
-              >
-                {pending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                Confirm Unsubscribe
-              </Button>
-              <p className="text-white/30 text-xs">
-                You can manage preferences at any time.{" "}
-                <a
-                  href={`/preferences?token=${encodeURIComponent(token)}`}
-                  className="text-cyan-400 underline"
-                >
-                  Manage preferences
-                </a>
-              </p>
             </>
           )}
 

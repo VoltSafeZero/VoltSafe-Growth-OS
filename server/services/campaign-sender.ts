@@ -193,10 +193,16 @@ export function renderCampaignEmail(
     }
   }
 
+  // Append jurisdiction-aware text footer to plain-text body
+  let renderedText = bodyText ? replace(bodyText) : "";
+  if (tracking?.compliantFooterText && renderedText !== undefined) {
+    renderedText = renderedText + "\n" + tracking.compliantFooterText;
+  }
+
   return {
     subject: replace(subject),
     bodyHtml: renderedHtml,
-    bodyText: bodyText ? replace(bodyText) : "",
+    bodyText: renderedText,
     unresolvedPlaceholders: unresolved,
   };
 }
@@ -477,6 +483,22 @@ export async function executeSendStep(
 
   if (!campaign)
     throw Object.assign(new Error("Campaign not found"), { statusCode: 404 });
+
+  // Compliance gate — enforced inside executeSendStep so it cannot be bypassed
+  // regardless of entry point (route-level or direct service invocation).
+  if (campaign.status !== "archived" && campaign.status !== "completed") {
+    const campComplianceRes = await db.execute(sql.raw(
+      `SELECT compliance_status FROM marketing_campaigns WHERE id = ${campaignId}`
+    ));
+    const campCompliance = campComplianceRes.rows[0] as any;
+    if (!campCompliance || campCompliance.compliance_status !== "preflight_passed") {
+      throw Object.assign(
+        new Error("Campaign compliance preflight has not passed. Run /preflight and resolve all blocking errors before sending."),
+        { statusCode: 422, code: "compliance_preflight_required" }
+      );
+    }
+  }
+
   if (campaign.status === "archived" || campaign.status === "completed")
     throw Object.assign(
       new Error(`Cannot send for a ${campaign.status} campaign`),

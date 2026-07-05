@@ -7,8 +7,8 @@
 const http = require("http");
 
 const BASE = "http://localhost:5000";
-const ADMIN_EMAIL = "trevor@voltsafe.com";
-const ADMIN_PASS = "alberni1444";
+const ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL || "trevor@voltsafe.com";
+const ADMIN_PASS = process.env.TEST_ADMIN_PASS || "alberni1444";
 
 let cookie = "";
 let pass = 0;
