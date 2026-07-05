@@ -305,6 +305,22 @@ console.log("\n[2] Source-grep invariants");
   } catch (err) { fail(label, err); }
 })();
 
+(function testFrontendAutomationPanelStates() {
+  const label = "campaign-detail.tsx handles loading, error, and completed states";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../client/src/pages/campaign-detail.tsx"), "utf8"
+    );
+    // Loading skeleton (not bare null)
+    assert.ok(src.includes("animate-pulse"), "has loading skeleton (animate-pulse)");
+    // Error/null fallback message instead of just null
+    assert.ok(src.includes("Automation unavailable"), "has null/error fallback message");
+    // Completed state explanation
+    assert.ok(src.includes("Sequence complete"), "has completed state message");
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
 (function testFrontendCampaignsColumn() {
   const label = "marketing-campaigns.tsx has Automation column";
   try {
@@ -325,6 +341,148 @@ console.log("\n[2] Source-grep invariants");
     );
     assert.ok(src.includes("AutomationMetricsSection"), "has AutomationMetricsSection");
     assert.ok(src.includes("/api/marketing/automation/metrics"), "queries automation metrics API");
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
+(function testAnalyticsLoadingSkeleton() {
+  const label = "marketing-analytics.tsx shows loading skeleton (not bare null)";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../client/src/pages/marketing-analytics.tsx"), "utf8"
+    );
+    assert.ok(src.includes("animate-pulse"), "has animate-pulse skeleton while loading");
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
+(function testUnresolvedPlaceholdersBlocked() {
+  const label = "sendAutomationStep blocks send on unresolved placeholders (fail-closed)";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../server/services/campaign-automation.ts"), "utf8"
+    );
+    assert.ok(src.includes("unresolvedPlaceholders"), "checks unresolvedPlaceholders");
+    assert.ok(src.includes("unresolved_placeholders"), "records unresolved_placeholders failure event");
+    // Ensure the check is fail-closed (returns failed, not skipped)
+    assert.ok(
+      src.includes(`status: "failed", reason: \`unresolved_placeholders`),
+      "returns failed status for unresolved placeholders"
+    );
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
+(function testBlockedCountInTickResult() {
+  const label = "TickResult interface has blocked count and tick increments it";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../server/services/campaign-automation.ts"), "utf8"
+    );
+    assert.ok(src.includes("blocked: number"), "TickResult has blocked field");
+    assert.ok(src.includes("blocked: 0"), "result initialized with blocked: 0");
+    assert.ok(src.includes("result.blocked++"), "tick increments blocked count");
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
+(function testNextAutomationRunUpdated() {
+  const label = "processCampaignTick updates next_automation_run_at after each run";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../server/services/campaign-automation.ts"), "utf8"
+    );
+    assert.ok(
+      src.includes("next_automation_run_at") && src.includes("MIN(next_step_due_at)"),
+      "updates next_automation_run_at to MIN(next_step_due_at) after tick"
+    );
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
+(function testCampaignEventsIndex() {
+  const label = "migration creates idx_ce_camp_recip_event on campaign_events";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../server/services/campaign-automation.ts"), "utf8"
+    );
+    assert.ok(src.includes("idx_ce_camp_recip_event"), "migration creates campaign_events covering index");
+    assert.ok(
+      src.includes("campaign_events(campaign_id, recipient_id, event_type)"),
+      "index covers (campaign_id, recipient_id, event_type)"
+    );
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
+(function testNoSpuriousSuppressedOnComplete() {
+  const label = "processCampaignTick does not call markRecipientTerminal('suppressed') before completing";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../server/services/campaign-automation.ts"), "utf8"
+    );
+    // Find the processCampaignTick function body (after the tick engine comment)
+    const tickFnIdx = src.indexOf("async function processCampaignTick(");
+    assert.ok(tickFnIdx > -1, "processCampaignTick function found");
+    const tickFnBody = src.slice(tickFnIdx, tickFnIdx + 3000);
+    // The body should NOT contain markRecipientTerminal("suppressed") immediately before completing
+    const hasBug = tickFnBody.includes('markRecipientTerminal(r.id, "suppressed"') &&
+      tickFnBody.indexOf('markRecipientTerminal(r.id, "suppressed"') <
+      tickFnBody.indexOf("all_steps_done");
+    assert.ok(!hasBug, "no spurious markRecipientTerminal('suppressed') before automation_completed event");
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
+(function testTickLockReleasedInFinally() {
+  const label = "tick lock is released in finally block (releases on error)";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../server/services/campaign-automation.ts"), "utf8"
+    );
+    // Find the finally block that releases the lock
+    assert.ok(
+      src.includes("} finally {") && src.includes("_tickRunning = false"),
+      "tick lock released in finally block"
+    );
+    // The finally must contain _tickRunning = false (not in an if block)
+    const finallyIdx = src.indexOf("} finally {");
+    const finallyBlock = src.slice(finallyIdx, finallyIdx + 100);
+    assert.ok(finallyBlock.includes("_tickRunning = false"), "finally block sets _tickRunning = false");
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
+(function testRecordEventLogsErrors() {
+  const label = "recordEvent logs errors instead of silently swallowing them";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../server/services/campaign-automation.ts"), "utf8"
+    );
+    assert.ok(
+      src.includes("recordEvent failed (non-critical)"),
+      "recordEvent logs errors with non-critical label"
+    );
+    ok(label);
+  } catch (err) { fail(label, err); }
+})();
+
+(function testValidationNoRedundantCheck() {
+  const label = "validateAutomationStart: no redundant archived/completed check";
+  try {
+    const src = fs.readFileSync(
+      path.join(__dirname, "../server/services/campaign-automation.ts"), "utf8"
+    );
+    // The function should have exactly one check for invalid status (the active/scheduled allowlist)
+    // and NOT a second check specifically for archived/completed that would double-fire
+    const validationFnIdx = src.indexOf("export async function validateAutomationStart");
+    const validationFn = src.slice(validationFnIdx, validationFnIdx + 1500);
+    const doubleErrorCount = (validationFn.match(/Cannot automate an archived or completed campaign/g) || []).length;
+    assert.strictEqual(doubleErrorCount, 0, "redundant archived/completed error message removed");
+    assert.ok(
+      validationFn.includes("active"),
+      "still checks for active/scheduled status"
+    );
     ok(label);
   } catch (err) { fail(label, err); }
 })();
