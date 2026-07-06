@@ -10842,6 +10842,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     subject: focusedMsg.subject,
                     body: focusedMsg.body,
                     snippet: focusedMsg.snippet ?? null,
+                    senderName: parseSenderName(focusedMsg.from || ""),
+                    receivedAt: focusedMsg.sentAt ?? focusedMsg.date ?? null,
                   }}
                   isPriority={isStarred(focusedMsg.labelIds)}
                   isPinned={pinnedAPI.isPinned(selectedThreadId)}
@@ -10905,6 +10907,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       subject: focusedMsg.subject,
                       body: focusedMsg.body,
                       snippet: focusedMsg.snippet ?? null,
+                      senderName: parseSenderName(focusedMsg.from || ""),
+                      receivedAt: focusedMsg.sentAt ?? focusedMsg.date ?? null,
                     }}
                     isPriority={isStarred(focusedMsg.labelIds)}
                     isPinned={pinnedAPI.isPinned(selectedThreadId)}

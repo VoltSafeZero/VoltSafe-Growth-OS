@@ -341,14 +341,17 @@ app.use((req, res, next) => {
     const [
       { migrateBranchingSchema },
       { migrateCampaignAttributionSchema },
+      { migrateCortexEmailIntelSchema },
     ] = await Promise.all([
       import("./services/campaign-branching-automation"),
       import("./services/campaign-attribution"), // Phase 10: campaign ROI + pipeline attribution
+      import("./services/cortex-intel"),
     ]);
     await Promise.all([
       migrateSignatureCtaAssetColumns(),
       migrateBranchingSchema(),
       migrateCampaignAttributionSchema(),
+      migrateCortexEmailIntelSchema(),
     ]);
     log(`[perf:startup] batch-4 (branching + attribution + CTA assets) done +${Date.now() - _migStart}ms`);
 

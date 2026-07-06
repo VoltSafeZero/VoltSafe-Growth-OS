@@ -3082,3 +3082,36 @@ export const campaignTrackedLinks = pgTable("campaign_tracked_links", {
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
 export type CampaignTrackedLink = typeof campaignTrackedLinks.$inferSelect;
+
+// ── Cortex Email Intel ─────────────────────────────────────────────────────
+// Manually-flagged marine industry intelligence from Trevor's inbox.
+// Used by Cortex AI when generating emails, campaigns, and account summaries.
+export const cortexEmailIntel = pgTable("cortex_email_intel", {
+  id:                 serial("id").primaryKey(),
+  mailMessageId:      text("mail_message_id").notNull(),
+  threadId:           text("thread_id"),
+  subject:            text("subject"),
+  senderName:         text("sender_name"),
+  senderEmail:        text("sender_email"),
+  receivedAt:         timestamp("received_at"),
+  sourceLabel:        text("source_label"),
+  intelType:          text("intel_type").notNull().default("Marine Industry Intel"),
+  importance:         text("importance").notNull().default("Medium"),
+  useFor:             text("use_for").array().notNull().default([]),
+  tags:               text("tags").array().notNull().default([]),
+  userNotes:          text("user_notes"),
+  aiSummary:          text("ai_summary"),
+  strategicRelevance: text("strategic_relevance"),
+  extractedFacts:     jsonb("extracted_facts"),
+  sourceUrl:          text("source_url"),
+  relatedContactId:   integer("related_contact_id"),
+  relatedAccountId:   integer("related_account_id"),
+  relatedLeadId:      integer("related_lead_id"),
+  createdByUserId:    integer("created_by_user_id").notNull(),
+  createdAt:          timestamp("created_at").defaultNow().notNull(),
+  updatedAt:          timestamp("updated_at").defaultNow().notNull(),
+  deletedAt:          timestamp("deleted_at"),
+});
+export const insertCortexEmailIntelSchema = createInsertSchema(cortexEmailIntel).omit({ id: true, createdAt: true, updatedAt: true, deletedAt: true });
+export type CortexEmailIntel = typeof cortexEmailIntel.$inferSelect;
+export type InsertCortexEmailIntel = z.infer<typeof insertCortexEmailIntelSchema>;

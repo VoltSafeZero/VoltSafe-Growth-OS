@@ -50,6 +50,7 @@ import {
   CheckCircle2,
   ShieldCheck,
   Star,
+  Brain,
 } from "lucide-react";
 import {
   Tooltip,
@@ -80,6 +81,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useShareAccess } from "./inbox-actions-store";
+import { SaveToCortexModal } from "./save-to-cortex-modal";
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
@@ -120,6 +122,8 @@ export interface EmailActionsToolbarProps {
     subject?: string | null;
     body?: string;
     snippet?: string | null;
+    senderName?: string;
+    receivedAt?: string | null;
   } | null;
   /** True when this message currently has the STARRED label. */
   isPriority: boolean;
@@ -257,6 +261,7 @@ function EmailActionsToolbarImpl({
   const [aiOpen, setAiOpen] = useState(false);
   const [aiResult, setAiResult] = useState<{ mode: string; content: string; language?: string | null } | null>(null);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [cortexOpen, setCortexOpen] = useState(false);
 
   // Team list for Assign / Share popovers. Uses the existing /api/users
   // route — same query key as the rest of the app so we share the cache.
@@ -810,6 +815,25 @@ function EmailActionsToolbarImpl({
               </PopoverContent>
             </Popover>
 
+            {/* ── Save to Cortex button ─────────────────────── */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="action-save-to-cortex"
+                  aria-label="Save to Cortex"
+                  onClick={() => setCortexOpen(true)}
+                  className="px-2.5 py-1.5 rounded-lg text-muted-foreground/70 hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 inline-flex items-center gap-1 text-[11px] font-medium"
+                >
+                  <Brain className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="hidden sm:inline">Cortex</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-[11px]">
+                Save to Cortex — flag as marine industry intelligence
+              </TooltipContent>
+            </Tooltip>
+
             {/* ── More-actions menu ────────────────────────────── */}
             <DropdownMenu>
               <Tooltip>
@@ -1066,6 +1090,25 @@ function EmailActionsToolbarImpl({
           </PopoverContent>
         </Popover>
       </div>
+
+      {/* Save to Cortex modal */}
+      {focusedMessage && (
+        <SaveToCortexModal
+          open={cortexOpen}
+          onOpenChange={setCortexOpen}
+          email={{
+            id: focusedMessage.id,
+            threadId,
+            subject: focusedMessage.subject,
+            senderName: focusedMessage.senderName,
+            senderEmail,
+            receivedAt: focusedMessage.receivedAt,
+            body: focusedMessage.body,
+            snippet: focusedMessage.snippet,
+            sourceLabel: focusedMessage.senderName,
+          }}
+        />
+      )}
     </TooltipProvider>
   );
 }

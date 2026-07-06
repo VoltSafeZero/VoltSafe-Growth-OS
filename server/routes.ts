@@ -38526,6 +38526,103 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // ── Cortex Email Intel ────────────────────────────────────────────────────
+
+  // GET /api/cortex-intel — list records with optional filters
+  app.get("/api/cortex-intel", requireAuth, async (req: any, res) => {
+    try {
+      const { limit = "25", offset = "0", intelType, importance, search } = req.query as any;
+      const { listCortexIntelRecords } = await import("./services/cortex-intel");
+      const result = await listCortexIntelRecords({
+        limit: Math.min(Number(limit) || 25, 100),
+        offset: Number(offset) || 0,
+        intelType: intelType || undefined,
+        importance: importance || undefined,
+        search: search || undefined,
+      });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[cortex-intel] GET /api/cortex-intel:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/cortex-intel/check/:mailMessageId — check if email already saved
+  app.get("/api/cortex-intel/check/:mailMessageId", requireAuth, async (req: any, res) => {
+    try {
+      const { checkCortexIntelByMessageId } = await import("./services/cortex-intel");
+      const existing = await checkCortexIntelByMessageId(req.params.mailMessageId);
+      res.json({ exists: !!existing, record: existing ?? null });
+    } catch (err: any) {
+      console.error("[cortex-intel] GET /api/cortex-intel/check:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/cortex-intel/generate-summary — AI summary before saving
+  app.post("/api/cortex-intel/generate-summary", requireAuth, async (req: any, res) => {
+    try {
+      const { subject, senderName, senderEmail, receivedAt, body, snippet, sourceLabel } = req.body;
+      const { generateCortexIntelSummary } = await import("./services/cortex-intel");
+      const summary = await generateCortexIntelSummary({ subject, senderName, senderEmail, receivedAt, body, snippet, sourceLabel });
+      res.json(summary);
+    } catch (err: any) {
+      console.error("[cortex-intel] POST /api/cortex-intel/generate-summary:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/cortex-intel — create/ingest a new record
+  app.post("/api/cortex-intel", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      const {
+        mailMessageId, threadId, subject, senderName, senderEmail, receivedAt,
+        sourceLabel, intelType, importance, useFor, tags, userNotes,
+        aiSummary, strategicRelevance, extractedFacts, sourceUrl,
+        relatedContactId, relatedAccountId, relatedLeadId,
+      } = req.body;
+      if (!mailMessageId) return res.status(400).json({ error: "mailMessageId required" });
+      if (!intelType)     return res.status(400).json({ error: "intelType required" });
+      if (!importance)    return res.status(400).json({ error: "importance required" });
+      // Prevent duplicate ingestion
+      const { checkCortexIntelByMessageId, createCortexIntelRecord } = await import("./services/cortex-intel");
+      const existing = await checkCortexIntelByMessageId(mailMessageId);
+      if (existing) return res.status(409).json({ error: "Already ingested", record: existing });
+      const record = await createCortexIntelRecord({
+        mailMessageId, threadId, subject, senderName, senderEmail, receivedAt,
+        sourceLabel, intelType, importance,
+        useFor: Array.isArray(useFor) ? useFor : [],
+        tags: Array.isArray(tags) ? tags : [],
+        userNotes, aiSummary, strategicRelevance, extractedFacts, sourceUrl,
+        relatedContactId: relatedContactId ? Number(relatedContactId) : undefined,
+        relatedAccountId: relatedAccountId ? Number(relatedAccountId) : undefined,
+        relatedLeadId:    relatedLeadId    ? Number(relatedLeadId)    : undefined,
+        createdByUserId: userId,
+      });
+      res.status(201).json({ ok: true, record });
+    } catch (err: any) {
+      console.error("[cortex-intel] POST /api/cortex-intel:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PUT /api/cortex-intel/:id — update an existing record
+  app.put("/api/cortex-intel/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const { updateCortexIntelRecord } = await import("./services/cortex-intel");
+      const record = await updateCortexIntelRecord(id, req.body);
+      if (!record) return res.status(404).json({ error: "Record not found" });
+      res.json({ ok: true, record });
+    } catch (err: any) {
+      console.error("[cortex-intel] PUT /api/cortex-intel/:id:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
 }

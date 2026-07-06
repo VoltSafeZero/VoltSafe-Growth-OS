@@ -966,6 +966,13 @@ export async function generateSuggestedNextEmail(
     detectedContext = "No specific event dates detected — using neutral outreach language.";
   }
 
+  // Fetch relevant Cortex Email Intel (marine industry intelligence flagged by user)
+  let cortexIntelBlock = "";
+  try {
+    const { getCortexIntelForPrompt } = await import("./cortex-intel");
+    cortexIntelBlock = await getCortexIntelForPrompt({ limit: 4, minImportance: "Medium" });
+  } catch { /* non-fatal — cortex intel is supplementary */ }
+
   const resolvedModifiers = resolveIntentModifiers(intentModifierIds ?? []);
   const modifierBlock = buildIntentModifierPromptBlock(resolvedModifiers);
 
@@ -1264,7 +1271,10 @@ export async function generateSuggestedNextEmail(
       engagementSummary.category === "re-engage"   ? `- Recent outbound with no response. Follow up politely — check if they have questions or concerns.` : "",
     ].filter(Boolean).join("\n") : "",
     ``,
-    // ── 12. Instructions ───────────────────────────────────────────────
+    // ── 12. Cortex marine industry intelligence ────────────────────────
+    cortexIntelBlock || "",
+    ``,
+    // ── 13. Instructions ───────────────────────────────────────────────
     `=== INSTRUCTIONS ===`,
     weakContextWarning ? `⚠ WEAK CONTEXT: ${weakContextWarning} Write a simple, honest email — do not invent specifics.` : "",
     `Return JSON matching exactly:`,
