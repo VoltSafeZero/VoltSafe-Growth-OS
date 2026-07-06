@@ -124,6 +124,31 @@ const ALLOWLIST = [
     lineSubstr: "bg-[#0a0f1a]",
     reason: "Public compliance-unsubscribe page — same brand dark background, outside CMS shell",
   },
+
+  // ── Category 4 (cont.): Investor portal — public token-gated page ─────────
+  // investor-portal.tsx renders without the CMS shell using a fixed dark navy
+  // brand theme (slate-800/slate-700 palette).  These cannot use CSS theme
+  // variables because the page is served publicly with no user session.
+  {
+    fileSubstr: "pages/investor-portal.tsx",
+    lineSubstr: "border-b border-slate-800 bg-[#0c1d36]",
+    reason: "Public investor portal header — fixed brand dark navy, outside CMS shell (no session)",
+  },
+  {
+    fileSubstr: "pages/investor-portal.tsx",
+    lineSubstr: "border border-slate-700/60 rounded-xl",
+    reason: "Public investor portal material card border — fixed brand slate palette, outside CMS shell",
+  },
+  {
+    fileSubstr: "pages/investor-portal.tsx",
+    lineSubstr: "bg-slate-800/60 border border-slate-700/40",
+    reason: "Public investor portal locked-doc indicator — fixed brand slate palette, outside CMS shell",
+  },
+  {
+    fileSubstr: "pages/investor-portal.tsx",
+    lineSubstr: "border-t border-slate-800",
+    reason: "Public investor portal footer divider — fixed brand slate palette, outside CMS shell",
+  },
 ];
 
 // ─── Scan all files ───────────────────────────────────────────────────────────
