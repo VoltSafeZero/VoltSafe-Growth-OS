@@ -9,6 +9,7 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import OpenAI from "openai";
+import { buildOpenAIModelParams } from "./openai-compat";
 
 function buildOpenAIClient(): OpenAI | null {
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
@@ -411,8 +412,7 @@ Return only valid JSON.`;
       model: "gpt-5-mini",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
-      max_tokens: 800,
-      temperature: 0.3,
+      ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 800, temperature: 0.3 }),
     });
 
     const raw = completion.choices[0]?.message?.content || "{}";
