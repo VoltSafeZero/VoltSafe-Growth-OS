@@ -1,0 +1,485 @@
+Phase 2A — Build the Capital Data Model + Investor Pipeline Foundation
+
+We now have the Capital navigation shell complete and CEO/CFO restricted. Next, build the real funding data foundation behind it.
+
+GOAL:
+Turn Capital from placeholder routes into the first real version of VoltSafe’s funding CRM.
+
+This phase should focus on:
+1. Database schema / data model
+2. Backend API routes
+3. Investor pipeline list + basic create/edit/detail workflows
+4. Strict CEO/CFO-only access control
+5. Tests
+
+Do not overbuild dashboards yet. The dashboard comes after we have real capital records to calculate from.
+
+IMPORTANT SECURITY REQUIREMENT:
+Every Capital table, API route, and frontend page must remain restricted to only:
+- Trevor Burgess
+- Scott Carlson
+
+No admin bypass. No manager bypass. No “authenticated user” access.
+
+Use the existing Capital permission gate created in Phase 1.
+
+DATA MODEL
+
+Create the following Capital entities/tables, using existing project schema/migration patterns.
+
+1. capital_investors
+
+Purpose:
+Stores investor organizations or individual investor targets.
+
+Fields:
+- id
+- name
+- investor_type
+- status
+- priority
+- stage
+- check_size_min
+- check_size_max
+- currency
+- probability
+- source
+- introducer_name
+- website
+- country
+- region
+- strategic_relevance
+- thesis_fit
+- notes
+- last_touch_at
+- next_step
+- next_step_date
+- related_round_id
+- data_room_status
+- created_by
+- updated_by
+- created_at
+- updated_at
+
+Investor type enum/options:
+- Angel
+- HNW Angel
+- Family Office
+- Venture Capital
+- Strategic Investor
+- Government Investment
+- Grant / Non-Dilutive
+- Debt / Loan
+- Connector / Referrer
+
+Important:
+Connector / Referrer must be clearly marked as not a direct investor unless otherwise flagged.
+
+Add:
+- can_write_cheque boolean default true
+- If investor_type = Connector / Referrer, default can_write_cheque to false
+
+2. capital_contacts
+
+Purpose:
+Stores people connected to investor targets.
+
+Fields:
+- id
+- investor_id nullable
+- first_name
+- last_name
+- full_name
+- title
+- email
+- phone
+- linkedin_url
+- role_type
+- influence_level
+- relationship_strength
+- notes
+- last_touch_at
+- next_step
+- next_step_date
+- created_by
+- updated_by
+- created_at
+- updated_at
+
+Role type options:
+- Decision Maker
+- Partner
+- Associate
+- Analyst
+- Angel
+- Connector
+- Advisor
+- Government Officer
+- Grant Officer
+- Other
+
+3. capital_rounds
+
+Purpose:
+Stores funding rounds.
+
+Fields:
+- id
+- name
+- round_type
+- target_amount
+- currency
+- pre_money_valuation
+- post_money_valuation
+- minimum_check_size
+- status
+- open_date
+- target_close_date
+- actual_close_date
+- notes
+- created_by
+- updated_by
+- created_at
+- updated_at
+
+Round type options:
+- Pre-Seed
+- Seed
+- Bridge
+- Series A
+- Strategic
+- Grant
+- Debt
+- Other
+
+Round status options:
+- Planning
+- Open
+- Soft Circled
+- Closing
+- Closed
+- Paused
+- Cancelled
+
+4. capital_commitments
+
+Purpose:
+Tracks soft commits, committed amounts, and wired/closed funding.
+
+Fields:
+- id
+- investor_id
+- round_id nullable
+- contact_id nullable
+- amount
+- currency
+- commitment_stage
+- probability
+- expected_close_date
+- actual_close_date
+- terms_summary
+- notes
+- created_by
+- updated_by
+- created_at
+- updated_at
+
+Commitment stage options:
+- Verbal Interest
+- Soft Commit
+- Committed
+- Docs Sent
+- Signed
+- Wired / Closed
+- Passed
+
+5. capital_activities
+
+Purpose:
+Audit and timeline for all Capital interactions.
+
+Fields:
+- id
+- entity_type
+- entity_id
+- activity_type
+- title
+- body
+- old_value
+- new_value
+- created_by
+- created_at
+
+Activity type options:
+- Note
+- Email
+- Call
+- Meeting
+- Stage Change
+- Commitment Change
+- Data Room Change
+- Task
+- System
+
+Important:
+When investor stage changes, write a capital_activities row.
+When commitment amount/stage changes, write a capital_activities row.
+When next step changes, write a capital_activities row.
+
+PIPELINE STAGES
+
+Investor pipeline stages:
+- Target Identified
+- Intro Needed
+- Intro Made
+- First Meeting
+- Follow-Up
+- Diligence
+- Partner Meeting
+- Soft Commit
+- Committed
+- Wired / Closed
+- Passed
+
+These stages should be used consistently in schema, API, UI filters, and tests.
+
+BACKEND API
+
+Create CEO/CFO-protected API routes for:
+
+Investor targets:
+- GET /api/capital/investors
+- POST /api/capital/investors
+- GET /api/capital/investors/:id
+- PATCH /api/capital/investors/:id
+- DELETE /api/capital/investors/:id if delete patterns exist, otherwise archive/status only
+
+Contacts:
+- GET /api/capital/contacts
+- POST /api/capital/contacts
+- GET /api/capital/contacts/:id
+- PATCH /api/capital/contacts/:id
+
+Rounds:
+- GET /api/capital/rounds
+- POST /api/capital/rounds
+- GET /api/capital/rounds/:id
+- PATCH /api/capital/rounds/:id
+
+Commitments:
+- GET /api/capital/commitments
+- POST /api/capital/commitments
+- GET /api/capital/commitments/:id
+- PATCH /api/capital/commitments/:id
+
+Activities:
+- GET /api/capital/activities
+- GET /api/capital/investors/:id/activities
+- POST /api/capital/investors/:id/activities
+
+All routes must enforce the Capital permission server-side.
+
+API LIST FEATURES
+
+For GET /api/capital/investors, support filters:
+- investor_type
+- stage
+- status
+- priority
+- round_id
+- can_write_cheque
+- search
+- next_step_due
+- sort
+
+Default sort:
+- priority desc
+- next_step_date asc
+- updated_at desc
+
+FRONTEND UI
+
+Update these pages from placeholders to first real usable versions:
+
+1. /capital/pipeline
+
+Build a basic Investor Pipeline page.
+
+Minimum requirements:
+- Fetch /api/capital/investors
+- Group investors by pipeline stage
+- Show stage columns
+- Investor cards should show:
+  - name
+  - investor_type
+  - priority
+  - check size range
+  - probability
+  - next step
+  - next step date
+  - source / introducer
+- Add button: “Add Investor”
+- Allow changing stage through a dropdown or basic edit modal
+- Drag/drop is optional for this phase. Do not spend time on drag/drop unless there is an existing reusable pattern.
+
+2. /capital/targets
+
+Build Investor Targets list.
+
+Minimum requirements:
+- Table/list view
+- Search
+- Filter by investor_type
+- Filter by stage
+- Filter by can_write_cheque
+- Create investor modal
+- Edit investor modal
+- Click row/card to open investor detail
+
+3. Investor Detail View
+
+If route patterns allow:
+- /capital/investors/:id
+
+Minimum requirements:
+- Investor profile summary
+- Contacts linked to investor
+- Commitments linked to investor
+- Activity timeline
+- Editable fields:
+  - stage
+  - priority
+  - next step
+  - next step date
+  - notes
+  - data room status
+
+If a dedicated detail route is too large for this phase, use a detail drawer/modal from the Targets page.
+
+4. /capital/contacts
+
+Build a basic contacts list connected to capital_contacts.
+
+Minimum:
+- List contacts
+- Add contact
+- Edit contact
+- Link contact to investor target
+- Show role_type and relationship_strength
+
+5. /capital/rounds
+
+Build basic funding rounds page.
+
+Minimum:
+- List rounds
+- Add round
+- Edit round
+- Show target amount, status, target close date
+
+6. /capital/commitments
+
+Build basic commitments page.
+
+Minimum:
+- List commitments
+- Add commitment
+- Edit commitment stage
+- Show investor, amount, probability, expected close date, actual close date
+
+Do not build the dashboard calculations yet except maybe basic placeholder cards if easy.
+
+VALIDATION RULES
+
+- name is required for investor
+- investor_type is required
+- stage is required
+- probability must be 0–100
+- check_size_min/check_size_max must be non-negative
+- check_size_max should be >= check_size_min if both are provided
+- commitment amount must be non-negative
+- email fields should be valid email format if provided
+- next_step_date should be a valid date if provided
+
+UI COPY RULES
+
+Use “Capital,” not “Investors,” as the module name.
+
+Use “Investor Targets” for the target list.
+
+Use “Investor Pipeline” for the pipeline.
+
+Use “Grants & Non-Dilutive” for grants/non-dilutive funding.
+
+SECURITY TESTS
+
+Add/update tests confirming:
+
+1. Unauthorized users:
+- cannot see Capital sidebar
+- cannot load Capital pages directly
+- cannot access /api/capital/* routes
+
+2. Authorized users:
+- Trevor Burgess can access Capital
+- Scott Carlson can access Capital
+
+3. Admin/manager users:
+- still cannot access Capital unless explicitly Trevor or Scott
+
+4. Existing Ecosystem:
+- still does not contain Investors
+- existing Ecosystem pages still render
+
+FUNCTIONAL TESTS
+
+Add tests for:
+- creating investor target
+- listing investor targets
+- filtering by investor_type
+- filtering by stage
+- creating contact
+- creating round
+- creating commitment
+- updating investor stage writes activity row
+- updating commitment stage writes activity row
+- Connector / Referrer defaults can_write_cheque to false
+- normal investor types default can_write_cheque to true
+
+SEED / SAMPLE DATA
+
+If the app has development seed patterns, add a small CEO/CFO-only sample set:
+
+Investor examples:
+- Example Angel Investor — Angel — Target Identified
+- Example Family Office — Family Office — Intro Needed
+- Example VC Fund — Venture Capital — First Meeting
+- Example Strategic Investor — Strategic Investor — Diligence
+- Example Grant Program — Grant / Non-Dilutive — Follow-Up
+- Example Connector — Connector / Referrer — can_write_cheque false
+
+Do not expose sample data in production if this project separates seed modes.
+
+IMPORTANT IMPLEMENTATION NOTES
+
+- Follow existing schema, migration, API, route, auth, and UI patterns.
+- Do not invent a new design system.
+- Do not create duplicate permission logic if the Capital gate already exists.
+- Keep the implementation practical and testable.
+- If a full CRUD experience is too large, prioritize:
+  1. schema
+  2. API
+  3. list/create/edit for investors
+  4. stage change + activity logging
+  5. tests
+
+DELIVERABLE
+
+After implementation, report:
+- Files changed
+- Database tables/migrations added
+- API routes added
+- Frontend pages upgraded
+- Tests added/updated
+- Tests run and pass/fail status
+- Confirmation that Capital remains restricted to Trevor + Scott only

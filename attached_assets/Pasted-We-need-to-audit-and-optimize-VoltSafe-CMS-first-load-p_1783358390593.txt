@@ -1,0 +1,162 @@
+We need to audit and optimize VoltSafe CMS first-load performance.
+
+Current issue:
+The first load of the day can take 20+ seconds before the CMS becomes usable. This is unacceptable for SaaS. Our performance targets are:
+
+1. Logged-out user reaching the login screen: <3 seconds.
+2. User logging in with password and reaching usable CMS shell: <3 seconds.
+3. Already logged-in user loading/reloading any page: <1 second to usable shell.
+4. Heavy page/module data may continue loading after the shell appears, but it must not block initial usability.
+
+Please perform a full performance audit and implement fixes.
+
+Primary goals:
+- Make the CMS shell load immediately.
+- Prevent background jobs, syncs, dashboard queries, or heavy data hydration from blocking startup/login/page render.
+- Add instrumentation so we can see exactly where time is being spent.
+- Optimize backend startup, auth bootstrap, frontend bundle loading, and first-page API waterfall.
+
+Required audit areas:
+
+1. Server startup / cold start
+- Check whether expensive work runs before the server begins listening.
+- Identify startup tasks such as migrations, seed checks, Gmail sync, calendar sync, campaign jobs, AI jobs, meeting note processing, notification hydration, dashboard preloads, CRM enrichment, background loops, or scheduled jobs.
+- Ensure the server starts listening as early as safely possible.
+- Move non-critical startup work to asynchronous background jobs after the app is available.
+- Add logs for:
+  - process start
+  - server listening
+  - database connected
+  - migrations complete
+  - background jobs started
+  - first request received
+  - first response sent
+
+2. Auth/session bootstrap
+- Audit login flow and already-authenticated page load.
+- Ensure auth only validates the user and returns minimal required session data.
+- Create or optimize a lightweight endpoint such as `/api/session/bootstrap`.
+- The bootstrap response should include only:
+  - current user identity
+  - role
+  - core permissions
+  - organization/workspace context
+  - sidebar/nav configuration
+  - feature flags needed to render the shell
+- It must not load emails, CRM lists, dashboard widgets, campaigns, calendar events, AI summaries, large activity feeds, files, or analytics.
+
+3. Frontend first render
+- Audit the frontend app shell and route loading.
+- The sidebar/header/layout should render before heavy page data loads.
+- Add route-level lazy loading/code splitting for major modules:
+  - CRM
+  - Mail
+  - Campaigns
+  - Calendar
+  - Currents
+  - Funding
+  - Admin
+  - Settings
+  - Reports
+  - AI tools
+- Defer heavy libraries until needed:
+  - charts
+  - rich text editors
+  - file viewers
+  - calendar components
+  - drag/drop libraries
+  - AI composer components
+- Use skeleton loaders for page content instead of blocking render.
+
+4. API waterfall audit
+- Log every API request made during first load.
+- Identify which endpoints block initial render.
+- Separate critical shell APIs from non-critical page/widget APIs.
+- First load should not wait for more than the minimum bootstrap endpoint.
+- All dashboard widgets, inbox counts, CRM counts, campaign metrics, task lists, calendar previews, and notifications should load in parallel after shell render.
+- Add timing logs for every endpoint over 250ms.
+
+5. Database performance
+- Identify slow queries during startup, login, bootstrap, and first page render.
+- Add query timing logs in development.
+- Check for missing indexes on common filters:
+  - user_id
+  - owner_id
+  - org_id
+  - account_id
+  - lead_id
+  - contact_id
+  - thread_id
+  - message_id
+  - status
+  - category
+  - created_at
+  - updated_at
+  - is_archived
+  - is_deleted
+- Paginate large lists.
+- Do not fetch thousands of records on first load.
+- Replace expensive aggregate queries with cached summaries where appropriate.
+
+6. Caching
+- Cache stable session/sidebar/permission data for the current user.
+- Cache dashboard summaries where possible.
+- Cache expensive counts separately from full lists.
+- Use stale-while-revalidate behavior where safe:
+  - show cached shell quickly
+  - refresh data in background
+- Do not block the app shell while counts refresh.
+
+7. Background jobs
+- Confirm background jobs do not block startup or login.
+- Jobs such as email sync, calendar sync, AI summaries, enrichment, notification scanning, campaign stats, and meeting notes processing must be queued or delayed.
+- The first user request of the day must not trigger a massive sync before page render.
+- Add visible logging if first request currently starts any heavy sync.
+
+8. Replit/deployment cold start
+- Check whether deployment sleeps or cold starts after inactivity.
+- Confirm whether first request of the day starts the server process.
+- Recommend/apply deployment changes to keep the app warm if needed.
+- Add a `/healthz` endpoint that returns fast and does not touch heavy dependencies.
+- Add a lightweight keep-warm ping if appropriate.
+
+Required implementation:
+- Add performance timing middleware for backend requests.
+- Add frontend timing marks for:
+  - app JS loaded
+  - bootstrap request started
+  - bootstrap returned
+  - shell rendered
+  - route data started
+  - route data completed
+- Add console/log output in development showing first-load timing.
+- Add a development-only performance report endpoint or console summary showing:
+  - server startup time
+  - bootstrap duration
+  - slow endpoints
+  - slow DB queries
+  - frontend first render time
+  - number of APIs called before shell render
+  - total JS bundle size if available
+
+Acceptance criteria:
+1. App server starts listening before non-critical background jobs begin.
+2. Login screen appears in <3 seconds from cold browser load, excluding true infrastructure cold boot if unavoidable.
+3. Password login reaches usable app shell in <3 seconds.
+4. Already-authenticated page load reaches usable shell in <1 second on warm server.
+5. Initial shell render depends only on lightweight session/bootstrap data.
+6. Dashboard widgets, inbox counts, CRM counts, campaign data, calendar previews, AI summaries, notifications, and other non-critical data load after shell render.
+7. No route should fetch large unpaginated lists on initial shell load.
+8. All backend endpoints slower than 250ms are logged.
+9. All startup tasks are classified as critical or non-critical.
+10. Any non-critical startup task is moved after server listen or into a background queue.
+11. Add or update tests where feasible to ensure bootstrap remains lightweight and does not call heavy module loaders.
+
+Please produce:
+- Root-cause report.
+- List of slow startup tasks.
+- List of first-load API calls.
+- List of slow DB queries.
+- Code changes made.
+- Before/after timing measurements.
+- Any remaining infrastructure limitation, especially if Replit cold start is the main bottleneck.

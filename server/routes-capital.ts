@@ -150,6 +150,115 @@ export async function migrateCapitalSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_capital_activities_funder      ON capital_activities(funder_id);
     CREATE INDEX IF NOT EXISTS idx_capital_activities_grant       ON capital_activities(grant_id);
   `));
+  // ── Phase 2A: new tables ─────────────────────────────────────────────────────
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS capital_investors (
+        id                  SERIAL PRIMARY KEY,
+        name                TEXT NOT NULL,
+        investor_type       TEXT NOT NULL DEFAULT 'Venture Capital',
+        status              TEXT NOT NULL DEFAULT 'Active',
+        priority            TEXT NOT NULL DEFAULT 'Medium',
+        stage               TEXT NOT NULL DEFAULT 'Target Identified',
+        check_size_min      BIGINT,
+        check_size_max      BIGINT,
+        currency            TEXT NOT NULL DEFAULT 'CAD',
+        probability         INTEGER,
+        source              TEXT,
+        introducer_name     TEXT,
+        website             TEXT,
+        country             TEXT,
+        region              TEXT,
+        strategic_relevance TEXT,
+        thesis_fit          TEXT,
+        notes               TEXT,
+        last_touch_at       TIMESTAMPTZ,
+        next_step           TEXT,
+        next_step_date      DATE,
+        related_round_id    INTEGER,
+        data_room_status    TEXT NOT NULL DEFAULT 'Not Shared',
+        can_write_cheque    BOOLEAN NOT NULL DEFAULT TRUE,
+        created_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        updated_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS capital_contacts (
+        id                   SERIAL PRIMARY KEY,
+        investor_id          INTEGER REFERENCES capital_investors(id) ON DELETE SET NULL,
+        first_name           TEXT NOT NULL,
+        last_name            TEXT,
+        full_name            TEXT,
+        title                TEXT,
+        email                TEXT,
+        phone                TEXT,
+        linkedin_url         TEXT,
+        role_type            TEXT NOT NULL DEFAULT 'Other',
+        influence_level      TEXT NOT NULL DEFAULT 'Medium',
+        relationship_strength TEXT NOT NULL DEFAULT 'Cold',
+        notes                TEXT,
+        last_touch_at        TIMESTAMPTZ,
+        next_step            TEXT,
+        next_step_date       DATE,
+        created_by           INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        updated_by           INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS capital_rounds (
+        id                   SERIAL PRIMARY KEY,
+        name                 TEXT NOT NULL,
+        round_type           TEXT NOT NULL DEFAULT 'Seed',
+        target_amount        BIGINT,
+        currency             TEXT NOT NULL DEFAULT 'CAD',
+        pre_money_valuation  BIGINT,
+        post_money_valuation BIGINT,
+        minimum_check_size   BIGINT,
+        status               TEXT NOT NULL DEFAULT 'Planning',
+        open_date            DATE,
+        target_close_date    DATE,
+        actual_close_date    DATE,
+        notes                TEXT,
+        created_by           INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        updated_by           INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS capital_commitments (
+        id                  SERIAL PRIMARY KEY,
+        investor_id         INTEGER REFERENCES capital_investors(id) ON DELETE SET NULL,
+        round_id            INTEGER REFERENCES capital_rounds(id) ON DELETE SET NULL,
+        contact_id          INTEGER REFERENCES capital_contacts(id) ON DELETE SET NULL,
+        amount              BIGINT,
+        currency            TEXT NOT NULL DEFAULT 'CAD',
+        commitment_stage    TEXT NOT NULL DEFAULT 'Verbal Interest',
+        probability         INTEGER,
+        expected_close_date DATE,
+        actual_close_date   DATE,
+        terms_summary       TEXT,
+        notes               TEXT,
+        created_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        updated_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      ALTER TABLE capital_activities ADD COLUMN IF NOT EXISTS entity_type TEXT;
+      ALTER TABLE capital_activities ADD COLUMN IF NOT EXISTS entity_id   INTEGER;
+      ALTER TABLE capital_activities ADD COLUMN IF NOT EXISTS title       TEXT;
+      ALTER TABLE capital_activities ADD COLUMN IF NOT EXISTS old_value   TEXT;
+      ALTER TABLE capital_activities ADD COLUMN IF NOT EXISTS new_value   TEXT;
+      ALTER TABLE capital_activities ADD COLUMN IF NOT EXISTS created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS idx_capital_investors_stage      ON capital_investors(stage);
+      CREATE INDEX IF NOT EXISTS idx_capital_investors_priority   ON capital_investors(priority);
+      CREATE INDEX IF NOT EXISTS idx_capital_investors_type       ON capital_investors(investor_type);
+      CREATE INDEX IF NOT EXISTS idx_capital_investors_next_step  ON capital_investors(next_step_date);
+      CREATE INDEX IF NOT EXISTS idx_capital_contacts_investor    ON capital_contacts(investor_id);
+      CREATE INDEX IF NOT EXISTS idx_capital_rounds_status        ON capital_rounds(status);
+      CREATE INDEX IF NOT EXISTS idx_capital_commitments_investor ON capital_commitments(investor_id);
+      CREATE INDEX IF NOT EXISTS idx_capital_commitments_round    ON capital_commitments(round_id);
+      CREATE INDEX IF NOT EXISTS idx_capital_activities_entity    ON capital_activities(entity_type, entity_id);
+    `));
+  } catch (_e2) { /* already exists — idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -172,6 +281,34 @@ function safeId(v: any): number | null {
   if (v == null || v === "") return null;
   const n = parseInt(String(v), 10);
   return isNaN(n) ? null : n;
+}
+
+function esc(v: string): string { return String(v).replace(/'/g, "''"); }
+
+async function logCapitalActivity(
+  entityType: string,
+  entityId: number,
+  activityType: string,
+  title: string,
+  opts: { oldValue?: string | null; newValue?: string | null; body?: string | null; createdBy?: number | null } = {}
+): Promise<void> {
+  try {
+    await db.execute(sql.raw(`
+      INSERT INTO capital_activities
+        (entity_type, entity_id, activity_type, title, old_value, new_value, body, created_by, activity_at)
+      VALUES (
+        '${esc(entityType)}',
+        ${entityId},
+        '${esc(activityType)}',
+        '${esc(title)}',
+        ${opts.oldValue != null ? `'${esc(opts.oldValue)}'` : "NULL"},
+        ${opts.newValue != null ? `'${esc(opts.newValue)}'` : "NULL"},
+        ${opts.body     != null ? `'${esc(opts.body)}'`     : "NULL"},
+        ${opts.createdBy ?? "NULL"},
+        NOW()
+      )
+    `));
+  } catch { /* audit write failure must never surface to caller */ }
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -691,32 +828,593 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
     }
   });
 
-  // ── Pipeline ────────────────────────────────────────────────────────────────
-  app.get("/api/capital/pipeline", requireAuth, requireCapitalAccess, async (_req, res) => {
+  // ── Pipeline (capital_investors) ────────────────────────────────────────────
+  app.get("/api/capital/pipeline", requireAuth, requireCapitalAccess, async (req, res) => {
     try {
-      const rows = await db.execute(sql.raw(`
-        SELECT pipeline_stage,
-               COUNT(*) AS count,
-               SUM(COALESCE(expected_amount_cents, 0)) AS total_expected,
-               SUM(CASE WHEN expected_amount_cents IS NOT NULL AND probability_percent IS NOT NULL
-                        THEN expected_amount_cents * probability_percent / 100
-                        ELSE 0 END) AS total_weighted
-        FROM capital_funders
-        GROUP BY pipeline_stage
-        ORDER BY pipeline_stage
-      `));
-      const byStage = rows.rows as any[];
-      const funders = await db.execute(sql.raw(`SELECT * FROM capital_funders ORDER BY priority DESC, updated_at DESC LIMIT 200`));
-      res.json({
-        stagesSummary: byStage,
-        funders: (funders.rows as any[]).map(f => ({
-          ...f,
-          weighted_amount_cents: weighted(Number(f.expected_amount_cents)||null, Number(f.probability_percent)||null),
-        })),
-      });
+      const { stage, priority, type } = req.query as any;
+      let where = "WHERE 1=1";
+      if (stage)    where += ` AND stage = '${esc(stage)}'`;
+      if (priority) where += ` AND priority = '${esc(priority)}'`;
+      if (type)     where += ` AND investor_type = '${esc(type)}'`;
+      const [summaryRows, investorRows] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT stage,
+                 COUNT(*) AS count,
+                 COALESCE(SUM(check_size_max), 0) AS total_max,
+                 COALESCE(SUM(CASE WHEN check_size_max IS NOT NULL AND probability IS NOT NULL
+                                   THEN check_size_max * probability / 100 ELSE 0 END), 0) AS total_weighted
+          FROM capital_investors ${where}
+          GROUP BY stage
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_investors ${where}
+          ORDER BY
+            CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END,
+            next_step_date ASC NULLS LAST,
+            updated_at DESC
+          LIMIT 300
+        `)),
+      ]);
+      res.json({ stagesSummary: summaryRows.rows, investors: investorRows.rows });
     } catch (err: any) {
       console.error("[capital] GET /pipeline:", err?.message);
       res.status(500).json({ message: "Failed to load pipeline" });
+    }
+  });
+
+  // ── Investors (Phase 2A) ─────────────────────────────────────────────────────
+  app.get("/api/capital/investors", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const { investor_type, stage, status, priority, round_id, can_write_cheque, search, next_step_due, sort } = req.query as any;
+      let where = "WHERE 1=1";
+      if (investor_type)             where += ` AND investor_type = '${esc(investor_type)}'`;
+      if (stage)                     where += ` AND stage = '${esc(stage)}'`;
+      if (status)                    where += ` AND status = '${esc(status)}'`;
+      if (priority)                  where += ` AND priority = '${esc(priority)}'`;
+      if (round_id) { const rid = safeId(round_id); if (rid) where += ` AND related_round_id = ${rid}`; }
+      if (can_write_cheque === "true")  where += ` AND can_write_cheque = TRUE`;
+      if (can_write_cheque === "false") where += ` AND can_write_cheque = FALSE`;
+      if (search)                    where += ` AND (name ILIKE '%${esc(search)}%' OR COALESCE(source,'') ILIKE '%${esc(search)}%' OR COALESCE(introducer_name,'') ILIKE '%${esc(search)}%' OR COALESCE(notes,'') ILIKE '%${esc(search)}%')`;
+      if (next_step_due)             where += ` AND next_step_date <= '${esc(next_step_due)}'`;
+      const orderBy = sort === "name"  ? "name ASC" :
+                      sort === "stage" ? "stage ASC" :
+                      "CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END, next_step_date ASC NULLS LAST, updated_at DESC";
+      const rows = await db.execute(sql.raw(`SELECT * FROM capital_investors ${where} ORDER BY ${orderBy} LIMIT 300`));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /investors:", err?.message);
+      res.status(500).json({ message: "Failed to load investors" });
+    }
+  });
+
+  app.post("/api/capital/investors", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const {
+        name, investor_type, status, priority, stage, check_size_min, check_size_max,
+        currency, probability, source, introducer_name, website, country, region,
+        strategic_relevance, thesis_fit, notes, last_touch_at, next_step, next_step_date,
+        related_round_id, data_room_status, can_write_cheque,
+      } = req.body;
+      if (!name?.trim())          return res.status(400).json({ message: "name is required" });
+      if (!investor_type?.trim()) return res.status(400).json({ message: "investor_type is required" });
+      if (!stage?.trim())         return res.status(400).json({ message: "stage is required" });
+      const prob = formatInt(probability);
+      if (prob != null && (prob < 0 || prob > 100)) return res.status(400).json({ message: "probability must be 0–100" });
+      const min = formatCents(check_size_min);
+      const max = formatCents(check_size_max);
+      if (min != null && min < 0) return res.status(400).json({ message: "check_size_min must be non-negative" });
+      if (max != null && max < 0) return res.status(400).json({ message: "check_size_max must be non-negative" });
+      if (min != null && max != null && max < min) return res.status(400).json({ message: "check_size_max must be >= check_size_min" });
+      // Connector / Referrer defaults can_write_cheque to false
+      const cwc = can_write_cheque !== undefined ? (can_write_cheque === true || can_write_cheque === "true") :
+                  investor_type === "Connector / Referrer" ? false : true;
+      const roundId = safeId(related_round_id);
+      const row = await db.execute(sql.raw(`
+        INSERT INTO capital_investors
+          (name, investor_type, status, priority, stage, check_size_min, check_size_max,
+           currency, probability, source, introducer_name, website, country, region,
+           strategic_relevance, thesis_fit, notes, last_touch_at, next_step, next_step_date,
+           related_round_id, data_room_status, can_write_cheque, created_by, updated_by)
+        VALUES (
+          '${esc(name)}',
+          '${esc(investor_type)}',
+          '${esc(status || "Active")}',
+          '${esc(priority || "Medium")}',
+          '${esc(stage)}',
+          ${min ?? "NULL"},
+          ${max ?? "NULL"},
+          '${esc(currency || "CAD")}',
+          ${prob ?? "NULL"},
+          ${source           ? `'${esc(source)}'`           : "NULL"},
+          ${introducer_name  ? `'${esc(introducer_name)}'`  : "NULL"},
+          ${website          ? `'${esc(website)}'`          : "NULL"},
+          ${country          ? `'${esc(country)}'`          : "NULL"},
+          ${region           ? `'${esc(region)}'`           : "NULL"},
+          ${strategic_relevance ? `'${esc(strategic_relevance)}'` : "NULL"},
+          ${thesis_fit       ? `'${esc(thesis_fit)}'`       : "NULL"},
+          ${notes            ? `'${esc(notes)}'`            : "NULL"},
+          ${last_touch_at    ? `'${last_touch_at}'`         : "NULL"},
+          ${next_step        ? `'${esc(next_step)}'`        : "NULL"},
+          ${next_step_date   ? `'${next_step_date}'`        : "NULL"},
+          ${roundId          ?? "NULL"},
+          '${esc(data_room_status || "Not Shared")}',
+          ${cwc},
+          ${req.session.userId},
+          ${req.session.userId}
+        ) RETURNING *
+      `));
+      const inv = row.rows[0] as any;
+      await logCapitalActivity("investor", inv.id, "System", `Investor added: ${name}`, { createdBy: req.session.userId });
+      res.status(201).json(inv);
+    } catch (err: any) {
+      console.error("[capital] POST /investors:", err?.message);
+      res.status(500).json({ message: "Failed to create investor" });
+    }
+  });
+
+  app.get("/api/capital/investors/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const [invRow, contactsRow, commitmentsRow, activitiesRow] = await Promise.all([
+        db.execute(sql.raw(`SELECT * FROM capital_investors WHERE id = ${id} LIMIT 1`)),
+        db.execute(sql.raw(`SELECT * FROM capital_contacts WHERE investor_id = ${id} ORDER BY created_at DESC`)),
+        db.execute(sql.raw(`
+          SELECT cc.*, cr.name AS round_name
+          FROM capital_commitments cc
+          LEFT JOIN capital_rounds cr ON cc.round_id = cr.id
+          WHERE cc.investor_id = ${id} ORDER BY cc.created_at DESC
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_activities
+          WHERE entity_type = 'investor' AND entity_id = ${id}
+          ORDER BY activity_at DESC, created_at DESC LIMIT 50
+        `)),
+      ]);
+      const inv = invRow.rows[0] as any;
+      if (!inv) return res.status(404).json({ message: "Investor not found" });
+      res.json({ ...inv, contacts: contactsRow.rows, commitments: commitmentsRow.rows, activities: activitiesRow.rows });
+    } catch (err: any) {
+      console.error("[capital] GET /investors/:id:", err?.message);
+      res.status(500).json({ message: "Failed to load investor" });
+    }
+  });
+
+  app.patch("/api/capital/investors/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const prev = (await db.execute(sql.raw(`SELECT stage, next_step, priority FROM capital_investors WHERE id = ${id} LIMIT 1`))).rows[0] as any;
+      if (!prev) return res.status(404).json({ message: "Investor not found" });
+      const allowed = [
+        "name","investor_type","status","priority","stage","check_size_min","check_size_max",
+        "currency","probability","source","introducer_name","website","country","region",
+        "strategic_relevance","thesis_fit","notes","last_touch_at","next_step","next_step_date",
+        "related_round_id","data_room_status","can_write_cheque",
+      ];
+      const numericFields = new Set(["check_size_min","check_size_max","probability","related_round_id"]);
+      const boolFields    = new Set(["can_write_cheque"]);
+      const sets: string[] = [`updated_at = NOW()`, `updated_by = ${(req as any).session?.userId ?? "NULL"}`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") {
+          sets.push(`${key} = NULL`);
+        } else if (boolFields.has(key)) {
+          sets.push(`${key} = ${v === true || v === "true" ? "TRUE" : "FALSE"}`);
+        } else if (numericFields.has(key)) {
+          const n = Number(v); if (!isNaN(n)) sets.push(`${key} = ${n}`);
+        } else {
+          sets.push(`${key} = '${esc(String(v))}'`);
+        }
+      }
+      if (sets.length === 2) return res.status(400).json({ message: "No fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE capital_investors SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const inv = rows.rows[0] as any;
+      if (!inv) return res.status(404).json({ message: "Investor not found" });
+      const uid = (req as any).session?.userId ?? null;
+      if ("stage" in req.body && req.body.stage && req.body.stage !== prev.stage) {
+        await logCapitalActivity("investor", id, "Stage Change", "Stage changed", { oldValue: prev.stage, newValue: req.body.stage, createdBy: uid });
+      }
+      if ("next_step" in req.body && req.body.next_step !== prev.next_step) {
+        await logCapitalActivity("investor", id, "Note", "Next step updated", { newValue: req.body.next_step ?? null, createdBy: uid });
+      }
+      if ("priority" in req.body && req.body.priority && req.body.priority !== prev.priority) {
+        await logCapitalActivity("investor", id, "Note", "Priority changed", { oldValue: prev.priority, newValue: req.body.priority, createdBy: uid });
+      }
+      res.json(inv);
+    } catch (err: any) {
+      console.error("[capital] PATCH /investors/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update investor" });
+    }
+  });
+
+  app.delete("/api/capital/investors/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(`UPDATE capital_contacts    SET investor_id = NULL WHERE investor_id = ${id}`));
+      await db.execute(sql.raw(`UPDATE capital_commitments SET investor_id = NULL WHERE investor_id = ${id}`));
+      await db.execute(sql.raw(`DELETE FROM capital_investors WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] DELETE /investors/:id:", err?.message);
+      res.status(500).json({ message: "Failed to delete investor" });
+    }
+  });
+
+  app.get("/api/capital/investors/:id/activities", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT * FROM capital_activities
+        WHERE entity_type = 'investor' AND entity_id = ${id}
+        ORDER BY activity_at DESC, created_at DESC LIMIT 100
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /investors/:id/activities:", err?.message);
+      res.status(500).json({ message: "Failed to load activities" });
+    }
+  });
+
+  app.post("/api/capital/investors/:id/activities", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const { activity_type, title, body } = req.body;
+      const row = await db.execute(sql.raw(`
+        INSERT INTO capital_activities (entity_type, entity_id, activity_type, title, body, created_by, activity_at)
+        VALUES (
+          'investor', ${id},
+          '${esc(activity_type || "Note")}',
+          ${title ? `'${esc(title)}'` : "NULL"},
+          ${body  ? `'${esc(body)}'`  : "NULL"},
+          ${req.session.userId},
+          NOW()
+        ) RETURNING *
+      `));
+      res.status(201).json(row.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] POST /investors/:id/activities:", err?.message);
+      res.status(500).json({ message: "Failed to log activity" });
+    }
+  });
+
+  // ── Contacts (Phase 2A) ───────────────────────────────────────────────────────
+  app.get("/api/capital/contacts", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const { investor_id, role_type, search } = req.query as any;
+      let where = "WHERE 1=1";
+      if (investor_id) { const iid = safeId(investor_id); if (iid) where += ` AND cc.investor_id = ${iid}`; }
+      if (role_type)   where += ` AND cc.role_type = '${esc(role_type)}'`;
+      if (search)      where += ` AND (cc.first_name ILIKE '%${esc(search)}%' OR COALESCE(cc.last_name,'') ILIKE '%${esc(search)}%' OR COALESCE(cc.full_name,'') ILIKE '%${esc(search)}%' OR COALESCE(cc.email,'') ILIKE '%${esc(search)}%' OR COALESCE(cc.title,'') ILIKE '%${esc(search)}%')`;
+      const rows = await db.execute(sql.raw(`
+        SELECT cc.*, ci.name AS investor_name
+        FROM capital_contacts cc
+        LEFT JOIN capital_investors ci ON cc.investor_id = ci.id
+        ${where}
+        ORDER BY cc.created_at DESC LIMIT 200
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /contacts:", err?.message);
+      res.status(500).json({ message: "Failed to load contacts" });
+    }
+  });
+
+  app.post("/api/capital/contacts", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const {
+        investor_id, first_name, last_name, full_name, title, email, phone,
+        linkedin_url, role_type, influence_level, relationship_strength, notes,
+        last_touch_at, next_step, next_step_date,
+      } = req.body;
+      if (!first_name?.trim()) return res.status(400).json({ message: "first_name is required" });
+      const iid = safeId(investor_id);
+      const computedFull = full_name || [first_name, last_name].filter(Boolean).join(" ");
+      const row = await db.execute(sql.raw(`
+        INSERT INTO capital_contacts
+          (investor_id, first_name, last_name, full_name, title, email, phone,
+           linkedin_url, role_type, influence_level, relationship_strength, notes,
+           last_touch_at, next_step, next_step_date, created_by, updated_by)
+        VALUES (
+          ${iid ?? "NULL"},
+          '${esc(first_name)}',
+          ${last_name    ? `'${esc(last_name)}'`    : "NULL"},
+          '${esc(computedFull)}',
+          ${title        ? `'${esc(title)}'`        : "NULL"},
+          ${email        ? `'${esc(email)}'`        : "NULL"},
+          ${phone        ? `'${esc(phone)}'`        : "NULL"},
+          ${linkedin_url ? `'${esc(linkedin_url)}'` : "NULL"},
+          '${esc(role_type || "Other")}',
+          '${esc(influence_level || "Medium")}',
+          '${esc(relationship_strength || "Cold")}',
+          ${notes        ? `'${esc(notes)}'`        : "NULL"},
+          ${last_touch_at  ? `'${last_touch_at}'`  : "NULL"},
+          ${next_step      ? `'${esc(next_step)}'` : "NULL"},
+          ${next_step_date ? `'${next_step_date}'` : "NULL"},
+          ${req.session.userId},
+          ${req.session.userId}
+        ) RETURNING *
+      `));
+      res.status(201).json(row.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] POST /contacts:", err?.message);
+      res.status(500).json({ message: "Failed to create contact" });
+    }
+  });
+
+  app.get("/api/capital/contacts/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT cc.*, ci.name AS investor_name
+        FROM capital_contacts cc
+        LEFT JOIN capital_investors ci ON cc.investor_id = ci.id
+        WHERE cc.id = ${id} LIMIT 1
+      `));
+      const c = rows.rows[0] as any;
+      if (!c) return res.status(404).json({ message: "Contact not found" });
+      res.json(c);
+    } catch (err: any) {
+      console.error("[capital] GET /contacts/:id:", err?.message);
+      res.status(500).json({ message: "Failed to load contact" });
+    }
+  });
+
+  app.patch("/api/capital/contacts/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const allowed = [
+        "investor_id","first_name","last_name","full_name","title","email","phone",
+        "linkedin_url","role_type","influence_level","relationship_strength","notes",
+        "last_touch_at","next_step","next_step_date",
+      ];
+      const sets: string[] = [`updated_at = NOW()`, `updated_by = ${(req as any).session?.userId ?? "NULL"}`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") { sets.push(`${key} = NULL`); }
+        else if (key === "investor_id") { const n = safeId(v); if (n) sets.push(`${key} = ${n}`); }
+        else { sets.push(`${key} = '${esc(String(v))}'`); }
+      }
+      if (sets.length === 2) return res.status(400).json({ message: "No fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE capital_contacts SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const c = rows.rows[0] as any;
+      if (!c) return res.status(404).json({ message: "Contact not found" });
+      res.json(c);
+    } catch (err: any) {
+      console.error("[capital] PATCH /contacts/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update contact" });
+    }
+  });
+
+  // ── Rounds (Phase 2A) ─────────────────────────────────────────────────────────
+  app.get("/api/capital/rounds", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const { status, round_type } = req.query as any;
+      let where = "WHERE 1=1";
+      if (status)     where += ` AND status = '${esc(status)}'`;
+      if (round_type) where += ` AND round_type = '${esc(round_type)}'`;
+      const rows = await db.execute(sql.raw(`SELECT * FROM capital_rounds ${where} ORDER BY created_at DESC LIMIT 100`));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /rounds:", err?.message);
+      res.status(500).json({ message: "Failed to load rounds" });
+    }
+  });
+
+  app.post("/api/capital/rounds", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const {
+        name, round_type, target_amount, currency, pre_money_valuation, post_money_valuation,
+        minimum_check_size, status, open_date, target_close_date, actual_close_date, notes,
+      } = req.body;
+      if (!name?.trim()) return res.status(400).json({ message: "name is required" });
+      const row = await db.execute(sql.raw(`
+        INSERT INTO capital_rounds
+          (name, round_type, target_amount, currency, pre_money_valuation, post_money_valuation,
+           minimum_check_size, status, open_date, target_close_date, actual_close_date, notes,
+           created_by, updated_by)
+        VALUES (
+          '${esc(name)}',
+          '${esc(round_type || "Seed")}',
+          ${formatCents(target_amount)        ?? "NULL"},
+          '${esc(currency || "CAD")}',
+          ${formatCents(pre_money_valuation)  ?? "NULL"},
+          ${formatCents(post_money_valuation) ?? "NULL"},
+          ${formatCents(minimum_check_size)   ?? "NULL"},
+          '${esc(status || "Planning")}',
+          ${open_date         ? `'${open_date}'`         : "NULL"},
+          ${target_close_date ? `'${target_close_date}'` : "NULL"},
+          ${actual_close_date ? `'${actual_close_date}'` : "NULL"},
+          ${notes             ? `'${esc(notes)}'`        : "NULL"},
+          ${req.session.userId},
+          ${req.session.userId}
+        ) RETURNING *
+      `));
+      res.status(201).json(row.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] POST /rounds:", err?.message);
+      res.status(500).json({ message: "Failed to create round" });
+    }
+  });
+
+  app.get("/api/capital/rounds/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const [roundRow, commitmentsRow] = await Promise.all([
+        db.execute(sql.raw(`SELECT * FROM capital_rounds WHERE id = ${id} LIMIT 1`)),
+        db.execute(sql.raw(`
+          SELECT cc.*, ci.name AS investor_name
+          FROM capital_commitments cc
+          LEFT JOIN capital_investors ci ON cc.investor_id = ci.id
+          WHERE cc.round_id = ${id} ORDER BY cc.created_at DESC
+        `)),
+      ]);
+      const r = roundRow.rows[0] as any;
+      if (!r) return res.status(404).json({ message: "Round not found" });
+      res.json({ ...r, commitments: commitmentsRow.rows });
+    } catch (err: any) {
+      console.error("[capital] GET /rounds/:id:", err?.message);
+      res.status(500).json({ message: "Failed to load round" });
+    }
+  });
+
+  app.patch("/api/capital/rounds/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const allowed = [
+        "name","round_type","target_amount","currency","pre_money_valuation","post_money_valuation",
+        "minimum_check_size","status","open_date","target_close_date","actual_close_date","notes",
+      ];
+      const numericFields = new Set(["target_amount","pre_money_valuation","post_money_valuation","minimum_check_size"]);
+      const sets: string[] = [`updated_at = NOW()`, `updated_by = ${(req as any).session?.userId ?? "NULL"}`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") { sets.push(`${key} = NULL`); }
+        else if (numericFields.has(key)) { const n = Number(v); if (!isNaN(n)) sets.push(`${key} = ${n}`); }
+        else { sets.push(`${key} = '${esc(String(v))}'`); }
+      }
+      if (sets.length === 2) return res.status(400).json({ message: "No fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE capital_rounds SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const r = rows.rows[0] as any;
+      if (!r) return res.status(404).json({ message: "Round not found" });
+      res.json(r);
+    } catch (err: any) {
+      console.error("[capital] PATCH /rounds/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update round" });
+    }
+  });
+
+  // ── Commitments (Phase 2A) ────────────────────────────────────────────────────
+  app.get("/api/capital/commitments", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const { investor_id, round_id, commitment_stage } = req.query as any;
+      let where = "WHERE 1=1";
+      if (investor_id) { const id = safeId(investor_id); if (id) where += ` AND cc.investor_id = ${id}`; }
+      if (round_id)    { const id = safeId(round_id);    if (id) where += ` AND cc.round_id = ${id}`; }
+      if (commitment_stage) where += ` AND cc.commitment_stage = '${esc(commitment_stage)}'`;
+      const rows = await db.execute(sql.raw(`
+        SELECT cc.*, ci.name AS investor_name, cr.name AS round_name
+        FROM capital_commitments cc
+        LEFT JOIN capital_investors ci ON cc.investor_id = ci.id
+        LEFT JOIN capital_rounds   cr ON cc.round_id    = cr.id
+        ${where}
+        ORDER BY cc.created_at DESC LIMIT 200
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /commitments:", err?.message);
+      res.status(500).json({ message: "Failed to load commitments" });
+    }
+  });
+
+  app.post("/api/capital/commitments", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const {
+        investor_id, round_id, contact_id, amount, currency, commitment_stage,
+        probability, expected_close_date, actual_close_date, terms_summary, notes,
+      } = req.body;
+      if (!investor_id) return res.status(400).json({ message: "investor_id is required" });
+      const iid = safeId(investor_id);
+      if (!iid) return res.status(400).json({ message: "investor_id is required" });
+      const amt  = formatCents(amount);
+      if (amt != null && amt < 0) return res.status(400).json({ message: "amount must be non-negative" });
+      const prob = formatInt(probability);
+      if (prob != null && (prob < 0 || prob > 100)) return res.status(400).json({ message: "probability must be 0–100" });
+      const rid = safeId(round_id);
+      const cid = safeId(contact_id);
+      const stage = commitment_stage || "Verbal Interest";
+      const row = await db.execute(sql.raw(`
+        INSERT INTO capital_commitments
+          (investor_id, round_id, contact_id, amount, currency, commitment_stage,
+           probability, expected_close_date, actual_close_date, terms_summary, notes,
+           created_by, updated_by)
+        VALUES (
+          ${iid},
+          ${rid  ?? "NULL"},
+          ${cid  ?? "NULL"},
+          ${amt  ?? "NULL"},
+          '${esc(currency || "CAD")}',
+          '${esc(stage)}',
+          ${prob ?? "NULL"},
+          ${expected_close_date ? `'${expected_close_date}'` : "NULL"},
+          ${actual_close_date   ? `'${actual_close_date}'`   : "NULL"},
+          ${terms_summary       ? `'${esc(terms_summary)}'`  : "NULL"},
+          ${notes               ? `'${esc(notes)}'`          : "NULL"},
+          ${req.session.userId},
+          ${req.session.userId}
+        ) RETURNING *
+      `));
+      const comm = row.rows[0] as any;
+      await logCapitalActivity("investor", iid, "Commitment Change", `Commitment added: ${stage}`, { newValue: stage, createdBy: req.session.userId });
+      res.status(201).json(comm);
+    } catch (err: any) {
+      console.error("[capital] POST /commitments:", err?.message);
+      res.status(500).json({ message: "Failed to create commitment" });
+    }
+  });
+
+  app.get("/api/capital/commitments/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT cc.*, ci.name AS investor_name, cr.name AS round_name
+        FROM capital_commitments cc
+        LEFT JOIN capital_investors ci ON cc.investor_id = ci.id
+        LEFT JOIN capital_rounds   cr ON cc.round_id    = cr.id
+        WHERE cc.id = ${id} LIMIT 1
+      `));
+      const c = rows.rows[0] as any;
+      if (!c) return res.status(404).json({ message: "Commitment not found" });
+      res.json(c);
+    } catch (err: any) {
+      console.error("[capital] GET /commitments/:id:", err?.message);
+      res.status(500).json({ message: "Failed to load commitment" });
+    }
+  });
+
+  app.patch("/api/capital/commitments/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const prev = (await db.execute(sql.raw(`SELECT commitment_stage, investor_id FROM capital_commitments WHERE id = ${id} LIMIT 1`))).rows[0] as any;
+      if (!prev) return res.status(404).json({ message: "Commitment not found" });
+      const allowed = [
+        "investor_id","round_id","contact_id","amount","currency","commitment_stage",
+        "probability","expected_close_date","actual_close_date","terms_summary","notes",
+      ];
+      const numericFields = new Set(["amount","probability","investor_id","round_id","contact_id"]);
+      const sets: string[] = [`updated_at = NOW()`, `updated_by = ${(req as any).session?.userId ?? "NULL"}`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") { sets.push(`${key} = NULL`); }
+        else if (numericFields.has(key)) { const n = Number(v); if (!isNaN(n)) sets.push(`${key} = ${n}`); }
+        else { sets.push(`${key} = '${esc(String(v))}'`); }
+      }
+      if (sets.length === 2) return res.status(400).json({ message: "No fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE capital_commitments SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const c = rows.rows[0] as any;
+      if (!c) return res.status(404).json({ message: "Commitment not found" });
+      const uid = (req as any).session?.userId ?? null;
+      if ("commitment_stage" in req.body && req.body.commitment_stage && req.body.commitment_stage !== prev.commitment_stage) {
+        const iid = Number(prev.investor_id);
+        if (iid) await logCapitalActivity("investor", iid, "Commitment Change", "Commitment stage changed", { oldValue: prev.commitment_stage, newValue: req.body.commitment_stage, createdBy: uid });
+      }
+      res.json(c);
+    } catch (err: any) {
+      console.error("[capital] PATCH /commitments/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update commitment" });
     }
   });
 }

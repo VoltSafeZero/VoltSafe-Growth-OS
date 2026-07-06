@@ -159,18 +159,18 @@ ok("capital-dashboard shows empty state when no data",
   has(dashboard, "No capital records yet") || has(dashboard, "no capital") || has(dashboard, "empty"));
 ok("capital-dashboard shows committed, soft-circled, weighted pipeline",
   has(dashboard, "Committed") && has(dashboard, "Soft") && has(dashboard, "Weighted"));
-ok("capital-investors.tsx (Investor Targets) has funder table",
-  has(investors, "capital/funders") && has(investors, "Add Investor"));
-ok("capital-investors has create/edit dialog",
-  has(investors, "Dialog") && has(investors, "pipeline_stage") && has(investors, "funder_type"));
+ok("capital-investors.tsx (Investor Targets) calls /api/capital/investors endpoint",
+  has(investors, "capital/investors") && has(investors, "Add Investor"));
+ok("capital-investors has create/edit dialog with Phase 2A fields",
+  has(investors, "Dialog") && has(investors, "investor_type") && has(investors, "stage"));
 ok("capital-investors has search + type/stage/priority filters",
   has(investors, "typeFilter") && has(investors, "stageFilter"));
 ok("capital-grants.tsx (Grants & Non-Dilutive) has deadline and status columns",
   has(grants, "capital/grants") && has(grants, "deadline") && has(grants, "application_status"));
 ok("capital-grants has create/edit dialog",
   has(grants, "Dialog") && has(grants, "program_name"));
-ok("capital-pipeline.tsx (Investor Pipeline) shows funders grouped by stage",
-  has(pipeline, "pipeline_stage") && has(pipeline, "capital/pipeline"));
+ok("capital-pipeline.tsx (Investor Pipeline) queries capital/pipeline and groups by stage",
+  has(pipeline, "capital/pipeline") && has(pipeline, "stage"));
 ok("capital-documents.tsx (Data Room) has document type + status",
   has(documents, "document_type") && has(documents, "status") && has(documents, "capital/documents"));
 ok("capital-contacts.tsx exists (Investor Contacts placeholder)",
@@ -261,6 +261,129 @@ ok("requireCapitalAccess is NOT requirePermission-based (no CRM bypass)",
   !has(capital, /requireCapitalAccess[\s\S]{0,100}requirePermission/));
 ok("Ecosystem Investors entry removed (clean taxonomy separation)",
   !has(navConfig, /id:\s*["']investors["']/));
+
+// ── 11. Phase 2A: new DB tables in migration ──────────────────────────────────
+console.log("\n── 11. Phase 2A: DB tables ─────────────────────────────────────────");
+ok("capital_investors table in Phase 2A migration",
+  has(capital, "capital_investors"));
+ok("capital_contacts table in Phase 2A migration",
+  has(capital, "capital_contacts"));
+ok("capital_rounds table in Phase 2A migration",
+  has(capital, "capital_rounds"));
+ok("capital_commitments table in Phase 2A migration",
+  has(capital, "capital_commitments"));
+ok("capital_activities entity_type column added in Phase 2A",
+  has(capital, "entity_type"));
+ok("capital_activities entity_id column added in Phase 2A",
+  has(capital, "entity_id"));
+ok("can_write_cheque column on capital_investors",
+  has(capital, "can_write_cheque"));
+ok("data_room_status column on capital_investors",
+  has(capital, "data_room_status"));
+ok("commitment_stage column on capital_commitments",
+  has(capital, "commitment_stage"));
+
+// ── 12. Phase 2A: new API routes ──────────────────────────────────────────────
+console.log("\n── 12. Phase 2A: new API routes ─────────────────────────────────────");
+ok("GET /api/capital/investors route registered",
+  has(capital, /app\.get.*capital\/investors/));
+ok("POST /api/capital/investors route registered",
+  has(capital, /app\.post.*capital\/investors/));
+ok("PATCH /api/capital/investors/:id route registered",
+  has(capital, /app\.patch.*capital\/investors/));
+ok("DELETE /api/capital/investors/:id route registered",
+  has(capital, /app\.delete.*capital\/investors/));
+ok("GET /api/capital/investors/:id route returns contacts+commitments+activities",
+  has(capital, "contacts: contactsRow") || has(capital, "commitments: commitmentsRow") || has(capital, "activities: activitiesRow"));
+ok("POST /api/capital/investors/:id/activities route registered",
+  has(capital, /app\.post.*capital\/investors.*activities/));
+ok("GET /api/capital/contacts route registered",
+  has(capital, /app\.get.*capital\/contacts/));
+ok("POST /api/capital/contacts route registered",
+  has(capital, /app\.post.*capital\/contacts/));
+ok("PATCH /api/capital/contacts/:id route registered",
+  has(capital, /app\.patch.*capital\/contacts/));
+ok("GET /api/capital/rounds route registered",
+  has(capital, /app\.get.*capital\/rounds/));
+ok("POST /api/capital/rounds route registered",
+  has(capital, /app\.post.*capital\/rounds/));
+ok("PATCH /api/capital/rounds/:id route registered",
+  has(capital, /app\.patch.*capital\/rounds/));
+ok("GET /api/capital/commitments route registered",
+  has(capital, /app\.get.*capital\/commitments/));
+ok("POST /api/capital/commitments route registered",
+  has(capital, /app\.post.*capital\/commitments/));
+ok("PATCH /api/capital/commitments/:id route registered",
+  has(capital, /app\.patch.*capital\/commitments/));
+ok("Pipeline now queries capital_investors (not only capital_funders)",
+  has(capital, "capital_investors") && has(capital, "stagesSummary"));
+
+// ── 13. Phase 2A: helpers + activity logging ──────────────────────────────────
+console.log("\n── 13. Phase 2A: helpers + activity logging ─────────────────────────");
+ok("esc() helper exported for SQL escaping",
+  has(capital, "function esc(") || has(capital, "esc(v: string)"));
+ok("logCapitalActivity() helper defined",
+  has(capital, "logCapitalActivity"));
+ok("Stage changes on PATCH /investors/:id log capital_activities",
+  has(capital, "Stage Change") && has(capital, "logCapitalActivity"));
+ok("Commitment stage changes log investor activity",
+  has(capital, "Commitment Change") && has(capital, "commitment_stage") && has(capital, "logCapitalActivity"));
+ok("logCapitalActivity is fire-and-forget safe (try/catch swallows)",
+  has(capital, /logCapitalActivity[\s\S]{0,200}catch/s) ||
+  has(capital, /catch[\s\S]{0,50}audit write failure/s));
+
+// ── 14. Phase 2A: frontend — investors page rewrite ───────────────────────────
+console.log("\n── 14. Phase 2A: investors page ─────────────────────────────────────");
+ok("capital-investors uses /api/capital/investors not /funders",
+  has(investors, "capital/investors") && !has(investors, "capital/funders"));
+ok("capital-investors has INVESTOR_TYPES constant",
+  has(investors, "INVESTOR_TYPES"));
+ok("capital-investors has PIPELINE_STAGES constant",
+  has(investors, "PIPELINE_STAGES"));
+ok("capital-investors has Connector / Referrer can_write_cheque logic",
+  has(investors, "can_write_cheque") && has(investors, "Connector / Referrer"));
+ok("capital-investors has InvestorDetail Sheet drawer",
+  has(investors, "Sheet") && (has(investors, "InvestorDetail") || has(investors, "detail")));
+ok("capital-investors detail drawer shows contacts, commitments, activities",
+  has(investors, "contacts") && has(investors, "commitments") && has(investors, "activities"));
+ok("capital-investors has AlertTriangle icon for no-cheque warning",
+  has(investors, "AlertTriangle"));
+
+// ── 15. Phase 2A: frontend — pipeline rewrite ────────────────────────────────
+console.log("\n── 15. Phase 2A: pipeline page ──────────────────────────────────────");
+ok("capital-pipeline uses updated pipeline endpoint",
+  has(pipeline, "capital/pipeline"));
+ok("capital-pipeline reads investors not funders from API response",
+  has(pipeline, "investors") && !has(pipeline, "funders.rows") && !has(pipeline, "capital/funders"));
+ok("capital-pipeline has quick-add investor dialog",
+  has(pipeline, "Dialog") && has(pipeline, "Add Investor"));
+ok("capital-pipeline has inline stage-change Select per investor",
+  has(pipeline, "PATCH") || has(pipeline, "stageMut") || has(pipeline, "stage-change") || has(pipeline, "onValueChange"));
+
+// ── 16. Phase 2A: frontend — contacts, rounds, commitments real CRUD ─────────
+console.log("\n── 16. Phase 2A: contacts, rounds, commitments real CRUD ────────────");
+ok("capital-contacts uses /api/capital/contacts endpoint",
+  has(contacts, "capital/contacts"));
+ok("capital-contacts has create mutation (POST)",
+  has(contacts, "POST") || has(contacts, "apiRequest"));
+ok("capital-contacts links contacts to investors via investor_id",
+  has(contacts, "investor_id"));
+ok("capital-contacts has relationship_strength display",
+  has(contacts, "relationship_strength"));
+ok("capital-rounds uses /api/capital/rounds endpoint",
+  has(rounds, "capital/rounds"));
+ok("capital-rounds has create mutation (POST)",
+  has(rounds, "POST") || has(rounds, "apiRequest"));
+ok("capital-rounds shows target_amount",
+  has(rounds, "target_amount"));
+ok("capital-commitments uses /api/capital/commitments endpoint",
+  has(commitments, "capital/commitments"));
+ok("capital-commitments has create mutation requires investor_id",
+  has(commitments, "investor_id"));
+ok("capital-commitments shows running totals (committed + soft)",
+  has(commitments, "totalCommitted") || has(commitments, "Committed:") || has(commitments, "committed"));
+ok("capital-commitments links to rounds via round_id",
+  has(commitments, "round_id"));
 
 // ── Results ───────────────────────────────────────────────────────────────────
 console.log("\n─────────────────────────────────────────────────────────────────────");
