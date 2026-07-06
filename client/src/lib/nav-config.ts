@@ -213,6 +213,7 @@ export const NAV_CONFIG: NavSection[] = [
     items: [
       { id: "capital-dashboard",    label: "Dashboard",             route: "/capital/dashboard",    icon: LayoutDashboard },
       { id: "capital-pipeline",     label: "Investor Pipeline",     route: "/capital/pipeline",     icon: TrendingUp },
+      { id: "capital-follow-ups",   label: "Follow-Up Queue",       route: "/capital/follow-ups",   icon: Zap },
       { id: "capital-targets",      label: "Investor Targets",      route: "/capital/targets",      icon: Target },
       { id: "capital-contacts",     label: "Investor Contacts",     route: "/capital/contacts",     icon: Contact },
       { id: "capital-rounds",       label: "Funding Rounds",        route: "/capital/rounds",       icon: RefreshCcw },

@@ -259,6 +259,18 @@ export async function migrateCapitalSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_capital_activities_entity    ON capital_activities(entity_type, entity_id);
     `));
   } catch (_e2) { /* already exists — idempotent */ }
+
+  // ── Phase 2C: Investor Intelligence fields ────────────────────────────────
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE capital_investors ADD COLUMN IF NOT EXISTS warmth                  TEXT    NOT NULL DEFAULT 'Cold';
+      ALTER TABLE capital_investors ADD COLUMN IF NOT EXISTS do_not_contact          BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE capital_investors ADD COLUMN IF NOT EXISTS disqualification_reason TEXT;
+      ALTER TABLE capital_investors ADD COLUMN IF NOT EXISTS relationship_strength   TEXT;
+      ALTER TABLE capital_investors ADD COLUMN IF NOT EXISTS target_cheque_amount    BIGINT;
+      ALTER TABLE capital_investors ADD COLUMN IF NOT EXISTS likely_lead             BOOLEAN NOT NULL DEFAULT FALSE;
+    `));
+  } catch (_e3) { /* already exists — idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -284,6 +296,94 @@ function safeId(v: any): number | null {
 }
 
 function esc(v: string): string { return String(v).replace(/'/g, "''"); }
+
+// ── Phase 2C: Investor scoring ────────────────────────────────────────────────
+type InvestorScoreResult = {
+  score: number;
+  tier: "Hot" | "Warm" | "Nurture" | "Low Priority" | "Do Not Contact";
+  reasons: string[];
+};
+
+function computeInvestorScore(inv: {
+  stage?: string; priority?: string; warmth?: string; can_write_cheque?: boolean;
+  last_touch_at?: string | null; next_step_date?: string | null;
+  relationship_strength?: string | null; do_not_contact?: boolean;
+  check_size_max?: number | null; probability?: number | null; status?: string;
+}): InvestorScoreResult {
+  if (inv.do_not_contact) {
+    return { score: 0, tier: "Do Not Contact", reasons: ["Marked Do Not Contact"] };
+  }
+  if (inv.stage === "Passed" || inv.status === "Passed") {
+    return { score: 0, tier: "Do Not Contact", reasons: ["Investor has passed"] };
+  }
+
+  let score = 0;
+  const reasons: string[] = [];
+
+  const stageScores: Record<string, number> = {
+    "Wired / Closed": 40, "Committed": 40, "Soft Commit": 35,
+    "Partner Meeting": 30, "Diligence": 25, "Follow-Up": 15,
+    "First Meeting": 10, "Intro Made": 5, "Intro Needed": 3,
+    "Target Identified": 0,
+  };
+  const ss = stageScores[inv.stage ?? ""] ?? 0;
+  score += ss;
+  if (ss >= 25) reasons.push(`Advanced stage: ${inv.stage}`);
+  else if (ss > 0) reasons.push(`Stage: ${inv.stage}`);
+
+  const priorityScores: Record<string, number> = { "Critical": 30, "High": 20, "Medium": 10, "Low": 0 };
+  const ps = priorityScores[inv.priority ?? ""] ?? 10;
+  score += ps;
+  if (inv.priority === "Critical" || inv.priority === "High") reasons.push(`Priority: ${inv.priority}`);
+
+  const warmthScores: Record<string, number> = { "Hot": 20, "Warm": 15, "Engaged": 10, "Lukewarm": 5, "Cold": 0, "Unresponsive": -5 };
+  const ws = warmthScores[inv.warmth ?? "Cold"] ?? 0;
+  score += ws;
+  if (ws >= 10) reasons.push(`Warmth: ${inv.warmth}`);
+
+  const relScores: Record<string, number> = { "Strong": 15, "Good": 10, "Developing": 5, "Warm": 8, "Cold": 0 };
+  const rs = relScores[inv.relationship_strength ?? ""] ?? 0;
+  score += rs;
+  if (rs >= 10) reasons.push("Strong relationship");
+
+  if (inv.can_write_cheque === false) { score -= 15; reasons.push("No direct cheque capacity"); }
+
+  const now = Date.now();
+  if (inv.last_touch_at) {
+    const ageDays = (now - new Date(inv.last_touch_at).getTime()) / 86400000;
+    if (ageDays <= 14) { score += 10; reasons.push("Recently contacted"); }
+    else if (ageDays > 90) { score -= 20; reasons.push(`Dormant: ${Math.round(ageDays)}d since last touch`); }
+    else if (ageDays > 60) { score -= 10; reasons.push(`No touch in ${Math.round(ageDays)} days`); }
+  } else {
+    score -= 15;
+    reasons.push("Never contacted");
+  }
+
+  if (inv.next_step_date) {
+    const diff = (new Date(inv.next_step_date).getTime() - now) / 86400000;
+    if (diff < 0) { score += 5; reasons.push("Overdue follow-up — action needed"); }
+    else if (diff <= 7) { score += 8; reasons.push("Follow-up due this week"); }
+    else { score += 3; }
+  } else {
+    score -= 8;
+    reasons.push("No next step scheduled");
+  }
+
+  if (inv.check_size_max != null && inv.check_size_max >= 500000) {
+    score += 5; reasons.push("Large cheque capacity");
+  }
+  if (inv.probability != null && inv.probability >= 50) {
+    score += 5; reasons.push(`High probability (${inv.probability}%)`);
+  }
+
+  let tier: InvestorScoreResult["tier"];
+  if (score >= 55)      tier = "Hot";
+  else if (score >= 35) tier = "Warm";
+  else if (score >= 15) tier = "Nurture";
+  else                  tier = "Low Priority";
+
+  return { score: Math.max(0, Math.min(100, score)), tier, reasons };
+}
 
 async function logCapitalActivity(
   entityType: string,
@@ -1014,9 +1114,11 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         "currency","probability","source","introducer_name","website","country","region",
         "strategic_relevance","thesis_fit","notes","last_touch_at","next_step","next_step_date",
         "related_round_id","data_room_status","can_write_cheque",
+        "warmth","do_not_contact","disqualification_reason","relationship_strength",
+        "target_cheque_amount","likely_lead",
       ];
-      const numericFields = new Set(["check_size_min","check_size_max","probability","related_round_id"]);
-      const boolFields    = new Set(["can_write_cheque"]);
+      const numericFields = new Set(["check_size_min","check_size_max","probability","related_round_id","target_cheque_amount"]);
+      const boolFields    = new Set(["can_write_cheque","do_not_contact","likely_lead"]);
       const sets: string[] = [`updated_at = NOW()`, `updated_by = ${(req as any).session?.userId ?? "NULL"}`];
       for (const key of allowed) {
         if (!(key in req.body)) continue;
@@ -1098,6 +1200,11 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
           NOW()
         ) RETURNING *
       `));
+      // Auto-update last_touch_at for substantive interaction types
+      const TOUCH_TYPES = new Set(["Email", "Call", "Meeting", "In-Person", "Video Call"]);
+      if (TOUCH_TYPES.has(activity_type)) {
+        await db.execute(sql.raw(`UPDATE capital_investors SET last_touch_at = NOW() WHERE id = ${id}`));
+      }
       res.status(201).json(row.rows[0]);
     } catch (err: any) {
       console.error("[capital] POST /investors/:id/activities:", err?.message);
@@ -1438,6 +1545,193 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
     } catch (err: any) {
       console.error("[capital] PATCH /commitments/:id:", err?.message);
       res.status(500).json({ message: "Failed to update commitment" });
+    }
+  });
+
+  // ── Phase 2C: Investor intelligence score ────────────────────────────────────
+  app.get("/api/capital/investors/:id/score", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`SELECT * FROM capital_investors WHERE id = ${id} LIMIT 1`));
+      const inv = rows.rows[0] as any;
+      if (!inv) return res.status(404).json({ message: "Investor not found" });
+      res.json({ id, ...computeInvestorScore(inv) });
+    } catch (err: any) {
+      console.error("[capital] GET /investors/:id/score:", err?.message);
+      res.status(500).json({ message: "Failed to compute score" });
+    }
+  });
+
+  // ── Phase 2C: Follow-up queue ─────────────────────────────────────────────────
+  app.get("/api/capital/follow-ups", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(`
+        SELECT ci.*,
+          (SELECT COUNT(*) FROM capital_contacts cc WHERE cc.investor_id = ci.id) AS contact_count
+        FROM capital_investors ci
+        WHERE ci.stage NOT IN ('Passed', 'Wired / Closed')
+          AND (ci.do_not_contact IS NULL OR ci.do_not_contact = FALSE)
+        ORDER BY
+          CASE ci.priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END,
+          ci.next_step_date ASC NULLS LAST,
+          ci.last_touch_at ASC NULLS FIRST,
+          ci.updated_at DESC
+        LIMIT 100
+      `));
+      const result = (rows.rows as any[]).map(inv => ({
+        ...inv,
+        intelligence: computeInvestorScore(inv),
+        days_since_touch: inv.last_touch_at
+          ? Math.floor((Date.now() - new Date(inv.last_touch_at).getTime()) / 86400000)
+          : null,
+        next_step_overdue: inv.next_step_date ? new Date(inv.next_step_date) < new Date() : false,
+      }));
+      res.json(result);
+    } catch (err: any) {
+      console.error("[capital] GET /follow-ups:", err?.message);
+      res.status(500).json({ message: "Failed to load follow-up queue" });
+    }
+  });
+
+  // ── Phase 2C: Pipeline intelligence summary ───────────────────────────────────
+  app.get("/api/capital/intelligence/pipeline", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(`SELECT * FROM capital_investors WHERE stage NOT IN ('Passed')`));
+      const all = rows.rows as any[];
+      const scored = all.map(inv => ({ ...inv, _score: computeInvestorScore(inv) }));
+      const hot      = scored.filter(i => i._score.tier === "Hot");
+      const warm     = scored.filter(i => i._score.tier === "Warm");
+      const overdue  = scored.filter(i => i.next_step_date && new Date(i.next_step_date) < new Date());
+      const noTouch  = scored.filter(i => !i.last_touch_at);
+      const atRisk   = scored.filter(i => {
+        if (!i.last_touch_at) return false;
+        const ageDays = (Date.now() - new Date(i.last_touch_at).getTime()) / 86400000;
+        return ageDays > 30 && ["Diligence","Partner Meeting","Soft Commit","Follow-Up"].includes(i.stage);
+      });
+      const totalWeighted = all
+        .filter(i => i.check_size_max && i.probability)
+        .reduce((sum, i) => sum + Math.round(i.check_size_max * i.probability / 100), 0);
+      const alerts = [
+        ...overdue.map(i => ({ type: "overdue", investor_id: i.id, name: i.name, message: `Follow-up overdue: ${i.next_step || "scheduled action"}` })),
+        ...noTouch.map(i => ({ type: "never_contacted", investor_id: i.id, name: i.name, message: "Never contacted" })),
+        ...atRisk.map(i => ({ type: "at_risk", investor_id: i.id, name: i.name, message: "No recent touch in active stage" })),
+      ].slice(0, 15);
+      res.json({
+        total_active: all.filter(i => i.stage !== "Wired / Closed").length,
+        total_weighted,
+        hot_count: hot.length,
+        warm_count: warm.length,
+        overdue_follow_ups: overdue.length,
+        never_contacted: noTouch.length,
+        at_risk_count: atRisk.length,
+        top_investors: [...hot.slice(0, 5), ...warm.slice(0, 3)].map(i => ({
+          id: i.id, name: i.name, stage: i.stage, priority: i.priority,
+          score: i._score.score, tier: i._score.tier, reasons: i._score.reasons.slice(0, 3),
+        })),
+        alerts,
+      });
+    } catch (err: any) {
+      console.error("[capital] GET /intelligence/pipeline:", err?.message);
+      res.status(500).json({ message: "Failed to load pipeline intelligence" });
+    }
+  });
+
+  // ── Phase 2C: Email context + draft templates ─────────────────────────────────
+  app.get("/api/capital/investors/:id/email-context", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const [invRow, contactsRow, activitiesRow, commitmentsRow] = await Promise.all([
+        db.execute(sql.raw(`SELECT * FROM capital_investors WHERE id = ${id} LIMIT 1`)),
+        db.execute(sql.raw(`SELECT * FROM capital_contacts WHERE investor_id = ${id} ORDER BY influence_level DESC, created_at DESC LIMIT 5`)),
+        db.execute(sql.raw(`SELECT * FROM capital_activities WHERE entity_type = 'investor' AND entity_id = ${id} ORDER BY activity_at DESC LIMIT 5`)),
+        db.execute(sql.raw(`
+          SELECT cc.*, cr.name AS round_name FROM capital_commitments cc
+          LEFT JOIN capital_rounds cr ON cc.round_id = cr.id
+          WHERE cc.investor_id = ${id} ORDER BY cc.created_at DESC LIMIT 3
+        `)),
+      ]);
+      const inv = invRow.rows[0] as any;
+      if (!inv) return res.status(404).json({ message: "Investor not found" });
+      const contacts    = contactsRow.rows    as any[];
+      const activities  = activitiesRow.rows  as any[];
+      const commitments = commitmentsRow.rows as any[];
+      const intel = computeInvestorScore(inv);
+      const primary = contacts[0];
+      const salutation = primary ? (primary.first_name || primary.full_name?.split(" ")[0] || "there") : "there";
+      const toLine = primary ? `${primary.full_name || primary.first_name}${primary.email ? ` <${primary.email}>` : ""}` : "";
+      const daysSinceTouch = inv.last_touch_at
+        ? Math.floor((Date.now() - new Date(inv.last_touch_at).getTime()) / 86400000)
+        : null;
+
+      const templates: Array<{ label: string; subject: string; body: string }> = [];
+
+      if (["Target Identified","Intro Needed","Intro Made"].includes(inv.stage)) {
+        const raiseStr = inv.check_size_max ? ` ($${(inv.check_size_max / 1_000_000).toFixed(1)}M ask)` : "";
+        templates.push({
+          label: "Initial Outreach",
+          subject: `VoltSafe — Marina EV Charging${raiseStr}`,
+          body: `Hi ${salutation},\n\nI hope this finds you well. I'm reaching out because VoltSafe is building the infrastructure layer for marina-based EV charging — we believe it's a compelling fit for your focus on ${inv.thesis_fit || "clean energy infrastructure"}.\n\nWe're actively raising our current round and I'd love 20 minutes to share what we're seeing in the market. Would you be open to a brief call this week or next?\n\nBest,\nTrevor Burgess\nCEO, VoltSafe`,
+        });
+      }
+
+      if (["First Meeting","Follow-Up","Intro Made","Intro Needed"].includes(inv.stage)) {
+        const lastAct = activities[0];
+        const lastDate = lastAct?.activity_at
+          ? ` on ${new Date(lastAct.activity_at).toLocaleDateString("en-CA", { month: "long", day: "numeric" })}`
+          : "";
+        templates.push({
+          label: "Follow-Up After Meeting",
+          subject: "Following up — VoltSafe",
+          body: `Hi ${salutation},\n\nThank you for our conversation${lastDate}. I wanted to follow up on ${inv.next_step || "our discussion"}.\n\n${inv.thesis_fit ? `Given your focus on ${inv.thesis_fit}, I believe VoltSafe is well-positioned to deliver strong returns as the marina EV market accelerates.` : "I'd love to continue the conversation and answer any questions you might have."}\n\nWould you be available for a follow-up call this week?\n\nBest,\nTrevor Burgess\nCEO, VoltSafe`,
+        });
+      }
+
+      if (["Diligence","Partner Meeting","Soft Commit"].includes(inv.stage)) {
+        templates.push({
+          label: "Diligence / Data Room Update",
+          subject: "VoltSafe — Data Room Update",
+          body: `Hi ${salutation},\n\nI wanted to check in on how the review is progressing. I've updated the data room${inv.data_room_status !== "Not Shared" ? ` (current access: ${inv.data_room_status})` : ""} with the latest financials and customer contracts.\n\nPlease let me know if there are any outstanding questions — happy to jump on a call or answer by email.\n\n${commitments.length > 0 ? "We're making great progress on the round and are eager to finalize terms with you.\n\n" : ""}Best,\nTrevor Burgess\nCEO, VoltSafe`,
+        });
+      }
+
+      if (["Soft Commit","Committed"].includes(inv.stage)) {
+        templates.push({
+          label: "Closing / Wire Instructions",
+          subject: "VoltSafe — Closing Documents Ready",
+          body: `Hi ${salutation},\n\nExciting news — we're ready to move to close. I'll have our counsel send the subscription agreement and wire instructions to you directly.\n\nPlease review at your earliest convenience. If you have any questions on the terms, I'm available to discuss.\n\nThank you for your partnership and belief in what we're building at VoltSafe.\n\nBest,\nTrevor Burgess\nCEO, VoltSafe`,
+        });
+      }
+
+      if (daysSinceTouch != null && daysSinceTouch > 45 && !["Passed","Wired / Closed"].includes(inv.stage)) {
+        templates.push({
+          label: "Re-Engagement (Dormant)",
+          subject: "Checking in — VoltSafe momentum update",
+          body: `Hi ${salutation},\n\nI wanted to reconnect and share a few quick updates from VoltSafe since we last spoke.\n\nWe've made significant progress on our commercial pipeline and I thought you'd appreciate the momentum update. I'd love to reconnect if the timing is right — would you be open to a brief call?\n\nBest,\nTrevor Burgess\nCEO, VoltSafe`,
+        });
+      }
+
+      if (templates.length === 0) {
+        templates.push({
+          label: "General Update",
+          subject: "VoltSafe — Update",
+          body: `Hi ${salutation},\n\nI wanted to reach out with a quick update on VoltSafe's progress.\n\nI look forward to keeping you informed as we continue to build.\n\nBest,\nTrevor Burgess\nCEO, VoltSafe`,
+        });
+      }
+
+      res.json({
+        investor: { id: inv.id, name: inv.name, stage: inv.stage, priority: inv.priority },
+        intelligence: intel,
+        primary_contact: primary ? { name: primary.full_name || primary.first_name, email: primary.email, title: primary.title } : null,
+        to_line: toLine,
+        days_since_touch: daysSinceTouch,
+        recent_activities: activities.map(a => ({ type: a.activity_type, title: a.title, at: a.activity_at })),
+        templates,
+      });
+    } catch (err: any) {
+      console.error("[capital] GET /investors/:id/email-context:", err?.message);
+      res.status(500).json({ message: "Failed to load email context" });
     }
   });
 }

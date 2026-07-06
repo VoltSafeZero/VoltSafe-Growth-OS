@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Users, Plus, Search, MoreHorizontal, AlertTriangle, DollarSign, Activity } from "lucide-react";
+import { Users, Plus, Search, MoreHorizontal, AlertTriangle, DollarSign, Activity, Brain, Mail, X, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
