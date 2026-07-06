@@ -158,7 +158,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
       setSelected(s => Math.max(s - 1, 0));
     } else if (e.key === "Enter") {
       if (selected < pageNavResults.length) {
-        goTo(pageNavResults[selected].route);
+        goTo(pageNavResults[selected].url);
       } else {
         const r = results[selected - pageNavResults.length];
         if (r) goTo(r.href);
@@ -234,13 +234,13 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                     const isActive = idx === selected;
                     return (
                       <button
-                        key={`page-${page.route}`}
-                        onClick={() => goTo(page.route)}
+                        key={`page-${page.url}`}
+                        onClick={() => goTo(page.url)}
                         onMouseEnter={() => setSelected(idx)}
                         className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
                           isActive ? "bg-primary/10 text-foreground" : "hover:bg-secondary/50 text-foreground/90"
                         }`}
-                        data-testid={`search-result-page-${page.route.replace(/\//g, "-")}`}
+                        data-testid={`search-result-page-${page.url.replace(/\//g, "-")}`}
                       >
                         <span className="p-1 rounded-md border bg-primary/10 text-primary border-primary/20">
                           <LayoutDashboard className="w-3.5 h-3.5 shrink-0" />

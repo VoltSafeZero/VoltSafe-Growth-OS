@@ -66,14 +66,15 @@ console.log("\n[1] nav-config.ts — section labels and item counts");
   assert(contains(src, "export const PAGE_NAV_INDEX"), "PAGE_NAV_INDEX exported");
   assert(contains(src, "export type PageNavEntry"),    "PageNavEntry type exported");
 
-  // Work items (6)
+  // Work items (7) — nav-drift phase 4B requires signatures/voice-profiles/daily-exec in Work
   const workItems = [
-    ["mission-control",  "Mission Control"],
-    ["inbox",            "Inbox & Mail"],
-    ["tasks",            "Tasks & Execution"],
-    ["calendar",         "Calendar & Meetings"],
-    ["my-travel",        "Travel"],
-    ["personal-settings","Personal Settings"],
+    ["mission-control", "Mission Control"],
+    ["inbox",           "Inbox & Mail"],
+    ["tasks",           "Tasks & Execution"],
+    ["calendar",        "Calendar & Meetings"],
+    ["signatures",      "Email Signatures"],
+    ["voice-profiles",  "AI Voice Profiles"],
+    ["daily-exec",      "Daily Execution"],
   ];
   for (const [id, label] of workItems) {
     assert(contains(src, `id: "${id}"`), `Work item "${id}" exists`);
@@ -81,15 +82,11 @@ console.log("\n[1] nav-config.ts — section labels and item counts");
   }
 
   // Work removed items NOT in nav (no route entry in items array)
-  // Work Calendar, Meeting Notes, etc. should not appear as nav item routes
-  // (They can appear in PAGE_NAV_INDEX — we check for that below)
-  assert(!contains(src, 'id: "work-calendar"'),   "Work Calendar removed from sidebar items");
-  assert(!contains(src, 'id: "meeting-notes"'),   "Meeting Notes removed from sidebar items");
-  assert(!contains(src, 'id: "activity"'),         "Activity Feed removed from sidebar items");
-  assert(!contains(src, 'id: "email-signatures"'), "Email Signatures removed from sidebar items");
-  assert(!contains(src, 'id: "ai-voice-profiles"'),"AI Voice Profiles removed from sidebar items");
-  assert(!contains(src, 'id: "daily-execution"'),  "Daily Execution removed from sidebar items");
-  assert(!contains(src, 'id: "digest-alerts"'),    "Digest Settings removed from sidebar items");
+  assert(!contains(src, 'id: "work-calendar"'),    "Work Calendar removed from sidebar items");
+  assert(!contains(src, 'id: "meeting-notes"'),    "Meeting Notes removed from sidebar items");
+  assert(!contains(src, 'id: "activity"'),          "Activity Feed removed from sidebar items");
+  assert(!contains(src, 'id: "my-travel"'),         "Travel removed from sidebar items");
+  assert(!contains(src, 'id: "personal-settings"'), "Personal Settings hub removed from sidebar");
 
   // Pipeline items (6)
   const pipelineItems = [
@@ -119,7 +116,7 @@ console.log("\n[1] nav-config.ts — section labels and item counts");
     ["projects",             "Projects"],
     ["procurement",          "Procurement"],
     ["support",              "Support"],
-    ["knowledge-documents",  "Knowledge & Documents"],
+    ["knowledge-documents",  "Document Hub"],
     ["data-quality",         "Data Quality"],
   ];
   for (const [id, label] of opsItems) {
@@ -143,7 +140,7 @@ console.log("\n[1] nav-config.ts — section labels and item counts");
     ["exec-dashboard",       "Executive Dashboard"],
     ["revenue-intelligence", "Revenue Intelligence"],
     ["attribution",          "Attribution"],
-    ["rel-intelligence",     "Relationship Intel"],
+    ["rel-intelligence",     "Relationship Intelligence"],
     ["cortex",               "Cortex"],
     ["simulators-feedback",  "Simulators & Feedback"],
   ];
@@ -181,21 +178,21 @@ console.log("\n[1] nav-config.ts — section labels and item counts");
   assert(!contains(src, 'id: "dealers"'),   "dealers renamed to channels");
   assert(!contains(src, 'id: "media"'),     "media renamed to events-media");
 
-  // Marketing items (5)
+  // Marketing items (6)
   const mktItems = [
-    ["marketing-dashboard",  "Dashboard"],
-    ["marketing-campaigns",  "Campaigns"],
-    ["marketing-audiences",  "Audiences"],
-    ["marketing-engagement", "Engagement"],
-    ["marketing-compliance", "Compliance"],
+    ["marketing-dashboard",    "Dashboard"],
+    ["marketing-campaigns",    "Campaigns"],
+    ["marketing-audiences",    "Audiences"],
+    ["marketing-hot-accounts", "Hot Accounts"],
+    ["marketing-engagement",   "Engagement"],
+    ["marketing-compliance",   "Compliance"],
   ];
   for (const [id, label] of mktItems) {
     assert(contains(src, `id: "${id}"`), `Marketing item "${id}" exists`);
   }
 
-  // Marketing: Replies + Hot Accounts removed as separate items
+  // Marketing: Replies removed as standalone; Hot Accounts is a direct nav item; Engagement is hub
   assert(!contains(src, 'id: "marketing-replies"'),      "marketing-replies removed from sidebar");
-  assert(!contains(src, 'id: "marketing-hot-accounts"'), "marketing-hot-accounts removed from sidebar");
   assert(contains(src, 'route: "/marketing/engagement"'),"Marketing Engagement hub route wired");
 
   // Capital items (6, capitalOnly)
@@ -220,24 +217,26 @@ console.log("\n[1] nav-config.ts — section labels and item counts");
   assert(!contains(src, 'id: "capital-grants"'),      "capital-grants removed from sidebar");
   assert(!contains(src, 'id: "capital-email-review"'),"capital-email-review removed from sidebar");
 
-  // Admin items (5)
+  // Admin items (9) — nav-drift phase 4E requires 9 { id: patterns
   const adminItems = [
-    ["admin-users",        "Users & Roles"],
-    ["admin-integrations", "Integrations"],
-    ["admin-mailboxes",    "Mailboxes & Signatures"],
-    ["admin-settings",     "System Settings"],
-    ["automations",        "Automations"],
+    ["admin-users",       "Users & Roles"],
+    ["admin-integrations","Integrations"],
+    ["admin-mailboxes",   "Mailboxes & Signatures"],
+    ["admin-settings",    "System Settings"],
+    ["automations",       "Automations"],
+    ["admin-task-hub",    "Task Hub Access"],
+    ["admin-roles",       "Role Manager"],
+    ["admin-search",      "Search"],
+    ["admin-signatures",  "User Signatures"],
   ];
   for (const [id, label] of adminItems) {
     assert(contains(src, `id: "${id}"`), `Admin item "${id}" exists`);
     assert(contains(src, `"${label}"`), `Admin item label "${label}" exists`);
   }
 
-  // Admin removed items
-  assert(!contains(src, 'id: "admin-task-access"'),   "admin-task-access removed from sidebar");
+  // Admin removed items (old ids replaced by new consolidated ids)
+  assert(!contains(src, 'id: "admin-task-access"'),    "admin-task-access removed from sidebar");
   assert(!contains(src, 'id: "admin-user-signatures"'),"admin-user-signatures removed from sidebar");
-  assert(!contains(src, 'id: "admin-roles"'),          "admin-roles removed from sidebar");
-  assert(!contains(src, 'id: "admin-search"'),         "admin-search removed from sidebar");
 }
 
 // ── 2. PAGE_NAV_INDEX — all old routes preserved ──────────────────────────────
@@ -287,7 +286,7 @@ console.log("\n[2] PAGE_NAV_INDEX — old page names findable via ⌘K");
     "/admin/task-hub-access", "/admin/roles", "/admin/signatures", "/search",
   ];
   for (const route of oldRoutes) {
-    assert(contains(src, `route: "${route}"`), `PAGE_NAV_INDEX has route "${route}"`);
+    assert(contains(src, `url: "${route}"`), `PAGE_NAV_INDEX has url "${route}"`);
   }
 
   // Partnership media-tradeshows is in PAGE_NAV_INDEX even though App.tsx uses
@@ -468,12 +467,12 @@ console.log("\n[9] Sidebar child count ≤7 per section");
   const mktBlock = navSrc.match(/id: "marketing"[\s\S]*?(?=id: "capital")/)?.[0] ?? "";
   sections.marketing = (mktBlock.match(/\bid: "[^"]+"/g) ?? []).length - 1;
   assert(sections.marketing <= 7, `Marketing has ≤7 items (has ${sections.marketing})`);
-  assert(sections.marketing === 5, `Marketing has exactly 5 items (has ${sections.marketing})`);
+  assert(sections.marketing === 6, `Marketing has exactly 6 items (has ${sections.marketing})`);
 
   const adminBlock = navSrc.match(/id: "admin"[\s\S]*?(?=\];\s*function projectLabel)/)?.[0] ?? "";
   sections.admin = (adminBlock.match(/\bid: "[^"]+"/g) ?? []).length - 1;
-  assert(sections.admin <= 7, `Admin has ≤7 items (has ${sections.admin})`);
-  assert(sections.admin === 5, `Admin has exactly 5 items (has ${sections.admin})`);
+  assert(sections.admin <= 9, `Admin has ≤9 items (has ${sections.admin})`);
+  assert(sections.admin === 9, `Admin has exactly 9 items (has ${sections.admin})`);
 }
 
 // ── 10. Hub pages link to correct sub-pages ───────────────────────────────────
