@@ -1,0 +1,81 @@
+Also perform a CMS-wide theme consistency audit and fix any other modules with the same problem.
+
+Expanded scope:
+- Search the entire VoltSafe CMS frontend for hardcoded dark-only backgrounds, borders, cards, tables, inputs, and text colors that break light mode or do not match shared dark mode styling.
+- This includes but is not limited to:
+  - Work Calendar
+  - Mission Control
+  - Inbox
+  - Tasks
+  - Calendar
+  - Meeting Notes
+  - Activity Feed
+  - Email Signatures
+  - AI Voice Profiles
+  - Daily Execution
+  - Digest Settings
+  - Pipeline
+  - Operations
+  - Insights
+  - Ecosystem
+  - Marketing
+  - Learn
+  - Admin pages
+
+Audit targets:
+- Hardcoded dark background classes:
+  - bg-[#050b14]
+  - bg-[#020617]
+  - bg-slate-950
+  - bg-slate-900
+  - bg-gray-950
+  - bg-gray-900
+  - bg-black
+  - text-white used without theme pairing
+  - border-slate-* used as fixed styling
+  - text-slate-* used where theme tokens should be used
+- Custom CSS variables or inline styles that force dark navy/black surfaces.
+- Tables, filters, tabs, banners, cards, empty states, modals, drawers, and page wrappers that do not respond properly to light/dark mode.
+
+Rules:
+1. Do not blindly remove semantic colors.
+   Keep status colors like green success, red error, purple travelling, blue remote, orange hybrid, teal VoltSafe accent, warning yellow, etc.
+2. Replace structural UI colors with shared theme tokens/classes:
+   - bg-background
+   - bg-card
+   - bg-muted
+   - bg-popover
+   - text-foreground
+   - text-muted-foreground
+   - border-border
+   - input/theme-aware form classes
+3. Do not change layout, navigation, feature behavior, copy, routes, permissions, or data fetching.
+4. Fix only visual theme inconsistencies.
+5. Prefer existing shared components/styles already used by correctly themed modules.
+
+Acceptance criteria:
+- Every major CMS module respects both light and dark mode.
+- No module content area stays navy/black in light mode unless that exact surface is intentionally used across the entire app.
+- Cards, tables, filters, tabs, inputs, modals, and banners match the shared VoltSafe CMS theme system.
+- Dark mode still looks premium and consistent.
+- Light mode looks clean and consistent, not half-dark Frankenstein mode.
+- Sidebar and top nav remain unchanged unless a discovered issue requires a minimal token fix.
+- Add regression coverage so this does not come back.
+
+Testing / verification:
+- Run existing frontend tests.
+- Add or update a theme regression test that scans key pages/components for dark-only hardcoded backgrounds where shared theme tokens should be used.
+- If visual tests exist, update them.
+- Manually verify at least:
+  - Work Calendar in light and dark mode
+  - One Pipeline page in light and dark mode
+  - One Marketing page in light and dark mode
+  - One Admin page in light and dark mode
+
+Deliverables:
+- Files changed
+- List of modules/pages fixed
+- List of hardcoded dark styles removed or tokenized
+- Confirmation that semantic status colors were preserved
+- Tests run
+- Any remaining known exceptions with justification

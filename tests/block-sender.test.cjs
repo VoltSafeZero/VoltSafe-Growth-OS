@@ -83,7 +83,8 @@ check(
 );
 check(
   "migrateBlockedSenders called in index.ts",
-  index.includes("await migrateBlockedSenders()")
+  index.includes("await migrateBlockedSenders()") ||
+  index.includes("migrateBlockedSenders()")  // parallel-batch pattern: inside Promise.all([...])
 );
 
 // ── 3. mark-spam route ───────────────────────────────────────────────────────

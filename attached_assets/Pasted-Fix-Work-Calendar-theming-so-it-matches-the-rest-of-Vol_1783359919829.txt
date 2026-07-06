@@ -1,0 +1,51 @@
+Fix Work Calendar theming so it matches the rest of VoltSafe CMS in both dark mode and light mode.
+
+Current bug:
+- Work Calendar has a dark content canvas even when the app is in light mode.
+- In dark mode, Work Calendar also looks slightly off versus the shared CMS background/card system.
+- The page should not hardcode dark backgrounds like bg-[#050b14], bg-slate-950, bg-gray-950, etc.
+- It must use the same theme tokens/classes as the rest of VoltSafe CMS modules.
+
+Scope:
+- Find the Work Calendar page/component and any child components used only by Work Calendar.
+- Replace hardcoded background, border, text, card, table, input, filter, tab, and banner colors with shared theme-aware classes/tokens.
+- Ensure the main page background inherits from the app shell/module background.
+- Ensure light mode uses the same light CMS surface/background as other modules.
+- Ensure dark mode uses the same dark CMS surface/background as other modules.
+- Sidebar and top nav already theme correctly — do not modify those unless required.
+
+Acceptance criteria:
+1. In dark mode:
+   - Work Calendar background matches other VoltSafe CMS dark module pages.
+   - Cards, table, tabs, filters, and banners use the standard dark surfaces and borders.
+   - Text contrast remains readable.
+2. In light mode:
+   - Work Calendar content area must NOT stay navy/black.
+   - The page background, cards, filters, tabs, and table must match the rest of light-mode CMS.
+   - No orphan dark blocks unless intentionally shared across all light-mode modules.
+3. No hardcoded one-off theme colors remain in Work Calendar unless they are semantic status colors, such as Travelling purple, Remote blue, Sick red, etc.
+4. Status pills and icons can keep their semantic colors.
+5. Run the relevant tests and fix any snapshots/assertions.
+6. Add or update a regression test that checks Work Calendar does not hardcode dark-only page backgrounds in light mode.
+
+Implementation guidance:
+- Prefer existing shared classes/tokens already used by Mission Control, Inbox, Tasks, Calendar, or other Work modules.
+- Use tokenized classes like:
+  - bg-background
+  - bg-card
+  - text-foreground
+  - text-muted-foreground
+  - border-border
+  - bg-muted
+  - bg-popover
+  - input/tokenized form classes
+- Avoid dark-only classes unless paired with proper light-mode equivalents through the app’s theme system.
+- If Work Calendar uses custom CSS, convert it to CSS variables tied to the app theme.
+- Keep layout, copy, tabs, filters, and functionality unchanged. This is a visual/theming fix only.
+
+After changes, provide:
+- Files changed
+- What hardcoded colors were removed
+- Dark mode verification
+- Light mode verification
+- Tests run
