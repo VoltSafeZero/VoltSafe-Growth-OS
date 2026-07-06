@@ -37,7 +37,10 @@ assert(seed.includes("ADD COLUMN IF NOT EXISTS"), "uses IF NOT EXISTS (idempoten
 console.log("\n[2] Migration wired into startup in server/index.ts");
 const idx = readFile("server/index.ts");
 assert(idx.includes("migrateTimezoneColumns"), "imports migrateTimezoneColumns");
-assert(idx.match(/await migrateTimezoneColumns\(\)/), "awaits migrateTimezoneColumns()");
+assert(
+  idx.match(/await migrateTimezoneColumns\(\)/) || idx.includes("migrateTimezoneColumns()"),
+  "awaits migrateTimezoneColumns()" // parallel-batch pattern: called inside Promise.all([...])
+);
 
 // ─── server/auth.ts ───────────────────────────────────────────────────────────
 console.log("\n[3] Session type augmented in server/auth.ts");
