@@ -271,9 +271,79 @@ ok("routes.ts /api/session/bootstrap includes capital: isCapitalUser ? 'edit' : 
   has(routesTs, /capital.*isCapitalUser.*edit|isCapitalUser.*capital.*edit/s));
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log("\n── 11. Phase 2C route protection ───────────────────────────────────");
+// ─────────────────────────────────────────────────────────────────────────────
+
+const followUps = load("client/src/pages/capital-follow-ups.tsx");
+
+ok("GET /api/capital/follow-ups is protected",
+  has(capital, /app\.get.*capital\/follow-ups.*requireCapitalAccess/));
+
+ok("GET /api/capital/intelligence/pipeline is protected",
+  has(capital, /app\.get.*capital\/intelligence\/pipeline.*requireCapitalAccess/));
+
+ok("GET /api/capital/investors/:id/score is protected",
+  has(capital, /app\.get.*capital\/investors\/:id\/score.*requireCapitalAccess/));
+
+ok("GET /api/capital/investors/:id/email-context is protected",
+  has(capital, /app\.get.*capital\/investors\/:id\/email-context.*requireCapitalAccess/));
+
+ok("/capital/follow-ups route exists in App.tsx",
+  has(appTsx, "capital/follow-ups") && has(appTsx, "CapitalFollowUpsPage"));
+
+ok("/capital/follow-ups uses capitalGuard",
+  has(appTsx, /capitalGuard.*CapitalFollowUps|capital\/follow-ups.*capitalGuard/s));
+
+ok("capital-follow-ups page exports default function",
+  has(followUps, "export default function CapitalFollowUps"));
+
+ok("Follow-up queue nav item exists in nav-config",
+  has(navConfig, "capital-follow-ups"));
+
+ok("Phase 2C migration adds warmth column",
+  has(capital, "ADD COLUMN IF NOT EXISTS warmth"));
+
+ok("Phase 2C migration adds do_not_contact column",
+  has(capital, "ADD COLUMN IF NOT EXISTS do_not_contact"));
+
+ok("Phase 2C migration adds relationship_strength to investors",
+  has(capital, "ADD COLUMN IF NOT EXISTS relationship_strength"));
+
+ok("Phase 2C migration adds likely_lead column",
+  has(capital, "ADD COLUMN IF NOT EXISTS likely_lead"));
+
+ok("computeInvestorScore function is defined",
+  has(capital, "function computeInvestorScore"));
+
+ok("computeInvestorScore returns Do Not Contact for do_not_contact=true",
+  has(capital, /do_not_contact.*Do Not Contact|Do Not Contact.*do_not_contact/s));
+
+ok("POST /investors/:id/activities auto-updates last_touch_at for Email/Call/Meeting",
+  has(capital, "TOUCH_TYPES") && has(capital, "last_touch_at = NOW()") &&
+  has(capital, "Email") && has(capital, "Call") && has(capital, "Meeting"));
+
+ok("Email context endpoint builds stage-specific templates",
+  has(capital, "Initial Outreach") && has(capital, "Follow-Up After Meeting"));
+
+ok("IntelligencePanel component exported/defined in capital-investors",
+  has(investors, "IntelligencePanel"));
+
+ok("EmailDraftModal component defined in capital-investors",
+  has(investors, "EmailDraftModal"));
+
+ok("InvestorDetail includes Draft Email button",
+  has(investors, "Draft") && has(investors, "emailOpen"));
+
+ok("Investor type includes Phase 2C fields",
+  has(investors, "warmth") && has(investors, "do_not_contact") && has(investors, "likely_lead"));
+
+ok("Pipeline page has intelligence strip",
+  has(pipeline, "intelligence-strip") || has(pipeline, "intel") && has(pipeline, "hot_count"));
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Final summary
 // ─────────────────────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(60)}`);
-console.log(`Capital Permissions — Phase 2B: ${passed} passed, ${failed} failed`);
+console.log(`Capital Permissions — Phase 2B+2C: ${passed} passed, ${failed} failed`);
 console.log("─".repeat(60));
 if (failed > 0) process.exit(1);

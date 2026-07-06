@@ -56,6 +56,9 @@ export type Investor = {
   region: string | null; strategic_relevance: string | null; thesis_fit: string | null;
   notes: string | null; last_touch_at: string | null; next_step: string | null;
   next_step_date: string | null; data_room_status: string; can_write_cheque: boolean;
+  warmth?: string; do_not_contact?: boolean; disqualification_reason?: string | null;
+  relationship_strength?: string | null; target_cheque_amount?: number | null;
+  likely_lead?: boolean;
   contacts?: any[]; commitments?: any[]; activities?: any[];
 };
 
@@ -389,6 +392,13 @@ function InvestorDialog({ open, editing, form, setField, onClose, onSubmit, isPe
 export function InvestorDetail({ investor, onEdit, onStageChange }: {
   investor: Investor; onEdit: () => void; onStageChange: (s: string) => void;
 }) {
+  const [emailOpen, setEmailOpen] = useState(false);
+
+  const { data: scoreData } = useQuery<{ score: number; tier: string; reasons: string[] }>({
+    queryKey: ["/api/capital/investors", investor.id, "score"],
+    queryFn: () => fetch(`/api/capital/investors/${investor.id}/score`, { credentials: "include" }).then(r => r.json()),
+  });
+
   return (
     <div className="space-y-5 pt-2">
       <SheetHeader>
@@ -402,11 +412,22 @@ export function InvestorDetail({ investor, onEdit, onStageChange }: {
                   <AlertTriangle className="w-2.5 h-2.5" /> No direct cheque
                 </span>
               )}
+              {investor.likely_lead && (
+                <span className="text-xs bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-medium">Lead</span>
+              )}
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={onEdit}>Edit</Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setEmailOpen(true)} data-testid="btn-draft-email">
+              <Mail className="w-3.5 h-3.5 mr-1" /> Draft
+            </Button>
+            <Button variant="outline" size="sm" onClick={onEdit}>Edit</Button>
+          </div>
         </div>
       </SheetHeader>
+
+      {/* Intelligence score panel */}
+      {scoreData && <IntelligencePanel score={scoreData} />}
 
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground w-16 shrink-0">Stage</span>
@@ -489,6 +510,196 @@ export function InvestorDetail({ investor, onEdit, onStageChange }: {
           </div>
         )) : <p className="text-xs text-muted-foreground">No activity recorded yet.</p>}
       </div>
+
+      <EmailDraftModal
+        open={emailOpen}
+        onClose={() => setEmailOpen(false)}
+        investorId={investor.id}
+        investorName={investor.name}
+      />
     </div>
+  );
+}
+
+// ── Intelligence score panel ────────────────────────────────────────────────────
+function IntelligencePanel({ score }: { score: { score: number; tier: string; reasons: string[] } }) {
+  const tierColor =
+    score.tier === "Hot"            ? "text-red-400" :
+    score.tier === "Warm"           ? "text-amber-400" :
+    score.tier === "Nurture"        ? "text-violet-400" :
+    score.tier === "Do Not Contact" ? "text-muted-foreground" :
+    "text-muted-foreground";
+  const tierBg =
+    score.tier === "Hot"            ? "bg-red-500/10 border-red-500/20" :
+    score.tier === "Warm"           ? "bg-amber-500/10 border-amber-500/20" :
+    score.tier === "Nurture"        ? "bg-violet-500/10 border-violet-500/20" :
+    "bg-muted/20 border-border/30";
+
+  return (
+    <div className={`rounded-lg border p-3 ${tierBg}`} data-testid="intelligence-panel">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+          <Brain className="w-3.5 h-3.5" /> INTELLIGENCE SCORE
+        </p>
+        <div className="flex items-center gap-2">
+          <span className={`text-sm font-bold ${tierColor}`}>{score.score}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
+          <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${tierColor} ${tierBg}`}>
+            {score.tier}
+          </span>
+        </div>
+      </div>
+      {score.reasons.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {score.reasons.map((r, i) => (
+            <span key={i} className="text-xs text-muted-foreground bg-background/50 px-1.5 py-0.5 rounded border border-border/20">
+              {r}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Email draft modal ──────────────────────────────────────────────────────────
+function EmailDraftModal({ open, onClose, investorId, investorName }: {
+  open: boolean; onClose: () => void; investorId: number; investorName: string;
+}) {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const [body, setBody] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const { data: ctx, isLoading } = useQuery<{
+    investor: any; intelligence: any; primary_contact: any; to_line: string;
+    days_since_touch: number | null; templates: Array<{ label: string; subject: string; body: string }>;
+  }>({
+    queryKey: ["/api/capital/investors", investorId, "email-context"],
+    queryFn: () => fetch(`/api/capital/investors/${investorId}/email-context`, { credentials: "include" }).then(r => r.json()),
+    enabled: open,
+  });
+
+  useEffect(() => {
+    if (ctx?.templates?.[selectedIdx]) {
+      setBody(ctx.templates[selectedIdx].body);
+    }
+  }, [ctx, selectedIdx]);
+
+  useEffect(() => {
+    if (!open) { setSelectedIdx(0); setCopied(false); }
+  }, [open]);
+
+  function copyToClipboard() {
+    if (!ctx?.templates?.[selectedIdx]) return;
+    const template = ctx.templates[selectedIdx];
+    const text = `Subject: ${template.subject}\nTo: ${ctx.to_line || ""}\n\n${body}`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-primary" />
+            Draft Email — {investorName}
+          </DialogTitle>
+        </DialogHeader>
+
+        {isLoading && (
+          <div className="flex items-center justify-center h-40">
+            <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          </div>
+        )}
+
+        {ctx && (
+          <div className="flex flex-col gap-4 overflow-y-auto flex-1">
+            {/* Intelligence context */}
+            {ctx.intelligence && (
+              <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted/20 rounded-lg px-3 py-2 flex-wrap">
+                <span className="flex items-center gap-1">
+                  <Brain className="w-3 h-3" />
+                  Score: <span className="font-medium text-foreground">{ctx.intelligence.score}/100 · {ctx.intelligence.tier}</span>
+                </span>
+                {ctx.days_since_touch !== null && (
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Last touch: <span className={`font-medium ${ctx.days_since_touch > 30 ? "text-amber-400" : "text-foreground"}`}>
+                      {ctx.days_since_touch === 0 ? "today" : `${ctx.days_since_touch}d ago`}
+                    </span>
+                  </span>
+                )}
+                {ctx.primary_contact && (
+                  <span>To: <span className="text-foreground font-medium">{ctx.primary_contact.name}</span>{ctx.primary_contact.title && ` · ${ctx.primary_contact.title}`}</span>
+                )}
+              </div>
+            )}
+
+            {/* Template selector */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1.5">Template</p>
+              <div className="flex flex-wrap gap-2">
+                {ctx.templates.map((t, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setSelectedIdx(i)}
+                    data-testid={`template-tab-${i}`}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                      selectedIdx === i
+                        ? "bg-primary/15 border-primary/30 text-primary font-medium"
+                        : "border-border/30 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Subject line */}
+            {ctx.templates[selectedIdx] && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1">Subject</p>
+                <div className="bg-muted/20 rounded px-3 py-2 text-sm text-foreground border border-border/20">
+                  {ctx.templates[selectedIdx].subject}
+                </div>
+              </div>
+            )}
+
+            {/* To line */}
+            {ctx.to_line && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1">To</p>
+                <div className="bg-muted/20 rounded px-3 py-2 text-sm text-foreground border border-border/20">
+                  {ctx.to_line}
+                </div>
+              </div>
+            )}
+
+            {/* Body editor */}
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Body</p>
+              <textarea
+                className="w-full bg-muted/20 border border-border/30 rounded px-3 py-2 text-sm text-foreground font-mono resize-y min-h-[200px] focus:outline-none focus:ring-1 focus:ring-primary/30"
+                value={body}
+                onChange={e => setBody(e.target.value)}
+                data-testid="email-body-editor"
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={onClose}>
+            <X className="w-3.5 h-3.5 mr-1" /> Close
+          </Button>
+          <Button onClick={copyToClipboard} disabled={!ctx || isLoading} data-testid="btn-copy-email">
+            {copied ? "Copied!" : "Copy to Clipboard"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
