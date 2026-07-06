@@ -9,7 +9,7 @@ import {
   FolderOpen, Plus, Search, FileText, ExternalLink, Eye,
   Download, AlertTriangle, Share2, ClipboardList,
   Edit2, Trash2, Archive, Tag, Lock, ShieldAlert,
-  MoreHorizontal, X, Info, Zap,
+  MoreHorizontal, X, Info, Zap, Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -774,6 +774,13 @@ export default function CapitalDocuments() {
     staleTime: 30_000,
   });
 
+  const { data: portalStats = [] } = useQuery<{ material_id: number; portal_count: number }[]>({
+    queryKey: ["/api/capital/portal-access/material-stats"],
+    queryFn: () => fetch("/api/capital/portal-access/material-stats", { credentials: "include" }).then(r => r.json()),
+    staleTime: 60_000,
+  });
+  const portalCountMap = new Map(portalStats.map(s => [s.material_id, s.portal_count]));
+
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/capital/materials/${id}`),
     onSuccess: () => {
@@ -951,7 +958,15 @@ export default function CapitalDocuments() {
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-right font-medium">
-                        {mat.share_count ?? 0}
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span>{mat.share_count ?? 0}</span>
+                          {(portalCountMap.get(mat.id) ?? 0) > 0 && (
+                            <span className="flex items-center gap-0.5 text-[9px] text-cyan-400 font-normal"
+                              data-testid={`portal-count-${mat.id}`}>
+                              <Globe className="w-2 h-2" />{portalCountMap.get(mat.id)}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
                         {fmtDateShort(mat.latest_shared_at)}

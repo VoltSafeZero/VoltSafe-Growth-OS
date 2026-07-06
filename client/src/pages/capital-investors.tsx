@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Users, Plus, Search, MoreHorizontal, AlertTriangle, DollarSign, Activity, Brain, Mail, X, Clock, ArrowDownLeft, ArrowUpRight, ExternalLink, Trash2 } from "lucide-react";
+import { Users, Plus, Search, MoreHorizontal, AlertTriangle, DollarSign, Activity, Brain, Mail, X, Clock, ArrowDownLeft, ArrowUpRight, ExternalLink, Trash2, Shield, Link2, Copy, CheckCircle2, RefreshCcw, Eye, Globe, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -514,6 +514,9 @@ export function InvestorDetail({ investor, onEdit, onStageChange }: {
       <Separator />
       <EmailConversationsPanel investorId={investor.id} />
 
+      <Separator />
+      <PortalAccessPanel investorId={investor.id} />
+
       <EmailDraftModal
         open={emailOpen}
         onClose={() => setEmailOpen(false)}
@@ -789,5 +792,299 @@ function EmailDraftModal({ open, onClose, investorId, investorName }: {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Portal Access Panel (Phase 2H) ─────────────────────────────────────────────
+
+type PortalAccessRow = {
+  id: number; access_label: string; status: string;
+  expires_at: string | null; last_accessed_at: string | null;
+  access_count: number; created_at: string;
+  material_count: number | string; event_count: number | string;
+  round_name: string | null; contact_name: string | null;
+};
+
+function PortalAccessPanel({ investorId }: { investorId: number }) {
+  const { toast } = useToast();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [tokenDialog, setTokenDialog] = useState<{ raw_token: string; label: string } | null>(null);
+  const [copiedToken, setCopiedToken] = useState(false);
+
+  // Form state
+  const [formLabel, setFormLabel] = useState("");
+  const [formExpiry, setFormExpiry] = useState("");
+  const [formNotes, setFormNotes]   = useState("");
+
+  const { data: portals = [], isLoading, refetch } = useQuery<PortalAccessRow[]>({
+    queryKey: ["/api/capital/investors", investorId, "portal-access"],
+    queryFn: () => fetch(`/api/capital/investors/${investorId}/portal-access`, { credentials: "include" }).then(r => r.json()),
+    staleTime: 30_000,
+  });
+
+  const createMut = useMutation({
+    mutationFn: (body: object) =>
+      fetch(`/api/capital/investors/${investorId}/portal-access`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(async r => { if (!r.ok) throw new Error((await r.json()).message); return r.json(); }),
+    onSuccess: (data: any) => {
+      setCreateOpen(false);
+      setFormLabel(""); setFormExpiry(""); setFormNotes("");
+      setTokenDialog({ raw_token: data.raw_token, label: data.access_label || "Portal Link" });
+      refetch();
+    },
+    onError: (e: any) => toast({ title: e.message || "Failed to create portal", variant: "destructive" }),
+  });
+
+  const revokeMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/capital/portal-access/${id}/revoke`),
+    onSuccess: () => { toast({ title: "Portal revoked" }); refetch(); },
+    onError: () => toast({ title: "Failed to revoke", variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/capital/portal-access/${id}`),
+    onSuccess: () => { toast({ title: "Portal deleted" }); refetch(); },
+    onError: () => toast({ title: "Failed to delete", variant: "destructive" }),
+  });
+
+  const regenMut = useMutation({
+    mutationFn: (id: number) =>
+      fetch(`/api/capital/portal-access/${id}/regenerate`, {
+        method: "POST", credentials: "include",
+      }).then(async r => { if (!r.ok) throw new Error((await r.json()).message); return r.json(); }),
+    onSuccess: (data: any) => {
+      setTokenDialog({ raw_token: data.raw_token, label: data.access_label || "Portal Link" });
+      refetch();
+    },
+    onError: () => toast({ title: "Failed to regenerate", variant: "destructive" }),
+  });
+
+  function copyPortalUrl(rawToken: string) {
+    const url = `${window.location.origin}/investor-portal/${rawToken}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 2000);
+    });
+  }
+
+  function statusBadge(status: string, expiresAt: string | null) {
+    if (status === "revoked") return "bg-red-500/15 text-red-400";
+    if (expiresAt && new Date(expiresAt).getTime() < Date.now()) return "bg-amber-500/15 text-amber-400";
+    return "bg-emerald-500/15 text-emerald-400";
+  }
+  function statusLabel(status: string, expiresAt: string | null) {
+    if (status === "revoked") return "Revoked";
+    if (expiresAt && new Date(expiresAt).getTime() < Date.now()) return "Expired";
+    return "Active";
+  }
+
+  function fmtExpiry(s: string | null): string {
+    if (!s) return "No expiry";
+    const d = new Date(s);
+    const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
+    if (days < 0) return "Expired";
+    if (days === 0) return "Expires today";
+    if (days <= 7) return `Expires in ${days}d`;
+    return `Expires ${d.toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}`;
+  }
+
+  return (
+    <div data-testid="portal-access-panel">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+          <Globe className="w-3.5 h-3.5" /> PORTAL ACCESS ({isLoading ? "…" : portals.length})
+        </p>
+        <Button
+          variant="ghost" size="sm" className="h-6 text-xs gap-1 px-2"
+          onClick={() => setCreateOpen(true)}
+          data-testid="btn-create-portal"
+        >
+          <Plus className="w-3 h-3" /> Create Link
+        </Button>
+      </div>
+
+      {!isLoading && portals.length === 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="portal-access-empty">
+          No portal links yet. Create one to share documents securely.
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {portals.map(p => {
+          const isActive = p.status === "active" && (!p.expires_at || new Date(p.expires_at).getTime() > Date.now());
+          return (
+            <div
+              key={p.id}
+              className="bg-muted/20 border border-border/30 rounded-lg px-3 py-2.5"
+              data-testid={`portal-access-row-${p.id}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium truncate" data-testid={`portal-label-${p.id}`}>
+                      {p.access_label || "Untitled Portal"}
+                    </p>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${statusBadge(p.status, p.expires_at)}`}>
+                      {statusLabel(p.status, p.expires_at)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 flex-wrap text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1"><Eye className="w-2.5 h-2.5" />{Number(p.access_count)} opens</span>
+                    <span className="flex items-center gap-1"><FileIcon className="w-2.5 h-2.5" />{Number(p.material_count)} docs</span>
+                    <span>{fmtExpiry(p.expires_at)}</span>
+                    {p.last_accessed_at && (
+                      <span>Last opened {fmtDate(p.last_accessed_at)}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {isActive && (
+                    <Button
+                      variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-400 hover:text-amber-300"
+                      title="Revoke access"
+                      onClick={() => revokeMut.mutate(p.id)}
+                      data-testid={`btn-revoke-portal-${p.id}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost" size="sm" className="h-6 w-6 p-0"
+                    title="Regenerate link (revokes old token)"
+                    onClick={() => regenMut.mutate(p.id)}
+                    data-testid={`btn-regen-portal-${p.id}`}
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400/70 hover:text-red-400"
+                    title="Delete portal"
+                    onClick={() => deleteMut.mutate(p.id)}
+                    data-testid={`btn-delete-portal-${p.id}`}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Create Portal Dialog */}
+      <Dialog open={createOpen} onOpenChange={v => { if (!v) { setCreateOpen(false); setFormLabel(""); setFormExpiry(""); setFormNotes(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-primary" /> Create Portal Link
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs">Label <span className="text-red-400">*</span></Label>
+              <Input
+                className="mt-1 h-8 text-sm"
+                placeholder="e.g. Sequoia Capital — Series A Diligence"
+                value={formLabel}
+                onChange={e => setFormLabel(e.target.value)}
+                data-testid="input-portal-label"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">Shown to the investor on the portal page.</p>
+            </div>
+            <div>
+              <Label className="text-xs">Expiry date (optional)</Label>
+              <Input
+                className="mt-1 h-8 text-sm"
+                type="date"
+                value={formExpiry}
+                onChange={e => setFormExpiry(e.target.value)}
+                data-testid="input-portal-expiry"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Notes (internal)</Label>
+              <Textarea
+                className="mt-1 text-sm"
+                rows={2}
+                placeholder="Internal notes about this portal link…"
+                value={formNotes}
+                onChange={e => setFormNotes(e.target.value)}
+                data-testid="input-portal-notes"
+              />
+            </div>
+            <div className="text-[10px] text-muted-foreground bg-muted/20 border border-border/30 rounded-lg px-3 py-2">
+              <Shield className="w-2.5 h-2.5 inline mr-1" />
+              The portal link will be shown once. Store it safely — it cannot be recovered, only regenerated.
+            </div>
+          </div>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={!formLabel.trim() || createMut.isPending}
+              onClick={() => createMut.mutate({
+                access_label: formLabel.trim(),
+                expires_at: formExpiry || null,
+                notes: formNotes || null,
+              })}
+              data-testid="btn-confirm-create-portal"
+            >
+              {createMut.isPending ? "Creating…" : "Create Link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Token Dialog — shown once after create/regenerate */}
+      {tokenDialog && (
+        <Dialog open={true} onOpenChange={() => setTokenDialog(null)}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Portal Link Created
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-xs text-amber-400">
+                <AlertTriangle className="w-3 h-3 inline mr-1" />
+                This link will only be shown <strong>once</strong>. Copy it now — it cannot be recovered.
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Portal URL for "{tokenDialog.label}"</Label>
+                <div className="mt-1 bg-muted/30 border border-border/30 rounded-lg px-3 py-2 font-mono text-xs text-foreground break-all select-all"
+                  data-testid="portal-token-url">
+                  {`${window.location.origin}/investor-portal/${tokenDialog.raw_token}`}
+                </div>
+              </div>
+              <Button
+                className="w-full"
+                onClick={() => copyPortalUrl(tokenDialog.raw_token)}
+                data-testid="btn-copy-portal-url"
+              >
+                {copiedToken ? <><CheckCircle2 className="w-3.5 h-3.5 mr-2" /> Copied!</> : <><Copy className="w-3.5 h-3.5 mr-2" /> Copy Link</>}
+              </Button>
+            </div>
+            <DialogFooter className="mt-2">
+              <Button variant="outline" size="sm" onClick={() => setTokenDialog(null)}>
+                Done — I've saved the link
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
+// Minimal file icon used in PortalAccessPanel
+function FileIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6L9 1z" />
+      <path d="M9 1v5h5" />
+    </svg>
   );
 }

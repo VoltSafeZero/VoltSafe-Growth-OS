@@ -5,7 +5,7 @@ import {
   ChevronDown, RefreshCcw, Brain, Mail, ExternalLink, DollarSign,
   Calendar, Flame, Activity, BarChart3, Shield, Rocket, Minus,
   Percent, PieChart, FileText, CheckSquare, Square, ChevronRight,
-  Edit2, ClipboardList, Info,
+  Edit2, ClipboardList, Info, Globe, Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -131,6 +131,18 @@ type CloseChecklistItem = {
   key: string; label: string; complete: boolean; note?: string;
 };
 
+type PortalIntelligence = {
+  active_portals: number;
+  investors_with_portal: number;
+  investors_without_portal: number;
+  portals_expiring_soon: { id: number; investor_name: string; expires_at: string; days_left: number }[];
+  portals_never_opened: { id: number; investor_name: string; created_at: string; days_old: number }[];
+  diligence_investors_not_in_portal: { id: number; name: string; stage: string }[];
+  total_views_7d: number;
+  total_downloads_7d: number;
+  most_viewed_materials: { material_id: number; title: string; views: number }[];
+};
+
 type CommandCenterData = {
   round: Round; summary: Summary;
   lead_candidates: LeadCandidate[];
@@ -143,6 +155,7 @@ type CommandCenterData = {
   allocation_plan: AllocationRow[];
   close_plan: ClosePlanSummary;
   close_checklist: CloseChecklistItem[];
+  portal_intel?: PortalIntelligence;
   recent_activity: any[];
   recent_emails: any[];
 };
@@ -1295,6 +1308,102 @@ export default function CapitalCommandCenterPage() {
               </p>
             )}
           </section>
+
+          {/* ── Investor Portal Intelligence (Phase 2H) ── */}
+          {ccData?.portal_intel && (
+            <section data-testid="section-portal-intel">
+              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                <Globe className="w-4 h-4 text-cyan-400" /> Investor Portal Intelligence
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                {[
+                  { label: "Active Portals",   value: ccData.portal_intel.active_portals,            sub: "linked portals", testId: "portal-stat-active" },
+                  { label: "With Portal",       value: ccData.portal_intel.investors_with_portal,     sub: "investors",      testId: "portal-stat-with" },
+                  { label: "Without Portal",    value: ccData.portal_intel.investors_without_portal,  sub: "investors",      testId: "portal-stat-without" },
+                  { label: "Views (7d)",        value: ccData.portal_intel.total_views_7d,            sub: "portal opens",   testId: "portal-stat-views" },
+                ].map(card => (
+                  <div key={card.label} className="bg-card border border-border rounded-xl p-3" data-testid={card.testId}>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{card.label}</p>
+                    <p className="text-xl font-bold mt-0.5">{card.value}</p>
+                    <p className="text-[10px] text-muted-foreground">{card.sub}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Diligence investors without portal */}
+              {ccData.portal_intel.diligence_investors_not_in_portal.length > 0 && (
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 mb-3" data-testid="portal-diligence-gap">
+                  <p className="text-xs font-medium text-amber-400 mb-2 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Diligence investors without portal
+                  </p>
+                  <div className="space-y-1">
+                    {ccData.portal_intel.diligence_investors_not_in_portal.map((inv: any) => (
+                      <div key={inv.id} className="flex items-center justify-between text-xs" data-testid={`portal-gap-inv-${inv.id}`}>
+                        <span className="font-medium">{inv.name}</span>
+                        <span className="text-[10px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded">{inv.stage}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Expiring soon */}
+                {ccData.portal_intel.portals_expiring_soon.length > 0 && (
+                  <div className="bg-card border border-border rounded-xl p-3" data-testid="portal-expiring-list">
+                    <p className="text-xs font-medium mb-2 flex items-center gap-1.5">
+                      <Clock className="w-3 h-3 text-amber-400" /> Expiring Soon
+                    </p>
+                    <div className="space-y-1.5">
+                      {ccData.portal_intel.portals_expiring_soon.map((p: any) => (
+                        <div key={p.id} className="flex items-center justify-between text-xs" data-testid={`portal-expiring-${p.id}`}>
+                          <span className="truncate max-w-[120px]">{p.investor_name}</span>
+                          <span className="text-amber-400 text-[10px] shrink-0 ml-2">{p.days_left}d left</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Never opened */}
+                {ccData.portal_intel.portals_never_opened.length > 0 && (
+                  <div className="bg-card border border-border rounded-xl p-3" data-testid="portal-never-opened-list">
+                    <p className="text-xs font-medium mb-2 flex items-center gap-1.5">
+                      <Eye className="w-3 h-3 text-muted-foreground" /> Never Opened
+                    </p>
+                    <div className="space-y-1.5">
+                      {ccData.portal_intel.portals_never_opened.map((p: any) => (
+                        <div key={p.id} className="flex items-center justify-between text-xs" data-testid={`portal-never-opened-${p.id}`}>
+                          <span className="truncate max-w-[120px]">{p.investor_name}</span>
+                          <span className="text-muted-foreground text-[10px] shrink-0 ml-2">{p.days_old}d ago</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Most viewed materials */}
+                {ccData.portal_intel.most_viewed_materials.length > 0 && (
+                  <div className="bg-card border border-border rounded-xl p-3 sm:col-span-2" data-testid="portal-top-materials">
+                    <p className="text-xs font-medium mb-2 flex items-center gap-1.5">
+                      <FileText className="w-3 h-3 text-primary" /> Most Viewed Documents (7d)
+                    </p>
+                    <div className="space-y-1.5">
+                      {ccData.portal_intel.most_viewed_materials.map((m: any, i: number) => (
+                        <div key={m.material_id} className="flex items-center gap-2 text-xs" data-testid={`portal-top-mat-${m.material_id}`}>
+                          <span className="text-[10px] text-muted-foreground w-4 shrink-0">{i + 1}.</span>
+                          <span className="flex-1 truncate">{m.title}</span>
+                          <span className="text-[10px] text-muted-foreground shrink-0 flex items-center gap-1">
+                            <Eye className="w-2.5 h-2.5" />{m.views}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
           {/* ── Recent activity ── */}
           {ccData?.recent_activity && ccData.recent_activity.length > 0 && (

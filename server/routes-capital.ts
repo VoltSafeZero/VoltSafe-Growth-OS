@@ -3,6 +3,7 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import crypto from "crypto";
 
 // ── Capital access allowlist ──────────────────────────────────────────────────
 // IMPORTANT: this gate is identity-based, not role-based.
@@ -453,6 +454,63 @@ export async function migrateCapitalSchema(): Promise<void> {
     `));
     console.log("[migration] Capital Phase 2G: data room tables ready.");
   } catch (_e2g) { /* idempotent */ }
+
+  // ── Phase 2H: Investor Portal ──────────────────────────────────────────────
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS capital_portal_access (
+        id                SERIAL PRIMARY KEY,
+        investor_id       INTEGER NOT NULL REFERENCES capital_investors(id) ON DELETE CASCADE,
+        contact_id        INTEGER REFERENCES capital_contacts(id) ON DELETE SET NULL,
+        round_id          INTEGER REFERENCES capital_rounds(id) ON DELETE SET NULL,
+        access_token_hash TEXT NOT NULL UNIQUE,
+        access_label      TEXT NOT NULL DEFAULT '',
+        status            TEXT NOT NULL DEFAULT 'active',
+        expires_at        TIMESTAMPTZ,
+        created_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        revoked_at        TIMESTAMPTZ,
+        revoked_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        last_accessed_at  TIMESTAMPTZ,
+        access_count      INTEGER NOT NULL DEFAULT 0,
+        notes             TEXT,
+        deleted_at        TIMESTAMPTZ
+      );
+
+      CREATE TABLE IF NOT EXISTS capital_portal_materials (
+        id               SERIAL PRIMARY KEY,
+        portal_access_id INTEGER NOT NULL REFERENCES capital_portal_access(id) ON DELETE CASCADE,
+        material_id      INTEGER NOT NULL REFERENCES capital_materials(id) ON DELETE CASCADE,
+        permission       TEXT NOT NULL DEFAULT 'view',
+        added_by         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        added_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at       TIMESTAMPTZ
+      );
+
+      CREATE TABLE IF NOT EXISTS capital_portal_events (
+        id               SERIAL PRIMARY KEY,
+        portal_access_id INTEGER NOT NULL REFERENCES capital_portal_access(id) ON DELETE CASCADE,
+        investor_id      INTEGER NOT NULL,
+        material_id      INTEGER REFERENCES capital_materials(id) ON DELETE SET NULL,
+        event_type       TEXT NOT NULL,
+        user_agent       TEXT,
+        ip_hash          TEXT,
+        occurred_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        metadata_json    TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_cap_portal_access_investor  ON capital_portal_access(investor_id);
+      CREATE INDEX IF NOT EXISTS idx_cap_portal_access_hash      ON capital_portal_access(access_token_hash);
+      CREATE INDEX IF NOT EXISTS idx_cap_portal_access_status    ON capital_portal_access(status);
+      CREATE INDEX IF NOT EXISTS idx_cap_portal_materials_access ON capital_portal_materials(portal_access_id);
+      CREATE INDEX IF NOT EXISTS idx_cap_portal_materials_mat    ON capital_portal_materials(material_id);
+      CREATE INDEX IF NOT EXISTS idx_cap_portal_events_access    ON capital_portal_events(portal_access_id);
+      CREATE INDEX IF NOT EXISTS idx_cap_portal_events_type      ON capital_portal_events(event_type);
+      CREATE INDEX IF NOT EXISTS idx_cap_portal_events_occurred  ON capital_portal_events(occurred_at);
+    `));
+    console.log("[migration] Capital Phase 2H: investor portal tables ready.");
+  } catch (_e2h) { /* idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -2318,6 +2376,49 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         dataRoomIntel
       );
 
+      // Phase 2H: Portal Intelligence
+      const {
+        computePortalIntelligence,
+        computePortalRiskFlags,
+      } = await import("./services/capital-portal.js");
+
+      const invIds = investors.map((inv: any) => inv.id);
+      const [portalAccessRows, portalEventRows] = await Promise.all([
+        invIds.length > 0
+          ? db.execute(sql.raw(`
+              SELECT cpa.*, ci.name AS investor_name,
+                (SELECT COUNT(*) FROM capital_portal_materials cpm
+                 WHERE cpm.portal_access_id = cpa.id AND cpm.deleted_at IS NULL) AS material_count
+              FROM capital_portal_access cpa
+              LEFT JOIN capital_investors ci ON ci.id = cpa.investor_id
+              WHERE cpa.deleted_at IS NULL
+                AND cpa.investor_id IN (${invIds.join(",")})
+              ORDER BY cpa.created_at DESC LIMIT 500
+            `))
+          : Promise.resolve({ rows: [] }),
+        db.execute(sql.raw(`
+          SELECT cpe.*
+          FROM capital_portal_events cpe
+          JOIN capital_portal_access cpa ON cpa.id = cpe.portal_access_id
+          WHERE cpa.deleted_at IS NULL
+            AND cpe.occurred_at > NOW() - INTERVAL '30 days'
+          ORDER BY cpe.occurred_at DESC LIMIT 2000
+        `)),
+      ]);
+
+      const materialTitlesMap = new Map<number, string>();
+      for (const m of (materialsRow.rows as any[])) {
+        materialTitlesMap.set(Number(m.id), m.title ?? "Untitled");
+      }
+
+      const portalIntel = computePortalIntelligence(
+        portalAccessRows.rows as any[],
+        portalEventRows.rows as any[],
+        investors,
+        materialTitlesMap,
+      );
+      const portalFlags = computePortalRiskFlags(portalIntel);
+
       // Days open
       const daysOpen = round.open_date
         ? Math.floor((Date.now() - new Date(round.open_date).getTime()) / 86400000)
@@ -2328,7 +2429,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         summary:            pipeline,
         lead_candidates:    leads,
         this_week_actions:  actions,
-        risk_flags:         [...riskFlags, ...valuationFlags, ...dataRoomFlags],
+        risk_flags:         [...riskFlags, ...valuationFlags, ...dataRoomFlags, ...portalFlags],
         runway,
         scenarios,
         valuation_summary:  valuationSummary,
@@ -2337,6 +2438,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         close_plan:         closePlan,
         close_checklist:    closeChecklist,
         data_room_intel:    dataRoomIntel,
+        portal_intel:       portalIntel,
         recent_activity:    recentActivity,
         recent_emails:      recentEmails,
       });
@@ -2792,6 +2894,474 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
     } catch (err: any) {
       console.error("[capital] DELETE /material-requests/:id:", err?.message);
       res.status(500).json({ message: "Failed to delete material request" });
+    }
+  });
+
+  // ── Phase 2H: Investor Portal ──────────────────────────────────────────────────
+
+  // Hash a raw token for DB storage (never stored raw)
+  function hashPortalToken(raw: string): string {
+    return crypto.createHash("sha256").update(raw).digest("hex");
+  }
+
+  // Hash an IP address for privacy (never store raw IPs)
+  function hashIp(ip: string | undefined): string | null {
+    if (!ip) return null;
+    return crypto.createHash("sha256").update(ip).digest("hex").slice(0, 16);
+  }
+
+  const MATERIAL_TYPE_LABELS: Record<string, string> = {
+    pitch_deck: "Pitch Deck", financial_model: "Financial Model",
+    executive_summary: "Executive Summary", term_sheet: "Term Sheet",
+    due_diligence: "Due Diligence", legal_document: "Legal Document",
+    nda: "NDA", cap_table: "Cap Table", investor_update: "Investor Update",
+    product_demo: "Product Demo", reference: "Reference", other: "Other",
+  };
+
+  // ── GET /api/capital/investors/:id/portal-access ───────────────────────────
+  app.get("/api/capital/investors/:id/portal-access", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const invId = safeId(req.params.id);
+      if (!invId) return res.status(400).json({ message: "Invalid investor id" });
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          cpa.*,
+          ci.name AS investor_name,
+          cr.name AS round_name,
+          cc.first_name || ' ' || COALESCE(cc.last_name, '') AS contact_name,
+          (
+            SELECT COUNT(*) FROM capital_portal_materials cpm
+            WHERE cpm.portal_access_id = cpa.id AND cpm.deleted_at IS NULL
+          ) AS material_count,
+          (
+            SELECT COUNT(*) FROM capital_portal_events cpe
+            WHERE cpe.portal_access_id = cpa.id
+          ) AS event_count
+        FROM capital_portal_access cpa
+        LEFT JOIN capital_investors ci ON ci.id = cpa.investor_id
+        LEFT JOIN capital_rounds cr ON cr.id = cpa.round_id
+        LEFT JOIN capital_contacts cc ON cc.id = cpa.contact_id
+        WHERE cpa.investor_id = ${invId} AND cpa.deleted_at IS NULL
+        ORDER BY cpa.created_at DESC
+      `));
+
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /investors/:id/portal-access:", err?.message);
+      res.status(500).json({ message: "Failed to load portal access" });
+    }
+  });
+
+  // ── POST /api/capital/investors/:id/portal-access ─────────────────────────
+  // Returns raw token ONCE — never stored, only the hash is persisted.
+  app.post("/api/capital/investors/:id/portal-access", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const invId = safeId(req.params.id);
+      if (!invId) return res.status(400).json({ message: "Invalid investor id" });
+
+      const {
+        access_label = "",
+        round_id,
+        contact_id,
+        expires_at,
+        notes,
+        material_ids = [],
+        permissions: permMap = {},
+      } = req.body;
+
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const tokenHash = hashPortalToken(rawToken);
+
+      const roundId = safeId(round_id);
+      const contactId = safeId(contact_id);
+      const expiresAtSql = expires_at ? `'${esc(String(expires_at))}'` : "NULL";
+
+      const insertRes = await db.execute(sql.raw(`
+        INSERT INTO capital_portal_access
+          (investor_id, contact_id, round_id, access_token_hash, access_label, status, expires_at, created_by, notes)
+        VALUES
+          (${invId}, ${contactId ?? "NULL"}, ${roundId ?? "NULL"},
+           '${esc(tokenHash)}', '${esc(String(access_label))}', 'active',
+           ${expiresAtSql}, ${req.session.userId ?? "NULL"}, ${notes ? `'${esc(String(notes))}'` : "NULL"})
+        RETURNING *
+      `));
+      const portal = insertRes.rows[0] as any;
+      if (!portal) return res.status(500).json({ message: "Failed to create portal access" });
+
+      // Add selected materials
+      const matIds: number[] = Array.isArray(material_ids)
+        ? material_ids.map(Number).filter(n => !isNaN(n) && n > 0)
+        : [];
+      for (const mid of matIds) {
+        const perm = permMap[mid] === "download" ? "download" : "view";
+        try {
+          await db.execute(sql.raw(`
+            INSERT INTO capital_portal_materials (portal_access_id, material_id, permission, added_by)
+            VALUES (${portal.id}, ${mid}, '${perm}', ${req.session.userId ?? "NULL"})
+            ON CONFLICT DO NOTHING
+          `));
+        } catch { /* skip duplicates */ }
+      }
+
+      // Log activity
+      try {
+        await db.execute(sql.raw(`
+          INSERT INTO capital_activities (entity_type, entity_id, activity_type, title, created_by)
+          VALUES ('investor', ${invId}, 'portal_access_created',
+                  'Investor portal access created: ${esc(String(access_label))}',
+                  ${req.session.userId ?? "NULL"})
+        `));
+      } catch { /* non-fatal */ }
+
+      res.status(201).json({ ...portal, raw_token: rawToken, material_count: matIds.length });
+    } catch (err: any) {
+      console.error("[capital] POST /investors/:id/portal-access:", err?.message);
+      res.status(500).json({ message: "Failed to create portal access" });
+    }
+  });
+
+  // ── PATCH /api/capital/portal-access/:id ─────────────────────────────────
+  app.patch("/api/capital/portal-access/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+
+      const allowed = ["access_label", "notes", "expires_at", "status"] as const;
+      const sets: string[] = [`updated_at = NOW()`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") {
+          if (key === "expires_at") { sets.push(`${key} = NULL`); }
+        } else {
+          sets.push(`${key} = '${esc(String(v))}'`);
+        }
+      }
+      if (sets.length === 1) return res.status(400).json({ message: "No fields to update" });
+
+      const rows = await db.execute(sql.raw(`
+        UPDATE capital_portal_access SET ${sets.join(", ")}
+        WHERE id = ${id} AND deleted_at IS NULL RETURNING *
+      `));
+      const row = rows.rows[0] as any;
+      if (!row) return res.status(404).json({ message: "Portal access not found" });
+      res.json(row);
+    } catch (err: any) {
+      console.error("[capital] PATCH /portal-access/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update portal access" });
+    }
+  });
+
+  // ── POST /api/capital/portal-access/:id/revoke ────────────────────────────
+  app.post("/api/capital/portal-access/:id/revoke", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+
+      await db.execute(sql.raw(`
+        UPDATE capital_portal_access
+        SET status = 'revoked', revoked_at = NOW(), revoked_by = ${req.session.userId ?? "NULL"}, updated_at = NOW()
+        WHERE id = ${id} AND deleted_at IS NULL
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] POST /portal-access/:id/revoke:", err?.message);
+      res.status(500).json({ message: "Failed to revoke portal access" });
+    }
+  });
+
+  // ── DELETE /api/capital/portal-access/:id ────────────────────────────────
+  app.delete("/api/capital/portal-access/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+
+      await db.execute(sql.raw(`
+        UPDATE capital_portal_access SET deleted_at = NOW(), updated_at = NOW()
+        WHERE id = ${id} AND deleted_at IS NULL
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] DELETE /portal-access/:id:", err?.message);
+      res.status(500).json({ message: "Failed to delete portal access" });
+    }
+  });
+
+  // ── POST /api/capital/portal-access/:id/regenerate ───────────────────────
+  // Revokes existing token and issues a new one. Returns new raw token once.
+  app.post("/api/capital/portal-access/:id/regenerate", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const tokenHash = hashPortalToken(rawToken);
+
+      const rows = await db.execute(sql.raw(`
+        UPDATE capital_portal_access
+        SET access_token_hash = '${esc(tokenHash)}',
+            status = 'active', revoked_at = NULL, revoked_by = NULL,
+            access_count = 0, last_accessed_at = NULL, updated_at = NOW()
+        WHERE id = ${id} AND deleted_at IS NULL RETURNING *
+      `));
+      const row = rows.rows[0] as any;
+      if (!row) return res.status(404).json({ message: "Portal access not found" });
+      res.json({ ...row, raw_token: rawToken });
+    } catch (err: any) {
+      console.error("[capital] POST /portal-access/:id/regenerate:", err?.message);
+      res.status(500).json({ message: "Failed to regenerate portal access" });
+    }
+  });
+
+  // ── POST /api/capital/portal-access/:id/materials ────────────────────────
+  app.post("/api/capital/portal-access/:id/materials", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+
+      const matId = safeId(req.body.material_id);
+      if (!matId) return res.status(400).json({ message: "material_id required" });
+
+      const permission = req.body.permission === "download" ? "download" : "view";
+
+      await db.execute(sql.raw(`
+        INSERT INTO capital_portal_materials (portal_access_id, material_id, permission, added_by)
+        VALUES (${id}, ${matId}, '${permission}', ${req.session.userId ?? "NULL"})
+        ON CONFLICT DO NOTHING
+      `));
+      // If previously soft-deleted, restore
+      await db.execute(sql.raw(`
+        UPDATE capital_portal_materials SET deleted_at = NULL, permission = '${permission}'
+        WHERE portal_access_id = ${id} AND material_id = ${matId} AND deleted_at IS NOT NULL
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] POST /portal-access/:id/materials:", err?.message);
+      res.status(500).json({ message: "Failed to add material" });
+    }
+  });
+
+  // ── DELETE /api/capital/portal-access/:id/materials/:materialId ──────────
+  app.delete("/api/capital/portal-access/:id/materials/:materialId", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      const matId = safeId(req.params.materialId);
+      if (!id || !matId) return res.status(400).json({ message: "Invalid ids" });
+
+      await db.execute(sql.raw(`
+        UPDATE capital_portal_materials SET deleted_at = NOW()
+        WHERE portal_access_id = ${id} AND material_id = ${matId} AND deleted_at IS NULL
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] DELETE /portal-access/:id/materials/:materialId:", err?.message);
+      res.status(500).json({ message: "Failed to remove material" });
+    }
+  });
+
+  // ── GET /api/capital/portal-access/:id/materials ─────────────────────────
+  app.get("/api/capital/portal-access/:id/materials", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+
+      const rows = await db.execute(sql.raw(`
+        SELECT cpm.*, cm.title, cm.material_type, cm.version_label,
+               cm.external_url, cm.file_size_bytes, cm.mime_type, cm.status AS material_status
+        FROM capital_portal_materials cpm
+        JOIN capital_materials cm ON cm.id = cpm.material_id
+        WHERE cpm.portal_access_id = ${id} AND cpm.deleted_at IS NULL
+          AND cm.deleted_at IS NULL
+        ORDER BY cpm.added_at DESC
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /portal-access/:id/materials:", err?.message);
+      res.status(500).json({ message: "Failed to load portal materials" });
+    }
+  });
+
+  // ── GET /api/capital/portal-access/:id/events ────────────────────────────
+  app.get("/api/capital/portal-access/:id/events", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+
+      const rows = await db.execute(sql.raw(`
+        SELECT cpe.*, cm.title AS material_title
+        FROM capital_portal_events cpe
+        LEFT JOIN capital_materials cm ON cm.id = cpe.material_id
+        WHERE cpe.portal_access_id = ${id}
+        ORDER BY cpe.occurred_at DESC
+        LIMIT 200
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /portal-access/:id/events:", err?.message);
+      res.status(500).json({ message: "Failed to load portal events" });
+    }
+  });
+
+  // ── GET /api/capital/portal-access/material-stats ────────────────────────
+  // Returns { material_id, portal_count }[] for portal indicators on data room
+  app.get("/api/capital/portal-access/material-stats", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const rows = await db.execute(sql.raw(`
+        SELECT cpm.material_id, COUNT(DISTINCT cpa.id) AS portal_count
+        FROM capital_portal_materials cpm
+        JOIN capital_portal_access cpa ON cpa.id = cpm.portal_access_id
+        WHERE cpm.deleted_at IS NULL
+          AND cpa.deleted_at IS NULL
+          AND cpa.status = 'active'
+        GROUP BY cpm.material_id
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /portal-access/material-stats:", err?.message);
+      res.status(500).json({ message: "Failed to load material stats" });
+    }
+  });
+
+  // ── PUBLIC: GET /api/investor-portal/:token ───────────────────────────────
+  // No requireAuth. Token-only access. Never exposes internal Capital data.
+  app.get("/api/investor-portal/:token", async (req: any, res) => {
+    try {
+      const raw = String(req.params.token || "");
+      if (raw.length !== 64 || !/^[0-9a-f]+$/.test(raw)) {
+        return res.status(404).json({ message: "Invalid or expired link" });
+      }
+      const tokenHash = hashPortalToken(raw);
+
+      const accessRows = await db.execute(sql.raw(`
+        SELECT cpa.*, ci.name AS investor_name, cr.name AS round_name
+        FROM capital_portal_access cpa
+        LEFT JOIN capital_investors ci ON ci.id = cpa.investor_id
+        LEFT JOIN capital_rounds cr ON cr.id = cpa.round_id
+        WHERE cpa.access_token_hash = '${esc(tokenHash)}'
+          AND cpa.deleted_at IS NULL
+        LIMIT 1
+      `));
+      const portal = accessRows.rows[0] as any;
+      if (!portal) return res.status(404).json({ message: "Invalid or expired link" });
+
+      // Check status and expiry
+      if (portal.status === "revoked") {
+        return res.status(403).json({ message: "This link has been revoked" });
+      }
+      if (portal.expires_at && new Date(portal.expires_at).getTime() < Date.now()) {
+        return res.status(403).json({ message: "This link has expired" });
+      }
+
+      // Fetch materials for this portal
+      const matRows = await db.execute(sql.raw(`
+        SELECT
+          cm.id, cm.title, cm.description, cm.material_type, cm.version_label,
+          cm.external_url, cm.file_size_bytes, cm.mime_type,
+          cpm.permission
+        FROM capital_portal_materials cpm
+        JOIN capital_materials cm ON cm.id = cpm.material_id
+        WHERE cpm.portal_access_id = ${portal.id}
+          AND cpm.deleted_at IS NULL
+          AND cm.deleted_at IS NULL
+          AND cm.status = 'active'
+        ORDER BY cpm.added_at ASC
+      `));
+
+      // Log portal_opened event (deduplicate: max once per portal per calendar day)
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const existsRows = await db.execute(sql.raw(`
+          SELECT id FROM capital_portal_events
+          WHERE portal_access_id = ${portal.id}
+            AND event_type = 'portal_opened'
+            AND DATE(occurred_at) = '${today}'
+          LIMIT 1
+        `));
+        if (existsRows.rows.length === 0) {
+          const ipHash = hashIp(req.ip || req.headers["x-forwarded-for"]?.toString());
+          const ua = req.headers["user-agent"] ? `'${esc(String(req.headers["user-agent"]).slice(0, 512))}'` : "NULL";
+          await db.execute(sql.raw(`
+            INSERT INTO capital_portal_events (portal_access_id, investor_id, event_type, user_agent, ip_hash)
+            VALUES (${portal.id}, ${portal.investor_id}, 'portal_opened', ${ua}, ${ipHash ? `'${esc(ipHash)}'` : "NULL"})
+          `));
+          await db.execute(sql.raw(`
+            UPDATE capital_portal_access
+            SET access_count = access_count + 1, last_accessed_at = NOW(), updated_at = NOW()
+            WHERE id = ${portal.id}
+          `));
+        }
+      } catch { /* non-fatal — event logging must not block portal access */ }
+
+      // Build safe response — never include scores, probability, internal notes, financial data
+      const materials = (matRows.rows as any[]).map(m => ({
+        id: m.id,
+        title: m.title,
+        description: m.description,
+        material_type: m.material_type,
+        material_type_label: MATERIAL_TYPE_LABELS[m.material_type] ?? m.material_type,
+        version_label: m.version_label,
+        external_url: m.permission === "view" || m.permission === "download" ? m.external_url : null,
+        file_size_bytes: m.file_size_bytes,
+        mime_type: m.mime_type,
+        permission: m.permission,
+      }));
+
+      res.json({
+        access_label:  portal.access_label,
+        investor_name: portal.investor_name,
+        round_name:    portal.round_name,
+        expires_at:    portal.expires_at,
+        materials,
+      });
+    } catch (err: any) {
+      console.error("[portal] GET /api/investor-portal/:token:", err?.message);
+      res.status(500).json({ message: "Failed to load portal" });
+    }
+  });
+
+  // ── PUBLIC: POST /api/investor-portal/:token/events ──────────────────────
+  app.post("/api/investor-portal/:token/events", async (req: any, res) => {
+    try {
+      const raw = String(req.params.token || "");
+      if (raw.length !== 64 || !/^[0-9a-f]+$/.test(raw)) {
+        return res.status(404).json({ message: "Invalid link" });
+      }
+      const tokenHash = hashPortalToken(raw);
+
+      const accessRows = await db.execute(sql.raw(`
+        SELECT id, investor_id, status, expires_at, deleted_at
+        FROM capital_portal_access
+        WHERE access_token_hash = '${esc(tokenHash)}'
+          AND deleted_at IS NULL
+          AND status = 'active'
+        LIMIT 1
+      `));
+      const portal = accessRows.rows[0] as any;
+      if (!portal) return res.status(404).json({ message: "Invalid link" });
+      if (portal.expires_at && new Date(portal.expires_at).getTime() < Date.now()) {
+        return res.status(403).json({ message: "Link expired" });
+      }
+
+      const eventType = String(req.body.event_type || "");
+      const allowedEvents = new Set(["material_viewed", "material_downloaded"]);
+      if (!allowedEvents.has(eventType)) {
+        return res.status(400).json({ message: "Invalid event_type" });
+      }
+
+      const matId = safeId(req.body.material_id);
+      const ipHash = hashIp(req.ip || req.headers["x-forwarded-for"]?.toString());
+      const ua = req.headers["user-agent"] ? `'${esc(String(req.headers["user-agent"]).slice(0, 512))}'` : "NULL";
+
+      await db.execute(sql.raw(`
+        INSERT INTO capital_portal_events (portal_access_id, investor_id, material_id, event_type, user_agent, ip_hash)
+        VALUES (${portal.id}, ${portal.investor_id}, ${matId ?? "NULL"}, '${esc(eventType)}', ${ua}, ${ipHash ? `'${esc(ipHash)}'` : "NULL"})
+      `));
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[portal] POST /api/investor-portal/:token/events:", err?.message);
+      res.status(500).json({ message: "Failed to log event" });
     }
   });
 

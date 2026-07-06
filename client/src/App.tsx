@@ -141,6 +141,7 @@ const CapitalFollowUpsPage    = lazy(() => import("@/pages/capital-follow-ups"))
 const CapitalEmailReviewPage  = lazy(() => import("@/pages/capital-email-review"));
 const CapitalCommandCenterPage = lazy(() => import("@/pages/capital-command-center"));
 const BookingPublicPage = lazy(() => import("@/pages/booking-public"));
+const InvestorPortalPage = lazy(() => import("@/pages/investor-portal"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
 const DemonAtmospherics = lazy(() => import("@/components/demon-atmospherics").then(m => ({ default: m.DemonAtmospherics })));
 
@@ -630,6 +631,8 @@ function App() {
               <Suspense fallback={<PageLoader />}><PreferencesPage /></Suspense>
             ) : window.location.pathname.startsWith("/reset-password") || resetToken ? (
               <ResetPasswordPage token={resetToken ?? ""} onLogin={setUser} />
+            ) : window.location.pathname.startsWith("/investor-portal/") ? (
+              <Suspense fallback={<div className="flex items-center justify-center min-h-screen bg-[#0a1628]"><div className="h-8 w-8 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" /></div>}><InvestorPortalPage /></Suspense>
             ) : !user ? (
               user === null && !loading ? (
                 <Suspense fallback={<div className="flex items-center justify-center min-h-screen bg-background"><div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>}>

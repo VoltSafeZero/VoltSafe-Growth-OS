@@ -1,0 +1,205 @@
+VoltSafe CMS Navigation Consolidation Pass
+
+Goal:
+The left sidebar currently has too many subcategories across Work, Pipeline, Operations, Insights, Ecosystem, Marketing, Capital, Learn, and Admin. This creates cognitive overload. Consolidate related subcategories into fewer, clearer sidebar items while preserving all existing routes and functionality.
+
+Important:
+Do not delete any pages.
+Do not break existing routes.
+Do not remove permissions.
+Do not hide pages from users who currently have access.
+This is primarily a navigation/UX restructure.
+
+Core UX rule:
+The left sidebar should show fewer high-level destinations. Deeper related pages should move into page-level tabs, grouped sections, dropdowns, or command-search destinations.
+
+Target structure:
+
+Today
+
+Currents
+
+Work
+  Mission Control
+  Inbox & Mail
+  Tasks & Execution
+  Calendar & Meetings
+  Travel
+  Personal Settings
+
+Pipeline
+  Snapshot
+  Leads & Accounts
+  Contacts
+  Quotes & Renewals
+  Outreach
+  Revenue Tools
+
+Operations
+  Install & Deployments
+  Projects
+  Procurement
+  Support
+  Knowledge & Documents
+  Data Quality
+
+Insights
+  Executive Dashboard
+  Revenue Intelligence
+  Attribution
+  Relationship Intelligence
+  Cortex
+  Simulators & Feedback
+
+Ecosystem
+  Partners
+  Channels
+  Government & Grants
+  Referrals
+  Events & Media
+
+Marketing
+  Dashboard
+  Campaigns
+  Audiences
+  Engagement
+  Compliance
+
+Capital
+  Command Center
+  Investors
+  Rounds & Commitments
+  Follow-Ups
+  Data Room
+  Updates & Reviews
+
+Learn
+  Training
+  Help
+
+Admin
+  Users & Roles
+  Integrations
+  Mailboxes & Signatures
+  System Settings
+  Automations
+
+Mapping instructions:
+
+Work:
+- Mission Control stays visible.
+- Inbox, team inboxes, email-related work views should live under Inbox & Mail.
+- Tasks, Daily Execution, Activity Feed, Digest Settings should live under Tasks & Execution.
+- Work Calendar, Calendar, Meeting Notes should live under Calendar & Meetings.
+- My Travel should live under Travel.
+- Email Signatures, AI Voice Profiles, Digest Settings may live under Personal Settings if not better placed elsewhere.
+
+Pipeline:
+- Leads and Accounts should be grouped under Leads & Accounts.
+- Contacts can remain its own item.
+- Quotes and Renewals should be grouped under Quotes & Renewals.
+- Booking Outreach and Booking Analytics should be grouped under Outreach.
+- Price Lists, forecast/deal-health tools should be grouped under Revenue Tools.
+- Accounts Won and Notes should remain accessible through Leads & Accounts or relevant page tabs.
+
+Operations:
+- Install Workflows, Deployments, Territory Routing, Winter Support should group under Install & Deployments.
+- Projects remains visible.
+- Procurement remains visible.
+- Support Tickets, Communications, Events should group under Support.
+- Document Hub and Knowledge Assets should group under Knowledge & Documents.
+- Data Quality remains visible.
+
+Insights:
+- Executive Dashboard remains visible.
+- Revenue Hub, Revenue Ops, Revenue Intelligence, Territory & Geo should group under Revenue Intelligence.
+- Source Attribution should become Attribution.
+- Relationship Intelligence remains visible.
+- Cortex Intel Library and Executive Copilot should group under Cortex.
+- Revenue Simulator and Score Feedback should group under Simulators & Feedback.
+
+Ecosystem:
+- Industry Partnerships and Strategic Alliances should group under Partners.
+- Dealers / Resellers should become Channels.
+- Government & Grants remains visible.
+- Referrals remains visible.
+- Media & Tradeshows should become Events & Media.
+
+Marketing:
+- Dashboard remains visible.
+- Campaigns remains visible.
+- Audiences remains visible.
+- Replies and Hot Accounts should group under Engagement.
+- Compliance remains visible.
+
+Capital:
+- Command Center remains visible and first.
+- Investor Pipeline, Investor Targets, Investor Contacts should group under Investors.
+- Funding Rounds, Commitments, Grants & Non-Dilutive should group under Rounds & Commitments.
+- Follow-Up Queue and Email Review should group under Follow-Ups.
+- Data Room remains visible.
+- Investor Updates and Email Review may also be accessible under Updates & Reviews if needed.
+
+Learn:
+- Training and Help stay as-is.
+
+Admin:
+- Users, Role Manager, Task Hub Access should group under Users & Roles.
+- Integrations remains visible.
+- My Mailboxes and User Signatures should group under Mailboxes & Signatures.
+- Settings and Global Search should group under System Settings.
+- Automations remains visible.
+
+Implementation requirements:
+1. Audit current nav config and route mappings.
+2. Preserve every existing route.
+3. Add grouped navigation entries where needed.
+4. If nested submenus are supported, use one extra level only.
+5. If nested submenus are not supported, route grouped items to landing pages with tabs/cards for the underlying pages.
+6. Add redirects or aliases if needed so old routes still work.
+7. Ensure command search can still find all individual pages by their old names.
+8. Ensure breadcrumbs show the new grouping clearly.
+9. Ensure permissions still apply exactly as before.
+10. Ensure hidden or restricted modules remain hidden for unauthorized users.
+
+UX requirements:
+- No category should show more than 7 sidebar children if possible.
+- Avoid three-level visible sidebar nesting unless absolutely necessary.
+- Page-level tabs should be used for deeper related tools.
+- Add clear landing pages for grouped items where needed.
+- Favorites/recent pages should still work if implemented.
+- Hover/click states must remain clear.
+
+Tests:
+Add/update tests covering:
+- all old routes still resolve
+- all new grouped nav items render
+- no duplicate nav labels
+- restricted pages remain restricted
+- Capital still only visible to Trevor and Scott where required
+- command search finds old page names
+- breadcrumbs reflect new grouping
+- sidebar child count is reduced
+- grouped landing pages/tabs link to the original pages
+- no broken imports/routes
+
+Validation:
+Run:
+- nav tests
+- route tests
+- permission tests
+- Capital permission tests
+- Marketing route tests
+- build if practical
+
+Deliver:
+- before/after nav structure
+- route mapping table
+- files changed
+- permissions confirmation
+- tests run and results
+
+Do not delete functionality.
+Do not loosen permissions.
+Do not break old URLs.
+Do not create a deep confusing submenu maze.
