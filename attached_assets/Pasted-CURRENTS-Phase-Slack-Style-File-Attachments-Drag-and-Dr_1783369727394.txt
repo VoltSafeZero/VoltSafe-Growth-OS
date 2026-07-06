@@ -1,0 +1,223 @@
+CURRENTS Phase — Slack-Style File Attachments + Drag-and-Drop Uploads
+
+Context:
+CURRENTS is our Slack-lite internal communications module inside VoltSafe CMS. In the current UI, the message composer has an attach/paperclip icon, but users also need Slack-style drag-and-drop file upload directly into a conversation.
+
+Goal:
+Users should be able to attach files in CURRENTS by either:
+1. clicking the attach/paperclip button, or
+2. dragging and dropping files directly into the active channel or DM conversation.
+
+This must work for channels and direct messages.
+
+Core requirements:
+
+1. Click-to-attach
+- The paperclip/attach button in the CURRENTS message composer should open a file picker.
+- Users should be able to select one or multiple files.
+- Support any file type by default:
+  - images
+  - PDFs
+  - Word docs
+  - Excel/CSV
+  - PowerPoint
+  - ZIP files
+  - text files
+  - design files
+  - other generic files
+- Do not artificially restrict file types unless the backend has a clear security reason.
+
+2. Drag-and-drop upload
+- Users should be able to drag files from their desktop directly into the active conversation area.
+- When dragging over the conversation, show a clear overlay/drop zone.
+- Example overlay text:
+  “Drop files to upload to this conversation”
+- Dropping files should add them to the composer as pending attachments.
+- Drag/drop should work even if the user drops onto:
+  - message list area
+  - empty conversation area
+  - composer area
+- Drag/drop should not navigate away from the app or open the file in the browser.
+
+3. Attachment preview before send
+Before the message is sent, show pending attachments above or inside the composer.
+
+Each pending attachment should show:
+- file name
+- file type/icon
+- file size
+- upload status:
+  - ready
+  - uploading
+  - uploaded
+  - failed
+- remove/X button
+
+For image files, show a small thumbnail preview if easy/safe.
+For non-image files, show a file-type icon.
+
+4. Multiple attachments
+- Allow multiple files on one message.
+- Users should be able to remove individual files before sending.
+- If one file fails to upload, the user should be able to retry or remove it without losing the message text.
+
+5. Message sending behavior
+- A user should be able to send:
+  - text only
+  - files only
+  - text + files
+- If attachments are still uploading, disable send or show “Uploading…” until ready.
+- Once sent, the message should render the attached files in the conversation.
+
+6. Message attachment display
+After sending, attachments should appear inside the message bubble/card.
+
+Each attachment should show:
+- file name
+- file type/icon or image thumbnail
+- file size
+- uploaded timestamp if available
+- download/open action
+
+For images:
+- show thumbnail preview
+- clicking opens a larger preview/lightbox if existing UI patterns support it
+
+For PDFs/docs/files:
+- clicking opens/downloads the file based on existing file handling patterns
+
+7. Backend/data model
+Audit the existing CURRENTS message schema and attachment/file storage system.
+
+If message attachments already exist, reuse the existing pattern.
+If not, add a safe schema/table such as:
+
+currents_message_attachments
+- id
+- message_id
+- conversation_id or channel_id/dm_id
+- uploader_user_id
+- file_name
+- original_file_name
+- mime_type
+- file_size_bytes
+- file_url or storage_key
+- file_extension
+- attachment_type
+- width nullable
+- height nullable
+- upload_status
+- created_at
+- updated_at
+- deleted_at nullable
+
+Do not fake secure file storage.
+If secure upload infrastructure does not exist yet, implement metadata and UI plumbing with a clear TODO for storage integration, but do not pretend uploads are secure.
+
+8. Upload API
+Add or reuse API endpoints for CURRENTS file upload.
+
+Suggested APIs:
+- POST /api/currents/attachments/upload
+- GET /api/currents/messages/:id/attachments
+- DELETE /api/currents/attachments/:id
+
+Requirements:
+- must require authentication
+- must associate upload with the current user
+- must verify user has access to the target channel/DM
+- must not allow users to attach files to conversations they cannot access
+- must return attachment metadata after upload
+
+9. Security and safety
+Add basic protections:
+- require auth
+- enforce conversation/channel/DM access
+- enforce max file size
+- sanitize file names
+- do not trust client MIME type blindly
+- prevent path traversal
+- avoid executable preview behavior
+- do not expose private files publicly unless the app already has protected file-serving
+- log upload failures safely without leaking secrets
+
+Use a reasonable max file size if no product limit exists yet, such as 25MB per file or match existing app limits.
+
+10. UI polish
+The drag/drop experience should feel obvious and smooth.
+
+Add:
+- drag-over overlay
+- attachment chip/card previews
+- upload progress state if available
+- failed upload state
+- remove attachment action
+- empty state support
+- clear visual feedback when files are attached
+
+Do not clutter the composer.
+Keep it Slack-like: simple, fast, obvious.
+
+11. CURRENTS files tab
+If the conversation already has a “Files” tab, make sure uploaded files appear there.
+If the Files tab exists but is not wired, wire it to message attachments.
+If no backend exists yet, add safe placeholder wiring but do not invent fake data.
+
+Files tab should show:
+- file name
+- uploader
+- conversation/channel
+- upload date
+- file size
+- type
+- open/download action
+
+12. Tests
+Add regression tests covering:
+
+Frontend:
+- attach button exists and opens file input
+- file input allows multiple files
+- drag/drop handlers exist on conversation/composer area
+- drag-over overlay renders
+- pending attachment preview renders
+- remove pending attachment action exists
+- send button handles text-only, file-only, and text+file states
+- Files tab references uploaded attachments, not fake data
+
+Backend:
+- upload route requires auth
+- upload route checks channel/DM access
+- upload route accepts generic file metadata
+- upload route sanitizes file name
+- upload route enforces file size limit
+- attachments are linked to messages
+- unauthorized users cannot fetch/delete attachments
+
+Source checks:
+- prevent browser default drag/drop navigation
+- no hardcoded fake file data
+- no public unauthenticated file access unless existing protected serving is confirmed
+- no file type restrictions beyond security limits
+
+13. Validation
+Run:
+- CURRENTS tests
+- relevant frontend/source tests
+- auth/permission tests
+- full build if practical
+
+Deliver:
+- files changed
+- schema changes
+- new APIs
+- upload/storage approach
+- drag/drop UX summary
+- security limits
+- test results
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not fake secure uploads.
+Do not restrict uploads to only images.
+Do not let dropped files open in the browser.

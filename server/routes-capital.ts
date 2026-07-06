@@ -373,6 +373,86 @@ export async function migrateCapitalSchema(): Promise<void> {
     `));
     console.log("[migration] Capital Phase 2F: valuation/allocation columns ready.");
   } catch (_e2f) { /* idempotent */ }
+
+  // ── Phase 2G: Data Room — capital_materials, capital_material_shares, capital_material_requests ──
+  // TODO: When secure file storage is implemented, integrate upload/download here
+  //       behind requireCapitalAccess enforcement. For now this is metadata-first.
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS capital_materials (
+        id                SERIAL PRIMARY KEY,
+        title             TEXT NOT NULL,
+        description       TEXT,
+        material_type     TEXT NOT NULL DEFAULT 'other',
+        round_id          INTEGER REFERENCES capital_rounds(id) ON DELETE SET NULL,
+        version_label     TEXT,
+        status            TEXT NOT NULL DEFAULT 'draft',
+        file_url          TEXT,
+        file_storage_key  TEXT,
+        external_url      TEXT,
+        mime_type         TEXT,
+        file_size_bytes   BIGINT,
+        checksum          TEXT,
+        tags              TEXT,
+        is_confidential   BOOLEAN NOT NULL DEFAULT TRUE,
+        requires_nda      BOOLEAN NOT NULL DEFAULT FALSE,
+        owner_user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        updated_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at        TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS capital_material_shares (
+        id                SERIAL PRIMARY KEY,
+        material_id       INTEGER NOT NULL REFERENCES capital_materials(id) ON DELETE CASCADE,
+        investor_id       INTEGER REFERENCES capital_investors(id) ON DELETE SET NULL,
+        contact_id        INTEGER REFERENCES capital_contacts(id) ON DELETE SET NULL,
+        round_id          INTEGER REFERENCES capital_rounds(id) ON DELETE SET NULL,
+        share_method      TEXT NOT NULL DEFAULT 'manual',
+        email_thread_id   TEXT,
+        email_message_id  TEXT,
+        shared_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        shared_by         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        status            TEXT NOT NULL DEFAULT 'shared',
+        viewed_at         TIMESTAMPTZ,
+        downloaded_at     TIMESTAMPTZ,
+        last_activity_at  TIMESTAMPTZ,
+        notes             TEXT,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at        TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS capital_material_requests (
+        id                       SERIAL PRIMARY KEY,
+        investor_id              INTEGER REFERENCES capital_investors(id) ON DELETE SET NULL,
+        contact_id               INTEGER REFERENCES capital_contacts(id) ON DELETE SET NULL,
+        round_id                 INTEGER REFERENCES capital_rounds(id) ON DELETE SET NULL,
+        requested_material_type  TEXT,
+        requested_title          TEXT,
+        request_status           TEXT NOT NULL DEFAULT 'requested',
+        priority                 TEXT NOT NULL DEFAULT 'medium',
+        due_at                   TIMESTAMPTZ,
+        requested_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        requested_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        fulfilled_material_id    INTEGER REFERENCES capital_materials(id) ON DELETE SET NULL,
+        fulfilled_at             TIMESTAMPTZ,
+        notes                    TEXT,
+        created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at               TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_cap_materials_type      ON capital_materials(material_type);
+      CREATE INDEX IF NOT EXISTS idx_cap_materials_status    ON capital_materials(status);
+      CREATE INDEX IF NOT EXISTS idx_cap_materials_round     ON capital_materials(round_id);
+      CREATE INDEX IF NOT EXISTS idx_cap_materials_deleted   ON capital_materials(deleted_at);
+      CREATE INDEX IF NOT EXISTS idx_cap_mat_shares_material ON capital_material_shares(material_id);
+      CREATE INDEX IF NOT EXISTS idx_cap_mat_shares_investor ON capital_material_shares(investor_id);
+      CREATE INDEX IF NOT EXISTS idx_cap_mat_req_investor    ON capital_material_requests(investor_id);
+      CREATE INDEX IF NOT EXISTS idx_cap_mat_req_status      ON capital_material_requests(request_status);
+    `));
+    console.log("[migration] Capital Phase 2G: data room tables ready.");
+  } catch (_e2g) { /* idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1836,6 +1916,18 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       `));
       const linkedEmails = emailLinksRow.rows as any[];
 
+      // ── Phase 2G: relevant data room materials for email context ────────────
+      const [materialsCtxRow, sharesCtxRow] = await Promise.all([
+        db.execute(sql.raw(`SELECT id, title, material_type, version_label, status FROM capital_materials WHERE status = 'active' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 30`)),
+        db.execute(sql.raw(`SELECT * FROM capital_material_shares WHERE investor_id = ${id} AND deleted_at IS NULL ORDER BY shared_at DESC LIMIT 30`)),
+      ]);
+      const { getRelevantMaterialsForEmailContext } = await import("./services/capital-data-room.js");
+      const relevantMaterials = getRelevantMaterialsForEmailContext(
+        id, inv.stage ?? "",
+        materialsCtxRow.rows as any[],
+        sharesCtxRow.rows as any[]
+      );
+
       res.json({
         investor: { id: inv.id, name: inv.name, stage: inv.stage, priority: inv.priority },
         intelligence: intel,
@@ -1853,6 +1945,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
           contact_name: e.contact_name,
           contact_email: e.contact_email,
         })),
+        relevant_materials: relevantMaterials,
         templates,
       });
     } catch (err: any) {
@@ -2179,6 +2272,52 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       const closeChecklist    = computeCloseChecklist(round, investors, pipeline, allocationPlan);
       const valuationFlags    = computeValuationRiskFlags(round, valuationSummary, allocationPlan, pipeline);
 
+      // Phase 2G: Data Room intelligence
+      const {
+        computeDataRoomIntelligence,
+        computeMaterialRiskFlags,
+      } = await import("./services/capital-data-room.js");
+
+      const [materialsRow, matSharesRow, matRequestsRow] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT cm.*, cr.name AS round_name
+          FROM capital_materials cm
+          LEFT JOIN capital_rounds cr ON cr.id = cm.round_id
+          WHERE cm.deleted_at IS NULL
+            AND (cm.round_id = ${roundId} OR cm.round_id IS NULL)
+          ORDER BY cm.updated_at DESC LIMIT 100
+        `)),
+        db.execute(sql.raw(`
+          SELECT cms.*, ci.name AS investor_name, cm.title AS material_title
+          FROM capital_material_shares cms
+          LEFT JOIN capital_investors ci ON ci.id = cms.investor_id
+          LEFT JOIN capital_materials cm ON cm.id = cms.material_id
+          WHERE cms.deleted_at IS NULL
+          ORDER BY cms.shared_at DESC LIMIT 200
+        `)),
+        db.execute(sql.raw(`
+          SELECT cmr.*, ci.name AS investor_name
+          FROM capital_material_requests cmr
+          LEFT JOIN capital_investors ci ON ci.id = cmr.investor_id
+          WHERE cmr.deleted_at IS NULL
+            AND (cmr.round_id = ${roundId} OR cmr.round_id IS NULL)
+          ORDER BY cmr.requested_at DESC LIMIT 100
+        `)),
+      ]);
+      const dataRoomIntel = computeDataRoomIntelligence(
+        materialsRow.rows as any[],
+        matSharesRow.rows as any[],
+        matRequestsRow.rows as any[],
+        investors
+      );
+      const dataRoomFlags = computeMaterialRiskFlags(
+        materialsRow.rows as any[],
+        matSharesRow.rows as any[],
+        matRequestsRow.rows as any[],
+        investors,
+        dataRoomIntel
+      );
+
       // Days open
       const daysOpen = round.open_date
         ? Math.floor((Date.now() - new Date(round.open_date).getTime()) / 86400000)
@@ -2189,7 +2328,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         summary:            pipeline,
         lead_candidates:    leads,
         this_week_actions:  actions,
-        risk_flags:         [...riskFlags, ...valuationFlags],
+        risk_flags:         [...riskFlags, ...valuationFlags, ...dataRoomFlags],
         runway,
         scenarios,
         valuation_summary:  valuationSummary,
@@ -2197,6 +2336,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         allocation_plan:    allocationPlan,
         close_plan:         closePlan,
         close_checklist:    closeChecklist,
+        data_room_intel:    dataRoomIntel,
         recent_activity:    recentActivity,
         recent_emails:      recentEmails,
       });
@@ -2259,6 +2399,399 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
     } catch (err: any) {
       console.error("[capital] PATCH /rounds/:id/valuation:", err?.message);
       res.status(500).json({ message: "Failed to update valuation data" });
+    }
+  });
+
+  // ── Phase 2G: Capital Materials CRUD ─────────────────────────────────────
+
+  app.get("/api/capital/materials", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const { type, status, round_id, search, tag } = req.query as any;
+      let where = "WHERE cm.deleted_at IS NULL";
+      if (type)     where += ` AND cm.material_type = '${esc(type)}'`;
+      if (status)   where += ` AND cm.status = '${esc(status)}'`;
+      if (round_id) { const rid = safeId(round_id); if (rid) where += ` AND cm.round_id = ${rid}`; }
+      if (search)   where += ` AND (cm.title ILIKE '%${esc(search)}%' OR cm.description ILIKE '%${esc(search)}%')`;
+      if (tag)      where += ` AND cm.tags ILIKE '%${esc(tag)}%'`;
+      const rows = await db.execute(sql.raw(`
+        SELECT cm.*,
+               cr.name AS round_name,
+               u.name  AS owner_name,
+               (SELECT COUNT(*) FROM capital_material_shares s WHERE s.material_id = cm.id AND s.deleted_at IS NULL) AS share_count,
+               (SELECT MAX(s.shared_at) FROM capital_material_shares s WHERE s.material_id = cm.id AND s.deleted_at IS NULL) AS latest_shared_at
+        FROM capital_materials cm
+        LEFT JOIN capital_rounds cr ON cr.id = cm.round_id
+        LEFT JOIN users u ON u.id = cm.owner_user_id
+        ${where}
+        ORDER BY cm.updated_at DESC LIMIT 200
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /materials:", err?.message);
+      res.status(500).json({ message: "Failed to load materials" });
+    }
+  });
+
+  app.post("/api/capital/materials", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const { title, description, material_type, round_id, version_label, status,
+              file_url, external_url, mime_type, file_size_bytes, tags,
+              is_confidential, requires_nda } = req.body;
+      if (!title?.trim()) return res.status(400).json({ message: "title is required" });
+      const rid = safeId(round_id);
+      const row = await db.execute(sql.raw(`
+        INSERT INTO capital_materials
+          (title, description, material_type, round_id, version_label, status,
+           file_url, external_url, mime_type, file_size_bytes, tags,
+           is_confidential, requires_nda, owner_user_id, created_by, updated_by)
+        VALUES (
+          '${esc(title)}',
+          ${description ? `'${esc(description)}'` : "NULL"},
+          '${esc(material_type || "other")}',
+          ${rid ?? "NULL"},
+          ${version_label ? `'${esc(version_label)}'` : "NULL"},
+          '${esc(status || "draft")}',
+          ${file_url     ? `'${esc(file_url)}'`     : "NULL"},
+          ${external_url ? `'${esc(external_url)}'` : "NULL"},
+          ${mime_type    ? `'${esc(mime_type)}'`    : "NULL"},
+          ${file_size_bytes != null ? Number(file_size_bytes) : "NULL"},
+          ${tags         ? `'${esc(tags)}'`         : "NULL"},
+          ${is_confidential === false ? "FALSE" : "TRUE"},
+          ${requires_nda === true ? "TRUE" : "FALSE"},
+          ${req.session.userId},
+          ${req.session.userId},
+          ${req.session.userId}
+        ) RETURNING *
+      `));
+      const mat = row.rows[0] as any;
+      await logCapitalActivity("capital_material", mat.id, "Material Created",
+        `Created material: ${title}`, { createdBy: req.session.userId });
+      res.status(201).json(mat);
+    } catch (err: any) {
+      console.error("[capital] POST /materials:", err?.message);
+      res.status(500).json({ message: "Failed to create material" });
+    }
+  });
+
+  app.get("/api/capital/materials/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const [matRow, sharesRow, requestsRow] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT cm.*, cr.name AS round_name, u.name AS owner_name
+          FROM capital_materials cm
+          LEFT JOIN capital_rounds cr ON cr.id = cm.round_id
+          LEFT JOIN users u ON u.id = cm.owner_user_id
+          WHERE cm.id = ${id} AND cm.deleted_at IS NULL LIMIT 1
+        `)),
+        db.execute(sql.raw(`
+          SELECT cms.*, ci.name AS investor_name, cc.full_name AS contact_name
+          FROM capital_material_shares cms
+          LEFT JOIN capital_investors ci ON ci.id = cms.investor_id
+          LEFT JOIN capital_contacts  cc ON cc.id = cms.contact_id
+          WHERE cms.material_id = ${id} AND cms.deleted_at IS NULL
+          ORDER BY cms.shared_at DESC
+        `)),
+        db.execute(sql.raw(`
+          SELECT cmr.*, ci.name AS investor_name
+          FROM capital_material_requests cmr
+          LEFT JOIN capital_investors ci ON ci.id = cmr.investor_id
+          WHERE cmr.fulfilled_material_id = ${id} AND cmr.deleted_at IS NULL
+          ORDER BY cmr.requested_at DESC
+        `)),
+      ]);
+      const mat = matRow.rows[0];
+      if (!mat) return res.status(404).json({ message: "Material not found" });
+      res.json({ ...mat, shares: sharesRow.rows, requests: requestsRow.rows });
+    } catch (err: any) {
+      console.error("[capital] GET /materials/:id:", err?.message);
+      res.status(500).json({ message: "Failed to load material" });
+    }
+  });
+
+  app.patch("/api/capital/materials/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const textFields = new Set(["title","description","material_type","version_label","status",
+        "file_url","file_storage_key","external_url","mime_type","tags"]);
+      const numFields  = new Set(["round_id","file_size_bytes"]);
+      const boolFields = new Set(["is_confidential","requires_nda"]);
+      const allowed = [...textFields, ...numFields, ...boolFields];
+      const sets: string[] = [`updated_at = NOW()`, `updated_by = ${req.session.userId ?? "NULL"}`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") { sets.push(`${key} = NULL`); }
+        else if (numFields.has(key))  { const n = safeId(v) ?? Number(v); if (!isNaN(n)) sets.push(`${key} = ${n}`); }
+        else if (boolFields.has(key)) { sets.push(`${key} = ${v ? "TRUE" : "FALSE"}`); }
+        else { sets.push(`${key} = '${esc(String(v))}'`); }
+      }
+      if (sets.length === 2) return res.status(400).json({ message: "No fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE capital_materials SET ${sets.join(", ")} WHERE id = ${id} AND deleted_at IS NULL RETURNING *`));
+      if (!rows.rows[0]) return res.status(404).json({ message: "Material not found" });
+      res.json(rows.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] PATCH /materials/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update material" });
+    }
+  });
+
+  app.delete("/api/capital/materials/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(`UPDATE capital_materials SET deleted_at = NOW(), updated_by = ${req.session.userId ?? "NULL"} WHERE id = ${id} AND deleted_at IS NULL`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] DELETE /materials/:id:", err?.message);
+      res.status(500).json({ message: "Failed to delete material" });
+    }
+  });
+
+  // ── Phase 2G: Material shares ─────────────────────────────────────────────
+
+  app.get("/api/capital/materials/:id/shares", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT cms.*, ci.name AS investor_name, cc.full_name AS contact_name
+        FROM capital_material_shares cms
+        LEFT JOIN capital_investors ci ON ci.id = cms.investor_id
+        LEFT JOIN capital_contacts  cc ON cc.id = cms.contact_id
+        WHERE cms.material_id = ${id} AND cms.deleted_at IS NULL
+        ORDER BY cms.shared_at DESC
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /materials/:id/shares:", err?.message);
+      res.status(500).json({ message: "Failed to load shares" });
+    }
+  });
+
+  app.post("/api/capital/materials/:id/share", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const materialId = safeId(req.params.id);
+      if (!materialId) return res.status(400).json({ message: "Invalid material id" });
+      const { investor_id, contact_id, round_id, share_method, email_thread_id, email_message_id, notes } = req.body;
+      const invId = safeId(investor_id);
+      if (!invId) return res.status(400).json({ message: "investor_id is required" });
+
+      // Check material exists
+      const matCheck = await db.execute(sql.raw(`SELECT id, title, status FROM capital_materials WHERE id = ${materialId} AND deleted_at IS NULL LIMIT 1`));
+      if (!matCheck.rows[0]) return res.status(404).json({ message: "Material not found" });
+      const mat = matCheck.rows[0] as any;
+
+      // Upsert: prevent exact duplicate same-day shares
+      const existing = await db.execute(sql.raw(`
+        SELECT id FROM capital_material_shares
+        WHERE material_id = ${materialId} AND investor_id = ${invId} AND deleted_at IS NULL
+          AND shared_at > NOW() - INTERVAL '1 hour'
+        LIMIT 1
+      `));
+      if (existing.rows[0]) {
+        return res.status(409).json({ message: "Already shared with this investor in the last hour", share: existing.rows[0] });
+      }
+
+      const cid  = safeId(contact_id);
+      const rid  = safeId(round_id);
+      const row  = await db.execute(sql.raw(`
+        INSERT INTO capital_material_shares
+          (material_id, investor_id, contact_id, round_id, share_method,
+           email_thread_id, email_message_id, shared_by, notes, last_activity_at)
+        VALUES (
+          ${materialId}, ${invId},
+          ${cid ?? "NULL"}, ${rid ?? "NULL"},
+          '${esc(share_method || "manual")}',
+          ${email_thread_id  ? `'${esc(email_thread_id)}'`  : "NULL"},
+          ${email_message_id ? `'${esc(email_message_id)}'` : "NULL"},
+          ${req.session.userId ?? "NULL"},
+          ${notes ? `'${esc(notes)}'` : "NULL"},
+          NOW()
+        ) RETURNING *
+      `));
+      const share = row.rows[0] as any;
+
+      // Log capital activity
+      await logCapitalActivity("investor", invId, "Material Shared",
+        `Shared material: ${mat.title}`,
+        { body: `Method: ${share_method || "manual"}${notes ? ` — ${notes}` : ""}`, createdBy: req.session.userId }
+      );
+
+      // Update investor last_touch_at
+      await db.execute(sql.raw(`UPDATE capital_investors SET last_touch_at = NOW(), updated_at = NOW() WHERE id = ${invId}`));
+
+      res.status(201).json(share);
+    } catch (err: any) {
+      console.error("[capital] POST /materials/:id/share:", err?.message);
+      res.status(500).json({ message: "Failed to record share" });
+    }
+  });
+
+  app.patch("/api/capital/material-shares/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const allowed = ["status","viewed_at","downloaded_at","last_activity_at","notes"];
+      const sets: string[] = [`updated_at = NOW()`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") { sets.push(`${key} = NULL`); }
+        else { sets.push(`${key} = '${esc(String(v))}'`); }
+      }
+      if (sets.length === 1) return res.status(400).json({ message: "No fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE capital_material_shares SET ${sets.join(", ")} WHERE id = ${id} AND deleted_at IS NULL RETURNING *`));
+      if (!rows.rows[0]) return res.status(404).json({ message: "Share not found" });
+      res.json(rows.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] PATCH /material-shares/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update share" });
+    }
+  });
+
+  app.delete("/api/capital/material-shares/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(`UPDATE capital_material_shares SET deleted_at = NOW() WHERE id = ${id} AND deleted_at IS NULL`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] DELETE /material-shares/:id:", err?.message);
+      res.status(500).json({ message: "Failed to delete share" });
+    }
+  });
+
+  // ── Phase 2G: Investor materials view ────────────────────────────────────
+
+  app.get("/api/capital/investors/:id/materials", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const [invRow, materialsRow, sharesRow, requestsRow] = await Promise.all([
+        db.execute(sql.raw(`SELECT id, name, stage FROM capital_investors WHERE id = ${id} LIMIT 1`)),
+        db.execute(sql.raw(`SELECT * FROM capital_materials WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 100`)),
+        db.execute(sql.raw(`SELECT * FROM capital_material_shares WHERE investor_id = ${id} AND deleted_at IS NULL ORDER BY shared_at DESC`)),
+        db.execute(sql.raw(`
+          SELECT cmr.*, cm.title AS fulfilled_material_title
+          FROM capital_material_requests cmr
+          LEFT JOIN capital_materials cm ON cm.id = cmr.fulfilled_material_id
+          WHERE cmr.investor_id = ${id} AND cmr.deleted_at IS NULL
+          ORDER BY cmr.requested_at DESC
+        `)),
+      ]);
+      const inv = invRow.rows[0];
+      if (!inv) return res.status(404).json({ message: "Investor not found" });
+      const { getInvestorMaterials } = await import("./services/capital-data-room.js");
+      const materialRows = getInvestorMaterials(id, materialsRow.rows as any[], sharesRow.rows as any[]);
+      res.json({ investor: inv, materials: materialRows, requests: requestsRow.rows });
+    } catch (err: any) {
+      console.error("[capital] GET /investors/:id/materials:", err?.message);
+      res.status(500).json({ message: "Failed to load investor materials" });
+    }
+  });
+
+  // ── Phase 2G: Material requests CRUD ─────────────────────────────────────
+
+  app.get("/api/capital/material-requests", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const { investor_id, round_id, status } = req.query as any;
+      let where = "WHERE cmr.deleted_at IS NULL";
+      if (investor_id) { const iid = safeId(investor_id); if (iid) where += ` AND cmr.investor_id = ${iid}`; }
+      if (round_id)    { const rid = safeId(round_id);    if (rid) where += ` AND cmr.round_id = ${rid}`; }
+      if (status)      where += ` AND cmr.request_status = '${esc(status)}'`;
+      const rows = await db.execute(sql.raw(`
+        SELECT cmr.*, ci.name AS investor_name, cm.title AS fulfilled_material_title
+        FROM capital_material_requests cmr
+        LEFT JOIN capital_investors ci ON ci.id = cmr.investor_id
+        LEFT JOIN capital_materials  cm ON cm.id = cmr.fulfilled_material_id
+        ${where}
+        ORDER BY cmr.priority DESC, cmr.due_at ASC NULLS LAST, cmr.requested_at DESC
+        LIMIT 200
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /material-requests:", err?.message);
+      res.status(500).json({ message: "Failed to load material requests" });
+    }
+  });
+
+  app.post("/api/capital/material-requests", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const { investor_id, contact_id, round_id, requested_material_type, requested_title,
+              priority, due_at, notes } = req.body;
+      const invId = safeId(investor_id);
+      if (!invId) return res.status(400).json({ message: "investor_id is required" });
+      const row = await db.execute(sql.raw(`
+        INSERT INTO capital_material_requests
+          (investor_id, contact_id, round_id, requested_material_type, requested_title,
+           request_status, priority, due_at, requested_by, notes)
+        VALUES (
+          ${invId},
+          ${safeId(contact_id) ?? "NULL"},
+          ${safeId(round_id)   ?? "NULL"},
+          ${requested_material_type ? `'${esc(requested_material_type)}'` : "NULL"},
+          ${requested_title ? `'${esc(requested_title)}'` : "NULL"},
+          'requested',
+          '${esc(priority || "medium")}',
+          ${due_at ? `'${esc(due_at)}'` : "NULL"},
+          ${req.session.userId ?? "NULL"},
+          ${notes  ? `'${esc(notes)}'`  : "NULL"}
+        ) RETURNING *
+      `));
+      const reqRow = row.rows[0] as any;
+      await logCapitalActivity("investor", invId, "Material Requested",
+        `Material request: ${requested_title || requested_material_type || "unknown"}`,
+        { createdBy: req.session.userId }
+      );
+      res.status(201).json(reqRow);
+    } catch (err: any) {
+      console.error("[capital] POST /material-requests:", err?.message);
+      res.status(500).json({ message: "Failed to create material request" });
+    }
+  });
+
+  app.patch("/api/capital/material-requests/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const numFields  = new Set(["fulfilled_material_id"]);
+      const textFields = new Set(["request_status","priority","requested_material_type","requested_title","notes"]);
+      const dtFields   = new Set(["due_at","fulfilled_at"]);
+      const allowed = [...numFields, ...textFields, ...dtFields];
+      const sets: string[] = [`updated_at = NOW()`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") { sets.push(`${key} = NULL`); }
+        else if (numFields.has(key)) { const n = safeId(v); if (n) sets.push(`${key} = ${n}`); }
+        else { sets.push(`${key} = '${esc(String(v))}'`); }
+      }
+      // Auto-set fulfilled_at when status → shared
+      if ("request_status" in req.body && req.body.request_status === "shared") {
+        sets.push("fulfilled_at = COALESCE(fulfilled_at, NOW())");
+      }
+      if (sets.length === 1) return res.status(400).json({ message: "No fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE capital_material_requests SET ${sets.join(", ")} WHERE id = ${id} AND deleted_at IS NULL RETURNING *`));
+      if (!rows.rows[0]) return res.status(404).json({ message: "Request not found" });
+      res.json(rows.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] PATCH /material-requests/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update material request" });
+    }
+  });
+
+  app.delete("/api/capital/material-requests/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(`UPDATE capital_material_requests SET deleted_at = NOW() WHERE id = ${id} AND deleted_at IS NULL`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] DELETE /material-requests/:id:", err?.message);
+      res.status(500).json({ message: "Failed to delete material request" });
     }
   });
 
