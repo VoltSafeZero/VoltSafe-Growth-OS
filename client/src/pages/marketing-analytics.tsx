@@ -625,7 +625,12 @@ function CampaignROISection() {
   const personas     = data?.personas     ?? [];
   const stakeholders = data?.stakeholders ?? [];
 
-  const hasAnyRevenue = campaigns.some(c => c.pipeline_value != null || c.won_revenue != null);
+  // Treat null AND 0 as "no data" — backend returns null when CRM revenue is absent,
+  // never invent $0 as a revenue signal (absence is a gap, not zero revenue).
+  const hasAnyRevenue = campaigns.some(c =>
+    (c.pipeline_value != null && Number(c.pipeline_value) > 0) ||
+    (c.won_revenue    != null && Number(c.won_revenue)    > 0)
+  );
   const hasAnyEvents  = campaigns.some(c => c.total_attribution_events > 0);
 
   return (

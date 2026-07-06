@@ -355,22 +355,23 @@ export async function getMarketingAttributionDashboard(filters: {
       COUNT(cae.id) FILTER (WHERE cae.event_type = 'proposal_sent')    AS proposals,
       -- Opportunity-level dedup: sum MAX pipeline_value per distinct opportunity so
       -- a deal is not counted twice (opportunity_influenced + deal_won = same $).
-      COALESCE((
+      -- Returns NULL (not 0) when no pipeline data exists — absence is a gap, not $0.
+      (
         SELECT SUM(max_pv) FROM (
           SELECT MAX(pipeline_value) AS max_pv
           FROM campaign_attribution_events
           WHERE campaign_id = mc.id AND pipeline_value IS NOT NULL
           GROUP BY COALESCE(opportunity_id::text, id::text)
         ) _dedup_pv
-      ), 0) AS pipeline_value,
-      COALESCE((
+      ) AS pipeline_value,
+      (
         SELECT SUM(max_wr) FROM (
           SELECT MAX(won_revenue) AS max_wr
           FROM campaign_attribution_events
           WHERE campaign_id = mc.id AND won_revenue IS NOT NULL
           GROUP BY COALESCE(opportunity_id::text, id::text)
         ) _dedup_wr
-      ), 0) AS won_revenue,
+      ) AS won_revenue,
       COUNT(DISTINCT cae.account_id) FILTER (WHERE cae.account_id IS NOT NULL) AS influenced_accounts,
       CASE
         WHEN COUNT(cae.id) FILTER (WHERE cae.confidence = 'high')   >= 3 THEN 'high'
@@ -397,8 +398,8 @@ export async function getPersonaAttributionBreakdown(): Promise<any[]> {
       COUNT(DISTINCT cae.campaign_id)    AS campaigns,
       COUNT(DISTINCT cae.account_id)     AS engaged_accounts,
       COUNT(DISTINCT cae.opportunity_id) AS opportunities,
-      -- Dedup per opportunity: sum MAX pipeline_value per distinct opportunity
-      COALESCE((
+      -- Dedup per opportunity: NULL when no data (absence is a gap, not $0)
+      (
         SELECT SUM(max_pv) FROM (
           SELECT MAX(cae2.pipeline_value) AS max_pv
           FROM campaign_attribution_events cae2
@@ -407,8 +408,8 @@ export async function getPersonaAttributionBreakdown(): Promise<any[]> {
             AND COALESCE(a2.marina_type, 'Unknown') = COALESCE(a.marina_type, 'Unknown')
           GROUP BY COALESCE(cae2.opportunity_id::text, cae2.id::text)
         ) _dp
-      ), 0) AS pipeline_value,
-      COALESCE((
+      ) AS pipeline_value,
+      (
         SELECT SUM(max_wr) FROM (
           SELECT MAX(cae3.won_revenue) AS max_wr
           FROM campaign_attribution_events cae3
@@ -417,7 +418,7 @@ export async function getPersonaAttributionBreakdown(): Promise<any[]> {
             AND COALESCE(a3.marina_type, 'Unknown') = COALESCE(a.marina_type, 'Unknown')
           GROUP BY COALESCE(cae3.opportunity_id::text, cae3.id::text)
         ) _dw
-      ), 0) AS won_revenue
+      ) AS won_revenue
     FROM campaign_attribution_events cae
     LEFT JOIN accounts a ON a.id = cae.account_id
     GROUP BY COALESCE(a.marina_type, 'Unknown')
@@ -436,8 +437,8 @@ export async function getStakeholderAttributionBreakdown(): Promise<any[]> {
       COUNT(DISTINCT cae.id) FILTER (WHERE cae.event_type IN ('task_created','reply_task_created')) AS replies_with_tasks,
       COUNT(DISTINCT cae.id) FILTER (WHERE cae.event_type = 'meeting_booked')                       AS meetings,
       COUNT(DISTINCT cae.opportunity_id)                                                             AS opportunities,
-      -- Dedup per opportunity to avoid counting pipeline_value twice for same deal
-      COALESCE((
+      -- Dedup per opportunity: NULL when no data (absence is a gap, not $0)
+      (
         SELECT SUM(max_pv) FROM (
           SELECT MAX(cae2.pipeline_value) AS max_pv
           FROM campaign_attribution_events cae2
@@ -446,7 +447,7 @@ export async function getStakeholderAttributionBreakdown(): Promise<any[]> {
             AND COALESCE(c2.role, 'Unknown') = COALESCE(c.role, 'Unknown')
           GROUP BY COALESCE(cae2.opportunity_id::text, cae2.id::text)
         ) _dp
-      ), 0) AS pipeline_value
+      ) AS pipeline_value
     FROM campaign_attribution_events cae
     LEFT JOIN contacts c ON c.id = cae.contact_id
     GROUP BY COALESCE(c.role, 'Unknown')
@@ -530,7 +531,7 @@ export async function linkOpportunityToCampaign(input: LinkOpportunityInput): Pr
   `))).rows as any[];
   const opp = opRow[0] ?? null;
 
-  const pipelineValue = input.pipelineValue ?? (opp ? Number(opp.amount ?? 0) : null);
+  const pipelineValue = input.pipelineValue ?? (opp?.amount != null ? Number(opp.amount) : null);
   const stage         = opp?.stage ?? null;
   const isWon        = stage === "closed_won";
   const wonRevenue    = isWon ? (input.wonRevenue ?? pipelineValue) : null;
@@ -581,24 +582,23 @@ export async function getCampaignAttributionStats(campaignId: number): Promise<{
       COUNT(*) FILTER (WHERE event_type = 'proposal_sent')                        AS proposals,
       COUNT(*) FILTER (WHERE event_type = 'deal_won')                             AS deal_won,
       COUNT(*) FILTER (WHERE event_type = 'deal_lost')                            AS deal_lost,
-      -- Opportunity-level dedup so pipeline_value is not double-counted across
-      -- opportunity_influenced + deal_won events for the same opportunity.
-      COALESCE((
+      -- Opportunity-level dedup: NULL when no data — absence is surfaced as a gap, not $0.
+      (
         SELECT SUM(max_pv) FROM (
           SELECT MAX(pipeline_value) AS max_pv
           FROM campaign_attribution_events
           WHERE campaign_id = ${Number(campaignId)} AND pipeline_value IS NOT NULL
           GROUP BY COALESCE(opportunity_id::text, id::text)
         ) _dp
-      ), 0) AS pipeline_value,
-      COALESCE((
+      ) AS pipeline_value,
+      (
         SELECT SUM(max_wr) FROM (
           SELECT MAX(won_revenue) AS max_wr
           FROM campaign_attribution_events
           WHERE campaign_id = ${Number(campaignId)} AND won_revenue IS NOT NULL
           GROUP BY COALESCE(opportunity_id::text, id::text)
         ) _dw
-      ), 0) AS won_revenue
+      ) AS won_revenue
     FROM campaign_attribution_events
     WHERE campaign_id = ${Number(campaignId)}
   `))).rows as any[];

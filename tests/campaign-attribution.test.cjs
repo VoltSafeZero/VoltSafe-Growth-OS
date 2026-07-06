@@ -163,6 +163,16 @@ assert(hasPattern(attribution, "dedupedWon") || hasPattern(attribution, "dedup_w
 assert(hasPattern(attribution, "GROUP BY COALESCE(opportunity_id::text") || hasPattern(attribution, "COALESCE.*opportunity_id::text"), "SQL aggregation deduplicates at opportunity level");
 assert(hasPattern(attribution, "MAX(pipeline_value)") || hasPattern(attribution, "MAX(won_revenue)"), "SQL aggregation uses MAX per opportunity to prevent double-counting");
 
+// Null-propagation: absence is a gap, not $0
+assert(!hasPattern(attribution, "COALESCE((\\n        SELECT SUM(max_pv)"), "dashboard pipeline_value must NOT coalesce to 0 (absence = gap)");
+assert(hasPattern(attribution, "absence is a gap, not $0") || hasPattern(attribution, "Returns NULL (not 0)") || hasPattern(attribution, "absence is surfaced as a gap"), "code comment explains null-gap contract");
+assert(hasPattern(attribution, "opp?.amount != null ? Number(opp.amount) : null"), "linkOpportunityToCampaign preserves null when opp.amount is absent (no $0 fabrication)");
+
+// Frontend hasAnyRevenue treats 0 as no-data
+const analytics2 = load("client/src/pages/marketing-analytics.tsx");
+assert(hasPattern(analytics2, "Number(c.pipeline_value) > 0") || hasPattern(analytics2, "Number(c.won_revenue) > 0"), "hasAnyRevenue checks > 0, not just != null, so $0 shows empty state");
+assert(hasPattern(analytics2, "absence is a gap") || hasPattern(analytics2, "never invent"), "hasAnyRevenue comment documents null/zero = gap contract");
+
 // ── Section 8: Attribution hook in reply-ingestion ────────────────────────────
 
 console.log("\n── Section 8: Attribution hook in reply-ingestion ──────────────────────");
