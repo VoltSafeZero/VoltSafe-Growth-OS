@@ -100,7 +100,7 @@ const DRIVER_COLORS: Record<string, string> = {
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 text-xs shadow-lg min-w-[160px]">
+    <div className="bg-card border border-border rounded-lg p-3 text-xs shadow-lg min-w-[160px]">
       <p className="font-semibold text-zinc-700 dark:text-zinc-200 mb-2">{label}</p>
       {payload.map((p: any, i: number) => (
         <div key={i} className="flex items-center gap-2 mb-1">
@@ -284,10 +284,10 @@ export default function RevenueOpsPage() {
   return (
     <>
       <title>Revenue Ops — VoltSafe Growth OS</title>
-      <div className="flex flex-col h-full overflow-hidden bg-zinc-50 dark:bg-zinc-950">
+      <div className="flex flex-col h-full overflow-hidden bg-background">
 
         {/* ── Header ── */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950">
               <Target className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
@@ -358,7 +358,7 @@ export default function RevenueOpsPage() {
                   { label: "Gap %", value: `${gap.gapPercent >= 0 ? "+" : ""}${gap.gapPercent.toFixed(1)}%`, color: gap.gapPercent >= -5 ? "text-emerald-600 dark:text-emerald-400" : gap.gapPercent >= -15 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400", testId: "card-gap-pct" },
                   { label: "Days Elapsed", value: `${gap.daysElapsed}/${gap.daysInMonth}`, sub: `${Math.round(gap.paceRate * 100)}% of month`, testId: "card-days" },
                 ].map(card => (
-                  <div key={card.label} data-testid={card.testId} className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 px-4 py-3">
+                  <div key={card.label} data-testid={card.testId} className="bg-card rounded-xl border border-border px-4 py-3">
                     <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">{card.label}</p>
                     <p className={`text-xl font-bold tabular-nums ${(card as any).color ?? "text-zinc-900 dark:text-zinc-100"}`}>{card.value}</p>
                     {(card as any).sub && <p className="text-xs text-zinc-400 mt-0.5">{(card as any).sub}</p>}
@@ -370,8 +370,8 @@ export default function RevenueOpsPage() {
 
           {/* ── Gap Drivers ── */}
           {gap?.drivers && gap.drivers.length > 0 && (
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
-              <div className="px-5 py-3 border-b border-zinc-100 dark:border-zinc-800">
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-border/40">
                 <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 flex items-center gap-2">
                   <TrendingDown className="w-4 h-4 text-zinc-400" />Gap Drivers
                 </h3>
@@ -379,7 +379,7 @@ export default function RevenueOpsPage() {
               <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {gap.drivers.map(d => (
                   <div key={d.type} data-testid={`driver-${d.type}`}
-                    className="rounded-lg border border-zinc-100 dark:border-zinc-800 p-3 flex flex-col gap-1">
+                    className="rounded-lg border border-border/40 p-3 flex flex-col gap-1">
                     <div className="flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: DRIVER_COLORS[d.type] ?? "#94a3b8" }} />
                       <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{d.label}</span>
@@ -397,9 +397,9 @@ export default function RevenueOpsPage() {
           )}
 
           {/* ── Recommended Actions ── */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
             <button data-testid="toggle-actions"
-              className="w-full flex items-center justify-between px-5 py-3 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors"
+              className="w-full flex items-center justify-between px-5 py-3 border-b border-border/40 hover:bg-muted/30 transition-colors"
               onClick={() => setActionsOpen(p => !p)}>
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-zinc-500" />
@@ -421,7 +421,7 @@ export default function RevenueOpsPage() {
                   <>
                     {/* One-click automation */}
                     {gap?.status !== "no_commit" && gap?.status !== "on_track" && (
-                      <div className="px-5 py-3 border-b border-zinc-100 dark:border-zinc-800 bg-indigo-50 dark:bg-indigo-950/30 flex items-center justify-between gap-3">
+                      <div className="px-5 py-3 border-b border-border/40 bg-indigo-50 dark:bg-indigo-950/30 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">One-click: save all high + critical actions as tasks</p>
                           <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-0.5">
@@ -437,7 +437,7 @@ export default function RevenueOpsPage() {
                     <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
                       {gapActions.actions.map((action, i) => (
                         <div key={i} data-testid={`action-row-${i}`}
-                          className="flex items-start gap-4 px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                          className="flex items-start gap-4 px-5 py-4 hover:bg-muted/30 transition-colors">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{action.title}</p>
@@ -472,9 +472,9 @@ export default function RevenueOpsPage() {
           </div>
 
           {/* ── Gap History Chart ── */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
             <button data-testid="toggle-history"
-              className="w-full flex items-center justify-between px-5 py-3 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors"
+              className="w-full flex items-center justify-between px-5 py-3 border-b border-border/40 hover:bg-muted/30 transition-colors"
               onClick={() => setHistoryOpen(p => !p)}>
               <div className="flex items-center gap-2">
                 <BarChart2 className="w-4 h-4 text-zinc-500" />
@@ -525,9 +525,9 @@ export default function RevenueOpsPage() {
           </div>
 
           {/* ── Saved Plan Commits ── */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
             <button data-testid="toggle-commits"
-              className="w-full flex items-center justify-between px-5 py-3 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors"
+              className="w-full flex items-center justify-between px-5 py-3 border-b border-border/40 hover:bg-muted/30 transition-colors"
               onClick={() => setCommitsOpen(p => !p)}>
               <div className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-zinc-500" />
@@ -551,7 +551,7 @@ export default function RevenueOpsPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-500 dark:text-zinc-400">
+                        <tr className="bg-muted/30 text-muted-foreground">
                           <th className="text-left px-5 py-2 font-medium">Name</th>
                           <th className="text-left px-4 py-2 font-medium">Month</th>
                           <th className="text-right px-4 py-2 font-medium">Committed</th>
@@ -564,7 +564,7 @@ export default function RevenueOpsPage() {
                       <tbody>
                         {commits.map(c => (
                           <tr key={c.id} data-testid={`commit-row-${c.id}`}
-                            className={`border-t border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors ${c.status === "active" ? "bg-indigo-50/30 dark:bg-indigo-950/10" : ""}`}>
+                            className={`border-t border-border/40 hover:bg-muted/30 transition-colors ${c.status === "active" ? "bg-indigo-50/30 dark:bg-indigo-950/10" : ""}`}>
                             <td className="px-5 py-2 font-medium text-zinc-800 dark:text-zinc-200 max-w-[200px] truncate">
                               <div className="flex items-center gap-1.5">
                                 {c.status === "active" && <BadgeCheck className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />}

@@ -94,7 +94,7 @@ function RadarTile({ label, value, sub, icon: Icon, color = "text-zinc-800 dark:
   label: string; value: string; sub?: string; icon: any; color?: string; testId: string;
 }) {
   return (
-    <div data-testid={testId} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 flex flex-col gap-1">
+    <div data-testid={testId} className="bg-card border border-border rounded-xl px-4 py-3 flex flex-col gap-1">
       <div className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
         <Icon className="w-3.5 h-3.5" />
         <span className="text-xs">{label}</span>
@@ -138,7 +138,7 @@ function SignalCard({ signal, index, onDismiss, dismissPending }: {
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed mb-3">{detail}</p>
             {suggestedMove && (
-              <div className="flex items-start gap-2 bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-2">
+              <div className="flex items-start gap-2 bg-card rounded-lg border border-border px-3 py-2">
                 <Zap className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">{suggestedMove}</p>
               </div>
@@ -209,10 +209,10 @@ export default function ExecutiveCopilotPage() {
   return (
     <>
       <title>Executive Copilot — VoltSafe Growth OS</title>
-      <div className="flex flex-col h-full overflow-hidden bg-zinc-50 dark:bg-zinc-950">
+      <div className="flex flex-col h-full overflow-hidden bg-background">
 
         {/* ── Header ── */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950">
               <Brain className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
@@ -232,8 +232,8 @@ export default function ExecutiveCopilotPage() {
         <div className="flex-1 overflow-y-auto p-6 pb-36 lg:pb-24 space-y-5">
 
           {/* ── Today's Brief ── */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/40 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Brain className="w-4 h-4 text-indigo-500" />
                 <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Today's Brief</span>
@@ -382,7 +382,7 @@ export default function ExecutiveCopilotPage() {
               ].map(action => (
                 <Link key={action.href} href={action.href}>
                   <a data-testid={action.testId}
-                    className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors group">
+                    className="flex items-center gap-2 bg-card border border-border rounded-xl px-4 py-3 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors group">
                     <action.icon className="w-4 h-4 text-zinc-400 group-hover:text-indigo-500 transition-colors" />
                     <span className="text-sm font-medium text-zinc-700 dark:text-zinc-200">{action.label}</span>
                     <ArrowRight className="w-3.5 h-3.5 text-zinc-300 dark:text-zinc-600 group-hover:text-indigo-400 ml-auto transition-colors" />

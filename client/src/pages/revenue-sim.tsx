@@ -131,7 +131,7 @@ function paramsEqual(a: SimParams, b: SimParams): boolean {
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg p-3 text-xs shadow-lg min-w-[160px]">
+    <div className="bg-card border border-border rounded-lg p-3 text-xs shadow-lg min-w-[160px]">
       <p className="font-semibold text-zinc-700 dark:text-zinc-200 mb-2">{label}</p>
       {payload.map((p: any, i: number) => (
         <div key={i} className="flex items-center gap-2 mb-1">
@@ -175,7 +175,7 @@ function SummaryCard({ label, value, sub, positive, testId }: {
     ? "text-zinc-400 dark:text-zinc-500"
     : positive ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400";
   return (
-    <div data-testid={testId} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3">
+    <div data-testid={testId} className="bg-card border border-border rounded-xl px-4 py-3">
       <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">{label}</p>
       <p className="text-xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{value}</p>
       {sub && <p className={`text-xs font-medium mt-0.5 ${subColor}`}>{sub}</p>}
@@ -417,10 +417,10 @@ export default function RevenueSimPage() {
   return (
     <>
       <title>Revenue Simulator — VoltSafe Growth OS</title>
-      <div className="flex flex-col h-full overflow-hidden bg-zinc-50 dark:bg-zinc-950">
+      <div className="flex flex-col h-full overflow-hidden bg-background">
 
         {/* ── Header ── */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950">
               <FlaskRound className="w-5 h-5 text-blue-600 dark:text-blue-400" />
@@ -458,7 +458,7 @@ export default function RevenueSimPage() {
         <div className="flex flex-1 overflow-hidden">
 
           {/* ── Left: Controls ── */}
-          <div className="w-72 flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-y-auto p-5 pb-36 lg:pb-24">
+          <div className="w-72 flex-shrink-0 border-r border-border bg-card overflow-y-auto p-5 pb-36 lg:pb-24">
             <div className="flex items-center gap-2 mb-5">
               <SlidersHorizontal className="w-4 h-4 text-zinc-500" />
               <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wide">Parameters</span>
@@ -564,8 +564,8 @@ export default function RevenueSimPage() {
 
             {/* Forecast vs Actuals (collapsible) */}
             {forecastOpen && (
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden mb-5">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-100 dark:border-zinc-800">
+              <div className="bg-card border border-border rounded-xl overflow-hidden mb-5">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
                   <div className="flex items-center gap-2">
                     <BarChart2 className="w-4 h-4 text-zinc-500" />
                     <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Forecast vs Actuals</span>
@@ -629,7 +629,7 @@ export default function RevenueSimPage() {
             )}
 
             {/* Main chart */}
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 mb-5">
+            <div className="bg-card border border-border rounded-xl p-5 mb-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Monthly Revenue Projection</h2>
                 {simulateMut.isPending && <span className="text-xs text-blue-500 animate-pulse">Simulating…</span>}
@@ -666,14 +666,14 @@ export default function RevenueSimPage() {
 
             {/* Month breakdown table */}
             {simResult?.months && simResult.months.length > 0 && (
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden mb-5">
-                <div className="px-5 py-3 border-b border-zinc-100 dark:border-zinc-800">
+              <div className="bg-card border border-border rounded-xl overflow-hidden mb-5">
+                <div className="px-5 py-3 border-b border-border/40">
                   <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Month-by-Month Breakdown</h3>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-500 dark:text-zinc-400">
+                      <tr className="bg-muted/30 text-muted-foreground">
                         <th className="text-left px-4 py-2 font-medium">Month</th>
                         <th className="text-right px-4 py-2 font-medium">Baseline</th>
                         <th className="text-right px-4 py-2 font-medium">Simulated</th>
@@ -683,7 +683,7 @@ export default function RevenueSimPage() {
                     </thead>
                     <tbody>
                       {simResult.months.map(m => (
-                        <tr key={m.month} data-testid={`row-month-${m.month}`} className="border-t border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                        <tr key={m.month} data-testid={`row-month-${m.month}`} className="border-t border-border/40 hover:bg-muted/30 transition-colors">
                           <td className="px-4 py-2 text-zinc-700 dark:text-zinc-300 font-medium">{m.label}</td>
                           <td className="px-4 py-2 text-right text-zinc-500 dark:text-zinc-400 tabular-nums">{fmt(m.baseline)}</td>
                           <td className="px-4 py-2 text-right font-semibold text-zinc-800 dark:text-zinc-200 tabular-nums">{fmt(m.simulated)}</td>
@@ -700,9 +700,9 @@ export default function RevenueSimPage() {
             )}
 
             {/* Saved Scenarios */}
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
               <button data-testid="toggle-scenarios"
-                className="w-full flex items-center justify-between px-5 py-3 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors"
+                className="w-full flex items-center justify-between px-5 py-3 border-b border-border/40 hover:bg-muted/30 transition-colors"
                 onClick={() => setScenariosOpen(p => !p)}>
                 <div className="flex items-center gap-2">
                   <BookOpen className="w-4 h-4 text-zinc-500" />
@@ -740,7 +740,7 @@ export default function RevenueSimPage() {
                         const scSummary = (sc.projection as SimResult)?.summary;
                         return (
                           <div key={sc.id} data-testid={`scenario-row-${sc.id}`}
-                            className={`flex items-center gap-3 px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors ${sc.is_pinned ? "bg-amber-50/30 dark:bg-amber-950/20" : ""}`}>
+                            className={`flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors ${sc.is_pinned ? "bg-amber-50/30 dark:bg-amber-950/20" : ""}`}>
                             <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: compareColor ?? "#e2e8f0" }} />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
@@ -837,7 +837,7 @@ export default function RevenueSimPage() {
               <Textarea data-testid="input-scenario-description" value={saveDesc} onChange={e => setSaveDesc(e.target.value)} placeholder="Optional notes…" rows={3} />
             </div>
             {simResult?.summary && (
-              <div className="text-xs text-zinc-500 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3 space-y-1">
+              <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-3 space-y-1">
                 <p>Simulated Total: <strong>{fmt(simResult.summary.totalSimulated)}</strong></p>
                 <p>vs Baseline: <strong className={simResult.summary.totalDelta >= 0 ? "text-emerald-600" : "text-red-500"}>
                   {fmtSign(simResult.summary.totalDelta)} ({pct(simResult.summary.deltaPct)})
@@ -882,15 +882,15 @@ export default function RevenueSimPage() {
 
               {/* Key stats */}
               <div className="grid grid-cols-3 gap-3 text-xs">
-                <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">
+                <div className="bg-muted/30 rounded-lg p-3">
                   <p className="text-zinc-400 mb-1">Avg Deal Size</p>
                   <p className="font-bold text-zinc-800 dark:text-zinc-200">{fmt(crmBaseline.avgDealSize)}</p>
                 </div>
-                <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">
+                <div className="bg-muted/30 rounded-lg p-3">
                   <p className="text-zinc-400 mb-1">Win Rate</p>
                   <p className="font-bold text-zinc-800 dark:text-zinc-200">{crmBaseline.winRate > 0 ? `${Math.round(crmBaseline.winRate * 100)}%` : "n/a"}</p>
                 </div>
-                <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">
+                <div className="bg-muted/30 rounded-lg p-3">
                   <p className="text-zinc-400 mb-1">Avg Cycle</p>
                   <p className="font-bold text-zinc-800 dark:text-zinc-200">{crmBaseline.avgSalesCycleDays}d</p>
                 </div>
@@ -975,7 +975,7 @@ export default function RevenueSimPage() {
                   const NEXT_STATUS: Record<string, string> = { open: "in_progress", in_progress: "done", done: "dropped", dropped: "open" };
                   return (
                     <div key={action.id} data-testid={`action-row-${action.id}`}
-                      className="flex items-start gap-3 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                      className="flex items-start gap-3 p-3 rounded-lg border border-border/40 hover:bg-muted/30 transition-colors">
                       <button
                         data-testid={`action-status-${action.id}`}
                         className="mt-0.5 flex-shrink-0 hover:opacity-70 transition-opacity"

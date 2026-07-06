@@ -1,0 +1,499 @@
+Phase 2D — Capital Email Conversation Linking + Cortex-Aware Fundraising Memory
+
+Current completed state:
+
+Capital Phase 2C is shipped:
+- capital_investors has 6 new intelligence fields:
+  - warmth
+  - do_not_contact
+  - disqualification_reason
+  - relationship_strength
+  - target_cheque_amount
+  - likely_lead
+- computeInvestorScore() exists with 0–100 scoring and 5 tiers:
+  - Hot ≥55
+  - Warm ≥35
+  - Nurture ≥15
+  - Low Priority
+  - Do Not Contact
+- 4 Capital intelligence routes exist behind requireCapitalAccess:
+  - GET /investors/:id/score
+  - GET /follow-ups
+  - GET /intelligence/pipeline
+  - GET /investors/:id/email-context
+- POST /investors/:id/activities updates last_touch_at for Email, Call, and Meeting activity types.
+- Frontend has:
+  - IntelligencePanel in investor detail drawer
+  - EmailDraftModal
+  - CapitalFollowUps page
+  - Pipeline intelligence strip
+  - Follow-Up Queue nav and /capital/follow-ups route
+- Tests passing:
+  - capital-permissions.test.cjs: 86/86
+  - capital-intelligence.test.cjs: 87/87
+
+Cortex hardening is shipped:
+- Save-to-Cortex button shows saved-state in email toolbar
+- Duplicate prevention via partial unique index on mail_message_id where deleted_at is null
+- upsertCortexIntelRecord() handles active update, soft-delete restore, or fresh create
+- Cortex Intel Library exists at /cortex/intel
+- Extended Cortex filters exist
+- GET /api/cortex-intel/:id exists
+- DELETE /api/cortex-intel/:id soft-deletes records
+- getCortexIntelForPrompt() relevance scoring exists
+- AI prompt format/source discipline improved
+- tests/cortex-intel.test.cjs passing: 93/93
+
+Now implement Phase 2D.
+
+Primary goal:
+Investor email conversations must automatically link into the Capital module and become usable fundraising memory.
+
+When Trevor or Scott emails with an investor/contact, the conversation should appear inside:
+- the related Capital investor record
+- the related Capital contact record
+- the Capital activity log
+- investor follow-up intelligence
+- email-context for investor draft generation
+- Cortex, when saved
+
+Do not loosen Capital permissions.
+All Capital-linked email data must remain visible only to Trevor and Scott Carlson.
+
+Important:
+This phase is specifically about investor email conversation linking. Do not rebuild Phase 2C. Do not rebuild Cortex Intel Library. Integrate with what already exists.
+
+Tasks:
+
+1. Audit existing email/mail infrastructure
+
+Before writing code, inspect:
+- VoltSafe Mail message/thread schema
+- email/message/thread routes
+- email sync logic
+- sent email flow
+- draft/send flow
+- AI-generated email draft flow
+- existing CRM email auto-linking, if any
+- existing email toolbar actions
+- Cortex save-from-email flow
+- Capital contacts schema
+- Capital investor activity log
+
+Document the current email data model and identify:
+- message ID field
+- thread ID field
+- sender/recipient fields
+- subject field
+- snippet/body field
+- sent/received timestamp
+- direction if available
+- Gmail/VoltSafe Mail source IDs
+- existing activity linkage patterns
+
+2. Add Capital email link data model
+
+Create a durable linkage between email conversations and Capital.
+
+Preferred table:
+capital_email_links
+
+Fields:
+- id
+- capital_investor_id
+- capital_contact_id nullable
+- email_thread_id
+- email_message_id nullable
+- subject
+- direction
+- participants_json or participants text/jsonb
+- latest_message_at
+- first_linked_at
+- last_synced_at
+- link_type:
+  - auto_exact_contact
+  - manual
+  - approved_review
+  - ai_draft_sent
+  - campaign_sent
+- match_confidence
+- match_reason
+- created_by
+- created_at
+- updated_at
+- deleted_at nullable
+
+Add unique constraints to prevent duplicates:
+- unique active link by email_thread_id + capital_investor_id
+- unique active link by email_message_id + capital_investor_id where message ID exists
+
+Use soft delete if that matches project patterns.
+
+If an existing generic entity-link table exists, reuse it only if it cleanly supports all requirements.
+
+3. Exact email matching by Capital contact email
+
+Use capital_contacts.email as the primary automatic matching key.
+
+When an email is sent to or received from an address matching a Capital contact:
+- link the email thread/message to that capital_contact
+- link it to the parent capital_investor
+- create/update capital_email_links
+- create/update a Capital activity entry of type Email
+- update investor last_touch_at / last_contacted_at where applicable
+- ensure duplicate syncs do not create duplicate activity
+
+This should work for:
+- inbound emails
+- outbound emails
+- replies
+- manually composed sent emails
+- AI-generated investor drafts once sent
+- forwarded threads where there is a matched investor contact
+
+4. Conservative domain/company fallback
+
+If no direct capital_contacts.email match exists, optionally attempt fallback matching by:
+- sender/recipient domain
+- investor organization/company name
+- known investor name
+
+But fallback must be conservative.
+
+Do not auto-link generic/free domains:
+- gmail.com
+- googlemail.com
+- outlook.com
+- hotmail.com
+- yahoo.com
+- icloud.com
+- me.com
+- proton.me
+- protonmail.com
+- aol.com
+- live.com
+- msn.com
+
+Low-confidence matches must go to a Capital Email Link Review queue, not auto-link.
+
+5. Add Capital Email Link Review queue
+
+Add backend + frontend for review queue.
+
+Suggested route:
+- /capital/email-review
+
+Suggested API:
+- GET /api/capital/email-review
+- POST /api/capital/email-review/:id/approve
+- POST /api/capital/email-review/:id/reject
+- POST /api/capital/email-review/:id/ignore
+- POST /api/capital/email-review/:id/create-contact-and-link
+
+Review queue fields:
+- sender
+- recipients
+- subject
+- snippet
+- latest message date
+- guessed investor
+- guessed contact
+- match reason
+- confidence
+- source thread/message
+- actions:
+  - approve link
+  - reject
+  - ignore
+  - create Capital contact
+  - link to different investor/contact
+
+Only Trevor and Scott can access this queue.
+
+6. Manual linking from VoltSafe Mail
+
+Add actions in VoltSafe Mail message/thread detail:
+
+- Link to Capital Investor
+- Link to Capital Contact
+- Create Capital Contact from Sender
+- Create Capital Investor from Sender/Domain if appropriate
+- Unlink from Capital
+- Save linked thread to Cortex
+
+Manual links must persist.
+
+Manual link flow:
+- search/select investor
+- optionally search/select contact
+- save link
+- create Capital activity
+- update last_touch_at
+- show linked state in email UI
+
+7. Email conversations section in Capital investor detail
+
+Add an Email Conversations panel to the Capital investor detail drawer/page.
+
+Show:
+- subject
+- participants
+- latest message date
+- direction:
+  - inbound
+  - outbound
+  - mixed
+- snippet
+- linked contact
+- link type
+- open in VoltSafe Mail action
+- save to Cortex action
+- unlink action, if authorized
+
+Add empty state:
+“No linked investor email conversations yet.”
+
+8. Email conversations section in Capital contact detail
+
+If a Capital contact detail drawer/page exists, add related email conversations there too.
+
+If no detail page exists, at minimum expose contact-linked conversations inside the investor detail panel grouped by contact.
+
+9. Capital activity logging
+
+When an email conversation is linked:
+- create Capital activity type = Email
+- store:
+  - subject
+  - direction
+  - participants
+  - thread reference
+  - message reference if available
+  - timestamp
+  - link type
+- avoid duplicate activity entries for same investor/thread/message
+- update last_touch_at / last_contacted_at
+
+When replies arrive:
+- update existing thread link
+- update latest_message_at
+- optionally append/update activity
+- do not create duplicate spam activity on every sync unless the app’s activity model supports individual message events cleanly
+
+10. AI investor draft integration
+
+When EmailDraftModal generates an investor email:
+- include investor/contact linkage metadata in the draft payload if the existing draft system supports metadata
+- once the draft is sent, link the sent message/thread to the investor/contact
+- create Capital activity type = Email
+- update last_touch_at
+
+Do not auto-send.
+
+11. Upgrade investor email-context endpoint
+
+Upgrade existing:
+
+GET /api/capital/investors/:id/email-context
+
+Include linked email conversation context for Trevor/Scott only:
+- recent linked email subjects
+- participants
+- latest dates
+- direction
+- snippets or summaries
+- last touch date
+- relevant Capital activity
+- related Cortex Intel from linked email threads/messages
+
+Do not include unrelated emails.
+Do not include email bodies unless the existing email context pattern already safely supports it.
+Prefer snippets/summaries for prompt safety.
+
+12. Cortex integration for linked investor emails
+
+From Capital-linked emails, support:
+- Save thread to Cortex
+- Save selected message to Cortex
+- Save summary to Cortex
+
+Cortex record should include:
+- entity_type = capital_investor or capital_contact
+- entity_id
+- source_type = email_thread or email_message
+- source_id = thread/message ID
+- mail_message_id where applicable
+- title = email subject
+- summary
+- tags:
+  - capital
+  - investor
+  - email
+  - fundraising
+  - follow-up
+- use_for:
+  - investor_outreach
+  - fundraising
+  - capital_context
+
+Reuse existing Cortex save/upsert patterns and duplicate prevention.
+
+13. Permission hardening
+
+Capital-linked email data must follow Capital permissions.
+
+Only Trevor and Scott can:
+- see Capital email links
+- see Capital-linked email panels
+- access Capital email review queue
+- manually link/unlink Capital emails
+- see Capital-linked Cortex email items
+- retrieve linked email context through investor email-context
+- save email threads/messages to Cortex as Capital-linked intelligence
+
+Unauthorized users must not be able to infer investor conversations through:
+- email metadata
+- Capital APIs
+- Cortex APIs
+- search
+- activity APIs
+- review queues
+
+14. Backend APIs
+
+Add or extend APIs as needed.
+
+Suggested:
+- GET /api/capital/investors/:id/email-conversations
+- POST /api/capital/email-links
+- PATCH /api/capital/email-links/:id
+- DELETE /api/capital/email-links/:id
+- GET /api/capital/email-review
+- POST /api/capital/email-review/:id/approve
+- POST /api/capital/email-review/:id/reject
+- POST /api/capital/email-review/:id/ignore
+- POST /api/capital/email-links/auto-link-message
+- POST /api/capital/email-links/auto-link-thread
+
+All must use requireCapitalAccess.
+
+15. Email sync hook
+
+Add a safe hook into the mail sync/send pipeline:
+- after inbound message sync
+- after outbound sent message recorded
+- after AI draft sent, if applicable
+
+The hook should:
+- attempt exact capital_contacts.email match
+- create/update link
+- update activity and last_touch_at
+- create review queue item for low-confidence fallback
+- never block or crash the primary email sync/send path
+
+Use fire-and-forget safety where appropriate, but log errors clearly.
+
+16. UI locations
+
+Add linked investor email visibility/actions in:
+- Capital investor detail drawer/page
+- Capital follow-up queue, where relevant
+- VoltSafe Mail message/thread detail
+- Cortex linked item detail if applicable
+- Capital Email Review page
+
+Add Capital nav item:
+- Email Review
+
+Only Trevor and Scott should see it.
+
+17. Deduplication
+
+Prevent duplicates:
+- same email thread should not create repeated Capital links
+- same email message should not create repeated activity
+- repeated syncs should be idempotent
+- replies should update existing thread linkage
+- soft-deleted links can be restored if manually linked again
+
+18. Tests
+
+Add tests proving:
+
+Schema/data model:
+- capital_email_links migration/table exists
+- unique active thread/investor link exists
+- review queue schema exists if created
+
+Exact matching:
+- email matching capital_contacts.email links investor/contact
+- inbound investor reply links correctly
+- outbound investor email links correctly
+- AI-generated investor email after send links correctly where possible
+
+Activity:
+- linked email creates Capital activity type Email
+- last_touch_at updates on linked email
+- duplicate sync does not duplicate activity
+- reply updates existing thread link
+
+Manual actions:
+- manual link persists
+- unlink removes active Capital association
+- create contact from sender works or is safely stubbed if not implemented
+- generic domains are not auto-linked by fallback
+
+Review queue:
+- low-confidence matches enter review queue
+- approve creates link
+- reject/ignore prevents link
+- unauthorized users cannot access queue
+
+Capital UI:
+- investor detail shows Email Conversations panel
+- empty state renders
+- linked email rows include subject/participants/date/open action
+- VoltSafe Mail shows linked Capital state/action
+- Capital Email Review nav item exists only for authorized users
+
+Email-context:
+- email-context includes linked investor email history for Trevor/Scott
+- email-context excludes unrelated email history
+- unauthorized users cannot retrieve linked email context
+
+Cortex:
+- Save linked investor email to Cortex creates correct entity link and tags
+- duplicate Cortex save respects existing upsert behavior
+- unauthorized users cannot access Capital-linked Cortex email items
+
+Permissions:
+- only Trevor and Scott can access all new Capital email APIs/pages/actions
+- normal admin/manager/staff cannot infer Capital email metadata
+
+19. Validation
+
+Run:
+- capital permissions tests
+- capital foundation tests
+- capital intelligence tests
+- cortex-intel tests
+- new capital email-linking tests
+- startup invariants tests
+- relevant frontend/source tests
+- full suite if practical
+
+Deliver:
+- files changed
+- schema changes
+- new APIs
+- email linking data flow
+- matching rules
+- permission confirmation
+- test results
+- any recommended Phase 2E follow-up
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose Capital data outside CEO/CFO access.
+Do not auto-send emails.
+Do not auto-link uncertain matches without review.
