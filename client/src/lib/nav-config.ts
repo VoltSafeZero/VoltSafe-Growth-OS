@@ -79,6 +79,18 @@ export function isAdvisorRole(globalRole: string): boolean {
   return globalRole === "advisor";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NAV_CONFIG — consolidated structure (≤7 children per section).
+//
+// ALL existing routes are preserved in App.tsx and remain reachable via
+// direct URL or ⌘K global search. Only the sidebar items are reduced here.
+// Secondary pages within each group are surfaced via:
+//   • Their direct URL (unchanged)
+//   • The PAGE_NAV_INDEX in global-search.tsx (⌘K page navigation)
+//   • Hub/landing pages where explicitly created (marketing/engagement,
+//     settings/personal)
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const NAV_CONFIG: NavSection[] = [
   {
     id: "today",
@@ -101,25 +113,31 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "current-home", label: "CURRENTS", route: "/current", icon: Zap, showOn: ["mobile"] },
     ],
   },
+
+  // ── WORK (6 items) ─────────────────────────────────────────────────────────
+  // Removed from sidebar (still accessible via direct URL / ⌘K):
+  //   Work Calendar (/work/team-calendar), Meeting Notes (/meeting-notes),
+  //   Activity Feed (/activity), Email Signatures (/settings/signatures),
+  //   AI Voice Profiles (/settings/voice-profiles), Daily Execution (/execution/daily),
+  //   Digest Settings (/alerts-digest)
   {
     id: "work",
     label: "Work",
     icon: Briefcase,
     items: [
-      { id: "mission-control", label: "Mission Control", route: "/",                    icon: LayoutDashboard, exactMatch: true },
-      { id: "my-travel",       label: "My Travel",       route: "/my-travel",           icon: Car },
-      { id: "work-calendar",  label: "Work Calendar",   route: "/work/team-calendar",  icon: CalendarDays },
-      { id: "inbox",           label: "Inbox",           route: "/gmail",               icon: Mail },
-      { id: "tasks",           label: "Tasks",           route: "/execution/tasks",     icon: CheckSquare },
-      { id: "calendar",        label: "Calendar",        route: "/execution/calendar",  icon: CalendarClock, permKey: "calendar" },
-      { id: "meeting-notes",   label: "Meeting Notes",   route: "/meeting-notes",       icon: Mic },
-      { id: "activity",          label: { desktop: "Activity Feed", mobile: "Activity" }, route: "/activity",                 icon: BarChart3 },
-      { id: "email-signatures",  label: "Email Signatures",                               route: "/settings/signatures",      icon: PenSquare },
-      { id: "ai-voice-profiles", label: "AI Voice Profiles",                              route: "/settings/voice-profiles",  icon: Mic },
-      { id: "daily-execution",   label: "Daily Execution",                                route: "/execution/daily",          icon: PlayCircle },
-      { id: "digest-alerts",     label: "Digest Settings",                                route: "/alerts-digest",            icon: BellRing },
+      { id: "mission-control",  label: "Mission Control",  route: "/",                   icon: LayoutDashboard, exactMatch: true },
+      { id: "inbox",            label: "Inbox & Mail",     route: "/gmail",              icon: Mail },
+      { id: "tasks",            label: "Tasks & Execution",route: "/execution/tasks",    icon: CheckSquare },
+      { id: "calendar",         label: "Calendar & Meetings", route: "/execution/calendar", icon: CalendarClock, permKey: "calendar" },
+      { id: "my-travel",        label: "Travel",           route: "/my-travel",          icon: Car },
+      { id: "personal-settings",label: "Personal Settings",route: "/settings/personal",  icon: Settings },
     ],
   },
+
+  // ── PIPELINE (6 items) ─────────────────────────────────────────────────────
+  // Removed from sidebar (still accessible via direct URL / ⌘K):
+  //   Accounts (/accounts), Renewals (/renewals), Booking Analytics (/booking-analytics),
+  //   Notes (/notes), Accounts Won (/revenue/deals)
   {
     id: "pipeline",
     label: "Pipeline",
@@ -127,56 +145,56 @@ export const NAV_CONFIG: NavSection[] = [
     permKey: "crm",
     advisorHidden: true,
     items: [
-      { id: "pipeline",  label: "Snapshot",  route: "/pipeline",      icon: GitBranch,   permKey: "crm",     advisorHidden: true },
-      { id: "leads",     label: "Leads",     route: "/opportunities", icon: Sparkles,    permKey: "crm",     advisorHidden: true },
-      { id: "accounts",  label: "Accounts",  route: "/accounts",      icon: Building2,   permKey: "crm",     advisorHidden: true },
-      { id: "contacts",  label: "Contacts",  route: "/contacts",      icon: Contact,     permKey: "crm",     advisorHidden: true },
-      { id: "quotes",    label: "Quotes",    route: "/quotes",        icon: FileText,    permKey: "quoting", advisorHidden: true },
-      { id: "renewals",  label: "Renewals",  route: "/renewals",      icon: RefreshCcw,                      advisorHidden: true },
-      { id: "won",       label: { desktop: "Accounts Won", mobile: "Won" }, route: "/revenue/deals", icon: Trophy, permKey: "crm", advisorHidden: true },
-      { id: "booking-outreach", label: { desktop: "Booking Outreach", mobile: "Outreach" }, route: "/booking-outreach", icon: CalendarClock, permKey: "crm", advisorHidden: true },
-      { id: "booking-analytics", label: { desktop: "Booking Analytics", mobile: "Analytics" }, route: "/booking-analytics", icon: TrendingUp, permKey: "crm", advisorHidden: true },
-      { id: "notes",       label: "Notes",       route: "/notes",       icon: StickyNote },
-      { id: "price-lists", label: "Price Lists", route: "/price-lists", icon: Tags, permKey: "quoting", advisorHidden: true },
+      { id: "pipeline-snapshot", label: "Snapshot",       route: "/pipeline",         icon: GitBranch, permKey: "crm",     advisorHidden: true },
+      { id: "leads-accounts", label: "Leads & Accounts", route: "/opportunities",    icon: Building2, permKey: "crm",     advisorHidden: true },
+      { id: "contacts",       label: "Contacts",         route: "/contacts",         icon: Contact,   permKey: "crm",     advisorHidden: true },
+      { id: "quotes-renewals",label: "Quotes & Renewals",route: "/quotes",           icon: FileText,  permKey: "quoting", advisorHidden: true },
+      { id: "outreach",       label: "Outreach",         route: "/booking-outreach", icon: CalendarClock, permKey: "crm", advisorHidden: true },
+      { id: "revenue-tools",  label: "Revenue Tools",    route: "/price-lists",      icon: Tags,      permKey: "quoting", advisorHidden: true },
     ],
   },
+
+  // ── OPERATIONS (6 items) ───────────────────────────────────────────────────
+  // Removed from sidebar (still accessible via direct URL / ⌘K):
+  //   Deployments (/deployments), Events (/operations/events),
+  //   Communications (/execution/communications), Knowledge Assets (/knowledge/assets),
+  //   Territory Routing (/routing), Winter Support (/winter)
   {
     id: "operations",
     label: "Operations",
     icon: SlidersHorizontal,
     items: [
-      { id: "install-workflows", label: "Install Workflows", route: "/install-workflows",        icon: Layers,    permKey: "crm",          advisorHidden: true },
-      { id: "procurement",       label: "Procurement",       route: "/procurement",              icon: Package,   permKey: "crm",          advisorHidden: true },
-      { id: "deployments",       label: "Deployments",       route: "/deployments",              icon: Layers,    mobileIcon: Truck, permKey: "crm", advisorHidden: true },
-      { id: "projects",          label: "Projects",          route: "/execution/projects",       icon: Layers,    permKey: "projects" },
-      { id: "events",            label: "Events",            route: "/operations/events",         icon: Trophy },
-      { id: "communications",    label: "Communications",    route: "/execution/communications", icon: Megaphone, permKey: "communications", advisorHidden: true },
-      { id: "documents",         label: "Document Hub",       route: "/documents",                icon: BookOpen },
-      { id: "assets",            label: "Knowledge Assets",   route: "/knowledge/assets",         icon: FolderOpen, permKey: "knowledge" },
-      { id: "territory-routing", label: "Territory Routing",  route: "/routing",            icon: MapPin,                               advisorHidden: true },
-      { id: "tickets",           label: { desktop: "Support Tickets", mobile: "Tickets" },  route: "/support/tickets", icon: ClipboardList, permKey: "support" },
-      { id: "winter-support",    label: "Winter Support",     route: "/winter",             icon: Snowflake,   permKey: "support" },
-      { id: "data-quality",      label: "Data Quality",       route: "/data-quality",       icon: ShieldCheck, permKey: "crm",     advisorHidden: true },
+      { id: "install-deployments",   label: "Install & Deployments", route: "/install-workflows",  icon: Layers,       permKey: "crm",      advisorHidden: true },
+      { id: "projects",              label: "Projects",              route: "/execution/projects", icon: Layers,       permKey: "projects" },
+      { id: "procurement",           label: "Procurement",           route: "/procurement",        icon: Package,      permKey: "crm",      advisorHidden: true },
+      { id: "support",               label: "Support",               route: "/support/tickets",    icon: ClipboardList,permKey: "support" },
+      { id: "knowledge-documents",   label: "Knowledge & Documents", route: "/documents",          icon: BookOpen },
+      { id: "data-quality",          label: "Data Quality",          route: "/data-quality",       icon: ShieldCheck,  permKey: "crm",      advisorHidden: true },
     ],
   },
+
+  // ── INSIGHTS (6 items) ─────────────────────────────────────────────────────
+  // Removed from sidebar (still accessible via direct URL / ⌘K):
+  //   Cortex Intel Library (/cortex/intel), Territory & Geo (/geography),
+  //   Revenue Hub (/revenue), Revenue Ops (/revenue-ops),
+  //   Score Feedback (/scores/feedback)
   {
     id: "insights",
     label: "Insights",
     icon: Brain,
     items: [
-      { id: "exec-dashboard",       label: { desktop: "Executive Dashboard", mobile: "Exec Dashboard" }, route: "/executive-dashboard",          icon: Trophy,     permKey: "crm", advisorHidden: true },
-      { id: "source-attribution",  label: "Source Attribution",                                          route: "/analytics/source-attribution", icon: TrendingUp, permKey: "crm", advisorHidden: true },
-      { id: "copilot",             label: { desktop: "Executive Copilot",  mobile: "Copilot" },         route: "/executive-copilot",            icon: Brain },
-      { id: "cortex-intel-library", label: { desktop: "Cortex Intel Library", mobile: "Intel" },          route: "/cortex/intel",                 icon: Brain },
-      { id: "revenue-intelligence", label: { desktop: "Revenue Intelligence", mobile: "Rev Intel" },    route: "/revenue-intelligence",         icon: Zap, permKey: "crm", advisorHidden: true },
-      { id: "territory",           label: { desktop: "Territory & Geo",    mobile: "Territory" },       route: "/geography",                    icon: Globe,      permKey: "crm", advisorHidden: true },
-      { id: "rel-intelligence",    label: "Relationship Intelligence",                                   route: "/intelligence/rel-intelligence", icon: BarChart3 },
-      { id: "revenue-hub",         label: "Revenue Hub",                                                 route: "/revenue",                      icon: BarChart3,  permKey: "crm", exactMatch: true, advisorHidden: true },
-      { id: "revenue-ops",         label: "Revenue Ops",                                                 route: "/revenue-ops",                  icon: Target,                     advisorHidden: true },
-      { id: "revenue-sim",         label: "Revenue Simulator",                                           route: "/revenue-sim",                  icon: FlaskRound,                 advisorHidden: true },
-      { id: "score-feedback",      label: "Score Feedback",                                              route: "/scores/feedback",              icon: Target,                     advisorHidden: true },
+      { id: "exec-dashboard",       label: { desktop: "Executive Dashboard", mobile: "Exec Dashboard" }, route: "/executive-dashboard",           icon: Trophy,    permKey: "crm", advisorHidden: true },
+      { id: "revenue-intelligence", label: { desktop: "Revenue Intelligence", mobile: "Rev Intel" },     route: "/revenue-intelligence",          icon: Zap,       permKey: "crm", advisorHidden: true },
+      { id: "attribution",          label: "Attribution",                                                route: "/analytics/source-attribution",  icon: TrendingUp,permKey: "crm", advisorHidden: true },
+      { id: "rel-intelligence",     label: { desktop: "Relationship Intel", mobile: "Rel Intel" },       route: "/intelligence/rel-intelligence", icon: BarChart3 },
+      { id: "cortex",               label: "Cortex",                                                     route: "/executive-copilot",             icon: Brain },
+      { id: "simulators-feedback",  label: { desktop: "Simulators & Feedback", mobile: "Simulators" },  route: "/revenue-sim",                   icon: FlaskRound, advisorHidden: true },
     ],
   },
+
+  // ── ECOSYSTEM (5 items) ────────────────────────────────────────────────────
+  // Removed from sidebar (still accessible via direct URL / ⌘K):
+  //   Strategic Alliances (/strategy/partnerships/manufacturing)
   {
     id: "channels",
     label: "Ecosystem",
@@ -184,48 +202,51 @@ export const NAV_CONFIG: NavSection[] = [
     permKey: "partnerships",
     advisorHidden: true,
     items: [
-      { id: "industry",  label: { desktop: "Industry Partnerships", mobile: "Industry" }, route: "/strategy/partnerships/industry-associations", icon: Users2,      advisorHidden: true },
-      { id: "dealers",   label: { desktop: "Dealers / Resellers",   mobile: "Dealers"  }, route: "/strategy/partnerships/channel-commercial",    icon: Truck,       advisorHidden: true },
-      { id: "alliances", label: { desktop: "Strategic Alliances",   mobile: "Alliances"}, route: "/strategy/partnerships/manufacturing",         icon: Factory,     advisorHidden: true },
-      { id: "govt",      label: "Government & Grants",                                    route: "/strategy/partnerships/government-public",     icon: Landmark,    advisorHidden: true },
-      { id: "referrals", label: "Referrals",                                              route: "/strategy/partnerships/other",                 icon: Circle,      advisorHidden: true },
-      { id: "media",     label: { desktop: "Media & Tradeshows",    mobile: "Media"    }, route: "/strategy/partnerships/media-tradeshows",      icon: Newspaper,   advisorHidden: true },
+      { id: "partners",    label: "Partners",                                                    route: "/strategy/partnerships/industry-associations", icon: Users2,  advisorHidden: true },
+      { id: "channels-item", label: "Channels",                                                  route: "/strategy/partnerships/channel-commercial",    icon: Truck,   advisorHidden: true },
+      { id: "govt",        label: "Government & Grants",                                         route: "/strategy/partnerships/government-public",     icon: Landmark,advisorHidden: true },
+      { id: "referrals",   label: "Referrals",                                                   route: "/strategy/partnerships/other",                 icon: Circle,  advisorHidden: true },
+      { id: "events-media",label: { desktop: "Events & Media", mobile: "Events" },              route: "/strategy/partnerships/media-tradeshows",      icon: Newspaper,advisorHidden: true },
     ],
   },
+
+  // ── MARKETING (5 items) ────────────────────────────────────────────────────
+  // Replies + Hot Accounts consolidated into Engagement hub (/marketing/engagement)
   {
     id: "marketing",
     label: "Marketing",
     icon: Megaphone,
     permKey: "crm",
     items: [
-      { id: "marketing-dashboard",    label: "Dashboard",       route: "/marketing/dashboard",    icon: LayoutDashboard },
-      { id: "marketing-campaigns",   label: "Campaigns",       route: "/marketing/campaigns",   icon: Radio },
-      { id: "marketing-audiences",   label: "Audiences",       route: "/marketing/audiences",   icon: Users2 },
-      { id: "marketing-replies",     label: "Replies",         route: "/marketing/replies",     icon: MessageSquare },
-      { id: "marketing-hot-accounts", label: "Hot Accounts",  route: "/marketing/hot-accounts", icon: Flame },
-      { id: "marketing-compliance",  label: "Compliance",      route: "/marketing/compliance",  icon: ShieldCheck },
+      { id: "marketing-dashboard",   label: "Dashboard",   route: "/marketing/dashboard",   icon: LayoutDashboard },
+      { id: "marketing-campaigns",   label: "Campaigns",   route: "/marketing/campaigns",   icon: Radio },
+      { id: "marketing-audiences",   label: "Audiences",   route: "/marketing/audiences",   icon: Users2 },
+      { id: "marketing-engagement",  label: "Engagement",  route: "/marketing/engagement",  icon: MessageSquare },
+      { id: "marketing-compliance",  label: "Compliance",  route: "/marketing/compliance",  icon: ShieldCheck },
     ],
   },
+
+  // ── CAPITAL (6 items, capitalOnly) ─────────────────────────────────────────
+  // Removed from sidebar (still accessible via direct URL / ⌘K):
+  //   Capital Dashboard (/capital/dashboard), Investor Targets (/capital/targets),
+  //   Investor Contacts (/capital/contacts), Commitments (/capital/commitments),
+  //   Grants & Non-Dilutive (/capital/grants), Email Review (/capital/email-review)
   {
     id: "capital",
     label: "Capital",
     icon: Banknote,
     capitalOnly: true,
     items: [
-      { id: "capital-command-center", label: "Command Center",         route: "/capital/command-center", icon: Target },
-      { id: "capital-dashboard",    label: "Dashboard",             route: "/capital/dashboard",    icon: LayoutDashboard },
-      { id: "capital-pipeline",     label: "Investor Pipeline",     route: "/capital/pipeline",     icon: TrendingUp },
-      { id: "capital-follow-ups",   label: "Follow-Up Queue",       route: "/capital/follow-ups",   icon: Zap },
-      { id: "capital-targets",      label: "Investor Targets",      route: "/capital/targets",      icon: Target },
-      { id: "capital-contacts",     label: "Investor Contacts",     route: "/capital/contacts",     icon: Contact },
-      { id: "capital-rounds",       label: "Funding Rounds",        route: "/capital/rounds",       icon: RefreshCcw },
-      { id: "capital-commitments",  label: "Commitments",           route: "/capital/commitments",  icon: CheckSquare },
-      { id: "capital-grants",       label: "Grants & Non-Dilutive", route: "/capital/grants",       icon: Landmark },
-      { id: "capital-updates",      label: "Investor Updates",      route: "/capital/updates",      icon: BellRing },
-      { id: "capital-data-room",    label: "Data Room",             route: "/capital/data-room",    icon: FolderOpen },
-      { id: "capital-email-review", label: "Email Review",          route: "/capital/email-review", icon: Mail },
+      { id: "capital-command-center", label: "Command Center",      route: "/capital/command-center", icon: Target },
+      { id: "capital-investors",      label: "Investors",           route: "/capital/pipeline",       icon: TrendingUp },
+      { id: "capital-rounds",         label: "Rounds & Commitments",route: "/capital/rounds",         icon: RefreshCcw },
+      { id: "capital-follow-ups",     label: "Follow-Ups",          route: "/capital/follow-ups",     icon: Zap },
+      { id: "capital-data-room",      label: "Data Room",           route: "/capital/data-room",      icon: FolderOpen },
+      { id: "capital-updates",        label: "Updates & Reviews",   route: "/capital/updates",        icon: BellRing },
     ],
   },
+
+  // ── LEARN (2 items — unchanged) ────────────────────────────────────────────
   {
     id: "learn",
     label: "Learn",
@@ -235,23 +256,25 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "help",     label: "Help",     route: "/help",     icon: HelpCircle },
     ],
   },
+
   // Desktop-only divider above the Admin section.
   { id: "divider-admin", label: "ADMIN", isDivider: true, adminOnly: true, showOn: ["desktop"] },
+
+  // ── ADMIN (5 items) ────────────────────────────────────────────────────────
+  // Removed from sidebar (still accessible via direct URL / ⌘K):
+  //   Task Hub Access (/admin/task-hub-access), User Signatures (/admin/signatures),
+  //   Role Manager (/admin/roles), Global Search (/search — also ⌘K)
   {
     id: "admin",
     label: "Admin",
     icon: Settings2,
     adminOnly: true,
     items: [
-      { id: "admin-users",        label: "Users",                                          route: "/admin/users",             icon: ShieldCheck, adminOnly: true },
-      { id: "admin-task-access",  label: "Task Hub Access",                                route: "/admin/task-hub-access",   icon: CheckSquare, adminOnly: true },
-      { id: "admin-integrations", label: "Integrations",                                   route: "/admin/integrations",      icon: Zap,         adminOnly: true },
-      { id: "admin-user-signatures", label: "User Signatures",                             route: "/admin/signatures",        icon: PenSquare,   adminOnly: true },
-      { id: "admin-roles",          label: "Role Manager",                                  route: "/admin/roles",             icon: ShieldCheck, adminOnly: true },
-      { id: "admin-mailboxes",    label: { desktop: "My Mailboxes", mobile: "Mailboxes" }, route: "/settings/mailbox",        icon: Mail,        adminOnly: true },
-      { id: "admin-search",       label: "Global Search",                                  route: "/search",                  icon: Search,      adminOnly: true },
-      { id: "admin-settings",     label: "Settings",                                       route: "/settings",                icon: Settings,    adminOnly: true, exactMatch: true },
-      { id: "automations",        label: "Automations",                                    route: "/automations",             icon: Zap },
+      { id: "admin-users",        label: "Users & Roles",           route: "/admin/users",      icon: ShieldCheck, adminOnly: true },
+      { id: "admin-integrations", label: "Integrations",            route: "/admin/integrations",icon: Zap,        adminOnly: true },
+      { id: "admin-mailboxes",    label: "Mailboxes & Signatures",  route: "/settings/mailbox", icon: Mail,        adminOnly: true },
+      { id: "admin-settings",     label: "System Settings",         route: "/settings",         icon: Settings,    adminOnly: true, exactMatch: true },
+      { id: "automations",        label: "Automations",             route: "/automations",      icon: Zap },
     ],
   },
 ];
@@ -289,6 +312,7 @@ export type DesktopNavSection = {
   url?: string;
   items?: DesktopNavItem[];
   adminOnly?: boolean;
+  capitalOnly?: boolean;
   permKey?: PermKey;
   isDivider?: boolean;
   advisorHidden?: boolean;
@@ -317,6 +341,7 @@ export function getDesktopSections(): DesktopNavSection[] {
               advisorHidden: item.advisorHidden,
             })),
       adminOnly: s.adminOnly,
+      capitalOnly: s.capitalOnly,
       permKey: s.permKey,
       isDivider: s.isDivider,
       advisorHidden: s.advisorHidden,
@@ -362,3 +387,112 @@ export function getMobileNavGroups(): MobileNavGroup[] {
     }))
     .filter((g) => g.items.length > 0);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAGE_NAV_INDEX — full list of all pages (including those removed from the
+// sidebar) with their canonical route and searchable aliases. Consumed by
+// global-search.tsx to power ⌘K page-navigation even for consolidated pages.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type PageNavEntry = {
+  name: string;
+  route: string;
+  section: string;
+  aliases?: string[];
+};
+
+export const PAGE_NAV_INDEX: PageNavEntry[] = [
+  // Today / Work
+  { name: "Today",             route: "/today",                   section: "Work" },
+  { name: "Mission Control",   route: "/",                        section: "Work" },
+  { name: "Inbox & Mail",      route: "/gmail",                   section: "Work", aliases: ["Inbox", "Email", "Gmail"] },
+  { name: "Tasks & Execution", route: "/execution/tasks",         section: "Work", aliases: ["Tasks", "Task Hub"] },
+  { name: "Daily Execution",   route: "/execution/daily",         section: "Work" },
+  { name: "Calendar & Meetings",route: "/execution/calendar",     section: "Work", aliases: ["Calendar"] },
+  { name: "Work Calendar",     route: "/work/team-calendar",      section: "Work", aliases: ["Team Calendar"] },
+  { name: "Meeting Notes",     route: "/meeting-notes",           section: "Work" },
+  { name: "Activity Feed",     route: "/activity",                section: "Work", aliases: ["Activity"] },
+  { name: "Travel",            route: "/my-travel",               section: "Work", aliases: ["My Travel"] },
+  { name: "Personal Settings", route: "/settings/personal",       section: "Work" },
+  { name: "Email Signatures",  route: "/settings/signatures",     section: "Work", aliases: ["Signatures"] },
+  { name: "AI Voice Profiles", route: "/settings/voice-profiles", section: "Work", aliases: ["Voice Profiles"] },
+  { name: "Digest Settings",   route: "/alerts-digest",           section: "Work", aliases: ["Digest", "Alerts"] },
+  // Pipeline
+  { name: "Snapshot",          route: "/pipeline",                section: "Pipeline", aliases: ["Pipeline"] },
+  { name: "Leads & Accounts",  route: "/opportunities",           section: "Pipeline", aliases: ["Leads", "Opportunities"] },
+  { name: "Accounts",          route: "/accounts",                section: "Pipeline" },
+  { name: "Contacts",          route: "/contacts",                section: "Pipeline" },
+  { name: "Quotes & Renewals", route: "/quotes",                  section: "Pipeline", aliases: ["Quotes"] },
+  { name: "Renewals",          route: "/renewals",                section: "Pipeline" },
+  { name: "Accounts Won",      route: "/revenue/deals",           section: "Pipeline", aliases: ["Won"] },
+  { name: "Outreach",          route: "/booking-outreach",        section: "Pipeline", aliases: ["Booking Outreach"] },
+  { name: "Booking Analytics", route: "/booking-analytics",       section: "Pipeline" },
+  { name: "Notes",             route: "/notes",                   section: "Pipeline" },
+  { name: "Revenue Tools",     route: "/price-lists",             section: "Pipeline", aliases: ["Price Lists"] },
+  // Operations
+  { name: "Install & Deployments", route: "/install-workflows",       section: "Operations", aliases: ["Install Workflows"] },
+  { name: "Deployments",       route: "/deployments",             section: "Operations" },
+  { name: "Territory Routing", route: "/routing",                 section: "Operations", aliases: ["Routing"] },
+  { name: "Winter Support",    route: "/winter",                  section: "Operations", aliases: ["Winter Hub"] },
+  { name: "Projects",          route: "/execution/projects",      section: "Operations" },
+  { name: "Procurement",       route: "/procurement",             section: "Operations" },
+  { name: "Support",           route: "/support/tickets",         section: "Operations", aliases: ["Support Tickets", "Tickets"] },
+  { name: "Communications",    route: "/execution/communications",section: "Operations" },
+  { name: "Events",            route: "/operations/events",       section: "Operations", aliases: ["Tradeshow Events"] },
+  { name: "Knowledge & Documents", route: "/documents",           section: "Operations", aliases: ["Document Hub", "Documents"] },
+  { name: "Knowledge Assets",  route: "/knowledge/assets",        section: "Operations", aliases: ["Assets"] },
+  { name: "Data Quality",      route: "/data-quality",            section: "Operations" },
+  // Insights
+  { name: "Executive Dashboard",    route: "/executive-dashboard",          section: "Insights" },
+  { name: "Revenue Intelligence",   route: "/revenue-intelligence",         section: "Insights" },
+  { name: "Revenue Hub",            route: "/revenue",                      section: "Insights" },
+  { name: "Revenue Ops",            route: "/revenue-ops",                  section: "Insights" },
+  { name: "Attribution",            route: "/analytics/source-attribution", section: "Insights", aliases: ["Source Attribution"] },
+  { name: "Relationship Intelligence", route: "/intelligence/rel-intelligence", section: "Insights" },
+  { name: "Cortex",                 route: "/executive-copilot",            section: "Insights", aliases: ["Executive Copilot", "Copilot"] },
+  { name: "Cortex Intel Library",   route: "/cortex/intel",                 section: "Insights", aliases: ["Intel Library"] },
+  { name: "Territory & Geo",        route: "/geography",                    section: "Insights", aliases: ["Geography", "Territory"] },
+  { name: "Simulators & Feedback",  route: "/revenue-sim",                  section: "Insights", aliases: ["Revenue Simulator"] },
+  { name: "Score Feedback",         route: "/scores/feedback",              section: "Insights" },
+  // Ecosystem
+  { name: "Partners",               route: "/strategy/partnerships/industry-associations", section: "Ecosystem", aliases: ["Industry Partnerships", "Industry"] },
+  { name: "Channels",               route: "/strategy/partnerships/channel-commercial",    section: "Ecosystem", aliases: ["Dealers", "Resellers"] },
+  { name: "Strategic Alliances",    route: "/strategy/partnerships/manufacturing",         section: "Ecosystem", aliases: ["Alliances", "Manufacturing"] },
+  { name: "Government & Grants",    route: "/strategy/partnerships/government-public",     section: "Ecosystem", aliases: ["Government", "Grants"] },
+  { name: "Referrals",              route: "/strategy/partnerships/other",                 section: "Ecosystem" },
+  { name: "Events & Media",         route: "/strategy/partnerships/media-tradeshows",      section: "Ecosystem", aliases: ["Media & Tradeshows", "Media", "Tradeshows"] },
+  // Marketing
+  { name: "Marketing Dashboard",    route: "/marketing/dashboard",    section: "Marketing", aliases: ["Marketing"] },
+  { name: "Campaigns",              route: "/marketing/campaigns",    section: "Marketing" },
+  { name: "Audiences",              route: "/marketing/audiences",    section: "Marketing" },
+  { name: "Engagement",             route: "/marketing/engagement",   section: "Marketing" },
+  { name: "Replies",                route: "/marketing/replies",      section: "Marketing", aliases: ["Marketing Replies"] },
+  { name: "Hot Accounts",           route: "/marketing/hot-accounts", section: "Marketing" },
+  { name: "Compliance",             route: "/marketing/compliance",   section: "Marketing", aliases: ["Marketing Compliance"] },
+  // Capital
+  { name: "Capital Command Center", route: "/capital/command-center", section: "Capital", aliases: ["Command Center"] },
+  { name: "Capital Dashboard",      route: "/capital/dashboard",      section: "Capital" },
+  { name: "Investors",              route: "/capital/pipeline",       section: "Capital", aliases: ["Investor Pipeline"] },
+  { name: "Investor Targets",       route: "/capital/targets",        section: "Capital", aliases: ["Targets"] },
+  { name: "Investor Contacts",      route: "/capital/contacts",       section: "Capital" },
+  { name: "Rounds & Commitments",   route: "/capital/rounds",         section: "Capital", aliases: ["Funding Rounds", "Rounds"] },
+  { name: "Commitments",            route: "/capital/commitments",    section: "Capital" },
+  { name: "Grants & Non-Dilutive",  route: "/capital/grants",         section: "Capital", aliases: ["Grants"] },
+  { name: "Follow-Ups",             route: "/capital/follow-ups",     section: "Capital", aliases: ["Follow-Up Queue"] },
+  { name: "Data Room",              route: "/capital/data-room",      section: "Capital" },
+  { name: "Updates & Reviews",      route: "/capital/updates",        section: "Capital", aliases: ["Investor Updates"] },
+  { name: "Capital Email Review",   route: "/capital/email-review",   section: "Capital", aliases: ["Email Review"] },
+  // Learn
+  { name: "Training",               route: "/training",               section: "Learn" },
+  { name: "Help",                   route: "/help",                   section: "Learn" },
+  // Admin
+  { name: "Users & Roles",          route: "/admin/users",            section: "Admin", aliases: ["Users", "Admin Users"] },
+  { name: "Task Hub Access",        route: "/admin/task-hub-access",  section: "Admin" },
+  { name: "Role Manager",           route: "/admin/roles",            section: "Admin", aliases: ["Roles"] },
+  { name: "Integrations",           route: "/admin/integrations",     section: "Admin" },
+  { name: "Mailboxes & Signatures", route: "/settings/mailbox",       section: "Admin", aliases: ["My Mailboxes", "Mailboxes"] },
+  { name: "User Signatures",        route: "/admin/signatures",       section: "Admin" },
+  { name: "System Settings",        route: "/settings",               section: "Admin", aliases: ["Settings"] },
+  { name: "Global Search",          route: "/search",                 section: "Admin" },
+  { name: "Automations",            route: "/automations",            section: "Admin" },
+];

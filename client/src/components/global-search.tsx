@@ -9,7 +9,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, User, Building2, Mail, ArrowRight } from "lucide-react";
+import { Search, User, Building2, Mail, ArrowRight, LayoutDashboard } from "lucide-react";
+import { PAGE_NAV_INDEX, type PageNavEntry } from "@/lib/nav-config";
 
 interface SearchResult {
   type: "contact" | "account" | "email";
@@ -85,6 +86,23 @@ function useGlobalSearch(query: string) {
   return { results, loading };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Page navigation matching — filters PAGE_NAV_INDEX by name + aliases so that
+// old page names (e.g. "Activity Feed", "Booking Analytics", "Price Lists")
+// still surface as navigable results even after the sidebar consolidation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function matchPageNav(query: string): PageNavEntry[] {
+  if (!query.trim() || query.length < 2) return [];
+  const q = query.toLowerCase();
+  return PAGE_NAV_INDEX.filter(p => {
+    if (p.name.toLowerCase().includes(q)) return true;
+    if (p.aliases?.some(a => a.toLowerCase().includes(q))) return true;
+    if (p.section.toLowerCase().includes(q)) return true;
+    return false;
+  }).slice(0, 5);
+}
+
 function typeIcon(type: SearchResult["type"]) {
   switch (type) {
     case "contact": return <User className="w-3.5 h-3.5 shrink-0" />;
@@ -113,6 +131,9 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const { results, loading } = useGlobalSearch(query);
 
+  const pageNavResults = matchPageNav(query);
+  const totalResults = pageNavResults.length + results.length;
+
   useEffect(() => {
     if (open) {
       setQuery("");
@@ -121,7 +142,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
     }
   }, [open]);
 
-  useEffect(() => { setSelected(0); }, [results]);
+  useEffect(() => { setSelected(0); }, [results, pageNavResults.length]);
 
   const goTo = useCallback((href: string) => {
     onOpenChange(false);
@@ -131,12 +152,17 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelected(s => Math.min(s + 1, results.length - 1));
+      setSelected(s => Math.min(s + 1, totalResults - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelected(s => Math.max(s - 1, 0));
-    } else if (e.key === "Enter" && results[selected]) {
-      goTo(results[selected].href);
+    } else if (e.key === "Enter") {
+      if (selected < pageNavResults.length) {
+        goTo(pageNavResults[selected].route);
+      } else {
+        const r = results[selected - pageNavResults.length];
+        if (r) goTo(r.href);
+      }
     }
   };
 
@@ -148,7 +174,9 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const typeOrder: SearchResult["type"][] = ["contact", "account", "email"];
   const typeLabels: Record<string, string> = { contact: "Contacts", account: "Accounts", email: "Emails" };
 
-  let resultIndex = 0;
+  let resultIndex = pageNavResults.length;
+
+  const hasAnyResults = pageNavResults.length > 0 || results.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -168,7 +196,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="Search contacts, accounts, emails…"
+            placeholder="Search pages, contacts, accounts, emails…"
             className="border-0 shadow-none focus-visible:ring-0 p-0 h-7 bg-transparent text-sm"
             data-testid="input-global-search"
           />
@@ -186,59 +214,94 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
             <div className="py-8 text-center text-sm text-muted-foreground/60">
               Type at least 2 characters to search
             </div>
-          ) : loading && results.length === 0 ? (
+          ) : loading && !hasAnyResults ? (
             <div className="px-3 py-2 space-y-1.5">
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
             </div>
-          ) : results.length === 0 ? (
+          ) : !hasAnyResults ? (
             <div className="py-8 text-center text-sm text-muted-foreground/60">
               No results for <span className="font-medium text-foreground">"{query}"</span>
             </div>
           ) : (
-            typeOrder.map(type => {
-              const group = groupedByType[type];
-              if (!group?.length) return null;
-              return (
-                <div key={type}>
+            <>
+              {/* ── Page navigation results ──────────────────────────────── */}
+              {pageNavResults.length > 0 && (
+                <div data-testid="search-section-pages">
                   <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                    {typeLabels[type]}
+                    Navigate to
                   </div>
-                  {group.map(item => {
-                    const idx = resultIndex++;
+                  {pageNavResults.map((page, idx) => {
                     const isActive = idx === selected;
                     return (
                       <button
-                        key={`${item.type}-${item.id}`}
-                        onClick={() => goTo(item.href)}
+                        key={`page-${page.route}`}
+                        onClick={() => goTo(page.route)}
                         onMouseEnter={() => setSelected(idx)}
                         className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
                           isActive ? "bg-primary/10 text-foreground" : "hover:bg-secondary/50 text-foreground/90"
                         }`}
-                        data-testid={`search-result-${item.type}-${item.id}`}
+                        data-testid={`search-result-page-${page.route.replace(/\//g, "-")}`}
                       >
-                        <span className={`p-1 rounded-md border ${typeBadgeColor(item.type)}`}>
-                          {typeIcon(item.type)}
+                        <span className="p-1 rounded-md border bg-primary/10 text-primary border-primary/20">
+                          <LayoutDashboard className="w-3.5 h-3.5 shrink-0" />
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{item.title}</p>
-                          {(item.subtitle || item.meta) && (
-                            <p className="text-xs text-muted-foreground truncate">
-                              {[item.subtitle, item.meta].filter(Boolean).join(" · ")}
-                            </p>
-                          )}
+                          <p className="text-sm font-medium truncate">{page.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{page.section}</p>
                         </div>
                         {isActive && <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
                       </button>
                     );
                   })}
                 </div>
-              );
-            })
+              )}
+
+              {/* ── CRM / email results ──────────────────────────────────── */}
+              {typeOrder.map(type => {
+                const group = groupedByType[type];
+                if (!group?.length) return null;
+                return (
+                  <div key={type}>
+                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                      {typeLabels[type]}
+                    </div>
+                    {group.map(item => {
+                      const idx = resultIndex++;
+                      const isActive = idx === selected;
+                      return (
+                        <button
+                          key={`${item.type}-${item.id}`}
+                          onClick={() => goTo(item.href)}
+                          onMouseEnter={() => setSelected(idx)}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                            isActive ? "bg-primary/10 text-foreground" : "hover:bg-secondary/50 text-foreground/90"
+                          }`}
+                          data-testid={`search-result-${item.type}-${item.id}`}
+                        >
+                          <span className={`p-1 rounded-md border ${typeBadgeColor(item.type)}`}>
+                            {typeIcon(item.type)}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{item.title}</p>
+                            {(item.subtitle || item.meta) && (
+                              <p className="text-xs text-muted-foreground truncate">
+                                {[item.subtitle, item.meta].filter(Boolean).join(" · ")}
+                              </p>
+                            )}
+                          </div>
+                          {isActive && <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </>
           )}
         </div>
 
         {/* Footer hint */}
-        {results.length > 0 && (
+        {hasAnyResults && query.length >= 2 && (
           <div className="border-t border-border/50 px-3 py-2 flex items-center gap-3 text-[10px] text-muted-foreground/50">
             <span><kbd className="bg-muted border border-border rounded px-1">↑↓</kbd> navigate</span>
             <span><kbd className="bg-muted border border-border rounded px-1">↵</kbd> open</span>

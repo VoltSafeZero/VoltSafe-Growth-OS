@@ -1,0 +1,447 @@
+Phase 2I — Capital Investor Engagement Analytics
+
+Current completed state:
+
+Capital Phase 2A:
+- investors, contacts, rounds, commitments, pipeline, activity logging
+
+Capital Phase 2B:
+- Capital module restricted to CEO Trevor and CFO Scott Carlson only
+
+Capital Phase 2C:
+- investor scoring
+- follow-up queue
+- pipeline intelligence
+- investor email draft context
+- investor detail intelligence panel
+- activity touch tracking
+
+Capital Phase 2D:
+- investor email conversation linking
+- capital_email_links
+- capital_email_review
+- investor Email Conversations panel
+- Gmail sync hook
+- all APIs behind requireCapitalAccess
+
+Capital Phase 2E:
+- Round Command Center
+- weighted pipeline service
+- lead investor candidates
+- this-week action queue
+- risk flags
+- runway projections
+- scenario planning
+
+Capital Phase 2F:
+- valuation, dilution, allocation, and close-plan intelligence
+- allocation planner
+- close plan tracker
+- round close checklist
+
+Capital Phase 2G:
+- Capital Data Room
+- capital_materials
+- capital_material_shares
+- capital_material_requests
+- material library
+- material request queue
+- command-center data_room_intel
+- investor email context includes relevant_materials
+
+Capital Phase 2H:
+- Investor Portal + Secure External Sharing
+- capital_portal_access
+- capital_portal_materials
+- capital_portal_events
+- token hash security
+- public /investor-portal/:token page
+- portal access panel in investor detail
+- Data Room portal badges
+- Command Center Investor Portal Intelligence section
+- tests passing: 79/79
+
+Now implement Phase 2I.
+
+Primary goal:
+Create Capital Investor Engagement Analytics so Trevor and Scott can see which investors are truly engaged based on email, follow-up, data room, portal, material, and activity signals.
+
+This should answer:
+- Who is hot right now?
+- Who opened the portal?
+- Who viewed/downloaded materials?
+- Who replied recently?
+- Who is stale?
+- Who is engaging but not moving stages?
+- Which investors need immediate follow-up?
+- Which materials create the most investor engagement?
+- Which round has the strongest real momentum?
+
+Do not loosen Capital permissions.
+All analytics, APIs, pages, calculations, and event data must remain restricted to Trevor and Scott Carlson only.
+
+1. Audit existing signals
+
+Before writing code, inspect:
+- capital_investors
+- capital_contacts
+- capital_activities
+- capital_email_links
+- capital_email_review
+- capital_materials
+- capital_material_shares
+- capital_material_requests
+- capital_portal_access
+- capital_portal_materials
+- capital_portal_events
+- capital_commitments
+- capital_rounds
+- computeInvestorScore()
+- command-center service
+- follow-up queue route
+- investor detail UI
+- Data Room UI
+- Portal UI
+- existing analytics/reporting patterns
+
+Document available engagement signals:
+- emails linked
+- latest email date
+- email direction inbound/outbound
+- email reply count if available
+- activity count
+- last touch
+- next follow-up
+- portal opened
+- material viewed
+- material downloaded
+- material shared
+- material requests
+- commitments
+- stage movement
+- closing status
+- allocation status
+- Cortex intel if relevant
+
+2. Engagement scoring service
+
+Create a pure backend helper/service:
+
+server/services/capital-engagement.ts
+
+It should compute engagement from transparent signals.
+
+Suggested score components:
+- recent inbound email reply
+- linked email thread activity
+- portal opened
+- number of portal opens
+- material viewed
+- material downloaded
+- high-value material viewed, such as pitch deck or financial model
+- material request made
+- meeting/call activity
+- stage advancement
+- commitment or verbal commitment
+- stale follow-up penalty
+- no activity penalty
+- portal access not opened penalty
+- do_not_contact override
+
+Return:
+- engagement_score 0–100
+- engagement_tier:
+  - Highly Engaged
+  - Engaged
+  - Watching
+  - Stale
+  - Cold
+- reasons array
+- risk_flags array
+- recommended_next_action
+- last_meaningful_engagement_at
+- signal_breakdown
+
+Keep scoring simple and explainable. No black-box magic.
+
+3. Engagement analytics endpoint
+
+Add API:
+
+GET /api/capital/engagement
+
+Query params:
+- round_id optional
+- investor_id optional
+- tier optional
+- date_from optional
+- date_to optional
+- signal optional
+- page
+- page_size
+
+Behind requireCapitalAccess.
+
+Return:
+- summary cards
+- investors ranked by engagement
+- stale investors
+- recently engaged investors
+- material engagement stats
+- portal engagement stats
+- email engagement stats
+- recommended follow-ups
+- pagination
+
+4. Investor engagement endpoint
+
+Add API:
+
+GET /api/capital/investors/:id/engagement
+
+Behind requireCapitalAccess.
+
+Return:
+- engagement score/tier
+- full signal breakdown
+- timeline of engagement events
+- recent linked emails
+- portal events
+- material shares/views/downloads
+- material requests
+- activity history
+- recommended next action
+- risk flags
+
+5. Engagement page
+
+Add new Capital page:
+
+/capital/engagement
+
+Add Capital nav item:
+- Engagement
+
+Only Trevor and Scott should see it.
+
+Page should show:
+- engagement summary cards
+- ranked investor table
+- filters by round/tier/signal
+- stale investor list
+- recent engagement feed
+- material engagement leaderboard
+- portal engagement leaderboard
+- email engagement summary
+- recommended next actions
+
+6. Engagement summary cards
+
+Cards should include:
+- Highly engaged investors
+- Engaged investors
+- Stale investors
+- Cold investors
+- Portal opens last 7 days
+- Material views last 7 days
+- Downloads last 7 days
+- Recent inbound replies
+- Investors with no engagement after portal access
+- Hot investors with stale follow-up
+
+Cards should be clickable if the drilldown pattern exists. If not, add filter behavior on click.
+
+7. Investor detail engagement panel
+
+Add an Engagement panel to investor detail showing:
+- engagement score/tier
+- signal breakdown
+- recent portal activity
+- recent material activity
+- recent email activity
+- last meaningful engagement
+- recommended next action
+- risk flags
+
+8. Command Center integration
+
+Extend /capital/command-center with engagement intelligence:
+
+Add:
+- engagement momentum card
+- top engaged investors
+- stale high-value investors
+- recent investor activity feed
+- materials driving engagement
+- portal non-openers
+- follow-up risk from stale engagement
+
+Add risk flags:
+- lead investor has no engagement in 7+ days
+- diligence investor has portal access but never opened
+- high-score investor has no recent inbound activity
+- key material shared but not viewed
+- engaged investor has no next step
+- investor viewed financial model but has no follow-up scheduled
+
+9. Data Room integration
+
+Extend Data Room with material engagement analytics:
+- total views
+- total downloads
+- unique investors
+- last viewed
+- investors who viewed/downloaded each material
+- stale/superseded materials still being viewed
+- top materials by investor engagement
+
+10. Portal integration
+
+Use capital_portal_events to calculate:
+- portal opens
+- material views
+- material downloads
+- last access
+- no-open after link sent
+- repeat engagement
+- high-intent behavior
+
+Do not expose raw IPs. Use existing hashed IP pattern.
+
+11. Email integration
+
+Use capital_email_links and capital_activities to calculate:
+- inbound investor replies
+- outbound follow-ups
+- last email activity
+- conversation freshness
+- reply gaps
+- investors with portal activity but no email follow-up
+
+If email direction is unreliable, document the limitation and use safe fallbacks.
+
+12. Engagement event timeline
+
+Create a normalized timeline helper that can combine:
+- emails
+- activities
+- portal opens
+- material views/downloads
+- material shares
+- material requests
+- commitment changes
+- stage changes
+
+Each timeline item should include:
+- event_type
+- label
+- timestamp
+- source
+- investor/contact/material/round references where applicable
+- safe display summary
+
+13. Recommendations
+
+Generate recommended next actions such as:
+- Follow up now — investor viewed financial model
+- Send data room link — hot investor has no portal access
+- Ask for feedback — deck viewed but no reply
+- Schedule meeting — highly engaged with multiple material views
+- Confirm commitment — verbal commit but no closing action
+- Re-engage — no activity in 14+ days
+- No action — low priority or do_not_contact
+
+14. Permissions
+
+Everything must use requireCapitalAccess.
+
+Unauthorized users must not be able to:
+- see Engagement nav
+- access /capital/engagement
+- call engagement APIs
+- infer portal/material/email engagement data
+- access engagement through command-center or investor detail
+
+15. Tests
+
+Add tests for:
+
+Service/scoring:
+- engagement score helper exists
+- recent portal open increases score
+- material view/download increases score
+- financial model view counts as high-value signal
+- inbound reply increases score
+- stale activity reduces score
+- do_not_contact forces cold/do-not-contact behavior
+- tier thresholds work
+- reasons array explains scoring
+
+APIs:
+- GET /api/capital/engagement exists and is protected
+- GET /api/capital/investors/:id/engagement exists and is protected
+- filters work by tier/round/signal
+- pagination exists
+- unauthorized users receive 403
+
+Frontend:
+- /capital/engagement route exists
+- Engagement nav item exists only under Capital
+- summary cards render
+- ranked investor table renders
+- stale investor list renders
+- recent engagement feed renders
+- investor detail engagement panel exists
+- empty states render safely
+
+Command Center:
+- engagement intelligence included
+- engagement risk flags included
+- stale high-value investors show
+- portal non-openers show
+- materials driving engagement show
+
+Data Room:
+- material engagement metrics appear
+- viewed/downloaded counts render
+- stale/superseded material engagement warning exists
+
+Permissions:
+- only Trevor and Scott can access all engagement analytics
+- normal admin/manager/staff cannot infer engagement data
+
+Regression:
+- capital portal tests still pass
+- data room tests still pass
+- command center tests still pass
+- permissions tests still pass
+
+16. Validation
+
+Run:
+- new capital engagement tests
+- capital portal tests
+- capital data-room tests
+- capital command-center tests
+- capital email-linking tests
+- capital intelligence tests
+- capital permissions tests
+- startup invariants tests
+- full build if practical
+
+Deliver:
+- files changed
+- new APIs
+- scoring formula
+- engagement tiers
+- signal mapping
+- permission confirmation
+- test results
+- recommended Phase 2J follow-up
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose Capital engagement data outside CEO/CFO access.
+Do not expose raw IP addresses.
+Do not invent engagement events.
+Do not auto-send emails.

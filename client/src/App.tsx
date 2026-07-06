@@ -118,6 +118,8 @@ const CurrentPage = lazy(() => import("@/pages/current"));
 const CurrentsWorkspaceShell = lazy(() =>
   import("@/components/currents/currents-workspace-shell").then(m => ({ default: m.CurrentsWorkspaceShell }))
 );
+const MarketingEngagementPage = lazy(() => import("@/pages/marketing-engagement"));
+const PersonalSettingsPage    = lazy(() => import("@/pages/settings-personal"));
 const MarketingDashboardPage = lazy(() => import("@/pages/marketing-dashboard"));
 const MarketingCampaignsPage = lazy(() => import("@/pages/marketing-campaigns"));
 const MarketingAudiencesPage = lazy(() => import("@/pages/marketing-audiences"));
@@ -397,6 +399,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       <Route path="/automations">{() => wrap(<AutomationsPage />)}</Route>
       <Route path="/automation/tasks">{() => <Redirect to="/automations?tab=task-rules" />}</Route>
+      <Route path="/marketing/engagement">{() => guard("crm", <MarketingEngagementPage />)}</Route>
+      <Route path="/settings/personal">{() => wrap(<PersonalSettingsPage />)}</Route>
       <Route path="/marketing/campaigns/:id">{() => guard("crm", <CampaignDetailPage />)}</Route>
       <Route path="/marketing/campaigns">{() => guard("crm", <MarketingCampaignsPage />)}</Route>
       <Route path="/marketing/audiences">{() => guard("crm", <MarketingAudiencesPage />)}</Route>

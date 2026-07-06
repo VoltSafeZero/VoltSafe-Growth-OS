@@ -1,0 +1,363 @@
+VoltSafe CMS Universal Drilldowns — Phase 2: Pipeline + Insights
+
+Current completed state:
+Marketing module universal drilldowns are complete.
+- Backend: GET /api/marketing/drilldown
+- 31 metric types
+- requireAuth + crm:view
+- reusable MarketingDrilldownSheet component
+- wired across Compliance Dashboard, Marketing Dashboard, Campaigns, Hot Accounts, Replies, Audiences
+- tests/marketing-drilldown.test.cjs passing: 155/155
+
+Now implement universal clickable drilldowns for Pipeline and Insights.
+
+Primary goal:
+Any number, summary card, risk badge, chart segment, table row, warning, score, forecast metric, or health indicator in Pipeline and Insights should be clickable and show the granular underlying records.
+
+Product rule:
+If the user can see a number, they should be able to click it and see exactly what created that number.
+
+Do not modify unrelated modules.
+Do not weaken permissions.
+Do not fake data.
+Do not return unpaginated giant datasets.
+
+1. Audit Pipeline and Insights
+
+Before writing code, inspect:
+- Pipeline nav pages
+- Pipeline Snapshot page
+- Leads page
+- Accounts page
+- Contacts page
+- Quotes page
+- Renewals page
+- Accounts Won page
+- Booking Outreach
+- Booking Analytics
+- Notes
+- Price Lists
+- Insights Executive Dashboard
+- Source Attribution
+- Executive Copilot
+- Cortex Intel Library
+- Revenue Intelligence
+- Territory & Geo
+- Relationship Intelligence
+- Revenue Hub
+- Revenue Ops
+- Revenue Simulator
+- Score Feedback
+- Existing APIs powering these pages
+- Existing CRM permissions
+- Existing reusable table/sheet/modal components
+- MarketingDrilldownSheet implementation
+
+Document:
+- all visible metrics
+- what data powers each metric
+- which metrics are dead/non-clickable
+- which existing APIs can be reused
+- which new filtered endpoints are needed
+
+2. Reusable drilldown component strategy
+
+Reuse or generalize the MarketingDrilldownSheet if possible.
+
+Preferred:
+- rename/generalize to something like UniversalDrilldownSheet or MetricsDrilldownSheet
+- keep Marketing-specific badge rendering where needed
+- allow module-specific endpoint and columns
+
+If generalizing is risky, create:
+- PipelineDrilldownSheet
+- InsightsDrilldownSheet
+
+But avoid duplicating too much logic.
+
+Each drilldown sheet should support:
+- title
+- metric description
+- total count/value
+- active filters
+- searchable table
+- sorting where practical
+- pagination
+- loading/error/empty state
+- refresh button
+- links to underlying records
+- safe quick actions where existing patterns support them
+
+3. Backend endpoints
+
+Add endpoints or reuse existing patterns.
+
+Preferred:
+GET /api/pipeline/drilldown
+GET /api/insights/drilldown
+
+Query params:
+- module
+- metric
+- segment
+- status
+- owner_id
+- rep_id
+- account_id
+- lead_id
+- campaign_id if relevant
+- date_from
+- date_to
+- page
+- page_size
+- search
+- sort
+- extra filters as needed
+
+Response:
+- title
+- description
+- total
+- filters
+- columns
+- rows
+- pagination
+- available_actions
+
+Requirements:
+- require auth
+- enforce existing CRM/Insights permissions
+- paginate always
+- return only data the user is allowed to see
+- never return massive unpaginated lists
+
+4. Pipeline Snapshot drilldowns
+
+Make clickable:
+- Active deals
+- Total pipeline
+- Weighted
+- stalled deals
+- no next step
+- high value
+- stale deals
+- forecast
+- rep performance
+- closing this month
+- no activity 14+ days
+- awaiting quote response
+- commit deals only
+- overdue close date
+
+Each should drill into:
+- deal/opportunity/quote/account/lead records as available
+- owner/rep
+- stage
+- value
+- close date
+- last activity
+- next step
+- quote status
+- account/contact links
+
+5. Pipeline list pages
+
+For Leads, Accounts, Contacts, Quotes, Renewals, Accounts Won, Booking Outreach, Booking Analytics, Notes, Price Lists:
+
+Make clickable:
+- summary stat cards
+- badges
+- counts
+- filter chips
+- chart segments
+- table rows where not already clickable
+- warning banners
+- empty-state action links
+
+Examples:
+- leads with no owner
+- stale leads
+- leads created this month
+- converted leads
+- accounts with no recent activity
+- contacts missing email
+- quotes awaiting response
+- quotes accepted
+- renewals overdue
+- won accounts this quarter
+- booking outreach sent/replied/booked
+- pricing lists active/archived
+
+6. Insights Executive Dashboard drilldowns
+
+Make clickable:
+- Total Pipeline
+- Weighted Forecast
+- Open Opportunities
+- Closed Won
+- Accepted Revenue
+- Revenue This Month
+- Revenue This Quarter
+- Win Rate
+- Avg Deal Value
+- Awaiting Response
+- In Progress
+- Completed
+- With Blockers
+- Overdue
+- Total Leads
+- New This Month
+- Converted
+- No Owner
+- Attention Required badges
+- risks count
+- lead source bars
+- forecast chart points
+- revenue/risk tabs
+
+Each should drill into the exact records contributing to the number.
+
+Example:
+No Owner = list of leads/accounts/opportunities with no owner.
+Risks = list of risk records with type, severity, owner, source.
+Win Rate = campaigns/quotes/opportunities contributing to win/loss numerator/denominator.
+
+7. Insights submodule drilldowns
+
+Source Attribution:
+- source bars/segments clickable
+- campaign/source counts clickable
+- lead/conversion/revenue attribution rows clickable
+
+Revenue Intelligence / Revenue Hub / Revenue Ops:
+- revenue cards clickable
+- forecast/risk/rep metrics clickable
+- deal-health indicators clickable
+- quote/revenue status counts clickable
+
+Territory & Geo:
+- region counts clickable
+- territory gaps clickable
+- unassigned territory records clickable
+
+Relationship Intelligence:
+- relationship score cards clickable
+- stale relationship warnings clickable
+- missing decision-maker records clickable
+
+Cortex Intel Library:
+- summary stats/filter chips clickable
+- intel type counts clickable
+- importance/use-for filters clickable
+- source rows clickable
+
+Revenue Simulator:
+- scenario outputs should link to source assumptions where practical
+- if no underlying records exist, show an explanation instead of fake drilldown
+
+Score Feedback:
+- feedback status/counts clickable
+- score correction rows clickable
+
+8. Clickable charts
+
+Any chart in Pipeline/Insights should support segment/point drilldown where possible:
+- bar segment
+- line point
+- funnel stage
+- pie segment
+- source attribution bar
+- forecast point
+- risk segment
+
+Clicking should open the drilldown sheet filtered to that segment.
+
+9. Zero-count behavior
+
+Even zero-count cards should open a useful empty state where practical.
+
+Example:
+No stalled deals = “No stalled deals. Pipeline is moving.”
+
+Do not leave dead cards.
+
+10. Visual affordance
+
+Clickable metrics should look clickable:
+- cursor pointer
+- hover state
+- subtle focus ring
+- “View details” hint where appropriate
+- keyboard accessible
+- aria labels
+
+Do not make the UI noisy.
+
+11. Data integrity
+
+Drilldown total should match visible card count.
+
+If the count is cached or computed differently:
+- refresh on drawer open
+- show last refreshed timestamp if available
+- log mismatch in dev
+
+12. Tests
+
+Add tests for:
+
+Backend:
+- /api/pipeline/drilldown requires auth
+- /api/insights/drilldown requires auth
+- endpoints paginate
+- endpoints filter by metric
+- endpoints return columns/rows/total
+- no unpaginated giant results
+- unauthorized users cannot access restricted data
+
+Pipeline frontend:
+- Pipeline Snapshot cards are clickable
+- quick-view chips are clickable
+- drilldown sheet opens
+- zero-count cards show empty state
+- table rows remain clickable
+- key submodule cards/counts are clickable
+
+Insights frontend:
+- Executive Dashboard cards are clickable
+- Attention Required badges are clickable
+- Lead Sources bars are clickable
+- Risks tab/counts are clickable
+- drilldown sheet opens
+- submodule metrics are clickable where present
+
+Source/structure:
+- reusable drilldown component exists or MarketingDrilldownSheet generalized
+- no fake drilldown data
+- pagination/search included
+- hover/focus affordance exists
+- old routes unaffected
+
+Validation:
+Run:
+- marketing drilldown tests
+- new pipeline drilldown tests
+- new insights drilldown tests
+- route tests
+- permission tests
+- build if practical
+
+Deliver:
+- audit summary
+- list of Pipeline metrics made clickable
+- list of Insights metrics made clickable
+- new APIs
+- files changed
+- permission confirmation
+- tests run and results
+
+Do not modify unrelated modules.
+Do not weaken permissions.
+Do not fake data.
+Do not return unpaginated large lists.
+Do not show summary numbers without a path to underlying records.
