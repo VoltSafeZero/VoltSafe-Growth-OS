@@ -135,6 +135,8 @@ export interface EmailActionsToolbarProps {
   assignedUserId: number | null;
   /** When true, all "edit" actions (star, archive, etc.) are hidden — view-only mailboxes. */
   readOnly?: boolean;
+  /** When true, Capital-specific actions (Link to Investor) are shown in the overflow menu. */
+  isCapitalUser?: boolean;
   /** Whether the inline reply button should be visible (canSend gate from parent). */
   canReply: boolean;
   /** When true, shows "Not Spam" as a prominent action and hides irrelevant Inbox actions. */
@@ -249,6 +251,7 @@ function EmailActionsToolbarImpl({
   isBlocked = false,
   handlers,
   onAssignChanged,
+  isCapitalUser = false,
 }: EmailActionsToolbarProps) {
   const { toast } = useToast();
   const shareAPI = useShareAccess();
@@ -262,6 +265,9 @@ function EmailActionsToolbarImpl({
   const [aiResult, setAiResult] = useState<{ mode: string; content: string; language?: string | null } | null>(null);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [cortexOpen, setCortexOpen] = useState(false);
+  const [capitalLinkOpen, setCapitalLinkOpen] = useState(false);
+  const [capitalSearch, setCapitalSearch] = useState("");
+  const [capitalSelectedId, setCapitalSelectedId] = useState<number | null>(null);
 
   // Check if the focused message is already saved to Cortex (for saved-state indicator)
   const { data: cortexCheckData } = useQuery<{ exists: boolean; record: any | null }>({
@@ -279,6 +285,43 @@ function EmailActionsToolbarImpl({
   const { data: users = [] } = useQuery<ActionsToolbarUser[]>({
     queryKey: ["/api/users"],
     enabled: assignOpen || shareOpen,
+  });
+
+  // Capital investor list — only fetched when the capital link modal is open
+  const { data: capitalInvestors = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["/api/capital/investors-list"],
+    queryFn: () =>
+      fetch("/api/capital/investors?limit=200", { credentials: "include" })
+        .then(r => r.json())
+        .then((d: any) => Array.isArray(d) ? d : []),
+    enabled: capitalLinkOpen,
+    staleTime: 60_000,
+  });
+  const filteredCapitalInvestors = capitalInvestors.filter(
+    (inv) => !capitalSearch.trim() || inv.name.toLowerCase().includes(capitalSearch.toLowerCase()),
+  );
+
+  const capitalLinkMutation = useMutation({
+    mutationFn: async (investorId: number) => {
+      const r = await apiRequest("POST", "/api/capital/email-links", {
+        capital_investor_id: investorId,
+        email_thread_id: threadId,
+        email_message_id: focusedMessage?.id,
+        subject: focusedMessage?.subject,
+        direction: "unknown",
+        participants: [senderEmail, focusedMessage?.senderName].filter(Boolean).join(", "),
+        latest_message_at: focusedMessage?.receivedAt,
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || "Link failed");
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Linked to Capital investor" });
+      setCapitalLinkOpen(false);
+      setCapitalSearch("");
+      setCapitalSelectedId(null);
+    },
+    onError: (e: any) => toast({ title: e?.message || "Failed to link", variant: "destructive" }),
   });
 
   // PATCH /api/inbox/threads/:threadId/assign
@@ -938,6 +981,17 @@ function EmailActionsToolbarImpl({
                 >
                   <Upload className="h-3.5 w-3.5 mr-2" /> Export to…
                 </DropdownMenuItem>
+                {isCapitalUser && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => { setCapitalLinkOpen(true); setCapitalSearch(""); setCapitalSelectedId(null); }}
+                      data-testid="more-link-capital"
+                    >
+                      <LinkIcon className="h-3.5 w-3.5 mr-2 text-cyan-400" /> Link to Capital Investor
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => toast({ title: "All actions panel coming soon" })}
@@ -1116,6 +1170,73 @@ function EmailActionsToolbarImpl({
           </PopoverContent>
         </Popover>
       </div>
+
+      {/* Link to Capital Investor modal */}
+      {capitalLinkOpen && isCapitalUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" data-testid="capital-link-modal">
+          <div className="bg-card border border-border rounded-xl p-5 w-full max-w-sm space-y-4 mx-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-sm flex items-center gap-2">
+                <LinkIcon className="w-4 h-4 text-cyan-400" /> Link to Capital Investor
+              </h2>
+              <button
+                type="button"
+                onClick={() => setCapitalLinkOpen(false)}
+                className="text-muted-foreground hover:text-foreground p-1 rounded"
+                data-testid="btn-close-capital-link"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Linking this conversation to an investor records it in their Capital timeline and updates last-touch date.
+            </p>
+            <Input
+              placeholder="Search investors…"
+              value={capitalSearch}
+              onChange={(e) => { setCapitalSearch(e.target.value); setCapitalSelectedId(null); }}
+              className="h-8 text-xs"
+              data-testid="input-capital-search"
+              autoFocus
+            />
+            <ul className="max-h-48 overflow-y-auto -mx-1">
+              {filteredCapitalInvestors.length === 0 && (
+                <li className="text-xs text-muted-foreground text-center py-3">
+                  {capitalSearch ? "No investors match." : "Loading investors…"}
+                </li>
+              )}
+              {filteredCapitalInvestors.slice(0, 20).map((inv) => (
+                <li key={inv.id}>
+                  <button
+                    type="button"
+                    data-testid={`capital-investor-option-${inv.id}`}
+                    onClick={() => setCapitalSelectedId(inv.id)}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between ${
+                      capitalSelectedId === inv.id
+                        ? "bg-primary/20 text-primary font-medium"
+                        : "hover:bg-muted/60 text-foreground"
+                    }`}
+                  >
+                    {inv.name}
+                    {capitalSelectedId === inv.id && <Check className="w-3 h-3" />}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" size="sm" onClick={() => setCapitalLinkOpen(false)}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={!capitalSelectedId || capitalLinkMutation.isPending}
+                onClick={() => capitalSelectedId && capitalLinkMutation.mutate(capitalSelectedId)}
+                data-testid="btn-confirm-capital-link"
+              >
+                {capitalLinkMutation.isPending ? "Linking…" : "Link Conversation"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Save to Cortex modal */}
       {focusedMessage && (

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Users, Plus, Search, MoreHorizontal, AlertTriangle, DollarSign, Activity, Brain, Mail, X, Clock } from "lucide-react";
+import { Users, Plus, Search, MoreHorizontal, AlertTriangle, DollarSign, Activity, Brain, Mail, X, Clock, ArrowDownLeft, ArrowUpRight, ExternalLink, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -511,12 +511,100 @@ export function InvestorDetail({ investor, onEdit, onStageChange }: {
         )) : <p className="text-xs text-muted-foreground">No activity recorded yet.</p>}
       </div>
 
+      <Separator />
+      <EmailConversationsPanel investorId={investor.id} />
+
       <EmailDraftModal
         open={emailOpen}
         onClose={() => setEmailOpen(false)}
         investorId={investor.id}
         investorName={investor.name}
       />
+    </div>
+  );
+}
+
+// ── Email Conversations Panel (Phase 2D) ─────────────────────────────────────
+type EmailLink = {
+  id: number; subject: string | null; direction: string;
+  participants: string | null; latest_message_at: string | null;
+  link_type: string; email_thread_id: string | null;
+  contact_name: string | null; contact_email: string | null;
+};
+
+function EmailConversationsPanel({ investorId }: { investorId: number }) {
+  const { data: conversations = [], isLoading } = useQuery<EmailLink[]>({
+    queryKey: ["/api/capital/investors", investorId, "email-conversations"],
+    queryFn: () => fetch(`/api/capital/investors/${investorId}/email-conversations`, { credentials: "include" }).then(r => r.json()),
+    staleTime: 30_000,
+  });
+
+  const { toast } = useToast();
+  const unlinkMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/capital/email-links/${id}`),
+    onSuccess: () => {
+      toast({ title: "Conversation unlinked" });
+      queryClient.invalidateQueries({ queryKey: ["/api/capital/investors", investorId, "email-conversations"] });
+    },
+    onError: () => toast({ title: "Failed to unlink", variant: "destructive" }),
+  });
+
+  return (
+    <div data-testid="email-conversations-panel">
+      <p className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
+        <Mail className="w-3.5 h-3.5" /> EMAIL CONVERSATIONS ({isLoading ? "…" : conversations.length})
+      </p>
+      {!isLoading && conversations.length === 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="email-conversations-empty">
+          No linked investor email conversations yet.
+        </p>
+      )}
+      {conversations.slice(0, 8).map((c) => (
+        <div
+          key={c.id}
+          className="flex items-start justify-between gap-2 bg-muted/20 rounded-lg px-3 py-2 mb-1.5"
+          data-testid={`email-conversation-row-${c.id}`}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 mb-0.5">
+              {c.direction === "inbound"
+                ? <ArrowDownLeft className="w-3 h-3 text-cyan-400 shrink-0" />
+                : c.direction === "outbound"
+                  ? <ArrowUpRight className="w-3 h-3 text-emerald-400 shrink-0" />
+                  : null}
+              <p className="text-xs font-medium truncate">{c.subject || "(no subject)"}</p>
+            </div>
+            {c.contact_name && (
+              <p className="text-xs text-muted-foreground truncate">{c.contact_name}{c.contact_email ? ` · ${c.contact_email}` : ""}</p>
+            )}
+            <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+              {c.latest_message_at ? fmtDate(c.latest_message_at) : "—"}
+              {c.link_type === "manual" && <span className="ml-1 text-muted-foreground/50">· manual</span>}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {c.email_thread_id && (
+              <a
+                href={`/inbox?thread=${c.email_thread_id}`}
+                title="Open in Mail"
+                className="p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                data-testid={`btn-open-thread-${c.id}`}
+              >
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+            <button
+              type="button"
+              title="Unlink"
+              onClick={() => unlinkMut.mutate(c.id)}
+              className="p-1 rounded hover:bg-muted/50 text-muted-foreground/40 hover:text-red-400 transition-colors"
+              data-testid={`btn-unlink-${c.id}`}
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

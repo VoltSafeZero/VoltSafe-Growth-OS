@@ -222,6 +222,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "capital-grants",       label: "Grants & Non-Dilutive", route: "/capital/grants",       icon: Landmark },
       { id: "capital-updates",      label: "Investor Updates",      route: "/capital/updates",      icon: BellRing },
       { id: "capital-data-room",    label: "Data Room",             route: "/capital/data-room",    icon: FolderOpen },
+      { id: "capital-email-review", label: "Email Review",          route: "/capital/email-review", icon: Mail },
     ],
   },
   {

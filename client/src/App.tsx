@@ -138,6 +138,7 @@ const CapitalRoundsPage       = lazy(() => import("@/pages/capital-rounds"));
 const CapitalCommitmentsPage  = lazy(() => import("@/pages/capital-commitments"));
 const CapitalUpdatesPage      = lazy(() => import("@/pages/capital-updates"));
 const CapitalFollowUpsPage    = lazy(() => import("@/pages/capital-follow-ups"));
+const CapitalEmailReviewPage  = lazy(() => import("@/pages/capital-email-review"));
 const BookingPublicPage = lazy(() => import("@/pages/booking-public"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
 const DemonAtmospherics = lazy(() => import("@/components/demon-atmospherics").then(m => ({ default: m.DemonAtmospherics })));
@@ -416,6 +417,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/capital/updates">{() => capitalGuard(<CapitalUpdatesPage />)}</Route>
       <Route path="/capital/data-room">{() => capitalGuard(<CapitalDocumentsPage />)}</Route>
       <Route path="/capital/follow-ups">{() => capitalGuard(<CapitalFollowUpsPage />)}</Route>
+      <Route path="/capital/email-review">{() => capitalGuard(<CapitalEmailReviewPage />)}</Route>
       <Route path="/capital/investors">{() => <Redirect to="/capital/targets" />}</Route>
       <Route path="/capital/documents">{() => <Redirect to="/capital/data-room" />}</Route>
       <Route path="/capital">{() => <Redirect to="/capital/dashboard" />}</Route>

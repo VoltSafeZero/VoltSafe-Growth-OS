@@ -163,6 +163,13 @@ export async function upsertMessageById(
           )).catch(() => {});
         }
 
+        // Phase 2D: fire-and-forget Capital email linking
+        import("./capital-email-linker").then(({ tryCapitalEmailLink }) => {
+          tryCapitalEmailLink(inserted.id).catch((err: any) =>
+            log(`[capital-linker] tryCapitalEmailLink err msgId=${emailData.gmailMessageId}: ${err?.message}`)
+          );
+        }).catch(() => {});
+
         // Phase 8: fire-and-forget campaign reply matching for new inbound replies
         if (emailData.direction === "inbound" && emailData.isReply) {
           import("./campaign-reply-ingestion").then(({ processInboundEmailForCampaignReply }) => {

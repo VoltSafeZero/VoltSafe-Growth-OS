@@ -271,6 +271,70 @@ export async function migrateCapitalSchema(): Promise<void> {
       ALTER TABLE capital_investors ADD COLUMN IF NOT EXISTS likely_lead             BOOLEAN NOT NULL DEFAULT FALSE;
     `));
   } catch (_e3) { /* already exists — idempotent */ }
+
+  // ── Phase 2D: Capital Email Links + Review Queue ───────────────────────────
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE capital_activities ADD COLUMN IF NOT EXISTS email_thread_id  TEXT;
+      ALTER TABLE capital_activities ADD COLUMN IF NOT EXISTS email_message_id TEXT;
+    `));
+  } catch (_e4a) { /* already exists — idempotent */ }
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS capital_email_links (
+        id                  SERIAL PRIMARY KEY,
+        capital_investor_id INTEGER REFERENCES capital_investors(id) ON DELETE CASCADE,
+        capital_contact_id  INTEGER REFERENCES capital_contacts(id)  ON DELETE SET NULL,
+        email_thread_id     TEXT,
+        email_message_id    TEXT,
+        email_db_id         INTEGER,
+        subject             TEXT,
+        direction           TEXT NOT NULL DEFAULT 'unknown',
+        participants        TEXT,
+        latest_message_at   TIMESTAMPTZ,
+        first_linked_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_synced_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        link_type           TEXT NOT NULL DEFAULT 'manual',
+        match_confidence    INTEGER NOT NULL DEFAULT 100,
+        match_reason        TEXT,
+        created_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at          TIMESTAMPTZ
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_capital_email_links_thread_investor
+        ON capital_email_links(email_thread_id, capital_investor_id)
+        WHERE deleted_at IS NULL AND email_thread_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_capital_email_links_investor
+        ON capital_email_links(capital_investor_id);
+      CREATE INDEX IF NOT EXISTS idx_capital_email_links_contact
+        ON capital_email_links(capital_contact_id);
+
+      CREATE TABLE IF NOT EXISTS capital_email_review (
+        id                  SERIAL PRIMARY KEY,
+        email_thread_id     TEXT,
+        email_message_id    TEXT,
+        email_db_id         INTEGER,
+        subject             TEXT,
+        sender_email        TEXT,
+        participants        TEXT,
+        snippet             TEXT,
+        latest_message_at   TIMESTAMPTZ,
+        guessed_investor_id INTEGER REFERENCES capital_investors(id) ON DELETE SET NULL,
+        guessed_contact_id  INTEGER REFERENCES capital_contacts(id)  ON DELETE SET NULL,
+        match_reason        TEXT,
+        match_confidence    INTEGER,
+        status              TEXT NOT NULL DEFAULT 'pending',
+        reviewed_by         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at         TIMESTAMPTZ,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_capital_email_review_status
+        ON capital_email_review(status);
+      CREATE INDEX IF NOT EXISTS idx_capital_email_review_thread
+        ON capital_email_review(email_thread_id);
+    `));
+  } catch (_e4b) { /* already exists — idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1720,6 +1784,20 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         });
       }
 
+      // ── Phase 2D: include linked email conversation context ─────────────────
+      const emailLinksRow = await db.execute(sql.raw(`
+        SELECT cel.subject, cel.direction, cel.participants, cel.latest_message_at,
+               cel.link_type, cel.email_thread_id,
+               cc.full_name AS contact_name, cc.email AS contact_email
+        FROM capital_email_links cel
+        LEFT JOIN capital_contacts cc ON cc.id = cel.capital_contact_id
+        WHERE cel.capital_investor_id = ${id}
+          AND cel.deleted_at IS NULL
+        ORDER BY cel.latest_message_at DESC NULLS LAST
+        LIMIT 10
+      `));
+      const linkedEmails = emailLinksRow.rows as any[];
+
       res.json({
         investor: { id: inv.id, name: inv.name, stage: inv.stage, priority: inv.priority },
         intelligence: intel,
@@ -1727,11 +1805,225 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         to_line: toLine,
         days_since_touch: daysSinceTouch,
         recent_activities: activities.map(a => ({ type: a.activity_type, title: a.title, at: a.activity_at })),
+        linked_email_conversations: linkedEmails.map(e => ({
+          subject: e.subject,
+          direction: e.direction,
+          participants: e.participants,
+          latest_message_at: e.latest_message_at,
+          link_type: e.link_type,
+          thread_id: e.email_thread_id,
+          contact_name: e.contact_name,
+          contact_email: e.contact_email,
+        })),
         templates,
       });
     } catch (err: any) {
       console.error("[capital] GET /investors/:id/email-context:", err?.message);
       res.status(500).json({ message: "Failed to load email context" });
+    }
+  });
+
+  // ── Phase 2D: Email Conversations for an investor ─────────────────────────
+  app.get("/api/capital/investors/:id/email-conversations", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT cel.*,
+               cc.full_name  AS contact_name,
+               cc.email      AS contact_email,
+               cc.title      AS contact_title,
+               ci.name       AS investor_name
+        FROM capital_email_links cel
+        LEFT JOIN capital_contacts  cc ON cc.id = cel.capital_contact_id
+        LEFT JOIN capital_investors ci ON ci.id = cel.capital_investor_id
+        WHERE cel.capital_investor_id = ${id}
+          AND cel.deleted_at IS NULL
+        ORDER BY cel.latest_message_at DESC NULLS LAST
+        LIMIT 50
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /investors/:id/email-conversations:", err?.message);
+      res.status(500).json({ message: "Failed to load email conversations" });
+    }
+  });
+
+  // ── Phase 2D: Manual email link create ────────────────────────────────────
+  app.post("/api/capital/email-links", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const {
+        capital_investor_id, capital_contact_id,
+        email_thread_id, email_message_id, email_db_id,
+        subject, direction, participants, latest_message_at,
+      } = req.body;
+      const investorId = safeId(capital_investor_id);
+      if (!investorId) return res.status(400).json({ message: "capital_investor_id required" });
+
+      const { manualCapitalEmailLink } = await import("./services/capital-email-linker");
+      const { linkId } = await manualCapitalEmailLink({
+        investorId,
+        contactId:        safeId(capital_contact_id),
+        threadId:         email_thread_id  || null,
+        messageId:        email_message_id || null,
+        emailDbId:        safeId(email_db_id),
+        subject:          subject          || "",
+        direction:        direction        || "unknown",
+        participants:     participants     || "",
+        latestMessageAt:  latest_message_at || null,
+        createdBy:        req.session.userId,
+      });
+      if (!linkId) {
+        return res.status(409).json({ message: "Link already exists or could not be created" });
+      }
+      const row = await db.execute(sql.raw(`SELECT * FROM capital_email_links WHERE id = ${linkId} LIMIT 1`));
+      res.status(201).json(row.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] POST /email-links:", err?.message);
+      res.status(500).json({ message: "Failed to create email link" });
+    }
+  });
+
+  // ── Phase 2D: Patch email link ─────────────────────────────────────────────
+  app.patch("/api/capital/email-links/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const allowed = ["capital_contact_id","subject","direction","participants","latest_message_at"];
+      const sets: string[] = [`updated_at = NOW()`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") sets.push(`${key} = NULL`);
+        else if (["capital_contact_id"].includes(key)) sets.push(`${key} = ${safeId(v) ?? "NULL"}`);
+        else sets.push(`${key} = '${esc(String(v))}'`);
+      }
+      if (sets.length === 1) return res.status(400).json({ message: "No valid fields to update" });
+      const row = await db.execute(sql.raw(`UPDATE capital_email_links SET ${sets.join(", ")} WHERE id = ${id} AND deleted_at IS NULL RETURNING *`));
+      if (!row.rows[0]) return res.status(404).json({ message: "Link not found" });
+      res.json(row.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] PATCH /email-links/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update email link" });
+    }
+  });
+
+  // ── Phase 2D: Soft-delete email link ──────────────────────────────────────
+  app.delete("/api/capital/email-links/:id", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(`UPDATE capital_email_links SET deleted_at = NOW() WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] DELETE /email-links/:id:", err?.message);
+      res.status(500).json({ message: "Failed to delete email link" });
+    }
+  });
+
+  // ── Phase 2D: Auto-link a single message (called from sync hook / UI) ──────
+  app.post("/api/capital/email-links/auto-link-message", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const { email_db_id } = req.body;
+      const dbId = safeId(email_db_id);
+      if (!dbId) return res.status(400).json({ message: "email_db_id required" });
+      const { tryCapitalEmailLink } = await import("./services/capital-email-linker");
+      const result = await tryCapitalEmailLink(dbId);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[capital] POST /email-links/auto-link-message:", err?.message);
+      res.status(500).json({ message: "Failed to auto-link message" });
+    }
+  });
+
+  // ── Phase 2D: Email Review Queue ──────────────────────────────────────────
+  app.get("/api/capital/email-review", requireAuth, requireCapitalAccess, async (req, res) => {
+    try {
+      const status = (req.query.status as string) || "pending";
+      const rows = await db.execute(sql.raw(`
+        SELECT cer.*,
+               ci.name AS investor_name,
+               cc.full_name AS contact_name
+        FROM capital_email_review cer
+        LEFT JOIN capital_investors ci ON ci.id = cer.guessed_investor_id
+        LEFT JOIN capital_contacts  cc ON cc.id = cer.guessed_contact_id
+        WHERE cer.status = '${esc(status)}'
+        ORDER BY cer.created_at DESC
+        LIMIT 100
+      `));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /email-review:", err?.message);
+      res.status(500).json({ message: "Failed to load review queue" });
+    }
+  });
+
+  app.post("/api/capital/email-review/:id/approve", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const reviewRows = await db.execute(sql.raw(`SELECT * FROM capital_email_review WHERE id = ${id} LIMIT 1`));
+      const review = reviewRows.rows[0] as any;
+      if (!review) return res.status(404).json({ message: "Review item not found" });
+
+      const investorId = safeId(req.body.capital_investor_id) ?? review.guessed_investor_id;
+      const contactId  = safeId(req.body.capital_contact_id)  ?? review.guessed_contact_id;
+      if (!investorId) return res.status(400).json({ message: "capital_investor_id required for approval" });
+
+      const { manualCapitalEmailLink } = await import("./services/capital-email-linker");
+      await manualCapitalEmailLink({
+        investorId,
+        contactId,
+        threadId:        review.email_thread_id  || null,
+        messageId:       review.email_message_id || null,
+        emailDbId:       review.email_db_id      || null,
+        subject:         review.subject          || "",
+        direction:       "unknown",
+        participants:    review.participants     || "",
+        latestMessageAt: review.latest_message_at || null,
+        createdBy:       req.session.userId,
+      });
+      await db.execute(sql.raw(`
+        UPDATE capital_email_review
+        SET status = 'approved', reviewed_by = ${req.session.userId}, reviewed_at = NOW()
+        WHERE id = ${id}
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] POST /email-review/:id/approve:", err?.message);
+      res.status(500).json({ message: "Failed to approve review item" });
+    }
+  });
+
+  app.post("/api/capital/email-review/:id/reject", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(`
+        UPDATE capital_email_review
+        SET status = 'rejected', reviewed_by = ${(req as any).session.userId}, reviewed_at = NOW()
+        WHERE id = ${id}
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] POST /email-review/:id/reject:", err?.message);
+      res.status(500).json({ message: "Failed to reject review item" });
+    }
+  });
+
+  app.post("/api/capital/email-review/:id/ignore", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await db.execute(sql.raw(`
+        UPDATE capital_email_review
+        SET status = 'ignored', reviewed_by = ${(req as any).session.userId}, reviewed_at = NOW()
+        WHERE id = ${id}
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] POST /email-review/:id/ignore:", err?.message);
+      res.status(500).json({ message: "Failed to ignore review item" });
     }
   });
 }
