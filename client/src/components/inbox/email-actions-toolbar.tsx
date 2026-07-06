@@ -263,6 +263,17 @@ function EmailActionsToolbarImpl({
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [cortexOpen, setCortexOpen] = useState(false);
 
+  // Check if the focused message is already saved to Cortex (for saved-state indicator)
+  const { data: cortexCheckData } = useQuery<{ exists: boolean; record: any | null }>({
+    queryKey: ["/api/cortex-intel/check", focusedMessage?.id ?? ""],
+    queryFn: () =>
+      fetch(`/api/cortex-intel/check/${encodeURIComponent(focusedMessage!.id)}`, { credentials: "include" })
+        .then(r => r.json()),
+    enabled: !!focusedMessage?.id,
+    staleTime: 30_000,
+  });
+  const isSavedToCortex = cortexCheckData?.exists === true;
+
   // Team list for Assign / Share popovers. Uses the existing /api/users
   // route — same query key as the rest of the app so we share the cache.
   const { data: users = [] } = useQuery<ActionsToolbarUser[]>({
@@ -821,16 +832,31 @@ function EmailActionsToolbarImpl({
                 <button
                   type="button"
                   data-testid="action-save-to-cortex"
-                  aria-label="Save to Cortex"
+                  aria-label={isSavedToCortex ? "Saved to Cortex — click to view/edit" : "Save to Cortex"}
                   onClick={() => setCortexOpen(true)}
-                  className="px-2.5 py-1.5 rounded-lg text-muted-foreground/70 hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 inline-flex items-center gap-1 text-[11px] font-medium"
+                  className={`px-2.5 py-1.5 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 inline-flex items-center gap-1 text-[11px] font-medium relative ${
+                    isSavedToCortex
+                      ? "text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/15"
+                      : "text-muted-foreground/70 hover:text-cyan-400 hover:bg-cyan-500/10"
+                  }`}
                 >
                   <Brain className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="hidden sm:inline">Cortex</span>
+                  <span className="hidden sm:inline">
+                    {isSavedToCortex ? "In Cortex" : "Cortex"}
+                  </span>
+                  {isSavedToCortex && (
+                    <span
+                      className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-cyan-400 border border-background"
+                      aria-hidden="true"
+                      data-testid="cortex-saved-dot"
+                    />
+                  )}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-[11px]">
-                Save to Cortex — flag as marine industry intelligence
+                {isSavedToCortex
+                  ? `Saved to Cortex${cortexCheckData?.record?.intel_type ? ` · ${cortexCheckData.record.intel_type}` : ""} — click to edit`
+                  : "Save to Cortex — flag as marine industry intelligence"}
               </TooltipContent>
             </Tooltip>
 

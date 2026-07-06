@@ -38531,14 +38531,27 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // GET /api/cortex-intel — list records with optional filters
   app.get("/api/cortex-intel", requireAuth, async (req: any, res) => {
     try {
-      const { limit = "25", offset = "0", intelType, importance, search } = req.query as any;
+      const {
+        limit = "25", offset = "0", intelType, importance, search,
+        useFor, senderEmail, dateFrom, dateTo, savedByUserId,
+        tags: tagsParam,
+      } = req.query as any;
       const { listCortexIntelRecords } = await import("./services/cortex-intel");
+      const parsedTags = tagsParam
+        ? (Array.isArray(tagsParam) ? tagsParam : [tagsParam])
+        : undefined;
       const result = await listCortexIntelRecords({
         limit: Math.min(Number(limit) || 25, 100),
         offset: Number(offset) || 0,
         intelType: intelType || undefined,
         importance: importance || undefined,
         search: search || undefined,
+        useFor: useFor || undefined,
+        tags: parsedTags,
+        senderEmail: senderEmail || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
+        savedByUserId: savedByUserId ? Number(savedByUserId) : undefined,
       });
       res.json(result);
     } catch (err: any) {
@@ -38559,6 +38572,21 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // GET /api/cortex-intel/:id — fetch a single record by id
+  app.get("/api/cortex-intel/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const { getCortexIntelById } = await import("./services/cortex-intel");
+      const record = await getCortexIntelById(id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      res.json(record);
+    } catch (err: any) {
+      console.error("[cortex-intel] GET /api/cortex-intel/:id:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/cortex-intel/generate-summary — AI summary before saving
   app.post("/api/cortex-intel/generate-summary", requireAuth, async (req: any, res) => {
     try {
@@ -38572,7 +38600,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
-  // POST /api/cortex-intel — create/ingest a new record
+  // POST /api/cortex-intel — upsert: create or update record for this message id
   app.post("/api/cortex-intel", requireAuth, async (req: any, res) => {
     try {
       const userId = req.session?.userId;
@@ -38586,11 +38614,8 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       if (!mailMessageId) return res.status(400).json({ error: "mailMessageId required" });
       if (!intelType)     return res.status(400).json({ error: "intelType required" });
       if (!importance)    return res.status(400).json({ error: "importance required" });
-      // Prevent duplicate ingestion
-      const { checkCortexIntelByMessageId, createCortexIntelRecord } = await import("./services/cortex-intel");
-      const existing = await checkCortexIntelByMessageId(mailMessageId);
-      if (existing) return res.status(409).json({ error: "Already ingested", record: existing });
-      const record = await createCortexIntelRecord({
+      const { upsertCortexIntelRecord } = await import("./services/cortex-intel");
+      const { record, created } = await upsertCortexIntelRecord({
         mailMessageId, threadId, subject, senderName, senderEmail, receivedAt,
         sourceLabel, intelType, importance,
         useFor: Array.isArray(useFor) ? useFor : [],
@@ -38601,7 +38626,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
         relatedLeadId:    relatedLeadId    ? Number(relatedLeadId)    : undefined,
         createdByUserId: userId,
       });
-      res.status(201).json({ ok: true, record });
+      res.status(created ? 201 : 200).json({ ok: true, record, created });
     } catch (err: any) {
       console.error("[cortex-intel] POST /api/cortex-intel:", err.message);
       res.status(500).json({ error: err.message });
@@ -38619,6 +38644,28 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       res.json({ ok: true, record });
     } catch (err: any) {
       console.error("[cortex-intel] PUT /api/cortex-intel/:id:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/cortex-intel/:id — soft-delete; only creator or admin may delete
+  app.delete("/api/cortex-intel/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const userId = req.session?.userId;
+      const isAdmin = req.session?.isAdmin;
+      const { getCortexIntelById, deleteCortexIntelRecord } = await import("./services/cortex-intel");
+      const record = await getCortexIntelById(id);
+      if (!record) return res.status(404).json({ error: "Not found" });
+      if (record.created_by_user_id !== userId && !isAdmin) {
+        return res.status(403).json({ error: "Only the creator or an admin can delete this record" });
+      }
+      const deleted = await deleteCortexIntelRecord(id);
+      if (!deleted) return res.status(404).json({ error: "Record not found or already deleted" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[cortex-intel] DELETE /api/cortex-intel/:id:", err.message);
       res.status(500).json({ error: err.message });
     }
   });

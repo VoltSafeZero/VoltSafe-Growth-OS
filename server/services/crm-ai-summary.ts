@@ -967,10 +967,30 @@ export async function generateSuggestedNextEmail(
   }
 
   // Fetch relevant Cortex Email Intel (marine industry intelligence flagged by user)
+  // Pass entity context so the service can rank intel by relevance to this specific email.
   let cortexIntelBlock = "";
   try {
     const { getCortexIntelForPrompt } = await import("./cortex-intel");
-    cortexIntelBlock = await getCortexIntelForPrompt({ limit: 4, minImportance: "Medium" });
+    const crmState: any = intelligenceCtx.currentCrmState || {};
+    // Build topic hints from recent activity subjects + CRM labels
+    const topicHints: string[] = [
+      ...(intelligenceCtx.highPriorityRecentActivity || []).map((a: any) => a.subject || "").filter(Boolean),
+      crmState.industry || "",
+      crmState.source || "",
+      entityType,
+    ].filter(Boolean).slice(0, 6);
+    const recipientName = (crmState.first_name && crmState.last_name)
+      ? `${crmState.first_name} ${crmState.last_name}`
+      : crmState.name || crmState.full_name || "";
+    const accountName = crmState.company_name || crmState.account_name || crmState.marina_name || "";
+    cortexIntelBlock = await getCortexIntelForPrompt({
+      limit: 4,
+      minImportance: "Medium",
+      recipientName: recipientName || undefined,
+      accountName: accountName || undefined,
+      topicHints: topicHints.length > 0 ? topicHints : undefined,
+      useForPurpose: "AI email writing",
+    });
   } catch { /* non-fatal — cortex intel is supplementary */ }
 
   const resolvedModifiers = resolveIntentModifiers(intentModifierIds ?? []);

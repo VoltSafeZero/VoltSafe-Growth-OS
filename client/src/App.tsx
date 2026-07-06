@@ -100,6 +100,7 @@ const RevenueSimPage = lazy(() => import("@/pages/revenue-sim"));
 const RevenueOpsPage = lazy(() => import("@/pages/revenue-ops"));
 const WinterHubPage = lazy(() => import("@/pages/winter-hub"));
 const ExecutiveCopilotPage = lazy(() => import("@/pages/executive-copilot"));
+const CortexIntelLibraryPage = lazy(() => import("@/pages/cortex-intel-library"));
 const FieldPage = lazy(() => import("@/pages/field"));
 const FieldNearbyPage = lazy(() => import("@/pages/field-nearby"));
 const AlertsDigestPage = lazy(() => import("@/pages/alerts-digest"));
@@ -389,6 +390,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/revenue-ops">{() => advisorBlock(<RevenueOpsPage />)}</Route>
       <Route path="/winter">{() => wrap(<WinterHubPage />)}</Route>
       <Route path="/executive-copilot">{() => wrap(<ExecutiveCopilotPage />)}</Route>
+      <Route path="/cortex/intel">{() => wrap(<CortexIntelLibraryPage />)}</Route>
 
       <Route path="/automations">{() => wrap(<AutomationsPage />)}</Route>
       <Route path="/automation/tasks">{() => <Redirect to="/automations?tab=task-rules" />}</Route>
