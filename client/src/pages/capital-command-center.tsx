@@ -5,7 +5,7 @@ import {
   ChevronDown, RefreshCcw, Brain, Mail, ExternalLink, DollarSign,
   Calendar, Flame, Activity, BarChart3, Shield, Rocket, Minus,
   Percent, PieChart, FileText, CheckSquare, Square, ChevronRight,
-  Edit2, ClipboardList, Info, Globe, Eye,
+  Edit2, ClipboardList, Info, Globe, Eye, FileBarChart2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -741,6 +741,19 @@ export default function CapitalCommandCenterPage() {
               {criticalCount} critical
             </Badge>
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            data-testid="btn-capital-reports-link"
+            onClick={() => {
+              const url = activeRoundId ? `/capital/reports?round_id=${activeRoundId}` : "/capital/reports";
+              window.location.href = url;
+            }}
+          >
+            <FileBarChart2 className="w-3.5 h-3.5" />
+            Reports
+          </Button>
           <Select
             value={String(activeRoundId)}
             onValueChange={v => setSelectedRoundId(Number(v))}

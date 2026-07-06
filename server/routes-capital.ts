@@ -3723,4 +3723,211 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       res.status(500).json({ message: "Failed to load investor engagement" });
     }
   });
+
+  // ── Phase 2J: Capital Reporting Pack ─────────────────────────────────────
+  // GET /api/capital/reports — report type metadata + rounds list
+  app.get("/api/capital/reports", requireAuth, requireCapitalAccess, async (_req, res) => {
+    try {
+      const { REPORT_TYPE_META } = await import("./services/capital-reporting.js");
+      const roundsRow = await db.execute(sql.raw(`
+        SELECT id, name, status FROM capital_rounds
+        WHERE deleted_at IS NULL
+        ORDER BY created_at DESC LIMIT 20
+      `));
+      res.json({
+        report_types: REPORT_TYPE_META,
+        rounds:       roundsRow.rows,
+      });
+    } catch (err: any) {
+      console.error("[capital] GET /reports:", err?.message);
+      res.status(500).json({ message: "Failed to load report metadata" });
+    }
+  });
+
+  // GET /api/capital/reports/:type — generate a report
+  // Query params: round_id, include_sensitive, format (json|markdown|csv)
+  app.get("/api/capital/reports/:type", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const type = req.params.type as string;
+      const VALID_TYPES = ["weekly_brief", "board_update", "cfo_closing", "engagement"];
+      if (!VALID_TYPES.includes(type)) {
+        return res.status(400).json({ message: `Unknown report type: ${type}. Must be one of: ${VALID_TYPES.join(", ")}` });
+      }
+
+      const roundId         = safeId(req.query.round_id);
+      const format          = String(req.query.format || "json");
+      const includeSensitive = req.query.include_sensitive === "true";
+
+      // Load round — default to most recent active round if none specified
+      let round: any = null;
+      if (roundId) {
+        const r = await db.execute(sql.raw(`SELECT * FROM capital_rounds WHERE id = ${roundId} AND deleted_at IS NULL LIMIT 1`));
+        round = (r.rows as any[])[0] ?? null;
+      } else {
+        const r = await db.execute(sql.raw(`SELECT * FROM capital_rounds WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`));
+        round = (r.rows as any[])[0] ?? null;
+      }
+
+      const effectiveRoundId = round?.id ?? null;
+
+      // Load rounds list for context
+      const roundsRow = await db.execute(sql.raw(`
+        SELECT id, name, status FROM capital_rounds WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 20
+      `));
+
+      // Load investors
+      const invRows = await db.execute(sql.raw(`
+        SELECT ci.*
+        FROM capital_investors ci
+        WHERE ci.deleted_at IS NULL
+        ORDER BY ci.priority DESC NULLS LAST, ci.updated_at DESC
+        LIMIT 500
+      `));
+      const investors = invRows.rows as any[];
+
+      if (investors.length === 0 && !round) {
+        const { REPORT_TYPE_META, assembleReport } = await import("./services/capital-reporting.js");
+        const empty = assembleReport(
+          type as any,
+          { round: null, rounds: roundsRow.rows as any[], investors: [], commitments: [], contacts: [], activities: [], emailLinks: [], portalAccesses: [], portalEvents: [], materials: [], materialShares: [], materialRequests: [] },
+          { round_id: null, date_from: null, date_to: null, include_sensitive: includeSensitive },
+        );
+        return res.json(empty);
+      }
+
+      const invIds = investors.length > 0 ? investors.map((i: any) => i.id) : [0];
+      const inList = invIds.join(",");
+      const roundFilter = effectiveRoundId ? effectiveRoundId : 0;
+
+      // Fetch all needed data in parallel
+      const [
+        commitmentsRow,
+        contactsRow,
+        activitiesRow,
+        emailLinksRow,
+        portalAccessRow,
+        portalEventRow,
+        materialsRow,
+        matSharesRow,
+        matRequestsRow,
+      ] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT cc.*, ci.name AS investor_name, ci.stage AS investor_stage
+          FROM capital_commitments cc
+          LEFT JOIN capital_investors ci ON ci.id = cc.investor_id
+          WHERE cc.deleted_at IS NULL
+            ${effectiveRoundId ? `AND cc.round_id = ${effectiveRoundId}` : ""}
+          ORDER BY cc.created_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT cc.*, ci.name AS investor_name
+          FROM capital_contacts cc
+          LEFT JOIN capital_investors ci ON ci.id = cc.investor_id
+          WHERE cc.deleted_at IS NULL
+          ORDER BY cc.influence_level DESC, cc.created_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_activities
+          WHERE entity_type = 'investor' AND entity_id IN (${inList})
+          ORDER BY activity_at DESC LIMIT 1000
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_email_links
+          WHERE capital_investor_id IN (${inList}) AND deleted_at IS NULL
+          ORDER BY latest_message_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT cpa.*, ci.name AS investor_name,
+            (SELECT COUNT(*) FROM capital_portal_materials cpm
+             WHERE cpm.portal_access_id = cpa.id AND cpm.deleted_at IS NULL) AS material_count
+          FROM capital_portal_access cpa
+          LEFT JOIN capital_investors ci ON ci.id = cpa.investor_id
+          WHERE cpa.deleted_at IS NULL AND cpa.investor_id IN (${inList})
+          ORDER BY cpa.created_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT cpe.*
+          FROM capital_portal_events cpe
+          JOIN capital_portal_access cpa ON cpa.id = cpe.portal_access_id
+          WHERE cpa.deleted_at IS NULL AND cpa.investor_id IN (${inList})
+          ORDER BY cpe.occurred_at DESC LIMIT 2000
+        `)),
+        db.execute(sql.raw(`
+          SELECT cm.*, cr.name AS round_name
+          FROM capital_materials cm
+          LEFT JOIN capital_rounds cr ON cr.id = cm.round_id
+          WHERE cm.deleted_at IS NULL
+          ORDER BY cm.updated_at DESC LIMIT 200
+        `)),
+        db.execute(sql.raw(`
+          SELECT cms.*, ci.name AS investor_name, cm.title AS material_title, cm.material_type
+          FROM capital_material_shares cms
+          LEFT JOIN capital_investors ci ON ci.id = cms.investor_id
+          LEFT JOIN capital_materials cm ON cm.id = cms.material_id
+          WHERE cms.deleted_at IS NULL
+          ORDER BY cms.shared_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT cmr.*, ci.name AS investor_name
+          FROM capital_material_requests cmr
+          LEFT JOIN capital_investors ci ON ci.id = cmr.investor_id
+          WHERE cmr.deleted_at IS NULL
+          ORDER BY cmr.requested_at DESC LIMIT 200
+        `)),
+      ]);
+
+      const {
+        assembleReport,
+        reportToMarkdown,
+        reportToCsv,
+      } = await import("./services/capital-reporting.js");
+
+      const input = {
+        round,
+        rounds:           roundsRow.rows    as any[],
+        investors,
+        commitments:      commitmentsRow.rows  as any[],
+        contacts:         contactsRow.rows     as any[],
+        activities:       activitiesRow.rows   as any[],
+        emailLinks:       emailLinksRow.rows   as any[],
+        portalAccesses:   portalAccessRow.rows as any[],
+        portalEvents:     portalEventRow.rows  as any[],
+        materials:        materialsRow.rows    as any[],
+        materialShares:   matSharesRow.rows    as any[],
+        materialRequests: matRequestsRow.rows  as any[],
+      };
+
+      const options = {
+        round_id:          effectiveRoundId,
+        date_from:         req.query.date_from ? String(req.query.date_from) : null,
+        date_to:           req.query.date_to   ? String(req.query.date_to)   : null,
+        include_sensitive: includeSensitive,
+      };
+
+      const report = assembleReport(type as any, input, options);
+
+      if (format === "markdown") {
+        const md = reportToMarkdown(report);
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        return res.send(md);
+      }
+
+      if (format === "csv") {
+        const csvData = reportToCsv(report);
+        if (!csvData) {
+          return res.status(400).json({ message: `CSV export not available for report type: ${type}` });
+        }
+        const { toCsv, setCsvHeaders } = await import("./csv-export.js");
+        const cols = Object.keys(csvData.rows[0] ?? {}).map(k => ({ key: k, label: k }));
+        const csv  = toCsv(csvData.rows, cols);
+        setCsvHeaders(res, csvData.filename);
+        return res.send(csv);
+      }
+
+      res.json(report);
+    } catch (err: any) {
+      console.error("[capital] GET /reports/:type:", err?.message);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
 }
