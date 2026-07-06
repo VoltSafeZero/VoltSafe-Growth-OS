@@ -1,0 +1,494 @@
+Marketing Module — Universal Clickable Drilldowns + Granular Data Views
+
+Context:
+In VoltSafe CMS, the Marketing module and all Marketing submodules need to become fully explorable. Any metric, card, chart, count, table row, warning, compliance stat, campaign stat, audience stat, reply stat, or health indicator should be clickable and show the granular underlying data.
+
+Current example:
+Marketing → Compliance Dashboard shows cards such as:
+- Unknown Jurisdiction: 76
+- Unknown Consent: 76
+- Canada: 0
+- United States: 0
+- Express Consent: 0
+- Missing Consent Proof: 0
+- US B2B Eligible: 0
+- Unsubscribed: 0
+- Suppressed: 0
+- Campaigns Blocked: 0
+- Avg Unsubscribe Rate
+- Avg Bounce Rate
+- Spam Complaint Rate
+- Form Opt-In Rate
+
+These cards should not be dead UI. Clicking any card should open the underlying contacts, leads, campaigns, events, or records that produce that number.
+
+Primary goal:
+Make everything in Marketing clickable and drillable so users can move from summary → exact data → action.
+
+This applies to:
+- Marketing Dashboard
+- Campaigns
+- Audiences
+- Replies
+- Hot Accounts
+- Compliance
+- Any existing or future Marketing submodule
+
+Do not modify unrelated modules.
+Do not weaken compliance protections.
+Do not expose data users should not access.
+
+1. Audit current Marketing module
+
+Before writing code, inspect:
+- Marketing route structure
+- Marketing nav config
+- Marketing Dashboard page
+- Campaigns page
+- Audiences page
+- Replies page
+- Hot Accounts page
+- Compliance Dashboard page
+- Existing marketing/compliance/campaign APIs
+- Existing CRM contact/lead/account APIs used by Marketing
+- Existing modal/sheet/table components
+- Existing permission guard patterns
+- Existing loading/error/empty state patterns
+
+Document:
+- which metrics exist
+- what backend data powers each metric
+- which metrics are currently not clickable
+- which APIs already support filtering
+- which new filtered detail endpoints are needed
+
+2. Universal drilldown pattern
+
+Implement a reusable MarketingDrilldown component or equivalent pattern.
+
+Clicking a marketing metric should open a drawer/sheet/modal with:
+- title
+- metric description
+- count
+- active filters
+- table of underlying records
+- search
+- sorting
+- pagination
+- export CSV if existing export pattern exists
+- quick actions where relevant
+- empty state when count is zero
+
+The drawer should clearly answer:
+“What exactly makes up this number?”
+
+3. Compliance Dashboard drilldowns
+
+Every Compliance Dashboard card must be clickable.
+
+Cards should drill into the exact underlying records.
+
+Examples:
+
+Unknown Jurisdiction
+- Show contacts/leads with missing or unknown country/jurisdiction.
+- Columns:
+  - name
+  - email
+  - company/account
+  - country
+  - province/state
+  - source
+  - created date
+  - consent status
+  - last campaign touch
+  - action: edit contact/lead
+  - action: set jurisdiction if supported
+
+Canada
+- Show contacts/leads classified as Canada.
+- Include province and CASL consent status.
+
+United States
+- Show contacts/leads classified as US.
+- Include state and CAN-SPAM eligibility/suppression status.
+
+Other
+- Show contacts/leads with non-Canada/non-US jurisdiction.
+
+Express Consent
+- Show records with express CASL consent.
+- Include consent source, consent date, consent proof, expiry if applicable.
+
+Implied Active
+- Show records with active implied consent.
+- Include source, start date, expiry date, days remaining.
+
+Expiring in 30/60/90 Days
+- Show records with implied consent expiring in that time window.
+- Include expiry date and days remaining.
+- Allow quick action to create re-permission campaign or mark for follow-up if existing patterns support it.
+
+Expired Implied
+- Show records whose implied consent expired.
+- Include expiry date and suppression/send-block status.
+
+Missing Consent Proof
+- Show records where consent is claimed or required but proof/source is missing.
+- Include action to update consent proof if supported.
+
+Unknown Consent
+- Show records missing consent classification.
+- Include jurisdiction and source if known.
+
+US B2B Eligible
+- Show US contacts/leads eligible under CAN-SPAM/B2B rules.
+
+US Opted-Out
+- Show contacts/leads opted out under US/CAN-SPAM rules.
+
+Unsubscribed
+- Show unsubscribed contacts/leads.
+- Include unsubscribe source, campaign, date.
+
+Suppressed
+- Show suppressed contacts/leads.
+- Include reason:
+  - unsubscribe
+  - bounce
+  - complaint
+  - manual suppression
+  - compliance block
+  - invalid email
+
+Quarantined Imports
+- Show imported records quarantined due to missing consent/jurisdiction/source data.
+- Include import batch/source if available.
+
+Campaigns Blocked
+- Show campaigns blocked by compliance checks.
+- Include campaign name, blocked reason, blocked contacts count, date, owner.
+
+Avg Unsubscribe Rate
+- Drill into campaigns contributing to the rate.
+- Show campaign name, sent, unsubscribes, rate.
+
+Avg Bounce Rate
+- Drill into campaigns and/or contacts contributing to bounces.
+- Show campaign, email, bounce reason if available.
+
+Spam Complaint Rate
+- Drill into complaints by campaign/contact.
+- Show complaint date, campaign, contact.
+
+Form Opt-In Rate
+- Drill into form submissions/opt-ins if available.
+- If form tracking does not exist yet, show a truthful empty state instead of fake data.
+
+4. Chart drilldowns
+
+Any chart in Marketing should be clickable.
+
+Examples:
+- pie/donut chart segment
+- bar chart
+- line chart point
+- funnel stage
+- campaign performance segment
+- jurisdiction chart
+- consent status chart
+
+Clicking a chart segment should open the same drilldown drawer filtered to that segment.
+
+Example:
+Click “Unknown Jurisdiction” chart segment → opens records with unknown jurisdiction.
+
+5. Campaign drilldowns
+
+On Campaigns pages, every campaign metric should be clickable.
+
+Examples:
+- sent
+- delivered
+- opened
+- clicked
+- replied
+- bounced
+- unsubscribed
+- spam complaints
+- blocked recipients
+- suppressed recipients
+- failed sends
+- meetings booked
+- CTA clicks
+- sequence step performance
+- audience count
+- excluded recipients
+
+Each click should show:
+- underlying contacts/leads
+- campaign event
+- timestamp
+- email step
+- subject line
+- recipient
+- status/event type
+- reason if failed/blocked/suppressed
+- link to CRM record
+- link to campaign record
+
+6. Audience drilldowns
+
+On Audiences pages:
+- audience counts should be clickable
+- filters should be inspectable
+- excluded records should be visible
+- invalid/suppressed/unsubscribed contacts should be drillable
+
+Examples:
+- total audience
+- eligible audience
+- excluded by compliance
+- missing email
+- invalid email
+- unsubscribed
+- suppressed
+- duplicate records
+- missing jurisdiction
+- missing consent
+
+7. Replies drilldowns
+
+On Replies page:
+- reply counts should be clickable by category/status.
+- Show underlying email threads/replies.
+- Link to:
+  - contact
+  - account
+  - campaign
+  - VoltSafe Mail thread
+  - AI summary if available
+
+Categories may include:
+- positive replies
+- negative replies
+- out-of-office
+- referral/forward
+- demo interest
+- unsubscribe request
+- needs manual review
+
+8. Hot Accounts drilldowns
+
+On Hot Accounts:
+- every score, signal, or count should be clickable.
+- Show why an account is hot.
+
+Examples:
+- opened campaign
+- clicked CTA
+- replied
+- visited page if tracked
+- downloaded/viewed material if tracked
+- multiple contacts engaged
+- recent activity
+- high intent signal
+
+Click should reveal:
+- contacts involved
+- campaign events
+- dates
+- email subjects
+- actions taken
+- recommended next action
+
+9. Backend filtered detail endpoints
+
+Add reusable backend endpoints where needed.
+
+Preferred pattern:
+GET /api/marketing/drilldown
+
+Query params:
+- module
+- metric
+- segment
+- status
+- campaign_id
+- audience_id
+- jurisdiction
+- consent_status
+- event_type
+- date_from
+- date_to
+- page
+- page_size
+- search
+- sort
+
+Response:
+- title
+- description
+- total
+- filters
+- columns
+- rows
+- pagination
+- available_actions
+
+Alternative:
+Use module-specific endpoints if the codebase already prefers that pattern.
+
+Important:
+Do not return giant unpaginated datasets.
+Always paginate.
+
+10. Drilldown data integrity
+
+The drilldown count must match the card count.
+
+If a card says 76, the drawer should show total = 76.
+
+If there is a mismatch due to stale cache or async calculation:
+- show last refreshed timestamp
+- refresh count on drawer open
+- log mismatch in development
+
+11. Quick actions from drilldowns
+
+Where safe, add quick actions:
+
+Contact/Lead records:
+- open CRM record
+- edit jurisdiction
+- edit consent status
+- add consent proof
+- suppress
+- unsuppress if permitted
+- add to audience
+- remove from audience
+
+Campaign records:
+- open campaign
+- view recipients
+- view blocked recipients
+- pause campaign if active
+- duplicate campaign if existing pattern supports it
+
+Email/reply records:
+- open thread in VoltSafe Mail
+- create follow-up task
+- mark reviewed
+
+Do not build risky bulk actions unless explicitly supported.
+Single-record actions first.
+
+12. Zero-count behavior
+
+Even cards with zero should be clickable or at least show a useful empty state.
+
+Example:
+Click “Express Consent: 0”
+Drawer opens:
+“No contacts currently have express consent. Import consent proof or update contact consent records.”
+
+This teaches the user what the metric means.
+
+13. Visual affordance
+
+Clickable metrics should look clickable.
+
+Add:
+- cursor pointer
+- hover state
+- subtle border/glow
+- “View details” hint
+- keyboard accessibility
+- aria labels
+
+Do not make the UI noisy.
+Make it obvious, not circus-y.
+
+14. Permissions and privacy
+
+Respect existing Marketing/CRM permissions.
+
+Users should only drill into data they are authorized to see.
+
+If Marketing module has role-based access:
+- enforce on frontend nav
+- enforce on backend endpoints
+- do not rely on frontend hiding only
+
+15. Tests
+
+Add tests covering:
+
+Compliance:
+- every compliance metric card has click/drilldown behavior
+- unknown jurisdiction opens filtered records
+- unknown consent opens filtered records
+- expiring consent windows are correctly filtered
+- unsubscribed/suppressed cards drill into matching records
+- campaign health cards drill into campaign-level rows
+- zero-count cards show empty state
+
+Campaigns:
+- campaign metric cards are clickable
+- sent/opened/clicked/replied/bounced/unsubscribed drilldowns exist
+- blocked/suppressed recipients are drillable
+- sequence-step metrics are drillable where available
+
+Audiences:
+- total/eligible/excluded audience counts are drillable
+- invalid/missing email records are drillable
+- compliance exclusions are drillable
+
+Replies:
+- reply categories drill into underlying email threads
+- thread links point to VoltSafe Mail
+
+Hot Accounts:
+- score/signal drilldowns explain why the account is hot
+- related contacts/campaign events render
+
+Backend:
+- drilldown endpoint requires auth
+- endpoint paginates
+- endpoint filters by metric correctly
+- total matches expected count
+- unauthorized users cannot access restricted data
+- no unpaginated giant result sets
+
+Frontend/source:
+- reusable MarketingDrilldown component exists
+- all metric cards use onClick or equivalent
+- chart segments are clickable where charts exist
+- drawer has search/sort/pagination
+- loading/error/empty states exist
+- hover/click affordance exists
+
+16. Validation
+
+Run:
+- marketing tests
+- compliance tests
+- campaign tests
+- frontend/source tests
+- auth/permission tests
+- full build if practical
+
+Deliver:
+- audit summary
+- list of metrics made clickable
+- new APIs
+- drilldown data model/response shape
+- files changed
+- test results
+- any follow-up recommendations
+
+Do not modify unrelated modules.
+Do not weaken compliance.
+Do not fake data.
+Do not return unpaginated large lists.
+Do not show summary numbers without a path to underlying records.

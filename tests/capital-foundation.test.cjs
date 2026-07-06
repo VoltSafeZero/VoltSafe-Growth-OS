@@ -171,8 +171,8 @@ ok("capital-grants has create/edit dialog",
   has(grants, "Dialog") && has(grants, "program_name"));
 ok("capital-pipeline.tsx (Investor Pipeline) queries capital/pipeline and groups by stage",
   has(pipeline, "capital/pipeline") && has(pipeline, "stage"));
-ok("capital-documents.tsx (Data Room) has document type + status",
-  has(documents, "document_type") && has(documents, "status") && has(documents, "capital/documents"));
+ok("capital-documents.tsx (Data Room) has material type + status",
+  has(documents, "material_type") && has(documents, "status") && has(documents, "capital/materials"));
 ok("capital-contacts.tsx exists (Investor Contacts placeholder)",
   contacts.length > 0 && (has(contacts, "Investor Contacts") || has(contacts, "contacts")));
 ok("capital-contacts has contact type taxonomy references",
