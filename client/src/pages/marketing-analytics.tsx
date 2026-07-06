@@ -548,4 +548,4 @@ function RateBar({ value, max, color }: { value: number; max: number; color: str
   );
 }
 
-
+/* Phase 10 ROI / Attribution section moved to Campaign Detail → Advanced tab */
