@@ -158,7 +158,7 @@ function StatusBadge({ status, isDefault }: { status: string; isDefault?: boolea
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed text-xs font-medium opacity-75 ${cfg.bg}`}>
           {cfg.label}
         </span>
-        <span className="text-[10px] text-slate-600 italic">recurring</span>
+        <span className="text-[10px] text-muted-foreground italic">recurring</span>
       </span>
     );
   }
@@ -239,39 +239,39 @@ function EntryFormModal({ open, onClose, userId, date, entry, isAdmin, myUserId,
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="bg-[#0f1623] border-slate-700/60 text-slate-100 max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="bg-popover border-border/60 text-foreground max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-slate-100">
+          <DialogTitle className="text-foreground">
             {isEditing ? "Edit schedule" : "Where are you working?"}
           </DialogTitle>
           {!isEditing && (
-            <p className="text-xs text-slate-500 mt-0.5">Pick your status for {new Date(form.date + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Pick your status for {new Date(form.date + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}</p>
           )}
         </DialogHeader>
         <div className="space-y-4 py-2">
           {isAdmin && (
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-slate-300 text-xs mb-1 block">Team member</Label>
+                <Label className="text-muted-foreground text-xs mb-1 block">Team member</Label>
                 <Select value={String(form.userId)} onValueChange={v => setForm(f => ({ ...f, userId: Number(v) }))}>
-                  <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-user">
+                  <SelectTrigger className="bg-muted/60 border-border text-foreground h-9" data-testid="select-user">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#0f1623] border-slate-700">
-                    {allUsers.map(u => <SelectItem key={u.id} value={String(u.id)} className="text-slate-100">{u.name}</SelectItem>)}
+                  <SelectContent className="bg-popover border-border">
+                    {allUsers.map(u => <SelectItem key={u.id} value={String(u.id)} className="text-foreground">{u.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label className="text-slate-300 text-xs mb-1 block">Date</Label>
-                <Input type="date" value={form.date} onChange={e => set("date", e.target.value)} className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="input-date" />
+                <Label className="text-muted-foreground text-xs mb-1 block">Date</Label>
+                <Input type="date" value={form.date} onChange={e => set("date", e.target.value)} className="bg-muted/60 border-border text-foreground h-9" data-testid="input-date" />
               </div>
             </div>
           )}
           {!isAdmin && (
             <div>
-              <Label className="text-slate-300 text-xs mb-1 block">Date</Label>
-              <Input type="date" value={form.date} onChange={e => set("date", e.target.value)} className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="input-date-user" />
+              <Label className="text-muted-foreground text-xs mb-1 block">Date</Label>
+              <Input type="date" value={form.date} onChange={e => set("date", e.target.value)} className="bg-muted/60 border-border text-foreground h-9" data-testid="input-date-user" />
             </div>
           )}
 
@@ -280,7 +280,7 @@ function EntryFormModal({ open, onClose, userId, date, entry, isAdmin, myUserId,
             {(Object.entries(STATUS_CONFIG) as [WorkStatus, any][]).filter(([k]) => k !== "not_updated").map(([k, cfg]) => (
               <button key={k} type="button" data-testid={`status-btn-${k}`}
                 onClick={() => set("status", k)}
-                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${form.status === k ? `${cfg.bg} border-opacity-100 ring-1 ring-cyan-500/40` : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:bg-slate-800/80"}`}>
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${form.status === k ? `${cfg.bg} border-opacity-100 ring-1 ring-cyan-500/40` : "bg-muted/40 border-border/50 text-muted-foreground hover:bg-muted/80"}`}>
                 <cfg.icon className="w-3.5 h-3.5 shrink-0" />
                 {cfg.label}
               </button>
@@ -290,82 +290,82 @@ function EntryFormModal({ open, onClose, userId, date, entry, isAdmin, myUserId,
           {/* Collapsible details section */}
           {!showMore ? (
             <button type="button" onClick={() => setShowMore(true)}
-              className="text-xs text-slate-500 hover:text-cyan-400 flex items-center gap-1 transition-colors"
+              className="text-xs text-muted-foreground hover:text-cyan-400 flex items-center gap-1 transition-colors"
               data-testid="btn-show-more-details">
               <Plus className="w-3 h-3" /> Add hours, location & notes
             </button>
           ) : (
-            <div className="space-y-3 border-t border-slate-700/40 pt-3">
+            <div className="space-y-3 border-t border-border/40 pt-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-slate-300 text-xs mb-1 block">Start time</Label>
-                  <Input type="time" value={form.startTime} onChange={e => set("startTime", e.target.value)} className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="input-start-time" />
+                  <Label className="text-muted-foreground text-xs mb-1 block">Start time</Label>
+                  <Input type="time" value={form.startTime} onChange={e => set("startTime", e.target.value)} className="bg-muted/60 border-border text-foreground h-9" data-testid="input-start-time" />
                 </div>
                 <div>
-                  <Label className="text-slate-300 text-xs mb-1 block">End time</Label>
-                  <Input type="time" value={form.endTime} onChange={e => set("endTime", e.target.value)} className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="input-end-time" />
+                  <Label className="text-muted-foreground text-xs mb-1 block">End time</Label>
+                  <Input type="time" value={form.endTime} onChange={e => set("endTime", e.target.value)} className="bg-muted/60 border-border text-foreground h-9" data-testid="input-end-time" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-slate-300 text-xs mb-1 block">Location</Label>
+                  <Label className="text-muted-foreground text-xs mb-1 block">Location</Label>
                   <Select value={form.locationType} onValueChange={v => set("locationType", v)}>
-                    <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-location-type">
+                    <SelectTrigger className="bg-muted/60 border-border text-foreground h-9" data-testid="select-location-type">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#0f1623] border-slate-700">
-                      {LOCATION_TYPES.map(l => <SelectItem key={l.value} value={l.value} className="text-slate-100">{l.label}</SelectItem>)}
+                    <SelectContent className="bg-popover border-border">
+                      {LOCATION_TYPES.map(l => <SelectItem key={l.value} value={l.value} className="text-foreground">{l.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-slate-300 text-xs mb-1 block">Specific place</Label>
-                  <Input value={form.locationName} onChange={e => set("locationName", e.target.value)} placeholder="e.g. VoltSafe HQ" className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-9" data-testid="input-location-name" />
+                  <Label className="text-muted-foreground text-xs mb-1 block">Specific place</Label>
+                  <Input value={form.locationName} onChange={e => set("locationName", e.target.value)} placeholder="e.g. VoltSafe HQ" className="bg-muted/60 border-border text-foreground placeholder:text-muted-foreground h-9" data-testid="input-location-name" />
                 </div>
               </div>
 
               <div>
-                <Label className="text-slate-300 text-xs mb-1 block">What are you working on? <span className="text-slate-600">(optional)</span></Label>
-                <Input value={form.workFocus} onChange={e => set("workFocus", e.target.value)} placeholder="e.g. Investor calls, marina leads" className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-9" data-testid="input-focus" />
+                <Label className="text-muted-foreground text-xs mb-1 block">What are you working on? <span className="text-muted-foreground">(optional)</span></Label>
+                <Input value={form.workFocus} onChange={e => set("workFocus", e.target.value)} placeholder="e.g. Investor calls, marina leads" className="bg-muted/60 border-border text-foreground placeholder:text-muted-foreground h-9" data-testid="input-focus" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-slate-300 text-xs mb-1 block">How reachable?</Label>
+                  <Label className="text-muted-foreground text-xs mb-1 block">How reachable?</Label>
                   <Select value={form.availability} onValueChange={v => set("availability", v)}>
-                    <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-availability">
+                    <SelectTrigger className="bg-muted/60 border-border text-foreground h-9" data-testid="select-availability">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#0f1623] border-slate-700">
-                      {AVAILABILITY_OPTIONS.map(a => <SelectItem key={a.value} value={a.value} className="text-slate-100">{a.label}</SelectItem>)}
+                    <SelectContent className="bg-popover border-border">
+                      {AVAILABILITY_OPTIONS.map(a => <SelectItem key={a.value} value={a.value} className="text-foreground">{a.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-slate-300 text-xs mb-1 block">Visible to</Label>
+                  <Label className="text-muted-foreground text-xs mb-1 block">Visible to</Label>
                   <Select value={form.visibility} onValueChange={v => set("visibility", v)}>
-                    <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-9" data-testid="select-visibility">
+                    <SelectTrigger className="bg-muted/60 border-border text-foreground h-9" data-testid="select-visibility">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#0f1623] border-slate-700">
-                      <SelectItem value="team" className="text-slate-100">Everyone on the team</SelectItem>
-                      <SelectItem value="leadership" className="text-slate-100">Leadership only</SelectItem>
-                      <SelectItem value="private" className="text-slate-100">Just me</SelectItem>
+                    <SelectContent className="bg-popover border-border">
+                      <SelectItem value="team" className="text-foreground">Everyone on the team</SelectItem>
+                      <SelectItem value="leadership" className="text-foreground">Leadership only</SelectItem>
+                      <SelectItem value="private" className="text-foreground">Just me</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
               <div>
-                <Label className="text-slate-300 text-xs mb-1 block">Notes <span className="text-slate-600">(optional)</span></Label>
-                <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Anything the team should know…" className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 resize-none h-16" data-testid="input-notes" />
+                <Label className="text-muted-foreground text-xs mb-1 block">Notes <span className="text-muted-foreground">(optional)</span></Label>
+                <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Anything the team should know…" className="bg-muted/60 border-border text-foreground placeholder:text-muted-foreground resize-none h-16" data-testid="input-notes" />
               </div>
             </div>
           )}
         </div>
         <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={onClose} className="text-slate-400 hover:text-slate-100" data-testid="btn-cancel-entry">Cancel</Button>
+          <Button variant="ghost" onClick={onClose} className="text-muted-foreground hover:text-foreground" data-testid="btn-cancel-entry">Cancel</Button>
           <Button onClick={handleSubmit} disabled={isPending} className="bg-cyan-600 hover:bg-cyan-500 text-white" data-testid="btn-save-entry">
             {isPending ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-4 h-4 mr-2" />}
             {isEditing ? "Save changes" : "Save"}
@@ -383,15 +383,15 @@ function TodaySummaryCard({ summary }: { summary: Record<string, number> }) {
     { key: "in_office",   label: "In Office",       color: "text-emerald-400", value: summary.in_office ?? 0 },
     { key: "remote",      label: "Remote",          color: "text-blue-400",    value: summary.remote ?? 0 },
     { key: "work_travel", label: "Travelling",      color: "text-purple-400",  value: summary.work_travel ?? 0 },
-    { key: "day_off",     label: "Day Off",         color: "text-slate-400",   value: summary.day_off ?? 0 },
+    { key: "day_off",     label: "Day Off",         color: "text-muted-foreground",   value: summary.day_off ?? 0 },
     { key: "sick",        label: "Sick/Personal",   color: "text-red-400",     value: summary.sick ?? 0 },
     { key: "hybrid",      label: "Hybrid/Flexible", color: "text-orange-400",  value: (summary.hybrid ?? 0) + (summary.flexible ?? 0) },
-    { key: "not_updated", label: "Not Updated",     color: "text-slate-500",   value: summary.not_updated ?? 0 },
+    { key: "not_updated", label: "Not Updated",     color: "text-muted-foreground",   value: summary.not_updated ?? 0 },
   ];
   return (
-    <Card className="bg-slate-800/40 border-slate-700/50 mb-5" data-testid="today-summary-card">
+    <Card className="bg-muted/40 border-border/50 mb-5" data-testid="today-summary-card">
       <CardHeader className="pb-2 pt-4 px-5">
-        <CardTitle className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+        <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
           <CalendarDays className="w-4 h-4 text-cyan-400" />
           Today at a glance
         </CardTitle>
@@ -401,7 +401,7 @@ function TodaySummaryCard({ summary }: { summary: Record<string, number> }) {
           {items.map(({ key, label, color, value }) => (
             <div key={key} className="flex items-center gap-1.5" data-testid={`summary-${key}`}>
               <span className={`text-xl font-bold ${color}`}>{value}</span>
-              <span className="text-xs text-slate-500 leading-tight max-w-[56px]">{label}</span>
+              <span className="text-xs text-muted-foreground leading-tight max-w-[56px]">{label}</span>
             </div>
           ))}
         </div>
@@ -437,7 +437,7 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
 
   if (isLoading) return (
     <div className="space-y-3">
-      {[1,2,3,4].map(i => <Skeleton key={i} className="h-16 w-full bg-slate-800/50" />)}
+      {[1,2,3,4].map(i => <Skeleton key={i} className="h-16 w-full bg-muted/50" />)}
     </div>
   );
 
@@ -451,36 +451,36 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
           placeholder="Filter by name…"
           value={filter.person}
           onChange={e => setFilter(f => ({ ...f, person: e.target.value }))}
-          className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-8 text-sm w-40"
+          className="bg-muted/60 border-border text-foreground placeholder:text-muted-foreground h-8 text-sm w-40"
           data-testid="filter-person"
         />
         <Select value={filter.status} onValueChange={v => setFilter(f => ({ ...f, status: v }))}>
-          <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-8 text-sm w-36" data-testid="filter-status">
+          <SelectTrigger className="bg-muted/60 border-border text-foreground h-8 text-sm w-36" data-testid="filter-status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
-          <SelectContent className="bg-[#0f1623] border-slate-700">
-            <SelectItem value="all" className="text-slate-100">All Statuses</SelectItem>
-            {Object.entries(STATUS_CONFIG).map(([k, v]) => <SelectItem key={k} value={k} className="text-slate-100">{v.label}</SelectItem>)}
+          <SelectContent className="bg-popover border-border">
+            <SelectItem value="all" className="text-foreground">All Statuses</SelectItem>
+            {Object.entries(STATUS_CONFIG).map(([k, v]) => <SelectItem key={k} value={k} className="text-foreground">{v.label}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={filter.availability} onValueChange={v => setFilter(f => ({ ...f, availability: v }))}>
-          <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-8 text-sm w-40" data-testid="filter-availability">
+          <SelectTrigger className="bg-muted/60 border-border text-foreground h-8 text-sm w-40" data-testid="filter-availability">
             <SelectValue placeholder="All availability" />
           </SelectTrigger>
-          <SelectContent className="bg-[#0f1623] border-slate-700">
-            <SelectItem value="all" className="text-slate-100">All Availability</SelectItem>
-            {AVAILABILITY_OPTIONS.map(a => <SelectItem key={a.value} value={a.value} className="text-slate-100">{a.label}</SelectItem>)}
+          <SelectContent className="bg-popover border-border">
+            <SelectItem value="all" className="text-foreground">All Availability</SelectItem>
+            {AVAILABILITY_OPTIONS.map(a => <SelectItem key={a.value} value={a.value} className="text-foreground">{a.label}</SelectItem>)}
           </SelectContent>
         </Select>
         <Input
           placeholder="Filter by location…"
           value={filter.location}
           onChange={e => setFilter(f => ({ ...f, location: e.target.value }))}
-          className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-8 text-sm w-40"
+          className="bg-muted/60 border-border text-foreground placeholder:text-muted-foreground h-8 text-sm w-40"
           data-testid="filter-location"
         />
         {(filter.person || filter.status !== "all" || filter.availability !== "all" || filter.location) && (
-          <Button size="sm" variant="ghost" className="h-8 text-slate-500 hover:text-slate-200 text-xs px-2"
+          <Button size="sm" variant="ghost" className="h-8 text-muted-foreground hover:text-foreground text-xs px-2"
             onClick={() => setFilter({ person: "", status: "all", availability: "all", location: "" })}
             data-testid="btn-clear-filters">
             <X className="w-3 h-3 mr-1" /> Clear
@@ -489,17 +489,17 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
       </div>
 
       {/* Team table */}
-      <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+      <div className="overflow-x-auto rounded-xl border border-border/50">
         <table className="w-full text-sm" data-testid="today-table">
           <thead>
-            <tr className="border-b border-slate-700/50 bg-slate-800/40">
-              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Person</th>
-              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Status</th>
-              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Location</th>
-              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Hours</th>
-              <th className="hidden md:table-cell text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Focus</th>
-              <th className="hidden lg:table-cell text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Reachable</th>
-              <th className="hidden lg:table-cell text-left px-4 py-2.5 text-xs text-slate-400 font-medium">Notes</th>
+            <tr className="border-b border-border/50 bg-muted/40">
+              <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Person</th>
+              <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Status</th>
+              <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Location</th>
+              <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Hours</th>
+              <th className="hidden md:table-cell text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Focus</th>
+              <th className="hidden lg:table-cell text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Reachable</th>
+              <th className="hidden lg:table-cell text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Notes</th>
               <th className="px-4 py-2.5" />
             </tr>
           </thead>
@@ -509,13 +509,13 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
               const status: WorkStatus = (primary?.status as WorkStatus) ?? "not_updated";
               const canEdit = isAdmin || row.user.id === myUserId;
               return (
-                <tr key={row.user.id} className="border-b border-slate-700/30 hover:bg-slate-800/30 transition-colors" data-testid={`today-row-${row.user.id}`}>
+                <tr key={row.user.id} className="border-b border-border/30 hover:bg-muted/30 transition-colors" data-testid={`today-row-${row.user.id}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <Avatar user={row.user} />
                       <div>
-                        <div className="font-medium text-slate-100 text-sm">{row.user.name}</div>
-                        {row.user.jobTitle && <div className="text-xs text-slate-500">{row.user.jobTitle}</div>}
+                        <div className="font-medium text-foreground text-sm">{row.user.name}</div>
+                        {row.user.jobTitle && <div className="text-xs text-muted-foreground">{row.user.jobTitle}</div>}
                       </div>
                     </div>
                   </td>
@@ -527,18 +527,18 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-slate-300 text-xs">{primary?.locationName || <span className="text-slate-600">—</span>}</td>
-                  <td className="px-4 py-3 text-slate-300 text-xs whitespace-nowrap">{formatHours(primary?.startTime, primary?.endTime) || <span className="text-slate-600">—</span>}</td>
-                  <td className="hidden md:table-cell px-4 py-3 text-slate-300 text-xs max-w-[160px] truncate" title={primary?.workFocus ?? ""}>{primary?.workFocus || <span className="text-slate-600">—</span>}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{primary?.locationName || <span className="text-muted-foreground">—</span>}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{formatHours(primary?.startTime, primary?.endTime) || <span className="text-muted-foreground">—</span>}</td>
+                  <td className="hidden md:table-cell px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate" title={primary?.workFocus ?? ""}>{primary?.workFocus || <span className="text-muted-foreground">—</span>}</td>
                   <td className="hidden lg:table-cell px-4 py-3 text-xs">
                     {primary?.availability ? (
-                      <span className="text-slate-300 capitalize">{primary.availability.replace(/_/g, " ")}</span>
-                    ) : <span className="text-slate-600">—</span>}
+                      <span className="text-muted-foreground capitalize">{primary.availability.replace(/_/g, " ")}</span>
+                    ) : <span className="text-muted-foreground">—</span>}
                   </td>
-                  <td className="hidden lg:table-cell px-4 py-3 text-slate-400 text-xs max-w-[160px] truncate" title={primary?.notes ?? ""}>{primary?.notes || <span className="text-slate-600">—</span>}</td>
+                  <td className="hidden lg:table-cell px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate" title={primary?.notes ?? ""}>{primary?.notes || <span className="text-muted-foreground">—</span>}</td>
                   <td className="px-4 py-3">
                     {canEdit && (
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-500 hover:text-cyan-400"
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-cyan-400"
                         onClick={() => onEdit(row.user.id, row.date, primary ?? undefined)}
                         data-testid={`btn-edit-${row.user.id}`}>
                         <Edit2 className="w-3.5 h-3.5" />
@@ -550,13 +550,13 @@ function TodayView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: b
             })}
             {filtered.length === 0 && data?.rows?.length === 0 && (
               <tr><td colSpan={8} className="px-4 py-12 text-center">
-                <div className="text-slate-400 text-sm font-medium mb-1">No team members yet</div>
-                <div className="text-slate-600 text-xs">Add some users to start tracking schedules</div>
+                <div className="text-muted-foreground text-sm font-medium mb-1">No team members yet</div>
+                <div className="text-muted-foreground text-xs">Add some users to start tracking schedules</div>
               </td></tr>
             )}
             {filtered.length === 0 && (data?.rows?.length ?? 0) > 0 && (
               <tr><td colSpan={8} className="px-4 py-8 text-center">
-                <div className="text-slate-400 text-sm">No one matches those filters.</div>
+                <div className="text-muted-foreground text-sm">No one matches those filters.</div>
                 <button className="text-cyan-500 text-xs mt-1 hover:underline" onClick={() => setFilter({ person: "", status: "all", availability: "all", location: "" })}>Clear filters</button>
               </td></tr>
             )}
@@ -583,11 +583,11 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
     },
   });
 
-  if (isLoading) return <div className="space-y-3">{[1,2,3,4].map(i => <Skeleton key={i} className="h-14 w-full bg-slate-800/50" />)}</div>;
+  if (isLoading) return <div className="space-y-3">{[1,2,3,4].map(i => <Skeleton key={i} className="h-14 w-full bg-muted/50" />)}</div>;
 
   const allUsers = data?.users ?? [];
   if (!isLoading && allUsers.length === 0) return (
-    <div className="text-center py-16 text-slate-500">
+    <div className="text-center py-16 text-muted-foreground">
       <CalendarDays className="w-10 h-10 mx-auto mb-3 opacity-30" />
       <p className="text-sm">No team members to show yet.</p>
     </div>
@@ -596,13 +596,13 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
-        <Button size="sm" variant="ghost" onClick={() => setWeekOffset(o => o - 1)} className="text-slate-400 hover:text-slate-100" data-testid="btn-prev-week">
+        <Button size="sm" variant="ghost" onClick={() => setWeekOffset(o => o - 1)} className="text-muted-foreground hover:text-foreground" data-testid="btn-prev-week">
           <ChevronLeft className="w-4 h-4" />
         </Button>
-        <span className="text-slate-300 text-sm font-medium">
+        <span className="text-muted-foreground text-sm font-medium">
           Week of {formatDisplayDate(monday)}
         </span>
-        <Button size="sm" variant="ghost" onClick={() => setWeekOffset(o => o + 1)} className="text-slate-400 hover:text-slate-100" data-testid="btn-next-week">
+        <Button size="sm" variant="ghost" onClick={() => setWeekOffset(o => o + 1)} className="text-muted-foreground hover:text-foreground" data-testid="btn-next-week">
           <ChevronRight className="w-4 h-4" />
         </Button>
         {weekOffset !== 0 && (
@@ -612,15 +612,15 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+      <div className="overflow-x-auto rounded-xl border border-border/50">
         <table className="w-full text-sm min-w-[700px]" data-testid="week-table">
           <thead>
-            <tr className="border-b border-slate-700/50 bg-slate-800/40">
-              <th className="text-left px-4 py-2.5 text-xs text-slate-400 font-medium w-40">Team Member</th>
+            <tr className="border-b border-border/50 bg-muted/40">
+              <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium w-40">Team Member</th>
               {weekDates.map((d, i) => (
-                <th key={d} className="text-left px-3 py-2.5 text-xs text-slate-400 font-medium">
+                <th key={d} className="text-left px-3 py-2.5 text-xs text-muted-foreground font-medium">
                   <div>{DAYS_OF_WEEK[i]}</div>
-                  <div className="text-slate-500 font-normal">{new Date(d + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                  <div className="text-muted-foreground font-normal">{new Date(d + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
                 </th>
               ))}
             </tr>
@@ -629,11 +629,11 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
             {allUsers.map(user => {
               const userSchedule = data?.schedule?.[user.id] ?? [];
               return (
-                <tr key={user.id} className="border-b border-slate-700/30 hover:bg-slate-800/20" data-testid={`week-row-${user.id}`}>
+                <tr key={user.id} className="border-b border-border/30 hover:bg-muted/20" data-testid={`week-row-${user.id}`}>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
                       <Avatar user={user} />
-                      <span className="text-slate-200 text-xs font-medium">{user.name}</span>
+                      <span className="text-foreground text-xs font-medium">{user.name}</span>
                     </div>
                   </td>
                   {weekDates.map((date, di) => {
@@ -650,7 +650,7 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
                           onClick={() => canEdit && onEdit(user.id, date, entry ?? undefined)}
                           className={`w-full text-left rounded-lg px-2 py-1.5 transition-all min-h-[52px] ${
                             status === "not_updated"
-                              ? "border border-slate-700/30 bg-slate-800/20 hover:bg-slate-800/50"
+                              ? "border border-border/30 bg-muted/20 hover:bg-muted/50"
                               : isRecurring
                                 ? `border border-dashed ${cfg.bg} opacity-65 hover:opacity-85`
                                 : `border ${cfg.bg} hover:opacity-90`
@@ -658,7 +658,7 @@ function WeekView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: bo
                           data-testid={`week-cell-${user.id}-${di}`}
                         >
                           <div className="text-xs font-medium leading-tight mb-0.5">
-                            {status === "not_updated" ? <span className="text-slate-600">—</span> : cfg.label}
+                            {status === "not_updated" ? <span className="text-muted-foreground">—</span> : cfg.label}
                           </div>
                           {entry?.locationName && <div className="text-xs opacity-70 truncate">{entry.locationName}</div>}
                           {(entry?.startTime || entry?.endTime) && <div className="text-xs opacity-60">{formatHours(entry.startTime, entry.endTime)}</div>}
@@ -737,19 +737,19 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
     { status: "in_office",   label: "In Office",   icon: Building2,   color: "bg-emerald-600/20 border-emerald-600/40 text-emerald-300 hover:bg-emerald-600/30" },
     { status: "remote",      label: "Remote",      icon: Home,        color: "bg-blue-600/20 border-blue-600/40 text-blue-300 hover:bg-blue-600/30" },
     { status: "work_travel", label: "Travelling",  icon: Plane,       color: "bg-purple-600/20 border-purple-600/40 text-purple-300 hover:bg-purple-600/30" },
-    { status: "day_off",     label: "Day Off",     icon: Coffee,      color: "bg-slate-600/20 border-slate-600/40 text-slate-300 hover:bg-slate-600/30" },
+    { status: "day_off",     label: "Day Off",     icon: Coffee,      color: "bg-slate-600/20 border-slate-600/40 text-muted-foreground hover:bg-slate-600/30" },
     { status: "hybrid",      label: "Hybrid",      icon: RefreshCw,   color: "bg-orange-600/20 border-orange-600/40 text-orange-300 hover:bg-orange-600/30" },
   ];
 
   return (
     <div className="max-w-2xl space-y-6">
       {/* Quick update */}
-      <Card className="bg-slate-800/40 border-slate-700/50" data-testid="quick-update-card">
+      <Card className="bg-muted/40 border-border/50" data-testid="quick-update-card">
         <CardHeader className="pb-3 pt-4 px-5">
-          <CardTitle className="text-sm font-semibold text-slate-200">
+          <CardTitle className="text-sm font-semibold text-foreground">
             {todayEntries.length > 0 ? "Your status today" : "Where are you working today?"}
           </CardTitle>
-          <p className="text-xs text-slate-500">{formatDisplayDate(today)}</p>
+          <p className="text-xs text-muted-foreground">{formatDisplayDate(today)}</p>
         </CardHeader>
         <CardContent className="px-5 pb-5">
           {todayEntries.length > 0 && (
@@ -758,14 +758,14 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
                 <div key={e.id} className="flex items-center justify-between bg-slate-700/30 rounded-lg px-3 py-2" data-testid={`my-today-entry-${e.id}`}>
                   <div className="flex items-center gap-3 flex-wrap">
                     <StatusBadge status={e.status} />
-                    {e.locationName && <span className="text-slate-300 text-xs">{e.locationName}</span>}
-                    {(e.startTime || e.endTime) && <span className="text-slate-500 text-xs">{formatHours(e.startTime, e.endTime)}</span>}
+                    {e.locationName && <span className="text-muted-foreground text-xs">{e.locationName}</span>}
+                    {(e.startTime || e.endTime) && <span className="text-muted-foreground text-xs">{formatHours(e.startTime, e.endTime)}</span>}
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-500 hover:text-cyan-400" onClick={() => { setEditEntry(e); setShowForm(true); }} data-testid={`btn-edit-my-${e.id}`}>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-cyan-400" onClick={() => { setEditEntry(e); setShowForm(true); }} data-testid={`btn-edit-my-${e.id}`}>
                       <Edit2 className="w-3 h-3" />
                     </Button>
-                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-500 hover:text-red-400" onClick={() => e.id && deleteMut.mutate(e.id)} data-testid={`btn-delete-my-${e.id}`}>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400" onClick={() => e.id && deleteMut.mutate(e.id)} data-testid={`btn-delete-my-${e.id}`}>
                       <Trash2 className="w-3 h-3" />
                     </Button>
                   </div>
@@ -773,7 +773,7 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
               ))}
             </div>
           )}
-          <p className="text-xs text-slate-500 mb-2.5">
+          <p className="text-xs text-muted-foreground mb-2.5">
             {todayEntries.length === 0 ? "Tap to log where you're working — takes just a few seconds." : "Add another time block if your day is split:"}
           </p>
           <div className="flex flex-wrap gap-2 mb-3">
@@ -786,7 +786,7 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
               </button>
             ))}
           </div>
-          <Button size="sm" variant="ghost" className="text-slate-400 hover:text-cyan-300 text-xs gap-1" onClick={() => { setEditEntry(null); setQuickStatus(null); setShowForm(true); }} data-testid="btn-add-entry">
+          <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-cyan-300 text-xs gap-1" onClick={() => { setEditEntry(null); setQuickStatus(null); setShowForm(true); }} data-testid="btn-add-entry">
             <Plus className="w-3.5 h-3.5" /> Add more details or a custom time block
           </Button>
         </CardContent>
@@ -794,25 +794,25 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
 
       {/* Upcoming entries */}
       {upcomingEntries.length > 0 && (
-        <Card className="bg-slate-800/40 border-slate-700/50" data-testid="upcoming-entries-card">
+        <Card className="bg-muted/40 border-border/50" data-testid="upcoming-entries-card">
           <CardHeader className="pb-2 pt-4 px-5">
-            <CardTitle className="text-sm font-semibold text-slate-200">Upcoming Schedule</CardTitle>
+            <CardTitle className="text-sm font-semibold text-foreground">Upcoming Schedule</CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-4">
             <div className="space-y-1.5">
               {upcomingEntries.slice(0, 14).map(e => (
-                <div key={e.id} className="flex items-center justify-between py-1.5 border-b border-slate-700/30 last:border-0" data-testid={`upcoming-entry-${e.id}`}>
+                <div key={e.id} className="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0" data-testid={`upcoming-entry-${e.id}`}>
                   <div className="flex items-center gap-3">
-                    <span className="text-slate-400 text-xs w-24 shrink-0">{formatDisplayDate(e.date)}</span>
+                    <span className="text-muted-foreground text-xs w-24 shrink-0">{formatDisplayDate(e.date)}</span>
                     <StatusBadge status={e.status} />
-                    {e.locationName && <span className="text-slate-400 text-xs">{e.locationName}</span>}
-                    {(e.startTime || e.endTime) && <span className="text-slate-500 text-xs">{formatHours(e.startTime, e.endTime)}</span>}
+                    {e.locationName && <span className="text-muted-foreground text-xs">{e.locationName}</span>}
+                    {(e.startTime || e.endTime) && <span className="text-muted-foreground text-xs">{formatHours(e.startTime, e.endTime)}</span>}
                   </div>
                   <div className="flex gap-1">
-                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-500 hover:text-cyan-400" onClick={() => { setEditEntry(e); setShowForm(true); }} data-testid={`btn-edit-upcoming-${e.id}`}>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-cyan-400" onClick={() => { setEditEntry(e); setShowForm(true); }} data-testid={`btn-edit-upcoming-${e.id}`}>
                       <Edit2 className="w-3 h-3" />
                     </Button>
-                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-500 hover:text-red-400" onClick={() => e.id && deleteMut.mutate(e.id)} data-testid={`btn-delete-upcoming-${e.id}`}>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400" onClick={() => e.id && deleteMut.mutate(e.id)} data-testid={`btn-delete-upcoming-${e.id}`}>
                       <Trash2 className="w-3 h-3" />
                     </Button>
                   </div>
@@ -824,13 +824,13 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
       )}
 
       {/* Default schedule */}
-      <Card className="bg-slate-800/40 border-slate-700/50" data-testid="default-schedule-card">
+      <Card className="bg-muted/40 border-border/50" data-testid="default-schedule-card">
         <CardHeader className="pb-2 pt-4 px-5 flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-sm font-semibold text-slate-200">My weekly pattern</CardTitle>
-            <p className="text-xs text-slate-500 mt-0.5">Your usual schedule — shows automatically when you haven't logged for the day</p>
+            <CardTitle className="text-sm font-semibold text-foreground">My weekly pattern</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">Your usual schedule — shows automatically when you haven't logged for the day</p>
           </div>
-          <Button size="sm" variant="ghost" className="text-slate-400 hover:text-cyan-300 h-7 gap-1 text-xs shrink-0" onClick={() => setShowDefaults(v => !v)} data-testid="btn-toggle-defaults">
+          <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-cyan-300 h-7 gap-1 text-xs shrink-0" onClick={() => setShowDefaults(v => !v)} data-testid="btn-toggle-defaults">
             <Settings className="w-3.5 h-3.5" />
             {showDefaults ? "Done" : "Edit"}
           </Button>
@@ -838,8 +838,8 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
         <CardContent className="px-5 pb-4">
           {myDefaults.length === 0 && !showDefaults ? (
             <div className="py-3 text-center">
-              <p className="text-slate-500 text-sm mb-1">No weekly pattern set yet.</p>
-              <p className="text-slate-600 text-xs">Set your usual days so the team always knows where you'll be, even if you forget to log.</p>
+              <p className="text-muted-foreground text-sm mb-1">No weekly pattern set yet.</p>
+              <p className="text-muted-foreground text-xs">Set your usual days so the team always knows where you'll be, even if you forget to log.</p>
               <Button size="sm" variant="ghost" className="text-cyan-500 hover:text-cyan-300 text-xs gap-1 mt-2" onClick={() => setShowDefaults(true)} data-testid="btn-set-pattern">
                 <Settings className="w-3 h-3" /> Set my pattern
               </Button>
@@ -851,34 +851,34 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
                 const formVal = defaultForm[dow];
                 if (!showDefaults && !existing) return null;
                 return (
-                  <div key={dow} className="flex items-center gap-3 py-1.5 border-b border-slate-700/30 last:border-0" data-testid={`default-row-${dow}`}>
-                    <span className="text-slate-400 text-xs w-20 shrink-0">{day}</span>
+                  <div key={dow} className="flex items-center gap-3 py-1.5 border-b border-border/30 last:border-0" data-testid={`default-row-${dow}`}>
+                    <span className="text-muted-foreground text-xs w-20 shrink-0">{day}</span>
                     {showDefaults ? (
                       <div className="flex flex-wrap gap-2 flex-1 items-center">
                         <Select
                           value={formVal?.defaultStatus ?? existing?.defaultStatus ?? ""}
                           onValueChange={v => setDefaultForm(f => ({ ...f, [dow]: { ...f[dow], defaultStatus: v } }))}
                         >
-                          <SelectTrigger className="bg-slate-800/60 border-slate-700 text-slate-100 h-7 text-xs w-32" data-testid={`default-status-${dow}`}>
+                          <SelectTrigger className="bg-muted/60 border-border text-foreground h-7 text-xs w-32" data-testid={`default-status-${dow}`}>
                             <SelectValue placeholder="Status" />
                           </SelectTrigger>
-                          <SelectContent className="bg-[#0f1623] border-slate-700">
+                          <SelectContent className="bg-popover border-border">
                             {Object.entries(STATUS_CONFIG).filter(([k]) => k !== "not_updated").map(([k, v]) => (
-                              <SelectItem key={k} value={k} className="text-slate-100 text-xs">{v.label}</SelectItem>
+                              <SelectItem key={k} value={k} className="text-foreground text-xs">{v.label}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
-                        <Input type="time" placeholder="Start" className="bg-slate-800/60 border-slate-700 text-slate-100 h-7 text-xs w-24"
+                        <Input type="time" placeholder="Start" className="bg-muted/60 border-border text-foreground h-7 text-xs w-24"
                           value={formVal?.defaultStartTime ?? existing?.defaultStartTime ?? ""}
                           onChange={e => setDefaultForm(f => ({ ...f, [dow]: { ...f[dow], defaultStartTime: e.target.value } }))}
                           data-testid={`default-start-${dow}`}
                         />
-                        <Input type="time" placeholder="End" className="bg-slate-800/60 border-slate-700 text-slate-100 h-7 text-xs w-24"
+                        <Input type="time" placeholder="End" className="bg-muted/60 border-border text-foreground h-7 text-xs w-24"
                           value={formVal?.defaultEndTime ?? existing?.defaultEndTime ?? ""}
                           onChange={e => setDefaultForm(f => ({ ...f, [dow]: { ...f[dow], defaultEndTime: e.target.value } }))}
                           data-testid={`default-end-${dow}`}
                         />
-                        <Input placeholder="Location" className="bg-slate-800/60 border-slate-700 text-slate-100 h-7 text-xs w-28"
+                        <Input placeholder="Location" className="bg-muted/60 border-border text-foreground h-7 text-xs w-28"
                           value={formVal?.defaultLocationName ?? existing?.defaultLocationName ?? ""}
                           onChange={e => setDefaultForm(f => ({ ...f, [dow]: { ...f[dow], defaultLocationName: e.target.value } }))}
                           data-testid={`default-location-${dow}`}
@@ -914,9 +914,9 @@ function MyScheduleView({ myUserId }: { myUserId: number }) {
                       existing ? (
                         <div className="flex items-center gap-2">
                           <StatusBadge status={existing.defaultStatus} />
-                          {existing.defaultLocationName && <span className="text-slate-400 text-xs">{existing.defaultLocationName}</span>}
+                          {existing.defaultLocationName && <span className="text-muted-foreground text-xs">{existing.defaultLocationName}</span>}
                           {(existing.defaultStartTime || existing.defaultEndTime) && (
-                            <span className="text-slate-500 text-xs">{formatHours(existing.defaultStartTime, existing.defaultEndTime)}</span>
+                            <span className="text-muted-foreground text-xs">{formatHours(existing.defaultStartTime, existing.defaultEndTime)}</span>
                           )}
                         </div>
                       ) : null
@@ -960,36 +960,36 @@ function PersonDetailModal({ user, open, onClose, isAdmin, myUserId, onEdit }: {
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="bg-[#0f1623] border-slate-700/60 text-slate-100 max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="bg-popover border-border/60 text-foreground max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <Avatar user={user} />
             <div>
-              <div className="text-slate-100 font-semibold">{user.name}</div>
-              {user.jobTitle && <div className="text-xs text-slate-400">{user.jobTitle}</div>}
+              <div className="text-foreground font-semibold">{user.name}</div>
+              {user.jobTitle && <div className="text-xs text-muted-foreground">{user.jobTitle}</div>}
             </div>
           </DialogTitle>
         </DialogHeader>
         {isLoading ? (
-          <div className="space-y-2 py-4">{[1,2,3].map(i => <Skeleton key={i} className="h-12 bg-slate-800/50" />)}</div>
+          <div className="space-y-2 py-4">{[1,2,3].map(i => <Skeleton key={i} className="h-12 bg-muted/50" />)}</div>
         ) : (
           <div className="space-y-5 py-2">
             <div>
-              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Upcoming schedule</h4>
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Upcoming schedule</h4>
               {(!data?.entries || data.entries.length === 0) ? (
-                <p className="text-slate-500 text-sm italic">Nothing logged ahead yet.</p>
+                <p className="text-muted-foreground text-sm italic">Nothing logged ahead yet.</p>
               ) : (
                 <div className="space-y-1.5">
                   {data.entries.slice(0, 10).map(e => (
-                    <div key={e.id} className="flex items-center justify-between py-1.5 border-b border-slate-700/30 last:border-0" data-testid={`person-entry-${e.id}`}>
+                    <div key={e.id} className="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0" data-testid={`person-entry-${e.id}`}>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-slate-400 text-xs w-20 shrink-0">{formatDisplayDate(e.date)}</span>
+                        <span className="text-muted-foreground text-xs w-20 shrink-0">{formatDisplayDate(e.date)}</span>
                         <StatusBadge status={e.status} />
-                        {e.locationName && <span className="text-slate-400 text-xs">{e.locationName}</span>}
-                        {(e.startTime || e.endTime) && <span className="text-slate-500 text-xs">{formatHours(e.startTime, e.endTime)}</span>}
+                        {e.locationName && <span className="text-muted-foreground text-xs">{e.locationName}</span>}
+                        {(e.startTime || e.endTime) && <span className="text-muted-foreground text-xs">{formatHours(e.startTime, e.endTime)}</span>}
                       </div>
                       {(isAdmin || user.id === myUserId) && e.id && (
-                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-slate-500 hover:text-cyan-400 shrink-0" onClick={() => { onClose(); onEdit(user.id, e.date, e); }} data-testid={`btn-edit-person-${e.id}`}>
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-cyan-400 shrink-0" onClick={() => { onClose(); onEdit(user.id, e.date, e); }} data-testid={`btn-edit-person-${e.id}`}>
                           <Edit2 className="w-3 h-3" />
                         </Button>
                       )}
@@ -1001,14 +1001,14 @@ function PersonDetailModal({ user, open, onClose, isAdmin, myUserId, onEdit }: {
 
             {data?.defaults && data.defaults.length > 0 && (
               <div>
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Usual weekly pattern</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Usual weekly pattern</h4>
                 <div className="space-y-1.5">
                   {data.defaults.map(d => (
-                    <div key={d.id} className="flex items-center gap-3 py-1 border-b border-slate-700/20 last:border-0" data-testid={`person-default-${d.dayOfWeek}`}>
-                      <span className="text-slate-400 text-xs w-20 shrink-0">{DAYS_OF_WEEK[d.dayOfWeek]}</span>
+                    <div key={d.id} className="flex items-center gap-3 py-1 border-b border-border/20 last:border-0" data-testid={`person-default-${d.dayOfWeek}`}>
+                      <span className="text-muted-foreground text-xs w-20 shrink-0">{DAYS_OF_WEEK[d.dayOfWeek]}</span>
                       <StatusBadge status={d.defaultStatus} />
-                      {d.defaultLocationName && <span className="text-slate-400 text-xs">{d.defaultLocationName}</span>}
-                      {(d.defaultStartTime || d.defaultEndTime) && <span className="text-slate-500 text-xs">{formatHours(d.defaultStartTime, d.defaultEndTime)}</span>}
+                      {d.defaultLocationName && <span className="text-muted-foreground text-xs">{d.defaultLocationName}</span>}
+                      {(d.defaultStartTime || d.defaultEndTime) && <span className="text-muted-foreground text-xs">{formatHours(d.defaultStartTime, d.defaultEndTime)}</span>}
                     </div>
                   ))}
                 </div>
@@ -1016,7 +1016,7 @@ function PersonDetailModal({ user, open, onClose, isAdmin, myUserId, onEdit }: {
             )}
 
             {(!data?.defaults || data.defaults.length === 0) && (
-              <p className="text-slate-600 text-xs italic">No weekly pattern set — they haven't configured their usual days yet.</p>
+              <p className="text-muted-foreground text-xs italic">No weekly pattern set — they haven't configured their usual days yet.</p>
             )}
 
             {(isAdmin || user.id === myUserId) && (
@@ -1059,14 +1059,14 @@ function PeopleView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: 
           placeholder="Search people…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500 h-8 text-sm w-56"
+          className="bg-muted/60 border-border text-foreground placeholder:text-muted-foreground h-8 text-sm w-56"
           data-testid="people-search"
         />
       </div>
 
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-28 bg-slate-800/50 rounded-xl" />)}
+          {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-28 bg-muted/50 rounded-xl" />)}
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" data-testid="people-grid">
@@ -1076,12 +1076,12 @@ function PeopleView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: 
             return (
               <button key={user.id} type="button"
                 onClick={() => setSelectedUser(user)}
-                className="flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-700/50 bg-slate-800/30 hover:bg-slate-800/60 hover:border-slate-600/60 transition-all text-center group"
+                className="flex flex-col items-center gap-2 p-4 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/60 hover:border-border/60 transition-all text-center group"
                 data-testid={`person-card-${user.id}`}>
                 <Avatar user={user} />
                 <div>
-                  <div className="text-sm font-medium text-slate-200 group-hover:text-slate-100">{user.name}</div>
-                  {user.jobTitle && <div className="text-xs text-slate-500 truncate max-w-[110px]">{user.jobTitle}</div>}
+                  <div className="text-sm font-medium text-foreground group-hover:text-foreground">{user.name}</div>
+                  {user.jobTitle && <div className="text-xs text-muted-foreground truncate max-w-[110px]">{user.jobTitle}</div>}
                 </div>
                 <StatusBadge status={status} />
               </button>
@@ -1089,14 +1089,14 @@ function PeopleView({ myUserId, isAdmin, onEdit }: { myUserId: number; isAdmin: 
           })}
           {filtered.length === 0 && allUsers.length === 0 && (
             <div className="col-span-4 text-center py-12">
-              <Users2 className="w-10 h-10 mx-auto mb-3 text-slate-700" />
-              <p className="text-slate-400 text-sm font-medium">No team members yet</p>
-              <p className="text-slate-600 text-xs mt-1">Team members will appear here once they're added to the system</p>
+              <Users2 className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+              <p className="text-muted-foreground text-sm font-medium">No team members yet</p>
+              <p className="text-muted-foreground text-xs mt-1">Team members will appear here once they're added to the system</p>
             </div>
           )}
           {filtered.length === 0 && allUsers.length > 0 && (
             <div className="col-span-4 text-center py-8">
-              <p className="text-slate-500 text-sm">No one found matching "{search}"</p>
+              <p className="text-muted-foreground text-sm">No one found matching "{search}"</p>
               <button className="text-cyan-500 text-xs mt-1 hover:underline" onClick={() => setSearch("")}>Clear search</button>
             </div>
           )}
@@ -1156,14 +1156,14 @@ export default function TeamWorkCalendarPage() {
   const dateLabel = new Date(today + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a] px-4 sm:px-6 lg:px-8 py-6">
+    <div className="min-h-screen px-4 sm:px-6 lg:px-8 py-6">
       {/* Page header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-1">
           <CalendarDays className="w-5 h-5 text-cyan-400" />
-          <h1 className="text-xl font-bold text-slate-100">Work Calendar</h1>
+          <h1 className="text-xl font-bold text-foreground">Work Calendar</h1>
         </div>
-        <p className="text-sm text-slate-400">{dateLabel} · Who's in, who's remote, who's off</p>
+        <p className="text-sm text-muted-foreground">{dateLabel} · Who's in, who's remote, who's off</p>
       </div>
 
       {/* Launch banner */}
@@ -1178,7 +1178,7 @@ export default function TeamWorkCalendarPage() {
               <span className="text-cyan-300 text-sm font-semibold">New: Team Work Calendar</span>
               <span className="text-[10px] bg-cyan-700/40 text-cyan-300 px-1.5 py-0.5 rounded font-medium tracking-wide">NEW</span>
             </div>
-            <p className="text-slate-400 text-xs leading-relaxed mb-3">
+            <p className="text-muted-foreground text-xs leading-relaxed mb-3">
               Quickly log where you are working today — In Office, Remote, Travelling, Day Off, or Hybrid.
               Helps the team see office coverage, availability, and travel days without asking around in Slack.
             </p>
@@ -1195,7 +1195,7 @@ export default function TeamWorkCalendarPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                className="text-slate-400 hover:text-slate-200 text-xs h-7 px-2"
+                className="text-muted-foreground hover:text-foreground text-xs h-7 px-2"
                 onClick={handleDismissBanner}
                 data-testid="banner-dismiss"
               >
@@ -1206,7 +1206,7 @@ export default function TeamWorkCalendarPage() {
           <button
             type="button"
             onClick={handleDismissBanner}
-            className="text-slate-600 hover:text-slate-400 transition-colors shrink-0 mt-0.5"
+            className="text-muted-foreground hover:text-muted-foreground transition-colors shrink-0 mt-0.5"
             aria-label="Dismiss"
             data-testid="banner-close"
           >
@@ -1217,17 +1217,17 @@ export default function TeamWorkCalendarPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-          <TabsList className="bg-slate-800/60 border border-slate-700/50 h-9 p-1 gap-0.5">
-            <TabsTrigger value="today" className="data-[state=active]:bg-cyan-700/40 data-[state=active]:text-cyan-200 text-slate-400 text-xs px-3 h-7" data-testid="tab-today">
+          <TabsList className="bg-muted/60 border border-border/50 h-9 p-1 gap-0.5">
+            <TabsTrigger value="today" className="data-[state=active]:bg-cyan-700/40 data-[state=active]:text-cyan-200 text-muted-foreground text-xs px-3 h-7" data-testid="tab-today">
               Today
             </TabsTrigger>
-            <TabsTrigger value="week" className="data-[state=active]:bg-cyan-700/40 data-[state=active]:text-cyan-200 text-slate-400 text-xs px-3 h-7" data-testid="tab-week">
+            <TabsTrigger value="week" className="data-[state=active]:bg-cyan-700/40 data-[state=active]:text-cyan-200 text-muted-foreground text-xs px-3 h-7" data-testid="tab-week">
               Week
             </TabsTrigger>
-            <TabsTrigger value="my-schedule" className="data-[state=active]:bg-cyan-700/40 data-[state=active]:text-cyan-200 text-slate-400 text-xs px-3 h-7" data-testid="tab-my-schedule">
+            <TabsTrigger value="my-schedule" className="data-[state=active]:bg-cyan-700/40 data-[state=active]:text-cyan-200 text-muted-foreground text-xs px-3 h-7" data-testid="tab-my-schedule">
               My Schedule
             </TabsTrigger>
-            <TabsTrigger value="people" className="data-[state=active]:bg-cyan-700/40 data-[state=active]:text-cyan-200 text-slate-400 text-xs px-3 h-7" data-testid="tab-people">
+            <TabsTrigger value="people" className="data-[state=active]:bg-cyan-700/40 data-[state=active]:text-cyan-200 text-muted-foreground text-xs px-3 h-7" data-testid="tab-people">
               People
             </TabsTrigger>
           </TabsList>
