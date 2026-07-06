@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { UniversalDrilldownSheet } from "@/components/shared/universal-drilldown-sheet";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -92,9 +93,9 @@ function pctColor(n: number) {
 }
 
 // ── Summary Card ──────────────────────────────────────────────────────────────
-function StatCard({ label, value, sub, color, icon: Icon }: { label: string; value: string | number; sub?: string; color?: string; icon: any }) {
+function StatCard({ label, value, sub, color, icon: Icon, onClick }: { label: string; value: string | number; sub?: string; color?: string; icon: any; onClick?: () => void }) {
   return (
-    <Card className="border border-border/50">
+    <Card className={`border border-border/50 ${onClick ? "cursor-pointer hover:border-primary/40 transition-colors" : ""}`} onClick={onClick}>
       <CardContent className="p-3">
         <div className="flex items-center justify-between mb-1">
           <span className="text-xs text-muted-foreground">{label}</span>
@@ -136,6 +137,8 @@ function FunnelBar({ row }: { row: SourceRow }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function SourceAttributionPage() {
+  const [drilldown, setDrilldown] = useState<import("@/components/shared/universal-drilldown-sheet").UniversalDrilldownConfig | null>(null);
+  const dd = (metric: string, title: string) => () => setDrilldown({ metric, title });
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo,   setDateTo]   = useState("");
   const [ownerId,  setOwnerId]  = useState("all");
@@ -279,7 +282,7 @@ export default function SourceAttributionPage() {
         </div>
       ) : summary && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <StatCard label="Total Leads"    value={summary.totalLeads.toLocaleString()} icon={Users} />
+          <StatCard label="Total Leads"    value={summary.totalLeads.toLocaleString()} icon={Users} onClick={dd("source_by_channel", "Leads by Channel")} />
           <StatCard label="Qualify Rate"   value={`${summary.qualifyRate}%`}  color={pctColor(summary.qualifyRate)} icon={TrendingUp} />
           <StatCard label="Quoted Opps"    value={summary.quotedOpps}          icon={Target} />
           <StatCard label="Win Rate"       value={`${summary.winRate}%`}       color={pctColor(summary.winRate)} icon={Trophy} />
@@ -521,6 +524,12 @@ export default function SourceAttributionPage() {
           </div>
         );
       })()}
+
+      <UniversalDrilldownSheet
+        config={drilldown}
+        onClose={() => setDrilldown(null)}
+        endpoint="/api/insights/drilldown"
+      />
     </div>
   );
 }

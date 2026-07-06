@@ -1,0 +1,516 @@
+Phase 2K — Capital AI Copilot
+
+Current completed state:
+
+Capital Phase 2A:
+- investors, contacts, rounds, commitments, pipeline, activity logging
+
+Capital Phase 2B:
+- Capital module restricted to CEO Trevor and CFO Scott Carlson only
+
+Capital Phase 2C:
+- investor scoring
+- follow-up queue
+- pipeline intelligence
+- investor email draft context
+- investor detail intelligence panel
+- activity touch tracking
+
+Capital Phase 2D:
+- investor email conversation linking
+- capital_email_links
+- capital_email_review
+- investor Email Conversations panel
+- Gmail sync hook
+- all APIs behind requireCapitalAccess
+
+Capital Phase 2E:
+- Round Command Center
+- weighted pipeline service
+- lead investor candidates
+- this-week action queue
+- risk flags
+- runway projections
+- scenario planning
+
+Capital Phase 2F:
+- valuation, dilution, allocation, and close-plan intelligence
+- allocation planner
+- close plan tracker
+- round close checklist
+
+Capital Phase 2G:
+- Capital Data Room
+- material library
+- material share tracking
+- material request queue
+- command-center data_room_intel
+- investor email context includes relevant_materials
+
+Capital Phase 2H:
+- Investor Portal + Secure External Sharing
+- token hash security
+- public /investor-portal/:token page
+- portal access panel
+- portal intelligence in Command Center
+
+Capital Phase 2I:
+- Investor Engagement Analytics
+- capital-engagement.ts
+- 0–100 engagement score
+- engagement tiers
+- /capital/engagement page
+- command-center engagement_intel
+- investor detail engagement panel
+- Data Room portal views
+
+Capital Phase 2J:
+- Board / CFO Reporting Pack
+- /capital/reports page
+- capital-reporting.ts service if implemented
+- report APIs for Weekly Brief, Board Update, CFO Closing Report, Investor Engagement Report
+- markdown/CSV support where implemented
+- board-safe vs internal-sensitive report handling
+
+Now implement Phase 2K.
+
+Primary goal:
+Create a Capital AI Copilot that helps Trevor and Scott understand the fundraising state, identify what matters, draft high-quality investor actions, and answer questions using Capital data.
+
+The Copilot should be useful for:
+- fundraising strategy
+- investor follow-ups
+- round close planning
+- board/CFO reporting
+- data room/material next actions
+- investor engagement interpretation
+- email drafting support
+- risk identification
+- weekly action planning
+
+Do not loosen Capital permissions.
+All Copilot pages, APIs, prompts, context, logs, and generated output must remain restricted to Trevor and Scott Carlson only.
+
+Do not auto-send emails.
+Do not fabricate data.
+Do not expose Capital data to unauthorized users.
+
+1. Audit existing AI infrastructure
+
+Before writing code, inspect:
+- existing AI generation service
+- existing email AI generator
+- Cortex Intel prompt/context builder
+- Capital investor email-context endpoint
+- Capital reporting service if Phase 2J exists
+- OpenAI/client integration patterns
+- prompt logging patterns
+- permission guard patterns
+- existing chat/copilot UI components
+- existing streaming support if any
+- existing task creation or draft creation flows
+
+Document:
+- what AI service is currently used
+- how prompts are built
+- how context is passed
+- how sensitive data is protected
+- whether generated content is logged
+- whether streaming is supported
+- whether tool/action execution exists
+
+2. Capital Copilot page
+
+Add new Capital page:
+
+/capital/copilot
+
+Add Capital nav item:
+- AI Copilot
+
+Only Trevor and Scott should see it.
+
+Page layout:
+- Copilot chat panel
+- suggested prompts
+- context selector
+- current round selector
+- optional investor selector
+- action output panel
+- generated draft preview area
+- recent Copilot runs if safe/persistent storage exists
+
+3. Copilot API
+
+Add APIs behind requireCapitalAccess:
+
+POST /api/capital/copilot/query
+
+Payload:
+- question
+- round_id optional
+- investor_id optional
+- report_type optional
+- mode:
+  - ask
+  - strategy
+  - follow_up
+  - board_update
+  - closing_plan
+  - data_room
+  - engagement
+  - email_draft
+- include_sensitive boolean optional
+- selected_context optional
+
+Response:
+- answer
+- sources/context_used
+- recommended_actions
+- draft_output optional
+- warnings
+- generated_at
+
+Optional if existing infra supports it:
+POST /api/capital/copilot/stream
+
+Do not add streaming unless the app already has a safe pattern.
+
+4. Copilot context builder
+
+Create:
+
+server/services/capital-copilot-context.ts
+
+It should assemble safe, structured context from existing Capital systems.
+
+Available context:
+- round summary
+- command center summary
+- weighted pipeline
+- valuation/dilution summary
+- allocation/close plan
+- investor scoring
+- engagement analytics
+- data room/material status
+- portal activity
+- linked investor emails, snippets only
+- follow-up queue
+- risk flags
+- reports generated in Phase 2J
+- Cortex Intel relevant to Capital, if available
+
+Context must be scoped:
+- if investor_id is provided, include that investor and relevant linked records only
+- if round_id is provided, include that round and related investors/materials only
+- do not include unrelated Capital data
+- do not include raw email bodies unless existing safe email-context pattern already allows it
+- prefer summaries/snippets over full private text
+- include source labels so the model can explain where claims came from
+
+5. Copilot prompt discipline
+
+Create a strict system prompt for Capital Copilot.
+
+It must instruct the model to:
+- only use provided Capital context
+- never invent investor status, commitments, valuation, documents, or email events
+- state when data is missing
+- separate facts from recommendations
+- keep sensitive/internal notes out of board-safe outputs unless include_sensitive=true
+- never auto-send messages
+- draft emails only as drafts
+- preserve numbers exactly
+- cite/source internally from context labels where possible
+- be concise and action-oriented
+
+6. Suggested prompts
+
+Add suggested prompt buttons:
+
+General:
+- What changed in the round this week?
+- What are the biggest risks right now?
+- What should Trevor do today?
+- What should Scott care about this week?
+
+Investor:
+- Why is this investor hot or stale?
+- Draft a follow-up to this investor.
+- What is blocking this investor from committing?
+- What materials has this investor seen?
+- What should the next step be?
+
+Round:
+- What needs to happen to hit minimum close?
+- What needs to happen to hit target close?
+- Which investors can lead this round?
+- What are the top 5 closing risks?
+- Build a 7-day close plan.
+
+Data Room:
+- Which investors are missing key materials?
+- Which materials are driving engagement?
+- Who opened the portal but did not respond?
+- Which diligence requests are overdue?
+
+Reporting:
+- Draft a board-ready capital update.
+- Draft a CFO closing summary.
+- Draft this week’s capital brief.
+
+7. Copilot modes
+
+Implement mode-specific behavior.
+
+ask:
+- answer question from context
+
+strategy:
+- identify risks, opportunities, sequencing, and next actions
+
+follow_up:
+- recommend who needs follow-up and why
+
+board_update:
+- produce board-safe summary
+
+closing_plan:
+- produce specific close plan with investor-by-investor actions
+
+data_room:
+- focus on material gaps, portal activity, requests, and diligence blockers
+
+engagement:
+- focus on investor activity signals
+
+email_draft:
+- produce a draft email only, never send
+
+8. Action recommendations
+
+Copilot should return structured recommended_actions.
+
+Each action:
+- action_type:
+  - follow_up
+  - draft_email
+  - send_material
+  - update_next_step
+  - schedule_meeting
+  - chase_docs
+  - confirm_allocation
+  - update_commitment
+  - create_task
+  - review_email_link
+  - update_data_room
+- title
+- description
+- investor_id optional
+- contact_id optional
+- round_id optional
+- due_date optional
+- priority
+- reason
+- source_signal
+
+Do not execute actions automatically in this phase unless explicitly safe and already supported.
+
+9. Draft outputs
+
+For email_draft mode, return:
+- subject
+- body
+- tone
+- target_contact
+- investor_id
+- context_used
+- warnings
+
+Do not send.
+Do not create Gmail drafts unless existing workflow already supports explicit draft creation and the user confirms.
+
+10. Board-safe mode
+
+For board_update mode or include_sensitive=false:
+- exclude raw email snippets
+- exclude internal notes
+- exclude detailed private engagement reasons
+- summarize sensitive data
+- do not include confidential investor commentary
+- do not expose Cortex private notes unless explicitly marked safe
+
+11. Copilot UI details
+
+The page should include:
+- chat/question input
+- mode selector
+- round selector
+- investor selector
+- include_sensitive toggle visible only to authorized users
+- suggested prompts
+- generated answer card
+- recommended actions list
+- draft email preview if applicable
+- context used/source summary
+- warnings if data is incomplete
+
+Do not make the UI noisy.
+This is a CEO/CFO tool. Make it fast, calm, and direct.
+
+12. Investor detail integration
+
+Add a “Ask Copilot” or “Copilot” button inside investor detail.
+
+Preload:
+- investor_id
+- current round if relevant
+- mode suggestions:
+  - Why is this investor hot/stale?
+  - Draft follow-up
+  - What is blocking commitment?
+  - What should I do next?
+
+13. Command Center integration
+
+Add Copilot panel or action buttons to /capital/command-center:
+
+- Ask Copilot
+- Generate 7-day close plan
+- Explain top risks
+- Draft board update
+- Draft CFO summary
+
+Clicking can route to /capital/copilot with preselected mode/round.
+
+14. Reports integration
+
+If Phase 2J reports exist:
+- allow Copilot to use generated reports as context
+- allow “Explain this report”
+- allow “Rewrite this board-safe”
+- allow “Create action plan from this report”
+
+Do not expose reports outside Capital permissions.
+
+15. Cortex integration
+
+If Cortex Intel integration exists:
+- include relevant Capital-tagged Cortex Intel where safe
+- cite it as Cortex context
+- exclude unrelated Cortex records
+- exclude Capital-linked Cortex records for unauthorized users
+
+16. Optional persistence
+
+If existing chat history/log storage exists, reuse it safely.
+
+If not, start stateless:
+- no persistent Copilot conversation storage required
+- show response in current session only
+
+If storing logs:
+- store prompt, response, context hash/summary, created_by, created_at
+- do not store raw sensitive context unless explicitly designed for it
+- restrict all logs to Trevor/Scott only
+
+17. Permissions
+
+Everything must use requireCapitalAccess.
+
+Unauthorized users must not be able to:
+- see Copilot nav
+- access /capital/copilot
+- call Copilot APIs
+- infer Capital data through Copilot
+- access Copilot logs
+- access generated outputs
+- retrieve context builder data
+
+18. Tests
+
+Add tests for:
+
+Service/context:
+- capital-copilot-context.ts exists
+- context builder includes command center summary
+- context builder includes engagement summary
+- context builder includes data room/portal summary
+- context builder scopes by investor_id
+- context builder scopes by round_id
+- context builder excludes unrelated investor data
+- context builder uses snippets/summaries, not raw full email bodies where applicable
+- board-safe mode excludes sensitive/internal notes
+
+Prompt:
+- system prompt says not to invent facts
+- prompt preserves exact numbers
+- prompt separates facts from recommendations
+- prompt says do not auto-send emails
+- prompt supports board-safe mode
+
+APIs:
+- POST /api/capital/copilot/query exists
+- route uses requireCapitalAccess
+- unauthorized users receive 403
+- invalid mode rejected safely
+- answer response includes warnings/actions/context_used
+- email_draft response includes subject/body but does not send
+- include_sensitive=false removes sensitive context
+
+Frontend:
+- /capital/copilot route exists
+- AI Copilot nav item exists under Capital
+- mode selector exists
+- round selector exists
+- investor selector exists
+- suggested prompts render
+- recommended actions render
+- context-used summary renders
+- draft email preview renders
+- Command Center links to Copilot
+- investor detail links to Copilot
+
+Permissions:
+- only Trevor and Scott can access Copilot
+- normal admin/manager/staff cannot infer Copilot data
+
+Regression:
+- reports tests still pass
+- engagement tests still pass
+- command center tests still pass
+- data room tests still pass
+- portal tests still pass
+- permissions tests still pass
+
+19. Validation
+
+Run:
+- new capital-copilot tests
+- capital reporting tests
+- capital engagement tests
+- capital command-center tests
+- capital permissions tests
+- capital data-room tests
+- capital portal tests
+- startup invariants tests
+- build if practical
+
+Deliver:
+- files changed
+- new APIs
+- context builder summary
+- prompt rules
+- Copilot modes
+- permission confirmation
+- test results
+- recommended Phase 2L follow-up
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose Capital data outside CEO/CFO access.
+Do not fabricate Capital facts.
+Do not auto-send emails.
+Do not store raw portal tokens.
+Do not expose raw IP addresses.
+Do not claim actions were executed unless they were actually executed.

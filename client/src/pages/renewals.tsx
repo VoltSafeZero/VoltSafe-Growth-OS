@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { ScoreBadge } from "@/components/scores/score-badge";
 import { useChurnRiskScores } from "@/hooks/use-scores";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -121,9 +122,9 @@ function CustomerCard({ cs, onClick }: { cs: any; onClick: () => void }) {
 }
 
 // ── Dashboard KPI Card ────────────────────────────────────────────────────────
-function KpiCard({ label, value, sub, icon: Icon, color }: { label: string; value: string | number; sub?: string; icon: any; color?: string }) {
+function KpiCard({ label, value, sub, icon: Icon, color, onClick }: { label: string; value: string | number; sub?: string; icon: any; color?: string; onClick?: () => void }) {
   return (
-    <Card className="border border-border/50">
+    <Card className={`border border-border/50 ${onClick ? "cursor-pointer hover:border-primary/40 transition-colors" : ""}`} onClick={onClick}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-xs text-muted-foreground">{label}</span>
@@ -664,9 +665,9 @@ function DashboardTab() {
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard label="Active Customers" value={d.overview.active} icon={CheckCircle2} color="text-emerald-400" />
-        <KpiCard label="Renewal Due" value={d.overview.renewalDue} sub={`${d.overview.renewalInProgress} in progress`} icon={RefreshCcw} color="text-amber-400" />
-        <KpiCard label="Churn Risk" value={d.overview.churnRisk} icon={AlertTriangle} color="text-red-400" />
-        <KpiCard label="Total ARR" value={fmtMoney(d.overview.totalArr)} sub={`${fmtMoney(d.overview.totalMrr)}/mo MRR`} icon={DollarSign} color="text-primary" />
+        <KpiCard label="Renewal Due"     value={d.overview.renewalDue} sub={`${d.overview.renewalInProgress} in progress`} icon={RefreshCcw} color="text-amber-400" onClick={dd("cs_renewals_due", "Renewals Due")} />
+        <KpiCard label="Churn Risk"      value={d.overview.churnRisk} icon={AlertTriangle} color="text-red-400" onClick={dd("cs_at_risk", "Churn Risk Accounts")} />
+        <KpiCard label="Total ARR"       value={fmtMoney(d.overview.totalArr)} sub={`${fmtMoney(d.overview.totalMrr)}/mo MRR`} icon={DollarSign} color="text-primary" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -747,6 +748,8 @@ function DashboardTab() {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function RenewalsPage() {
+  const [drilldown, setDrilldown] = useState<UniversalDrilldownConfig | null>(null);
+  const dd = (metric: string, title: string) => () => setDrilldown({ metric, title });
   const [activeTab, setActiveTab] = useState("customers");
   const [selectedCsId, setSelectedCsId] = useState<number | null>(null);
   const [showNew, setShowNew] = useState(false);
@@ -979,6 +982,12 @@ export default function RenewalsPage() {
       {showNew && (
         <NewCustomerModal onClose={() => setShowNew(false)} onCreated={() => setShowNew(false)} />
       )}
+
+      <UniversalDrilldownSheet
+        config={drilldown}
+        onClose={() => setDrilldown(null)}
+        endpoint="/api/insights/drilldown"
+      />
     </div>
   );
 }

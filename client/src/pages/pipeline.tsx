@@ -15,6 +15,7 @@ import {
   FileText, Calendar, Zap, Filter,
 } from "lucide-react";
 import { formatDistanceToNow, format, isThisMonth, isPast } from "date-fns";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -204,6 +205,7 @@ export default function PipelinePage({ canEdit = true }: { canEdit?: boolean }) 
   const [activeTab, setActiveTab] = useState<TabId>("stalled");
   const [savedView, setSavedView] = useState<SavedView>(null);
   const [ownerFilter, setOwnerFilter] = useState<string>("all");
+  const [drilldown, setDrilldown] = useState<UniversalDrilldownConfig | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery<PipelineData>({
     queryKey: ["/api/pipeline/insights"],
@@ -282,23 +284,39 @@ export default function PipelinePage({ canEdit = true }: { canEdit?: boolean }) 
         <div className="flex items-center gap-2 flex-wrap">
           {data && (
             <div className="flex items-center gap-2">
-              <div className="text-center px-3 py-2 rounded-lg bg-secondary/30 border border-border/40">
+              <button
+                className="text-center px-3 py-2 rounded-lg bg-secondary/30 border border-border/40 hover:border-primary/40 hover:bg-secondary/50 transition-colors cursor-pointer"
+                onClick={() => setDrilldown({ metric: "active_deals", title: "Active Deals" })}
+                data-testid="stat-card-active-deals"
+              >
                 <p className="text-xl font-bold text-primary" data-testid="stat-total-active">{data.totalActive}</p>
                 <p className="text-xs text-muted-foreground">Active deals</p>
-              </div>
-              <div className="text-center px-3 py-2 rounded-lg bg-secondary/30 border border-border/40">
+              </button>
+              <button
+                className="text-center px-3 py-2 rounded-lg bg-secondary/30 border border-border/40 hover:border-primary/40 hover:bg-secondary/50 transition-colors cursor-pointer"
+                onClick={() => setDrilldown({ metric: "total_pipeline", title: "Total Pipeline" })}
+                data-testid="stat-card-total-pipeline"
+              >
                 <p className="text-xl font-bold text-emerald-400" data-testid="stat-total-pipeline">{fmtK(data.totalPipeline)}</p>
                 <p className="text-xs text-muted-foreground">Total pipeline</p>
-              </div>
-              <div className="text-center px-3 py-2 rounded-lg bg-secondary/30 border border-border/40">
+              </button>
+              <button
+                className="text-center px-3 py-2 rounded-lg bg-secondary/30 border border-border/40 hover:border-primary/40 hover:bg-secondary/50 transition-colors cursor-pointer"
+                onClick={() => setDrilldown({ metric: "weighted_pipeline", title: "Weighted Pipeline" })}
+                data-testid="stat-card-weighted"
+              >
                 <p className="text-xl font-bold text-blue-400" data-testid="stat-weighted">{fmtK(totalWeighted)}</p>
                 <p className="text-xs text-muted-foreground">Weighted</p>
-              </div>
+              </button>
               {data.closingThisMonth.length > 0 && (
-                <div className="text-center px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <button
+                  className="text-center px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/40 hover:bg-amber-500/15 transition-colors cursor-pointer"
+                  onClick={() => setDrilldown({ metric: "closing_this_month", title: "Closing This Month" })}
+                  data-testid="stat-card-closing-month"
+                >
                   <p className="text-xl font-bold text-amber-400" data-testid="stat-closing-month">{data.closingThisMonth.length}</p>
                   <p className="text-xs text-muted-foreground">Closing this month</p>
-                </div>
+                </button>
               )}
             </div>
           )}
@@ -759,6 +777,12 @@ export default function PipelinePage({ canEdit = true }: { canEdit?: boolean }) 
           )}
         </>
       )}
+
+      <UniversalDrilldownSheet
+        config={drilldown}
+        onClose={() => setDrilldown(null)}
+        endpoint="/api/pipeline/drilldown"
+      />
     </div>
   );
 }

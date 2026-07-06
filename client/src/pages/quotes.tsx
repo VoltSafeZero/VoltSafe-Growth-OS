@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { buildEmailHtml, htmlToEditorText } from "@/lib/email-format";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -146,6 +147,8 @@ function makeLineItem(catalog: CatalogItem, qty = 1, discPct = 0): LineItem {
 }
 
 export default function QuotesPage({ canEdit = true }: { canEdit?: boolean }) {
+  const [drilldown, setDrilldown] = useState<UniversalDrilldownConfig | null>(null);
+  const dd = (metric: string, title: string) => () => setDrilldown({ metric, title });
   const [statusFilter, setStatusFilter] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedQuote, setSelectedQuote] = useState<number | null>(null);
@@ -268,20 +271,16 @@ export default function QuotesPage({ canEdit = true }: { canEdit?: boolean }) {
     {
       label: "Pipeline Value",
       value: pipelineValue > 0 ? (pipelineValue >= 1000 ? `${currSym(draft[0]?.currency || sent[0]?.currency || "USD")}${(pipelineValue / 1000).toFixed(0)}k` : fmtMoney(pipelineValue, draft[0]?.currency || "USD")) : "$0",
-      icon: BarChart2,
-      color: "text-blue-400",
-      bg: "bg-blue-500/10",
+      icon: BarChart2, color: "text-blue-400", bg: "bg-blue-500/10", metric: null,
     },
-    { label: "Draft", value: allQuotes.filter(q => q.status === "draft").length, icon: FileText, color: "text-gray-400", bg: "bg-gray-500/10" },
-    { label: "Sent", value: allQuotes.filter(q => q.status === "sent").length, icon: Send, color: "text-blue-400", bg: "bg-blue-500/10" },
-    { label: "Accepted", value: allQuotes.filter(q => q.status === "accepted").length, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10" },
-    { label: "Rejected", value: allQuotes.filter(q => q.status === "rejected").length, icon: AlertCircle, color: "text-red-400", bg: "bg-red-500/10" },
+    { label: "Draft",    value: allQuotes.filter(q => q.status === "draft").length,    icon: FileText,    color: "text-gray-400",  bg: "bg-gray-500/10",  metric: null },
+    { label: "Sent",     value: allQuotes.filter(q => q.status === "sent").length,     icon: Send,        color: "text-blue-400",  bg: "bg-blue-500/10",  metric: "quotes_awaiting" },
+    { label: "Accepted", value: allQuotes.filter(q => q.status === "accepted").length, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10", metric: "quotes_accepted" },
+    { label: "Rejected", value: allQuotes.filter(q => q.status === "rejected").length, icon: AlertCircle, color: "text-red-400",   bg: "bg-red-500/10",   metric: "quotes_declined" },
     {
       label: "Won Value",
       value: acceptedValue > 0 ? (acceptedValue >= 1000 ? `${currSym(accepted[0]?.currency || "USD")}${(acceptedValue / 1000).toFixed(0)}k` : fmtMoney(acceptedValue, accepted[0]?.currency || "USD")) : "$0",
-      icon: DollarSign,
-      color: "text-green-400",
-      bg: "bg-green-500/10",
+      icon: DollarSign, color: "text-green-400", bg: "bg-green-500/10", metric: "quotes_accepted",
     },
   ];
 
@@ -316,7 +315,12 @@ export default function QuotesPage({ canEdit = true }: { canEdit?: boolean }) {
       {!isLoading && allQuotes.length > 0 && (
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
           {kpiCards.map(card => (
-            <Card key={card.label} className="border-border/50 bg-card/50" data-testid={`card-quote-kpi-${card.label.toLowerCase().replace(/\s+/g,'-')}`}>
+            <Card
+              key={card.label}
+              className={`border-border/50 bg-card/50 ${card.metric ? "cursor-pointer hover:border-primary/40 transition-colors" : ""}`}
+              data-testid={`card-quote-kpi-${card.label.toLowerCase().replace(/\s+/g,'-')}`}
+              onClick={card.metric ? dd(card.metric, card.label) : undefined}
+            >
               <CardContent className="p-3">
                 <div className="flex items-center gap-2 mb-1">
                   <div className={`w-6 h-6 rounded-md ${card.bg} flex items-center justify-center shrink-0`}>
@@ -601,6 +605,12 @@ export default function QuotesPage({ canEdit = true }: { canEdit?: boolean }) {
           </AlertDialogContent>
         </AlertDialog>
       )}
+
+      <UniversalDrilldownSheet
+        config={drilldown}
+        onClose={() => setDrilldown(null)}
+        endpoint="/api/pipeline/drilldown"
+      />
     </div>
   );
 }

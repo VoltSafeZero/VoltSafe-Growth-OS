@@ -1,0 +1,378 @@
+Phase 2J — Capital Board / CFO Reporting Pack
+
+Current completed state:
+
+Capital Phase 2A:
+- investors, contacts, rounds, commitments, pipeline, activity logging
+
+Capital Phase 2B:
+- Capital module restricted to CEO Trevor and CFO Scott Carlson only
+
+Capital Phase 2C:
+- investor scoring
+- follow-up queue
+- pipeline intelligence
+- investor email draft context
+- investor detail intelligence panel
+- activity touch tracking
+
+Capital Phase 2D:
+- investor email conversation linking
+- capital_email_links
+- capital_email_review
+- investor Email Conversations panel
+- Gmail sync hook
+- all APIs behind requireCapitalAccess
+
+Capital Phase 2E:
+- Round Command Center
+- weighted pipeline service
+- lead investor candidates
+- this-week action queue
+- risk flags
+- runway projections
+- scenario planning
+
+Capital Phase 2F:
+- valuation, dilution, allocation, and close-plan intelligence
+- allocation planner
+- close plan tracker
+- round close checklist
+
+Capital Phase 2G:
+- Capital Data Room
+- material library
+- material share tracking
+- material request queue
+- command-center data_room_intel
+- investor email context includes relevant_materials
+
+Capital Phase 2H:
+- Investor Portal + Secure External Sharing
+- token hash security
+- public /investor-portal/:token page
+- portal access panel
+- portal intelligence in Command Center
+
+Capital Phase 2I:
+- Investor Engagement Analytics
+- capital-engagement.ts
+- 0–100 engagement score
+- engagement tiers
+- /capital/engagement page
+- command-center engagement_intel
+- investor detail engagement panel
+- Data Room portal views
+- tests passing: 101/101
+
+Now implement Phase 2J.
+
+Primary goal:
+Create board-ready and CFO-ready Capital reporting packs so Trevor and Scott can quickly generate accurate fundraising reports for internal leadership, board/advisors, and weekly capital meetings.
+
+The reports should summarize:
+- round status
+- committed / wired / weighted pipeline
+- valuation and dilution scenarios
+- investor engagement
+- data room and portal activity
+- follow-up risks
+- close plan progress
+- key blockers
+- recommended next actions
+
+Do not loosen Capital permissions.
+All reports, APIs, exports, and generated summaries must remain restricted to Trevor and Scott Carlson only.
+
+1. Audit existing reporting/export patterns
+
+Before writing code, inspect:
+- Capital command center service
+- capital-valuation.ts
+- capital-engagement.ts
+- capital-data-room.ts
+- capital-portal.ts
+- existing export/download/reporting code
+- PDF/CSV generation patterns if any
+- existing UI card/table components
+- existing permissions
+- existing Capital pages and routes
+
+Document:
+- what data is already computed
+- what report sections can reuse existing services
+- whether PDF/CSV/export support exists
+- whether reports should start as web-only if export infra is absent
+
+2. Reporting service
+
+Create a pure service:
+
+server/services/capital-reporting.ts
+
+It should assemble report data from existing helpers:
+- command center summary
+- weighted pipeline
+- valuation/dilution scenarios
+- allocation/close plan
+- data room intelligence
+- portal intelligence
+- engagement analytics
+- investor follow-ups
+- recent email/activity summary
+- risk flags
+- recommended actions
+
+Avoid duplicating calculations already implemented in:
+- capital-command-center.ts
+- capital-valuation.ts
+- capital-data-room.ts
+- capital-portal.ts
+- capital-engagement.ts
+
+3. Report types
+
+Support at least these report types:
+
+A. Weekly Capital Brief
+Audience: CEO/CFO internal
+Sections:
+- executive summary
+- round progress
+- top changes this week
+- engaged investors
+- stale/high-risk investors
+- follow-ups due
+- key blockers
+- next actions
+
+B. Board Capital Update
+Audience: board/advisors
+Sections:
+- round target/current status
+- committed/wired/weighted pipeline
+- valuation/dilution scenario summary
+- runway impact
+- key investor pipeline
+- data room/portal engagement summary
+- major risks
+- management asks
+
+C. CFO Closing Report
+Audience: CFO/internal
+Sections:
+- allocation plan
+- close plan tracker
+- docs sent/signed/funds pending/wired
+- minimum close progress
+- target close progress
+- investor-by-investor status
+- legal/closing blockers
+- cash/runway implications
+
+D. Investor Engagement Report
+Audience: internal fundraising team
+Sections:
+- highest engaged investors
+- portal opens/views/downloads
+- material engagement leaderboard
+- no-open portal investors
+- email reply activity
+- recommended follow-ups
+
+4. Reporting API
+
+Add APIs behind requireCapitalAccess:
+
+GET /api/capital/reports
+- returns available report types and recent generated/saved reports if storage exists
+
+GET /api/capital/reports/:type
+Query params:
+- round_id optional
+- date_from optional
+- date_to optional
+- format optional: json, markdown, csv if supported
+- include_sensitive optional
+
+Returns structured report JSON by default.
+
+POST /api/capital/reports/:type/generate
+- generates a report snapshot
+- optionally stores generated report metadata if existing pattern supports it
+
+If persistent report storage does not exist, implement stateless generation first.
+
+5. Reporting page
+
+Add Capital page:
+
+/capital/reports
+
+Add Capital nav item:
+- Reports
+
+Only Trevor and Scott should see it.
+
+Page should include:
+- report type selector
+- round selector
+- date range selector
+- report preview
+- key metrics
+- section cards
+- risk flags
+- recommended actions
+- copy markdown button
+- export CSV button where practical
+- PDF export only if existing infra exists
+
+Do not pretend PDF export exists if it does not.
+
+6. Markdown report generation
+
+Generate clean markdown for:
+- Weekly Capital Brief
+- Board Capital Update
+- CFO Closing Report
+- Investor Engagement Report
+
+Markdown should be accurate, readable, and board-safe.
+
+Avoid sensitive details unless include_sensitive=true.
+
+7. CSV exports
+
+Where practical, support CSV export for tabular sections:
+- investor pipeline
+- allocation plan
+- close plan
+- engagement rankings
+- data room/material activity
+- follow-up queue
+
+If existing CSV helper exists, reuse it.
+Otherwise implement safe CSV string generation for backend responses.
+
+8. Sensitive data controls
+
+Reports should support internal vs board-safe modes.
+
+Sensitive internal-only data may include:
+- investor email snippets
+- internal notes
+- raw engagement reasons
+- detailed valuation/dilution assumptions
+- internal risk commentary
+- Cortex-sourced notes
+- private follow-up notes
+
+Board-safe mode should summarize without exposing unnecessary private notes.
+
+9. Report freshness
+
+Each report should show:
+- generated_at
+- round name
+- date range
+- source data timestamp if available
+- warning if data is incomplete
+
+10. Report action items
+
+Every report should include a “Recommended Actions” section.
+
+Examples:
+- follow up with investor who viewed financial model
+- send portal link to diligence investor
+- request decision from stale lead investor
+- chase docs signature
+- confirm allocation
+- update missing valuation fields
+- resolve overdue material request
+
+11. Command Center integration
+
+Add a “Generate Report” action on /capital/command-center.
+
+Buttons:
+- Weekly Brief
+- Board Update
+- CFO Closing Report
+- Engagement Report
+
+Clicking should open /capital/reports with report type and round preselected.
+
+12. Tests
+
+Add tests for:
+
+Service:
+- capital-reporting.ts exists
+- report service reuses existing helpers
+- weekly brief includes round status, risks, actions
+- board update includes pipeline, runway, valuation summary
+- CFO report includes allocation and closing status
+- engagement report includes tiers/material/portal activity
+- generated_at exists
+- board-safe mode excludes internal-only details
+
+APIs:
+- report routes exist
+- all report routes require requireCapitalAccess
+- unauthorized users receive 403
+- report type validation works
+- round_id/date filters work
+- json format works
+- markdown format works
+- CSV where implemented
+
+Frontend:
+- /capital/reports route exists
+- Reports nav item exists under Capital
+- report type selector exists
+- round/date filters exist
+- report preview renders
+- copy markdown action exists
+- export actions do not claim unsupported formats
+- command-center Generate Report action exists
+
+Permissions:
+- only Trevor and Scott can access reports
+- normal admin/manager/staff cannot infer reporting data
+
+Regression:
+- command-center tests still pass
+- engagement tests still pass
+- data-room tests still pass
+- portal tests still pass
+- permissions tests still pass
+
+13. Validation
+
+Run:
+- new capital reporting tests
+- capital engagement tests
+- capital portal tests
+- capital data-room tests
+- capital command-center tests
+- capital permissions tests
+- startup invariants tests
+- build if practical
+
+Deliver:
+- files changed
+- new APIs
+- report types
+- report sections
+- sensitive-data handling
+- export support status
+- permission confirmation
+- test results
+- recommended Phase 2K follow-up
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose Capital reports outside CEO/CFO access.
+Do not invent fake report data.
+Do not claim PDF/export support exists unless implemented.

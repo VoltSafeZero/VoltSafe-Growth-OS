@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { UniversalDrilldownSheet } from "@/components/shared/universal-drilldown-sheet";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -44,11 +45,11 @@ const STATUS_OPTIONS: { value: Status | "all"; label: string }[] = [
 
 function pct(n: number) { return `${Math.round(n * 100)}%`; }
 
-function MetricCard({ icon: Icon, label, value, sub, testid }: {
-  icon: React.ComponentType<{ className?: string }>; label: string; value: string | number; sub?: string; testid: string;
+function MetricCard({ icon: Icon, label, value, sub, testid, onClick }: {
+  icon: React.ComponentType<{ className?: string }>; label: string; value: string | number; sub?: string; testid: string; onClick?: () => void;
 }) {
   return (
-    <Card data-testid={testid}>
+    <Card data-testid={testid} className={onClick ? "cursor-pointer hover:border-primary/40 transition-colors" : ""} onClick={onClick}>
       <CardContent className="p-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -67,6 +68,8 @@ function MetricCard({ icon: Icon, label, value, sub, testid }: {
 
 export default function BookingOutreachPage() {
   const { toast } = useToast();
+  const [drilldown, setDrilldown] = useState<import("@/components/shared/universal-drilldown-sheet").UniversalDrilldownConfig | null>(null);
+  const dd = (metric: string, title: string) => () => setDrilldown({ metric, title });
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [linkId, setLinkId] = useState<string>("all");
@@ -151,11 +154,11 @@ export default function BookingOutreachPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
-        <MetricCard icon={Send}                  testid="card-summary-sent"        label="Sent"          value={summary?.sent ?? "—"} />
-        <MetricCard icon={Eye}                   testid="card-summary-opened"      label="Opened"        value={summary?.opened ?? "—"} />
-        <MetricCard icon={CheckCircle2}          testid="card-summary-booked"      label="Booked"        value={summary?.booked ?? "—"} />
-        <MetricCard icon={MousePointerClick}     testid="card-summary-open-rate"   label="Open rate"     value={summary ? pct(summary.openRate) : "—"}    sub={summary ? `${summary.opened}/${summary.sent}` : undefined} />
-        <MetricCard icon={Users}                 testid="card-summary-booking-rate" label="Booking rate" value={summary ? pct(summary.bookingRate) : "—"} sub={summary ? `${summary.booked}/${summary.sent}` : undefined} />
+        <MetricCard icon={Send}              testid="card-summary-sent"         label="Sent"         value={summary?.sent ?? "—"}                                                    onClick={dd("booking_outreach_sent",   "Booking Outreach Sent")} />
+        <MetricCard icon={Eye}               testid="card-summary-opened"       label="Opened"       value={summary?.opened ?? "—"}                                                  onClick={dd("booking_outreach_opened", "Booking Outreach Opened")} />
+        <MetricCard icon={CheckCircle2}      testid="card-summary-booked"       label="Booked"       value={summary?.booked ?? "—"}                                                  onClick={dd("booking_outreach_booked", "Booking Outreach Booked")} />
+        <MetricCard icon={MousePointerClick} testid="card-summary-open-rate"    label="Open rate"    value={summary ? pct(summary.openRate) : "—"}    sub={summary ? `${summary.opened}/${summary.sent}` : undefined} />
+        <MetricCard icon={Users}             testid="card-summary-booking-rate" label="Booking rate" value={summary ? pct(summary.bookingRate) : "—"} sub={summary ? `${summary.booked}/${summary.sent}` : undefined} />
       </div>
 
       {/* Filters */}
@@ -295,6 +298,12 @@ export default function BookingOutreachPage() {
           Showing {rows.length} recipient{rows.length === 1 ? "" : "s"} · open & view counts come from the public booking page (no email pixels needed)
         </p>
       )}
+
+      <UniversalDrilldownSheet
+        config={drilldown}
+        onClose={() => setDrilldown(null)}
+        endpoint="/api/pipeline/drilldown"
+      />
     </div>
   );
 }

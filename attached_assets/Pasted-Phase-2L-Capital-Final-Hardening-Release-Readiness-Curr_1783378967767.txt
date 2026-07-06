@@ -1,0 +1,527 @@
+Phase 2L — Capital Final Hardening + Release Readiness
+
+Current completed state:
+
+Capital Phase 2A:
+- investors, contacts, rounds, commitments, pipeline, activity logging
+
+Capital Phase 2B:
+- Capital module restricted to CEO Trevor and CFO Scott Carlson only
+
+Capital Phase 2C:
+- investor scoring
+- follow-up queue
+- pipeline intelligence
+- investor email draft context
+- investor detail intelligence panel
+- activity touch tracking
+
+Capital Phase 2D:
+- investor email conversation linking
+- capital_email_links
+- capital_email_review
+- investor Email Conversations panel
+- Gmail sync hook
+- all APIs behind requireCapitalAccess
+
+Capital Phase 2E:
+- Round Command Center
+- weighted pipeline service
+- lead investor candidates
+- this-week action queue
+- risk flags
+- runway projections
+- scenario planning
+
+Capital Phase 2F:
+- valuation, dilution, allocation, and close-plan intelligence
+- allocation planner
+- close plan tracker
+- round close checklist
+
+Capital Phase 2G:
+- Capital Data Room
+- material library
+- material share tracking
+- material request queue
+- command-center data_room_intel
+- investor email context includes relevant_materials
+
+Capital Phase 2H:
+- Investor Portal + Secure External Sharing
+- token hash security
+- public /investor-portal/:token page
+- portal access panel
+- portal intelligence in Command Center
+
+Capital Phase 2I:
+- Investor Engagement Analytics
+- 0–100 engagement score
+- engagement tiers
+- /capital/engagement page
+- command-center engagement_intel
+- investor detail engagement panel
+- Data Room portal views
+
+Capital Phase 2J:
+- Board / CFO Reporting Pack
+- /capital/reports page
+- reporting APIs
+- weekly brief, board update, CFO closing report, investor engagement report
+- markdown/CSV support where implemented
+- board-safe vs internal-sensitive report handling
+
+Capital Phase 2K:
+- Capital AI Copilot
+- /capital/copilot page
+- Copilot query API
+- Capital context builder
+- strict prompt discipline
+- suggested prompts
+- action recommendations
+- email draft mode
+- board-safe mode
+- command-center/investor/report integration
+
+Now implement Phase 2L.
+
+Primary goal:
+Perform a full hardening, security, permissions, data integrity, UX, performance, and release-readiness pass across the entire Capital module so it is safe, stable, fast, and production-ready for Trevor and Scott.
+
+This is not a feature-expansion phase.
+This is a release-readiness phase.
+
+Do not add major new product features unless required to fix a release blocker.
+Do not loosen permissions.
+Do not expose Capital data outside CEO/CFO access.
+Do not fake data.
+Do not auto-send emails.
+Do not weaken security.
+
+1. Full Capital surface audit
+
+Audit every Capital page, route, service, schema table, and integration.
+
+Include:
+- /capital
+- /capital/command-center
+- /capital/investors
+- /capital/follow-ups
+- /capital/engagement
+- /capital/data-room
+- /capital/reports
+- /capital/copilot
+- /capital/email-review
+- /capital/rounds
+- /capital/commitments
+- /capital/contacts
+- /investor-portal/:token
+- all Capital API routes
+- all public investor portal routes
+- all Capital service files
+- all Capital tests
+- all nav/search/breadcrumb entries
+- all integrations with Mail, Cortex, Tasks, Reports, AI, Data Room, and Portal
+
+Deliver a release audit summary.
+
+2. Permission and access-control hardening
+
+Verify every Capital API route uses requireCapitalAccess or equivalent CEO/CFO-only guard.
+
+Verify all Capital pages are route-protected.
+
+Verify all Capital nav items are hidden from unauthorized users:
+- Command Center
+- Investors
+- Rounds & Commitments
+- Follow-Ups
+- Data Room
+- Email Review
+- Engagement
+- Reports
+- AI Copilot
+- any legacy Capital routes
+
+Verify unauthorized users cannot infer Capital data through:
+- API responses
+- nav
+- command search
+- global search
+- breadcrumbs
+- error messages
+- Cortex
+- Mail
+- Tasks
+- Reports
+- AI Copilot
+- public portal
+- logs
+- frontend preload/bootstrap data
+
+Add or update tests proving:
+- CEO Trevor has access
+- CFO Scott Carlson has access
+- admin does not have Capital access unless explicitly Trevor/Scott
+- manager/staff/user do not have access
+- unauthenticated users are blocked
+- public portal only exposes token-scoped safe data
+
+3. Public investor portal security audit
+
+Audit /investor-portal/:token and its APIs.
+
+Verify:
+- raw tokens are never stored
+- only token hashes are stored
+- token validation happens server-side
+- expired tokens are denied
+- revoked tokens are denied
+- invalid tokens are denied
+- disabled tokens are denied
+- only explicitly granted materials are visible
+- material permissions are respected
+- no internal Capital IDs leak where not needed
+- no investor scores leak
+- no commitments leak
+- no valuations leak
+- no internal notes leak
+- no email snippets leak
+- no Cortex records leak
+- no raw IPs are stored
+- IPs are hashed if stored
+- user-agent storage is bounded/truncated
+- portal events are deduped where needed
+- repeated opens do not spam activity
+
+4. AI Copilot hardening
+
+Audit Copilot context, prompts, and APIs.
+
+Verify:
+- Copilot uses only provided Capital context
+- prompts instruct not to fabricate facts
+- prompts preserve exact numbers
+- prompts separate facts from recommendations
+- board-safe mode excludes sensitive notes/email snippets
+- include_sensitive=false works
+- investor_id scopes context to one investor
+- round_id scopes context to one round
+- unrelated investor data is excluded
+- email_draft mode does not send emails
+- action recommendations are not executed automatically
+- unauthorized users cannot access Copilot context or outputs
+- no raw portal tokens or IPs enter Copilot context
+
+Add tests where gaps exist.
+
+5. Reporting hardening
+
+Audit reports and exports.
+
+Verify:
+- all report APIs are CEO/CFO-only
+- board-safe mode excludes internal notes and raw email snippets
+- markdown reports do not invent missing data
+- CSV exports only include authorized, intended data
+- reports show generated_at and source range
+- reports handle missing/incomplete data gracefully
+- unsupported export formats are not advertised
+- reports do not leak Capital data through browser/client errors
+
+6. Data integrity audit
+
+Audit all Capital tables and relationships:
+
+- capital_investors
+- capital_contacts
+- capital_rounds
+- capital_commitments
+- capital_activities
+- capital_email_links
+- capital_email_review
+- capital_materials
+- capital_material_shares
+- capital_material_requests
+- capital_portal_access
+- capital_portal_materials
+- capital_portal_events
+- any Copilot/report storage tables if added
+
+Verify:
+- foreign keys or safe reference handling
+- soft-delete behavior is consistent
+- duplicate prevention is working
+- unique constraints exist where needed
+- idempotent sync behavior exists
+- repeated email sync does not duplicate links
+- repeated portal opens do not spam activity
+- material share duplicates are handled
+- commitment/allocation values are numerically safe
+- nullable fields are handled safely
+- migrations are idempotent
+- migrations live in migrateCapitalSchema(), not route registration
+- no await exists in non-async route registration scopes
+
+7. Activity logging audit
+
+Verify activity is logged for meaningful actions:
+- investor created/updated
+- stage changed
+- contact added/updated
+- round created/updated
+- commitment created/updated
+- email linked
+- email review approved/rejected/ignored
+- material shared
+- material requested/fulfilled
+- portal access created/revoked
+- portal material viewed/downloaded where appropriate
+- allocation/closing status changed
+- Copilot-generated action/draft only if safe and intended
+
+Avoid noisy activity spam.
+
+Activity should not crash primary workflows.
+Use fire-and-forget safely where appropriate, with clear logging on error.
+
+8. UX consistency audit
+
+Audit every Capital page for:
+- loading states
+- empty states
+- error states
+- unauthorized states
+- stale data states
+- responsive layout
+- mobile/tablet basic usability
+- button labels
+- hover/focus states
+- keyboard accessibility where practical
+- consistent badges and colors
+- no dead buttons
+- no fake links
+- no fake upload/security claims
+- no unclear destructive actions
+
+Fix obvious UX issues.
+
+9. Navigation/search/breadcrumb audit
+
+Verify:
+- Capital nav is clean and not overwhelming
+- all Capital pages are reachable
+- old routes still resolve where applicable
+- command search finds all Capital pages by old and new names
+- restricted Capital pages do not appear in command search for unauthorized users
+- breadcrumbs show clear grouping
+- active sidebar state works
+- no duplicate nav IDs
+- no broken nav hrefs
+
+10. Performance audit
+
+Audit Capital first-load and heavy pages.
+
+Pages to check:
+- Command Center
+- Investors
+- Engagement
+- Data Room
+- Reports
+- Copilot
+- Email Review
+- Investor detail drawer
+
+Verify:
+- no giant unpaginated lists
+- endpoints paginate where needed
+- expensive intelligence calculations are bounded
+- command center queries are not wasteful
+- drilldowns/lists lazy-load when possible
+- public portal loads quickly
+- Copilot context builder is scoped and not over-fetching
+- Data Room and engagement analytics avoid massive payloads
+- frontend does not block shell render with Capital-heavy data
+
+Add timing logs or source tests if needed.
+
+11. Error handling and observability
+
+Verify backend errors:
+- are logged safely
+- do not leak secrets
+- do not leak Capital data
+- return useful status codes
+- have clear client-facing messages
+
+Verify frontend errors:
+- show safe messages
+- do not expose stack traces or sensitive data
+- allow retry where useful
+
+Add request IDs or route labels if existing logging pattern supports it.
+
+12. Security checks
+
+Search for and fix:
+- raw token storage
+- raw IP storage
+- exposed storage keys
+- public unauthenticated Capital APIs
+- missing requireCapitalAccess
+- unsafe string interpolation in SQL
+- unbounded query result sets
+- path traversal risks in file/material URLs
+- raw email body exposure in AI/report context
+- secret leakage in logs
+- broad Cortex context leaks
+- public portal access to internal routes
+- dangerous download/open behavior
+
+13. Build and TypeScript readiness
+
+Run:
+- npm run build
+- TypeScript check if separate
+- client build
+- server build
+
+Fix:
+- TypeScript errors
+- bad imports
+- unused broken references
+- route registration errors
+- non-async await placement
+- broken lazy imports
+- invalid JSX
+
+If TypeScript times out due to environment limits, document it and run narrower checks.
+
+14. Regression test suite
+
+Run and fix failures for:
+- capital foundation tests
+- capital permissions tests
+- capital intelligence tests
+- capital email-linking tests
+- capital command-center tests
+- capital valuation/allocation tests
+- capital data-room tests
+- capital portal tests
+- capital engagement tests
+- capital reporting tests
+- capital copilot tests
+- cortex-intel tests
+- marketing drilldown tests
+- nav-drift tests
+- nav-consolidation tests
+- admin-signatures tests
+- startup-invariants tests
+- Currents typing indicator tests if still flaky
+- full test:grep if practical
+
+If a test is flaky and unrelated, document root cause and either make it deterministic or isolate it properly.
+
+Do not ignore real failures.
+
+15. Release checklist document
+
+Create or update:
+
+docs/capital-release-readiness.md
+
+Include:
+- release scope
+- pages included
+- APIs included
+- permission model
+- public portal security model
+- known limitations
+- unsupported features
+- test results
+- build results
+- rollback notes
+- smoke test checklist
+- post-release monitoring checklist
+
+16. Smoke test checklist
+
+Document and/or automate smoke checks:
+
+Authorized CEO/CFO:
+- can open Capital pages
+- can view Command Center
+- can open investor detail
+- can view linked emails
+- can use Data Room
+- can create/revoke portal access
+- can open Engagement
+- can generate reports
+- can use Copilot
+- can update runway/valuation/allocation fields
+
+Unauthorized user:
+- cannot see Capital nav
+- cannot access Capital URLs
+- receives safe forbidden/redirect
+- cannot call Capital APIs
+- cannot access Copilot/report/context data
+
+Public investor portal:
+- valid token opens portal
+- expired token denied
+- revoked token denied
+- invalid token denied
+- only granted materials visible
+
+17. Known limitations
+
+Document honest limitations.
+
+Examples:
+- secure file upload/storage not implemented if metadata-only
+- PDF export not implemented if unsupported
+- Copilot is advisory only and does not execute actions
+- email bodies are summarized/snippet-based if full-body context is intentionally excluded
+- engagement scoring is heuristic and transparent, not predictive magic
+
+18. Acceptance criteria
+
+Phase 2L is complete when:
+
+- every Capital route/page/API is permission-audited
+- public portal is token-security audited
+- no Capital data leaks to unauthorized users
+- build passes or environment limitation is clearly documented
+- Capital regression tests pass
+- nav/search restrictions pass
+- Copilot/reporting contexts are scoped and safe
+- migrations are idempotent and correctly located
+- release-readiness doc exists
+- smoke checklist exists
+- known limitations are documented
+- no major dead buttons or fake claims remain
+
+19. Deliverables
+
+Provide:
+- audit summary
+- security findings/fixes
+- permission confirmation
+- build result
+- full test results
+- files changed
+- release-readiness document path
+- known limitations
+- recommended post-release monitoring
+- recommended Phase 3 roadmap, if any
+
+Do not modify unrelated modules unless required to fix broken tests or shared security holes.
+Do not weaken auth.
+Do not expose Capital data outside CEO/CFO access.
+Do not auto-send emails.
+Do not fabricate report/Copilot facts.
+Do not claim secure file upload/PDF export exists unless actually implemented.
+Do not store raw portal tokens.
+Do not expose raw IP addresses.

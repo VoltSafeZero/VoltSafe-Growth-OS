@@ -768,6 +768,10 @@ export async function registerRoutes(
   registerTeamCalendarRoutes(app, requireAuth);
   const { registerCapitalRoutes } = await import("./routes-capital");
   registerCapitalRoutes(app, requireAuth);
+  const { registerPipelineDrilldownRoutes } = await import("./routes-pipeline-drilldown");
+  registerPipelineDrilldownRoutes(app, requireAuth, requirePermission);
+  const { registerInsightsDrilldownRoutes } = await import("./routes-insights-drilldown");
+  registerInsightsDrilldownRoutes(app, requireAuth, requirePermission);
 
   // ── Help Center: end-of-day asset refresh ───────────────────────────────────
   // Runs only on days when the production app has been republished that day

@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -139,13 +140,17 @@ function DeltaChip({ d }: { d: KpiDelta | null }) {
 
 // ── KPI Card ──────────────────────────────────────────────────────────────────
 function KpiCard({
-  label, value, sub, color, icon: Icon, board, deltaVal,
+  label, value, sub, color, icon: Icon, board, deltaVal, onClick,
 }: {
   label: string; value: string | number; sub?: string; color?: string;
-  icon: any; board?: boolean; deltaVal?: KpiDelta | null;
+  icon: any; board?: boolean; deltaVal?: KpiDelta | null; onClick?: () => void;
 }) {
   return (
-    <Card className="border border-border/50" data-testid={`kpi-${label.toLowerCase().replace(/[\s/]/g,"-")}`}>
+    <Card
+      className={`border border-border/50 ${onClick ? "cursor-pointer hover:border-primary/40 transition-colors" : ""}`}
+      data-testid={`kpi-${label.toLowerCase().replace(/[\s/]/g,"-")}`}
+      onClick={onClick}
+    >
       <CardContent className={board ? "p-4" : "p-3"}>
         <div className="flex items-center justify-between mb-1">
           <span className="text-xs text-muted-foreground font-medium">{label}</span>
@@ -242,6 +247,8 @@ export default function ExecutiveDashboardPage() {
   const [dateTo,   setDateTo]   = useState("");
   const [ownerId,  setOwnerId]  = useState("all");
   const [activeTab, setActiveTab] = useState("overview");
+  const [drilldown, setDrilldown] = useState<UniversalDrilldownConfig | null>(null);
+  const dd = (metric: string, title?: string) => () => setDrilldown({ metric, title });
 
   const { data: users } = useQuery<any[]>({ queryKey: ["/api/users"] });
 
@@ -382,22 +389,26 @@ export default function ExecutiveDashboardPage() {
               <KpiCard label="Total Pipeline"
                 value={fmtAmt(cur(kpis.pipeline.totalPipeline))}
                 deltaVal={delta(kpis.pipeline.totalPipeline)}
-                icon={DollarSign} color="text-primary" board={boardMode} />
+                icon={DollarSign} color="text-primary" board={boardMode}
+                onClick={dd("exec_total_pipeline", "Total Pipeline")} />
               <KpiCard label="Weighted Forecast"
                 value={fmtAmt(cur(kpis.pipeline.weightedPipeline))}
                 deltaVal={delta(kpis.pipeline.weightedPipeline)}
                 icon={Target} board={boardMode}
-                sub={`Commit: ${fmtAmt(kpis.pipeline.commitAmount)}`} />
+                sub={`Commit: ${fmtAmt(kpis.pipeline.commitAmount)}`}
+                onClick={dd("exec_weighted_forecast", "Weighted Forecast")} />
               <KpiCard label="Open Opportunities"
                 value={cur(kpis.pipeline.totalOpps)}
                 deltaVal={delta(kpis.pipeline.totalOpps)}
                 icon={Target} board={boardMode}
                 sub={`${kpis.pipeline.stalledCount} stalled`}
-                color={kpis.pipeline.stalledCount > 5 ? "text-amber-400" : undefined} />
+                color={kpis.pipeline.stalledCount > 5 ? "text-amber-400" : undefined}
+                onClick={dd("exec_open_opps", "Open Opportunities")} />
               <KpiCard label="Closed Won"
                 value={fmtAmt(kpis.pipeline.closedWonAmount)}
                 icon={Trophy} color="text-emerald-400" board={boardMode}
-                sub={`${kpis.pipeline.closedWonCount} deals`} />
+                sub={`${kpis.pipeline.closedWonCount} deals`}
+                onClick={dd("exec_closed_won", "Closed Won")} />
             </div>
           </div>
 
@@ -410,18 +421,24 @@ export default function ExecutiveDashboardPage() {
               <KpiCard label="Accepted Revenue"
                 value={fmtAmt(cur(kpis.quotes.acceptedRevenue))}
                 deltaVal={delta(kpis.quotes.acceptedRevenue)}
-                color="text-emerald-400" icon={DollarSign} board={boardMode} />
-              <KpiCard label="Revenue This Month"  value={fmtAmt(kpis.quotes.acceptedRevenueMonth)} icon={Calendar} board={boardMode} />
-              <KpiCard label="Revenue This Quarter" value={fmtAmt(kpis.quotes.acceptedRevenueQtr)} icon={Calendar} board={boardMode} />
+                color="text-emerald-400" icon={DollarSign} board={boardMode}
+                onClick={dd("exec_accepted_revenue", "Accepted Revenue")} />
+              <KpiCard label="Revenue This Month"  value={fmtAmt(kpis.quotes.acceptedRevenueMonth)} icon={Calendar} board={boardMode}
+                onClick={dd("exec_revenue_month", "Revenue This Month")} />
+              <KpiCard label="Revenue This Quarter" value={fmtAmt(kpis.quotes.acceptedRevenueQtr)} icon={Calendar} board={boardMode}
+                onClick={dd("exec_revenue_qtr", "Revenue This Quarter")} />
               <KpiCard label="Win Rate"
                 value={pct(cur(kpis.quotes.winRate))}
                 deltaVal={delta(kpis.quotes.winRate)}
                 icon={Trophy}
-                color={cur(kpis.quotes.winRate) >= 40 ? "text-emerald-400" : cur(kpis.quotes.winRate) >= 20 ? "text-amber-400" : "text-red-400"} board={boardMode} />
-              <KpiCard label="Avg Deal Value"      value={fmtAmt(kpis.quotes.avgAcceptedValue)} icon={DollarSign} board={boardMode} />
+                color={cur(kpis.quotes.winRate) >= 40 ? "text-emerald-400" : cur(kpis.quotes.winRate) >= 20 ? "text-amber-400" : "text-red-400"} board={boardMode}
+                onClick={dd("exec_win_rate", "Win Rate — Quote Outcomes")} />
+              <KpiCard label="Avg Deal Value"      value={fmtAmt(kpis.quotes.avgAcceptedValue)} icon={DollarSign} board={boardMode}
+                onClick={dd("exec_avg_deal", "Average Deal Value")} />
               <KpiCard label="Awaiting Response"   value={kpis.quotes.awaitingResponse} icon={Clock}
                 color={kpis.quotes.awaitingResponse > 5 ? "text-amber-400" : undefined} board={boardMode}
-                sub={`${kpis.quotes.sent} sent total`} />
+                sub={`${kpis.quotes.sent} sent total`}
+                onClick={dd("exec_awaiting_response", "Awaiting Response")} />
             </div>
           </div>
 
@@ -432,14 +449,17 @@ export default function ExecutiveDashboardPage() {
                 <Hammer className="h-3.5 w-3.5" /> Install & Delivery
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <KpiCard label="In Progress" value={kpis.installs.inProgress} icon={RefreshCw} color="text-blue-400" board={boardMode} />
+                <KpiCard label="In Progress" value={kpis.installs.inProgress} icon={RefreshCw} color="text-blue-400" board={boardMode}
+                  onClick={dd("exec_installs_in_progress", "Installs In Progress")} />
                 <KpiCard label="Completed (Qtr)" value={kpis.installs.completedQtr} icon={CheckCircle2} color="text-emerald-400" board={boardMode}
                   sub={`${cur(kpis.installs.completedMonth)} this month`}
                   deltaVal={delta(kpis.installs.completedMonth)} />
                 <KpiCard label="With Blockers" value={kpis.installs.withBlockers} icon={AlertTriangle}
-                  color={kpis.installs.withBlockers > 0 ? "text-amber-400" : undefined} board={boardMode} />
+                  color={kpis.installs.withBlockers > 0 ? "text-amber-400" : undefined} board={boardMode}
+                  onClick={dd("exec_installs_with_blockers", "Installs With Blockers")} />
                 <KpiCard label="Overdue" value={kpis.installs.overdueInstalls} icon={XCircle}
-                  color={kpis.installs.overdueInstalls > 0 ? "text-red-400" : undefined} board={boardMode} />
+                  color={kpis.installs.overdueInstalls > 0 ? "text-red-400" : undefined} board={boardMode}
+                  onClick={dd("exec_installs_overdue", "Overdue Installs")} />
               </div>
             </div>
             <div>
@@ -447,16 +467,20 @@ export default function ExecutiveDashboardPage() {
                 <Users className="h-3.5 w-3.5" /> Lead Funnel
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <KpiCard label="Total Leads"    value={kpis.leads.total.toLocaleString()} icon={Users} board={boardMode} />
+                <KpiCard label="Total Leads"    value={kpis.leads.total.toLocaleString()} icon={Users} board={boardMode}
+                  onClick={dd("exec_leads_total", "Total Leads")} />
                 <KpiCard label="New This Month"
                   value={cur(kpis.leads.newThisMonth)}
                   deltaVal={delta(kpis.leads.newThisMonth)}
-                  icon={Zap} board={boardMode} />
+                  icon={Zap} board={boardMode}
+                  onClick={dd("exec_leads_new_month", "New Leads This Month")} />
                 <KpiCard label="Converted"
                   value={kpis.leads.converted.toLocaleString()}
-                  icon={CheckCircle2} color="text-emerald-400" board={boardMode} />
+                  icon={CheckCircle2} color="text-emerald-400" board={boardMode}
+                  onClick={dd("exec_leads_converted", "Converted Leads")} />
                 <KpiCard label="No Owner"       value={kpis.leads.noOwner} icon={User}
-                  color={kpis.leads.noOwner > 10 ? "text-amber-400" : undefined} board={boardMode} />
+                  color={kpis.leads.noOwner > 10 ? "text-amber-400" : undefined} board={boardMode}
+                  onClick={dd("exec_leads_no_owner", "Leads Without Owner")} />
               </div>
             </div>
           </div>
@@ -977,6 +1001,12 @@ export default function ExecutiveDashboardPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <UniversalDrilldownSheet
+        config={drilldown}
+        onClose={() => setDrilldown(null)}
+        endpoint="/api/insights/drilldown"
+      />
     </div>
   );
 }

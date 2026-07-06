@@ -3,6 +3,7 @@
  */
 
 import { useState } from "react";
+import { UniversalDrilldownSheet } from "@/components/shared/universal-drilldown-sheet";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -533,12 +534,12 @@ function HeatmapTable({ data, onNavigate }: { data: AccountEngagement[]; onNavig
 
 // ── Summary Stat Card ─────────────────────────────────────────────────────────
 
-function StatCard({ label, value, sub, icon: Icon, iconClass }: {
+function StatCard({ label, value, sub, icon: Icon, iconClass, onClick }: {
   label: string; value: number | string; sub?: string;
-  icon: React.FC<{ className?: string }>; iconClass?: string;
+  icon: React.FC<{ className?: string }>; iconClass?: string; onClick?: () => void;
 }) {
   return (
-    <Card className="border-border/50">
+    <Card className={`border-border/50 ${onClick ? "cursor-pointer hover:border-primary/40 transition-colors" : ""}`} onClick={onClick}>
       <CardContent className="px-4 py-3">
         <div className="flex items-center justify-between mb-1">
           <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide font-medium">{label}</p>
@@ -555,6 +556,8 @@ function StatCard({ label, value, sub, icon: Icon, iconClass }: {
 
 export default function RevenueIntelligencePage() {
   const [, navigate] = useLocation();
+  const [drilldown, setDrilldown] = useState<import("@/components/shared/universal-drilldown-sheet").UniversalDrilldownConfig | null>(null);
+  const dd = (metric: string, title: string) => () => setDrilldown({ metric, title });
 
   const { data, isLoading, refetch, isFetching } = useQuery<CommandCenterData>({
     queryKey: ["/api/revenue-intelligence/command-center"],
@@ -616,10 +619,10 @@ export default function RevenueIntelligencePage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="ri-summary-stats">
-            <StatCard label="Hot Accounts"    value={summary?.hotCount ?? 0}            icon={Flame}     iconClass="text-orange-400" sub="Score ≥ 50" />
+            <StatCard label="Hot Accounts"    value={summary?.hotCount ?? 0}            icon={Flame}     iconClass="text-orange-400" sub="Score ≥ 50"       onClick={dd("revint_hot_accounts", "Hot Accounts")} />
             <StatCard label="Active Accounts" value={summary?.totalActiveAccounts ?? 0} icon={Building2} iconClass="text-primary"    sub="With engagement" />
             <StatCard label="Avg Score"       value={summary?.avgScore ?? 0}            icon={BarChart3} iconClass="text-sky-400"    sub="0–100 scale" />
-            <StatCard label="Follow-Ups"      value={data?.followUpOpportunities?.length ?? 0} icon={Clock} iconClass="text-amber-400" sub="Gone quiet" />
+            <StatCard label="Follow-Ups"      value={data?.followUpOpportunities?.length ?? 0} icon={Clock} iconClass="text-amber-400" sub="Gone quiet"    onClick={dd("revint_stalled_pipeline", "Follow-Up Opportunities")} />
           </div>
         )}
 
@@ -762,6 +765,12 @@ export default function RevenueIntelligencePage() {
           <HeatmapTable data={data?.heatmap ?? []} onNavigate={goToAccount} />
         )}
       </div>
+
+      <UniversalDrilldownSheet
+        config={drilldown}
+        onClose={() => setDrilldown(null)}
+        endpoint="/api/insights/drilldown"
+      />
     </div>
   );
 }
