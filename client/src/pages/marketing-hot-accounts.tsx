@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MarketingDrilldownSheet, type DrilldownConfig } from "@/components/marketing/marketing-drilldown-sheet";
 
 const HEAT_LABELS = ["Hot", "Warm", "Nurture", "Low", "Cold"] as const;
 
@@ -60,6 +61,7 @@ function formatAgo(ts: string | null): string {
 export default function MarketingHotAccountsPage() {
   const [labelFilter, setLabelFilter] = useState<string>("all");
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [drilldown, setDrilldown] = useState<DrilldownConfig | null>(null);
 
   const { data: accounts = [], isLoading } = useQuery<HeatAccount[]>({
     queryKey: ["/api/marketing/account-heat", labelFilter],
@@ -115,7 +117,10 @@ export default function MarketingHotAccountsPage() {
               return (
                 <button
                   key={label}
-                  onClick={() => setLabelFilter(label)}
+                  onClick={() => {
+                    setLabelFilter(label);
+                    setDrilldown({ metric: "hot_accounts_by_label", title: label === "all" ? "All Accounts" : `${label} Accounts`, extraParams: { label } });
+                  }}
                   className={`rounded-xl border px-4 py-3 text-left transition-colors ${
                     labelFilter === label ? "border-primary bg-primary/10" : "border-border/40 bg-muted/10 hover:bg-muted/20"
                   }`}
@@ -270,6 +275,8 @@ export default function MarketingHotAccountsPage() {
           </div>
         )}
       </div>
+
+      <MarketingDrilldownSheet config={drilldown} onClose={() => setDrilldown(null)} />
     </div>
   );
 }

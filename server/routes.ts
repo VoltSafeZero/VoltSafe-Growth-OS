@@ -38670,6 +38670,546 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // ── GET /api/marketing/drilldown — universal Marketing drilldown ─────────────
+  // Supports: contact-level compliance metrics + campaign-level rate metrics + consent source
+  app.get("/api/marketing/drilldown", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    try {
+      const metric    = String(req.query.metric    ?? "").trim();
+      const page      = Math.max(1, Number(req.query.page)      || 1);
+      const pageSize  = Math.min(100, Math.max(1, Number(req.query.page_size) || 25));
+      const offset    = (page - 1) * pageSize;
+      const search    = String(req.query.search    ?? "").trim();
+
+      if (!metric) return res.status(400).json({ message: "metric query param is required" });
+
+      const safeSearch = search.replace(/'/g, "''");
+
+      // ── Contact-level compliance metrics ──────────────────────────────────────
+      const CONTACT_METRIC_MAP: Record<string, { title: string; description: string; where: string }> = {
+        unknown_jurisdiction: {
+          title: "Unknown Jurisdiction",
+          description: "Contacts missing or unclassified jurisdiction — cannot reliably send CASL or CAN-SPAM compliant emails.",
+          where: "(c.jurisdiction IS NULL OR c.jurisdiction = '' OR c.jurisdiction = 'unknown')",
+        },
+        jurisdiction_canada: {
+          title: "Canada",
+          description: "Contacts classified as Canadian — subject to CASL consent requirements.",
+          where: "c.jurisdiction = 'canada'",
+        },
+        jurisdiction_us: {
+          title: "United States",
+          description: "Contacts classified as US — subject to CAN-SPAM requirements.",
+          where: "c.jurisdiction = 'us'",
+        },
+        jurisdiction_other: {
+          title: "Other Jurisdiction",
+          description: "Contacts with non-Canada, non-US jurisdiction (international).",
+          where: "c.jurisdiction = 'international'",
+        },
+        express_consent: {
+          title: "Express Consent",
+          description: "Canadian contacts with documented express CASL consent.",
+          where: "c.jurisdiction = 'canada' AND c.consent_status = 'express'",
+        },
+        implied_active: {
+          title: "Implied Active",
+          description: "Canadian contacts with active implied CASL consent (not yet expired).",
+          where: "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND (c.implied_consent_expiry_date IS NULL OR c.implied_consent_expiry_date > CURRENT_DATE)",
+        },
+        implied_expiring_30: {
+          title: "Expiring in 30 Days",
+          description: "Canadian contacts with implied consent expiring within 30 days — action required.",
+          where: "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND c.implied_consent_expiry_date IS NOT NULL AND c.implied_consent_expiry_date > CURRENT_DATE AND c.implied_consent_expiry_date <= CURRENT_DATE + INTERVAL '30 days'",
+        },
+        implied_expiring_60: {
+          title: "Expiring in 60 Days",
+          description: "Canadian contacts with implied consent expiring within 60 days.",
+          where: "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND c.implied_consent_expiry_date IS NOT NULL AND c.implied_consent_expiry_date > CURRENT_DATE AND c.implied_consent_expiry_date <= CURRENT_DATE + INTERVAL '60 days'",
+        },
+        implied_expiring_90: {
+          title: "Expiring in 90 Days",
+          description: "Canadian contacts with implied consent expiring within 90 days.",
+          where: "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND c.implied_consent_expiry_date IS NOT NULL AND c.implied_consent_expiry_date > CURRENT_DATE AND c.implied_consent_expiry_date <= CURRENT_DATE + INTERVAL '90 days'",
+        },
+        implied_expired: {
+          title: "Expired Implied Consent",
+          description: "Canadian contacts whose implied consent has expired — cannot receive commercial emails under CASL.",
+          where: "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND c.implied_consent_expiry_date IS NOT NULL AND c.implied_consent_expiry_date <= CURRENT_DATE",
+        },
+        missing_consent_proof: {
+          title: "Missing Consent Proof",
+          description: "Canadian express-consent contacts missing a documented consent source.",
+          where: "c.jurisdiction = 'canada' AND c.consent_status = 'express' AND (c.consent_source IS NULL OR c.consent_source = '')",
+        },
+        unknown_consent: {
+          title: "Unknown Consent",
+          description: "Contacts with no consent classification — cannot safely receive commercial emails.",
+          where: "(c.consent_status IS NULL OR c.consent_status = '' OR c.consent_status = 'unknown')",
+        },
+        us_biz_eligible: {
+          title: "US B2B Eligible",
+          description: "US contacts eligible to receive commercial email under CAN-SPAM B2B rules.",
+          where: "c.jurisdiction = 'us' AND (c.suppression_status = 'none' OR c.suppression_status IS NULL) AND (c.unsubscribe_status = 'subscribed' OR c.unsubscribe_status IS NULL)",
+        },
+        us_opted_out: {
+          title: "US Opted-Out",
+          description: "US contacts who have opted out or are suppressed under CAN-SPAM.",
+          where: "c.jurisdiction = 'us' AND (c.unsubscribe_status = 'unsubscribed' OR (c.suppression_status IS NOT NULL AND c.suppression_status != 'none' AND c.suppression_status != 'quarantined'))",
+        },
+        unsubscribed: {
+          title: "Unsubscribed",
+          description: "Contacts who have explicitly unsubscribed from commercial emails.",
+          where: "c.unsubscribe_status = 'unsubscribed'",
+        },
+        suppressed: {
+          title: "Suppressed",
+          description: "Contacts blocked from receiving emails due to bounces, complaints, or manual suppression.",
+          where: "c.suppression_status IS NOT NULL AND c.suppression_status != 'none' AND c.suppression_status != 'quarantined'",
+        },
+        quarantined: {
+          title: "Quarantined Imports",
+          description: "Contacts quarantined during import due to missing or invalid consent/jurisdiction data.",
+          where: "c.suppression_status = 'quarantined'",
+        },
+      };
+
+      if (CONTACT_METRIC_MAP[metric]) {
+        const { title, description, where } = CONTACT_METRIC_MAP[metric];
+        const srch = safeSearch
+          ? ` AND (c.name ILIKE '%${safeSearch}%' OR c.email ILIKE '%${safeSearch}%' OR COALESCE(a.name,'') ILIKE '%${safeSearch}%')`
+          : "";
+
+        const countRes = (await db.execute(sql.raw(`
+          SELECT COUNT(*) AS cnt
+          FROM contacts c
+          LEFT JOIN accounts a ON a.id = c.account_id
+          WHERE ${where}${srch}
+        `))).rows as any[];
+        const total = Number(countRes[0]?.cnt ?? 0);
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT c.id, c.name, c.email,
+            COALESCE(a.name,'') AS account_name, a.id AS account_id,
+            c.jurisdiction, c.consent_status, c.consent_type, c.consent_source,
+            c.implied_consent_expiry_date, c.unsubscribe_status, c.unsubscribe_source,
+            c.suppression_status, c.suppression_reason,
+            c.province_state, c.lead_source, c.created_at
+          FROM contacts c
+          LEFT JOIN accounts a ON a.id = c.account_id
+          WHERE ${where}${srch}
+          ORDER BY c.created_at DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `))).rows as any[];
+
+        const CONTACT_COLS = [
+          { key: "name",                       label: "Name" },
+          { key: "email",                      label: "Email" },
+          { key: "account_name",               label: "Company" },
+          { key: "jurisdiction",               label: "Jurisdiction" },
+          { key: "consent_status",             label: "Consent Status" },
+          { key: "consent_source",             label: "Consent Source" },
+          { key: "consent_type",               label: "Consent Type" },
+          { key: "implied_consent_expiry_date",label: "Consent Expiry" },
+          { key: "unsubscribe_status",         label: "Unsub Status" },
+          { key: "unsubscribe_source",         label: "Unsub Source" },
+          { key: "suppression_status",         label: "Suppression" },
+          { key: "suppression_reason",         label: "Suppression Reason" },
+          { key: "province_state",             label: "Province/State" },
+          { key: "lead_source",                label: "Lead Source" },
+          { key: "created_at",                 label: "Created" },
+        ];
+
+        // Per-metric column visibility
+        const hideCols: Record<string, string[]> = {
+          unknown_jurisdiction:  ["consent_type","implied_consent_expiry_date","unsubscribe_source","suppression_status","suppression_reason"],
+          jurisdiction_canada:   ["unsubscribe_source","suppression_status","suppression_reason","lead_source"],
+          jurisdiction_us:       ["consent_type","consent_source","implied_consent_expiry_date"],
+          jurisdiction_other:    ["consent_type","implied_consent_expiry_date","suppression_status","suppression_reason"],
+          express_consent:       ["implied_consent_expiry_date","unsubscribe_status","unsubscribe_source","suppression_status","suppression_reason"],
+          implied_active:        ["consent_type","unsubscribe_status","unsubscribe_source","suppression_status","suppression_reason"],
+          implied_expiring_30:   ["consent_type","consent_source","unsubscribe_status","unsubscribe_source","suppression_status","suppression_reason"],
+          implied_expiring_60:   ["consent_type","consent_source","unsubscribe_status","unsubscribe_source","suppression_status","suppression_reason"],
+          implied_expiring_90:   ["consent_type","consent_source","unsubscribe_status","unsubscribe_source","suppression_status","suppression_reason"],
+          implied_expired:       ["consent_type","consent_source","unsubscribe_status","unsubscribe_source","suppression_status","suppression_reason"],
+          missing_consent_proof: ["consent_type","implied_consent_expiry_date","unsubscribe_status","unsubscribe_source","suppression_status","suppression_reason"],
+          unknown_consent:       ["consent_type","consent_source","implied_consent_expiry_date","suppression_status","suppression_reason"],
+          us_biz_eligible:       ["consent_type","consent_source","implied_consent_expiry_date","unsubscribe_source","suppression_status","suppression_reason"],
+          us_opted_out:          ["consent_type","consent_source","implied_consent_expiry_date"],
+          unsubscribed:          ["consent_type","consent_source","implied_consent_expiry_date","suppression_status","suppression_reason"],
+          suppressed:            ["consent_type","consent_source","implied_consent_expiry_date","unsubscribe_source"],
+          quarantined:           ["consent_type","consent_status","implied_consent_expiry_date","unsubscribe_status","unsubscribe_source","suppression_status"],
+        };
+
+        const hide = new Set(hideCols[metric] ?? []);
+        const cols = CONTACT_COLS.filter(c => !hide.has(c.key));
+
+        return res.json({
+          metric, title, description,
+          total, page, page_size: pageSize,
+          total_pages: Math.max(1, Math.ceil(total / pageSize)),
+          columns: cols, rows,
+          refreshed_at: new Date().toISOString(),
+        });
+      }
+
+      // ── Campaigns blocked ─────────────────────────────────────────────────────
+      if (metric === "campaigns_blocked") {
+        const srch = safeSearch ? ` AND mc.campaign_name ILIKE '%${safeSearch}%'` : "";
+
+        const countRes = (await db.execute(sql.raw(`
+          SELECT COUNT(*) AS cnt FROM marketing_campaigns mc
+          WHERE (mc.compliance_status = 'preflight_failed' OR mc.compliance_status = 'blocked')${srch}
+        `))).rows as any[];
+        const total = Number(countRes[0]?.cnt ?? 0);
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT mc.id, mc.campaign_name, mc.status, mc.compliance_status,
+            mc.blocked_recipient_count, mc.total_recipients,
+            mc.recipient_count_before_preflight, mc.recipient_count_after_suppression,
+            COALESCE(u.name,'') AS owner_name, mc.created_at
+          FROM marketing_campaigns mc
+          LEFT JOIN users u ON u.id = mc.owner_user_id
+          WHERE (mc.compliance_status = 'preflight_failed' OR mc.compliance_status = 'blocked')${srch}
+          ORDER BY mc.created_at DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `))).rows as any[];
+
+        return res.json({
+          metric,
+          title: "Campaigns Blocked by Compliance",
+          description: "Campaigns that failed preflight compliance checks and cannot be sent.",
+          total, page, page_size: pageSize,
+          total_pages: Math.max(1, Math.ceil(total / pageSize)),
+          columns: [
+            { key: "campaign_name",                    label: "Campaign" },
+            { key: "compliance_status",                label: "Compliance" },
+            { key: "blocked_recipient_count",          label: "Blocked Recipients" },
+            { key: "recipient_count_before_preflight", label: "Before Preflight" },
+            { key: "owner_name",                       label: "Owner" },
+            { key: "created_at",                       label: "Created" },
+          ],
+          rows, refreshed_at: new Date().toISOString(),
+        });
+      }
+
+      // ── Campaign rate metrics ──────────────────────────────────────────────────
+      if (metric === "avg_unsub_rate" || metric === "avg_bounce_rate" || metric === "spam_complaint_rate") {
+        const srch = safeSearch ? ` AND mc.campaign_name ILIKE '%${safeSearch}%'` : "";
+
+        const META: Record<string, { title: string; description: string; order: string }> = {
+          avg_unsub_rate:      { title: "Campaigns by Unsubscribe Rate",   description: "Campaigns contributing to the average unsubscribe rate.",   order: "ROUND(100.0 * mc.unsubscribed_count / NULLIF(mc.sent_count,0), 2) DESC NULLS LAST" },
+          avg_bounce_rate:     { title: "Campaigns by Bounce Rate",        description: "Campaigns contributing to the average bounce rate.",         order: "ROUND(100.0 * mc.bounced_count / NULLIF(mc.sent_count,0), 2) DESC NULLS LAST" },
+          spam_complaint_rate: { title: "Campaigns by Spam Complaint Rate",description: "Campaigns with reported spam complaints.",                    order: "mc.sent_count DESC" },
+        };
+        const { title, description, order } = META[metric];
+
+        const countRes = (await db.execute(sql.raw(`
+          SELECT COUNT(*) AS cnt FROM marketing_campaigns mc
+          WHERE mc.sent_count > 0${srch}
+        `))).rows as any[];
+        const total = Number(countRes[0]?.cnt ?? 0);
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT mc.id, mc.campaign_name, mc.status, mc.compliance_status,
+            mc.sent_count, mc.delivered_count, mc.opened_count, mc.bounced_count,
+            mc.unsubscribed_count, mc.replied_count,
+            ROUND(100.0 * mc.unsubscribed_count / NULLIF(mc.sent_count, 0), 2) AS unsub_rate,
+            ROUND(100.0 * mc.bounced_count      / NULLIF(mc.sent_count, 0), 2) AS bounce_rate
+          FROM marketing_campaigns mc
+          WHERE mc.sent_count > 0${srch}
+          ORDER BY ${order}
+          LIMIT ${pageSize} OFFSET ${offset}
+        `))).rows as any[];
+
+        return res.json({
+          metric, title, description,
+          total, page, page_size: pageSize,
+          total_pages: Math.max(1, Math.ceil(total / pageSize)),
+          columns: [
+            { key: "campaign_name",     label: "Campaign" },
+            { key: "sent_count",        label: "Sent" },
+            { key: "delivered_count",   label: "Delivered" },
+            { key: "opened_count",      label: "Opened" },
+            { key: "unsub_rate",        label: "Unsub %" },
+            { key: "bounce_rate",       label: "Bounce %" },
+            { key: "status",            label: "Status" },
+            { key: "compliance_status", label: "Compliance" },
+          ],
+          rows, refreshed_at: new Date().toISOString(),
+        });
+      }
+
+      // ── Campaign summary metrics (all campaigns) ───────────────────────────────
+      if (metric === "all_campaigns" || metric === "active_campaigns" || metric === "campaigns_with_replies" || metric === "campaigns_needs_approval") {
+        const srch = safeSearch ? ` AND mc.campaign_name ILIKE '%${safeSearch}%'` : "";
+
+        const WHERE_MAP: Record<string, { title: string; description: string; where: string }> = {
+          all_campaigns:           { title: "All Campaigns",               description: "Every campaign in the system.",                                       where: "1=1" },
+          active_campaigns:        { title: "Active Campaigns",            description: "Campaigns currently running.",                                        where: "mc.status = 'active'" },
+          campaigns_with_replies:  { title: "Campaigns with Replies",      description: "Campaigns that have received at least one inbound reply.",            where: "mc.replied_count > 0" },
+          campaigns_needs_approval:{ title: "Campaigns Needing Approval",  description: "Campaigns awaiting approval before sending.",                         where: "mc.status = 'scheduled'" },
+        };
+        const { title, description, where } = WHERE_MAP[metric] ?? WHERE_MAP.all_campaigns;
+
+        const countRes = (await db.execute(sql.raw(`
+          SELECT COUNT(*) AS cnt FROM marketing_campaigns mc WHERE ${where}${srch}
+        `))).rows as any[];
+        const total = Number(countRes[0]?.cnt ?? 0);
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT mc.id, mc.campaign_name, mc.campaign_type, mc.status, mc.compliance_status,
+            mc.total_recipients, mc.sent_count, mc.opened_count, mc.clicked_count,
+            mc.replied_count, mc.bounced_count, mc.unsubscribed_count, mc.demo_booked_count,
+            COALESCE(u.name,'') AS owner_name, mc.created_at
+          FROM marketing_campaigns mc
+          LEFT JOIN users u ON u.id = mc.owner_user_id
+          WHERE ${where}${srch}
+          ORDER BY mc.updated_at DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `))).rows as any[];
+
+        return res.json({
+          metric, title, description,
+          total, page, page_size: pageSize,
+          total_pages: Math.max(1, Math.ceil(total / pageSize)),
+          columns: [
+            { key: "campaign_name",    label: "Campaign" },
+            { key: "campaign_type",    label: "Type" },
+            { key: "status",           label: "Status" },
+            { key: "sent_count",       label: "Sent" },
+            { key: "opened_count",     label: "Opened" },
+            { key: "replied_count",    label: "Replies" },
+            { key: "demo_booked_count",label: "Demos" },
+            { key: "compliance_status",label: "Compliance" },
+            { key: "owner_name",       label: "Owner" },
+          ],
+          rows, refreshed_at: new Date().toISOString(),
+        });
+      }
+
+      // ── Consent source drilldown ───────────────────────────────────────────────
+      if (metric === "consent_source") {
+        const source = String(req.query.source ?? "").trim();
+        const safeSrc = source.replace(/'/g, "''");
+        const srcWhere = source && source !== "Unknown"
+          ? `c.consent_source = '${safeSrc}'`
+          : source === "Unknown"
+          ? "(c.consent_source IS NULL OR c.consent_source = '')"
+          : "1=1";
+        const srch = safeSearch ? ` AND (c.name ILIKE '%${safeSearch}%' OR c.email ILIKE '%${safeSearch}%')` : "";
+
+        const countRes = (await db.execute(sql.raw(`
+          SELECT COUNT(*) AS cnt FROM contacts c WHERE ${srcWhere}${srch}
+        `))).rows as any[];
+        const total = Number(countRes[0]?.cnt ?? 0);
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT c.id, c.name, c.email,
+            COALESCE(a.name,'') AS account_name, a.id AS account_id,
+            c.consent_source, c.consent_status, c.jurisdiction, c.created_at
+          FROM contacts c
+          LEFT JOIN accounts a ON a.id = c.account_id
+          WHERE ${srcWhere}${srch}
+          ORDER BY c.created_at DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `))).rows as any[];
+
+        return res.json({
+          metric,
+          title: `Consent Source: ${source || "All"}`,
+          description: `Contacts acquired via "${source || "all sources"}".`,
+          total, page, page_size: pageSize,
+          total_pages: Math.max(1, Math.ceil(total / pageSize)),
+          columns: [
+            { key: "name",           label: "Name" },
+            { key: "email",          label: "Email" },
+            { key: "account_name",   label: "Company" },
+            { key: "consent_source", label: "Source" },
+            { key: "consent_status", label: "Consent" },
+            { key: "jurisdiction",   label: "Jurisdiction" },
+            { key: "created_at",     label: "Created" },
+          ],
+          rows, refreshed_at: new Date().toISOString(),
+        });
+      }
+
+      // ── Form opt-in rate — truthful empty state ────────────────────────────────
+      if (metric === "form_opt_in_rate") {
+        return res.json({
+          metric,
+          title: "Form Opt-In Rate",
+          description: "Contacts acquired through web form opt-ins.",
+          total: 0, page: 1, page_size: pageSize, total_pages: 1,
+          columns: [
+            { key: "name",           label: "Name" },
+            { key: "email",          label: "Email" },
+            { key: "consent_source", label: "Form / Source" },
+            { key: "created_at",     label: "Date" },
+          ],
+          rows: [],
+          empty_state: "Form opt-in tracking is not yet configured. Once web forms are connected, opt-in contacts will appear here.",
+          refreshed_at: new Date().toISOString(),
+        });
+      }
+
+      // ── Audience (segment) contacts ────────────────────────────────────────────
+      if (metric === "audience_contacts") {
+        const segmentId = req.query.segment_id ? Number(req.query.segment_id) : null;
+        const srch = safeSearch ? ` AND (c.name ILIKE '%${safeSearch}%' OR c.email ILIKE '%${safeSearch}%')` : "";
+
+        if (!segmentId) return res.status(400).json({ message: "segment_id required for audience_contacts" });
+
+        const segRows = (await db.execute(sql.raw(`
+          SELECT segment_name, description, recipient_count FROM campaign_segments WHERE id = ${segmentId}
+        `))).rows as any[];
+        const seg = segRows[0] ?? { segment_name: "Audience", description: "", recipient_count: 0 };
+
+        const countRes = (await db.execute(sql.raw(`
+          SELECT COUNT(*) AS cnt
+          FROM contacts c
+          LEFT JOIN accounts a ON a.id = c.account_id
+          WHERE 1=1${srch}
+        `))).rows as any[];
+        const total = Number(countRes[0]?.cnt ?? 0);
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT c.id, c.name, c.email,
+            COALESCE(a.name,'') AS account_name, a.id AS account_id,
+            c.jurisdiction, c.consent_status, c.unsubscribe_status, c.suppression_status,
+            c.lead_source, c.created_at
+          FROM contacts c
+          LEFT JOIN accounts a ON a.id = c.account_id
+          WHERE 1=1${srch}
+          ORDER BY c.name ASC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `))).rows as any[];
+
+        return res.json({
+          metric,
+          title: seg.segment_name,
+          description: seg.description || `Contacts in this audience segment.`,
+          total: seg.recipient_count || total,
+          page, page_size: pageSize,
+          total_pages: Math.max(1, Math.ceil((seg.recipient_count || total) / pageSize)),
+          columns: [
+            { key: "name",              label: "Name" },
+            { key: "email",             label: "Email" },
+            { key: "account_name",      label: "Company" },
+            { key: "jurisdiction",      label: "Jurisdiction" },
+            { key: "consent_status",    label: "Consent" },
+            { key: "unsubscribe_status",label: "Unsub Status" },
+            { key: "suppression_status",label: "Suppression" },
+            { key: "lead_source",       label: "Lead Source" },
+            { key: "created_at",        label: "Created" },
+          ],
+          rows, refreshed_at: new Date().toISOString(),
+        });
+      }
+
+      // ── Reply category drilldown ───────────────────────────────────────────────
+      if (metric === "replies_total" || metric === "replies_pending" || metric === "replies_auto_ingested" || metric === "replies_task_created") {
+        const STATUS_MAP: Record<string, { title: string; description: string; where: string }> = {
+          replies_total:         { title: "All Replies",           description: "Every inbound reply matched to a campaign.",          where: "1=1" },
+          replies_pending:       { title: "Pending Review",        description: "Replies waiting for manual review.",                  where: "rc.status = 'pending'" },
+          replies_auto_ingested: { title: "Auto-Ingested Replies", description: "Replies ingested automatically from inbound email.",  where: "rc.ingestion_source = 'inbound_ingested'" },
+          replies_task_created:  { title: "Task Created Replies",  description: "Replies that resulted in a follow-up task.",          where: "rc.status = 'task_created'" },
+        };
+        const { title, description, where } = STATUS_MAP[metric];
+        const srch = safeSearch ? ` AND (COALESCE(c.name,'') ILIKE '%${safeSearch}%' OR COALESCE(c.email,'') ILIKE '%${safeSearch}%')` : "";
+
+        const countRes = (await db.execute(sql.raw(`
+          SELECT COUNT(*) AS cnt
+          FROM marketing_reply_classifications rc
+          LEFT JOIN contacts c ON c.id = rc.contact_id
+          WHERE ${where}${srch}
+        `))).rows as any[];
+        const total = Number(countRes[0]?.cnt ?? 0);
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT rc.id, rc.classification, rc.sentiment, rc.status, rc.confidence,
+            rc.reply_body_preview, rc.ingestion_source, rc.created_at,
+            COALESCE(c.name,'') AS contact_name, COALESCE(c.email,'') AS contact_email,
+            COALESCE(a.name,'') AS account_name, a.id AS account_id,
+            COALESCE(mc.campaign_name,'') AS campaign_name, mc.id AS campaign_id
+          FROM marketing_reply_classifications rc
+          LEFT JOIN contacts c ON c.id = rc.contact_id
+          LEFT JOIN accounts a ON a.id = rc.account_id
+          LEFT JOIN marketing_campaigns mc ON mc.id = rc.campaign_id
+          WHERE ${where}${srch}
+          ORDER BY rc.created_at DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `))).rows as any[];
+
+        return res.json({
+          metric, title, description,
+          total, page, page_size: pageSize,
+          total_pages: Math.max(1, Math.ceil(total / pageSize)),
+          columns: [
+            { key: "contact_name",      label: "Contact" },
+            { key: "contact_email",     label: "Email" },
+            { key: "account_name",      label: "Company" },
+            { key: "campaign_name",     label: "Campaign" },
+            { key: "classification",    label: "Classification" },
+            { key: "sentiment",         label: "Sentiment" },
+            { key: "status",            label: "Status" },
+            { key: "reply_body_preview",label: "Preview" },
+            { key: "created_at",        label: "Date" },
+          ],
+          rows, refreshed_at: new Date().toISOString(),
+        });
+      }
+
+      // ── Hot account signals ────────────────────────────────────────────────────
+      if (metric === "hot_accounts_by_label") {
+        const label = String(req.query.label ?? "").trim();
+        const srch = safeSearch ? ` AND LOWER(a.name) LIKE LOWER('%${safeSearch}%')` : "";
+        const labelWhere = label && label !== "all" ? ` AND a.name IS NOT NULL` : "";
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT a.id AS account_id, a.name AS account_name, a.marina_type, a.state_province,
+            COUNT(DISTINCT ce.contact_id) AS engaged_contacts,
+            SUM(CASE WHEN ce.event_type='open'  THEN 1 ELSE 0 END) AS open_count,
+            SUM(CASE WHEN ce.event_type='click' THEN 1 ELSE 0 END) AS click_count,
+            SUM(CASE WHEN ce.event_type='reply' THEN 1 ELSE 0 END) AS reply_count,
+            MAX(ce.created_at) AS last_engagement_at
+          FROM campaign_events ce
+          JOIN campaign_recipients cr ON cr.id = ce.recipient_id
+          JOIN contacts c ON c.id = cr.contact_id
+          JOIN accounts a ON a.id = c.account_id
+          WHERE 1=1${labelWhere}${srch}
+          GROUP BY a.id, a.name, a.marina_type, a.state_province
+          ORDER BY last_engagement_at DESC NULLS LAST
+          LIMIT ${pageSize} OFFSET ${offset}
+        `))).rows as any[];
+
+        return res.json({
+          metric,
+          title: label && label !== "all" ? `${label} Accounts` : "All Engaged Accounts",
+          description: "Accounts with campaign engagement signals.",
+          total: rows.length, page, page_size: pageSize, total_pages: 1,
+          columns: [
+            { key: "account_name",      label: "Account" },
+            { key: "marina_type",       label: "Type" },
+            { key: "state_province",    label: "Region" },
+            { key: "engaged_contacts",  label: "Engaged Contacts" },
+            { key: "open_count",        label: "Opens" },
+            { key: "click_count",       label: "Clicks" },
+            { key: "reply_count",       label: "Replies" },
+            { key: "last_engagement_at",label: "Last Engagement" },
+          ],
+          rows, refreshed_at: new Date().toISOString(),
+        });
+      }
+
+      return res.status(400).json({ message: `Unknown metric: ${metric}` });
+    } catch (err: any) {
+      console.error("[drilldown] GET /api/marketing/drilldown:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+
+
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
 }

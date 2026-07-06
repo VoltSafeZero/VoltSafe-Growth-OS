@@ -5,6 +5,7 @@ import {
   Clock, XCircle, Ban, BarChart3, Upload, FileText,
   ChevronLeft, ChevronRight, Filter, RefreshCw,
 } from "lucide-react";
+import { MarketingDrilldownSheet, type DrilldownConfig } from "@/components/marketing/marketing-drilldown-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +79,7 @@ function StatCard({
   sub,
   color = "text-muted-foreground",
   iconBg = "bg-primary/10",
+  onClick,
 }: {
   icon: any;
   label: string;
@@ -85,18 +87,30 @@ function StatCard({
   sub?: string;
   color?: string;
   iconBg?: string;
+  onClick?: () => void;
 }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className="bg-card border border-border/50 rounded-xl p-4 flex items-start gap-3">
-      <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
+    <Tag
+      onClick={onClick}
+      className={`bg-card border border-border/50 rounded-xl p-4 flex items-start gap-3 text-left w-full transition-all duration-150 ${
+        onClick
+          ? "cursor-pointer hover:border-primary/40 hover:bg-primary/5 hover:shadow-sm group"
+          : ""
+      }`}
+      data-testid={`stat-card-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      aria-label={onClick ? `View details for ${label}` : undefined}
+    >
+      <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0 ${onClick ? "group-hover:scale-105 transition-transform" : ""}`}>
         <Icon className="w-4 h-4 text-primary" />
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="text-xs text-muted-foreground truncate">{label}</p>
         <p className={`text-2xl font-bold leading-tight ${color}`}>{value}</p>
         {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+        {onClick && <p className="text-[10px] text-primary/60 mt-1 group-hover:text-primary/80 transition-colors">View details →</p>}
       </div>
-    </div>
+    </Tag>
   );
 }
 
@@ -124,6 +138,7 @@ type ImportState = {
 
 export default function ComplianceDashboardPage() {
   const { toast } = useToast();
+  const [drilldown, setDrilldown] = useState<DrilldownConfig | null>(null);
 
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<ComplianceStats>({
     queryKey: ["/api/marketing/compliance/stats"],
@@ -307,10 +322,10 @@ export default function ComplianceDashboardPage() {
             <section>
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Jurisdiction Breakdown</h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <StatCard icon={Globe} label="Canada" value={stats.canadaCount} iconBg="bg-red-500/10" />
-                <StatCard icon={Globe} label="United States" value={stats.usCount} iconBg="bg-blue-500/10" />
-                <StatCard icon={Globe} label="Other" value={stats.otherCount} iconBg="bg-purple-500/10" />
-                <StatCard icon={AlertTriangle} label="Unknown Jurisdiction" value={stats.unknownJurisdictionCount} color={stats.unknownJurisdictionCount > 0 ? "text-amber-400" : undefined} iconBg="bg-amber-500/10" />
+                <StatCard icon={Globe} label="Canada" value={stats.canadaCount} iconBg="bg-red-500/10" onClick={() => setDrilldown({ metric: "jurisdiction_canada" })} />
+                <StatCard icon={Globe} label="United States" value={stats.usCount} iconBg="bg-blue-500/10" onClick={() => setDrilldown({ metric: "jurisdiction_us" })} />
+                <StatCard icon={Globe} label="Other" value={stats.otherCount} iconBg="bg-purple-500/10" onClick={() => setDrilldown({ metric: "jurisdiction_other" })} />
+                <StatCard icon={AlertTriangle} label="Unknown Jurisdiction" value={stats.unknownJurisdictionCount} color={stats.unknownJurisdictionCount > 0 ? "text-amber-400" : undefined} iconBg="bg-amber-500/10" onClick={() => setDrilldown({ metric: "unknown_jurisdiction" })} />
               </div>
             </section>
 
@@ -318,13 +333,13 @@ export default function ComplianceDashboardPage() {
             <section>
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Canadian Consent (CASL)</h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <StatCard icon={CheckCircle2} label="Express Consent" value={stats.canadaExpressCount} iconBg="bg-green-500/10" />
-                <StatCard icon={Clock} label="Implied Active" value={stats.canadaImpliedActiveCount} iconBg="bg-cyan-500/10" />
-                <StatCard icon={Clock} label="Expiring in 30 days" value={stats.impliedExpiring30} color={stats.impliedExpiring30 > 0 ? "text-amber-400" : undefined} iconBg="bg-amber-500/10" />
-                <StatCard icon={Clock} label="Expiring in 60 days" value={stats.impliedExpiring60} iconBg="bg-amber-500/10" />
-                <StatCard icon={Clock} label="Expiring in 90 days" value={stats.impliedExpiring90} iconBg="bg-amber-500/10" />
-                <StatCard icon={XCircle} label="Expired Implied" value={stats.impliedExpiredCount} color={stats.impliedExpiredCount > 0 ? "text-red-400" : undefined} iconBg="bg-red-500/10" />
-                <StatCard icon={AlertTriangle} label="Missing Consent Proof" value={stats.missingCanadaProofCount} color={stats.missingCanadaProofCount > 0 ? "text-amber-400" : undefined} iconBg="bg-amber-500/10" />
+                <StatCard icon={CheckCircle2} label="Express Consent" value={stats.canadaExpressCount} iconBg="bg-green-500/10" onClick={() => setDrilldown({ metric: "express_consent" })} />
+                <StatCard icon={Clock} label="Implied Active" value={stats.canadaImpliedActiveCount} iconBg="bg-cyan-500/10" onClick={() => setDrilldown({ metric: "implied_active" })} />
+                <StatCard icon={Clock} label="Expiring in 30 days" value={stats.impliedExpiring30} color={stats.impliedExpiring30 > 0 ? "text-amber-400" : undefined} iconBg="bg-amber-500/10" onClick={() => setDrilldown({ metric: "implied_expiring_30" })} />
+                <StatCard icon={Clock} label="Expiring in 60 days" value={stats.impliedExpiring60} iconBg="bg-amber-500/10" onClick={() => setDrilldown({ metric: "implied_expiring_60" })} />
+                <StatCard icon={Clock} label="Expiring in 90 days" value={stats.impliedExpiring90} iconBg="bg-amber-500/10" onClick={() => setDrilldown({ metric: "implied_expiring_90" })} />
+                <StatCard icon={XCircle} label="Expired Implied" value={stats.impliedExpiredCount} color={stats.impliedExpiredCount > 0 ? "text-red-400" : undefined} iconBg="bg-red-500/10" onClick={() => setDrilldown({ metric: "implied_expired" })} />
+                <StatCard icon={AlertTriangle} label="Missing Consent Proof" value={stats.missingCanadaProofCount} color={stats.missingCanadaProofCount > 0 ? "text-amber-400" : undefined} iconBg="bg-amber-500/10" onClick={() => setDrilldown({ metric: "missing_consent_proof" })} />
               </div>
             </section>
 
@@ -332,12 +347,12 @@ export default function ComplianceDashboardPage() {
             <section>
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">US & General (CAN-SPAM)</h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <StatCard icon={Users} label="Unknown Consent" value={stats.unknownConsentCount} iconBg="bg-slate-500/10" />
-                <StatCard icon={CheckCircle2} label="US B2B Eligible" value={stats.usBizEligibleCount} iconBg="bg-green-500/10" />
-                <StatCard icon={Ban} label="US Opted-Out" value={stats.usOptedOutCount} color={stats.usOptedOutCount > 0 ? "text-red-400" : undefined} iconBg="bg-red-500/10" />
-                <StatCard icon={Ban} label="Unsubscribed" value={stats.unsubscribedCount} iconBg="bg-red-500/10" />
-                <StatCard icon={Ban} label="Suppressed" value={stats.suppressedCount} iconBg="bg-red-500/10" />
-                <StatCard icon={AlertTriangle} label="Quarantined Imports" value={stats.quarantinedCount} color={stats.quarantinedCount > 0 ? "text-amber-400" : undefined} iconBg="bg-amber-500/10" />
+                <StatCard icon={Users} label="Unknown Consent" value={stats.unknownConsentCount} iconBg="bg-slate-500/10" onClick={() => setDrilldown({ metric: "unknown_consent" })} />
+                <StatCard icon={CheckCircle2} label="US B2B Eligible" value={stats.usBizEligibleCount} iconBg="bg-green-500/10" onClick={() => setDrilldown({ metric: "us_biz_eligible" })} />
+                <StatCard icon={Ban} label="US Opted-Out" value={stats.usOptedOutCount} color={stats.usOptedOutCount > 0 ? "text-red-400" : undefined} iconBg="bg-red-500/10" onClick={() => setDrilldown({ metric: "us_opted_out" })} />
+                <StatCard icon={Ban} label="Unsubscribed" value={stats.unsubscribedCount} iconBg="bg-red-500/10" onClick={() => setDrilldown({ metric: "unsubscribed" })} />
+                <StatCard icon={Ban} label="Suppressed" value={stats.suppressedCount} iconBg="bg-red-500/10" onClick={() => setDrilldown({ metric: "suppressed" })} />
+                <StatCard icon={AlertTriangle} label="Quarantined Imports" value={stats.quarantinedCount} color={stats.quarantinedCount > 0 ? "text-amber-400" : undefined} iconBg="bg-amber-500/10" onClick={() => setDrilldown({ metric: "quarantined" })} />
               </div>
             </section>
 
@@ -345,11 +360,11 @@ export default function ComplianceDashboardPage() {
             <section>
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Campaign Health</h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                <StatCard icon={XCircle} label="Campaigns Blocked" value={stats.campaignsBlockedCount} color={stats.campaignsBlockedCount > 0 ? "text-red-400" : undefined} iconBg="bg-red-500/10" />
-                <StatCard icon={BarChart3} label="Avg Unsubscribe Rate" value={`${stats.avgUnsubRate ?? 0}%`} iconBg="bg-slate-500/10" />
-                <StatCard icon={BarChart3} label="Avg Bounce Rate" value={`${stats.avgBounceRate ?? 0}%`} iconBg="bg-slate-500/10" />
-                <StatCard icon={BarChart3} label="Spam Complaint Rate" value={`${stats.spamComplaintRate ?? 0}%`} color={stats.spamComplaintRate > 0.1 ? "text-red-400" : undefined} iconBg="bg-red-500/10" />
-                <StatCard icon={BarChart3} label="Form Opt-In Rate" value={`${stats.formOptInRate ?? 0}%`} iconBg="bg-green-500/10" />
+                <StatCard icon={XCircle} label="Campaigns Blocked" value={stats.campaignsBlockedCount} color={stats.campaignsBlockedCount > 0 ? "text-red-400" : undefined} iconBg="bg-red-500/10" onClick={() => setDrilldown({ metric: "campaigns_blocked" })} />
+                <StatCard icon={BarChart3} label="Avg Unsubscribe Rate" value={`${stats.avgUnsubRate ?? 0}%`} iconBg="bg-slate-500/10" onClick={() => setDrilldown({ metric: "avg_unsub_rate" })} />
+                <StatCard icon={BarChart3} label="Avg Bounce Rate" value={`${stats.avgBounceRate ?? 0}%`} iconBg="bg-slate-500/10" onClick={() => setDrilldown({ metric: "avg_bounce_rate" })} />
+                <StatCard icon={BarChart3} label="Spam Complaint Rate" value={`${stats.spamComplaintRate ?? 0}%`} color={stats.spamComplaintRate > 0.1 ? "text-red-400" : undefined} iconBg="bg-red-500/10" onClick={() => setDrilldown({ metric: "spam_complaint_rate" })} />
+                <StatCard icon={BarChart3} label="Form Opt-In Rate" value={`${stats.formOptInRate ?? 0}%`} iconBg="bg-green-500/10" onClick={() => setDrilldown({ metric: "form_opt_in_rate" })} />
               </div>
 
               {/* Per-campaign health breakdown */}
@@ -370,7 +385,13 @@ export default function ComplianceDashboardPage() {
                     </thead>
                     <tbody>
                       {stats.campaignHealthBreakdown.map((c) => (
-                        <tr key={c.id} className="border-b border-border/20 hover:bg-muted/10">
+                        <tr
+                          key={c.id}
+                          className="border-b border-border/20 hover:bg-primary/5 cursor-pointer transition-colors"
+                          onClick={() => setDrilldown({ metric: c.complianceStatus === "preflight_failed" ? "campaigns_blocked" : "avg_unsub_rate" })}
+                          data-testid={`campaign-health-row-${c.id}`}
+                          title="Click to view campaigns by unsubscribe rate"
+                        >
                           <td className="px-4 py-2 text-xs font-medium max-w-[180px] truncate" title={c.name}>{c.name}</td>
                           <td className="px-4 py-2 text-xs text-right text-muted-foreground">{c.totalSent.toLocaleString()}</td>
                           <td className="px-4 py-2 text-xs text-right">
@@ -396,10 +417,27 @@ export default function ComplianceDashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {jurisdictionData.length > 0 && (
                 <div className="bg-card border border-border/50 rounded-xl p-4">
-                  <h3 className="text-sm font-medium mb-3">Contact Jurisdiction</h3>
+                  <h3 className="text-sm font-medium mb-1">Contact Jurisdiction</h3>
+                  <p className="text-[11px] text-muted-foreground mb-3">Click a segment to drill into that group</p>
                   <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
-                      <Pie data={jurisdictionData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label>
+                      <Pie
+                        data={jurisdictionData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={70}
+                        label
+                        cursor="pointer"
+                        onClick={(entry) => {
+                          const name = String(entry?.name ?? "").toLowerCase();
+                          if (name.includes("canada")) setDrilldown({ metric: "jurisdiction_canada" });
+                          else if (name.includes("us") || name.includes("united")) setDrilldown({ metric: "jurisdiction_us" });
+                          else if (name.includes("unknown")) setDrilldown({ metric: "unknown_jurisdiction" });
+                          else setDrilldown({ metric: "jurisdiction_other" });
+                        }}
+                      >
                         {jurisdictionData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                       </Pie>
                       <Tooltip />
@@ -410,13 +448,20 @@ export default function ComplianceDashboardPage() {
               )}
               {stats.consentSourceBreakdown.length > 0 && (
                 <div className="bg-card border border-border/50 rounded-xl p-4">
-                  <h3 className="text-sm font-medium mb-3">Consent Source Breakdown</h3>
+                  <h3 className="text-sm font-medium mb-1">Consent Source Breakdown</h3>
+                  <p className="text-[11px] text-muted-foreground mb-3">Click a source to see its contacts</p>
                   <div className="space-y-2">
                     {stats.consentSourceBreakdown.slice(0, 6).map((s, i) => (
-                      <div key={i} className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground truncate max-w-[180px]">{s.source || "Unknown"}</span>
-                        <Badge variant="secondary">{s.count}</Badge>
-                      </div>
+                      <button
+                        key={i}
+                        onClick={() => setDrilldown({ metric: "consent_source", extraParams: { source: s.source || "Unknown" } })}
+                        className="w-full flex items-center justify-between text-sm rounded-lg px-2 py-1 hover:bg-primary/5 hover:border-primary/30 border border-transparent transition-colors cursor-pointer group"
+                        data-testid={`consent-source-row-${i}`}
+                        aria-label={`View contacts from source ${s.source || "Unknown"}`}
+                      >
+                        <span className="text-muted-foreground truncate max-w-[180px] group-hover:text-foreground transition-colors">{s.source || "Unknown"}</span>
+                        <Badge variant="secondary" className="group-hover:bg-primary/20 transition-colors">{s.count}</Badge>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -732,6 +777,11 @@ export default function ComplianceDashboardPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <MarketingDrilldownSheet
+        config={drilldown}
+        onClose={() => setDrilldown(null)}
+      />
     </div>
   );
 }

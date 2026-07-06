@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { MarketingDrilldownSheet, type DrilldownConfig } from "@/components/marketing/marketing-drilldown-sheet";
 import {
   Radio, Plus, Search, Filter, MoreHorizontal, Play, Pause,
   CheckCircle, Clock, Archive, FileText, Zap, TrendingUp,
@@ -100,6 +101,7 @@ type Campaign = {
 
 export default function MarketingCampaignsPage() {
   const { toast } = useToast();
+  const [drilldown, setDrilldown] = useState<DrilldownConfig | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
@@ -173,18 +175,24 @@ export default function MarketingCampaignsPage() {
       {/* Stats row */}
       <div className="grid grid-cols-4 gap-4 px-6 py-4 border-b border-border/30 shrink-0">
         {[
-          { label: "Total Campaigns", value: stats.total, icon: Radio, color: "text-primary" },
-          { label: "Active", value: stats.active, icon: Play, color: "text-emerald-400" },
-          { label: "Total Sent", value: stats.totalSent.toLocaleString(), icon: Mail, color: "text-blue-400" },
-          { label: "Avg Open Rate", value: pct(stats.totalOpened, stats.totalSent), icon: TrendingUp, color: "text-amber-400" },
+          { label: "Total Campaigns", value: stats.total, icon: Radio, color: "text-primary", metric: "all_campaigns" },
+          { label: "Active", value: stats.active, icon: Play, color: "text-emerald-400", metric: "active_campaigns" },
+          { label: "Total Sent", value: stats.totalSent.toLocaleString(), icon: Mail, color: "text-blue-400", metric: "all_campaigns" },
+          { label: "Avg Open Rate", value: pct(stats.totalOpened, stats.totalSent), icon: TrendingUp, color: "text-amber-400", metric: "all_campaigns" },
         ].map(s => (
-          <div key={s.label} className="rounded-xl border border-border/50 bg-card/50 px-4 py-3 flex items-center gap-3">
+          <button
+            key={s.label}
+            onClick={() => setDrilldown({ metric: s.metric, title: s.label })}
+            className="rounded-xl border border-border/50 bg-card/50 px-4 py-3 flex items-center gap-3 text-left w-full cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all group"
+            data-testid={`campaign-stat-${s.label.toLowerCase().replace(/\s+/g, "-")}`}
+          >
             <s.icon className={`w-5 h-5 shrink-0 ${s.color}`} />
-            <div>
+            <div className="flex-1 min-w-0">
               <div className="text-lg font-semibold text-foreground">{s.value}</div>
               <div className="text-xs text-muted-foreground">{s.label}</div>
             </div>
-          </div>
+            <span className="text-[10px] text-primary/40 group-hover:text-primary/70 transition-colors">→</span>
+          </button>
         ))}
       </div>
 
@@ -509,6 +517,8 @@ export default function MarketingCampaignsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MarketingDrilldownSheet config={drilldown} onClose={() => setDrilldown(null)} />
     </div>
   );
 }

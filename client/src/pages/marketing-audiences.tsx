@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { MarketingDrilldownSheet, type DrilldownConfig } from "@/components/marketing/marketing-drilldown-sheet";
 import {
   Users, Plus, Trash2, Filter, Save, ChevronDown, ChevronUp,
 } from "lucide-react";
@@ -80,6 +81,7 @@ function newClause(): FilterClause {
 
 export default function MarketingAudiencesPage() {
   const { toast } = useToast();
+  const [drilldown, setDrilldown] = useState<DrilldownConfig | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [form, setForm] = useState({ segmentName: "", description: "", segmentType: "dynamic" });
@@ -170,9 +172,18 @@ export default function MarketingAudiencesPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs font-mono text-muted-foreground">
-                      {seg.recipientCount > 0 ? `~${seg.recipientCount.toLocaleString()} contacts` : "Not calculated"}
-                    </span>
+                    {seg.recipientCount > 0 ? (
+                      <button
+                        onClick={e => { e.stopPropagation(); setDrilldown({ metric: "audience_contacts", title: seg.segmentName, extraParams: { segment_id: seg.id } }); }}
+                        className="text-xs font-mono text-primary hover:text-primary/80 hover:underline transition-colors cursor-pointer"
+                        data-testid={`audience-count-${seg.id}`}
+                        aria-label={`View ${seg.recipientCount} contacts in ${seg.segmentName}`}
+                      >
+                        ~{seg.recipientCount.toLocaleString()} contacts →
+                      </button>
+                    ) : (
+                      <span className="text-xs font-mono text-muted-foreground">Not calculated</span>
+                    )}
                     <Button variant="ghost" size="icon" className="w-7 h-7" onClick={() => setExpandedId(isOpen ? null : seg.id)}>
                       {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </Button>
@@ -366,6 +377,8 @@ export default function MarketingAudiencesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MarketingDrilldownSheet config={drilldown} onClose={() => setDrilldown(null)} />
     </div>
   );
 }

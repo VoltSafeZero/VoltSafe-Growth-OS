@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -5,6 +6,7 @@ import {
   AlertTriangle, CheckCircle, XCircle, TrendingUp, Users,
   Zap, Clock, Target, ChevronRight, RefreshCw,
 } from "lucide-react";
+import { MarketingDrilldownSheet, type DrilldownConfig } from "@/components/marketing/marketing-drilldown-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -129,6 +131,8 @@ export default function MarketingDashboardPage() {
     staleTime: 60000,
   });
 
+  const [drilldown, setDrilldown] = useState<DrilldownConfig | null>(null);
+
   const activeCampaigns    = campaigns.filter(c => c.status === "active");
   const blockedCampaigns   = campaigns.filter(c => c.complianceStatus === "preflight_failed" || c.status === "blocked");
   const pendingApproval    = campaigns.filter(c => (c.pendingApprovalCount ?? 0) > 0);
@@ -164,15 +168,21 @@ export default function MarketingDashboardPage() {
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 {[
-                  { label: "Active campaigns", value: activeCampaigns.length, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-                  { label: "Needs approval", value: pendingApproval.length, color: "text-amber-400", bg: "bg-amber-500/10" },
-                  { label: "Blocked by compliance", value: blockedCampaigns.length, color: blockedCampaigns.length > 0 ? "text-red-400" : "text-muted-foreground", bg: blockedCampaigns.length > 0 ? "bg-red-500/10" : "bg-muted/10" },
-                  { label: "Campaigns with replies", value: withReplies.length, color: "text-violet-400", bg: "bg-violet-500/10" },
+                  { label: "Active campaigns", value: activeCampaigns.length, color: "text-emerald-400", bg: "bg-emerald-500/10", metric: "active_campaigns" },
+                  { label: "Needs approval", value: pendingApproval.length, color: "text-amber-400", bg: "bg-amber-500/10", metric: "campaigns_needs_approval" },
+                  { label: "Blocked by compliance", value: blockedCampaigns.length, color: blockedCampaigns.length > 0 ? "text-red-400" : "text-muted-foreground", bg: blockedCampaigns.length > 0 ? "bg-red-500/10" : "bg-muted/10", metric: "campaigns_blocked" },
+                  { label: "Campaigns with replies", value: withReplies.length, color: "text-violet-400", bg: "bg-violet-500/10", metric: "campaigns_with_replies" },
                 ].map(s => (
-                  <div key={s.label} className={`rounded-lg border border-border/40 ${s.bg} px-3 py-3`} data-testid={`campaign-health-${s.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                  <button
+                    key={s.label}
+                    onClick={() => setDrilldown({ metric: s.metric, title: s.label })}
+                    className={`rounded-lg border border-border/40 ${s.bg} px-3 py-3 text-left w-full cursor-pointer hover:border-primary/40 hover:brightness-110 transition-all group`}
+                    data-testid={`campaign-health-${s.label.toLowerCase().replace(/\s+/g, "-")}`}
+                  >
                     <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
                     <div className="text-xs text-muted-foreground mt-0.5">{s.label}</div>
-                  </div>
+                    <div className="text-[10px] text-primary/40 group-hover:text-primary/70 mt-1 transition-colors">View details →</div>
+                  </button>
                 ))}
               </div>
 
@@ -285,15 +295,20 @@ export default function MarketingDashboardPage() {
               <>
                 <div className="grid grid-cols-2 gap-2 mb-4">
                   {[
-                    { label: "Blocked sends", value: complianceMetrics?.blockedCampaigns ?? blockedCampaigns.length, color: blockedCampaigns.length > 0 ? "text-red-400" : "text-muted-foreground" },
-                    { label: "Unsubscribes (30d)", value: complianceMetrics?.unsubscribesLast30 ?? "—", color: "text-amber-400" },
-                    { label: "Suppression issues", value: complianceMetrics?.suppressionIssues ?? "—", color: "text-orange-400" },
-                    { label: "Consent expiry", value: complianceMetrics?.consentExpiryWarnings ?? "—", color: "text-amber-400" },
+                    { label: "Blocked sends", value: complianceMetrics?.blockedCampaigns ?? blockedCampaigns.length, color: blockedCampaigns.length > 0 ? "text-red-400" : "text-muted-foreground", metric: "campaigns_blocked" },
+                    { label: "Unsubscribes (30d)", value: complianceMetrics?.unsubscribesLast30 ?? "—", color: "text-amber-400", metric: "unsubscribed" },
+                    { label: "Suppression issues", value: complianceMetrics?.suppressionIssues ?? "—", color: "text-orange-400", metric: "suppressed" },
+                    { label: "Consent expiry", value: complianceMetrics?.consentExpiryWarnings ?? "—", color: "text-amber-400", metric: "implied_expiring_30" },
                   ].map(s => (
-                    <div key={s.label} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5">
+                    <button
+                      key={s.label}
+                      onClick={() => setDrilldown({ metric: s.metric, title: s.label })}
+                      className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2.5 text-left w-full cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all group"
+                      data-testid={`compliance-metric-${s.label.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
                       <div className={`text-xl font-bold ${s.color}`}>{s.value}</div>
                       <div className="text-[10px] text-muted-foreground mt-0.5">{s.label}</div>
-                    </div>
+                    </button>
                   ))}
                 </div>
 
@@ -365,6 +380,8 @@ export default function MarketingDashboardPage() {
           )}
         </SectionCard>
       </div>
+
+      <MarketingDrilldownSheet config={drilldown} onClose={() => setDrilldown(null)} />
     </div>
   );
 }

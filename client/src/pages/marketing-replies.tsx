@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { MarketingDrilldownSheet, type DrilldownConfig } from "@/components/marketing/marketing-drilldown-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -132,6 +133,7 @@ function MatchedRepliesTab() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const [drilldown, setDrilldown] = useState<DrilldownConfig | null>(null);
   const [classification, setClassification] = useState("all");
   const [status, setStatus] = useState("all");
   const [sentiment, setSentiment] = useState("all");
@@ -183,22 +185,30 @@ function MatchedRepliesTab() {
       {/* Stats bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         {[
-          { label: "Total", value: replies?.length ?? 0, icon: MessageSquare, color: "text-primary" },
-          { label: "Pending Review", value: pendingCount, icon: Clock, color: "text-amber-400" },
-          { label: "Auto-Ingested", value: autoIngestedCount, icon: Zap, color: "text-cyan-400" },
-          { label: "Tasks Created", value: (replies ?? []).filter(r => r.status === "task_created").length, icon: CheckCircle, color: "text-emerald-400" },
+          { label: "Total", value: replies?.length ?? 0, icon: MessageSquare, color: "text-primary", metric: "replies_total" },
+          { label: "Pending Review", value: pendingCount, icon: Clock, color: "text-amber-400", metric: "replies_pending" },
+          { label: "Auto-Ingested", value: autoIngestedCount, icon: Zap, color: "text-cyan-400", metric: "replies_auto_ingested" },
+          { label: "Tasks Created", value: (replies ?? []).filter(r => r.status === "task_created").length, icon: CheckCircle, color: "text-emerald-400", metric: "replies_task_created" },
         ].map(s => (
-          <Card key={s.label} className="border-border/50">
+          <Card
+            key={s.label}
+            className="border-border/50 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all group"
+            onClick={() => setDrilldown({ metric: s.metric, title: s.label })}
+            data-testid={`reply-stat-${s.metric}`}
+          >
             <CardContent className="p-3 flex items-center gap-3">
               <s.icon className={`h-4 w-4 shrink-0 ${s.color}`} />
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="text-lg font-semibold text-foreground leading-none">{s.value}</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">{s.label}</p>
               </div>
+              <span className="text-[10px] text-primary/50 group-hover:text-primary/80 transition-colors shrink-0">→</span>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      <MarketingDrilldownSheet config={drilldown} onClose={() => setDrilldown(null)} />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4" data-testid="reply-filters">
