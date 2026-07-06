@@ -1,0 +1,54 @@
+Critical permission requirement:
+The entire Capital module must be strictly restricted to only:
+
+* CEO: Trevor
+* CFO: Scott Carlson
+
+No other users should be able to see, access, query, create, edit, delete, or infer Capital module data.
+
+This restriction must apply to:
+
+* Capital navigation
+* Capital dashboard
+* Investors
+* Grants
+* Pipeline
+* Documents
+* Capital API routes
+* Capital activities
+* Capital search/results
+* Any future Capital-related widgets
+* Any direct URL access
+* Any backend route access
+* Any data returned to dashboards or global search
+
+Do not rely only on frontend hiding.
+Backend routes must enforce this restriction.
+
+Implementation guidance:
+
+* Create a dedicated permission gate such as requireCapitalAccess.
+* It should allow access only if the current authenticated user is Trevor/CEO or Scott Carlson/CFO.
+* Use stable user identifiers if available, such as user ID or email, not only display name.
+* If exact user IDs/emails are unknown, first inspect the users/auth schema and existing user records/patterns, then implement the safest available check.
+* Do not use a broad CRM permission for Capital access.
+* Do not allow admins by default unless they are Trevor or Scott Carlson.
+* Do not allow managers, sales, marketing, or general CRM users.
+* If Scott’s user record does not exist yet, structure the allowlist so Scott can be added by email/user ID without code churn.
+
+Required behavior:
+
+* Unauthorized users should not see Capital nav.
+* Unauthorized users visiting /capital/* directly should see a 403 or safe “not authorized” state.
+* Unauthorized API requests to /api/capital/* should return 403.
+* Capital data must not appear in global dashboards, search, activity feeds, or nav for unauthorized users.
+* Tests must verify that non-CEO/CFO users cannot access Capital pages/routes.
+* Tests must verify that Capital does not appear in nav for unauthorized users.
+* Tests must verify that backend access is blocked even if the frontend route is manually visited.
+
+Add this to the Capital module Phase 1 build:
+
+* dedicated backend permission middleware
+* frontend nav gating
+* route-level UI guard
+* tests for allowed and denied users

@@ -304,6 +304,11 @@ app.use((req, res, next) => {
           ADD COLUMN IF NOT EXISTS pending_approval_count INTEGER NOT NULL DEFAULT 0;
       `));
     } catch (_e) { /* already exists */ }
+    // Capital module schema
+    try {
+      const { migrateCapitalSchema } = await import("./routes-capital");
+      await migrateCapitalSchema();
+    } catch (_e) { /* already exists */ }
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

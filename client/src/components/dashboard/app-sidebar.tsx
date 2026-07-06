@@ -63,6 +63,9 @@ export function AppSidebar({
 
   function canSeeSection(section: NavSection): boolean {
     if (section.isDivider) return true;
+    // capitalOnly is checked before the admin bypass — Capital access is identity-based, not role-based.
+    // Even admins who are not Trevor/Scott must not see this section.
+    if (section.capitalOnly) return (perms as any).capital === "edit";
     if (section.adminOnly && !isAdmin) return false;
     if (isAdvisor && section.advisorHidden) return false;
     if (isAdmin) return true;

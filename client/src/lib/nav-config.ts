@@ -8,7 +8,7 @@ import {
   Newspaper, PlayCircle, FlaskRound, BellRing, MapPin, ShieldCheck, Tags,
   Zap, HelpCircle, ClipboardList, Snowflake, Search, Settings, Smartphone,
   Mic, Car, PenSquare, GraduationCap, CalendarDays, MessageSquare,
-  Radio, Ban, Flame,
+  Radio, Ban, Flame, Coins,
 } from "lucide-react";
 
 // Note: a few items intentionally use a different icon on mobile than on desktop
@@ -68,6 +68,7 @@ export type NavSection = {
   url?: string;
   items?: NavItem[];
   adminOnly?: boolean;
+  capitalOnly?: boolean;
   permKey?: PermKey;
   isDivider?: boolean;
   showOn?: Platform[];
@@ -203,6 +204,19 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "marketing-replies",     label: "Replies",         route: "/marketing/replies",     icon: MessageSquare },
       { id: "marketing-hot-accounts", label: "Hot Accounts",  route: "/marketing/hot-accounts", icon: Flame },
       { id: "marketing-compliance",  label: "Compliance",      route: "/marketing/compliance",  icon: ShieldCheck },
+    ],
+  },
+  {
+    id: "capital",
+    label: "Capital",
+    icon: Coins,
+    capitalOnly: true,
+    items: [
+      { id: "capital-dashboard",  label: "Dashboard",  route: "/capital/dashboard",  icon: LayoutDashboard },
+      { id: "capital-investors",  label: "Investors",  route: "/capital/investors",  icon: Users2 },
+      { id: "capital-grants",     label: "Grants",     route: "/capital/grants",     icon: Landmark },
+      { id: "capital-pipeline",   label: "Pipeline",   route: "/capital/pipeline",   icon: TrendingUp },
+      { id: "capital-documents",  label: "Documents",  route: "/capital/documents",  icon: FileText },
     ],
   },
   {

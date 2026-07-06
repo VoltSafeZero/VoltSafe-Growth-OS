@@ -766,6 +766,8 @@ export async function registerRoutes(
   registerCrmIdentifierRoutes(app);
   const { registerTeamCalendarRoutes } = await import("./routes-team-calendar");
   registerTeamCalendarRoutes(app, requireAuth);
+  const { registerCapitalRoutes } = await import("./routes-capital");
+  registerCapitalRoutes(app, requireAuth);
 
   // ── Help Center: end-of-day asset refresh ───────────────────────────────────
   // Runs only on days when the production app has been republished that day
@@ -1409,6 +1411,14 @@ export async function registerRoutes(
     }
     const [user] = await db.select().from(users).where(eq(users.id, req.session.userId));
     if (!user) return res.status(401).json({ message: "Not authenticated" });
+    // Capital access: Trevor (user 4) by ID, Scott Carlson by email — kept in sync with routes-capital.ts
+    const CAPITAL_USER_IDS = new Set([4]);
+    const CAPITAL_USER_EMAILS = new Set<string>([
+      // "scott.carlson@voltsafe.com",  // ← add when Scott's account is created
+    ]);
+    const isCapitalUser = CAPITAL_USER_IDS.has(user.id) ||
+      (!!user.email && CAPITAL_USER_EMAILS.has(user.email.toLowerCase()));
+    const basePerms = (user.permissions ?? { crm: "edit", partnerships: "edit", projects: "edit", communications: "edit", team_workload: "edit", knowledge: "edit", support: "edit", quoting: "edit", calendar: "edit", mail_team: {}, calendar_team: [] }) as Record<string, any>;
     res.json({
       id: user.id,
       name: user.name,
@@ -1417,7 +1427,8 @@ export async function registerRoutes(
       globalRole: user.globalRole,
       status: user.status,
       mustChangePassword: user.mustChangePassword,
-      permissions: user.permissions ?? { crm: "edit", partnerships: "edit", projects: "edit", communications: "edit", team_workload: "edit", knowledge: "edit", support: "edit", quoting: "edit", calendar: "edit", mail_team: {}, calendar_team: [] },
+      isCapitalUser,
+      permissions: { ...basePerms, capital: isCapitalUser ? "edit" : "none" },
       department: user.department,
       jobTitle: user.jobTitle,
       userType: user.userType,

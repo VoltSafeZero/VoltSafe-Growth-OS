@@ -1,0 +1,201 @@
+We need to fix the navigation architecture for VoltSafe CMS.
+
+Current issue:
+“Investors” is incorrectly nested under Ecosystem. That is wrong because Ecosystem is for partners, associations, dealers, referrals, media, and other relationship groups that help VoltSafe sell, validate, influence, or get introduced.
+
+Investors should only include entities or people who can directly fund VoltSafe or administer funding. The rule is:
+
+“Can this entity write VoltSafe a cheque?”
+If yes, it belongs in Capital / Investors.
+If no, it belongs elsewhere, usually Ecosystem.
+
+Please implement the following change carefully.
+
+GOAL:
+Create a new top-level sidebar module called “Capital” and move investor/funding-related functionality out of Ecosystem.
+
+IMPORTANT PERMISSION REQUIREMENT:
+The entire Capital module must be permission-restricted to only:
+- CEO: Trevor Burgess
+- CFO: Scott Carlson
+
+No other users, including admins/managers, should see or access Capital routes unless explicitly granted CEO/CFO funding access.
+
+NAVIGATION CHANGES:
+
+1. Remove “Investors” from:
+Ecosystem → Investors
+
+2. Keep Ecosystem focused on external non-capital relationships:
+Ecosystem
+- Industry Partnerships
+- Dealers / Resellers
+- Strategic Alliances
+- Government & Grants
+- Referrals
+- Media & Tradeshows
+
+3. Add a new top-level sidebar section:
+Capital
+
+Capital should appear as its own top-level navigation group, not nested under Ecosystem.
+
+Suggested icon:
+Use a finance/capital style icon such as Landmark, Banknote, CircleDollarSign, or BriefcaseBusiness depending on what is already available in lucide-react.
+
+Capital submenu items:
+- Dashboard
+- Investor Pipeline
+- Investor Targets
+- Investor Contacts
+- Funding Rounds
+- Commitments
+- Grants & Non-Dilutive
+- Investor Updates
+- Data Room
+
+If all pages do not exist yet, create placeholder pages/routes for missing items with clean empty states.
+
+ROUTE STRUCTURE:
+Use clean routes such as:
+
+/capital
+/capital/pipeline
+/capital/targets
+/capital/contacts
+/capital/rounds
+/capital/commitments
+/capital/grants
+/capital/updates
+/capital/data-room
+
+If an existing investor route already exists, migrate it or alias it safely.
+
+DATA / TAXONOMY RULES:
+
+Ecosystem records should not be classified as Investors unless they can directly fund VoltSafe.
+
+Examples:
+- Boating Ontario = Ecosystem → Industry Partnerships
+- NMMA = Ecosystem → Industry Partnerships
+- A person at NMMA who introduces VoltSafe to a VC = Referral / Connector note or linked relationship, not an Investor record
+- VC fund = Capital → Investor Targets
+- Angel investor = Capital → Investor Targets or Investor Contacts
+- Family office = Capital → Investor Targets
+- BDC / InBC / government investment program = Capital → Grants & Non-Dilutive or Government Funding
+- Strategic corporate investor = Capital → Investor Targets with type “Strategic Investor”
+
+Please add/adjust investor types if schema supports it:
+- Angel
+- HNW Angel
+- Family Office
+- Venture Capital
+- Strategic Investor
+- Government Investment
+- Grant / Non-Dilutive
+- Debt / Loan
+- Connector / Referrer
+
+Connector / Referrer should be clearly marked as not a direct investor unless they also invest.
+
+PERMISSION / ACCESS CONTROL:
+
+Add a dedicated permission gate for Capital, such as:
+canAccessCapital
+or
+fundingAccess
+
+This must be enforced in BOTH:
+1. Frontend navigation visibility
+2. Backend API route authorization
+
+Do not rely only on hiding the sidebar.
+
+Only Trevor Burgess and Scott Carlson should pass this gate for now.
+
+Use the existing user/role/auth patterns already in the app. Do not invent a separate auth system.
+
+If the app has role constants, add a capital/funding permission there.
+If the app has route guards, add Capital routes to the protected route list.
+If the app has sidebar permission metadata, add the permission key there.
+If the app has API middleware, add backend enforcement for all /api/capital/* or investor/funding routes.
+
+SECURITY EXPECTATION:
+A non-CEO/CFO user should:
+- Not see Capital in the sidebar
+- Not access Capital pages directly by URL
+- Not access Capital API responses
+- Receive a proper unauthorized/forbidden response if they try
+
+UI EXPECTATION:
+
+Capital sidebar group should feel important and locked/private.
+Use a subtle lock icon, restricted badge, or tooltip if there is already a pattern for restricted modules.
+
+Capital Dashboard empty state should say something like:
+“Track VoltSafe’s funding pipeline, investor relationships, grants, commitments, updates, and data room activity.”
+
+Investor Pipeline should support stages:
+- Target Identified
+- Intro Needed
+- Intro Made
+- First Meeting
+- Follow-Up
+- Diligence
+- Partner Meeting
+- Soft Commit
+- Committed
+- Wired / Closed
+- Passed
+
+Capital record fields should eventually support:
+- Organization / investor name
+- Investor type
+- Primary contact
+- Check size range
+- Stage
+- Status
+- Priority
+- Source / introducer
+- Last touch
+- Next step
+- Next step date
+- Notes
+- Related round
+- Data room access status
+- Commitment amount
+- Probability
+- Country / region
+- Strategic relevance
+
+Do not overbuild if the current architecture only needs navigation and placeholder routes right now. But structure it so the funding module can become a serious investor CRM.
+
+TESTING REQUIREMENTS:
+
+Please run and/or add tests covering:
+
+1. Sidebar:
+- Ecosystem no longer contains Investors
+- Capital appears for CEO/CFO users
+- Capital does not appear for normal/admin/manager users without funding permission
+
+2. Routing:
+- CEO/CFO can access /capital and child routes
+- Unauthorized users are blocked
+
+3. API:
+- Capital/funding endpoints reject unauthorized users
+- Authorized CEO/CFO users can access
+
+4. Regression:
+- Existing Ecosystem pages still work
+- Boating Ontario and NMMA-style records remain Industry Partnerships, not Investors
+- No broken imports/icons/routes
+
+DELIVERABLE:
+Implement the navigation, route, permission, and placeholder page changes.
+Then provide:
+- Files changed
+- Tests run
+- Confirmation that Capital is CEO/CFO restricted
+- Confirmation that Investors was removed from Ecosystem

@@ -121,6 +121,11 @@ const MarketingRepliesPage = lazy(() => import("@/pages/marketing-replies"));
 const MarketingHotAccountsPage = lazy(() => import("@/pages/marketing-hot-accounts"));
 const ComplianceDashboardPage = lazy(() => import("@/pages/compliance-dashboard"));
 const CampaignDetailPage = lazy(() => import("@/pages/campaign-detail"));
+const CapitalDashboardPage  = lazy(() => import("@/pages/capital-dashboard"));
+const CapitalInvestorsPage  = lazy(() => import("@/pages/capital-investors"));
+const CapitalGrantsPage     = lazy(() => import("@/pages/capital-grants"));
+const CapitalPipelinePage   = lazy(() => import("@/pages/capital-pipeline"));
+const CapitalDocumentsPage  = lazy(() => import("@/pages/capital-documents"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
 const DemonAtmospherics = lazy(() => import("@/components/demon-atmospherics").then(m => ({ default: m.DemonAtmospherics })));
 
@@ -145,6 +150,7 @@ export type UserPermissions = {
   support: AccessLevel;
   quoting: AccessLevel;
   calendar: AccessLevel;
+  capital?: AccessLevel;
   mail_team: Record<string, { view: boolean; edit: boolean }>;
   calendar_team: number[];
 };
@@ -153,6 +159,7 @@ export const FULL_PERMISSIONS: UserPermissions = {
   crm: "edit", partnerships: "edit", projects: "edit",
   communications: "edit", team_workload: "edit", knowledge: "edit",
   support: "edit", quoting: "edit", calendar: "edit",
+  capital: "none",
   mail_team: {}, calendar_team: [],
 };
 
@@ -164,6 +171,7 @@ type AuthUser = {
   globalRole: string;
   status: string;
   mustChangePassword: boolean;
+  isCapitalUser?: boolean;
   permissions: UserPermissions;
   department?: string | null;
   jobTitle?: string | null;
@@ -268,6 +276,10 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
   function guard(section: keyof Pick<UserPermissions, "crm" | "partnerships" | "projects" | "communications" | "team_workload" | "knowledge" | "support" | "quoting" | "calendar">, children: React.ReactNode) {
     return wrap(hasAccess(perms, role, section) ? children : <AccessDenied />);
+  }
+
+  function capitalGuard(children: React.ReactNode) {
+    return wrap((perms.capital === "edit") ? children : <AccessDenied />);
   }
 
   function advisorBlock(children: React.ReactNode) {
@@ -379,6 +391,13 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/marketing/dashboard">{() => guard("crm", <MarketingDashboardPage />)}</Route>
       <Route path="/marketing/hot-accounts">{() => guard("crm", <MarketingHotAccountsPage />)}</Route>
       <Route path="/marketing">{() => <Redirect to="/marketing/dashboard" />}</Route>
+
+      <Route path="/capital/dashboard">{() => capitalGuard(<CapitalDashboardPage />)}</Route>
+      <Route path="/capital/investors">{() => capitalGuard(<CapitalInvestorsPage />)}</Route>
+      <Route path="/capital/grants">{() => capitalGuard(<CapitalGrantsPage />)}</Route>
+      <Route path="/capital/pipeline">{() => capitalGuard(<CapitalPipelinePage />)}</Route>
+      <Route path="/capital/documents">{() => capitalGuard(<CapitalDocumentsPage />)}</Route>
+      <Route path="/capital">{() => <Redirect to="/capital/dashboard" />}</Route>
       <Route path="/execution/daily">{() => wrap(<DailyExecutionPage />)}</Route>
 
       <Route path="/admin/users">{() => wrap(<AdminUsersPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>

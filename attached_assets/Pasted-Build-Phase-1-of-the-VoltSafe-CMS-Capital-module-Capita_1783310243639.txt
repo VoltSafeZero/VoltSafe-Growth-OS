@@ -1,0 +1,638 @@
+Build Phase 1 of the VoltSafe CMS Capital module: Capital CRM Foundation.
+
+Context:
+VoltSafe CMS already has a robust Marketing module. Now we need a focused Capital module to help VoltSafe identify, prioritize, pursue, track, and close funding from:
+
+* Angels
+* High-net-worth individuals
+* Family offices
+* Venture capital
+* Strategic investors
+* Government grants
+* Government investment programs
+* Accelerators/incubators
+* Corporate venture groups
+* Venture debt
+* Climate/energy/marine infrastructure funders
+
+Important product principle:
+This module must not become bloatware. Build survival tooling, not a giant investor relations platform.
+
+Goal:
+Create the foundation for a Capital Command Center that answers:
+
+* Who can fund us?
+* Who should we chase?
+* Who is warm?
+* What do they need?
+* What is due soon?
+* What is blocking the money?
+* How much capital is realistically in motion?
+
+Do not build:
+
+* full cap table management
+* investor portal
+* securities compliance automation
+* financial model builder
+* DocuSign clone
+* complex fund accounting
+* LP reporting
+* campaign ROI attribution
+* drag-and-drop workflows
+
+1. Navigation
+
+Add a new main section called:
+
+Capital
+
+Recommended nav:
+
+Capital
+
+* Dashboard
+* Investors
+* Grants
+* Pipeline
+* Documents
+
+Keep the nav tight. Do not add more top-level pages unless absolutely necessary.
+
+2. Data Model
+
+Create the core Capital tables.
+
+A. capital_funders
+
+Represents any investor, grant body, lender, strategic funder, or funding source.
+
+Fields:
+
+* id
+* name
+* funder_type
+* funder_persona
+* organization
+* primary_contact_name
+* primary_contact_email
+* primary_contact_phone
+* website
+* linkedin
+* location
+* geography_focus
+* sector_focus
+* investment_thesis
+* relevant_themes
+* cheque_size_min_cents
+* cheque_size_max_cents
+* typical_stage
+* relationship_strength
+* intro_path
+* status
+* priority
+* fit_score
+* heat_score
+* expected_amount_cents
+* probability_percent
+* weighted_amount_cents
+* pipeline_stage
+* next_follow_up_at
+* last_contacted_at
+* owner_user_id
+* notes
+* created_at
+* updated_at
+
+funder_type options:
+
+* Angel
+* High Net Worth Individual
+* Family Office
+* VC
+* Corporate VC
+* Strategic Investor
+* Government Investment Fund
+* Impact Fund
+* Climate Fund
+* Infrastructure Fund
+* Marine / Blue Economy Fund
+* Accelerator / Incubator
+* Venture Debt
+* Bank / Lender
+* Government Grant Body
+* Utility Program
+* Advisor / Connector
+* Other
+
+funder_persona options:
+
+* Operator Angel
+* Technical Angel
+* Climate Angel
+* Marine Industry Angel
+* Family Office — Long-Term Capital
+* Family Office — Opportunistic
+* Seed VC
+* Deep Tech VC
+* Climate VC
+* Hardware VC
+* Strategic Corporate Investor
+* Government-Backed Investor
+* Impact Investor
+* R&D Grant
+* Pilot / Demo Grant
+* Climate Infrastructure Grant
+* Export Growth Grant
+* Manufacturing Scale-Up Grant
+* Utility / Demand Response Program
+* Blue Economy Program
+* Regional Economic Development Program
+* Connector / Advisor
+* Unknown
+
+pipeline_stage options for investors:
+
+* Target Identified
+* Researching
+* Intro Needed
+* Intro Requested
+* Intro Made
+* First Contacted
+* Meeting Booked
+* First Meeting Complete
+* Interested
+* Data Room Shared
+* Diligence
+* Partner / IC Review
+* Soft Commitment
+* Committed
+* Wired
+* Passed
+* Nurture
+
+priority options:
+
+* High
+* Medium
+* Low
+* Ignore
+
+relationship_strength options:
+
+* Cold
+* Light
+* Warm
+* Strong
+* Champion
+
+B. capital_grants
+
+Represents grant and non-dilutive funding programs.
+
+Fields:
+
+* id
+* program_name
+* funding_body
+* program_type
+* non_dilutive_or_dilutive
+* max_funding_amount_cents
+* cost_share_percent
+* eligible_costs
+* deadline
+* intake_type
+* geography
+* sector_fit
+* eligibility_status
+* application_status
+* required_documents
+* reporting_burden
+* strategic_fit
+* fit_score
+* expected_amount_cents
+* probability_percent
+* weighted_amount_cents
+* owner_user_id
+* next_action
+* notes
+* created_at
+* updated_at
+
+program_type options:
+
+* Federal Grant
+* Provincial Grant
+* Municipal Grant
+* Port Authority Funding
+* Utility Program
+* Climate Funding
+* Clean Tech Funding
+* Export Funding
+* R&D Funding
+* Manufacturing Funding
+* Blue Economy Funding
+* Pilot / Demo Funding
+* Demand Response Funding
+* Infrastructure Funding
+* Tax Credit
+* Loan
+* Contribution
+* Other
+
+application_status options:
+
+* Identified
+* Eligibility Review
+* Go / No-Go
+* Drafting
+* Submitted
+* Under Review
+* Shortlisted
+* Approved
+* Rejected
+* Reporting / Claims
+* Closed
+
+eligibility_status options:
+
+* Unknown
+* Likely Eligible
+* Confirmed Eligible
+* Unclear
+* Not Eligible
+
+reporting_burden options:
+
+* Low
+* Medium
+* High
+* Very High
+
+C. capital_documents
+
+Tracks funding and diligence documents.
+
+Fields:
+
+* id
+* document_name
+* document_type
+* version
+* status
+* owner_user_id
+* last_updated_at
+* shared_with_funder_id nullable
+* shared_at nullable
+* notes
+* created_at
+* updated_at
+
+document_type options:
+
+* Pitch Deck
+* One-Pager
+* Financial Model
+* Cap Table
+* Use of Funds
+* Investor Memo
+* Technical Overview
+* Patent Summary
+* Product Roadmap
+* Pilot Summary
+* Customer Pipeline
+* Grant Budget
+* Grant Workplan
+* Letter of Support
+* Board Materials
+* Due Diligence Doc
+* Other
+
+status options:
+
+* Draft
+* Ready
+* Shared
+* Needs Update
+* Archived
+
+D. capital_activities
+
+Tracks outreach, meetings, notes, and follow-ups.
+
+Fields:
+
+* id
+* funder_id nullable
+* grant_id nullable
+* activity_type
+* subject
+* body
+* activity_at
+* due_at nullable
+* completed_at nullable
+* owner_user_id
+* created_at
+* updated_at
+
+activity_type options:
+
+* Intro Request
+* Cold Outreach
+* Warm Follow-Up
+* Investor Update
+* Grant Inquiry
+* Application Follow-Up
+* Meeting
+* Diligence Response
+* Commitment Follow-Up
+* Closing Logistics
+* Note
+* Task
+
+3. Derived Fields / Calculations
+
+Implement weighted_amount_cents:
+
+weighted_amount_cents = expected_amount_cents × probability_percent / 100
+
+This should update on create/update for funders and grants.
+
+Do not overcomplicate this with forecasting yet.
+
+4. API Routes
+
+Add Capital API routes.
+
+Dashboard:
+
+* GET /api/capital/dashboard
+
+Funders:
+
+* GET /api/capital/funders
+* POST /api/capital/funders
+* GET /api/capital/funders/:id
+* PATCH /api/capital/funders/:id
+* DELETE /api/capital/funders/:id
+
+Grants:
+
+* GET /api/capital/grants
+* POST /api/capital/grants
+* GET /api/capital/grants/:id
+* PATCH /api/capital/grants/:id
+* DELETE /api/capital/grants/:id
+
+Documents:
+
+* GET /api/capital/documents
+* POST /api/capital/documents
+* PATCH /api/capital/documents/:id
+* DELETE /api/capital/documents/:id
+
+Activities:
+
+* GET /api/capital/activities
+* POST /api/capital/activities
+* PATCH /api/capital/activities/:id
+* DELETE /api/capital/activities/:id
+
+Pipeline:
+
+* GET /api/capital/pipeline
+
+Route requirements:
+
+* All routes require auth
+* View routes require appropriate CRM/Capital view permission
+* Create/update/delete routes require appropriate CRM/Capital edit permission
+* Invalid IDs return clean 400/404
+* Route errors do not leak stack traces
+* Input payloads are validated
+* Deleting records should be safe and should not crash on FK references
+
+If there is no Capital permission yet, use the closest existing CRM permission pattern, but structure the code so a future capital permission can be added.
+
+5. Capital Dashboard UI
+
+Create page:
+
+/capital/dashboard
+
+Show simple executive cards:
+
+* Raise Target
+* Committed Capital
+* Soft-Circled Capital
+* Weighted Investor Pipeline
+* Weighted Grant Pipeline
+* Upcoming Grant Deadlines
+* Next Follow-Ups
+* Top Priority Funders
+* Top Priority Grants
+* Diligence / Document Blockers
+
+Use real DB data only.
+No fake numbers.
+
+If data is empty, show a clean empty state:
+“No capital records yet. Add investors, grants, or documents to begin tracking funding.”
+
+6. Investors Page
+
+Create page:
+
+/capital/investors
+
+Show table columns:
+
+* Name
+* Type
+* Persona
+* Stage
+* Priority
+* Fit Score
+* Heat Score
+* Expected Amount
+* Weighted Amount
+* Last Contact
+* Next Follow-Up
+* Owner
+
+Features:
+
+* Create funder dialog
+* Edit funder
+* Search
+* Filters:
+    * type
+    * persona
+    * pipeline stage
+    * priority
+* Empty state
+
+Do not overbuild detail pages yet unless quick and consistent with project patterns.
+
+7. Grants Page
+
+Create page:
+
+/capital/grants
+
+Show table columns:
+
+* Program
+* Funding Body
+* Deadline
+* Status
+* Fit Score
+* Expected Amount
+* Weighted Amount
+* Required Docs
+* Reporting Burden
+* Owner
+* Next Action
+
+Features:
+
+* Create grant dialog
+* Edit grant
+* Search
+* Filters:
+    * application status
+    * eligibility status
+    * deadline window
+    * reporting burden
+* Empty state
+
+8. Pipeline Page
+
+Create page:
+
+/capital/pipeline
+
+Show simple Kanban/list grouped by pipeline_stage.
+
+For each card show:
+
+* funder name
+* expected amount
+* probability
+* weighted amount
+* next action / follow-up
+* priority
+
+Keep it simple. Do not build drag/drop yet unless already easy.
+
+9. Documents Page
+
+Create page:
+
+/capital/documents
+
+Show:
+
+* document name
+* type
+* version
+* status
+* last updated
+* shared with
+* shared date
+* owner
+* notes
+
+Features:
+
+* Add document record
+* Edit status
+* Filter by type/status
+* Empty state
+
+Do not build actual file storage unless the CMS already has an asset/document system that can be reused safely. For Phase 1, document tracking records are enough.
+
+10. Suggested Seed Data
+
+Seed a small set of document types only if the existing app seed pattern supports it safely.
+
+Do not seed fake investors, fake grants, or fake dollars.
+
+11. UI Principle
+
+Keep the Capital module focused.
+
+Primary user tasks:
+
+* Add funder
+* Add grant
+* Track follow-up
+* Track expected/weighted amount
+* Track documents
+* See what is urgent
+
+Do not add:
+
+* complex scoring engine yet
+* funding heat automation yet
+* AI investor writing yet
+* grant fit scoring yet
+* data room permissions yet
+* cap table logic
+
+12. Tests
+
+Add tests for:
+
+* tables/migration exists
+* weighted amount calculation for funders
+* weighted amount calculation for grants
+* CRUD route source checks
+* auth/permission route checks
+* invalid ID 400/404 handling
+* dashboard uses real data only
+* nav includes Capital section
+* nav does not exceed recommended pages
+* create form source checks for investors
+* create form source checks for grants
+* no fake funder/grant seed data
+* no cap table / investor portal / bloat features added
+
+Run:
+
+* new capital tests
+* nav-drift tests
+* permissions tests
+* affected route tests
+* app startup check
+
+13. Visual QA
+
+Take screenshots of:
+
+* Capital nav
+* Capital Dashboard
+* Investors page
+* Create investor dialog
+* Grants page
+* Pipeline page
+* Documents page
+* Empty state
+
+14. Final Report
+
+Return:
+
+* files changed
+* migration/table summary
+* routes added
+* pages added
+* tests run and passing
+* screenshots taken
+* what was deliberately not built
+* recommended Phase 2
+
+Important:
+Keep this lean.
+This is the Capital CRM foundation only.
+Do not build the full funding intelligence system in Phase 1.
