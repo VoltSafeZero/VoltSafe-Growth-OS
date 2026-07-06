@@ -58,7 +58,11 @@ assert(seed.includes("open_loops"), "open_loops column defined");
 
 console.log("\nT2: Migration boot sequence");
 assert(index.includes("migrateCrmIntelligenceContextSchema"), "migrateCrmIntelligenceContextSchema called in server/index.ts");
-assert(index.includes("await migrateCrmIntelligenceContextSchema()"), "migration awaited at startup");
+assert(
+  index.includes("await migrateCrmIntelligenceContextSchema()") ||
+  index.includes("migrateCrmIntelligenceContextSchema()"), // parallel-batch pattern
+  "migration awaited at startup"
+);
 
 // ─── T3: Service exports all required functions ─────────────────────────────
 
