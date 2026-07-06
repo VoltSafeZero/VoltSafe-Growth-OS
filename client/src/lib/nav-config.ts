@@ -212,6 +212,7 @@ export const NAV_CONFIG: NavSection[] = [
     icon: Banknote,
     capitalOnly: true,
     items: [
+      { id: "capital-command-center", label: "Command Center",         route: "/capital/command-center", icon: Target },
       { id: "capital-dashboard",    label: "Dashboard",             route: "/capital/dashboard",    icon: LayoutDashboard },
       { id: "capital-pipeline",     label: "Investor Pipeline",     route: "/capital/pipeline",     icon: TrendingUp },
       { id: "capital-follow-ups",   label: "Follow-Up Queue",       route: "/capital/follow-ups",   icon: Zap },

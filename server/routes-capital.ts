@@ -335,6 +335,17 @@ export async function migrateCapitalSchema(): Promise<void> {
         ON capital_email_review(email_thread_id);
     `));
   } catch (_e4b) { /* already exists — idempotent */ }
+
+  // ── Phase 2E: Command Center columns ─────────────────────────────────────
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS minimum_close_target  BIGINT;
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS current_cash_balance  BIGINT;
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS monthly_burn          BIGINT;
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS post_close_monthly_burn BIGINT;
+    `));
+    console.log("[migration] Capital Phase 2E: command center columns ready.");
+  } catch (_e2e) { /* idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -2024,6 +2035,148 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
     } catch (err: any) {
       console.error("[capital] POST /email-review/:id/ignore:", err?.message);
       res.status(500).json({ message: "Failed to ignore review item" });
+    }
+  });
+
+  // ── Phase 2E: Round Command Center endpoint ───────────────────────────────
+  app.get("/api/capital/rounds/:id/command-center", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid round id" });
+
+      const {
+        computeWeightedPipeline,
+        computeLeadCandidates,
+        computeThisWeekActions,
+        computeRiskFlags,
+        computeRunway,
+        computeScenarios,
+      } = await import("./services/capital-command-center.js");
+
+      // Fetch round
+      const roundRows = await db.execute(sql.raw(`SELECT * FROM capital_rounds WHERE id = ${id} LIMIT 1`));
+      const round = roundRows.rows[0] as any;
+      if (!round) return res.status(404).json({ message: "Round not found" });
+
+      // Fetch all active investors (not passed)
+      const invRows = await db.execute(sql.raw(`
+        SELECT ci.*,
+          (SELECT COUNT(*) FROM capital_contacts cc WHERE cc.investor_id = ci.id) AS contact_count
+        FROM capital_investors ci
+        WHERE ci.stage NOT IN ('Passed')
+        ORDER BY ci.priority DESC NULLS LAST, ci.updated_at DESC
+        LIMIT 500
+      `));
+      const investors = invRows.rows as any[];
+
+      // Fetch commitments for this round
+      const commRows = await db.execute(sql.raw(`
+        SELECT cc.*, ci.name AS investor_name, ci.stage AS investor_stage
+        FROM capital_commitments cc
+        LEFT JOIN capital_investors ci ON ci.id = cc.investor_id
+        WHERE cc.round_id = ${id}
+        ORDER BY cc.created_at DESC
+      `));
+      const commitments = commRows.rows as any[];
+
+      // Fetch contacts
+      const contactRows = await db.execute(sql.raw(`
+        SELECT cc.*, ci.name AS investor_name
+        FROM capital_contacts cc
+        LEFT JOIN capital_investors ci ON ci.id = cc.investor_id
+        ORDER BY cc.influence_level DESC, cc.created_at DESC
+        LIMIT 500
+      `));
+      const contacts = contactRows.rows as any[];
+
+      // Email link counts per investor
+      const emailLinkRows = await db.execute(sql.raw(`
+        SELECT capital_investor_id, COUNT(*) AS cnt
+        FROM capital_email_links
+        WHERE deleted_at IS NULL
+        GROUP BY capital_investor_id
+      `));
+      const emailLinkCounts = new Map<number, number>();
+      for (const r of emailLinkRows.rows as any[]) {
+        emailLinkCounts.set(Number(r.capital_investor_id), Number(r.cnt));
+      }
+
+      // Recent activity
+      const actRows = await db.execute(sql.raw(`
+        SELECT ca.*, u.name AS actor_name
+        FROM capital_activities ca
+        LEFT JOIN users u ON u.id = ca.created_by
+        WHERE ca.entity_type = 'round' AND ca.entity_id = ${id}
+        ORDER BY ca.created_at DESC
+        LIMIT 15
+      `));
+      const recentActivity = actRows.rows;
+
+      // Recent investor email conversations linked to this round's investors
+      const emailRows = await db.execute(sql.raw(`
+        SELECT cel.*, ci.name AS investor_name
+        FROM capital_email_links cel
+        JOIN capital_investors ci ON ci.id = cel.capital_investor_id
+        WHERE cel.deleted_at IS NULL
+          AND ci.id IN (
+            SELECT DISTINCT cc2.investor_id FROM capital_commitments cc2
+            WHERE cc2.round_id = ${id} AND cc2.investor_id IS NOT NULL
+          )
+        ORDER BY cel.latest_message_at DESC NULLS LAST
+        LIMIT 10
+      `));
+      const recentEmails = emailRows.rows;
+
+      // Compute all intelligence
+      const pipeline     = computeWeightedPipeline(round, investors, commitments);
+      const leads        = computeLeadCandidates(investors, commitments, contacts, emailLinkCounts);
+      const actions      = computeThisWeekActions(investors, commitments, emailLinkCounts);
+      const riskFlags    = computeRiskFlags(round, investors, pipeline);
+      const runway       = computeRunway(round, pipeline.weighted_pipeline);
+      const scenarios    = computeScenarios(round, pipeline, runway);
+
+      // Days open
+      const daysOpen = round.open_date
+        ? Math.floor((Date.now() - new Date(round.open_date).getTime()) / 86400000)
+        : null;
+
+      res.json({
+        round:           { ...round, days_open: daysOpen },
+        summary:         pipeline,
+        lead_candidates: leads,
+        this_week_actions: actions,
+        risk_flags:      riskFlags,
+        runway,
+        scenarios,
+        recent_activity: recentActivity,
+        recent_emails:   recentEmails,
+      });
+    } catch (err: any) {
+      console.error("[capital] GET /rounds/:id/command-center:", err?.message);
+      res.status(500).json({ message: "Failed to load command center" });
+    }
+  });
+
+  // ── Phase 2E: Update round with command center fields ─────────────────────
+  app.patch("/api/capital/rounds/:id/runway", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const allowed = ["minimum_close_target", "current_cash_balance", "monthly_burn", "post_close_monthly_burn"];
+      const sets: string[] = [];
+      for (const k of allowed) {
+        if (k in req.body && req.body[k] !== undefined) {
+          const v = req.body[k] === null ? "NULL" : Number(req.body[k]);
+          sets.push(`${k} = ${v}`);
+        }
+      }
+      if (!sets.length) return res.status(400).json({ message: "No fields to update" });
+      sets.push(`updated_at = NOW()`);
+      const rows = await db.execute(sql.raw(`UPDATE capital_rounds SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      res.json(rows.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] PATCH /rounds/:id/runway:", err?.message);
+      res.status(500).json({ message: "Failed to update runway data" });
     }
   });
 }

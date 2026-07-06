@@ -1,0 +1,357 @@
+Phase 2E — Capital Round Command Center
+
+Current completed state:
+
+Capital Phase 2A:
+- investors, contacts, rounds, commitments, pipeline, activity logging
+
+Capital Phase 2B:
+- Capital module restricted to CEO Trevor and CFO Scott Carlson only
+
+Capital Phase 2C:
+- investor scoring
+- follow-up queue
+- pipeline intelligence
+- investor email draft context
+- investor detail intelligence panel
+- activity touch tracking
+
+Capital Phase 2D:
+- capital_email_links table
+- capital_email_review queue
+- exact investor/contact email matching by capital_contacts.email
+- conservative free-domain fallback to review queue
+- manual “Link to Capital Investor” from VoltSafe Mail
+- investor Email Conversations panel
+- Gmail sync hook with fire-and-forget Capital linking
+- all new APIs behind requireCapitalAccess
+- tests passing:
+  - capital foundation: 138/138
+  - capital intelligence: 87/87
+  - capital permissions: 86/86
+  - capital email linking: 82/82
+
+Now implement Phase 2E.
+
+Primary goal:
+Create a Capital Round Command Center that gives Trevor and Scott a clear, real-time view of fundraising progress, risk, runway impact, and the exact actions needed to close the round.
+
+Do not loosen Capital permissions.
+All new pages, APIs, routes, calculations, and data must remain restricted to Trevor and Scott Carlson only.
+
+1. Audit existing Capital round/commitment schema
+
+Before writing code, inspect:
+- capital_rounds
+- capital_commitments
+- capital_investors
+- capital_contacts
+- capital_activities
+- capital_email_links
+- existing pipeline intelligence endpoint
+- existing Capital frontend pages
+- existing permission guard patterns
+
+Document existing fields and identify whether schema changes are needed.
+
+2. Round Command Center page
+
+Add a new Capital page:
+
+/capital/command-center
+
+Add Capital nav item:
+- Command Center
+
+Only Trevor and Scott should see it.
+
+This page should focus on the active fundraising round.
+
+If multiple rounds exist, allow selecting the round.
+
+3. Round summary cards
+
+For the selected round, show top-level cards:
+
+- Round name
+- Target raise
+- Minimum close target
+- Current committed
+- Soft-circled amount
+- Weighted pipeline estimate
+- Remaining to target
+- Remaining to minimum close
+- Number of committed investors
+- Number of soft-circled investors
+- Number of hot investors
+- Number of likely lead investors
+- Days since round started
+- Expected close date if available
+- Round status
+
+4. Commitment status model
+
+Audit existing commitment statuses.
+
+If needed, normalize or support these statuses:
+
+- Target
+- Interested
+- Soft-Circled
+- Verbal Commit
+- Diligence
+- Committed
+- Wired
+- Passed
+- Stalled
+
+Do not break existing data. Map existing statuses safely.
+
+5. Weighted pipeline calculation
+
+Create a transparent weighted pipeline helper.
+
+Suggested default weights:
+
+- Wired: 100%
+- Committed: 95%
+- Verbal Commit: 80%
+- Diligence: 60%
+- Soft-Circled: 45%
+- Interested: 25%
+- Target: 10%
+- Stalled: 5%
+- Passed: 0%
+
+Weighted amount should use:
+- committed amount if available
+- target cheque amount if no committed amount
+- cheque capacity or stage estimate if needed
+
+Return:
+- raw target pipeline
+- weighted pipeline
+- committed/wired amount
+- soft-circled amount
+- remaining gap
+- confidence band
+
+6. Lead investor tracker
+
+Add a Lead Investor section.
+
+Show investors that are:
+- likely_lead = true
+- high score tier
+- large target cheque amount
+- strategic investor type
+- active in diligence/soft-circled/committed stage
+
+Each lead candidate should show:
+- investor name
+- type
+- stage
+- target cheque
+- committed amount
+- score/tier
+- last touch
+- next step
+- linked emails count
+- primary contact
+- risk flags
+
+7. This Week to Close panel
+
+Add an action panel showing the most important tasks needed this week.
+
+Inputs:
+- overdue follow-ups
+- investors with no next step
+- high-score investors with stale activity
+- likely lead investors without next meeting
+- committed investors not wired
+- soft-circled investors needing confirmation
+- investors in diligence needing data room follow-up
+- warm investors with no linked email conversation
+
+Each action row should show:
+- investor
+- reason
+- recommended action
+- due date
+- priority
+- quick open investor
+- draft email
+- create/update next step
+
+8. Round risk flags
+
+Add risk intelligence for the selected round.
+
+Show warnings such as:
+- No likely lead investor identified
+- Too much pipeline is low-confidence
+- Committed amount below minimum close
+- Soft-circled amount stale
+- Too many investors with no next step
+- Hot investors not contacted in 7+ days
+- Diligence investors without recent activity
+- Commitments not wired
+- Active round has no close date
+- Active round has no target amount
+
+9. Runway impact section
+
+If the CMS has company financial/runway data, integrate it.
+
+If not, create a lightweight manual input model for the Command Center:
+
+Fields:
+- current cash balance
+- monthly burn
+- current runway months
+- target raise
+- minimum close
+- optional post-close monthly burn
+
+Calculate:
+- runway today
+- runway after minimum close
+- runway after target close
+- runway after weighted pipeline
+- date cash-out estimate
+
+Keep this private to Capital only.
+
+If no schema is desired yet, implement a local round-level placeholder/calculation panel with safe TODO comments and no fake data.
+
+10. Scenario planning
+
+Add simple scenario cards:
+
+- Minimum Close Scenario
+- Base Case Scenario
+- Target Close Scenario
+- Stretch Scenario
+
+Each scenario should show:
+- amount raised
+- runway added
+- likely round status
+- gap to target
+- required additional commitments
+
+Optional:
+- dilution estimate if valuation fields exist
+- otherwise leave dilution for Phase 2F
+
+11. Round detail intelligence endpoint
+
+Add backend endpoint:
+
+GET /api/capital/rounds/:id/command-center
+
+Behind requireCapitalAccess.
+
+Return:
+- round summary
+- commitment totals
+- weighted pipeline
+- lead investor candidates
+- this-week actions
+- risk flags
+- runway calculations if available
+- scenario cards
+- recent activity
+- recent linked investor emails
+
+12. Capital command center frontend
+
+Build a clean, high-signal page.
+
+Layout suggestion:
+
+Top:
+- round selector
+- round status
+- target/committed/weighted progress
+
+Middle:
+- summary cards
+- progress bars
+- lead investor tracker
+- this-week action list
+
+Bottom:
+- risk flags
+- runway/scenario planning
+- recent activity / recent investor emails
+
+Avoid clutter.
+This is a command center, not a casino dashboard.
+
+13. Email and follow-up integration
+
+From Command Center action rows, support:
+- open investor drawer
+- draft follow-up email using existing EmailDraftModal/email-context
+- update next_step
+- set next_follow_up_at
+- view linked email conversations
+- save important context to Cortex if existing action is available
+
+Do not auto-send emails.
+
+14. Permission hardening
+
+Add tests proving:
+- only Trevor and Scott can see Command Center nav item
+- only Trevor and Scott can access /capital/command-center
+- only Trevor and Scott can call /api/capital/rounds/:id/command-center
+- unauthorized users cannot infer round totals, runway, lead investor candidates, or action lists
+
+15. Tests
+
+Add tests for:
+- weighted pipeline helper
+- status weight mapping
+- committed amount calculation
+- soft-circled amount calculation
+- remaining-to-target calculation
+- lead investor candidate selection
+- this-week action generation
+- risk flag generation
+- runway calculation if implemented
+- scenario calculation if implemented
+- empty states
+- frontend route/nav wiring
+- API permission protection
+
+16. Validation
+
+Run:
+- capital foundation tests
+- capital permissions tests
+- capital intelligence tests
+- capital email-linking tests
+- cortex-intel tests
+- startup invariants tests
+- new command-center tests
+- full suite if practical
+
+Deliver:
+- files changed
+- schema changes, if any
+- new APIs
+- weighted pipeline formula
+- risk flag rules
+- runway/scenario assumptions
+- permission confirmation
+- test results
+- recommended Phase 2F follow-up
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose Capital data outside CEO/CFO access.
+Do not auto-send emails.
+Do not invent fake fundraising data.
