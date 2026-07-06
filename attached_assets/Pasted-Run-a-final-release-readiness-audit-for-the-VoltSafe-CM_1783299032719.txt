@@ -1,0 +1,262 @@
+Run a final release-readiness audit for the VoltSafe CMS Marketing module.
+
+Context:
+The Marketing module has been heavily built and then simplified to avoid bloat.
+
+Current primary Marketing nav:
+
+* Dashboard
+* Campaigns
+* Audiences
+* Replies
+* Hot Accounts
+* Compliance
+
+Advanced functionality remains available but is hidden in detail tabs or advanced sections:
+
+* Branching rules
+* Campaign attribution
+* Automation internals
+* Rule history
+* Raw/debug views
+
+Recently completed simplification:
+
+* /marketing/dashboard added
+* /marketing/hot-accounts added
+* Campaign Detail reorganized into tabs:
+    * Overview
+    * Audience
+    * Sequence
+    * Engagement
+    * Compliance
+    * Advanced
+* BranchingRulesPanel and CampaignAttributionSection moved to Advanced
+* ReplyIntelligence and AccountsHeatingUp moved to Engagement
+* automation_mode added:
+    * manual
+    * assisted
+    * full
+* pending_approval_count added
+* Campaign create dialog includes automation mode selector
+* Analytics clutter reduced
+* Tests passing:
+    * marketing-simplification.test.cjs 41/41
+    * nav-drift.test.cjs 101/101
+    * campaign-attribution.test.cjs 179/179
+    * permissions.test.js 71/71
+
+Goal:
+Confirm the Marketing module is ready to use with a real small VoltSafe marina campaign. Do not add new features unless required to fix a broken workflow.
+
+1. Navigation Audit
+
+Verify:
+
+* Marketing nav shows only:
+    * Dashboard
+    * Campaigns
+    * Audiences
+    * Replies
+    * Hot Accounts
+    * Compliance
+* Removed primary nav items are not visible:
+    * Templates
+    * Analytics
+    * Suppression
+* Their routes still work if intentionally retained
+* No duplicate nav entries
+* No broken active states
+* No mobile/sidebar overflow
+* Permissions still hide Marketing for users without access
+
+2. Dashboard Audit
+
+Verify /marketing/dashboard loads and shows:
+
+* Campaign Health
+* Sales Follow-Up
+* Compliance Health
+* What’s Working
+* Hot Accounts preview
+
+Check:
+
+* loading state
+* empty state
+* error state
+* no fake revenue
+* no fake attribution
+* no misleading benchmark data as real production data
+* links/buttons navigate to correct pages
+
+3. Campaigns Page Audit
+
+Verify:
+
+* campaign list loads
+* create campaign dialog works
+* automation_mode selector appears
+* manual/assisted/full options are clear
+* default mode is manual or assisted, not full automation
+* created campaign persists automation_mode correctly
+* campaign status controls still work
+* enrolled count still works
+* automation status column still works
+* no old analytics/ROI clutter leaks into campaign table
+
+4. Campaign Detail Audit
+
+Verify tabs:
+
+* Overview
+* Audience
+* Sequence
+* Engagement
+* Compliance
+* Advanced
+
+Check:
+
+* default tab is Overview
+* each tab loads without crash
+* Audience tab contains enrollment/recipient preview
+* Sequence tab contains email steps/sending controls
+* Engagement tab contains replies/hot accounts
+* Compliance tab contains preflight/compliance controls
+* Advanced tab contains branching rules and campaign attribution
+* Advanced tab is collapsed/not default
+* automation mode badge displays
+* pending approval count displays if present
+* no broken imports or dead components
+
+5. Audience Workflow Audit
+
+Run core workflow:
+
+* create or use test audience
+* preview recipients
+* exclusions show correctly
+* enroll eligible recipients
+* internal @voltsafe.com emails excluded
+* suppressed/unsubscribed/bounced contacts excluded
+* enrollment is idempotent
+
+6. Compliance Workflow Audit
+
+Run core workflow:
+
+* create campaign
+* enroll recipient
+* run compliance preflight
+* campaign cannot send before preflight passes
+* blocked compliance state is clear
+* unsubscribe/preferences links still work
+* public unsubscribe route works without auth
+* public preferences route works without auth
+* compliance dashboard still loads
+
+7. Sending / Automation Audit
+
+Verify:
+
+* manual send still works in dev-safe or configured mode
+* full automation still requires compliance passed
+* assisted mode is clearly labeled
+* if assisted mode is placeholder-only, UI makes that clear
+* automation tick does not send when mode is manual
+* automation tick respects suppression/unsubscribe/bounce
+* duplicate-send protection still works
+* unresolved placeholders fail closed
+* automation status display still updates
+
+8. Reply / Hot Account Audit
+
+Verify:
+
+* inbound reply ingestion still works
+* matched replies appear in Replies page
+* unmatched queue appears if unmatched exists
+* reply classification still works
+* high-intent reply creates/suggests task
+* Hot Accounts page loads
+* account heat score uses real data
+* buying committee data still appears where expected
+* compliance risk flags still appear
+
+9. Advanced Features Audit
+
+Verify advanced functionality still exists but does not clutter the default experience:
+
+* Branching Rules visible in Advanced tab
+* Campaign Attribution visible in Advanced tab
+* rule create/edit/delete still works
+* seed recommended rules still works
+* no raw JSON/debug internals visible to normal users unless intended
+* advanced controls require correct permissions
+
+10. Permission Audit
+
+Check:
+
+* regular CRM user can view appropriate Marketing pages
+* non-admin cannot access compliance/debug/admin-only tools
+* edit actions require proper permission
+* admin routes remain admin-only
+* public unsubscribe/preferences remain public but safe
+* no compliance-risk data leaks to unauthorized users
+
+11. Test Suite
+
+Run:
+
+* marketing-simplification.test.cjs
+* nav-drift.test.cjs
+* campaign-attribution.test.cjs
+* permissions.test.js
+* campaign-enrollment tests
+* campaign-sending tests
+* campaign-tracking tests
+* compliance tests
+* campaign-automation tests
+* account-heat-score tests
+* campaign-reply-classifier tests
+* campaign-reply-ingestion tests
+* campaign-branching tests
+* openai-compat tests
+
+If full suite times out, run affected suites individually and report exact results.
+
+12. Visual QA
+
+Take screenshots of:
+
+* simplified Marketing nav
+* Marketing Dashboard
+* Campaigns create dialog with automation mode
+* Campaign Detail Overview tab
+* Campaign Detail Engagement tab
+* Campaign Detail Advanced tab
+* Hot Accounts page
+* Compliance page
+* Replies page
+
+13. Final Report
+
+Return:
+
+* issues found
+* fixes made
+* tests run and passing
+* screenshots taken
+* remaining issues
+* whether it is ready for a small real marina campaign
+* recommended first real campaign setup
+
+Important:
+Do not build Campaign ROI attribution.
+Do not add new dashboard sections.
+Do not re-expand the nav.
+Do not build a drag-and-drop journey builder.
+Do not add more automation complexity.
+Only fix broken or confusing pieces.

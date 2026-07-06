@@ -37913,7 +37913,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // ── Account Heat Score + Buying Committee Intelligence (Phase 5) ─────────────
 
   // GET /api/marketing/account-heat — ranked accounts by heat score
-  app.get("/api/marketing/account-heat", requireAuth, async (req: any, res) => {
+  app.get("/api/marketing/account-heat", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
     try {
       const { label, persona, adoption_stage, region, min_score, campaign_id, compliance_risk, limit, sort } = req.query as any;
       const VALID_LABELS = ["Hot", "Warm", "Nurture", "Low", "Cold"];
@@ -37961,7 +37961,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   });
 
   // GET /api/marketing/campaigns/:id/hot-accounts — accounts heating up from a specific campaign
-  app.get("/api/marketing/campaigns/:id/hot-accounts", requireAuth, async (req: any, res) => {
+  app.get("/api/marketing/campaigns/:id/hot-accounts", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
     try {
       const campaignId = Number(req.params.id);
       if (!campaignId || isNaN(campaignId)) return res.status(400).json({ error: "Invalid campaign id" });
