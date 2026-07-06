@@ -1,0 +1,563 @@
+Phase 2G — Capital Data Room + Investor Materials Tracker
+
+Current completed state:
+
+Capital Phase 2A:
+- investors, contacts, rounds, commitments, pipeline, activity logging
+
+Capital Phase 2B:
+- Capital module restricted to CEO Trevor and CFO Scott Carlson only
+
+Capital Phase 2C:
+- investor scoring
+- follow-up queue
+- pipeline intelligence
+- investor email draft context
+- investor detail intelligence panel
+- activity touch tracking
+
+Capital Phase 2D:
+- investor email conversation linking
+- capital_email_links
+- capital_email_review
+- exact capital_contacts.email matching
+- conservative review queue for uncertain matches
+- manual “Link to Capital Investor” from VoltSafe Mail
+- investor Email Conversations panel
+- Gmail sync hook
+- all APIs behind requireCapitalAccess
+
+Capital Phase 2E:
+- Round Command Center
+- weighted pipeline service
+- lead investor candidates
+- this-week action queue
+- risk flags
+- runway projections
+- scenario planning
+- /capital/command-center
+
+Capital Phase 2F:
+- valuation, dilution, allocation, and close-plan intelligence if already implemented
+- valuation/instrument fields
+- allocation/closing fields
+- dilution scenarios
+- allocation planner
+- close plan tracker
+
+Now implement Phase 2G.
+
+Primary goal:
+Create a Capital Data Room + Investor Materials Tracker so Trevor and Scott can manage fundraising documents, track which investors received what, identify what materials are blocking decisions, and connect materials activity back to investors, rounds, emails, Cortex, and follow-up actions.
+
+Do not loosen Capital permissions.
+All new Data Room pages, APIs, files, metadata, tracking, and activity must remain restricted to Trevor and Scott Carlson only.
+
+Important:
+Do not expose fundraising materials to unauthorized users.
+Do not invent external file hosting unless the app already supports it.
+If no secure file storage exists, create a metadata-first tracker with safe placeholders and TODOs for actual file upload/storage.
+
+1. Audit existing infrastructure
+
+Before writing code, inspect:
+- Capital routes/pages/services
+- any existing file/attachment/document schema
+- any existing asset library
+- email attachment handling
+- Cortex Intel file/source support
+- task system
+- Capital activities
+- investor email linking
+- command center service
+- existing permission guards
+- existing upload/download patterns, if any
+
+Document what exists before building.
+
+2. Data Room schema
+
+Create safe migrations for Capital data room tracking.
+
+Preferred tables:
+
+capital_materials
+- id
+- title
+- description
+- material_type
+- round_id nullable
+- version_label
+- status
+- file_url nullable
+- file_storage_key nullable
+- external_url nullable
+- mime_type nullable
+- file_size_bytes nullable
+- checksum nullable
+- tags jsonb/text
+- is_confidential boolean default true
+- requires_nda boolean default false
+- owner_user_id
+- created_by
+- updated_by
+- created_at
+- updated_at
+- deleted_at nullable
+
+capital_material_shares
+- id
+- material_id
+- investor_id
+- contact_id nullable
+- round_id nullable
+- share_method
+- email_thread_id nullable
+- email_message_id nullable
+- shared_at
+- shared_by
+- status
+- viewed_at nullable
+- downloaded_at nullable
+- last_activity_at nullable
+- notes nullable
+- created_at
+- updated_at
+- deleted_at nullable
+
+capital_material_requests
+- id
+- investor_id
+- contact_id nullable
+- round_id nullable
+- requested_material_type
+- requested_title
+- request_status
+- priority
+- due_at nullable
+- requested_by nullable
+- requested_at
+- fulfilled_material_id nullable
+- fulfilled_at nullable
+- notes nullable
+- created_at
+- updated_at
+- deleted_at nullable
+
+Use soft delete if that matches existing patterns.
+
+3. Material types
+
+Support material_type values such as:
+- pitch_deck
+- executive_summary
+- financial_model
+- cap_table
+- product_overview
+- technical_overview
+- patent_ip
+- customer_pipeline
+- pilot_results
+- market_analysis
+- data_room_index
+- legal_docs
+- subscription_agreement
+- due_diligence
+- board_material
+- grant_document
+- other
+
+4. Material statuses
+
+Support status values such as:
+- draft
+- active
+- archived
+- superseded
+- restricted
+- pending_review
+
+Only active materials should be recommended by default.
+
+5. Share statuses
+
+Support share/material investor states:
+- not_shared
+- shared
+- viewed
+- downloaded
+- follow_up_needed
+- stale
+- superseded
+- blocked
+- completed
+
+6. Request statuses
+
+Support request_status values:
+- requested
+- in_progress
+- ready
+- shared
+- blocked
+- waived
+- closed
+
+7. Data Room page
+
+Add a new Capital page:
+
+/capital/data-room
+
+Add Capital nav item:
+- Data Room
+
+Only Trevor and Scott should see it.
+
+Page should include:
+- material library
+- filters by type, round, status, tag, confidentiality, NDA required
+- search by title/description
+- version label
+- active/superseded status
+- share count
+- latest shared date
+- linked round
+- owner
+- quick actions
+
+8. Material detail drawer
+
+Each material should open a detail drawer showing:
+- title
+- description
+- material type
+- version
+- status
+- round
+- tags
+- confidentiality/NDA flag
+- file/external URL if available
+- share history
+- investor recipients
+- related requests
+- related Cortex Intel
+- activity timeline
+
+Actions:
+- edit metadata
+- archive/supersede
+- copy link if safe
+- share with investor
+- save to Cortex
+- create follow-up task
+- open related investor
+
+9. Upload or metadata-first behavior
+
+If secure upload/file storage already exists:
+- integrate with it
+- enforce Capital permissions on upload/download
+- do not expose raw public URLs unless already protected
+
+If secure file storage does not exist:
+- implement metadata-first records with external_url/file_url nullable
+- add clear UI that tracks documents without uploading actual files yet
+- leave safe TODO comments for secure file storage integration
+
+Do not fake upload security.
+
+10. Investor material tracker
+
+Inside investor detail drawer/page, add a Materials section showing:
+- materials shared with this investor
+- date shared
+- contact shared with
+- version
+- status
+- viewed/downloaded if available
+- follow-up needed
+- requested materials
+- blocked due diligence items
+
+Actions:
+- share material
+- mark viewed/downloaded manually
+- mark follow-up needed
+- create material request
+- save material/email context to Cortex
+
+11. Command Center integration
+
+Extend /capital/command-center to include Data Room intelligence:
+
+Add cards/sections:
+- materials shared this round
+- investors missing pitch deck
+- investors missing financial model
+- open material requests
+- overdue material requests
+- diligence blockers
+- stale shared materials
+- superseded versions still outstanding
+- hot investors missing key materials
+
+Add risk flags:
+- active round has no pitch deck
+- active round has no financial model
+- lead investor missing key materials
+- diligence investors have open material requests
+- investors have superseded deck version
+- material requests overdue
+- confidential material shared without NDA flag if NDA required
+
+12. Share material workflow
+
+Add API and UI to share/record a material share.
+
+Suggested API:
+- POST /api/capital/materials/:id/share
+
+Payload:
+- investor_id
+- contact_id optional
+- round_id optional
+- share_method:
+  - email
+  - data_room_link
+  - manual
+  - meeting
+  - other
+- email_thread_id optional
+- email_message_id optional
+- notes optional
+
+When a material is shared:
+- create capital_material_shares row
+- create Capital activity
+- update investor last_touch_at if appropriate
+- optionally create/update follow-up task
+- optionally link to email thread if email IDs exist
+
+Do not auto-send emails unless existing flow explicitly supports draft-only generation.
+
+13. Email integration
+
+When drafting or sending investor emails, allow attaching/referencing tracked materials.
+
+From EmailDraftModal and investor email context:
+- show recommended materials for the investor’s stage
+- include recently shared materials
+- warn if using superseded material
+- warn if key material is missing
+- record material share when email is sent, if the material was included/referenced
+
+If send-flow metadata is unavailable, add safe manual “Mark as Shared” action.
+
+14. Cortex integration
+
+Allow materials and material shares to be saved to Cortex.
+
+Cortex record should include:
+- entity_type:
+  - capital_material
+  - capital_investor
+  - capital_round
+- entity_id
+- source_type:
+  - capital_material
+  - material_share
+  - email_thread
+- source_id
+- title
+- summary
+- tags:
+  - capital
+  - investor
+  - data-room
+  - diligence
+  - fundraising
+  - material type tag
+- use_for:
+  - investor_outreach
+  - fundraising
+  - capital_context
+  - due_diligence
+
+Cortex context for investor email drafts should include relevant material history.
+
+15. Material request workflow
+
+Add UI/API to create and manage investor material requests.
+
+Suggested APIs:
+- GET /api/capital/material-requests
+- POST /api/capital/material-requests
+- PATCH /api/capital/material-requests/:id
+- DELETE /api/capital/material-requests/:id
+
+Requests should be linkable to:
+- investor
+- contact
+- round
+- fulfilled material
+
+Use cases:
+- investor asked for financial model
+- investor asked for customer references
+- investor asked for IP/patent docs
+- investor asked for cap table
+- investor asked for technical diligence package
+
+16. Backend APIs
+
+Add APIs, all behind requireCapitalAccess:
+
+Materials:
+- GET /api/capital/materials
+- POST /api/capital/materials
+- GET /api/capital/materials/:id
+- PATCH /api/capital/materials/:id
+- DELETE /api/capital/materials/:id
+
+Shares:
+- GET /api/capital/materials/:id/shares
+- POST /api/capital/materials/:id/share
+- PATCH /api/capital/material-shares/:id
+- DELETE /api/capital/material-shares/:id
+
+Investor material view:
+- GET /api/capital/investors/:id/materials
+
+Requests:
+- GET /api/capital/material-requests
+- POST /api/capital/material-requests
+- PATCH /api/capital/material-requests/:id
+- DELETE /api/capital/material-requests/:id
+
+Command Center:
+- extend existing command-center endpoint with material intelligence
+
+Email context:
+- extend GET /api/capital/investors/:id/email-context with relevant material context
+
+17. Data room intelligence service
+
+Create a pure helper/service to compute:
+- key materials by round
+- missing required materials
+- investor material coverage
+- stale material shares
+- superseded material exposure
+- open request counts
+- overdue request counts
+- diligence blockers
+- recommended next material action
+
+Keep the logic transparent and testable.
+
+18. Permissions
+
+Everything must use requireCapitalAccess.
+
+Unauthorized users must not be able to:
+- see Data Room nav
+- access /capital/data-room
+- call material APIs
+- call material request APIs
+- infer material names, files, tags, investors, shares, requests, or emails
+- access Capital-linked Cortex material items
+- access material context through email-context
+
+19. Tests
+
+Add tests for:
+
+Schema:
+- capital_materials table exists
+- capital_material_shares table exists
+- capital_material_requests table exists
+- expected columns exist
+- soft-delete columns exist
+- unique/dedupe patterns where needed
+
+Permissions:
+- only Trevor and Scott can see Data Room nav
+- only Trevor and Scott can access /capital/data-room
+- unauthorized users receive 403 for every material/share/request API
+- unauthorized users cannot access material context through investor email-context
+
+Materials:
+- create material
+- update material
+- archive/delete material
+- list/filter/search materials
+- active vs superseded behavior
+- confidentiality/NDA fields
+
+Shares:
+- share material with investor
+- share creates Capital activity
+- share links to investor/contact/round
+- duplicate share handling
+- mark viewed/downloaded/follow-up-needed
+- investor detail shows shared materials
+
+Requests:
+- create request
+- update request status
+- fulfill request with material
+- overdue request detection
+- blocked request detection
+
+Command Center:
+- material intelligence appears
+- missing pitch deck risk flag
+- missing financial model risk flag
+- diligence blockers show
+- superseded material exposure shows
+- overdue material requests show
+
+Email/Cortex:
+- investor email-context includes relevant material history
+- unrelated material history is excluded
+- Save material to Cortex creates correct tags/entity/source
+- duplicate Cortex save respects existing upsert
+
+Frontend/source:
+- Data Room route exists
+- Data Room nav item exists only inside Capital guard
+- material detail drawer exists
+- investor detail Materials section exists
+- empty states render safely
+- no fake upload security claims
+
+20. Validation
+
+Run:
+- capital command-center tests
+- capital email-linking tests
+- capital intelligence tests
+- capital foundation tests
+- capital permissions tests
+- cortex-intel tests
+- startup invariants tests
+- new data-room/materials tests
+- full suite if practical
+
+Deliver:
+- files changed
+- schema changes
+- new APIs
+- material/share/request data flow
+- Data Room intelligence rules
+- permission confirmation
+- test results
+- recommended Phase 2H follow-up
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose Capital data outside CEO/CFO access.
+Do not auto-send emails.
+Do not invent fake data room files.
+Do not claim secure upload exists unless it actually does.
