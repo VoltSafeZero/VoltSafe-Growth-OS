@@ -4,6 +4,8 @@ import {
   Target, TrendingUp, AlertTriangle, CheckCircle2, Clock, Zap, Users,
   ChevronDown, RefreshCcw, Brain, Mail, ExternalLink, DollarSign,
   Calendar, Flame, Activity, BarChart3, Shield, Rocket, Minus,
+  Percent, PieChart, FileText, CheckSquare, Square, ChevronRight,
+  Edit2, ClipboardList, Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { fmtMoney } from "@/pages/capital-investors";
@@ -25,6 +28,13 @@ type Round = {
   days_open: number | null; current_cash_balance: number | null;
   monthly_burn: number | null; post_close_monthly_burn: number | null;
   notes: string | null;
+  // Phase 2F
+  pre_money_valuation: number | null; post_money_valuation: number | null;
+  share_price: number | null; option_pool_percent_pre: number | null;
+  option_pool_percent_post: number | null; round_instrument: string | null;
+  discount_rate: number | null; valuation_cap: number | null;
+  interest_rate: number | null; maturity_date: string | null;
+  legal_close_status: string | null;
 };
 
 type Summary = {
@@ -72,6 +82,55 @@ type Scenario = {
   required_additional: number; description: string;
 };
 
+// Phase 2F types
+type ValuationSummary = {
+  instrument: string | null;
+  pre_money: number | null; post_money_computed: number | null; post_money_manual: number | null;
+  amount_raised: number; share_price: number | null;
+  option_pool_pre: number | null; option_pool_post: number | null;
+  valuation_cap: number | null; discount_rate: number | null;
+  interest_rate: number | null; maturity_date: string | null;
+  legal_close_status: string | null;
+  new_investor_ownership_pct: number | null; effective_valuation: number | null;
+  is_priced: boolean; is_safe_or_convertible: boolean;
+  warnings: string[]; has_valuation_data: boolean;
+};
+
+type DilutionScenario = Scenario & {
+  post_money_valuation: number | null;
+  new_investor_pct: number | null; dilution_pct: number | null;
+  dilution_warnings: string[]; assumptions: string[];
+};
+
+type AllocationRow = {
+  investor_id: number; investor_name: string; investor_type: string; stage: string;
+  commitment_id: number | null;
+  requested_amount: number | null; allocation_amount: number | null;
+  final_allocation_amount: number | null; committed_amount: number | null;
+  allocation_status: string; closing_status: string;
+  docs_sent_at: string | null; docs_signed_at: string | null; funds_received_at: string | null;
+  allocation_notes: string | null; target_cheque_amount: number | null;
+  score: number; tier: string; likely_lead: boolean;
+  last_touch_at: string | null; next_step: string | null;
+};
+
+type ClosePlanGroup = {
+  status: string; label: string; investors: AllocationRow[];
+  total_amount: number; count: number;
+  pct_of_target: number | null; pct_of_min_close: number | null;
+};
+
+type ClosePlanSummary = {
+  groups: ClosePlanGroup[];
+  total_committed_in_close: number; wired_amount: number;
+  closed_amount: number; dropped_amount: number; pending_wire: number;
+  alerts: string[];
+};
+
+type CloseChecklistItem = {
+  key: string; label: string; complete: boolean; note?: string;
+};
+
 type CommandCenterData = {
   round: Round; summary: Summary;
   lead_candidates: LeadCandidate[];
@@ -79,6 +138,11 @@ type CommandCenterData = {
   risk_flags: RiskFlag[];
   runway: RunwayResult;
   scenarios: Scenario[];
+  valuation_summary: ValuationSummary;
+  dilution_scenarios: DilutionScenario[];
+  allocation_plan: AllocationRow[];
+  close_plan: ClosePlanSummary;
+  close_checklist: CloseChecklistItem[];
   recent_activity: any[];
   recent_emails: any[];
 };
@@ -131,6 +195,45 @@ function riskIcon(level: string) {
   if (level === "critical") return <AlertTriangle className="w-3.5 h-3.5 shrink-0" />;
   if (level === "warning")  return <AlertTriangle className="w-3.5 h-3.5 shrink-0" />;
   return <Shield className="w-3.5 h-3.5 shrink-0" />;
+}
+function allocStatusColor(s: string) {
+  if (s === "confirmed")  return "bg-emerald-500/15 text-emerald-400";
+  if (s === "reserved")   return "bg-cyan-500/15 text-cyan-400";
+  if (s === "proposed")   return "bg-amber-500/15 text-amber-400";
+  if (s === "rejected")   return "bg-red-500/15 text-red-400";
+  if (s === "reduced")    return "bg-orange-500/15 text-orange-400";
+  if (s === "increased")  return "bg-violet-500/15 text-violet-400";
+  return "bg-muted text-muted-foreground";
+}
+function closingStatusColor(s: string) {
+  if (s === "closed" || s === "wired") return "bg-emerald-500/15 text-emerald-400";
+  if (s === "funds_pending")           return "bg-cyan-500/15 text-cyan-400";
+  if (s === "docs_signed")             return "bg-violet-500/15 text-violet-400";
+  if (s === "docs_sent")               return "bg-amber-500/15 text-amber-400";
+  if (s === "dropped")                 return "bg-red-500/15 text-red-400";
+  return "bg-muted/40 text-muted-foreground";
+}
+function closingStatusLabel(s: string) {
+  const m: Record<string,string> = {
+    not_started: "Not Started", docs_sent: "Docs Sent", docs_signed: "Signed",
+    funds_pending: "Funds Pending", wired: "Wired", closed: "Closed", dropped: "Dropped",
+  };
+  return m[s] || s;
+}
+function allocStatusLabel(s: string) {
+  const m: Record<string,string> = {
+    unallocated: "Unallocated", proposed: "Proposed", reserved: "Reserved",
+    confirmed: "Confirmed", reduced: "Reduced", increased: "Increased", rejected: "Rejected",
+  };
+  return m[s] || s;
+}
+function instrumentLabel(s: string | null) {
+  if (!s) return "—";
+  const m: Record<string,string> = {
+    priced_equity: "Priced Equity", SAFE: "SAFE",
+    convertible_note: "Convertible Note", grant: "Grant", other: "Other",
+  };
+  return m[s] || s;
 }
 
 // ── Progress bar ───────────────────────────────────────────────────────────────
@@ -244,12 +347,301 @@ function RunwayEditorDialog({ roundId, round, onClose }: {
   );
 }
 
+// ── Valuation editor ───────────────────────────────────────────────────────────
+
+function ValuationEditorDialog({ roundId, round, onClose }: {
+  roundId: number; round: Round; onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    round_instrument:         round.round_instrument ?? "",
+    pre_money_valuation:      round.pre_money_valuation ?? "",
+    post_money_valuation:     round.post_money_valuation ?? "",
+    share_price:              round.share_price ?? "",
+    valuation_cap:            round.valuation_cap ?? "",
+    discount_rate:            round.discount_rate ?? "",
+    interest_rate:            round.interest_rate ?? "",
+    option_pool_percent_pre:  round.option_pool_percent_pre ?? "",
+    option_pool_percent_post: round.option_pool_percent_post ?? "",
+    maturity_date:            round.maturity_date ?? "",
+    legal_close_status:       round.legal_close_status ?? "",
+  });
+  const mut = useMutation({
+    mutationFn: (data: any) => apiRequest("PATCH", `/api/capital/rounds/${roundId}/valuation`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/capital/rounds", roundId, "command-center"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/capital/rounds"] });
+      toast({ title: "Valuation data saved" });
+      onClose();
+    },
+    onError: () => toast({ title: "Save failed", variant: "destructive" }),
+  });
+  function ff(k: string, v: string) { setForm(p => ({ ...p, [k]: v })); }
+  function pn(v: any) { const n = Number(v); return isNaN(n) || v === "" ? null : n; }
+  const instrument = form.round_instrument;
+  const isPriced = instrument === "priced_equity";
+  const isSafe   = instrument === "SAFE" || instrument === "convertible_note";
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><PieChart className="w-4 h-4 text-violet-400" /> Valuation & Instrument</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-1">
+          <div>
+            <Label className="text-xs">Investment Instrument</Label>
+            <Select value={form.round_instrument} onValueChange={v => ff("round_instrument", v)}>
+              <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-instrument">
+                <SelectValue placeholder="Select instrument" />
+              </SelectTrigger>
+              <SelectContent>
+                {["priced_equity","SAFE","convertible_note","grant","other"].map(i => (
+                  <SelectItem key={i} value={i}>{instrumentLabel(i)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">{isPriced ? "Pre-money Valuation" : "Pre-money / Cap"}</Label>
+              <Input value={form.pre_money_valuation} onChange={e => ff("pre_money_valuation", e.target.value)}
+                placeholder="e.g. 8000000" className="h-8 text-xs mt-1" data-testid="input-pre-money" />
+            </div>
+            {isPriced && (
+              <div>
+                <Label className="text-xs">Post-money (override)</Label>
+                <Input value={form.post_money_valuation} onChange={e => ff("post_money_valuation", e.target.value)}
+                  placeholder="computed automatically" className="h-8 text-xs mt-1" data-testid="input-post-money" />
+              </div>
+            )}
+            {isPriced && (
+              <div>
+                <Label className="text-xs">Share Price</Label>
+                <Input value={form.share_price} onChange={e => ff("share_price", e.target.value)}
+                  placeholder="e.g. 100" className="h-8 text-xs mt-1" data-testid="input-share-price" />
+              </div>
+            )}
+            {isSafe && (
+              <div>
+                <Label className="text-xs">Valuation Cap</Label>
+                <Input value={form.valuation_cap} onChange={e => ff("valuation_cap", e.target.value)}
+                  placeholder="e.g. 10000000" className="h-8 text-xs mt-1" data-testid="input-valuation-cap" />
+              </div>
+            )}
+            {isSafe && (
+              <div>
+                <Label className="text-xs">Discount Rate (%)</Label>
+                <Input value={form.discount_rate} onChange={e => ff("discount_rate", e.target.value)}
+                  placeholder="e.g. 20" className="h-8 text-xs mt-1" data-testid="input-discount-rate" />
+              </div>
+            )}
+            {isSafe && (
+              <div>
+                <Label className="text-xs">Interest Rate (%)</Label>
+                <Input value={form.interest_rate} onChange={e => ff("interest_rate", e.target.value)}
+                  placeholder="e.g. 6" className="h-8 text-xs mt-1" data-testid="input-interest-rate" />
+              </div>
+            )}
+            {isSafe && (
+              <div>
+                <Label className="text-xs">Maturity Date</Label>
+                <Input type="date" value={form.maturity_date} onChange={e => ff("maturity_date", e.target.value)}
+                  className="h-8 text-xs mt-1" data-testid="input-maturity-date" />
+              </div>
+            )}
+            <div>
+              <Label className="text-xs">Option Pool Pre (%)</Label>
+              <Input value={form.option_pool_percent_pre} onChange={e => ff("option_pool_percent_pre", e.target.value)}
+                placeholder="e.g. 10" className="h-8 text-xs mt-1" data-testid="input-pool-pre" />
+            </div>
+            <div>
+              <Label className="text-xs">Option Pool Post (%)</Label>
+              <Input value={form.option_pool_percent_post} onChange={e => ff("option_pool_percent_post", e.target.value)}
+                placeholder="e.g. 12" className="h-8 text-xs mt-1" data-testid="input-pool-post" />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Legal Close Status</Label>
+            <Select value={form.legal_close_status} onValueChange={v => ff("legal_close_status", v)}>
+              <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-legal-status">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                {["not_started","docs_in_progress","review","executed","closed"].map(s => (
+                  <SelectItem key={s} value={s}>{s.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="text-[10px] text-muted-foreground">All monetary values in {round.currency}. Percentages as plain numbers (e.g. 10 for 10%). No cap table data is required — leave fields blank if unknown.</p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={mut.isPending} onClick={() => mut.mutate({
+            round_instrument:         form.round_instrument || null,
+            pre_money_valuation:      pn(form.pre_money_valuation),
+            post_money_valuation:     pn(form.post_money_valuation),
+            share_price:              pn(form.share_price),
+            valuation_cap:            pn(form.valuation_cap),
+            discount_rate:            pn(form.discount_rate),
+            interest_rate:            pn(form.interest_rate),
+            option_pool_percent_pre:  pn(form.option_pool_percent_pre),
+            option_pool_percent_post: pn(form.option_pool_percent_post),
+            maturity_date:            form.maturity_date || null,
+            legal_close_status:       form.legal_close_status || null,
+          })} data-testid="btn-save-valuation">
+            {mut.isPending ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Allocation editor ──────────────────────────────────────────────────────────
+
+function AllocationEditorDialog({ row, roundId, onClose }: {
+  row: AllocationRow; roundId: number; onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    requested_amount:        row.requested_amount ?? "",
+    allocation_amount:       row.allocation_amount ?? "",
+    final_allocation_amount: row.final_allocation_amount ?? "",
+    allocation_status:       row.allocation_status || "unallocated",
+    closing_status:          row.closing_status || "not_started",
+    docs_sent_at:            row.docs_sent_at ? row.docs_sent_at.slice(0, 10) : "",
+    docs_signed_at:          row.docs_signed_at ? row.docs_signed_at.slice(0, 10) : "",
+    funds_received_at:       row.funds_received_at ? row.funds_received_at.slice(0, 10) : "",
+    allocation_notes:        row.allocation_notes ?? "",
+  });
+  const mut = useMutation({
+    mutationFn: (data: any) => {
+      if (!row.commitment_id) return Promise.reject(new Error("No commitment record — create a commitment first"));
+      return apiRequest("PATCH", `/api/capital/commitments/${row.commitment_id}/allocation`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/capital/rounds", roundId, "command-center"] });
+      toast({ title: "Allocation saved" });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: e?.message || "Save failed", variant: "destructive" }),
+  });
+  function ff(k: string, v: string) { setForm(p => ({ ...p, [k]: v })); }
+  function pn(v: any) { const n = Number(v); return isNaN(n) || v === "" ? null : n; }
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-cyan-400" />
+            {row.investor_name} — Allocation
+          </DialogTitle>
+        </DialogHeader>
+        {!row.commitment_id && (
+          <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+            No commitment record exists yet. Create a commitment in Funding Rounds first to track allocation.
+          </div>
+        )}
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Requested Amount</Label>
+              <Input value={form.requested_amount} onChange={e => ff("requested_amount", e.target.value)}
+                placeholder="investor's ask" className="h-8 text-xs mt-1" data-testid="input-requested-amount" />
+            </div>
+            <div>
+              <Label className="text-xs">Proposed Allocation</Label>
+              <Input value={form.allocation_amount} onChange={e => ff("allocation_amount", e.target.value)}
+                placeholder="your offer" className="h-8 text-xs mt-1" data-testid="input-allocation-amount" />
+            </div>
+            <div>
+              <Label className="text-xs">Final Allocation</Label>
+              <Input value={form.final_allocation_amount} onChange={e => ff("final_allocation_amount", e.target.value)}
+                placeholder="agreed final" className="h-8 text-xs mt-1" data-testid="input-final-allocation" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Allocation Status</Label>
+              <Select value={form.allocation_status} onValueChange={v => ff("allocation_status", v)}>
+                <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-allocation-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["unallocated","proposed","reserved","confirmed","reduced","increased","rejected"].map(s => (
+                    <SelectItem key={s} value={s}>{allocStatusLabel(s)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Closing Status</Label>
+              <Select value={form.closing_status} onValueChange={v => ff("closing_status", v)}>
+                <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-closing-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["not_started","docs_sent","docs_signed","funds_pending","wired","closed","dropped"].map(s => (
+                    <SelectItem key={s} value={s}>{closingStatusLabel(s)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">Docs Sent</Label>
+              <Input type="date" value={form.docs_sent_at} onChange={e => ff("docs_sent_at", e.target.value)}
+                className="h-8 text-xs mt-1" data-testid="input-docs-sent" />
+            </div>
+            <div>
+              <Label className="text-xs">Docs Signed</Label>
+              <Input type="date" value={form.docs_signed_at} onChange={e => ff("docs_signed_at", e.target.value)}
+                className="h-8 text-xs mt-1" data-testid="input-docs-signed" />
+            </div>
+            <div>
+              <Label className="text-xs">Funds Received</Label>
+              <Input type="date" value={form.funds_received_at} onChange={e => ff("funds_received_at", e.target.value)}
+                className="h-8 text-xs mt-1" data-testid="input-funds-received" />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Notes</Label>
+            <Textarea value={form.allocation_notes} onChange={e => ff("allocation_notes", e.target.value)}
+              className="text-xs mt-1 min-h-[60px]" placeholder="allocation context, conditions…" data-testid="input-allocation-notes" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={mut.isPending || !row.commitment_id}
+            onClick={() => mut.mutate({
+              requested_amount:        pn(form.requested_amount),
+              allocation_amount:       pn(form.allocation_amount),
+              final_allocation_amount: pn(form.final_allocation_amount),
+              allocation_status:       form.allocation_status,
+              closing_status:          form.closing_status,
+              docs_sent_at:            form.docs_sent_at || null,
+              docs_signed_at:          form.docs_signed_at || null,
+              funds_received_at:       form.funds_received_at || null,
+              allocation_notes:        form.allocation_notes || null,
+            })} data-testid="btn-save-allocation">
+            {mut.isPending ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function CapitalCommandCenterPage() {
   const { toast } = useToast();
-  const [selectedRoundId, setSelectedRoundId] = useState<number | null>(null);
-  const [runwayEditorOpen, setRunwayEditorOpen] = useState(false);
+  const [selectedRoundId, setSelectedRoundId]     = useState<number | null>(null);
+  const [runwayEditorOpen, setRunwayEditorOpen]   = useState(false);
+  const [valuationEditorOpen, setValuationEditorOpen] = useState(false);
+  const [allocEditRow, setAllocEditRow]           = useState<AllocationRow | null>(null);
 
   const { data: rounds = [], isLoading: roundsLoading } = useQuery<Round[]>({
     queryKey: ["/api/capital/rounds"],
@@ -275,13 +667,18 @@ export default function CapitalCommandCenterPage() {
     refetchOnWindowFocus: false,
   });
 
-  const round    = ccData?.round;
-  const summary  = ccData?.summary;
-  const leads    = ccData?.lead_candidates ?? [];
-  const actions  = ccData?.this_week_actions ?? [];
-  const flags    = ccData?.risk_flags ?? [];
-  const runway   = ccData?.runway;
-  const scenarios = ccData?.scenarios ?? [];
+  const round            = ccData?.round;
+  const summary          = ccData?.summary;
+  const leads            = ccData?.lead_candidates ?? [];
+  const actions          = ccData?.this_week_actions ?? [];
+  const flags            = ccData?.risk_flags ?? [];
+  const runway           = ccData?.runway;
+  const scenarios        = ccData?.scenarios ?? [];
+  const valuation        = ccData?.valuation_summary;
+  const dilutionScenarios = ccData?.dilution_scenarios ?? [];
+  const allocationPlan   = ccData?.allocation_plan ?? [];
+  const closePlan        = ccData?.close_plan;
+  const closeChecklist   = ccData?.close_checklist ?? [];
 
   const criticalCount = flags.filter(f => f.level === "critical").length;
 
@@ -357,6 +754,11 @@ export default function CapitalCommandCenterPage() {
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <Calendar className="w-3 h-3" /> Close {fmtDate(round.target_close_date)}
                 </span>
+              )}
+              {round.round_instrument && (
+                <Badge className="text-[10px] bg-violet-500/15 text-violet-400 border-violet-500/20" data-testid="badge-instrument">
+                  {instrumentLabel(round.round_instrument)}
+                </Badge>
               )}
             </div>
             {summary.target_amount > 0 && (
@@ -567,33 +969,332 @@ export default function CapitalCommandCenterPage() {
                 </div>
               ) : (
                 <div className="space-y-2" data-testid="scenario-list">
-                  {scenarios.map(s => (
-                    <div key={s.key} className="bg-card border border-border rounded-xl p-3 space-y-1.5" data-testid={`scenario-${s.key}`}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold">{s.name}</span>
-                        <span className="text-sm font-bold text-foreground">{fmtMoney(s.amount)}</span>
+                  {(dilutionScenarios.length ? dilutionScenarios : scenarios).map(s => {
+                    const ds = s as DilutionScenario;
+                    return (
+                      <div key={s.key} className="bg-card border border-border rounded-xl p-3 space-y-1.5" data-testid={`scenario-${s.key}`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold">{s.name}</span>
+                          <span className="text-sm font-bold text-foreground">{fmtMoney(s.amount)}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">{s.description}</p>
+                        <div className="flex gap-4 text-[10px] text-muted-foreground flex-wrap">
+                          {s.runway_added_months != null && (
+                            <span>+{s.runway_added_months}mo runway</span>
+                          )}
+                          {ds.post_money_valuation && (
+                            <span className="text-violet-400">Post: {fmtMoney(ds.post_money_valuation)}</span>
+                          )}
+                          {ds.new_investor_pct != null && (
+                            <span className="text-cyan-400">{ds.new_investor_pct}% new investors</span>
+                          )}
+                          {s.gap_to_target > 0 && (
+                            <span className="text-amber-400">{fmtMoney(s.gap_to_target)} below target</span>
+                          )}
+                          {s.gap_to_target === 0 && s.required_additional === 0 && (
+                            <span className="text-emerald-400">Target met ✓</span>
+                          )}
+                        </div>
+                        {ds.dilution_warnings?.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {ds.dilution_warnings.map((w, i) => (
+                              <span key={i} className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded px-1.5 py-0.5 flex items-center gap-1">
+                                <Info className="w-2.5 h-2.5" />{w}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <p className="text-[10px] text-muted-foreground">{s.description}</p>
-                      <div className="flex gap-4 text-[10px] text-muted-foreground flex-wrap">
-                        {s.runway_added_months != null && (
-                          <span>+{s.runway_added_months}mo runway</span>
-                        )}
-                        {s.gap_to_target > 0 && (
-                          <span className="text-amber-400">{fmtMoney(s.gap_to_target)} below target</span>
-                        )}
-                        {s.required_additional > 0 && (
-                          <span>{fmtMoney(s.required_additional)} still needed</span>
-                        )}
-                        {s.gap_to_target === 0 && s.required_additional === 0 && (
-                          <span className="text-emerald-400">Target met ✓</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>
           </div>
+
+          {/* ── Valuation & Dilution ── */}
+          <section data-testid="section-valuation">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <PieChart className="w-4 h-4 text-violet-400" /> Valuation & Dilution
+              </h2>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setValuationEditorOpen(true)}
+                data-testid="btn-edit-valuation">
+                {valuation?.has_valuation_data ? "Edit Valuation" : "Add Valuation"}
+              </Button>
+            </div>
+            {!valuation?.has_valuation_data ? (
+              <div className="bg-card border border-border rounded-xl p-5 text-center text-muted-foreground text-xs space-y-2" data-testid="no-valuation">
+                <PieChart className="w-6 h-6 mx-auto opacity-30" />
+                <p>Add valuation details to model investor ownership and dilution.</p>
+                <p className="text-[10px]">No cap table required — just enter the fields you have.</p>
+              </div>
+            ) : (
+              <div className="bg-card border border-border rounded-xl p-4 space-y-4" data-testid="valuation-data">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                  <div>
+                    <p className="text-[10px] text-muted-foreground uppercase">Instrument</p>
+                    <p className="font-semibold text-violet-400">{instrumentLabel(valuation.instrument)}</p>
+                  </div>
+                  {valuation.is_priced && (
+                    <>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">Pre-money</p>
+                        <p className="font-semibold">{valuation.pre_money ? fmtMoney(valuation.pre_money) : "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground uppercase">Post-money</p>
+                        <p className="font-semibold text-emerald-400">
+                          {valuation.post_money_computed ? fmtMoney(valuation.post_money_computed) : (valuation.post_money_manual ? fmtMoney(valuation.post_money_manual) : "—")}
+                        </p>
+                      </div>
+                      {valuation.share_price && (
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Share Price</p>
+                          <p className="font-semibold">{fmtMoney(valuation.share_price)}</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {valuation.is_safe_or_convertible && (
+                    <>
+                      {valuation.valuation_cap && (
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Valuation Cap</p>
+                          <p className="font-semibold">{fmtMoney(valuation.valuation_cap)}</p>
+                        </div>
+                      )}
+                      {valuation.discount_rate && (
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Discount Rate</p>
+                          <p className="font-semibold">{valuation.discount_rate}%</p>
+                        </div>
+                      )}
+                      {valuation.interest_rate && (
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Interest Rate</p>
+                          <p className="font-semibold">{valuation.interest_rate}%</p>
+                        </div>
+                      )}
+                      {valuation.maturity_date && (
+                        <div>
+                          <p className="text-[10px] text-muted-foreground uppercase">Maturity</p>
+                          <p className="font-semibold">{fmtDate(valuation.maturity_date)}</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {valuation.new_investor_ownership_pct != null && (
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase">
+                        {valuation.is_safe_or_convertible ? "Est. Ownership (at cap)" : "New Investor Ownership"}
+                      </p>
+                      <p className="font-semibold text-cyan-400">{valuation.new_investor_ownership_pct}%</p>
+                    </div>
+                  )}
+                  {(valuation.option_pool_pre != null || valuation.option_pool_post != null) && (
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase">Option Pool</p>
+                      <p className="font-semibold">
+                        {valuation.option_pool_pre != null ? `${valuation.option_pool_pre}%` : "—"}
+                        {" → "}
+                        {valuation.option_pool_post != null ? `${valuation.option_pool_post}%` : "—"}
+                      </p>
+                    </div>
+                  )}
+                  {valuation.legal_close_status && (
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase">Legal Status</p>
+                      <p className="font-semibold capitalize">{valuation.legal_close_status.replace(/_/g," ")}</p>
+                    </div>
+                  )}
+                </div>
+                {valuation.warnings.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {valuation.warnings.map((w, i) => (
+                      <span key={i} className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg px-2 py-1 flex items-center gap-1">
+                        <Info className="w-2.5 h-2.5 shrink-0" />{w}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* ── Investor Allocation Planner ── */}
+          <section data-testid="section-allocation-planner">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-cyan-400" /> Investor Allocation Planner
+                <span className="text-xs text-muted-foreground font-normal">({allocationPlan.length})</span>
+              </h2>
+            </div>
+            {allocationPlan.length === 0 ? (
+              <div className="bg-card border border-border rounded-xl p-5 text-center text-muted-foreground text-xs" data-testid="allocation-empty">
+                No investors in the allocation plan. Add commitments in Funding Rounds.
+              </div>
+            ) : (
+              <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="allocation-table">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/20">
+                        <th className="text-left px-3 py-2 text-[10px] text-muted-foreground font-medium">Investor</th>
+                        <th className="text-left px-3 py-2 text-[10px] text-muted-foreground font-medium">Stage</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-muted-foreground font-medium">Requested</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-muted-foreground font-medium">Proposed</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-muted-foreground font-medium">Final</th>
+                        <th className="text-left px-3 py-2 text-[10px] text-muted-foreground font-medium">Alloc</th>
+                        <th className="text-left px-3 py-2 text-[10px] text-muted-foreground font-medium">Closing</th>
+                        <th className="px-3 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allocationPlan.map(row => (
+                        <tr key={row.investor_id} className="border-b border-border/50 hover:bg-muted/10 transition-colors"
+                          data-testid={`alloc-row-${row.investor_id}`}>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {row.likely_lead && <Flame className="w-2.5 h-2.5 text-amber-400 shrink-0" />}
+                              <span className="font-medium truncate max-w-[130px]">{row.investor_name}</span>
+                              <span className={`text-[9px] px-1 py-0.5 rounded ${tierBadge(row.tier)}`}>{row.score}</span>
+                            </div>
+                            <p className="text-[9px] text-muted-foreground">{row.investor_type}</p>
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">{row.stage}</td>
+                          <td className="px-3 py-2 text-right">{fmtMoney(row.requested_amount)}</td>
+                          <td className="px-3 py-2 text-right">{fmtMoney(row.allocation_amount)}</td>
+                          <td className="px-3 py-2 text-right font-medium">{fmtMoney(row.final_allocation_amount)}</td>
+                          <td className="px-3 py-2">
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded ${allocStatusColor(row.allocation_status)}`}>
+                              {allocStatusLabel(row.allocation_status)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded ${closingStatusColor(row.closing_status)}`}>
+                              {closingStatusLabel(row.closing_status)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              onClick={() => setAllocEditRow(row)}
+                              className="text-muted-foreground hover:text-foreground p-1 rounded"
+                              data-testid={`btn-edit-alloc-${row.investor_id}`}
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-muted/10 border-t border-border">
+                        <td className="px-3 py-2 text-[10px] text-muted-foreground font-medium" colSpan={2}>Totals ({allocationPlan.length})</td>
+                        <td className="px-3 py-2 text-right text-[10px] font-medium">
+                          {fmtMoney(allocationPlan.reduce((s,r) => s + (r.requested_amount || 0), 0))}
+                        </td>
+                        <td className="px-3 py-2 text-right text-[10px] font-medium">
+                          {fmtMoney(allocationPlan.reduce((s,r) => s + (r.allocation_amount || 0), 0))}
+                        </td>
+                        <td className="px-3 py-2 text-right text-[10px] font-medium text-emerald-400">
+                          {fmtMoney(allocationPlan.reduce((s,r) => s + (r.final_allocation_amount || 0), 0))}
+                        </td>
+                        <td colSpan={3}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* ── Close Plan Tracker ── */}
+          <section data-testid="section-close-plan">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-emerald-400" /> Close Plan Tracker
+            </h2>
+            {closePlan && closePlan.alerts.length > 0 && (
+              <div className="space-y-1.5 mb-3">
+                {closePlan.alerts.map((alert, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{alert}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="close-plan-groups">
+              {(closePlan?.groups ?? [])
+                .filter(g => g.count > 0 || ["not_started","docs_sent","docs_signed","wired","closed"].includes(g.status))
+                .map(g => (
+                  <div
+                    key={g.status}
+                    className={`bg-card border border-border rounded-xl p-3 space-y-2 ${g.count === 0 ? "opacity-40" : ""}`}
+                    data-testid={`close-plan-group-${g.status}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${closingStatusColor(g.status)}`}>
+                        {g.label}
+                      </span>
+                      <span className="text-xs font-semibold">{g.count}</span>
+                    </div>
+                    {g.count > 0 && (
+                      <>
+                        <p className="text-sm font-bold">{fmtMoney(g.total_amount)}</p>
+                        <div className="text-[10px] text-muted-foreground space-y-0.5">
+                          {g.pct_of_target != null && <p>{g.pct_of_target}% of target</p>}
+                          {g.pct_of_min_close != null && <p>{g.pct_of_min_close}% of min close</p>}
+                        </div>
+                        <div className="space-y-0.5">
+                          {g.investors.slice(0, 3).map(inv => (
+                            <p key={inv.investor_id} className="text-[10px] text-muted-foreground truncate">{inv.investor_name}</p>
+                          ))}
+                          {g.investors.length > 3 && (
+                            <p className="text-[9px] text-muted-foreground/60">+{g.investors.length - 3} more</p>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </section>
+
+          {/* ── Close Checklist ── */}
+          <section data-testid="section-close-checklist">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <CheckSquare className="w-4 h-4 text-primary" /> Round Close Checklist
+            </h2>
+            <div className="bg-card border border-border rounded-xl divide-y divide-border/50">
+              {closeChecklist.map(item => (
+                <div
+                  key={item.key}
+                  className="px-4 py-2.5 flex items-start gap-3"
+                  data-testid={`checklist-item-${item.key}`}
+                >
+                  {item.complete
+                    ? <CheckSquare className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    : <Square className="w-4 h-4 text-muted-foreground/40 shrink-0 mt-0.5" />
+                  }
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-xs ${item.complete ? "text-foreground" : "text-muted-foreground"}`}>
+                      {item.label}
+                    </p>
+                    {!item.complete && item.note && (
+                      <p className="text-[10px] text-muted-foreground/70 mt-0.5">{item.note}</p>
+                    )}
+                  </div>
+                  {item.complete && <span className="text-[9px] text-emerald-400 shrink-0">✓</span>}
+                </div>
+              ))}
+            </div>
+            {closeChecklist.length > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-2 text-right">
+                {closeChecklist.filter(i => i.complete).length} / {closeChecklist.length} complete
+              </p>
+            )}
+          </section>
 
           {/* ── Recent activity ── */}
           {ccData?.recent_activity && ccData.recent_activity.length > 0 && (
@@ -619,9 +1320,15 @@ export default function CapitalCommandCenterPage() {
         </>
       )}
 
-      {/* Runway editor dialog */}
+      {/* Dialogs */}
       {runwayEditorOpen && round && (
         <RunwayEditorDialog roundId={activeRoundId!} round={round} onClose={() => setRunwayEditorOpen(false)} />
+      )}
+      {valuationEditorOpen && round && (
+        <ValuationEditorDialog roundId={activeRoundId!} round={round} onClose={() => setValuationEditorOpen(false)} />
+      )}
+      {allocEditRow && (
+        <AllocationEditorDialog row={allocEditRow} roundId={activeRoundId!} onClose={() => setAllocEditRow(null)} />
       )}
     </div>
   );

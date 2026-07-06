@@ -346,6 +346,33 @@ export async function migrateCapitalSchema(): Promise<void> {
     `));
     console.log("[migration] Capital Phase 2E: command center columns ready.");
   } catch (_e2e) { /* idempotent */ }
+
+  // ── Phase 2F: Valuation, Dilution, Allocation & Close Plan columns ────────
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS share_price              BIGINT;
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS option_pool_percent_pre  NUMERIC(5,2);
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS option_pool_percent_post NUMERIC(5,2);
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS round_instrument         TEXT;
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS discount_rate            NUMERIC(5,2);
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS valuation_cap            BIGINT;
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS interest_rate            NUMERIC(5,2);
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS maturity_date            DATE;
+      ALTER TABLE capital_rounds ADD COLUMN IF NOT EXISTS legal_close_status       TEXT;
+    `));
+    await db.execute(sql.raw(`
+      ALTER TABLE capital_commitments ADD COLUMN IF NOT EXISTS allocation_amount       BIGINT;
+      ALTER TABLE capital_commitments ADD COLUMN IF NOT EXISTS requested_amount        BIGINT;
+      ALTER TABLE capital_commitments ADD COLUMN IF NOT EXISTS final_allocation_amount BIGINT;
+      ALTER TABLE capital_commitments ADD COLUMN IF NOT EXISTS allocation_status       TEXT NOT NULL DEFAULT 'unallocated';
+      ALTER TABLE capital_commitments ADD COLUMN IF NOT EXISTS closing_status          TEXT NOT NULL DEFAULT 'not_started';
+      ALTER TABLE capital_commitments ADD COLUMN IF NOT EXISTS docs_sent_at            TIMESTAMPTZ;
+      ALTER TABLE capital_commitments ADD COLUMN IF NOT EXISTS docs_signed_at          TIMESTAMPTZ;
+      ALTER TABLE capital_commitments ADD COLUMN IF NOT EXISTS funds_received_at       TIMESTAMPTZ;
+      ALTER TABLE capital_commitments ADD COLUMN IF NOT EXISTS allocation_notes        TEXT;
+    `));
+    console.log("[migration] Capital Phase 2F: valuation/allocation columns ready.");
+  } catch (_e2f) { /* idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -2127,7 +2154,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       `));
       const recentEmails = emailRows.rows;
 
-      // Compute all intelligence
+      // Compute all intelligence (Phase 2E)
       const pipeline     = computeWeightedPipeline(round, investors, commitments);
       const leads        = computeLeadCandidates(investors, commitments, contacts, emailLinkCounts);
       const actions      = computeThisWeekActions(investors, commitments, emailLinkCounts);
@@ -2135,21 +2162,43 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       const runway       = computeRunway(round, pipeline.weighted_pipeline);
       const scenarios    = computeScenarios(round, pipeline, runway);
 
+      // Phase 2F: Valuation, Dilution, Allocation & Close Plan
+      const {
+        computeValuationSummary,
+        computeDilutionScenarios,
+        computeAllocationPlan,
+        computeClosePlan,
+        computeCloseChecklist,
+        computeValuationRiskFlags,
+      } = await import("./services/capital-valuation.js");
+
+      const valuationSummary  = computeValuationSummary(round, pipeline);
+      const dilutionScenarios = computeDilutionScenarios(round, scenarios, valuationSummary);
+      const allocationPlan    = computeAllocationPlan(investors, commitments);
+      const closePlan         = computeClosePlan(allocationPlan, pipeline);
+      const closeChecklist    = computeCloseChecklist(round, investors, pipeline, allocationPlan);
+      const valuationFlags    = computeValuationRiskFlags(round, valuationSummary, allocationPlan, pipeline);
+
       // Days open
       const daysOpen = round.open_date
         ? Math.floor((Date.now() - new Date(round.open_date).getTime()) / 86400000)
         : null;
 
       res.json({
-        round:           { ...round, days_open: daysOpen },
-        summary:         pipeline,
-        lead_candidates: leads,
-        this_week_actions: actions,
-        risk_flags:      riskFlags,
+        round:              { ...round, days_open: daysOpen },
+        summary:            pipeline,
+        lead_candidates:    leads,
+        this_week_actions:  actions,
+        risk_flags:         [...riskFlags, ...valuationFlags],
         runway,
         scenarios,
-        recent_activity: recentActivity,
-        recent_emails:   recentEmails,
+        valuation_summary:  valuationSummary,
+        dilution_scenarios: dilutionScenarios,
+        allocation_plan:    allocationPlan,
+        close_plan:         closePlan,
+        close_checklist:    closeChecklist,
+        recent_activity:    recentActivity,
+        recent_emails:      recentEmails,
       });
     } catch (err: any) {
       console.error("[capital] GET /rounds/:id/command-center:", err?.message);
@@ -2177,6 +2226,70 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
     } catch (err: any) {
       console.error("[capital] PATCH /rounds/:id/runway:", err?.message);
       res.status(500).json({ message: "Failed to update runway data" });
+    }
+  });
+
+  // ── Phase 2F: Update round valuation / instrument fields ──────────────────
+  app.patch("/api/capital/rounds/:id/valuation", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const numericFields = new Set(["pre_money_valuation","post_money_valuation","share_price","valuation_cap"]);
+      const floatFields   = new Set(["option_pool_percent_pre","option_pool_percent_post","discount_rate","interest_rate"]);
+      const allowed = [
+        "pre_money_valuation","post_money_valuation","share_price",
+        "option_pool_percent_pre","option_pool_percent_post",
+        "round_instrument","discount_rate","valuation_cap",
+        "interest_rate","maturity_date","legal_close_status",
+      ];
+      const sets: string[] = [`updated_at = NOW()`, `updated_by = ${req.session.userId ?? "NULL"}`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") { sets.push(`${key} = NULL`); }
+        else if (numericFields.has(key)) { const n = Number(v); if (!isNaN(n)) sets.push(`${key} = ${n}`); }
+        else if (floatFields.has(key))   { const n = parseFloat(v); if (!isNaN(n)) sets.push(`${key} = ${n}`); }
+        else { sets.push(`${key} = '${esc(String(v))}'`); }
+      }
+      if (sets.length === 2) return res.status(400).json({ message: "No fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE capital_rounds SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const r = rows.rows[0] as any;
+      if (!r) return res.status(404).json({ message: "Round not found" });
+      res.json(r);
+    } catch (err: any) {
+      console.error("[capital] PATCH /rounds/:id/valuation:", err?.message);
+      res.status(500).json({ message: "Failed to update valuation data" });
+    }
+  });
+
+  // ── Phase 2F: Update commitment allocation / closing fields ───────────────
+  app.patch("/api/capital/commitments/:id/allocation", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const numericFields = new Set(["allocation_amount","requested_amount","final_allocation_amount"]);
+      const allowed = [
+        "allocation_amount","requested_amount","final_allocation_amount",
+        "allocation_status","closing_status",
+        "docs_sent_at","docs_signed_at","funds_received_at",
+        "allocation_notes",
+      ];
+      const sets: string[] = [`updated_at = NOW()`, `updated_by = ${req.session.userId ?? "NULL"}`];
+      for (const key of allowed) {
+        if (!(key in req.body)) continue;
+        const v = req.body[key];
+        if (v === null || v === "") { sets.push(`${key} = NULL`); }
+        else if (numericFields.has(key)) { const n = Number(v); if (!isNaN(n)) sets.push(`${key} = ${n}`); }
+        else { sets.push(`${key} = '${esc(String(v))}'`); }
+      }
+      if (sets.length === 2) return res.status(400).json({ message: "No fields to update" });
+      const rows = await db.execute(sql.raw(`UPDATE capital_commitments SET ${sets.join(", ")} WHERE id = ${id} RETURNING *`));
+      const c = rows.rows[0] as any;
+      if (!c) return res.status(404).json({ message: "Commitment not found" });
+      res.json(c);
+    } catch (err: any) {
+      console.error("[capital] PATCH /commitments/:id/allocation:", err?.message);
+      res.status(500).json({ message: "Failed to update allocation data" });
     }
   });
 }
