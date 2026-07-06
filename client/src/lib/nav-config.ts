@@ -8,7 +8,7 @@ import {
   Newspaper, PlayCircle, FlaskRound, BellRing, MapPin, ShieldCheck, Tags,
   Zap, HelpCircle, ClipboardList, Snowflake, Search, Settings, Smartphone,
   Mic, Car, PenSquare, GraduationCap, CalendarDays, MessageSquare,
-  Radio, Ban, Flame, Coins,
+  Radio, Ban, Flame, Banknote,
 } from "lucide-react";
 
 // Note: a few items intentionally use a different icon on mobile than on desktop
@@ -186,7 +186,6 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "industry",  label: { desktop: "Industry Partnerships", mobile: "Industry" }, route: "/strategy/partnerships/industry-associations", icon: Users2,      advisorHidden: true },
       { id: "dealers",   label: { desktop: "Dealers / Resellers",   mobile: "Dealers"  }, route: "/strategy/partnerships/channel-commercial",    icon: Truck,       advisorHidden: true },
       { id: "alliances", label: { desktop: "Strategic Alliances",   mobile: "Alliances"}, route: "/strategy/partnerships/manufacturing",         icon: Factory,     advisorHidden: true },
-      { id: "investors", label: "Investors",                                              route: "/strategy/partnerships/innovation-research",   icon: FlaskConical, advisorHidden: true },
       { id: "govt",      label: "Government & Grants",                                    route: "/strategy/partnerships/government-public",     icon: Landmark,    advisorHidden: true },
       { id: "referrals", label: "Referrals",                                              route: "/strategy/partnerships/other",                 icon: Circle,      advisorHidden: true },
       { id: "media",     label: { desktop: "Media & Tradeshows",    mobile: "Media"    }, route: "/strategy/partnerships/media-tradeshows",      icon: Newspaper,   advisorHidden: true },
@@ -209,14 +208,18 @@ export const NAV_CONFIG: NavSection[] = [
   {
     id: "capital",
     label: "Capital",
-    icon: Coins,
+    icon: Banknote,
     capitalOnly: true,
     items: [
-      { id: "capital-dashboard",  label: "Dashboard",  route: "/capital/dashboard",  icon: LayoutDashboard },
-      { id: "capital-investors",  label: "Investors",  route: "/capital/investors",  icon: Users2 },
-      { id: "capital-grants",     label: "Grants",     route: "/capital/grants",     icon: Landmark },
-      { id: "capital-pipeline",   label: "Pipeline",   route: "/capital/pipeline",   icon: TrendingUp },
-      { id: "capital-documents",  label: "Documents",  route: "/capital/documents",  icon: FileText },
+      { id: "capital-dashboard",    label: "Dashboard",             route: "/capital/dashboard",    icon: LayoutDashboard },
+      { id: "capital-pipeline",     label: "Investor Pipeline",     route: "/capital/pipeline",     icon: TrendingUp },
+      { id: "capital-targets",      label: "Investor Targets",      route: "/capital/targets",      icon: Target },
+      { id: "capital-contacts",     label: "Investor Contacts",     route: "/capital/contacts",     icon: Contact },
+      { id: "capital-rounds",       label: "Funding Rounds",        route: "/capital/rounds",       icon: RefreshCcw },
+      { id: "capital-commitments",  label: "Commitments",           route: "/capital/commitments",  icon: CheckSquare },
+      { id: "capital-grants",       label: "Grants & Non-Dilutive", route: "/capital/grants",       icon: Landmark },
+      { id: "capital-updates",      label: "Investor Updates",      route: "/capital/updates",      icon: BellRing },
+      { id: "capital-data-room",    label: "Data Room",             route: "/capital/data-room",    icon: FolderOpen },
     ],
   },
   {

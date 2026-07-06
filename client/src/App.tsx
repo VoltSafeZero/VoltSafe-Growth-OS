@@ -121,11 +121,15 @@ const MarketingRepliesPage = lazy(() => import("@/pages/marketing-replies"));
 const MarketingHotAccountsPage = lazy(() => import("@/pages/marketing-hot-accounts"));
 const ComplianceDashboardPage = lazy(() => import("@/pages/compliance-dashboard"));
 const CampaignDetailPage = lazy(() => import("@/pages/campaign-detail"));
-const CapitalDashboardPage  = lazy(() => import("@/pages/capital-dashboard"));
-const CapitalInvestorsPage  = lazy(() => import("@/pages/capital-investors"));
-const CapitalGrantsPage     = lazy(() => import("@/pages/capital-grants"));
-const CapitalPipelinePage   = lazy(() => import("@/pages/capital-pipeline"));
-const CapitalDocumentsPage  = lazy(() => import("@/pages/capital-documents"));
+const CapitalDashboardPage    = lazy(() => import("@/pages/capital-dashboard"));
+const CapitalPipelinePage     = lazy(() => import("@/pages/capital-pipeline"));
+const CapitalInvestorsPage    = lazy(() => import("@/pages/capital-investors"));
+const CapitalGrantsPage       = lazy(() => import("@/pages/capital-grants"));
+const CapitalDocumentsPage    = lazy(() => import("@/pages/capital-documents"));
+const CapitalContactsPage     = lazy(() => import("@/pages/capital-contacts"));
+const CapitalRoundsPage       = lazy(() => import("@/pages/capital-rounds"));
+const CapitalCommitmentsPage  = lazy(() => import("@/pages/capital-commitments"));
+const CapitalUpdatesPage      = lazy(() => import("@/pages/capital-updates"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
 const DemonAtmospherics = lazy(() => import("@/components/demon-atmospherics").then(m => ({ default: m.DemonAtmospherics })));
 
@@ -393,10 +397,16 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/marketing">{() => <Redirect to="/marketing/dashboard" />}</Route>
 
       <Route path="/capital/dashboard">{() => capitalGuard(<CapitalDashboardPage />)}</Route>
-      <Route path="/capital/investors">{() => capitalGuard(<CapitalInvestorsPage />)}</Route>
-      <Route path="/capital/grants">{() => capitalGuard(<CapitalGrantsPage />)}</Route>
       <Route path="/capital/pipeline">{() => capitalGuard(<CapitalPipelinePage />)}</Route>
-      <Route path="/capital/documents">{() => capitalGuard(<CapitalDocumentsPage />)}</Route>
+      <Route path="/capital/targets">{() => capitalGuard(<CapitalInvestorsPage />)}</Route>
+      <Route path="/capital/contacts">{() => capitalGuard(<CapitalContactsPage />)}</Route>
+      <Route path="/capital/rounds">{() => capitalGuard(<CapitalRoundsPage />)}</Route>
+      <Route path="/capital/commitments">{() => capitalGuard(<CapitalCommitmentsPage />)}</Route>
+      <Route path="/capital/grants">{() => capitalGuard(<CapitalGrantsPage />)}</Route>
+      <Route path="/capital/updates">{() => capitalGuard(<CapitalUpdatesPage />)}</Route>
+      <Route path="/capital/data-room">{() => capitalGuard(<CapitalDocumentsPage />)}</Route>
+      <Route path="/capital/investors">{() => <Redirect to="/capital/targets" />}</Route>
+      <Route path="/capital/documents">{() => <Redirect to="/capital/data-room" />}</Route>
       <Route path="/capital">{() => <Redirect to="/capital/dashboard" />}</Route>
       <Route path="/execution/daily">{() => wrap(<DailyExecutionPage />)}</Route>
 
