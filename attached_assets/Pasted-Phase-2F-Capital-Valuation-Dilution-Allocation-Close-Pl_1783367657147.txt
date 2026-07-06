@@ -1,0 +1,374 @@
+Phase 2F — Capital Valuation, Dilution, Allocation & Close Plan
+
+Current completed state:
+
+Capital Phase 2A:
+- investors, contacts, rounds, commitments, pipeline, activity logging
+
+Capital Phase 2B:
+- Capital module restricted to CEO Trevor and CFO Scott Carlson only
+
+Capital Phase 2C:
+- investor scoring
+- follow-up queue
+- pipeline intelligence
+- investor email draft context
+- investor detail intelligence panel
+- activity touch tracking
+
+Capital Phase 2D:
+- investor email conversation linking
+- capital_email_links
+- capital_email_review
+- exact capital_contacts.email matching
+- conservative free-domain review queue
+- manual “Link to Capital Investor” from VoltSafe Mail
+- investor Email Conversations panel
+- Gmail sync hook
+- all APIs behind requireCapitalAccess
+
+Capital Phase 2E:
+- Round Command Center
+- weighted pipeline service
+- lead investor candidates
+- this-week action queue
+- risk flags
+- runway projections
+- scenario planning
+- 4 new capital_rounds fields:
+  - minimum_close_target
+  - current_cash_balance
+  - monthly_burn
+  - post_close_monthly_burn
+- APIs:
+  - GET /api/capital/rounds/:id/command-center
+  - PATCH /api/capital/rounds/:id/runway
+- Frontend:
+  - /capital/command-center
+- Tests passing:
+  - Phase 2E command center: 172/172
+  - Phase 2D email linking: 82/82
+  - Capital foundation and permissions suites clean
+
+Now implement Phase 2F.
+
+Primary goal:
+Add valuation, dilution, investor allocation, and close-plan intelligence to the Capital Round Command Center so Trevor and Scott can understand ownership impact and close the round cleanly.
+
+Do not loosen Capital permissions.
+All new pages, APIs, calculations, and data must remain restricted to Trevor and Scott Carlson only.
+
+Important:
+Do not invent fake cap table data.
+If real cap table data does not exist yet, create safe manual input fields or clearly marked placeholders.
+Keep all calculations transparent and easy to verify.
+
+1. Audit existing schema
+
+Before writing code, inspect:
+- capital_rounds
+- capital_commitments
+- capital_investors
+- capital_command_center service
+- existing runway/scenario fields
+- any existing company/cap table/shareholder/equity schema
+- current frontend command center page
+- permission guard patterns
+
+Document whether any existing cap table or equity data exists.
+
+2. Add valuation fields to capital_rounds
+
+If missing, add safe migration fields:
+
+- pre_money_valuation
+- post_money_valuation
+- share_price
+- option_pool_percent_pre
+- option_pool_percent_post
+- round_instrument
+  - SAFE
+  - priced_equity
+  - convertible_note
+  - grant
+  - other
+- discount_rate
+- valuation_cap
+- interest_rate
+- maturity_date
+- close_target_date
+- legal_close_status
+
+Use nullable fields.
+Do not force values if unknown.
+
+3. Add allocation fields to capital_commitments
+
+If missing, add:
+
+- allocation_amount
+- requested_amount
+- final_allocation_amount
+- allocation_status
+  - unallocated
+  - proposed
+  - reserved
+  - confirmed
+  - reduced
+  - increased
+  - rejected
+- closing_status
+  - not_started
+  - docs_sent
+  - docs_signed
+  - funds_pending
+  - wired
+  - closed
+  - dropped
+- docs_sent_at
+- docs_signed_at
+- funds_received_at
+- allocation_notes
+
+Do not break existing commitment statuses.
+
+4. Valuation/dilution helper
+
+Create a pure backend helper for round math.
+
+For priced equity, calculate:
+- post-money valuation = pre-money + amount raised
+- investor ownership percent = investment / post-money
+- total new investor ownership
+- founder/common dilution estimate if current ownership baseline exists
+- option pool impact if option pool fields exist
+- price/share math if share_price exists
+
+For SAFE/convertible instruments:
+- show estimated ownership only if valuation cap or modeled valuation is provided
+- otherwise return “not enough data” with clear warnings
+
+Return warnings instead of pretending precision.
+
+5. Scenario dilution calculations
+
+Extend the existing scenario planner with dilution outputs for:
+
+- Minimum Close
+- Base Case / Weighted Pipeline
+- Target Close
+- Stretch Close
+
+Each scenario should show:
+- amount raised
+- post-money valuation, if available
+- estimated new investor ownership
+- estimated dilution
+- runway added
+- gap to target
+- assumptions used
+- warnings if incomplete
+
+6. Investor allocation planner
+
+Add an allocation planner section to Command Center.
+
+For the selected round, show each active investor with:
+- investor name
+- investor type
+- stage/status
+- requested amount
+- target cheque
+- proposed allocation
+- final allocation
+- committed amount
+- allocation status
+- closing status
+- score/tier
+- lead investor flag
+- last touch
+- next step
+
+Allow Trevor/Scott to update:
+- requested amount
+- allocation amount
+- final allocation amount
+- allocation status
+- closing status
+- allocation notes
+
+7. Close plan tracker
+
+Add a Close Plan section.
+
+Group investors by closing status:
+- Not Started
+- Docs Sent
+- Docs Signed
+- Funds Pending
+- Wired
+- Closed
+- Dropped
+
+Show totals by group:
+- amount
+- investor count
+- percentage of target
+- percentage of minimum close
+
+Highlight:
+- committed but docs not sent
+- docs sent but not signed
+- signed but funds not wired
+- wired but not marked closed
+
+8. Round close checklist
+
+Add a checklist model or computed checklist.
+
+Checklist items:
+- Round target set
+- Minimum close set
+- Pre-money valuation set, if priced round
+- Instrument selected
+- Lead investor identified
+- Allocation plan complete
+- Legal docs prepared
+- Data room ready
+- Commitments confirmed
+- Wire instructions sent
+- Funds received
+- Board approval required/completed if applicable
+- Closing summary prepared
+
+If no persistent checklist schema exists, compute it from current fields and allow future TODOs.
+
+9. Risk flags
+
+Extend Command Center risk flags with valuation/allocation risks:
+
+- No valuation set
+- No instrument selected
+- No lead investor allocation
+- Allocations exceed target raise
+- Final allocations below minimum close
+- Too much allocation in low-confidence investors
+- Committed investors missing closing status
+- Docs sent but not signed
+- Funds pending too long
+- Wired amount below minimum close
+- SAFE/convertible terms incomplete
+- Option pool impact not modeled
+
+10. API endpoints
+
+Extend:
+
+GET /api/capital/rounds/:id/command-center
+
+To include:
+- valuation summary
+- dilution scenarios
+- allocation planner rows
+- close plan summary
+- close checklist
+- valuation/allocation risk flags
+
+Add:
+
+PATCH /api/capital/rounds/:id/valuation
+
+Updates valuation/instrument fields.
+
+PATCH /api/capital/commitments/:id/allocation
+
+Updates allocation and closing fields.
+
+All endpoints must use requireCapitalAccess.
+
+11. Frontend Command Center update
+
+Upgrade /capital/command-center.
+
+Add sections:
+- Valuation & Dilution
+- Scenario Dilution Cards
+- Investor Allocation Planner
+- Close Plan Tracker
+- Closing Checklist
+- Valuation/Allocation Risk Flags
+
+Keep it clean.
+Use compact cards/tables.
+This is a CFO tool, not a glitter cannon.
+
+12. Email/task integration
+
+From allocation and close-plan rows, support quick actions:
+- draft follow-up email
+- draft docs reminder
+- draft wire reminder
+- update next_step
+- update next_follow_up_at
+- open linked investor emails
+- open investor drawer
+
+Do not auto-send emails.
+
+13. Permission hardening
+
+Add tests proving:
+- only Trevor and Scott can see valuation/dilution/allocation data
+- only Trevor and Scott can update valuation fields
+- only Trevor and Scott can update allocation/closing fields
+- unauthorized users cannot infer valuation, dilution, allocation, or close-plan data
+
+14. Tests
+
+Add tests for:
+- valuation schema migration
+- allocation schema migration
+- priced equity dilution math
+- SAFE/convertible warning behavior
+- scenario dilution calculations
+- allocation totals
+- allocation status grouping
+- closing status grouping
+- close checklist generation
+- valuation risk flags
+- allocation risk flags
+- API route permission protection
+- frontend section rendering
+- empty/incomplete data states
+- no fake cap table assumptions
+
+15. Validation
+
+Run:
+- capital command-center tests
+- capital email-linking tests
+- capital intelligence tests
+- capital foundation tests
+- capital permissions tests
+- cortex-intel tests
+- startup invariants tests
+- new valuation/allocation tests
+- full suite if practical
+
+Deliver:
+- files changed
+- schema changes
+- new APIs
+- valuation/dilution formulas
+- allocation rules
+- close-plan logic
+- risk flag rules
+- permission confirmation
+- test results
+- recommended Phase 2G follow-up
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose Capital data outside CEO/CFO access.
+Do not auto-send emails.
+Do not invent fake valuation/cap table data.
