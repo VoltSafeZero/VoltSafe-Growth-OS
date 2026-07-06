@@ -467,6 +467,107 @@ const REPLY_RECOMMEND_ACTIONS: Record<string, string> = {
   negative: "Human review", unsubscribe: "Do not contact",
 };
 
+// ── Phase 10: Account Campaign Attribution Panel ──────────────────────────────
+
+type AccountAttributionTimeline = {
+  campaigns:   any[];
+  events:      any[];
+  engagements: any[];
+};
+
+function AccountCampaignAttributionPanel({ accountId }: { accountId: number }) {
+  const { data, isLoading } = useQuery<AccountAttributionTimeline>({
+    queryKey: ["/api/accounts", accountId, "marketing-attribution"],
+    queryFn: () =>
+      fetch(`/api/accounts/${accountId}/marketing-attribution`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+    staleTime: 120000,
+    enabled: !!accountId,
+  });
+
+  const campaigns   = data?.campaigns   ?? [];
+  const events      = data?.events      ?? [];
+
+  if (isLoading || (campaigns.length === 0 && events.length === 0)) return null;
+
+  return (
+    <Card className="border-border/50" data-testid="account-campaign-attribution-panel">
+      <CardHeader className="pb-2 pt-4 px-4">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-cyan-400" />
+          <CardTitle className="text-sm font-semibold">Campaign Attribution</CardTitle>
+          {campaigns.length > 0 && (
+            <span className="text-xs text-muted-foreground ml-1">
+              ({campaigns.length} campaign{campaigns.length !== 1 ? "s" : ""})
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 pt-0 space-y-3">
+        {/* Campaign touches */}
+        {campaigns.length > 0 && (
+          <div>
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Campaigns that touched this account</div>
+            <div className="space-y-1.5">
+              {campaigns.slice(0, 5).map((c: any) => (
+                <div key={c.campaign_id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-muted/20 border border-border/30">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-medium text-foreground truncate">{c.campaign_name}</span>
+                    <Badge variant="outline" className="text-[10px] h-4 px-1 shrink-0 text-muted-foreground">
+                      {c.campaign_type?.replace(/_/g, " ") ?? "—"}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 ml-2 text-muted-foreground">
+                    <span>{c.total_events ?? 0} events</span>
+                    {c.last_touch && (
+                      <span className="text-[10px]">
+                        Last: {new Date(c.last_touch).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Attribution events */}
+        {events.length > 0 && (
+          <div>
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Attribution events</div>
+            <div className="space-y-1">
+              {events.slice(0, 8).map((e: any) => (
+                <div key={e.id} className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="text-foreground">{
+                    e.event_type === "task_created" ? "Task created" :
+                    e.event_type === "reply_task_created" ? "Reply → Task" :
+                    e.event_type === "meeting_booked" ? "Meeting booked" :
+                    e.event_type === "opportunity_influenced" ? "Opportunity influenced" :
+                    e.event_type === "deal_won" ? "Deal won" :
+                    e.event_type === "deal_lost" ? "Deal lost" :
+                    e.event_type === "manual_link" ? "Manual link" :
+                    e.event_type
+                  }</span>
+                  <div className="flex items-center gap-2">
+                    {e.campaign_name && <span className="text-[10px] truncate max-w-[120px]">{e.campaign_name}</span>}
+                    <span className={`text-[10px] px-1 rounded ${
+                      e.confidence === "high" ? "bg-emerald-500/15 text-emerald-400" :
+                      e.confidence === "medium" ? "bg-amber-500/15 text-amber-400" :
+                      "bg-muted/30 text-muted-foreground"
+                    }`}>{e.confidence}</span>
+                    <span>{e.occurred_at ? new Date(e.occurred_at).toLocaleDateString() : "—"}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function MarketingIntelligencePanel({ accountId }: { accountId: number }) {
   const { data, isLoading } = useQuery<MarketingIntelData | null>({
     queryKey: ["/api/accounts", accountId, "marketing-intelligence"],
@@ -1260,6 +1361,9 @@ export default function AccountProfilePage() {
 
       {/* Marketing Intelligence */}
       <MarketingIntelligencePanel accountId={id} />
+
+      {/* Campaign Attribution Timeline (Phase 10) */}
+      <AccountCampaignAttributionPanel accountId={id} />
 
       {/* Engagement Intelligence */}
       <Card className="border-border/50" data-testid="account-engagement-section">

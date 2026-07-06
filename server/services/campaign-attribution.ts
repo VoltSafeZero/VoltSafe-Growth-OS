@@ -181,6 +181,71 @@ export async function inferCampaignAttributionForAccount(accountId: number): Pro
   };
 }
 
+// ── Infer attribution for a campaign (look forward from campaign events) ──────
+// Given a campaign, finds all accounts that engaged with it and had CRM events
+// (tasks, opportunities, proposals) within the attribution window.
+
+export async function inferCampaignAttributionForCampaign(campaignId: number): Promise<{
+  accountsInfluenced: number;
+  highConfidence:     number;
+  mediumConfidence:   number;
+  lowConfidence:      number;
+  candidateAccounts:  Array<{
+    accountId:      number;
+    accountName:    string | null;
+    attributionType: AttributionType;
+    confidence:     ConfidenceTier;
+    daysSinceEngagement: number;
+    lastEngaged:    string;
+  }>;
+}> {
+  // Find accounts that engaged with this campaign within the last 180 days
+  const engagedAccounts = (await db.execute(sql.raw(`
+    SELECT
+      cr.account_id,
+      a.name AS account_name,
+      MAX(ce.created_at) AS last_engaged_at,
+      COUNT(ce.id)       AS event_count
+    FROM campaign_events ce
+    JOIN campaign_recipients cr ON cr.id = ce.recipient_id
+    LEFT JOIN accounts       a  ON a.id  = cr.account_id
+    WHERE cr.campaign_id = ${Number(campaignId)}
+      AND cr.account_id  IS NOT NULL
+      AND ce.event_type  IN ('opened', 'clicked', 'replied', 'demo_booked')
+      AND ce.created_at  > NOW() - INTERVAL '180 days'
+    GROUP BY cr.account_id, a.name
+    ORDER BY last_engaged_at DESC
+    LIMIT 100
+  `))).rows as any[];
+
+  const now = Date.now();
+  let highConfidence = 0, mediumConfidence = 0, lowConfidence = 0;
+  const candidateAccounts = engagedAccounts.map((row: any) => {
+    const daysSince = Math.floor((now - new Date(row.last_engaged_at).getTime()) / 86400000);
+    let confidence: ConfidenceTier;
+    let attributionType: AttributionType;
+    if (daysSince <= 30)      { confidence = "high";   attributionType = "direct";    highConfidence++; }
+    else if (daysSince <= 60) { confidence = "medium"; attributionType = "influenced"; mediumConfidence++; }
+    else                      { confidence = "low";    attributionType = "assisted";   lowConfidence++; }
+    return {
+      accountId:           Number(row.account_id),
+      accountName:         row.account_name ?? null,
+      attributionType,
+      confidence,
+      daysSinceEngagement: daysSince,
+      lastEngaged:         row.last_engaged_at,
+    };
+  });
+
+  return {
+    accountsInfluenced: engagedAccounts.length,
+    highConfidence,
+    mediumConfidence,
+    lowConfidence,
+    candidateAccounts,
+  };
+}
+
 // ── Per-campaign attribution summary ─────────────────────────────────────────
 
 export async function getCampaignAttributionSummary(campaignId: number): Promise<{
@@ -253,12 +318,14 @@ export async function getCampaignAttributionSummary(campaignId: number): Promise
 
 export async function getMarketingAttributionDashboard(filters: {
   campaignId?: number | null;
-  limit?: number;
+  status?:     string | null;
+  limit?:      number;
 } = {}): Promise<any[]> {
   const limit = Math.min(filters.limit ?? 50, 200);
   const whereExtra = filters.campaignId
     ? `AND cae.campaign_id = ${Number(filters.campaignId)}`
     : "";
+  const statusWhere = filters.status ? `AND mc.status = '${filters.status.replace(/'/g, "''")}'` : "";
 
   return (await db.execute(sql.raw(`
     SELECT
@@ -284,6 +351,7 @@ export async function getMarketingAttributionDashboard(filters: {
       END AS top_confidence
     FROM marketing_campaigns mc
     LEFT JOIN campaign_attribution_events cae ON cae.campaign_id = mc.id ${whereExtra}
+    WHERE 1=1 ${statusWhere}
     GROUP BY mc.id, mc.campaign_name, mc.campaign_type, mc.status, mc.sent_count, mc.replied_count
     ORDER BY total_attribution_events DESC, mc.updated_at DESC
     LIMIT ${limit}
@@ -400,7 +468,7 @@ export interface LinkOpportunityInput {
 
 export async function linkOpportunityToCampaign(input: LinkOpportunityInput): Promise<number> {
   const opRow = (await db.execute(sql.raw(`
-    SELECT id, amount, stage FROM opportunities WHERE id = ${Number(input.opportunityId)} LIMIT 1
+    SELECT id, amount, stage, account_id FROM opportunities WHERE id = ${Number(input.opportunityId)} LIMIT 1
   `))).rows as any[];
   const opp = opRow[0] ?? null;
 

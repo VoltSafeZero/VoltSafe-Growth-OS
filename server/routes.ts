@@ -4843,6 +4843,25 @@ export async function registerRoutes(
       type: "status_change",
       summary: `Opportunity created: ${opp.title}`,
     });
+    // Phase 10: fire-and-forget attribution hook — infer campaign from account engagement
+    if (opp.accountId) {
+      import("./services/campaign-attribution").then(({ inferCampaignAttributionForAccount, recordCampaignAttributionEvent }) => {
+        inferCampaignAttributionForAccount(Number(opp.accountId)).then(attr => {
+          if (!attr || !attr.campaignId) return;
+          recordCampaignAttributionEvent({
+            campaignId:      attr.campaignId,
+            accountId:       Number(opp.accountId),
+            opportunityId:   opp.id,
+            eventType:       "opportunity_influenced",
+            attributionType: attr.attributionType,
+            confidence:      attr.confidence,
+            pipelineValue:   opp.amount ? Number(opp.amount) : null,
+            sourceEventType: "opportunity_created",
+            sourceEventId:   opp.id,
+          });
+        });
+      }).catch(() => {});
+    }
     res.status(201).json(opp);
   });
 
@@ -4863,6 +4882,34 @@ export async function registerRoutes(
         type: "status_change",
         summary: `Stage changed from ${existing.stage} to ${req.body.stage}`,
       });
+      // Phase 10: attribution hook — record deal_won / deal_lost when stage reaches terminal
+      const newStage = req.body.stage;
+      if (newStage === "closed_won" || newStage === "closed_lost") {
+        import("./services/campaign-attribution").then(({ inferCampaignAttributionForAccount, recordCampaignAttributionEvent }) => {
+          const acctId = existing.accountId ?? null;
+          const resolve = acctId
+            ? inferCampaignAttributionForAccount(Number(acctId))
+            : Promise.resolve(null);
+          resolve.then(attr => {
+            if (!attr || !attr.campaignId) return;
+            const isWon = newStage === "closed_won";
+            const dealAmt = existing.amount ? Number(existing.amount) : null;
+            recordCampaignAttributionEvent({
+              campaignId:      attr.campaignId,
+              accountId:       acctId ? Number(acctId) : null,
+              opportunityId:   existing.id,
+              eventType:       isWon ? "deal_won" : "deal_lost",
+              attributionType: attr.attributionType,
+              confidence:      attr.confidence,
+              pipelineValue:   dealAmt,
+              wonRevenue:      isWon ? dealAmt : null,
+              sourceEventType: "stage_change",
+              sourceEventId:   existing.id,
+              metadata:        { from_stage: existing.stage, to_stage: newStage },
+            });
+          });
+        }).catch(() => {});
+      }
     }
     res.json(result);
   });
@@ -38295,12 +38342,21 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
   // ── Phase 10: Campaign ROI + Pipeline Attribution Routes ────────────────────
 
   // GET /api/marketing/attribution — dashboard (all campaigns, aggregated)
+  // Query params: campaignId (filter to one), status, limit (max 200)
   app.get("/api/marketing/attribution", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
     try {
+      const rawCampaignId = req.query.campaignId;
+      const rawLimit      = req.query.limit;
+      const rawStatus     = req.query.status;
+      const campaignId    = rawCampaignId ? Number(rawCampaignId) : null;
+      const limit         = rawLimit      ? Math.min(Math.max(1, Number(rawLimit)), 200) : 50;
+      const status        = rawStatus     ? String(rawStatus) : null;
+      if (rawCampaignId && (!Number.isInteger(campaignId) || (campaignId ?? 0) <= 0))
+        return res.status(400).json({ error: "Invalid campaignId filter" });
       const { getMarketingAttributionDashboard, getPersonaAttributionBreakdown, getStakeholderAttributionBreakdown } =
         await import("./services/campaign-attribution");
       const [campaigns, personas, stakeholders] = await Promise.all([
-        getMarketingAttributionDashboard({ limit: 50 }),
+        getMarketingAttributionDashboard({ campaignId, limit, status }),
         getPersonaAttributionBreakdown(),
         getStakeholderAttributionBreakdown(),
       ]);

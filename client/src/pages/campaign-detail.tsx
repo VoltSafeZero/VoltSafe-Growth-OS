@@ -6,7 +6,7 @@ import {
   Mail, MousePointerClick, MessageSquare, Calendar, Users, Target,
   Sparkles, Save, FileText, Clock, UserCheck, AlertTriangle, ChevronDown, ChevronUp,
   RefreshCw, Filter, Send, Eye, ShieldCheck, Info, Zap, XCircle, Flame, Square,
-  GitBranch, ToggleLeft, ToggleRight, Pencil, Shield,
+  GitBranch, ToggleLeft, ToggleRight, Pencil, Shield, TrendingUp, X, Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -2388,6 +2388,11 @@ function eventTypeLabel(et: string) {
 }
 
 function CampaignAttributionSection({ campaignId }: { campaignId: number }) {
+  const { toast } = useToast();
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [linkOppId, setLinkOppId] = useState("");
+  const [linkNotes, setLinkNotes] = useState("");
+
   const { data: summary, isLoading } = useQuery<CampaignAttributionSummary>({
     queryKey: ["/api/marketing/campaigns", campaignId, "attribution"],
     queryFn: () =>
@@ -2397,6 +2402,41 @@ function CampaignAttributionSection({ campaignId }: { campaignId: number }) {
     staleTime: 60000,
     enabled: !!campaignId,
   });
+
+  const linkMutation = useMutation({
+    mutationFn: (body: { campaignId: number; opportunityId: number; notes?: string }) =>
+      apiRequest("POST", "/api/marketing/attribution/link", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", campaignId, "attribution"] });
+      toast({ title: "Opportunity linked", description: "Attribution event recorded." });
+      setShowLinkForm(false);
+      setLinkOppId("");
+      setLinkNotes("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to link", description: err.message ?? "Try again.", variant: "destructive" });
+    },
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: (eventId: number) => apiRequest("DELETE", `/api/marketing/attribution/${eventId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns", campaignId, "attribution"] });
+      toast({ title: "Attribution event removed" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to unlink", description: err.message ?? "Try again.", variant: "destructive" });
+    },
+  });
+
+  function handleLink() {
+    const oppId = Number(linkOppId);
+    if (!Number.isInteger(oppId) || oppId <= 0) {
+      toast({ title: "Enter a valid Opportunity ID", variant: "destructive" });
+      return;
+    }
+    linkMutation.mutate({ campaignId, opportunityId: oppId, notes: linkNotes || undefined });
+  }
 
   return (
     <div className="px-6 pb-6" data-testid="campaign-attribution-section">
@@ -2410,7 +2450,68 @@ function CampaignAttributionSection({ campaignId }: { campaignId: number }) {
             ({summary.totalEvents} event{summary.totalEvents !== 1 ? "s" : ""})
           </span>
         )}
+        <div className="ml-auto">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1.5"
+            onClick={() => setShowLinkForm(v => !v)}
+            data-testid="link-opportunity-btn"
+          >
+            <Link2 className="w-3 h-3" />
+            Link Opportunity
+          </Button>
+        </div>
       </div>
+
+      {/* Manual link form */}
+      {showLinkForm && (
+        <div className="rounded-xl border border-border/50 bg-card/40 p-4 mb-4 space-y-3" data-testid="link-opportunity-form">
+          <div className="text-xs font-semibold text-foreground">Link a CRM Opportunity to this campaign</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Opportunity ID</Label>
+              <Input
+                type="number"
+                placeholder="e.g. 42"
+                value={linkOppId}
+                onChange={e => setLinkOppId(e.target.value)}
+                className="h-8 text-xs"
+                data-testid="link-opp-id-input"
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Notes (optional)</Label>
+              <Input
+                placeholder="Why this campaign influenced the deal..."
+                value={linkNotes}
+                onChange={e => setLinkNotes(e.target.value)}
+                className="h-8 text-xs"
+                data-testid="link-notes-input"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={handleLink}
+              disabled={linkMutation.isPending}
+              data-testid="confirm-link-btn"
+            >
+              {linkMutation.isPending ? "Linking…" : "Link"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              onClick={() => { setShowLinkForm(false); setLinkOppId(""); setLinkNotes(""); }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
 
       {isLoading && (
         <div className="rounded-xl border border-border/40 bg-muted/10 px-5 py-6 text-center text-sm text-muted-foreground">
@@ -2480,7 +2581,7 @@ function CampaignAttributionSection({ campaignId }: { campaignId: number }) {
                 <table className="w-full text-xs min-w-[700px]">
                   <thead>
                     <tr className="border-b border-border/40 bg-muted/30">
-                      {["Event", "Type", "Account / Contact", "Confidence", "Pipeline", "Date"].map(h => (
+                      {["Event", "Type", "Account / Contact", "Confidence", "Pipeline", "Date", ""].map(h => (
                         <th key={h} className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -2510,6 +2611,19 @@ function CampaignAttributionSection({ campaignId }: { campaignId: number }) {
                         </td>
                         <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
                           {e.occurred_at ? new Date(e.occurred_at).toLocaleDateString() : "—"}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {e.attribution_type === "manual" && (
+                            <button
+                              onClick={() => unlinkMutation.mutate(e.id)}
+                              disabled={unlinkMutation.isPending}
+                              className="text-muted-foreground/40 hover:text-red-400 transition-colors"
+                              title="Remove attribution event"
+                              data-testid={`unlink-event-${e.id}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
