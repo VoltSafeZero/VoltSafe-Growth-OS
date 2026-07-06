@@ -262,8 +262,9 @@ export const NAV_CONFIG: NavSection[] = [
 
   // ── ADMIN (5 items) ────────────────────────────────────────────────────────
   // Removed from sidebar (still accessible via direct URL / ⌘K):
-  //   Task Hub Access (/admin/task-hub-access), User Signatures (/admin/signatures),
-  //   Role Manager (/admin/roles), Global Search (/search — also ⌘K)
+  //   Task Hub Access (/admin/task-hub-access), Role Manager (/admin/roles),
+  //   Global Search (/search — also ⌘K).
+  // "admin-user-signatures" (/admin/signatures) merged into admin-mailboxes (Mailboxes & Signatures), adminOnly: true.
   {
     id: "admin",
     label: "Admin",
