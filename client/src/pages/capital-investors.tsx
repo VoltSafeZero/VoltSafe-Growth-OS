@@ -386,7 +386,7 @@ function InvestorDialog({ open, editing, form, setField, onClose, onSubmit, isPe
   );
 }
 
-function InvestorDetail({ investor, onEdit, onStageChange }: {
+export function InvestorDetail({ investor, onEdit, onStageChange }: {
   investor: Investor; onEdit: () => void; onStageChange: (s: string) => void;
 }) {
   return (

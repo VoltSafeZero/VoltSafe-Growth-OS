@@ -12,7 +12,6 @@ import { Header } from "@/components/dashboard/header";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { GlobalCreateContact } from "@/components/contacts/global-create-contact";
 import { isAdvisorRole } from "@/lib/nav-config";
-import BookingPublicPage from "@/pages/booking-public";
 import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
 import { DemoModeBanner } from "@/lib/demo-mode";
 import { DemoCalloutOverlay } from "@/components/demo-callout";
@@ -130,6 +129,7 @@ const CapitalContactsPage     = lazy(() => import("@/pages/capital-contacts"));
 const CapitalRoundsPage       = lazy(() => import("@/pages/capital-rounds"));
 const CapitalCommitmentsPage  = lazy(() => import("@/pages/capital-commitments"));
 const CapitalUpdatesPage      = lazy(() => import("@/pages/capital-updates"));
+const BookingPublicPage = lazy(() => import("@/pages/booking-public"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
 const DemonAtmospherics = lazy(() => import("@/components/demon-atmospherics").then(m => ({ default: m.DemonAtmospherics })));
 
@@ -485,11 +485,24 @@ function App() {
   });
 
   useEffect(() => {
-    fetch("/api/auth/me", { credentials: "include" })
+    if (typeof performance !== "undefined") performance.mark("vs-bootstrap-start");
+    fetch("/api/session/bootstrap", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (data) setUser(data); })
+      .then((data) => {
+        if (typeof performance !== "undefined") performance.mark("vs-bootstrap-end");
+        if (data?.authenticated) setUser(data as AuthUser);
+      })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        if (typeof performance !== "undefined") {
+          try {
+            performance.measure("vs-bootstrap", "vs-bootstrap-start", "vs-bootstrap-end");
+            const [m] = performance.getEntriesByName("vs-bootstrap");
+            if (m) console.debug(`[vs:perf] bootstrap: ${m.duration.toFixed(0)}ms`);
+          } catch {}
+        }
+      });
   }, []);
 
   // Send detected timezone to backend once after every login (keyed on user.id).

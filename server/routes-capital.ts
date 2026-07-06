@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 // Scott Carlson  (CFO) — no account yet; add email below when created.
 export const CAPITAL_ALLOWED_USER_IDS = new Set<number>([4]);
 export const CAPITAL_ALLOWED_EMAILS   = new Set<string>([
-  // "scott.carlson@voltsafe.com",  // ← uncomment when Scott's account is created
+  "scott.carlson@voltsafe.com",  // CFO — Scott Carlson
 ]);
 
 export async function isCapitalUser(userId: number): Promise<boolean> {
@@ -832,26 +832,49 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
   app.get("/api/capital/pipeline", requireAuth, requireCapitalAccess, async (req, res) => {
     try {
       const { stage, priority, type } = req.query as any;
-      let where = "WHERE 1=1";
-      if (stage)    where += ` AND stage = '${esc(stage)}'`;
-      if (priority) where += ` AND priority = '${esc(priority)}'`;
-      if (type)     where += ` AND investor_type = '${esc(type)}'`;
+      let whereClause = "WHERE 1=1";
+      if (stage)    whereClause += ` AND ci.stage = '${esc(stage)}'`;
+      if (priority) whereClause += ` AND ci.priority = '${esc(priority)}'`;
+      if (type)     whereClause += ` AND ci.investor_type = '${esc(type)}'`;
+
       const [summaryRows, investorRows] = await Promise.all([
+        // Stage summary: count, max cheque total, weighted total, committed total
         db.execute(sql.raw(`
-          SELECT stage,
+          SELECT ci.stage,
                  COUNT(*) AS count,
-                 COALESCE(SUM(check_size_max), 0) AS total_max,
-                 COALESCE(SUM(CASE WHEN check_size_max IS NOT NULL AND probability IS NOT NULL
-                                   THEN check_size_max * probability / 100 ELSE 0 END), 0) AS total_weighted
-          FROM capital_investors ${where}
-          GROUP BY stage
+                 COALESCE(SUM(ci.check_size_max), 0) AS total_max,
+                 COALESCE(SUM(CASE WHEN ci.check_size_max IS NOT NULL AND ci.probability IS NOT NULL
+                                   THEN ci.check_size_max * ci.probability / 100 ELSE 0 END), 0) AS total_weighted,
+                 COALESCE(SUM(cm_agg.committed_total), 0) AS total_committed
+          FROM capital_investors ci
+          LEFT JOIN (
+            SELECT investor_id, SUM(amount) AS committed_total
+            FROM capital_commitments
+            GROUP BY investor_id
+          ) cm_agg ON cm_agg.investor_id = ci.id
+          ${whereClause}
+          GROUP BY ci.stage
         `)),
+        // Investor list: full row + primary contact name + last activity + committed amount
         db.execute(sql.raw(`
-          SELECT * FROM capital_investors ${where}
+          SELECT ci.*,
+                 (SELECT full_name FROM capital_contacts
+                  WHERE investor_id = ci.id ORDER BY id ASC LIMIT 1) AS primary_contact_name,
+                 COALESCE(
+                   (SELECT MAX(activity_at) FROM capital_activities
+                    WHERE entity_type = 'investor' AND entity_id = ci.id),
+                   ci.updated_at
+                 ) AS last_activity_at,
+                 COALESCE(
+                   (SELECT SUM(amount) FROM capital_commitments WHERE investor_id = ci.id),
+                   0
+                 ) AS committed_amount
+          FROM capital_investors ci
+          ${whereClause}
           ORDER BY
-            CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END,
-            next_step_date ASC NULLS LAST,
-            updated_at DESC
+            CASE ci.priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END,
+            ci.next_step_date ASC NULLS LAST,
+            ci.updated_at DESC
           LIMIT 300
         `)),
       ]);

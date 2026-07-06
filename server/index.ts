@@ -3,7 +3,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import helmet from "helmet";
 import compression from "compression";
-import { recordRequest } from "./performance";
+import { recordRequest, setStartupMark } from "./performance";
 import { csrfOriginGuard } from "./csrf";
 import { registerRoutes, registerJiraRoutes, registerConfluenceRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -11,6 +11,11 @@ import { createServer } from "http";
 import { startHourlySyncScheduler } from "./services/gmail-sync";
 import { startHelpCenterRefreshScheduler } from "./services/help-center-refresh";
 import { storage } from "./storage";
+
+// ── Startup timing ────────────────────────────────────────────────────────────
+// Captured as early as possible (after static imports, before any async work).
+const PROC_START = Date.now();
+setStartupMark("moduleLoaded", PROC_START);
 
 // Mirror every lead/marina into Organizations on boot (idempotent, fire-and-forget)
 setTimeout(() => {
@@ -36,6 +41,12 @@ declare module "http" {
   }
 }
 
+// ── /health + /healthz — respond IMMEDIATELY, before any middleware ──────────
+// These intentionally come before heavy middleware so monitoring/load-balancers
+// and Replit's keep-warm pings always get a fast response.
+app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
+app.get("/healthz", (_req, res) => res.status(200).json({ status: "ok", uptimeMs: Date.now() - PROC_START }));
+
 // ── Security headers (helmet) ────────────────────────────────────────────────
 // CSP intentionally disabled here — the existing app embeds inline scripts via
 // Vite in dev and the email/HTML preview surfaces inject sanitized HTML; tightening
@@ -54,10 +65,6 @@ app.use(
 // Skips already-compressed formats (zip, gzip, images) automatically.
 // Must be placed before route registration and static serving.
 app.use(compression());
-
-app.get("/health", (_req, res) => {
-  res.status(200).json({ status: "ok" });
-});
 
 app.use(
   express.json({
@@ -193,11 +200,19 @@ function isSensitivePath(p: string): boolean {
   return false;
 }
 
+// ── First-request marker ──────────────────────────────────────────────────────
+let _firstRequest = true;
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   const sensitive = isSensitivePath(path);
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
+
+  if (_firstRequest && path.startsWith("/api")) {
+    _firstRequest = false;
+    setStartupMark("firstRequest", start);
+    log(`[perf:startup] first API request received ${start - PROC_START}ms after process start`);
+  }
 
   if (!sensitive) {
     const originalResJson = res.json;
@@ -227,88 +242,146 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Run schema migrations FIRST before any route setup queries the DB
+  log(`[perf:startup] startup IIFE entered at +${Date.now() - PROC_START}ms`);
+
+  // ── Schema migrations ────────────────────────────────────────────────────────
+  // Migrations run in PARALLEL BATCHES to cut sequential DB round-trips.
+  // Old pattern: ~35 sequential awaits (worst-case ~1.5–3s before server listens).
+  // New pattern: 5 batches where each batch's independent migrations run in parallel.
+  //
+  // Batch 1 (sequential): user + email — later migrations may reference these tables.
+  // Batch 2 (parallel):   all independent additive feature schemas.
+  // Batch 3 (parallel):   schemas that depend on email-signatures or campaign-tracking.
+  // Batch 4 (parallel):   schemas that depend on Batch 3 output.
+  // Batch 5 (parallel):   final CTA column migrations.
+  const _migStart = Date.now();
   try {
-    const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, migrateCrmAiSummarySchema, migrateScheduledEmailColumns, migrateShorePowerColumn, migrateLeadWebsiteColumn, migrateSpamTrustedSenders, migrateCleanInternalAutoLinkRules, migrateTaskContactId, migrateEmailSignaturesSchema, migrateSignatureCtaSchema, migrateEmailRecipientsSchema, migrateInternalEngagementSchema, migrateSignatureCtaAssetColumns, migrateCtaFileData, migrateCtaOriginalName, migrateDerivedLabelColumns, migrateBlockedSenders, migrateRepairCmsInternalEvents, migrateCrmIntelligenceContextSchema, migrateTimezoneColumns, migrateCurrentSchema, migrateMeetingNoteAudioSplits, migrateCampaignTrackingSchema, migrateComplianceSchema } = await import("./seed-production");
+    const {
+      migrateUserSchema, migrateEmailSchema, migrateCalendarSchema,
+      migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema,
+      migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema,
+      migrateProjectCertificationSchema, migrateProjectOversightSchema,
+      migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema,
+      migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema,
+      migrateCrmExpansionSchema, migrateTradeshowEventsSchema, migrateCrmAiSummarySchema,
+      migrateScheduledEmailColumns, migrateShorePowerColumn, migrateLeadWebsiteColumn,
+      migrateSpamTrustedSenders, migrateCleanInternalAutoLinkRules, migrateTaskContactId,
+      migrateEmailSignaturesSchema, migrateSignatureCtaSchema, migrateEmailRecipientsSchema,
+      migrateInternalEngagementSchema, migrateSignatureCtaAssetColumns, migrateCtaFileData,
+      migrateCtaOriginalName, migrateDerivedLabelColumns, migrateBlockedSenders,
+      migrateRepairCmsInternalEvents, migrateCrmIntelligenceContextSchema,
+      migrateTimezoneColumns, migrateCurrentSchema, migrateMeetingNoteAudioSplits,
+      migrateCampaignTrackingSchema, migrateComplianceSchema,
+    } = await import("./seed-production");
+
+    // Batch 1: core base schemas (sequential — others may depend on these tables)
     await migrateUserSchema();
     await migrateEmailSchema();
-    await migrateCalendarSchema();
-    await migrateSuggestionsSchema();
-    await migrateExecutionSchema();
-    await migrateProcurementSchema();
-    await migrateDeploymentSchema();
-    await migrateMergeAuditSchema();
-    await migrateCustomerSuccessSchema();
-    await migrateProjectCertificationSchema();
-    await migrateProjectOversightSchema();
-    await migrateCsTimelineSchema();
-    await migrateTerritorySchema();
-    await migrateDocumentSchema();
-    await migrateChangelogSchema();
-    await migrateProductEngineSchema();
-    await migratePilotLeadSchema();
-    await migrateCrmExpansionSchema();
-    await migrateTradeshowEventsSchema();
-    await migrateCrmAiSummarySchema();
-    await migrateScheduledEmailColumns();
-    await migrateShorePowerColumn();
-    await migrateLeadWebsiteColumn();
-    await migrateSpamTrustedSenders();
-    await migrateTaskContactId();
-    await migrateCleanInternalAutoLinkRules();
-    await migrateEmailSignaturesSchema();
-    await migrateSignatureCtaSchema();
-    await migrateEmailRecipientsSchema();
-    await migrateInternalEngagementSchema();
-    await migrateSignatureCtaAssetColumns();
-    await migrateCtaFileData();
-    await migrateCtaOriginalName();
-    // Derived label guard: fills is_inbox/is_unread/smart_category for any rows
-    // where the backfill DML from migration 0016 did not run (e.g. production
-    // deployments where Drizzle schema-diff applies DDL but skips DML).
-    // Fire-and-forget: routes register immediately; backfill runs in background.
-    // The guard is idempotent and safe to run concurrently with route serving.
-    migrateDerivedLabelColumns().catch(err =>
-      console.error("[startup] derived label backfill background error:", err)
-    );
-    await migrateBlockedSenders();
-    await migrateRepairCmsInternalEvents();
-    await migrateCrmIntelligenceContextSchema();
-    await migrateTimezoneColumns();
-    await migrateCurrentSchema();
-    await migrateMeetingNoteAudioSplits();
-    await migrateCampaignTrackingSchema();
-    await migrateComplianceSchema();
-    // Phase 6: Automation schema (additive columns + indexes on campaign tables)
-    const { migrateAutomationSchema } = await import("./services/campaign-automation");
-    await migrateAutomationSchema();
-    // Phase 7: Reply classification schema
-    const { migrateReplyClassificationSchema } = await import("./services/campaign-reply-classifier");
-    await migrateReplyClassificationSchema();
-    // Phase 8: Reply ingestion schema (campaign_sent_messages, campaign_unmatched_replies)
-    const { migrateReplyIngestionSchema } = await import("./services/campaign-reply-ingestion");
-    await migrateReplyIngestionSchema();
-    // Phase 9: Branching automation schema (campaign_automation_rules, campaign_recipient_rule_events)
-    const { migrateBranchingSchema } = await import("./services/campaign-branching-automation");
-    await migrateBranchingSchema();
-    // Phase 10: Campaign attribution schema (campaign_attribution_events)
-    const { migrateCampaignAttributionSchema } = await import("./services/campaign-attribution");
-    await migrateCampaignAttributionSchema();
-    // Phase 11: Campaign automation_mode column (manual / assisted / full)
+    log(`[perf:startup] batch-1 (core schemas) done +${Date.now() - _migStart}ms`);
+
+    // Batch 2: all independent feature schemas — run in parallel
+    await Promise.all([
+      migrateCalendarSchema(),
+      migrateSuggestionsSchema(),
+      migrateExecutionSchema(),
+      migrateProcurementSchema(),
+      migrateDeploymentSchema(),
+      migrateMergeAuditSchema(),
+      migrateCustomerSuccessSchema(),
+      migrateProjectCertificationSchema(),
+      migrateProjectOversightSchema(),
+      migrateCsTimelineSchema(),
+      migrateTerritorySchema(),
+      migrateDocumentSchema(),
+      migrateChangelogSchema(),
+      migrateProductEngineSchema(),
+      migratePilotLeadSchema(),
+      migrateCrmExpansionSchema(),
+      migrateTradeshowEventsSchema(),
+      migrateCrmAiSummarySchema(),
+      migrateScheduledEmailColumns(),
+      migrateShorePowerColumn(),
+      migrateLeadWebsiteColumn(),
+      migrateSpamTrustedSenders(),
+      migrateCleanInternalAutoLinkRules(),
+      migrateTaskContactId(),
+      migrateEmailSignaturesSchema(),
+      migrateEmailRecipientsSchema(),
+      migrateInternalEngagementSchema(),
+      migrateBlockedSenders(),
+      migrateRepairCmsInternalEvents(),
+      migrateCrmIntelligenceContextSchema(),
+      migrateTimezoneColumns(),
+      migrateCurrentSchema(),
+      migrateMeetingNoteAudioSplits(),
+      migrateCampaignTrackingSchema(),
+      migrateComplianceSchema(),
+    ]);
+    log(`[perf:startup] batch-2 (feature schemas) done +${Date.now() - _migStart}ms`);
+
+    // Batch 3: depends on email-signatures + campaign-tracking (run in parallel)
+    const [
+      { migrateAutomationSchema },
+      { migrateReplyClassificationSchema },
+      { migrateReplyIngestionSchema },
+    ] = await Promise.all([
+      import("./services/campaign-automation"),
+      import("./services/campaign-reply-classifier"),
+      import("./services/campaign-reply-ingestion"),
+    ]);
+    await Promise.all([
+      migrateSignatureCtaSchema(),
+      migrateAutomationSchema(),
+      migrateReplyClassificationSchema(),
+      migrateReplyIngestionSchema(),
+    ]);
+    log(`[perf:startup] batch-3 (CTA + campaign pipeline) done +${Date.now() - _migStart}ms`);
+
+    // Batch 4: depends on Batch 3 (branching/attribution + CTA asset columns)
+    const [
+      { migrateBranchingSchema },
+      { migrateCampaignAttributionSchema },
+    ] = await Promise.all([
+      import("./services/campaign-branching-automation"),
+      import("./services/campaign-attribution"),
+    ]);
+    await Promise.all([
+      migrateSignatureCtaAssetColumns(),
+      migrateBranchingSchema(),
+      migrateCampaignAttributionSchema(),
+    ]);
+    log(`[perf:startup] batch-4 (branching + attribution + CTA assets) done +${Date.now() - _migStart}ms`);
+
+    // Batch 5: depends on Batch 4 CTA
+    await Promise.all([migrateCtaFileData(), migrateCtaOriginalName()]);
+
+    // Additive columns on marketing_campaigns (Phase 11)
+    // Import db/sql explicitly — they are not available in top-level scope.
+    const { db: _db } = await import("./db");
+    const { sql: _sql } = await import("drizzle-orm");
     try {
-      await db.execute(sql.raw(`
+      await _db.execute(_sql.raw(`
         ALTER TABLE marketing_campaigns
           ADD COLUMN IF NOT EXISTS automation_mode TEXT NOT NULL DEFAULT 'manual'
             CHECK (automation_mode IN ('manual', 'assisted', 'full'));
         ALTER TABLE marketing_campaigns
           ADD COLUMN IF NOT EXISTS pending_approval_count INTEGER NOT NULL DEFAULT 0;
       `));
-    } catch (_e) { /* already exists */ }
+    } catch (_e) { /* columns already exist */ }
+
     // Capital module schema
     try {
       const { migrateCapitalSchema } = await import("./routes-capital");
       await migrateCapitalSchema();
     } catch (_e) { /* already exists */ }
+
+    // Derived label backfill: fire-and-forget (idempotent, safe to run concurrently)
+    migrateDerivedLabelColumns().catch(err =>
+      console.error("[startup] derived label backfill background error:", err)
+    );
+
+    setStartupMark("migrationsComplete", Date.now());
+    log(`[perf:startup] ALL migrations done in ${Date.now() - _migStart}ms (${Date.now() - PROC_START}ms from proc start)`);
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }
@@ -344,43 +417,34 @@ app.use((req, res, next) => {
       host: "0.0.0.0",
       reusePort: true,
     },
-    async () => {
-      log(`Listening on 0.0.0.0:${port}`);
+    () => {
+      const listenMs = Date.now() - PROC_START;
+      setStartupMark("serverListening", Date.now());
+      log(`[perf:startup] server listening on 0.0.0.0:${port} — ${listenMs}ms from process start`);
 
-      try {
-        const { migrateUserSchema, migrateEmailSchema, migrateCalendarSchema, migrateSuggestionsSchema, migrateExecutionSchema, migrateProcurementSchema, migrateDeploymentSchema, migrateMergeAuditSchema, migrateCustomerSuccessSchema, migrateProjectCertificationSchema, migrateProjectOversightSchema, migrateCsTimelineSchema, migrateTerritorySchema, migrateDocumentSchema, migrateChangelogSchema, migrateProductEngineSchema, migratePilotLeadSchema, migrateCrmExpansionSchema, migrateTradeshowEventsSchema, seedProductionData, seedSampleProjects } = await import("./seed-production");
-        await migrateUserSchema();
-        await migrateEmailSchema();
-        await migrateCalendarSchema();
-        await migrateSuggestionsSchema();
-        await migrateExecutionSchema();
-        await migrateProcurementSchema();
-        await migrateDeploymentSchema();
-        await migrateMergeAuditSchema();
-        await migrateCustomerSuccessSchema();
-        await migrateProjectCertificationSchema();
-        await migrateProjectOversightSchema();
-        await migrateCsTimelineSchema();
-        await migrateTerritorySchema();
-        await migrateDocumentSchema();
-        await migrateChangelogSchema();
-        await migrateProductEngineSchema();
-        await migratePilotLeadSchema();
-        await migrateCrmExpansionSchema();
-        await migrateTradeshowEventsSchema();
-        await seedProductionData();
-        await seedSampleProjects();
-      } catch (err) {
-        console.error("Seed error (non-fatal):", err);
-      }
+      // ── Seed production data: fire-and-forget, delayed 8 s ──────────────────
+      // Runs after the first user requests can already be served.
+      // seedProductionData / seedSampleProjects are idempotent insert-if-missing calls.
+      setTimeout(async () => {
+        try {
+          const { seedProductionData, seedSampleProjects } = await import("./seed-production");
+          await seedProductionData();
+          await seedSampleProjects();
+          log("[startup] seed complete");
+        } catch (err) {
+          console.error("[startup] Seed error (non-fatal):", err);
+        }
+      }, 8_000);
 
-      // Background schedulers — gated by ENABLE_BACKGROUND_JOBS (default: enabled).
+      // ── Background schedulers ─────────────────────────────────────────────────
+      // Gated by ENABLE_BACKGROUND_JOBS (default: enabled).
       // Set ENABLE_BACKGROUND_JOBS=false on replica instances to prevent duplicate
       // sync jobs when running multiple app instances behind a load balancer.
       if (process.env.ENABLE_BACKGROUND_JOBS !== "false") {
         startHourlySyncScheduler();
         startHelpCenterRefreshScheduler();
-        // Phase 6: Automation drip tick — every 10 minutes
+
+        // Automation drip tick — every 10 minutes
         (function scheduleAutomationTick() {
           const INTERVAL_MS = 10 * 60 * 1000;
           const _port = parseInt(process.env.PORT || "5000", 10);
@@ -394,12 +458,17 @@ app.use((req, res, next) => {
           }
           setInterval(runTick, INTERVAL_MS);
         })();
-        // Phase 2A: Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
-        const { startWatchRenewalScheduler } = await import("./services/gmail-watch");
-        startWatchRenewalScheduler();
+
+        // Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
+        import("./services/gmail-watch").then(({ startWatchRenewalScheduler }) =>
+          startWatchRenewalScheduler()
+        );
+
         // Calendar auto-sync (15-min interval; no-op when no connections are configured)
-        const { startCalendarSyncScheduler } = await import("./calendar-sync");
-        startCalendarSyncScheduler();
+        import("./calendar-sync").then(({ startCalendarSyncScheduler }) =>
+          startCalendarSyncScheduler()
+        );
+
         // Compliance: expire stale CASL implied consent + generate 90/60/30-day warning records
         (function scheduleConsentExpiryJob() {
           const INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -492,17 +561,17 @@ app.use((req, res, next) => {
       } else {
         log("[schedulers] ENABLE_BACKGROUND_JOBS=false — skipping background job startup");
       }
-      // Phase 2B: ensure local search indexes exist (idempotent, non-blocking)
+
+      // Email search indexes: idempotent, non-blocking
       import("./services/email-search")
         .then(({ ensureSearchIndexes }) => ensureSearchIndexes())
         .catch((e) => console.error("[email-search] ensureSearchIndexes failed:", e?.message || e));
 
-      // Backfill resumer (additive, idempotent, non-blocking).
-      // Picks up any backfill_jobs left in 'pending' state, plus any 'running'
-      // jobs that have not been touched in the last 5 minutes (zombie recovery
-      // after a restart or a script that died mid-job). Runs them serially so
-      // we don't hammer the Gmail API quota with parallel large backfills.
-      (async () => {
+      // ── Backfill resumer ─────────────────────────────────────────────────────
+      // Delayed 20 s so the first batch of user requests are served before any
+      // heavy Gmail quota work begins.  Picks up pending / zombie backfill jobs,
+      // runs them serially so they don't compete for Gmail API quota.
+      setTimeout(async () => {
         try {
           const { db } = await import("./db");
           const { sql: sqlTag } = await import("drizzle-orm");
@@ -545,7 +614,7 @@ app.use((req, res, next) => {
         } catch (e: any) {
           console.error("[backfill-resumer] startup error:", e?.message || e);
         }
-      })();
+      }, 20_000);
     },
   );
 })();

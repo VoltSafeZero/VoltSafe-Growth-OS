@@ -1,0 +1,172 @@
+Continue the startup/first-load performance fix from the current state.
+
+You already found and began fixing these root causes:
+- ~30 sequential migrations blocking server startup before listen()
+- duplicate migration block running again inside listen()
+- missing db/sql imports causing DDL ReferenceError caught silently
+- seedProductionData() and seedSampleProjects() blocking startup
+- backfill resumer starting immediately and competing with first requests
+- slow API threshold set to 800ms instead of 250ms
+- BookingPublicPage eagerly imported in App.tsx
+- no clear startup timing logs
+- new /api/session/bootstrap endpoint partially added
+- frontend timing marks partially added
+
+Now finish the implementation and validate it.
+
+Required next steps:
+
+1. Restart and verify server startup
+- Restart the server cleanly.
+- Confirm the server starts listening before non-critical seed/backfill jobs run.
+- Confirm migrations do not run twice.
+- Confirm missing db/sql import issue is fixed.
+- Confirm startup logs clearly show:
+  - process start
+  - migrations start/end
+  - server listening
+  - seed/background jobs scheduled
+  - first request received
+  - first response sent
+
+2. Finalize /api/session/bootstrap
+The bootstrap endpoint must be lightweight and safe for first render.
+
+It should return only:
+- authenticated user identity
+- role
+- permissions
+- display name
+- avatar fields needed by the shell/header
+- organization/workspace context if already available cheaply
+- nav/sidebar permissions if cheap
+
+It must not load:
+- emails
+- inbox counts
+- CRM lists
+- campaign data
+- dashboard widgets
+- calendar events
+- AI summaries
+- files
+- analytics
+- large activity feeds
+- any expensive joins
+
+If the current app still depends on /api/auth/me for first render, either:
+- make /api/auth/me equally lightweight, or
+- update the frontend shell to use /api/session/bootstrap for initial render.
+
+3. Frontend shell timing
+Finish adding frontend performance marks for:
+- app script loaded
+- bootstrap request started
+- bootstrap returned
+- shell rendered
+- route data started
+- route data completed
+
+In development, log a clean summary like:
+
+VoltSafe CMS First Load Performance
+- JS loaded: X ms
+- Bootstrap: X ms
+- Shell rendered: X ms
+- First route data: X ms
+- APIs before shell render: X
+- Total time to usable shell: X ms
+
+4. Prevent heavy API waterfalls before shell render
+Audit App.tsx, providers, layout, sidebar, header, and dashboard entry route.
+
+Before the shell renders, the frontend should not request:
+- CRM counts
+- inbox counts
+- campaign counts
+- notification counts
+- dashboard widgets
+- calendar previews
+- AI context
+- recent activity feeds
+- full user lists
+- lead/account/contact tables
+
+Move those into lazy post-shell loaders.
+
+5. Backend request timing
+Ensure backend middleware logs all endpoints slower than 250ms.
+
+The log should include:
+- method
+- path
+- status code
+- duration
+- whether user was authenticated if cheaply available
+- request id if available
+
+Do not log sensitive tokens, cookies, passwords, email bodies, or private Capital data.
+
+6. Background jobs
+Confirm these are delayed until after listen:
+- seedProductionData()
+- seedSampleProjects()
+- backfill resumer
+- sync jobs
+- enrichment jobs
+- campaign jobs
+- AI summary jobs
+- email/calendar jobs
+- any scheduled maintenance loops
+
+Use safe delayed scheduling so they do not compete with the first user request.
+
+7. Health endpoint
+Add or verify a fast /healthz endpoint.
+
+Requirements:
+- responds quickly
+- does not run migrations
+- does not trigger seed jobs
+- does not trigger sync jobs
+- does not load large data
+- ideally returns basic status and uptime
+
+8. Tests
+Add or update tests covering:
+- migrations are not duplicated in server startup code
+- non-critical jobs start after listen, not before
+- /api/session/bootstrap exists
+- bootstrap does not call heavy module loaders or return large datasets
+- slow threshold is 250ms
+- BookingPublicPage or equivalent heavy public route is lazy-loaded
+- App shell uses lightweight bootstrap or lightweight /api/auth/me
+- frontend does not eagerly import major heavy modules where route-level lazy loading is expected
+
+9. Measurement
+Run before/after style validation if possible.
+
+Report:
+- server cold startup time to listen
+- bootstrap endpoint duration
+- number of API calls before shell render
+- warm already-authenticated reload time to shell
+- login-to-shell time
+- slow endpoints found
+- any remaining bottlenecks
+
+Acceptance criteria:
+- Server listens before non-critical jobs run.
+- Migrations run once.
+- Seeds do not block server listen.
+- Backfill does not start immediately before first request.
+- Bootstrap endpoint returns quickly and stays lightweight.
+- Already-authenticated warm reload reaches usable shell target of <1 second if infrastructure is warm.
+- Password login reaches usable shell target of <3 seconds if infrastructure is warm.
+- Any true Replit cold-start limitation is clearly separated from application-level slowness.
+- Tests pass.
+
+Do not modify unrelated features.
+Do not remove required migrations.
+Do not hide errors with silent catches.
+Do not weaken auth.

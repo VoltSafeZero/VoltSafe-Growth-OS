@@ -1411,10 +1411,10 @@ export async function registerRoutes(
     }
     const [user] = await db.select().from(users).where(eq(users.id, req.session.userId));
     if (!user) return res.status(401).json({ message: "Not authenticated" });
-    // Capital access: Trevor (user 4) by ID, Scott Carlson by email — kept in sync with routes-capital.ts
+    // Capital access: Trevor (user 4) by ID, Scott Carlson (CFO) by email — kept in sync with routes-capital.ts
     const CAPITAL_USER_IDS = new Set([4]);
     const CAPITAL_USER_EMAILS = new Set<string>([
-      // "scott.carlson@voltsafe.com",  // ← add when Scott's account is created
+      "scott.carlson@voltsafe.com",  // CFO — Scott Carlson (kept in sync with routes-capital.ts)
     ]);
     const isCapitalUser = CAPITAL_USER_IDS.has(user.id) ||
       (!!user.email && CAPITAL_USER_EMAILS.has(user.email.toLowerCase()));
@@ -1438,6 +1438,63 @@ export async function registerRoutes(
       calendarBookingUrl: user.calendarBookingUrl ?? null,
       detectedTimezone: (req.session as any).detectedTimezone ?? null,
       avatarUrl: withAvatarVersion(user.avatarUrl),
+    });
+  });
+
+  // ── /api/session/bootstrap — lightweight shell-render endpoint ───────────────
+  // Returns only what the app shell needs to render: identity, role, permissions,
+  // and nav/feature flags. Never loads emails, CRM lists, widgets, or analytics.
+  // Cache-Control: private, max-age=30, stale-while-revalidate=300 lets the
+  // browser serve the cached user instantly on reload while verifying in the
+  // background — cutting authenticated re-load time to near-zero.
+  app.get("/api/session/bootstrap", async (req, res) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ authenticated: false });
+    }
+    const [user] = await db.select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      globalRole: users.globalRole,
+      status: users.status,
+      mustChangePassword: users.mustChangePassword,
+      permissions: users.permissions,
+      department: users.department,
+      jobTitle: users.jobTitle,
+      userType: users.userType,
+      preferredLayout: users.preferredLayout,
+      defaultCommandCenter: users.defaultCommandCenter,
+    }).from(users).where(eq(users.id, req.session.userId));
+    if (!user) return res.status(401).json({ authenticated: false });
+
+    const CAPITAL_USER_IDS = new Set([4]);
+    const isCapitalUser = CAPITAL_USER_IDS.has(user.id);
+    const basePerms = (user.permissions ?? {
+      crm: "edit", partnerships: "edit", projects: "edit",
+      communications: "edit", team_workload: "edit", knowledge: "edit",
+      support: "edit", quoting: "edit", calendar: "edit",
+      mail_team: {}, calendar_team: [],
+    }) as Record<string, any>;
+
+    res.setHeader("Cache-Control", "private, max-age=30, stale-while-revalidate=300");
+    res.json({
+      authenticated: true,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      globalRole: user.globalRole,
+      status: user.status,
+      mustChangePassword: user.mustChangePassword,
+      isCapitalUser,
+      permissions: { ...basePerms, capital: isCapitalUser ? "edit" : "none" },
+      department: user.department,
+      jobTitle: user.jobTitle,
+      userType: user.userType,
+      preferredLayout: user.preferredLayout ?? "expanded",
+      defaultCommandCenter: user.defaultCommandCenter,
+      detectedTimezone: (req.session as any).detectedTimezone ?? null,
     });
   });
 

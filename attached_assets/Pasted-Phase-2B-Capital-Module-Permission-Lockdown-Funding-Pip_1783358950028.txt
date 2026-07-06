@@ -1,0 +1,219 @@
+Phase 2B — Capital Module Permission Lockdown + Funding Pipeline UX Polish
+
+We have completed Phase 2A for the VoltSafe CMS Capital module:
+- capital_investors
+- capital_contacts
+- capital_rounds
+- capital_commitments
+- CRUD APIs
+- investor activity logging
+- frontend pages for investors, contacts, rounds, commitments, and pipeline
+- tests passing: 138/138
+
+Now implement Phase 2B.
+
+Primary goals:
+1. Fully restrict the entire Capital module to only:
+   - CEO: Trevor
+   - CFO: Scott Carlson
+2. Improve the Funding Pipeline UX so it behaves like a real investor/funding CRM.
+3. Add regression tests that prove no unauthorized role can access Capital routes, APIs, sidebar nav, or pages.
+
+Important:
+This module contains highly sensitive startup financing data. It must not be visible to normal admins, managers, staff, contractors, advisors, sales, marketing, or general CMS users.
+
+Authorized users only:
+- Trevor
+- Scott Carlson
+
+Use the existing CMS auth/role/user permission patterns. Do not invent a disconnected permission system unless absolutely necessary.
+
+Tasks:
+
+1. Permission model audit
+- Find the existing CMS auth, role, permission, nav visibility, and route guard patterns.
+- Identify how CEO-only or admin-only modules are currently protected.
+- Decide the safest implementation pattern for Capital.
+- Capital should require a dedicated permission such as:
+  - capital:read
+  - capital:write
+  - capital:admin
+  OR an equivalent existing permission model if one already exists.
+- Ensure only Trevor and Scott Carlson receive access.
+
+2. Sidebar/nav lockdown
+- Capital/Funding sidebar items must only appear for authorized users.
+- Unauthorized users should not see:
+  - Capital
+  - Investors
+  - Contacts
+  - Rounds
+  - Commitments
+  - Pipeline
+  - any Capital-related nav item
+- Add tests proving Capital nav is hidden from unauthorized users.
+
+3. Frontend route protection
+- All Capital frontend routes must be protected.
+- Unauthorized users attempting to visit Capital routes directly should see an appropriate unauthorized/forbidden page or be redirected according to existing CMS conventions.
+- Protected routes include, but are not limited to:
+  - /capital
+  - /capital/investors
+  - /capital/contacts
+  - /capital/rounds
+  - /capital/commitments
+  - /capital/pipeline
+  - any new or existing Capital child routes
+- Add tests for direct route access.
+
+4. Backend API protection
+- Every Capital API route must enforce server-side authorization.
+- Frontend hiding is not enough.
+- Unauthorized users must receive 403, not data.
+- Protect all routes under the Capital API namespace, including:
+  - investors
+  - investor detail
+  - investor create/update/delete
+  - contacts
+  - rounds
+  - commitments
+  - pipeline
+  - investor activity log
+  - any summary/stat endpoints
+- Add API tests proving unauthorized users cannot read or write Capital data.
+
+5. CEO/CFO access verification
+- Add/adjust seed or test-user fixtures so tests can simulate:
+  - Trevor / CEO authorized
+  - Scott Carlson / CFO authorized
+  - Admin unauthorized
+  - Manager unauthorized
+  - Staff/user unauthorized
+- CEO and CFO should pass read/write access.
+- Unauthorized roles should fail.
+
+6. Funding Pipeline UX improvements
+Upgrade the Capital Pipeline page so it is genuinely useful for fundraising.
+
+Pipeline should show investors grouped by stage, using existing PIPELINE_STAGES.
+
+Each stage column/card should show:
+- Stage name
+- Investor count
+- Total target cheque amount
+- Total committed amount if available
+- Investors in that stage
+
+Each investor card should show:
+- Investor name
+- Investor type
+- Stage
+- Priority or rating if available
+- Target cheque size
+- Committed amount
+- Primary contact if available
+- Last activity date if available
+- Next step if available
+
+Add quick actions where safe:
+- Open investor detail drawer
+- Update stage
+- Add note/activity
+- Add commitment
+- Add contact
+
+7. Investor detail drawer polish
+The investor detail drawer should provide a complete funding CRM view:
+- Investor summary
+- Investor type
+- Stage
+- Fit/priority
+- Cheque size
+- Contacts
+- Related round
+- Commitments
+- Notes/activity log
+- Next step
+- Last contacted date
+- Owner
+- Created/updated dates
+
+If fields do not exist yet, use what exists and leave safe TODO comments or lightweight placeholders. Do not overbuild unnecessary schema unless needed.
+
+8. Activity logging
+Ensure important Capital actions log activity:
+- Investor created
+- Investor updated
+- Stage changed
+- Contact added
+- Round created/updated
+- Commitment created/updated
+- Note added if notes exist
+- Pipeline stage changed
+
+Activity logging should be fire-and-forget safe and should not crash primary requests.
+
+9. Empty states
+Add useful empty states:
+- No investors yet
+- No contacts yet
+- No rounds yet
+- No commitments yet
+- No investors in this pipeline stage
+- Unauthorized users should not see Capital empty states; they should be blocked before module render.
+
+10. Loading/error states
+Add clean loading and error states to Capital pages.
+Do not leave blank screens.
+Do not expose sensitive details in frontend error messages.
+
+11. Tests
+Add robust tests covering:
+
+Permission/nav:
+- CEO sees Capital nav
+- CFO sees Capital nav
+- Admin does not see Capital nav
+- Manager/user does not see Capital nav
+
+Frontend routes:
+- CEO can access Capital routes
+- CFO can access Capital routes
+- Unauthorized users cannot access Capital routes directly
+
+Backend APIs:
+- CEO can read/write Capital APIs
+- CFO can read/write Capital APIs
+- Unauthorized users receive 403 for every Capital API route
+- Unauthorized users cannot create/update/delete investors, contacts, rounds, or commitments
+
+Pipeline:
+- Investors are grouped by stage
+- Stage counts render
+- Target cheque totals render
+- Commitment totals render
+- Empty stages render safely
+- Investor cards include key fields
+
+Activity:
+- Stage changes create activity
+- Investor create/update creates activity
+- Commitment create/update creates activity
+
+12. Validation
+Run the relevant test suite.
+Run the full test suite if practical.
+Fix all failing tests.
+Confirm there are no TypeScript errors.
+Confirm Capital routes do not leak in nav or API responses.
+
+Deliverables:
+- Summary of files changed
+- Permission model used
+- Confirmation that only Trevor and Scott Carlson can access Capital
+- Test results
+- Any remaining recommended follow-up for Phase 2C
+
+Do not modify unrelated modules.
+Do not loosen existing auth.
+Do not make Capital visible to general admins unless explicitly required.

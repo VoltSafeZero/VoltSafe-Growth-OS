@@ -1,8 +1,8 @@
 import { pool } from "./db";
 
 const RING_SIZE = 1000;
-const SLOW_THRESHOLD_MS = 800;
-const SLOW_LOG_MAX = 100;
+const SLOW_THRESHOLD_MS = 250;   // log endpoints slower than 250 ms
+const SLOW_LOG_MAX = 200;
 const JOB_HISTORY_MAX = 50;
 const OPENAI_HISTORY_MAX = 100;
 
@@ -39,8 +39,21 @@ const slowLog: SlowRequest[] = [];
 const jobLog: JobRecord[] = [];
 const openaiLog: OpenAIRecord[] = [];
 
+// ── Startup timing marks ──────────────────────────────────────────────────────
+// Keyed milestones recorded by server/index.ts during startup so the /api/perf
+// endpoint can surface first-load timing in one place.
+const startupMarks: Record<string, number> = {};
+
+export function setStartupMark(name: string, ts: number = Date.now()): void {
+  startupMarks[name] = ts;
+}
+
+export function getStartupMarks(): Record<string, number> {
+  return { ...startupMarks };
+}
+
+// ── Event-loop lag monitor ─────────────────────────────────────────────────────
 let eventLoopLagMs = 0;
-let lastLoopCheck = Date.now();
 
 function measureEventLoopLag() {
   const before = Date.now();
@@ -165,8 +178,23 @@ export function getPerformanceSnapshot() {
     };
   })();
 
+  // ── Startup timing summary ────────────────────────────────────────────────
+  const marks = getStartupMarks();
+  const startupSummary: Record<string, string> = {};
+  const base = marks.moduleLoaded ?? marks.serverListening;
+  if (base) {
+    for (const [k, v] of Object.entries(marks)) {
+      startupSummary[k] = `+${v - base}ms`;
+    }
+    if (marks.serverListening) {
+      startupSummary["serverListeningWallMs"] = String(marks.serverListening - base);
+    }
+  }
+
   return {
     capturedAt: new Date().toISOString(),
+    startupTiming: startupSummary,
+    slowThresholdMs: SLOW_THRESHOLD_MS,
     health: {
       errorRate5mPct: errorRate5m,
       requestCount5m: last5m.length,

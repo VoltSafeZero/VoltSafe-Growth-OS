@@ -1,0 +1,88 @@
+Build a “Save to Cortex” / “Industry Intel” feature inside VoltSafe Mail.
+
+Context:
+Some emails received by Trevor contain valuable marine industry data, NMMA updates, marina market trends, regulatory information, boating economy data, and strategic industry context. Trevor is also a current NMMA Canada Board of Directors member, so NMMA-related emails and boating industry intelligence are especially important. These emails should be manually flaggable so VoltSafe CMS/Cortex can use the salient knowledge later when generating emails, campaigns, lead/account research, investor messaging, and strategic context.
+
+Required UX:
+1. In the email detail view toolbar/action area, add a button labeled “Save to Cortex” or “Cortex Intel”.
+2. When clicked, open a modal titled “Save Email to Cortex”.
+3. The modal should allow the user to classify the email with:
+   - Intel Type:
+     - Marine Industry Intel
+     - NMMA / Association News
+     - Marina Market Data
+     - Boating Consumer Trends
+     - Regulatory / Compliance
+     - Competitor / Partner Intel
+     - Grant / Funding Intel
+     - Customer Pain / Voice of Market
+     - Other
+   - Importance:
+     - Low
+     - Medium
+     - High
+     - Board-Level / Strategic
+   - Use For:
+     - AI email writing
+     - Lead/account research
+     - Campaign context
+     - Investor/funding narrative
+     - Cortex knowledge base
+     - All of the above
+   - Optional tags
+   - Optional notes from Trevor
+4. Add a “Generate Summary” action that uses the email subject, sender, date, body, and links to create:
+   - short summary
+   - strategic relevance to VoltSafe
+   - suggested tags
+   - suggested related CRM entities if available
+   - suggested use cases
+5. Add a final “Ingest to Cortex” button.
+6. After ingesting, show a saved state on the email, such as “Saved to Cortex”, with the intel type and importance.
+7. Prevent duplicate ingestion of the same email unless the user intentionally updates the existing Cortex record.
+
+Data model:
+Create a table for saved Cortex email intelligence, for example cortex_email_intel:
+- id
+- gmail_message_id or mail_message_id
+- thread_id
+- subject
+- sender_name
+- sender_email
+- received_at
+- source_label, e.g. NMMA Currents
+- intel_type
+- importance
+- use_for
+- tags JSON/text array
+- user_notes
+- ai_summary
+- strategic_relevance
+- extracted_facts JSON
+- source_url if available
+- related_contact_id nullable
+- related_account_id nullable
+- related_lead_id nullable
+- created_by_user_id
+- created_at
+- updated_at
+- deleted_at nullable
+
+Backend:
+1. Add API endpoint to create/save Cortex intel from an email.
+2. Add API endpoint to generate an AI summary before saving.
+3. Add API endpoint to list Cortex intel records.
+4. Add API endpoint to update an existing Cortex intel record.
+5. Add API endpoint to check whether a given email has already been saved to Cortex.
+6. Ensure permission checks. At minimum, only authenticated VoltSafe CMS users can save intel. Ideally support future role restrictions.
+
+Cortex usage:
+1. Make saved Cortex email intel available to the AI email generator, campaign generator, lead/account summaries, and Cortex search.
+2. When generating sales or investor emails, allow relevant Cortex intel to be retrieved by topic, tags, recency, source, and importance.
+3. Weight high-importance and Board-Level / Strategic intel higher.
+4. Do not blindly insert all intel into every email. Use only when relevant to the recipient, account, industry, or campaign.
+5. Prefer concise contextual references, for example:
+   “NMMA recently reported U.S. recreational marine spending totaled $54B in 2025, underscoring how much pressure marinas face to modernize infrastructure and improve the boater experience.”
+
+Important:
+This must be a manual, human-approved ingestion flow. Do not automatically ingest every boating-related email because that will pollute Cortex with noise. The system should help Trevor capture high-signal marine industry intelligence and reuse it intelligently across VoltSafe CMS.
