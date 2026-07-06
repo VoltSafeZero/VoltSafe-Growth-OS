@@ -200,8 +200,9 @@ function isSensitivePath(p: string): boolean {
   return false;
 }
 
-// ── First-request marker ──────────────────────────────────────────────────────
+// ── First-request / first-response markers ───────────────────────────────────
 let _firstRequest = true;
+let _firstResponse = true;
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -223,8 +224,15 @@ app.use((req, res, next) => {
   }
 
   res.on("finish", () => {
-    const duration = Date.now() - start;
+    const now = Date.now();
+    const duration = now - start;
     if (path.startsWith("/api")) {
+      if (_firstResponse) {
+        _firstResponse = false;
+        setStartupMark("firstResponse", now);
+        log(`[perf:startup] first API response sent ${now - PROC_START}ms from process start (${duration}ms handler time)`);
+      }
+
       // Record into the in-process performance ring buffer.
       recordRequest(req.method, path, res.statusCode, duration);
 

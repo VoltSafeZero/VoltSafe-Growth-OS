@@ -1,4 +1,11 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
+
+// ── Frontend first-load timing mark ──────────────────────────────────────────
+// Fires as soon as the main app JS bundle has loaded and begun evaluating.
+// startTime is relative to the page's navigation start (performance.timeOrigin).
+if (typeof performance !== "undefined") {
+  try { performance.mark("vs-js-loaded"); } catch {}
+}
 import { Switch, Route, useLocation } from "wouter";
 import { Search } from "lucide-react";
 import { queryClient } from "./lib/queryClient";
@@ -504,6 +511,37 @@ function App() {
         }
       });
   }, []);
+
+  // ── Dev-mode first-load performance summary ───────────────────────────────
+  // Fires once after the shell transitions from loading → rendered.
+  // Logs a table of key milestones so the team can spot regressions quickly.
+  const _shellSummaryFired = useRef(false);
+  useEffect(() => {
+    if (loading || _shellSummaryFired.current) return;
+    _shellSummaryFired.current = true;
+    if (typeof performance === "undefined") return;
+    try {
+      performance.mark("vs-shell-rendered");
+      const jsEntry   = performance.getEntriesByName("vs-js-loaded")[0];
+      const bsEntry   = performance.getEntriesByName("vs-bootstrap")[0];
+      const shellEntry = performance.getEntriesByName("vs-shell-rendered")[0];
+      const jsLoadedMs   = jsEntry?.startTime   ?? 0;
+      const bootstrapMs  = bsEntry?.duration    ?? 0;
+      const shellMs      = shellEntry?.startTime ?? 0;
+      const totalMs      = shellMs - jsLoadedMs;
+      if (import.meta.env.DEV) {
+        console.log(
+          "%cVoltSafe Growth OS — First Load Performance\n" +
+          `  JS bundle loaded:   ${jsLoadedMs.toFixed(0)} ms after nav start\n` +
+          `  Bootstrap (api):    ${bootstrapMs.toFixed(0)} ms\n` +
+          `  Shell rendered:     ${shellMs.toFixed(0)} ms after nav start\n` +
+          `  Time JS→shell:      ${totalMs.toFixed(0)} ms\n` +
+          `  APIs before shell:  1 (/api/session/bootstrap)`,
+          "font-weight:bold;color:#00BFA5;"
+        );
+      }
+    } catch {}
+  }, [loading]);
 
   // Send detected timezone to backend once after every login (keyed on user.id).
   // Fire-and-forget — never blocks login or UI rendering.

@@ -1,0 +1,281 @@
+Phase 2C — Capital Investor Intelligence + Outreach Engine
+
+Phase 2A and 2B are complete.
+
+Current state:
+- Capital module has investors, contacts, rounds, commitments, pipeline, and activity logging.
+- Capital access is restricted to CEO Trevor and CFO Scott Carlson.
+- Capital permissions tests pass.
+- Capital foundation tests pass.
+- Startup performance work is also complete with parallel migration batches and updated tests.
+
+Now implement Phase 2C.
+
+Primary goal:
+Turn the Capital module from a static funding CRM into an intelligent investor follow-up and outreach system.
+
+This should help Trevor and Scott know:
+- which investors matter most
+- who needs follow-up
+- what the next action should be
+- what round/cheque size they relate to
+- what email should be sent next
+- which investors are warm, cold, strategic, or high-priority
+
+Do not loosen Capital permissions. All new Capital features must remain restricted to Trevor and Scott Carlson only.
+
+Tasks:
+
+1. Investor intelligence fields
+Audit the existing capital_investors schema.
+
+If fields already exist, use them. If they do not exist, add safe migrations for useful investor intelligence fields such as:
+- priority_score
+- fit_score
+- warmth_score
+- strategic_value_score
+- cheque_capacity_min
+- cheque_capacity_max
+- target_cheque_amount
+- likely_lead_investor boolean
+- can_follow_on boolean
+- sector_fit
+- geography_fit
+- investor_thesis
+- relationship_source
+- relationship_strength
+- last_contacted_at
+- next_follow_up_at
+- next_step
+- do_not_contact boolean
+- disqualification_reason
+
+Only add fields that fit the current architecture. Keep it practical.
+
+2. Investor scoring helper
+Create a backend helper that calculates an investor priority score.
+
+The score should consider:
+- current stage
+- investor type
+- target cheque size
+- committed amount
+- last contacted date
+- next follow-up date
+- relationship strength
+- strategic fit
+- warmth
+- whether they are marked do_not_contact
+- whether they can write a meaningful cheque
+- whether they are tied to an active round
+
+Use a simple transparent scoring model, not black-box magic.
+
+Example scoring categories:
+- Hot
+- Warm
+- Nurture
+- Low Priority
+- Do Not Contact
+
+3. Follow-up queue
+Add a Capital follow-up queue API and frontend view.
+
+Suggested route:
+- /capital/follow-ups
+
+The follow-up queue should show:
+- overdue follow-ups
+- follow-ups due today
+- upcoming follow-ups
+- investors with no next step
+- investors with no activity in 14+ days
+- high-priority investors needing action
+
+Each row/card should show:
+- investor name
+- investor type
+- stage
+- priority
+- warmth
+- cheque target
+- last activity
+- next follow-up date
+- next step
+- primary contact
+- quick action to open investor detail
+
+4. Pipeline intelligence
+Enhance the pipeline page with intelligence summaries.
+
+At the top of the pipeline, show:
+- total target capital in pipeline
+- total committed
+- weighted pipeline estimate
+- number of hot investors
+- number of overdue follow-ups
+- number of investors with no next step
+- likely lead investor candidates
+- strategic investors count
+- family office count
+- VC count
+- angel/HNW count
+- government/non-dilutive count if applicable
+
+5. Investor detail intelligence panel
+Enhance the investor detail drawer/page with an intelligence section showing:
+- priority score
+- fit score
+- warmth score
+- suggested next action
+- suggested follow-up timing
+- relationship source
+- cheque capacity
+- round relevance
+- risk flags
+- missing data warnings
+
+Example missing data warnings:
+- No primary contact
+- No next step
+- No cheque target
+- No last contacted date
+- No investor thesis
+- No round assigned
+
+6. Activity-to-intelligence updates
+When activity is logged, update useful investor intelligence fields where safe:
+- last_contacted_at when email/call/meeting activity is logged
+- warmth_score if positive engagement is recorded
+- next_follow_up_at if a follow-up date is added
+- next_step when stage changes or notes are added
+
+Keep this simple and safe. Do not create brittle automation.
+
+7. Email draft integration
+Add a Capital investor email draft generator entry point.
+
+From investor detail and follow-up queue, authorized users should be able to click:
+- Draft Follow-Up Email
+- Draft Intro Email
+- Draft Meeting Request
+- Draft Investor Update
+- Draft Close-the-Loop Email
+
+The draft generator should use:
+- investor name
+- investor type
+- stage
+- previous activity
+- relationship source
+- round context
+- cheque target if relevant
+- VoltSafe company context
+- latest Capital notes/activity
+- selected tone/purpose
+
+Do not auto-send emails. Draft only.
+
+8. Suggested email prompt endpoint
+Add a backend endpoint that prepares safe context for AI email generation.
+
+It should return only Capital-safe context for the selected investor/contact and should remain permission-protected.
+
+Suggested endpoint:
+- GET /api/capital/investors/:id/email-context
+
+It should include:
+- investor summary
+- primary contact
+- stage
+- relationship context
+- recent activities
+- relevant round
+- commitment status
+- next step
+- suggested talking points
+
+It must not expose Capital context to unauthorized users.
+
+9. Outreach templates
+Add default Capital email templates:
+- Investor intro
+- Warm follow-up
+- Meeting request
+- Post-meeting thank you
+- Data room follow-up
+- Soft commitment follow-up
+- Lead investor ask
+- Strategic investor partnership angle
+- Government/non-dilutive funding follow-up
+- Close-the-loop / breakup email
+
+Templates should be editable later, but for this phase simple built-in templates are acceptable.
+
+10. Tasks integration
+If the CMS already has a task system, connect Capital follow-ups to it.
+
+Capital should be able to create tasks like:
+- Follow up with investor
+- Send deck
+- Schedule meeting
+- Send data room
+- Update commitment status
+- Ask for intro
+- Confirm cheque size
+
+If no task system exists, create lightweight Capital-only next_step and next_follow_up_at behavior for now.
+
+11. Permission tests
+Add tests proving:
+- Only Trevor and Scott can access follow-up queue
+- Only Trevor and Scott can access investor email context
+- Unauthorized users cannot see investor intelligence
+- Unauthorized users cannot generate Capital email draft context
+- Capital nav follow-up item is hidden for unauthorized users
+
+12. Intelligence tests
+Add tests for:
+- scoring helper
+- do_not_contact handling
+- overdue follow-up detection
+- missing next step detection
+- pipeline intelligence totals
+- investor detail warning flags
+- email context excludes sensitive unrelated data
+- empty states render safely
+
+13. UI requirements
+Follow existing VoltSafe CMS design patterns.
+
+Add/upgrade:
+- /capital/follow-ups page
+- follow-up queue cards/table
+- investor intelligence summary cards
+- pipeline intelligence header
+- investor detail intelligence panel
+- draft email buttons
+
+Do not create visual clutter. Funding is high-stakes. Make it sharp, calm, and useful.
+
+14. Validation
+Run:
+- capital permissions tests
+- capital foundation tests
+- new capital intelligence tests
+- relevant frontend/source tests
+- full suite if practical
+
+Deliver:
+- files changed
+- schema changes
+- scoring model explanation
+- new routes
+- permission confirmation
+- test results
+- recommended Phase 2D follow-up
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose Capital data outside CEO/CFO access.
+Do not auto-send investor emails.

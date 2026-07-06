@@ -1,0 +1,128 @@
+Great. Now do a hardening pass on Save to Cortex / Industry Intel.
+
+Goal:
+Make sure Cortex Intel is high-signal, findable, auditable, and useful inside AI generation — not just saved into a table.
+
+Please audit and improve the feature across these areas:
+
+1. Saved-state visibility
+- In the email list row and opened email detail view, show a subtle “Saved to Cortex” indicator if that message has already been saved.
+- In the detail view, show intel type + importance beside the indicator where space allows.
+- Clicking the indicator should reopen the existing Cortex Intel modal in edit mode.
+- Avoid visual clutter. This should be obvious but not loud.
+
+2. Duplicate prevention
+- Confirm the same gmail_message_id/mail_message_id cannot create duplicate active cortex_email_intel records.
+- Add a backend uniqueness guard where appropriate.
+- If an existing record exists, update it instead of creating a duplicate.
+- If deleted_at is used, allow restore/update behavior instead of making messy duplicates.
+
+3. Cortex Intel Library page
+Create a simple internal page where saved intel can be searched and reviewed.
+
+Suggested route:
+ /cortex/intel
+
+Suggested page title:
+ Cortex Intel Library
+
+Required filters:
+- Search text
+- Intel type
+- Importance
+- Use-for
+- Tags
+- Source/sender
+- Date range
+- Saved by
+
+Required table/card fields:
+- Title/subject
+- Source/sender
+- Received date
+- Intel type
+- Importance
+- Tags
+- AI summary
+- Strategic relevance
+- Related CRM entity if any
+- Open original email if available
+- Edit intel record
+
+4. Retrieval logic for AI generation
+Audit how Cortex Intel is injected into AI email generation.
+
+Improve it so it retrieves the most relevant records, not just the newest/top 4.
+
+Ranking should consider:
+- semantic/topic relevance to the recipient/account/email being generated
+- matching tags
+- matching industry/topic
+- importance
+- recency
+- source credibility
+- use_for includes the current generation purpose
+- NMMA and Board-Level/Strategic items should receive extra weight when relevant
+
+Do not inject unrelated intel just because it is important.
+
+5. Prompt formatting
+When Cortex Intel is injected into AI prompts, format it cleanly as:
+
+CORTEX INDUSTRY INTEL:
+- Source:
+- Date:
+- Fact:
+- Strategic relevance:
+- Suggested usage angle:
+
+The AI should use this intel only when relevant and should not overstuff every email with industry stats.
+
+6. Source discipline
+Make sure generated emails do not invent statistics or overstate saved intel.
+If a saved item includes a specific number, source, or claim, the AI must preserve it accurately.
+If source/date are known, the AI should be able to reference them naturally.
+Example:
+“NMMA recently reported...”
+not:
+“Studies show...” or vague mush.
+
+7. Permissions
+Audit permissions.
+At minimum:
+- normal authenticated users can view/save if currently allowed
+- editing/deleting should respect user roles
+- future-proof for CEO/admin-only strategic intel if needed
+- Board-Level/Strategic intel should be clearly marked and not accidentally exposed in public/customer-facing views except through approved AI generation
+
+8. Tests
+Add or update tests for:
+- saving a new Cortex Intel record
+- editing an existing record
+- preventing duplicates
+- detecting saved state by message id
+- generating AI summary
+- AI email generation includes relevant Cortex Intel
+- AI email generation excludes irrelevant Cortex Intel
+- Cortex Intel Library page renders
+- filters work
+- permissions are enforced
+
+9. UX polish
+Use the same visual language as the rest of VoltSafe CMS:
+- respect light/dark mode
+- no hardcoded white backgrounds
+- no awkward modal overflow
+- mobile/narrow panel safe
+- loading and empty states
+- error handling if AI summary fails
+
+10. Final validation
+Run the relevant backend/frontend tests and do a screenshot check of:
+- email detail with unsaved email
+- email detail with saved Cortex Intel
+- Save to Cortex modal
+- Cortex Intel Library page
+- dark mode if available
+
+Report back with files changed, tests run, and any issues found.
