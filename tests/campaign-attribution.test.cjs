@@ -252,6 +252,9 @@ assert(hasPattern(routes, "req.query.campaignId"), "GET attribution supports cam
 assert(hasPattern(routes, "req.query.limit"), "GET attribution supports limit filter param");
 assert(hasPattern(routes, "req.query.status"), "GET attribution supports status filter param");
 assert(hasPattern(routes, "Invalid campaignId filter"), "Invalid campaignId filter guard");
+assert(hasPattern(attribution, "campaignWhere") || hasPattern(attribution, "mc.id ="), "dashboard campaignId filter applied to WHERE mc.id (not JOIN ON)");
+assert(!hasPattern(attribution, "AND cae.campaign_id = ${Number(filters.campaignId)}"), "dashboard campaignId NOT applied in JOIN ON clause (was wrong)");
+assert(hasPattern(attribution, "WHERE 1=1 \${statusWhere} \${campaignWhere}") || hasPattern(attribution, "campaignWhere"), "dashboard campaignWhere in WHERE clause scopes marketing_campaigns rows");
 
 // Integration hooks
 assert(
@@ -290,6 +293,19 @@ assert(hasPattern(accountProfile, "campaigns that touched this account") || hasP
 assert(hasPattern(accountProfile, "account-campaign-attribution-panel"), "attribution panel has testid");
 assert(hasPattern(accountProfile, "campaign_name") || hasPattern(accountProfile, "c.campaign_name"), "account profile renders campaign name");
 assert(hasPattern(accountProfile, "last_touch") || hasPattern(accountProfile, "last touch") || hasPattern(accountProfile, "Last:"), "account profile shows last touch date");
+
+// Engagement timeline
+assert(hasPattern(accountProfile, "account-attribution-engagement-timeline"), "account attribution shows engagement timeline section");
+assert(hasPattern(accountProfile, "ENGAGEMENT_LABEL") || hasPattern(accountProfile, "Engagement Timeline"), "account attribution labels engagement event types");
+assert(hasPattern(accountProfile, "engagements.slice") || hasPattern(accountProfile, "eng.event_type"), "account attribution renders engagements array items");
+assert(hasPattern(accountProfile, "Clicked link") || hasPattern(accountProfile, "clicked"), "engagement timeline labels click events");
+assert(hasPattern(accountProfile, "Replied") || hasPattern(accountProfile, "replied"), "engagement timeline labels reply events");
+
+// Linked opportunities/proposals with confidence badges
+assert(hasPattern(accountProfile, "account-attribution-opp-proposals"), "account attribution shows linked opportunities/proposals section");
+assert(hasPattern(accountProfile, "Linked Opportunities") || hasPattern(accountProfile, "proposal_sent") || hasPattern(accountProfile, "Proposal sent"), "account attribution surfaces proposals with confidence");
+assert(hasPattern(accountProfile, "attribution-confidence-badge"), "opportunity/proposal events show confidence badges");
+assert(hasPattern(accountProfile, "pipeline_value") && hasPattern(accountProfile, "confidence"), "opp events show pipeline_value and confidence");
 
 // ── Section 10: Marketing analytics UI ───────────────────────────────────────
 

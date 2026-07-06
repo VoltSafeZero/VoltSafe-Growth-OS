@@ -489,7 +489,25 @@ function AccountCampaignAttributionPanel({ accountId }: { accountId: number }) {
   const campaigns   = data?.campaigns   ?? [];
   const events      = data?.events      ?? [];
 
-  if (isLoading || (campaigns.length === 0 && events.length === 0)) return null;
+  const engagements = data?.engagements ?? [];
+
+  const oppEvents = events.filter((e: any) =>
+    ["opportunity_influenced", "deal_won", "deal_lost", "proposal_sent", "manual_link"].includes(e.event_type)
+  );
+
+  if (isLoading || (campaigns.length === 0 && events.length === 0 && engagements.length === 0)) return null;
+
+  const ENGAGEMENT_LABEL: Record<string, string> = {
+    opened: "Opened", clicked: "Clicked link", replied: "Replied",
+    demo_booked: "Demo booked", unsubscribed: "Unsubscribed",
+    bounced: "Bounced", delivered: "Delivered",
+  };
+  const EVENT_LABEL: Record<string, string> = {
+    task_created: "Task created", reply_task_created: "Reply → Task",
+    meeting_booked: "Meeting booked", opportunity_influenced: "Opportunity influenced",
+    proposal_sent: "Proposal sent", deal_won: "Deal won", deal_lost: "Deal lost",
+    manual_link: "Manual link",
+  };
 
   return (
     <Card className="border-border/50" data-testid="account-campaign-attribution-panel">
@@ -504,14 +522,15 @@ function AccountCampaignAttributionPanel({ accountId }: { accountId: number }) {
           )}
         </div>
       </CardHeader>
-      <CardContent className="px-4 pb-4 pt-0 space-y-3">
+      <CardContent className="px-4 pb-4 pt-0 space-y-4">
         {/* Campaign touches */}
         {campaigns.length > 0 && (
           <div>
             <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Campaigns that touched this account</div>
             <div className="space-y-1.5">
               {campaigns.slice(0, 5).map((c: any) => (
-                <div key={c.campaign_id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-muted/20 border border-border/30">
+                <div key={c.campaign_id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-muted/20 border border-border/30"
+                     data-testid={`account-attribution-campaign-${c.campaign_id}`}>
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-medium text-foreground truncate">{c.campaign_name}</span>
                     <Badge variant="outline" className="text-[10px] h-4 px-1 shrink-0 text-muted-foreground">
@@ -532,30 +551,86 @@ function AccountCampaignAttributionPanel({ accountId }: { accountId: number }) {
           </div>
         )}
 
-        {/* Attribution events */}
-        {events.length > 0 && (
-          <div>
-            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Attribution events</div>
+        {/* Linked opportunities and proposals with confidence badges */}
+        {oppEvents.length > 0 && (
+          <div data-testid="account-attribution-opp-proposals">
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Linked Opportunities &amp; Proposals</div>
             <div className="space-y-1">
-              {events.slice(0, 8).map((e: any) => (
-                <div key={e.id} className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span className="text-foreground">{
-                    e.event_type === "task_created" ? "Task created" :
-                    e.event_type === "reply_task_created" ? "Reply → Task" :
-                    e.event_type === "meeting_booked" ? "Meeting booked" :
-                    e.event_type === "opportunity_influenced" ? "Opportunity influenced" :
-                    e.event_type === "deal_won" ? "Deal won" :
-                    e.event_type === "deal_lost" ? "Deal lost" :
-                    e.event_type === "manual_link" ? "Manual link" :
-                    e.event_type
-                  }</span>
-                  <div className="flex items-center gap-2">
-                    {e.campaign_name && <span className="text-[10px] truncate max-w-[120px]">{e.campaign_name}</span>}
-                    <span className={`text-[10px] px-1 rounded ${
-                      e.confidence === "high" ? "bg-emerald-500/15 text-emerald-400" :
+              {oppEvents.slice(0, 6).map((e: any) => (
+                <div key={e.id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-muted/10 border border-border/20"
+                     data-testid={`account-attribution-opp-event-${e.id}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-foreground font-medium">{EVENT_LABEL[e.event_type] ?? e.event_type}</span>
+                    {e.campaign_name && (
+                      <span className="text-[10px] text-muted-foreground truncate max-w-[100px]">{e.campaign_name}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {e.pipeline_value != null && Number(e.pipeline_value) > 0 && (
+                      <span className="text-[10px] text-cyan-400 font-medium">
+                        ${(Number(e.pipeline_value) / 1000).toFixed(0)}K
+                      </span>
+                    )}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      e.confidence === "high"   ? "bg-emerald-500/15 text-emerald-400" :
                       e.confidence === "medium" ? "bg-amber-500/15 text-amber-400" :
-                      "bg-muted/30 text-muted-foreground"
-                    }`}>{e.confidence}</span>
+                                                  "bg-muted/30 text-muted-foreground"
+                    }`} data-testid="attribution-confidence-badge">{e.confidence}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {e.occurred_at ? new Date(e.occurred_at).toLocaleDateString() : "—"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Engagement timeline — opens / clicks / replies from campaign events */}
+        {engagements.length > 0 && (
+          <div data-testid="account-attribution-engagement-timeline">
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Engagement Timeline</div>
+            <div className="space-y-1">
+              {engagements.slice(0, 8).map((eng: any, idx: number) => (
+                <div key={idx} className="flex items-center justify-between text-xs text-muted-foreground"
+                     data-testid={`account-attribution-engagement-${idx}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`text-[10px] w-2 h-2 rounded-full shrink-0 ${
+                      eng.event_type === "replied"   ? "bg-emerald-400" :
+                      eng.event_type === "clicked"   ? "bg-cyan-400" :
+                      eng.event_type === "opened"    ? "bg-blue-400" :
+                      eng.event_type === "demo_booked" ? "bg-violet-400" :
+                                                        "bg-muted-foreground/40"
+                    }`} />
+                    <span className="text-foreground">{ENGAGEMENT_LABEL[eng.event_type] ?? eng.event_type}</span>
+                    {eng.campaign_name && (
+                      <span className="text-[10px] truncate max-w-[100px]">{eng.campaign_name}</span>
+                    )}
+                  </div>
+                  <span className="text-[10px] shrink-0">
+                    {eng.created_at ? new Date(eng.created_at).toLocaleDateString() : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Attribution events (non-opp) */}
+        {events.filter((e: any) => !oppEvents.includes(e)).length > 0 && (
+          <div>
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">CRM Attribution Events</div>
+            <div className="space-y-1">
+              {events.filter((e: any) => !oppEvents.includes(e)).slice(0, 5).map((e: any) => (
+                <div key={e.id} className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="text-foreground">{EVENT_LABEL[e.event_type] ?? e.event_type}</span>
+                  <div className="flex items-center gap-2">
+                    {e.campaign_name && <span className="text-[10px] truncate max-w-[100px]">{e.campaign_name}</span>}
+                    <span className={`text-[10px] px-1 rounded ${
+                      e.confidence === "high"   ? "bg-emerald-500/15 text-emerald-400" :
+                      e.confidence === "medium" ? "bg-amber-500/15 text-amber-400" :
+                                                  "bg-muted/30 text-muted-foreground"
+                    }`} data-testid="attribution-confidence-badge">{e.confidence}</span>
                     <span>{e.occurred_at ? new Date(e.occurred_at).toLocaleDateString() : "—"}</span>
                   </div>
                 </div>

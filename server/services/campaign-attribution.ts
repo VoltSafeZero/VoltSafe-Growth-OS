@@ -335,8 +335,10 @@ export async function getMarketingAttributionDashboard(filters: {
   limit?:      number;
 } = {}): Promise<any[]> {
   const limit = Math.min(filters.limit ?? 50, 200);
-  const whereExtra = filters.campaignId
-    ? `AND cae.campaign_id = ${Number(filters.campaignId)}`
+  // campaignId filters the campaigns table directly (WHERE mc.id = …), not the JOIN.
+  // Applying it only to the JOIN ON clause returned all campaigns with zero events — wrong.
+  const campaignWhere = filters.campaignId
+    ? `AND mc.id = ${Number(filters.campaignId)}`
     : "";
   const statusWhere = filters.status ? `AND mc.status = '${filters.status.replace(/'/g, "''")}'` : "";
 
@@ -380,8 +382,8 @@ export async function getMarketingAttributionDashboard(filters: {
         ELSE NULL
       END AS top_confidence
     FROM marketing_campaigns mc
-    LEFT JOIN campaign_attribution_events cae ON cae.campaign_id = mc.id ${whereExtra}
-    WHERE 1=1 ${statusWhere}
+    LEFT JOIN campaign_attribution_events cae ON cae.campaign_id = mc.id
+    WHERE 1=1 ${statusWhere} ${campaignWhere}
     GROUP BY mc.id, mc.campaign_name, mc.campaign_type, mc.status, mc.sent_count, mc.replied_count
     ORDER BY total_attribution_events DESC, mc.updated_at DESC
     LIMIT ${limit}
