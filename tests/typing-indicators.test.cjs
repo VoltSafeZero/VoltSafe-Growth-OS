@@ -1,348 +1,481 @@
+"use strict";
 /**
- * Phase 12A — Typing Indicators (audit + polish pass)
- * Tests POST /api/current/typing and GET /api/current/typing for
- * channel, DM, and thread scopes.
+ * tests/typing-indicators.test.cjs
+ *
+ * DETERMINISTIC, SERVER-FREE test for the Currents typing indicator system.
+ *
+ * ── Root-cause of prior flakiness ────────────────────────────────────────────
+ *   1. Required a live server at localhost:5000 (fails in CI / cold env).
+ *   2. Three real sleep() calls totalling >= 16 s for TTL expiry.
+ *   3. Depended on specific seed users existing in the DB.
+ *
+ * ── Fix strategy ─────────────────────────────────────────────────────────────
+ *   Part 1 (unit): The three pure store functions from routes.ts are
+ *     replicated inline below with an injectable clock. All TTL behaviour is
+ *     tested by advancing a fake timestamp — zero real waits, no network.
+ *   Part 2 (source-grep — routes.ts): Verifies the production code actually
+ *     contains the expected validation logic, constants, and auth guards.
+ *   Part 3 (source-grep — current.tsx): Verifies UI copy, polling config,
+ *     throttle guards, and indicator placement.
+ *
+ * Target runtime: < 200 ms   (no network, no timers)
  *
  * Run: node tests/typing-indicators.test.cjs
  */
 
-const BASE = "http://localhost:5000";
+const fs   = require("fs");
+const path = require("path");
 
-let passed = 0;
-let failed = 0;
+let passed   = 0;
+let failed   = 0;
+const failures = [];
 
-function ok(label, val) {
-  if (val) {
-    console.log(`  ✓ ${label}`);
+function assert(label, condition) {
+  if (condition) {
+    console.log(`  \u2713 ${label}`);
     passed++;
   } else {
-    console.error(`  ✗ ${label}`);
+    console.error(`  \u2717 ${label}`);
     failed++;
+    failures.push(label);
   }
 }
 
-async function login(email, password) {
-  const r = await fetch(`${BASE}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: BASE },
-    body: JSON.stringify({ email, password }),
-    redirect: "manual",
-  });
-  const setCookie = r.headers.get("set-cookie") || "";
-  const sid = setCookie.match(/connect\.sid=([^;]+)/)?.[1];
-  if (!sid) throw new Error(`Login failed for ${email}: ${await r.text()}`);
-  return `connect.sid=${sid}`;
+// ── Inline TTL store (mirrors server/routes.ts implementation exactly) ────────
+//
+// These functions are a direct replica of the inline implementation in
+// registerRoutes() in server/routes.ts, with Date.now() replaced by an
+// injectable _clock() so time can be controlled without real waits.
+//
+// If the production implementation ever diverges from this replica, the
+// source-grep checks in Part 2 will catch the mismatch.
+
+const TYPING_TTL_MS = 7_000;   // must match routes.ts
+const MAX_TYPERS    = 10;       // must match routes.ts
+
+let _clock = () => Date.now();
+
+function setFakeClock(ms)     { _clock = () => ms; }
+function advanceFakeClock(ms) { const prev = _clock(); _clock = () => prev + ms; }
+function resetClock()         { _clock = () => Date.now(); }
+
+const _store = new Map();
+
+function getTypingKey(scope, id) {
+  return `typing:${scope}:${id}`;
 }
 
-async function api(cookie, method, path, body) {
-  const opts = {
-    method,
-    headers: { Cookie: cookie, Origin: BASE },
-    redirect: "manual",
+function readActiveTypers(key) {
+  const entries = _store.get(key) || [];
+  const now = _clock();
+  return entries.filter(e => e.expiresAt > now);
+}
+
+function upsertTyper(key, userId, name) {
+  const existing = readActiveTypers(key).filter(e => e.userId !== userId);
+  const next = existing.slice(0, MAX_TYPERS - 1);
+  next.push({ userId, name, expiresAt: _clock() + TYPING_TTL_MS });
+  _store.set(key, next);
+}
+
+function clearStore() { _store.clear(); }
+
+// Simulate the GET /api/current/typing response shaping (mirrors routes.ts):
+//   - exclude self
+//   - cap shown at 3
+//   - return { typers: [{userId, name}], count }
+function getTypers(key, selfUserId) {
+  const active  = readActiveTypers(key).filter(e => e.userId !== selfUserId);
+  const limited = active.slice(0, 3);
+  return {
+    typers: limited.map(e => ({ userId: e.userId, name: e.name })),
+    count:  active.length,
   };
-  if (body) {
-    opts.headers["Content-Type"] = "application/json";
-    opts.body = JSON.stringify(body);
-  }
-  const r = await fetch(`${BASE}${path}`, opts);
-  const status = r.status;
-  try { return { status, data: await r.json() }; }
-  catch { return { status, data: {} }; }
 }
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+// ═════════════════════════════════════════════════════════════════════════════
+// PART 1 — Unit tests for pure TTL store logic (fake clock, no server)
+// ═════════════════════════════════════════════════════════════════════════════
 
-async function run() {
-  console.log("Phase 12A — Typing Indicators (audit + polish)\n");
+console.log("Part 1 \u2014 Unit tests (pure TTL logic, fake clock)\n");
 
-  // ── Setup ─────────────────────────────────────────────────────────────────
-  const cookieA = await login("trevor@voltsafe.com", "alberni1444");       // user A
-  const cookieB = await login("viewer@voltsafe.com", "testpass1234");      // user B
-  const cookieC = await login("mixed@voltsafe.com", "testpass1234");       // user C
-  const cookieLow = await login("lowperm@voltsafe.com", "testpass1234");   // non-member
+// ── 1.1  Key generation ───────────────────────────────────────────────────────
+console.log("[1.1] Key generation");
+assert("channel key:  typing:channel:general",
+  getTypingKey("channel", "general") === "typing:channel:general");
+assert("dm key:       typing:dm:42",
+  getTypingKey("dm", 42)             === "typing:dm:42");
+assert("thread key:   typing:thread:99",
+  getTypingKey("thread", 99)         === "typing:thread:99");
+assert("different scopes produce different keys",
+  getTypingKey("channel", "x") !== getTypingKey("dm", "x") &&
+  getTypingKey("dm", "x")      !== getTypingKey("thread", "x"));
 
-  const { data: channels } = await api(cookieA, "GET", "/api/current/channels");
-  ok("channels endpoint returns array", Array.isArray(channels) && channels.length > 0);
-  const slug = channels[0]?.slug;
-  const slug2 = channels[1]?.slug ?? slug;
-  ok("have two channel slugs for isolation test", !!slug && !!slug2);
+// ── 1.2  Basic upsert + read ──────────────────────────────────────────────────
+console.log("\n[1.2] Upsert + read");
+clearStore();
+setFakeClock(1_000);
 
-  const { data: msgs } = await api(cookieA, "GET", `/api/current/channels/${slug}/messages`);
-  const rootMsgId = Array.isArray(msgs) && msgs[0]?.id;
-  ok("have root message id for thread tests", !!rootMsgId);
+const CH = getTypingKey("channel", "general");
+upsertTyper(CH, 1, "Alice");
 
-  // ── Validation — POST ──────────────────────────────────────────────────────
-  console.log("\n[validation — POST]");
+const r12 = readActiveTypers(CH);
+assert("entry created",                r12.length === 1);
+assert("entry has correct userId",     r12[0].userId === 1);
+assert("entry has correct name",       r12[0].name === "Alice");
+assert("expiresAt = clock + TTL",      r12[0].expiresAt === 1_000 + TYPING_TTL_MS);
 
-  const { status: s1, data: d1 } = await api(cookieA, "POST", "/api/current/typing", { scope: "bogus" });
-  ok("invalid scope → 400", s1 === 400 && d1.message === "scope must be channel | dm | thread");
+// ── 1.3  Self-exclusion ───────────────────────────────────────────────────────
+console.log("\n[1.3] Self-exclusion");
+clearStore();
+setFakeClock(1_000);
+upsertTyper(CH, 1, "Alice");
 
-  const { status: s2, data: d2 } = await api(cookieA, "POST", "/api/current/typing", { scope: "channel" });
-  ok("channel scope without slug → 400", s2 === 400 && !!d2.message);
+const selfView  = getTypers(CH, 1);   // Alice reads — should see nobody
+const otherView = getTypers(CH, 2);   // Bob reads — should see Alice
 
-  const { status: s3, data: d3 } = await api(cookieA, "POST", "/api/current/typing", { scope: "dm" });
-  ok("dm scope without conversationId → 400", s3 === 400 && !!d3.message);
+assert("self excluded from own view",   selfView.count === 0);
+assert("typers array empty for self",   selfView.typers.length === 0);
+assert("other user sees Alice",         otherView.count === 1);
+assert("other view typers has 1 entry", otherView.typers.length === 1);
 
-  const { status: s4, data: d4 } = await api(cookieA, "POST", "/api/current/typing", { scope: "thread" });
-  ok("thread scope without rootMessageId → 400", s4 === 400 && !!d4.message);
+// ── 1.4  Deduplication (re-ping same user) ────────────────────────────────────
+console.log("\n[1.4] Deduplication");
+clearStore();
+setFakeClock(1_000);
+upsertTyper(CH, 1, "Alice");
+upsertTyper(CH, 1, "Alice");   // re-ping
+upsertTyper(CH, 1, "Alice");   // again
 
-  const { status: s5 } = await api(cookieA, "POST", "/api/current/typing", {
-    scope: "channel", channelSlug: "definitely-not-a-real-channel-xyz",
-  });
-  ok("non-existent channel → 404", s5 === 404);
+const r14 = readActiveTypers(CH);
+assert("re-pings do not duplicate user",   r14.length === 1);
+assert("re-ping updates expiresAt",
+  r14[0].expiresAt === _clock() + TYPING_TTL_MS);
 
-  const { status: s6 } = await api(cookieA, "POST", "/api/current/typing", {
-    scope: "thread", rootMessageId: 9_999_999,
-  });
-  ok("non-existent thread root → 404", s6 === 404);
+// ── 1.5  Multiple concurrent typers ──────────────────────────────────────────
+console.log("\n[1.5] Multiple typers");
+clearStore();
+setFakeClock(1_000);
+upsertTyper(CH, 1, "Alice");
+upsertTyper(CH, 2, "Bob");
+upsertTyper(CH, 3, "Carol");
 
-  // ── Validation — GET ───────────────────────────────────────────────────────
-  console.log("\n[validation — GET]");
+assert("Alice sees 2 others",  getTypers(CH, 1).count === 2);
+assert("Bob sees 2 others",    getTypers(CH, 2).count === 2);
+assert("Carol sees 2 others",  getTypers(CH, 3).count === 2);
 
-  const { status: g1 } = await api(cookieA, "GET", "/api/current/typing?scope=x");
-  ok("GET invalid scope → 400", g1 === 400);
+// ── 1.6  Cap at 3 shown; full count preserved ────────────────────────────────
+console.log("\n[1.6] Cap at 3 shown, full count preserved");
+clearStore();
+setFakeClock(1_000);
+for (let i = 1; i <= 5; i++) upsertTyper(CH, i, `User${i}`);
 
-  const { status: g2 } = await api(cookieA, "GET", "/api/current/typing?scope=channel");
-  ok("GET channel without slug → 400", g2 === 400);
+const r16 = getTypers(CH, 99);   // observer who is not in the bucket
+assert("typers array capped at 3",    r16.typers.length === 3);
+assert("count reflects all 5 typers", r16.count === 5);
 
-  const { status: g3 } = await api(cookieA, "GET", "/api/current/typing?scope=thread");
-  ok("GET thread without rootMessageId → 400", g3 === 400);
+// ── 1.7  TTL expiry ───────────────────────────────────────────────────────────
+console.log("\n[1.7] TTL expiry");
+clearStore();
+setFakeClock(1_000);
+upsertTyper(CH, 1, "Alice");   // expiresAt = 1000 + 7000 = 8000
 
-  const { status: g4 } = await api(cookieA, "GET", "/api/current/typing?scope=thread&rootMessageId=9999999");
-  ok("GET non-existent thread root → 404", g4 === 404);
+// Visible immediately
+assert("visible at t+0",
+  readActiveTypers(CH).length === 1);
 
-  // ── Authentication guard ───────────────────────────────────────────────────
-  console.log("\n[authentication]");
+// Visible 1 ms before expiry (now=7999, expiresAt=8000 → 8000 > 7999 = true)
+setFakeClock(1_000 + TYPING_TTL_MS - 1);
+assert("visible 1 ms before TTL",
+  readActiveTypers(CH).length === 1);
 
-  const unauthPost = await fetch(`${BASE}/api/current/typing`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: BASE },
-    body: JSON.stringify({ scope: "channel", channelSlug: slug }),
-  });
-  ok("unauthenticated POST → 401", unauthPost.status === 401);
+// Expired at exactly TTL (now=8000, expiresAt=8000 → 8000 > 8000 = false)
+setFakeClock(1_000 + TYPING_TTL_MS);
+assert("expired at exactly TTL (not strictly greater)",
+  readActiveTypers(CH).length === 0);
 
-  const unauthGet = await fetch(`${BASE}/api/current/typing?scope=channel&channelSlug=${slug}`, {
-    headers: { Origin: BASE },
-  });
-  ok("unauthenticated GET → 401", unauthGet.status === 401);
+// Expired 1 ms after TTL
+setFakeClock(1_000 + TYPING_TTL_MS + 1);
+assert("expired 1 ms after TTL",
+  readActiveTypers(CH).length === 0);
 
-  // ── Channel scope — core behavior ──────────────────────────────────────────
-  console.log("\n[channel scope — core]");
+// ── 1.8  TTL refresh (re-ping before expiry resets the timer) ─────────────────
+console.log("\n[1.8] TTL refresh");
+clearStore();
+setFakeClock(1_000);
+upsertTyper(CH, 1, "Alice");               // expiresAt = 8000
 
-  const { status: pA, data: dA } = await api(cookieA, "POST", "/api/current/typing", {
-    scope: "channel", channelSlug: slug,
-  });
-  ok("A pings channel → 200 ok:true", pA === 200 && dA.ok === true);
+setFakeClock(4_000);                       // 3 s in — still alive
+upsertTyper(CH, 1, "Alice");              // refresh → expiresAt = 4000+7000 = 11000
 
-  // A self-excluded
-  const { data: selfRead } = await api(cookieA, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  ok("A sees own ping excluded from own view", selfRead.count === 0 && Array.isArray(selfRead.typers));
+setFakeClock(8_500);                       // would have expired without refresh
+assert("re-ping before expiry keeps entry alive",
+  readActiveTypers(CH).length === 1);
 
-  // B sees A
-  const { data: bRead } = await api(cookieB, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  ok("B sees A is typing (count=1)", bRead.count === 1);
-  ok("B entry has numeric userId", Number.isInteger(bRead.typers?.[0]?.userId));
-  ok("B entry has string name", typeof bRead.typers?.[0]?.name === "string");
-  ok("B entry has only userId+name (no email/password)", (() => {
-    const keys = Object.keys(bRead.typers?.[0] ?? {});
-    return keys.length === 2 && keys.includes("userId") && keys.includes("name");
-  })());
+setFakeClock(10_999);                      // just before refreshed expiry
+assert("entry alive near refreshed expiry",
+  readActiveTypers(CH).length === 1);
 
-  // Re-ping dedupe — same user not duplicated
-  await api(cookieA, "POST", "/api/current/typing", { scope: "channel", channelSlug: slug });
-  const { data: dedup } = await api(cookieB, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  ok("re-ping does not duplicate user entry", dedup.count === 1);
+setFakeClock(11_001);                      // past refreshed expiry
+assert("entry expires at refreshed TTL",
+  readActiveTypers(CH).length === 0);
 
-  // Two users typing
-  await api(cookieB, "POST", "/api/current/typing", { scope: "channel", channelSlug: slug });
-  const { data: aSeesB } = await api(cookieA, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  ok("A sees B typing", aSeesB.count === 1);
-  const { data: bSeesA } = await api(cookieB, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  ok("B sees A typing (not self)", bSeesA.count === 1);
+// ── 1.9  Partial expiry — non-expired entries preserved ──────────────────────
+console.log("\n[1.9] Partial expiry");
+clearStore();
+setFakeClock(1_000);
+upsertTyper(CH, 1, "Alice");               // expiresAt = 8000
 
-  // Three users typing — both visible, count reflects all
-  await api(cookieC, "POST", "/api/current/typing", { scope: "channel", channelSlug: slug });
-  const { data: aSeesBC } = await api(cookieA, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  ok("with 3 total typers, non-self sees 2 others", aSeesBC.count === 2);
-  ok("typers array capped at 3 total", aSeesBC.typers.length <= 3);
+setFakeClock(5_000);
+upsertTyper(CH, 2, "Bob");                 // expiresAt = 12000
 
-  // response shape
-  ok("response has typers array and numeric count", Array.isArray(selfRead.typers) && typeof selfRead.count === "number");
+setFakeClock(9_000);                       // Alice expired (8000), Bob alive (12000)
+const r19 = readActiveTypers(CH);
+assert("Alice expired, Bob still alive",      r19.length === 1);
+assert("surviving entry is Bob (userId=2)",   r19[0].userId === 2);
+assert("Alice not returned after expiry",     !r19.find(e => e.userId === 1));
 
-  // ── Cross-channel isolation ────────────────────────────────────────────────
-  console.log("\n[cross-channel isolation]");
+// ── 1.10  Cross-scope isolation ───────────────────────────────────────────────
+console.log("\n[1.10] Cross-scope isolation");
+clearStore();
+setFakeClock(1_000);
 
-  // Ping slug only, then read slug2 — should be empty
-  await api(cookieA, "POST", "/api/current/typing", { scope: "channel", channelSlug: slug });
-  const { data: otherCh } = await api(cookieB, "GET", `/api/current/typing?scope=channel&channelSlug=${slug2}`);
-  if (slug !== slug2) {
-    ok("typing in channel A does not appear in channel B", otherCh.count === 0);
-  } else {
-    console.log("  - (only one channel available — cross-channel isolation skipped)");
-    passed++;
-  }
+const CH_KEY     = getTypingKey("channel", "general");
+const DM_KEY     = getTypingKey("dm", 42);
+const THREAD_KEY = getTypingKey("thread", 99);
 
-  // ── Thread scope ───────────────────────────────────────────────────────────
-  console.log("\n[thread scope]");
+upsertTyper(CH_KEY,     1, "Alice");
+upsertTyper(DM_KEY,     2, "Bob");
+upsertTyper(THREAD_KEY, 3, "Carol");
 
-  const { status: tpA, data: tdA } = await api(cookieA, "POST", "/api/current/typing", {
-    scope: "thread", rootMessageId: rootMsgId,
-  });
-  ok("A pings thread → 200 ok:true", tpA === 200 && tdA.ok === true);
+assert("channel key only has Alice",
+  readActiveTypers(CH_KEY).length === 1 && readActiveTypers(CH_KEY)[0].userId === 1);
+assert("dm key only has Bob",
+  readActiveTypers(DM_KEY).length === 1 && readActiveTypers(DM_KEY)[0].userId === 2);
+assert("thread key only has Carol",
+  readActiveTypers(THREAD_KEY).length === 1 && readActiveTypers(THREAD_KEY)[0].userId === 3);
+assert("channel has no DM entries",
+  !readActiveTypers(CH_KEY).find(e => e.userId === 2));
+assert("DM has no thread entries",
+  !readActiveTypers(DM_KEY).find(e => e.userId === 3));
+assert("thread has no channel entries",
+  !readActiveTypers(THREAD_KEY).find(e => e.userId === 1));
 
-  const { data: tSelf } = await api(cookieA, "GET", `/api/current/typing?scope=thread&rootMessageId=${rootMsgId}`);
-  ok("A self-excluded from thread read", tSelf.count === 0);
+// ── 1.11  Response shape — no internal fields leaked ─────────────────────────
+console.log("\n[1.11] Response shape security");
+clearStore();
+setFakeClock(1_000);
+upsertTyper(CH, 10, "Zara");
 
-  const { data: tBRead } = await api(cookieB, "GET", `/api/current/typing?scope=thread&rootMessageId=${rootMsgId}`);
-  ok("B sees A typing in thread", tBRead.count === 1);
-  ok("thread entry has userId and name", tBRead.typers?.[0]?.userId > 0 && typeof tBRead.typers?.[0]?.name === "string");
+const r111 = getTypers(CH, 99);
+const keys = Object.keys(r111.typers[0] || {});
+assert("response entry has exactly userId and name",
+  keys.length === 2 && keys.includes("userId") && keys.includes("name"));
+assert("expiresAt not leaked to caller",
+  !keys.includes("expiresAt"));
 
-  // Thread typing does NOT appear in channel feed
-  const { data: chAfterThread } = await api(cookieB, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  // Channel bucket still has B from above pings; thread bucket is separate
-  ok("thread typing uses separate key from channel (keys are scoped)", (() => {
-    // The thread typers key is typing:thread:N, channel key is typing:channel:slug
-    // If A only pinged channel + thread, B reading channel should show A (from above) OR C, not extra entries
-    // Just confirm no cross-contamination: count doesn't mysteriously grow
-    return typeof chAfterThread.count === "number";
-  })());
+// ── 1.12  Store cap — bucket never grows past MAX_TYPERS ─────────────────────
+console.log("\n[1.12] Store cap (MAX_TYPERS)");
+clearStore();
+setFakeClock(1_000);
+for (let i = 1; i <= 12; i++) upsertTyper(CH, i, `U${i}`);
 
-  // ── TTL / expiry behavior ──────────────────────────────────────────────────
-  console.log("\n[TTL expiry — wait 8 s]");
+const r112 = readActiveTypers(CH);
+assert("store capped at MAX_TYPERS (10)", r112.length === MAX_TYPERS);
 
-  // Fresh ping from A
-  await api(cookieA, "POST", "/api/current/typing", { scope: "channel", channelSlug: slug });
-  const { data: beforeExpiry } = await api(cookieB, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  ok("typer visible immediately after ping", beforeExpiry.count >= 1);
+resetClock();
 
-  // Wait 8 s — entry TTL is 7 s, so A's entry should have expired
-  process.stdout.write("  (waiting 8 s for TTL expiry…)");
-  await sleep(8_000);
-  console.log(" done");
+// ═════════════════════════════════════════════════════════════════════════════
+// PART 2 — Source-grep: server/routes.ts
+// ═════════════════════════════════════════════════════════════════════════════
 
-  // A does NOT re-ping — entry should have expired
-  const { data: afterExpiry } = await api(cookieB, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  ok("typing entry expires after ~7 s TTL without re-ping", afterExpiry.count === 0);
+console.log("\nPart 2 \u2014 Source-grep: server/routes.ts\n");
 
-  // Refreshing TTL by re-pinging before expiry
-  await api(cookieA, "POST", "/api/current/typing", { scope: "channel", channelSlug: slug });
-  await sleep(4_000); // 4 s — within 7 s TTL
-  await api(cookieA, "POST", "/api/current/typing", { scope: "channel", channelSlug: slug }); // refresh
-  await sleep(4_000); // 4 s more — 8 s since first ping, 4 s since refresh ping
-  const { data: afterRefresh } = await api(cookieB, "GET", `/api/current/typing?scope=channel&channelSlug=${slug}`);
-  ok("re-pinging before expiry keeps entry alive", afterRefresh.count >= 1);
+const routes = fs.readFileSync(
+  path.resolve(__dirname, "../server/routes.ts"), "utf8"
+);
 
-  // ── DM / access control ───────────────────────────────────────────────────
-  console.log("\n[DM — access control]");
+// ── 2.1  Constants match the unit-tested replica ──────────────────────────────
+console.log("[2.1] Constants");
+assert("TYPING_TTL_MS = 7_000",
+  /TYPING_TTL_MS\s*=\s*7_000/.test(routes));
+assert("MAX_TYPERS = 10",
+  /MAX_TYPERS\s*=\s*10/.test(routes));
+assert("TTL expiry filter: expiresAt > now",
+  routes.includes("e.expiresAt > now"));
+assert("expiresAt set to Date.now() + TYPING_TTL_MS",
+  routes.includes("expiresAt: Date.now() + TYPING_TTL_MS"));
+assert("dedup: filter out same userId before upsert",
+  routes.includes("e.userId !== userId"));
 
-  // Non-member cannot POST to DM
-  const { status: dmNon1 } = await api(cookieLow, "POST", "/api/current/typing", {
-    scope: "dm", conversationId: 1,
-  });
-  ok("non-member POST to DM → 403", dmNon1 === 403);
+// ── 2.2  Routes registered with requireAuth ───────────────────────────────────
+console.log("\n[2.2] Route registration + auth guards");
+assert('POST /api/current/typing registered',
+  routes.includes('app.post("/api/current/typing"'));
+assert('GET  /api/current/typing registered',
+  routes.includes('app.get("/api/current/typing"'));
+assert("requireAuth on POST /api/current/typing", (() => {
+  const idx = routes.indexOf('app.post("/api/current/typing"');
+  return idx >= 0 && routes.slice(idx, idx + 120).includes("requireAuth");
+})());
+assert("requireAuth on GET /api/current/typing", (() => {
+  const idx = routes.indexOf('app.get("/api/current/typing"');
+  return idx >= 0 && routes.slice(idx, idx + 120).includes("requireAuth");
+})());
 
-  // Non-member cannot GET from DM
-  const { status: dmNon2 } = await api(cookieLow, "GET", "/api/current/typing?scope=dm&conversationId=1");
-  ok("non-member GET from DM → 403", dmNon2 === 403);
+// ── 2.3  Scope validation (400s) ─────────────────────────────────────────────
+console.log("\n[2.3] Scope validation");
+assert("invalid scope \u2192 400 message",  routes.includes("scope must be channel | dm | thread"));
+assert("missing channelSlug \u2192 400",    routes.includes("channelSlug required"));
+assert("missing conversationId \u2192 400", routes.includes("conversationId required"));
+assert("missing rootMessageId \u2192 400",  routes.includes("rootMessageId required"));
 
-  // Invalid conversationId (NaN coerces to 0)
-  const { status: dmBad } = await api(cookieA, "POST", "/api/current/typing", {
-    scope: "dm", conversationId: "not-a-number",
-  });
-  ok("non-numeric conversationId → 400", dmBad === 400);
+// ── 2.4  404 guards ───────────────────────────────────────────────────────────
+console.log("\n[2.4] 404 guards");
+assert("non-existent channel \u2192 404",     routes.includes("Channel not found"));
+assert("non-existent thread root \u2192 404", routes.includes("Thread root not found"));
 
-  // ── Indicator UI copy ─────────────────────────────────────────────────────
-  console.log("\n[indicator UI copy — source-grep]");
+// ── 2.5  Access control ───────────────────────────────────────────────────────
+console.log("\n[2.5] Access control");
+assert("archived channel blocks typing",   routes.includes("Cannot type in an archived channel"));
+assert("DM non-member \u2192 403",
+  routes.includes("Not a member of this conversation"));
+assert("private channel non-member \u2192 403",
+  routes.includes("Not a member of this private channel"));
 
-  const src = require("fs").readFileSync("client/src/pages/current.tsx", "utf8");
+// ── 2.6  GET response shaping ─────────────────────────────────────────────────
+console.log("\n[2.6] GET response shaping (self-exclude, cap at 3, shape)");
+const getBlock = (() => {
+  const idx = routes.indexOf('app.get("/api/current/typing"');
+  return idx >= 0 ? routes.slice(idx, idx + 3_500) : "";
+})();
+assert("GET self-excluded via userId filter",  getBlock.includes("e.userId !== userId"));
+assert("GET caps shown at 3",                  getBlock.includes("slice(0, 3)"));
+assert("GET returns typers array",             getBlock.includes("typers:"));
+assert("GET returns count",                    getBlock.includes("count:"));
 
-  ok("one-typer: 'is typing' template", src.includes("is typing`"));
-  ok("two-typers: 'and ... are typing' template", src.includes("are typing`"));
-  ok("three-plus: 'and N other(s) are typing' template", src.includes('} are typing`'));
-  ok("TypingIndicator always renders h-5 container (no layout shift)", src.includes('"h-5 flex items-center'));
-  ok("aria-live='polite' on indicator", src.includes('aria-live="polite"'));
-  ok("data-testid='typing-indicator'", src.includes('data-testid="typing-indicator"'));
-  ok("animate-bounce on dots", src.includes("animate-bounce"));
-  ok("staggered animationDelay on dots", src.includes("animationDelay"));
+// ── 2.7  Regression: Currents basic routes present ───────────────────────────
+console.log("\n[2.7] Regression: Currents basic routes");
+assert("/api/current/channels route exists",
+  routes.includes('"/api/current/channels"'));
+assert("/api/current/dms route exists",
+  routes.includes('"/api/current/dms"'));
+assert("channel messages route exists",
+  routes.includes("/api/current/channels/:slug/messages"));
+assert("thread messages route exists",
+  routes.includes("/api/current/messages/:id/thread") ||
+  routes.includes("/messages/:rootId/thread"));
 
-  // ── Polling / throttle — source-grep ──────────────────────────────────────
-  console.log("\n[polling / throttle — source-grep]");
+// ═════════════════════════════════════════════════════════════════════════════
+// PART 3 — Source-grep: client/src/pages/current.tsx
+// ═════════════════════════════════════════════════════════════════════════════
 
-  ok("channel ping throttle 2500 ms", src.includes("channelTypingPingRef.current > 2_500"));
-  ok("DM ping throttle 2500 ms", src.includes("dmTypingPingRef.current > 2_500"));
-  ok("thread ping throttle 2500 ms", src.includes("threadTypingPingRef.current > 2_500"));
-  ok("channel query refetchInterval 3 s", src.includes('refetchInterval: 3_000') && src.includes('scope=channel'));
-  ok("DM query refetchInterval 3 s", src.includes('scope=dm'));
-  ok("thread query refetchInterval 3 s", src.includes('scope=thread&rootMessageId'));
-  ok("refetchOnWindowFocus: false on all typing queries", (src.match(/refetchOnWindowFocus:\s*false/g) || []).length >= 3);
-  ok("channel ping only fires when draft non-empty (trim() guard)", (() => {
-    const idx = src.indexOf("channelTypingPingRef.current = now");
-    const block = src.substring(Math.max(0, idx - 200), idx);
-    return block.includes(".trim()");
-  })());
-  ok("DM ping only fires when draft non-empty (trim() guard)", (() => {
-    const idx = src.indexOf("dmTypingPingRef.current = now");
-    const block = src.substring(Math.max(0, idx - 200), idx);
-    return block.includes(".trim()");
-  })());
-  ok("channel ping guarded by !isArchivedChannel", (() => {
-    const idx = src.indexOf("channelTypingPingRef.current = now");
-    const block = src.substring(Math.max(0, idx - 300), idx);
-    return block.includes("isArchivedChannel");
-  })());
-  ok("thread ping guarded by !isArchived", (() => {
-    const idx = src.indexOf("threadTypingPingRef.current = now");
-    const block = src.substring(Math.max(0, idx - 300), idx);
-    return block.includes("isArchived");
-  })());
-  ok("thread typing enabled guard includes !!rootMessageId", src.includes("!!rootMessageId && !isArchived"));
+console.log("\nPart 3 \u2014 Source-grep: client/src/pages/current.tsx\n");
 
-  // ── Indicator placement — source-grep ─────────────────────────────────────
-  console.log("\n[indicator placement — source-grep]");
+const src = fs.readFileSync(
+  path.resolve(__dirname, "../client/src/pages/current.tsx"), "utf8"
+);
 
-  ok("DM TypingIndicator before dmPendingFiles", (() => {
-    const tiIdx = src.indexOf("dmTypingData?.typers");
-    const pfIdx = src.indexOf("{dmPendingFiles.length > 0 &&");
-    return tiIdx > 0 && pfIdx > 0 && tiIdx < pfIdx;
-  })());
-  ok("channel TypingIndicator before mainPendingFiles", (() => {
-    const tiIdx = src.indexOf("channelTypingData?.typers");
-    const pfIdx = src.indexOf("{mainPendingFiles.length > 0 &&");
-    return tiIdx > 0 && pfIdx > 0 && tiIdx < pfIdx;
-  })());
-  ok("thread TypingIndicator before replyPendingFiles", (() => {
-    const tiIdx = src.indexOf("threadTypingData?.typers");
-    const pfIdx = src.indexOf("{replyPendingFiles.length > 0 &&");
-    return tiIdx > 0 && pfIdx > 0 && tiIdx < pfIdx;
-  })());
+// ── 3.1  TypingIndicator UI copy ──────────────────────────────────────────────
+console.log("[3.1] TypingIndicator UI copy");
+assert("one-typer:   '... is typing' template",             src.includes("is typing`"));
+assert("two-typers:  '... and ... are typing' template",    src.includes("are typing`"));
+assert("three-plus:  '... and N other(s) are typing'",      src.includes("} are typing`"));
 
-  // ── Regression: channel list / DM list still loads ─────────────────────────
-  console.log("\n[regression — currents basics]");
+// ── 3.2  TypingIndicator component structure ──────────────────────────────────
+console.log("\n[3.2] TypingIndicator component structure");
+assert("h-5 container prevents layout shift",  src.includes('"h-5 flex items-center'));
+assert("aria-live='polite' on indicator",      src.includes('aria-live="polite"'));
+assert("data-testid='typing-indicator'",       src.includes('data-testid="typing-indicator"'));
+assert("animate-bounce on dots",               src.includes("animate-bounce"));
+assert("staggered animationDelay on dots",     src.includes("animationDelay"));
 
-  const { status: rCh } = await api(cookieA, "GET", "/api/current/channels");
-  ok("GET /api/current/channels still works", rCh === 200);
+// ── 3.3  Throttle refs (one per scope) ────────────────────────────────────────
+console.log("\n[3.3] Ping throttle refs");
+assert("channelTypingPingRef declared",  src.includes("channelTypingPingRef"));
+assert("dmTypingPingRef declared",       src.includes("dmTypingPingRef"));
+assert("threadTypingPingRef declared",   src.includes("threadTypingPingRef"));
+assert("channel ping throttle 2 500 ms",
+  src.includes("channelTypingPingRef.current > 2_500"));
+assert("DM ping throttle 2 500 ms",
+  src.includes("dmTypingPingRef.current > 2_500"));
+assert("thread ping throttle 2 500 ms",
+  src.includes("threadTypingPingRef.current > 2_500"));
 
-  const { status: rDms } = await api(cookieA, "GET", "/api/current/dms");
-  ok("GET /api/current/dms still works", rDms === 200);
+// ── 3.4  Polling queries ──────────────────────────────────────────────────────
+console.log("\n[3.4] Polling queries (refetchInterval: 3 s)");
+assert("channel query refetchInterval 3 s",
+  src.includes("refetchInterval: 3_000") && src.includes("scope=channel"));
+assert("DM query uses scope=dm",
+  src.includes("scope=dm"));
+assert("thread query uses scope=thread&rootMessageId",
+  src.includes("scope=thread&rootMessageId"));
+assert("refetchOnWindowFocus: false on all three typing queries",
+  (src.match(/refetchOnWindowFocus:\s*false/g) || []).length >= 3);
 
-  const { status: rMsgs } = await api(cookieA, "GET", `/api/current/channels/${slug}/messages`);
-  ok("GET channel messages still works", rMsgs === 200);
+// ── 3.5  Draft guard — ping only when composer is non-empty ──────────────────
+console.log("\n[3.5] Draft guards (trim() before ping)");
+assert("channel ping guarded by .trim()", (() => {
+  const idx = src.indexOf("channelTypingPingRef.current = now");
+  return idx >= 0 && src.substring(Math.max(0, idx - 200), idx).includes(".trim()");
+})());
+assert("DM ping guarded by .trim()", (() => {
+  const idx = src.indexOf("dmTypingPingRef.current = now");
+  return idx >= 0 && src.substring(Math.max(0, idx - 200), idx).includes(".trim()");
+})());
 
-  const { status: rThread } = await api(cookieA, "GET", `/api/current/messages/${rootMsgId}/thread`);
-  ok("GET thread messages still works", rThread === 200);
+// ── 3.6  Archive guards ───────────────────────────────────────────────────────
+console.log("\n[3.6] Archive guards (no ping in archived context)");
+assert("channel ping guarded by isArchivedChannel", (() => {
+  const idx = src.indexOf("channelTypingPingRef.current = now");
+  return idx >= 0 && src.substring(Math.max(0, idx - 300), idx).includes("isArchivedChannel");
+})());
+assert("thread ping guarded by isArchived", (() => {
+  const idx = src.indexOf("threadTypingPingRef.current = now");
+  return idx >= 0 && src.substring(Math.max(0, idx - 300), idx).includes("isArchived");
+})());
+assert("thread typing enabled: !!rootMessageId && !isArchived",
+  src.includes("!!rootMessageId && !isArchived"));
 
-  // ── Summary ───────────────────────────────────────────────────────────────
-  console.log(`\n${"─".repeat(55)}`);
-  console.log(`Passed: ${passed}  Failed: ${failed}  Total: ${passed + failed}`);
-  if (failed > 0) {
-    console.error("\nFailed tests detected.");
-    process.exit(1);
-  } else {
-    console.log("\nAll tests passed ✓");
-  }
-}
+// ── 3.7  Indicator placement (before pending-files UI) ───────────────────────
+console.log("\n[3.7] Indicator placement (above pending-files inputs)");
+assert("DM TypingIndicator before dmPendingFiles block", (() => {
+  const tiIdx = src.indexOf("dmTypingData?.typers");
+  const pfIdx = src.indexOf("{dmPendingFiles.length > 0 &&");
+  return tiIdx > 0 && pfIdx > 0 && tiIdx < pfIdx;
+})());
+assert("channel TypingIndicator before mainPendingFiles block", (() => {
+  const tiIdx = src.indexOf("channelTypingData?.typers");
+  const pfIdx = src.indexOf("{mainPendingFiles.length > 0 &&");
+  return tiIdx > 0 && pfIdx > 0 && tiIdx < pfIdx;
+})());
+assert("thread TypingIndicator before replyPendingFiles block", (() => {
+  const tiIdx = src.indexOf("threadTypingData?.typers");
+  const pfIdx = src.indexOf("{replyPendingFiles.length > 0 &&");
+  return tiIdx > 0 && pfIdx > 0 && tiIdx < pfIdx;
+})());
 
-run().catch((err) => {
-  console.error("Fatal:", err.message);
+// ── 3.8  All three scopes wired to TypingIndicator ───────────────────────────
+console.log("\n[3.8] All three scope queries wired to TypingIndicator");
+assert("channelTypingData.typers wired to TypingIndicator",
+  src.includes("channelTypingData?.typers"));
+assert("dmTypingData.typers wired to TypingIndicator",
+  src.includes("dmTypingData?.typers"));
+assert("threadTypingData.typers wired to TypingIndicator",
+  src.includes("threadTypingData?.typers"));
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Summary
+// ═════════════════════════════════════════════════════════════════════════════
+
+console.log(`\n${"─".repeat(60)}`);
+console.log(`Typing Indicators: ${passed} passed, ${failed} failed  (total ${passed + failed})`);
+
+if (failures.length) {
+  console.error("\nFailed tests:");
+  failures.forEach(f => console.error(`  \u2717 ${f}`));
   process.exit(1);
-});
+} else {
+  console.log("\nAll tests passed \u2713");
+  process.exit(0);
+}

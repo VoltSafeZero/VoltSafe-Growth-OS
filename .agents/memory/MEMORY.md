@@ -53,3 +53,4 @@
 - [Marketing Campaigns Module](marketing-campaigns-module.md) — routes.ts appends must go INSIDE registerRoutes(); imports at top; avoid heredoc append to routes.ts without checking function scope.
 - [Campaign Reply Ingestion Phase 8](campaign-reply-ingestion-p8.md) — inReplyTo not in Drizzle schema; persist via separate raw UPDATE after insert; sendEmail() returns Gmail API res.data {id,threadId}; test string patterns with .* must use && not regex-in-string.
 - [Universal Drilldown Phase 2](universal-drilldown-phase2.md) — sql.raw() used (not sql``); metric safety via switch(); inline import type ok for state; extend existing MetricCard/KpiCard/StatCard with optional onClick rather than new component.
+- [Deterministic CJS Test Pattern](deterministic-cjs-test.md) — for TS in-memory logic tested from .cjs: replicate pure functions inline with injectable clock; source-grep verifies production code matches; zero real waits needed.
