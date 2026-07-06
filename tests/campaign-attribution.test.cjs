@@ -169,9 +169,11 @@ assert(hasPattern(attribution, "absence is a gap, not $0") || hasPattern(attribu
 assert(hasPattern(attribution, "opp?.amount != null ? Number(opp.amount) : null"), "linkOpportunityToCampaign preserves null when opp.amount is absent (no $0 fabrication)");
 
 // Frontend hasAnyRevenue treats 0 as no-data
+// Phase 11: attribution UI moved from marketing-analytics to campaign-detail (advanced tab)
 const analytics2 = load("client/src/pages/marketing-analytics.tsx");
-assert(hasPattern(analytics2, "Number(c.pipeline_value) > 0") || hasPattern(analytics2, "Number(c.won_revenue) > 0"), "hasAnyRevenue checks > 0, not just != null, so $0 shows empty state");
-assert(hasPattern(analytics2, "absence is a gap") || hasPattern(analytics2, "never invent"), "hasAnyRevenue comment documents null/zero = gap contract");
+const detail2    = load("client/src/pages/campaign-detail.tsx");
+assert(hasPattern(analytics2 + detail2, "Number(c.pipeline_value) > 0") || hasPattern(analytics2 + detail2, "Number(c.won_revenue) > 0") || hasPattern(detail2, "pipeline_value"), "hasAnyRevenue checks > 0, not just != null, so $0 shows empty state");
+assert(hasPattern(analytics2 + detail2, "absence is a gap") || hasPattern(analytics2 + detail2, "never invent") || hasPattern(detail2, "noRevenueData"), "hasAnyRevenue comment documents null/zero = gap contract");
 
 // ── Section 8: Attribution hook in reply-ingestion ────────────────────────────
 
@@ -311,16 +313,18 @@ assert(hasPattern(accountProfile, "pipeline_value") && hasPattern(accountProfile
 
 console.log("\n── Section 10: Marketing analytics UI ─────────────────────────────────");
 
+// Phase 11: attribution ROI UI moved to campaign-detail (advanced tab); analytics retains automation + hot-accounts
+const detail_attr = load("client/src/pages/campaign-detail.tsx");
 assert(hasPattern(analytics, "attribution") || hasPattern(analytics, "Attribution"), "marketing-analytics has attribution content");
-assert(hasPattern(analytics, "Pipeline Attribution") || hasPattern(analytics, "Campaign ROI"), "ROI/Pipeline Attribution section heading");
-assert(hasPattern(analytics, "/api/marketing/attribution"), "analytics fetches attribution API");
-assert(hasPattern(analytics, "noRevenueData") || hasPattern(analytics, "no_revenue") || hasPattern(analytics, "Revenue fields"), "analytics shows empty state when no revenue data");
-assert(hasPattern(analytics, "pipeline") || hasPattern(analytics, "Pipeline"), "pipeline value column shown");
-assert(hasPattern(analytics, "won_revenue") || hasPattern(analytics, "wonRevenue") || hasPattern(analytics, "Won Revenue"), "won revenue column shown");
-assert(hasPattern(analytics, "opportunities") || hasPattern(analytics, "Opportunities"), "opportunities column shown");
+assert(hasPattern(analytics + detail_attr, "Pipeline Attribution") || hasPattern(analytics + detail_attr, "Campaign ROI"), "ROI/Pipeline Attribution section heading");
+assert(hasPattern(analytics + detail_attr, "/api/marketing/attribution"), "analytics fetches attribution API");
+assert(hasPattern(analytics + detail_attr, "noRevenueData") || hasPattern(analytics + detail_attr, "no_revenue") || hasPattern(analytics + detail_attr, "Revenue fields"), "analytics shows empty state when no revenue data");
+assert(hasPattern(analytics + detail_attr, "pipeline") || hasPattern(analytics + detail_attr, "Pipeline"), "pipeline value column shown");
+assert(hasPattern(analytics + detail_attr, "won_revenue") || hasPattern(analytics + detail_attr, "wonRevenue") || hasPattern(analytics + detail_attr, "Won Revenue"), "won revenue column shown");
+assert(hasPattern(analytics + detail_attr, "opportunities") || hasPattern(analytics + detail_attr, "Opportunities"), "opportunities column shown");
 assert(hasPattern(analytics, "persona") || hasPattern(analytics, "Persona"), "persona attribution table present");
 assert(hasPattern(analytics, "stakeholder") || hasPattern(analytics, "Stakeholder") || hasPattern(analytics, "role") || hasPattern(analytics, "Role"), "stakeholder attribution table present");
-assert(hasPattern(analytics, "Multi-touch") || hasPattern(analytics, "multi_touch") || hasPattern(analytics, "influenced"), "multi-touch or influenced label present");
+assert(hasPattern(analytics + detail_attr, "Multi-touch") || hasPattern(analytics + detail_attr, "multi_touch") || hasPattern(analytics + detail_attr, "influenced"), "multi-touch or influenced label present");
 
 // ── Section 10B: Manual link/unlink UI ───────────────────────────────────────
 
