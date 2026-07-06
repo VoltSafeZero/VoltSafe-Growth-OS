@@ -42,6 +42,7 @@ import {
   LogOut,
   Lock,
   FileText,
+  Upload,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -3652,6 +3653,11 @@ export default function CurrentPage() {
   useEffect(() => { setDmTab("messages"); }, [selectedDmId]);
   const [dmPendingFiles, setDmPendingFiles] = useState<File[]>([]);
   const dmFileInputRef = useRef<HTMLInputElement | null>(null);
+  // Drag-and-drop state for channel and DM conversation areas
+  const [mainDragOver, setMainDragOver] = useState(false);
+  const [dmDragOver, setDmDragOver] = useState(false);
+  const mainDragCounter = useRef(0);
+  const dmDragCounter = useRef(0);
   // Phase 12A: typing ping throttle refs (per composer)
   const channelTypingPingRef = useRef(0);
   const dmTypingPingRef = useRef(0);
@@ -5221,7 +5227,49 @@ export default function CurrentPage() {
           />
         ) : view === "dm" ? (
           /* ── DM view ─────────────────────────────────────────────────── */
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <div
+            className="flex-1 flex flex-col min-w-0 overflow-hidden relative"
+            data-testid="dm-drop-zone"
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (Array.from(e.dataTransfer.types).includes("Files")) {
+                dmDragCounter.current++;
+                setDmDragOver(true);
+              }
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              dmDragCounter.current--;
+              if (dmDragCounter.current <= 0) {
+                dmDragCounter.current = 0;
+                setDmDragOver(false);
+              }
+            }}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              dmDragCounter.current = 0;
+              setDmDragOver(false);
+              const files = Array.from(e.dataTransfer.files);
+              if (files.length > 0) setDmPendingFiles((prev) => [...prev, ...files]);
+            }}
+          >
+            {/* Drag-over overlay */}
+            {dmDragOver && (
+              <div
+                className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
+                data-testid="dm-drag-overlay"
+                style={{ background: "hsl(var(--primary)/0.07)", border: "2px dashed hsl(var(--primary)/0.45)", borderRadius: 0 }}
+              >
+                <Upload className="w-10 h-10 mb-3" style={{ color: "hsl(var(--primary)/0.7)" }} />
+                <p className="text-sm font-semibold" style={{ color: "hsl(var(--primary)/0.85)" }}>
+                  Drop files to upload to this conversation
+                </p>
+              </div>
+            )}
             {/* DM feed */}
             <div
               ref={dmFeedRef}
@@ -5596,7 +5644,50 @@ export default function CurrentPage() {
             )}
 
             {/* Message feed (Messages tab only) */}
-            {channelTab === "messages" && (<>
+            {channelTab === "messages" && (
+            <div
+              className="flex-1 flex flex-col min-h-0 relative"
+              data-testid="channel-drop-zone"
+              onDragEnter={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (Array.from(e.dataTransfer.types).includes("Files")) {
+                  mainDragCounter.current++;
+                  setMainDragOver(true);
+                }
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                mainDragCounter.current--;
+                if (mainDragCounter.current <= 0) {
+                  mainDragCounter.current = 0;
+                  setMainDragOver(false);
+                }
+              }}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                mainDragCounter.current = 0;
+                setMainDragOver(false);
+                const files = Array.from(e.dataTransfer.files);
+                if (files.length > 0) setMainPendingFiles((prev) => [...prev, ...files]);
+              }}
+            >
+              {/* Drag-over overlay */}
+              {mainDragOver && (
+                <div
+                  className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
+                  data-testid="channel-drag-overlay"
+                  style={{ background: "hsl(var(--primary)/0.07)", border: "2px dashed hsl(var(--primary)/0.45)", borderRadius: 0 }}
+                >
+                  <Upload className="w-10 h-10 mb-3" style={{ color: "hsl(var(--primary)/0.7)" }} />
+                  <p className="text-sm font-semibold" style={{ color: "hsl(var(--primary)/0.85)" }}>
+                    Drop files to upload to this conversation
+                  </p>
+                </div>
+              )}
             {/* Message feed */}
             <div
               ref={feedRef}
@@ -5794,7 +5885,7 @@ export default function CurrentPage() {
                 <Button
                   size="sm"
                   onClick={handleSend}
-                  disabled={((!draft.trim() && channelSlash.selectedCommand?.id !== "summarize")) || postMutation.isPending || isMainUploading}
+                  disabled={(!draft.trim() && mainPendingFiles.length === 0 && channelSlash.selectedCommand?.id !== "summarize") || postMutation.isPending || isMainUploading}
                   className="shrink-0 h-8 w-8 p-0 rounded-lg transition-all"
                   data-testid="btn-send-message"
                 >
@@ -5810,7 +5901,7 @@ export default function CurrentPage() {
               </p>
             </div>
             )}
-            </>)}
+            </div>)}
           </>
         )}
       </div>

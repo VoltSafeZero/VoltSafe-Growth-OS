@@ -1,0 +1,395 @@
+Phase 2H — Capital Investor Portal + Secure External Sharing
+
+Current completed state:
+
+Capital Phase 2A:
+- investors, contacts, rounds, commitments, pipeline, activity logging
+
+Capital Phase 2B:
+- Capital module restricted to CEO Trevor and CFO Scott Carlson only
+
+Capital Phase 2C:
+- investor scoring
+- follow-up queue
+- pipeline intelligence
+- investor email draft context
+- investor detail intelligence panel
+- activity touch tracking
+
+Capital Phase 2D:
+- investor email conversation linking
+- capital_email_links
+- capital_email_review
+- exact capital_contacts.email matching
+- conservative review queue for uncertain matches
+- manual “Link to Capital Investor” from VoltSafe Mail
+- investor Email Conversations panel
+- Gmail sync hook
+- all APIs behind requireCapitalAccess
+
+Capital Phase 2E:
+- Round Command Center
+- weighted pipeline service
+- lead investor candidates
+- this-week action queue
+- risk flags
+- runway projections
+- scenario planning
+- /capital/command-center
+
+Capital Phase 2F:
+- valuation, dilution, allocation, and close-plan intelligence
+- valuation/instrument fields
+- allocation/closing fields
+- dilution scenarios
+- allocation planner
+- close plan tracker
+
+Capital Phase 2G:
+- Capital Data Room
+- capital_materials
+- capital_material_shares
+- capital_material_requests
+- material library
+- material share tracking
+- material request queue
+- command-center data_room_intel block
+- risk flags for stale/superseded/missing materials
+- investor email context includes relevant_materials
+- tests passing:
+  - Phase 2G data room: 143/143
+  - Command Center regression: 172/172
+
+Now implement Phase 2H.
+
+Primary goal:
+Create secure external sharing and investor portal access for selected fundraising materials, without exposing Capital data or internal CMS data.
+
+Trevor and Scott should be able to generate controlled investor access to selected materials, track views/downloads, revoke access, and see portal activity inside Capital.
+
+Do not loosen Capital permissions.
+Only Trevor and Scott can create/manage external investor portal access.
+
+Important:
+Do not expose Capital data publicly.
+Do not create public unauthenticated material URLs.
+Do not fake secure file serving.
+If secure file storage is not available, implement portal metadata/access control and clear TODOs for actual protected file delivery.
+
+1. Audit existing infrastructure
+
+Before writing code, inspect:
+- authentication/session system
+- public route patterns
+- tokenized link patterns, if any
+- file serving/upload/download patterns
+- capital_materials
+- capital_material_shares
+- capital_contacts
+- capital_investors
+- email send/draft flow
+- Cortex integration
+- existing public booking/share pages, if any
+
+Document what already exists.
+
+2. Portal access data model
+
+Create safe migrations for:
+
+capital_portal_access
+- id
+- investor_id
+- contact_id nullable
+- round_id nullable
+- access_token_hash
+- access_label
+- status
+  - active
+  - expired
+  - revoked
+  - disabled
+- expires_at nullable
+- created_by
+- created_at
+- updated_at
+- revoked_at nullable
+- revoked_by nullable
+- last_accessed_at nullable
+- access_count integer default 0
+- notes nullable
+- deleted_at nullable
+
+capital_portal_materials
+- id
+- portal_access_id
+- material_id
+- permission
+  - view
+  - download
+  - view_download
+- added_by
+- added_at
+- removed_at nullable
+- deleted_at nullable
+
+capital_portal_events
+- id
+- portal_access_id
+- investor_id
+- contact_id nullable
+- material_id nullable
+- event_type
+  - portal_opened
+  - material_viewed
+  - material_downloaded
+  - access_denied
+  - token_expired
+  - token_revoked
+- user_agent nullable
+- ip_hash nullable
+- occurred_at
+- metadata_json nullable
+
+Never store raw tokens after creation. Store only a hash.
+
+3. Secure token behavior
+
+When Trevor/Scott creates portal access:
+- generate a high-entropy random token
+- store only hash
+- show/copy the raw link once
+- allow regeneration/revocation
+- support expiration date
+- support material-level permissions
+- support disabling downloads
+
+Portal URLs should look like:
+- /investor-portal/:token
+
+or similar existing public route convention.
+
+4. Public investor portal page
+
+Create external-facing portal route.
+
+The portal should:
+- validate token server-side
+- reject expired/revoked/disabled tokens
+- show only materials explicitly granted to that portal access
+- show investor/contact/round label only if safe
+- not expose internal Capital routes, IDs, private notes, scores, valuation data, commitments, activities, emails, or Cortex
+- log portal_opened event
+- log material_viewed/downloaded events
+
+5. Protected material access
+
+For now, handle based on existing storage reality.
+
+If secure protected file serving exists:
+- serve files only after token validation
+- enforce view/download permission
+- log events
+- never expose raw storage keys
+
+If secure file serving does not exist:
+- show metadata and external links only where already provided
+- clearly mark actual protected file delivery as TODO
+- do not pretend files are securely hosted
+
+6. Capital UI — portal access manager
+
+Inside investor detail and Data Room material detail, add Portal Access controls.
+
+Trevor/Scott should be able to:
+- create portal access for investor/contact
+- select materials to share
+- set expiration
+- choose view/download permissions
+- copy portal link once
+- revoke access
+- regenerate access
+- see access status
+- see last accessed
+- see view/download counts
+
+7. Data Room integration
+
+In /capital/data-room:
+- show whether a material is shared through portal access
+- show portal share count
+- show latest portal view/download
+- allow adding material to existing portal access
+- allow removing material from portal access
+
+8. Investor detail integration
+
+In investor detail:
+- add Portal Access section
+- show active/revoked/expired portal links
+- show granted materials
+- show recent portal events
+- show view/download status by material
+
+9. Command Center integration
+
+Extend command-center data room intelligence with:
+- investors with portal access
+- hot investors without portal access
+- active portal links expiring soon
+- revoked/expired links with active diligence
+- key materials not in portal
+- portal materials viewed
+- portal materials not viewed
+- diligence investors who have not opened portal
+
+Add risk flags:
+- lead investor has no portal access
+- diligence investor has not opened portal
+- portal access expired for active investor
+- key material not granted to lead investor
+- sensitive material has download permission enabled
+- portal link has no expiration date
+
+10. Email integration
+
+From investor email draft flow:
+- allow inserting portal link into draft
+- warn if portal link is expired/revoked
+- warn if portal access has no key materials
+- record email/activity when portal link is sent if email metadata supports it
+
+Do not auto-send emails.
+
+11. Activity logging
+
+Create Capital activity when:
+- portal access created
+- portal link copied/sent if known
+- portal opened
+- material viewed
+- material downloaded
+- access revoked
+- material added/removed from portal
+
+Avoid noisy duplicate activity if portal is opened repeatedly. Aggregate where sensible.
+
+12. Security and privacy
+
+Must enforce:
+- portal token validation server-side
+- raw token never stored
+- token hash only
+- access expiry respected
+- revoked links denied
+- material permissions respected
+- no internal Capital metadata leaked
+- no investor scores/valuation/commitments/emails/Cortex shown externally
+- no public unauthenticated material access
+
+Hash IP address if storing anything IP-related. Do not store raw IP unless project policy already allows it.
+
+13. APIs
+
+Internal APIs, all behind requireCapitalAccess:
+- GET /api/capital/investors/:id/portal-access
+- POST /api/capital/investors/:id/portal-access
+- PATCH /api/capital/portal-access/:id
+- DELETE /api/capital/portal-access/:id
+- POST /api/capital/portal-access/:id/materials
+- DELETE /api/capital/portal-access/:id/materials/:materialId
+- GET /api/capital/portal-access/:id/events
+- POST /api/capital/portal-access/:id/regenerate
+
+Public/token APIs:
+- GET /api/investor-portal/:token
+- GET /api/investor-portal/:token/materials/:materialId
+- POST /api/investor-portal/:token/events
+
+Public APIs must return only portal-safe data.
+
+14. Tests
+
+Add tests for:
+
+Schema:
+- capital_portal_access table exists
+- capital_portal_materials table exists
+- capital_portal_events table exists
+- token hash field exists
+- no raw token persistence field exists
+
+Token security:
+- token generated with sufficient entropy
+- only token hash stored
+- expired token denied
+- revoked token denied
+- invalid token denied
+- active token allowed
+
+Permissions:
+- only Trevor and Scott can create portal access
+- unauthorized users cannot list/create/revoke portal access
+- public portal cannot access internal Capital APIs
+- public portal cannot see scores, commitments, valuations, emails, Cortex, or internal notes
+
+Materials:
+- portal shows only explicitly granted materials
+- material-level download permission respected
+- removed materials disappear
+- sensitive materials are flagged
+- no raw storage keys exposed
+
+Events:
+- portal open event logged
+- material view/download events logged
+- access denied event logged
+- repeated portal opens do not spam Capital activity unnecessarily
+
+Frontend/source:
+- investor detail Portal Access section exists
+- Data Room portal indicators exist
+- public investor portal route exists
+- copy-link behavior exists
+- revoke/regenerate actions exist
+- no fake secure upload claims
+- empty states render safely
+
+Command Center:
+- portal data room intelligence included
+- expiring links risk flag
+- lead investor missing portal risk flag
+- diligence investor not opened portal risk flag
+- sensitive material download permission risk flag
+
+15. Validation
+
+Run:
+- capital data-room tests
+- capital command-center tests
+- capital email-linking tests
+- capital intelligence tests
+- capital permissions tests
+- cortex-intel tests
+- startup invariants tests
+- new portal tests
+- full build if practical
+
+Deliver:
+- files changed
+- schema changes
+- new APIs
+- public portal data flow
+- security model
+- token behavior
+- permission confirmation
+- test results
+- recommended Phase 2I follow-up
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose Capital data outside CEO/CFO internally.
+Do not expose internal Capital data through public portal.
+Do not store raw portal tokens.
+Do not fake secure file serving.
+Do not auto-send emails.
