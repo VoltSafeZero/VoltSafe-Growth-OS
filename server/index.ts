@@ -294,6 +294,16 @@ app.use((req, res, next) => {
     // Phase 10: Campaign attribution schema (campaign_attribution_events)
     const { migrateCampaignAttributionSchema } = await import("./services/campaign-attribution");
     await migrateCampaignAttributionSchema();
+    // Phase 11: Campaign automation_mode column (manual / assisted / full)
+    try {
+      await db.execute(sql.raw(`
+        ALTER TABLE marketing_campaigns
+          ADD COLUMN IF NOT EXISTS automation_mode TEXT NOT NULL DEFAULT 'manual'
+            CHECK (automation_mode IN ('manual', 'assisted', 'full'));
+        ALTER TABLE marketing_campaigns
+          ADD COLUMN IF NOT EXISTS pending_approval_count INTEGER NOT NULL DEFAULT 0;
+      `));
+    } catch (_e) { /* already exists */ }
   } catch (migErr) {
     console.error("[startup] Migration error:", migErr);
   }

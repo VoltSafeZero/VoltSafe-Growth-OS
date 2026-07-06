@@ -47,6 +47,8 @@ type Campaign = {
   complianceErrors?: any[] | null;
   senderName?: string | null;
   physicalMailingAddress?: string | null;
+  automationMode?: "manual" | "assisted" | "full" | null;
+  pendingApprovalCount?: number | null;
 };
 
 type ComplianceError = {
@@ -220,6 +222,7 @@ export default function CampaignDetailPage() {
   const id = Number((params as any)?.id);
   const { toast } = useToast();
 
+  const [activeTab, setActiveTab] = useState<"overview" | "audience" | "sequence" | "engagement" | "compliance" | "advanced">("overview");
   const [showAddEmail, setShowAddEmail] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -543,8 +546,26 @@ export default function CampaignDetailPage() {
           ))}
         </div>
 
+        {/* Tab bar */}
+        <div className="flex gap-1 flex-wrap border-b border-border/40 pb-0 -mb-2" data-testid="campaign-detail-tabs">
+          {(["overview", "audience", "sequence", "engagement", "compliance", "advanced"] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-t-md border-b-2 transition-colors capitalize ${
+                activeTab === tab
+                  ? "border-primary text-primary bg-primary/5"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+              }`}
+              data-testid={`tab-${tab}`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
         {/* Campaign details */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4" style={{ display: activeTab === "overview" ? undefined : "none" }}>
           <div className="rounded-xl border border-border/50 bg-card/50 px-4 py-4 space-y-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Campaign Details</div>
             <div className="space-y-2 text-sm">
@@ -560,6 +581,22 @@ export default function CampaignDetailPage() {
                 <span className="text-muted-foreground">Status</span>
                 <StatusBadge status={campaign.status} />
               </div>
+              {campaign.automationMode && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Automation</span>
+                  <span className={`text-xs font-medium capitalize px-2 py-0.5 rounded-full border ${
+                    campaign.automationMode === "full" ? "text-emerald-400 border-emerald-400/30 bg-emerald-400/10" :
+                    campaign.automationMode === "assisted" ? "text-amber-400 border-amber-400/30 bg-amber-400/10" :
+                    "text-muted-foreground border-border/50"
+                  }`} data-testid="automation-mode-badge">{campaign.automationMode}</span>
+                </div>
+              )}
+              {(campaign.pendingApprovalCount ?? 0) > 0 && (
+                <div className="flex justify-between items-center mt-1 pt-1 border-t border-border/30">
+                  <span className="text-amber-400 text-xs">Pending approval</span>
+                  <span className="text-xs font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded" data-testid="pending-approval-count">{campaign.pendingApprovalCount}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1060,17 +1097,19 @@ export default function CampaignDetailPage() {
       {/* ── Automation Panel ───────────────────────────────────────────────────── */}
       <AutomationPanel campaignId={id} />
 
-      {/* ── Branching Rules ────────────────────────────────────────────────────── */}
-      <BranchingRulesPanel campaignId={id} />
-
       {/* ── Reply Intelligence ─────────────────────────────────────────────────── */}
-      <ReplyIntelligencePanel campaignId={id} />
+      {activeTab === "engagement" && <ReplyIntelligencePanel campaignId={id} />}
 
       {/* ── Accounts Heating Up From This Campaign ───────────────────────────── */}
-      <AccountsHeatingUpSection campaignId={id} />
+      {activeTab === "engagement" && <AccountsHeatingUpSection campaignId={id} />}
 
-      {/* ── Pipeline Attribution ─────────────────────────────────────────────── */}
-      <CampaignAttributionSection campaignId={id} />
+      {/* ── Advanced: Branching Rules + Pipeline Attribution ─────────────────── */}
+      {activeTab === "advanced" && (
+        <div className="space-y-6 px-6 py-5" data-testid="advanced-tab-content">
+          <BranchingRulesPanel campaignId={id} />
+          <CampaignAttributionSection campaignId={id} />
+        </div>
+      )}
 
       {/* ── Send Preview Modal ────────────────────────────────────────────────── */}
       <Dialog open={sendPreviewModalOpen} onOpenChange={(open) => {

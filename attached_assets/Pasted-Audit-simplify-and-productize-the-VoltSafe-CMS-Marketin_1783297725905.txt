@@ -1,0 +1,428 @@
+Audit, simplify, and productize the VoltSafe CMS Marketing module so it is powerful but not bloatware.
+
+Context:
+VoltSafe CMS Marketing/Campaigns now includes many advanced capabilities:
+
+* Campaign creation
+* Audience segmentation
+* Recipient enrollment
+* Suppression-safe sending
+* Open/click tracking
+* Unsubscribe and preference center
+* CASL/CAN-SPAM compliance
+* Compliance dashboard/workflows
+* Automated sequences
+* Branching automations
+* Inbound reply ingestion and matching
+* Reply classification
+* Sales task creation
+* Account Heat Score
+* Buying Committee Intelligence
+
+Goal:
+Stop adding heavy new features. Instead, simplify the product experience so the module is easy to use, safe, and focused on marina sales outcomes.
+
+The average user should be able to answer:
+
+* Who should we target?
+* What should we send?
+* Is it compliant?
+* Who engaged?
+* Who should sales follow up with?
+
+Do not build Campaign ROI attribution yet.
+Do not build a drag-and-drop journey builder.
+Do not add complex new automation features.
+Do not add new AI strategy layers.
+This task is about reducing complexity, improving UX, and making the existing system usable.
+
+1. Audit Current Marketing Navigation
+
+Review the Marketing navigation and page structure.
+
+Current features may include:
+
+* Campaigns
+* Audiences
+* Templates
+* Assets
+* Analytics
+* Suppression
+* Compliance
+* Replies
+* Automation
+* Branching rules
+* Hot accounts
+* Dashboards
+
+Simplify the primary Marketing nav to no more than 5–6 top-level items:
+
+Recommended structure:
+
+Marketing
+
+* Campaigns
+* Audiences
+* Replies
+* Hot Accounts
+* Compliance
+* Dashboard
+
+Alternative if simpler:
+
+Marketing
+
+* Dashboard
+* Campaigns
+* Audiences
+* Replies
+* Compliance
+
+Move advanced features into detail pages, tabs, drawers, or “Advanced” sections:
+
+* Branching rules
+* Automation logs
+* Rule history
+* Raw compliance audit logs
+* Unmatched reply queue
+* Advanced attribution-like data
+* Developer/debug details
+
+2. Create Simple Campaign Launch Wizard
+
+Build or improve a simple launch flow:
+
+Step 1: Goal
+Options:
+
+* Book meetings
+* Educate marina stakeholders
+* Re-engage old leads
+* Follow up after event
+* Target pilot candidates
+
+Step 2: Audience
+Show:
+
+* saved audience segments
+* recipient count
+* excluded count
+* top marina personas
+* top stakeholder roles
+
+Step 3: Message Sequence
+Show:
+
+* use existing template
+* use AI draft
+* default 3-email sequence
+* preview each step
+
+Step 4: Compliance + Safety Review
+Show:
+
+* CASL/CAN-SPAM status
+* suppression exclusions
+* missing consent issues
+* unsubscribe footer status
+* internal email exclusions
+* bounced/unsubscribed exclusions
+
+Step 5: Launch Mode
+Options:
+
+* Manual only
+* Assisted automation
+* Full automation
+
+Default should be Assisted automation.
+
+Definitions:
+
+* Manual only: user sends each step manually
+* Assisted automation: CMS queues next step but requires approval before sending
+* Full automation: CMS sends eligible steps automatically
+
+If Full automation is already implemented, keep it but do not make it the default.
+
+3. Add Assisted Automation Mode
+
+Add/confirm a mode where automation prepares the next send but requires human approval.
+
+Suggested data fields if needed:
+
+* automation_mode:
+    * manual
+    * assisted
+    * full
+* pending_approval_count
+* next_step_pending_approval_at
+* approved_by_user_id
+* approved_at
+
+Behavior:
+
+* In assisted mode, automation tick should identify due recipients/steps but not send immediately
+* Create pending approval records or mark recipients as pending_approval
+* User reviews queued sends
+* User approves
+* Existing send logic sends only approved recipients
+* Compliance/suppression is still re-checked at approval/send time
+
+Do not make this overly complex.
+If assisted mode is too much for this pass, add a visible “Manual / Assisted / Full” launch mode selector and keep Assisted as a near-term placeholder, but clearly mark it as not yet fully active.
+
+4. Simplify Campaign Detail Page
+
+Campaign Detail should be organized into clean tabs:
+
+Recommended tabs:
+
+* Overview
+* Audience
+* Sequence
+* Engagement
+* Automation
+* Compliance
+* Advanced
+
+Place these under Advanced:
+
+* Branching rules
+* Rule history
+* raw event logs
+* unmatched/debug data
+
+The default Overview should show only:
+
+* campaign status
+* audience count
+* compliance status
+* automation mode/status
+* sent/open/click/reply counts
+* hot accounts created
+* next recommended action
+
+5. Simplify Marketing Dashboard
+
+Create one clean dashboard answering:
+
+A. Campaign Health
+
+* active campaigns
+* campaigns needing approval
+* campaigns blocked by compliance
+* campaigns with replies
+
+B. Sales Follow-Up
+
+* hot accounts
+* high-intent replies
+* tasks created
+* overdue follow-up tasks if available
+
+C. Compliance Health
+
+* blocked sends
+* unsubscribes
+* suppression issues
+* consent-expiry warnings
+
+D. What’s Working
+
+* top persona by engagement
+* top stakeholder role by replies
+* best campaign by reply rate
+
+Keep this dashboard simple. Do not show every metric possible.
+
+6. Create Hot Accounts Page or Section
+
+If Hot Accounts is currently buried inside Analytics, expose it more cleanly.
+
+Hot Accounts should show:
+
+* marina/account name
+* heat score
+* heat label
+* persona
+* stakeholder roles engaged
+* last engagement
+* recommended next action
+* compliance risk flag
+
+This should be one of the most important sales pages.
+
+7. De-emphasize Raw Analytics
+
+Avoid showing too many analytics tables.
+
+Keep:
+
+* reply rate
+* click rate
+* meeting/task creation
+* hot accounts
+* compliance blocks
+* top persona
+* top role
+
+Hide or move to Advanced:
+
+* raw event counts
+* per-rule event logs
+* debug breakdowns
+* overly detailed attribution-like metrics
+* benchmark numbers unless clearly labeled
+
+8. UX Guardrails
+
+Add helpful empty states and warnings:
+
+* “No audience enrolled yet”
+* “Compliance preflight required before sending”
+* “Automation is paused”
+* “This campaign has high-intent replies waiting”
+* “This account is hot — sales follow-up recommended”
+* “Advanced rules are available, but simple sequences are recommended first”
+
+Avoid scary technical words in the main UI:
+Use:
+
+* “Follow-up rules”
+    instead of:
+* “Branching automation engine”
+
+Use:
+
+* “Needs approval”
+    instead of:
+* “automation pending state”
+
+Use:
+
+* “Blocked by compliance”
+    instead of:
+* “preflight failure”
+
+9. Permission / Role-Based Simplification
+
+Make sure advanced controls are only visible to appropriate roles:
+
+* regular CRM users: campaigns, audiences, replies, hot accounts
+* managers/admins: compliance, automation mode, branching rules, suppression lists
+* admins only: raw audit logs, debug tools, internal scans/retry endpoints
+
+Do not expose every button to every user.
+
+10. Remove or Hide Bloat
+
+Identify and hide anything that is not useful for daily sales/marketing workflow.
+
+Candidates to hide behind Advanced:
+
+* raw campaign event logs
+* automation tick diagnostics
+* unmatched reply debug metadata
+* rule evaluation history
+* raw JSON config editors
+* internal ingestion endpoints
+* excessive compliance internals
+* too many status chips
+
+Do not delete important safety functionality. Just reduce visual clutter.
+
+11. Final QA
+
+Test the simplified core workflow:
+
+Workflow A — Simple manual campaign:
+
+* create campaign
+* choose audience
+* preview/enroll recipients
+* pass compliance
+* send first step manually
+* see engagement
+
+Workflow B — Assisted/full automation:
+
+* create campaign
+* enroll audience
+* pass compliance
+* select automation mode
+* start automation or queue approval
+* verify no duplicate sends
+
+Workflow C — Reply to sales action:
+
+* inbound reply matched
+* reply classified
+* task created if high-intent
+* account appears hot
+
+Workflow D — Compliance protection:
+
+* suppressed/unsubscribed contact excluded
+* compliance-blocked campaign cannot send
+* unsubscribe still works
+
+12. Tests
+
+Run and keep passing:
+
+* campaign enrollment tests
+* sending tests
+* tracking tests
+* compliance tests
+* automation tests
+* branching tests
+* reply ingestion tests
+* reply classifier tests
+* account heat tests
+* permissions tests
+* nav-drift tests
+* openai-compat tests
+
+Add tests for:
+
+* simplified nav structure
+* launch wizard appears
+* automation mode selector appears
+* assisted mode behavior if implemented
+* advanced sections hidden/collapsed by default
+* non-admin users cannot see advanced compliance/debug tools
+* dashboard does not show fake revenue/attribution
+* hot accounts page/section loads cleanly
+
+13. Visual QA
+
+Take screenshots of:
+
+* simplified Marketing nav
+* Marketing Dashboard
+* Simple Campaign Launch Wizard
+* Campaign Detail Overview tab
+* Hot Accounts page/section
+* Compliance blocked state
+* Advanced collapsed section
+
+14. Final Report
+
+Return:
+
+* what was simplified
+* what was hidden/moved to Advanced
+* what was not changed
+* whether Assisted Automation was fully implemented or placeholder only
+* tests run and passing
+* screenshots taken
+* remaining complexity risks
+* recommended “stop building / start using” checklist
+
+Important:
+Do not build Campaign ROI attribution in this task.
+Do not build drag-and-drop workflows.
+Do not add more analytics bloat.
+Do not remove compliance safety.
+The goal is to make the existing system feel simple, focused, and usable.

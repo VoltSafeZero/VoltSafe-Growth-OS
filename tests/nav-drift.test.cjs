@@ -455,6 +455,43 @@ ok('More group (id: "more") still does not exist',
   !src.includes('id: "more"'),
   "More group must remain retired");
 
+// ── Phase 11: Marketing nav simplification ────────────────────────────────────
+console.log("\nPhase 11 — Marketing nav (6 items, Dashboard first):");
+
+const marketingStart = src.indexOf('id: "marketing"');
+const marketingSec   = marketingStart > -1 ? src.slice(marketingStart, marketingStart + 1400) : "";
+
+ok('Marketing section (id: "marketing") exists',
+  marketingSec.length > 0);
+
+ok("marketing-dashboard is a child item",
+  marketingSec.includes('"marketing-dashboard"'));
+
+ok("marketing-dashboard route is /marketing/dashboard",
+  marketingSec.includes('"/marketing/dashboard"') || marketingSec.includes("'/marketing/dashboard'"));
+
+ok("marketing-hot-accounts is a child item",
+  marketingSec.includes('"marketing-hot-accounts"'));
+
+ok("marketing-hot-accounts route is /marketing/hot-accounts",
+  marketingSec.includes('"/marketing/hot-accounts"') || marketingSec.includes("'/marketing/hot-accounts'"));
+
+ok("Marketing nav has exactly 6 child items",
+  (() => {
+    const items = [...marketingSec.matchAll(/id: "marketing-[^"]+"/g)];
+    return items.length === 6;
+  })(),
+  "Expected: Dashboard, Campaigns, Audiences, Replies, Hot Accounts, Compliance");
+
+ok("marketing-templates NOT a primary nav item (removed in Phase 11)",
+  !marketingSec.includes('"marketing-templates"'));
+
+ok("marketing-analytics NOT a primary nav item (removed in Phase 11)",
+  !marketingSec.includes('"marketing-analytics"'));
+
+ok("marketing-suppression NOT a primary nav item (removed in Phase 11)",
+  !marketingSec.includes('"marketing-suppression"'));
+
 // ── Phase 1–4G: Duplicate route guard ────────────────────────────────────────
 console.log("\nPhase 1–4G — Duplicate routes in NAV_CONFIG:");
 

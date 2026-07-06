@@ -8,7 +8,7 @@ import {
   Newspaper, PlayCircle, FlaskRound, BellRing, MapPin, ShieldCheck, Tags,
   Zap, HelpCircle, ClipboardList, Snowflake, Search, Settings, Smartphone,
   Mic, Car, PenSquare, GraduationCap, CalendarDays, MessageSquare,
-  Radio, Ban,
+  Radio, Ban, Flame,
 } from "lucide-react";
 
 // Note: a few items intentionally use a different icon on mobile than on desktop
@@ -197,12 +197,11 @@ export const NAV_CONFIG: NavSection[] = [
     icon: Megaphone,
     permKey: "crm",
     items: [
+      { id: "marketing-dashboard",    label: "Dashboard",       route: "/marketing/dashboard",    icon: LayoutDashboard },
       { id: "marketing-campaigns",   label: "Campaigns",       route: "/marketing/campaigns",   icon: Radio },
       { id: "marketing-audiences",   label: "Audiences",       route: "/marketing/audiences",   icon: Users2 },
-      { id: "marketing-templates",   label: "Templates",       route: "/marketing/templates",   icon: FileText },
-      { id: "marketing-analytics",   label: "Analytics",       route: "/marketing/analytics",   icon: BarChart3 },
       { id: "marketing-replies",     label: "Replies",         route: "/marketing/replies",     icon: MessageSquare },
-      { id: "marketing-suppression", label: "Suppression",     route: "/marketing/suppression", icon: Ban },
+      { id: "marketing-hot-accounts", label: "Hot Accounts",  route: "/marketing/hot-accounts", icon: Flame },
       { id: "marketing-compliance",  label: "Compliance",      route: "/marketing/compliance",  icon: ShieldCheck },
     ],
   },

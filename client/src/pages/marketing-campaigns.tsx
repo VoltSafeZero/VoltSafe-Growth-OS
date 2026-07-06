@@ -108,6 +108,7 @@ export default function MarketingCampaignsPage() {
     campaignType: "awareness",
     goal: "",
     notes: "",
+    automationMode: "manual" as "manual" | "assisted" | "full",
     targetJurisdiction: "unknown",
     senderName: "",
     senderLegalEntity: "",
@@ -126,7 +127,7 @@ export default function MarketingCampaignsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketing/campaigns"] });
       setShowCreate(false);
-      setForm({ campaignName: "", campaignType: "awareness", goal: "", notes: "", targetJurisdiction: "unknown", senderName: "", senderLegalEntity: "", physicalMailingAddress: "", unsubscribeLinkIncluded: true, commercialDisclosureIncluded: false, preferenceCenterLinkIncluded: false });
+      setForm({ campaignName: "", campaignType: "awareness", goal: "", notes: "", automationMode: "manual", targetJurisdiction: "unknown", senderName: "", senderLegalEntity: "", physicalMailingAddress: "", unsubscribeLinkIncluded: true, commercialDisclosureIncluded: false, preferenceCenterLinkIncluded: false });
       toast({ title: "Campaign created", description: "Draft campaign ready to build." });
     },
     onError: () => toast({ title: "Error", description: "Failed to create campaign.", variant: "destructive" }),
@@ -392,6 +393,19 @@ export default function MarketingCampaignsPage() {
                   {CAMPAIGN_GOALS.map(g => (
                     <SelectItem key={g} value={g}>{g}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="automationMode">Automation mode</Label>
+              <Select value={form.automationMode} onValueChange={v => setForm(f => ({ ...f, automationMode: v as "manual" | "assisted" | "full" }))}>
+                <SelectTrigger id="automationMode" data-testid="select-automation-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Manual — you send each step</SelectItem>
+                  <SelectItem value="assisted">Assisted — AI drafts, you approve <span className="text-muted-foreground text-[10px] ml-1">coming soon</span></SelectItem>
+                  <SelectItem value="full">Full auto — AI sends automatically</SelectItem>
                 </SelectContent>
               </Select>
             </div>
