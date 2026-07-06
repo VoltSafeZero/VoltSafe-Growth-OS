@@ -343,7 +343,7 @@ app.use((req, res, next) => {
       { migrateCampaignAttributionSchema },
     ] = await Promise.all([
       import("./services/campaign-branching-automation"),
-      import("./services/campaign-attribution"),
+      import("./services/campaign-attribution"), // Phase 10: campaign ROI + pipeline attribution
     ]);
     await Promise.all([
       migrateSignatureCtaAssetColumns(),
