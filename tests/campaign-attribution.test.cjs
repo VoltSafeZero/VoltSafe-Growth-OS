@@ -157,6 +157,12 @@ assert(
   "won revenue gated on isWon (stage=closed_won check)"
 );
 
+// Opportunity-level dedup prevents double-counting pipeline across events
+assert(hasPattern(attribution, "dedupedPipeline") || hasPattern(attribution, "Opportunity-level dedup"), "getCampaignAttributionSummary uses opportunity-level dedup for pipeline_value");
+assert(hasPattern(attribution, "dedupedWon") || hasPattern(attribution, "dedup_wr"), "getCampaignAttributionSummary uses opportunity-level dedup for won_revenue");
+assert(hasPattern(attribution, "GROUP BY COALESCE(opportunity_id::text") || hasPattern(attribution, "COALESCE.*opportunity_id::text"), "SQL aggregation deduplicates at opportunity level");
+assert(hasPattern(attribution, "MAX(pipeline_value)") || hasPattern(attribution, "MAX(won_revenue)"), "SQL aggregation uses MAX per opportunity to prevent double-counting");
+
 // ── Section 8: Attribution hook in reply-ingestion ────────────────────────────
 
 console.log("\n── Section 8: Attribution hook in reply-ingestion ──────────────────────");
@@ -175,6 +181,29 @@ assert(
 );
 assert(hasPattern(ingestion, 'attributionType: "direct"'), "reply attributions are direct");
 assert(hasPattern(ingestion, '"high"') && hasPattern(ingestion, "confidence:"), "reply attributions are high confidence");
+
+// ── Section 8B: Branch automation task attribution hook ──────────────────────
+
+console.log("\n── Section 8B: Branch automation task attribution hook ──────────────────");
+
+assert(hasPattern(branching, "Phase 10"), "branching automation has Phase 10 comment");
+assert(hasPattern(branching, "import(./campaign-attribution") || hasPattern(branching, "campaign-attribution"), "branching imports campaign-attribution");
+assert(hasPattern(branching, "recordCampaignAttributionEvent"), "branching calls recordCampaignAttributionEvent");
+assert(hasPattern(branching, "task_created"), "branching fires task_created attribution event type");
+assert(hasPattern(branching, "attributionType.*direct") || hasPattern(branching, '"direct"'), "branch task attribution is direct");
+assert(hasPattern(branching, '"high"') && hasPattern(branching, "confidence:"), "branch task attribution is high confidence");
+assert(hasPattern(branching, ".catch(() => {})"), "branch task attribution is fire-and-forget");
+assert(hasPattern(branching, "rule_id"), "branch task attribution includes rule_id in metadata");
+
+// ── Section 8C: Quote sent proposal_sent attribution hook ────────────────────
+
+console.log("\n── Section 8C: Quote sent proposal_sent attribution hook ────────────────");
+
+assert(hasPattern(routes, "proposal_sent") && hasPattern(routes, "Phase 10"), "routes has proposal_sent attribution hook with Phase 10 comment");
+assert(hasPattern(routes, "inferCampaignAttributionForAccount") && hasPattern(routes, "proposal_sent"), "quote sent fires inferCampaignAttributionForAccount for proposal_sent event");
+assert(hasPattern(routes, "toStatus === \"sent\"") || hasPattern(routes, "toStatus === 'sent'"), "proposal_sent hook fires when quote toStatus=sent");
+assert(hasPattern(routes, "quote_number") && hasPattern(routes, "quote_id"), "proposal_sent metadata includes quote_number and quote_id");
+assert(hasPattern(routes, "existing.account_id") && hasPattern(routes, "proposal_sent"), "proposal_sent hook is gated on account_id being set");
 
 // ── Section 9: API routes ────────────────────────────────────────────────────
 

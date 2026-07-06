@@ -5304,6 +5304,25 @@ export async function registerRoutes(
         `));
       }
 
+      // Phase 10: fire-and-forget proposal_sent attribution — quote going to "sent" is a direct CRM signal
+      if (toStatus === "sent" && existing.account_id) {
+        import("./services/campaign-attribution").then(({ inferCampaignAttributionForAccount, recordCampaignAttributionEvent }) => {
+          inferCampaignAttributionForAccount(Number(existing.account_id)).then(attr => {
+            if (!attr) return;
+            recordCampaignAttributionEvent({
+              campaignId:      attr.campaignId,
+              accountId:       Number(existing.account_id),
+              opportunityId:   existing.opportunity_id ? Number(existing.opportunity_id) : null,
+              eventType:       "proposal_sent",
+              attributionType: attr.attributionType,
+              confidence:      attr.confidence,
+              pipelineValue:   existing.total ? Number(existing.total) : null,
+              metadata:        { quote_id: quoteId, quote_number: existing.quote_number, days_since_engagement: attr.daysSinceEngagement },
+            });
+          });
+        }).catch(() => {});
+      }
+
       // Auto: quote sent → create follow-up task
       if (toStatus === "sent" && createFollowUpTask !== false) {
         const daysOut = followUpDays ?? 3;

@@ -627,6 +627,20 @@ async function createBranchTask(
       await writeRuleEvent(campaignId, recipientId, ruleId, context.triggerType,
         "task_created", { trigger_key: context.triggerValue ?? context.triggerType, task_title: title });
     }
+
+    // Phase 10: fire-and-forget attribution event — branch task creation is a direct CRM signal
+    import("./campaign-attribution").then(({ recordCampaignAttributionEvent }) => {
+      recordCampaignAttributionEvent({
+        campaignId,
+        campaignRecipientId: recipientId,
+        accountId:           accountId ?? null,
+        contactId:           contactId ?? null,
+        eventType:           "task_created",
+        attributionType:     "direct",
+        confidence:          "high",
+        metadata:            { rule_id: ruleId ?? null, trigger_type: context.triggerType, task_title: title.slice(0, 200) },
+      });
+    }).catch(() => {});
   } catch { /* non-critical */ }
 }
 
