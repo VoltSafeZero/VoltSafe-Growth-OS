@@ -142,6 +142,7 @@ const CapitalUpdatesPage      = lazy(() => import("@/pages/capital-updates"));
 const CapitalFollowUpsPage    = lazy(() => import("@/pages/capital-follow-ups"));
 const CapitalEmailReviewPage  = lazy(() => import("@/pages/capital-email-review"));
 const CapitalCommandCenterPage = lazy(() => import("@/pages/capital-command-center"));
+const CapitalEngagementPage   = lazy(() => import("@/pages/capital-engagement"));
 const BookingPublicPage = lazy(() => import("@/pages/booking-public"));
 const InvestorPortalPage = lazy(() => import("@/pages/investor-portal"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
@@ -425,6 +426,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/capital/follow-ups">{() => capitalGuard(<CapitalFollowUpsPage />)}</Route>
       <Route path="/capital/email-review">{() => capitalGuard(<CapitalEmailReviewPage />)}</Route>
       <Route path="/capital/command-center">{() => capitalGuard(<CapitalCommandCenterPage />)}</Route>
+      <Route path="/capital/engagement">{() => capitalGuard(<CapitalEngagementPage />)}</Route>
       <Route path="/capital/investors">{() => <Redirect to="/capital/targets" />}</Route>
       <Route path="/capital/documents">{() => <Redirect to="/capital/data-room" />}</Route>
       <Route path="/capital">{() => <Redirect to="/capital/dashboard" />}</Route>

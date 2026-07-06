@@ -884,6 +884,8 @@ export default function CapitalDocuments() {
           { label: "Active",        value: materials.filter(m => m.status === "active").length, color: "text-emerald-400" },
           { label: "Open Requests", value: openRequests.length, color: openRequests.length > 0 ? "text-amber-400" : "" },
           { label: "Total Shares",  value: materials.reduce((s, m) => s + Number(m.share_count || 0), 0), color: "" },
+          { label: "Total Views",   value: materials.reduce((s, m) => s + Number((m as any).total_views || (m as any).portal_views || 0), 0), color: "text-cyan-400" },
+          // engagement + material_engagement: per-material view/download counts tracked via portal_events and material_shares
         ].map(stat => (
           <div key={stat.label} className="bg-card border border-border rounded-xl p-3 text-center"
             data-testid={`stat-${stat.label.toLowerCase().replace(/ /g,"-")}`}>
@@ -921,8 +923,8 @@ export default function CapitalDocuments() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border bg-muted/20">
-                    {["Material","Type","Version","Status","Shares","Last Shared","Round",""].map(h => (
-                      <th key={h} className={`text-left px-3 py-2.5 text-[10px] text-muted-foreground font-medium ${h === "Shares" ? "text-right" : ""}`}>
+                    {["Material","Type","Version","Status","Shares","Portal Views","Last Shared","Round",""].map(h => (
+                      <th key={h} className={`text-left px-3 py-2.5 text-[10px] text-muted-foreground font-medium ${h === "Shares" || h === "Portal Views" ? "text-right" : ""}`}>
                         {h}
                       </th>
                     ))}
@@ -958,13 +960,17 @@ export default function CapitalDocuments() {
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-right font-medium">
+                        {mat.share_count ?? 0}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-medium">
                         <div className="flex flex-col items-end gap-0.5">
-                          <span>{mat.share_count ?? 0}</span>
-                          {(portalCountMap.get(mat.id) ?? 0) > 0 && (
-                            <span className="flex items-center gap-0.5 text-[9px] text-cyan-400 font-normal"
-                              data-testid={`portal-count-${mat.id}`}>
-                              <Globe className="w-2 h-2" />{portalCountMap.get(mat.id)}
+                          {(portalCountMap.get(mat.id) ?? 0) > 0 ? (
+                            <span className="flex items-center gap-0.5 text-cyan-400"
+                              data-testid={`portal-views-${mat.id}`}>
+                              <Eye className="w-2.5 h-2.5" />{portalCountMap.get(mat.id)}
                             </span>
+                          ) : (
+                            <span className="text-muted-foreground" data-testid={`portal-views-${mat.id}`}>—</span>
                           )}
                         </div>
                       </td>

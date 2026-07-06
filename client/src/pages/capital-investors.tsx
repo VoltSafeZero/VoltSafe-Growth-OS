@@ -517,6 +517,9 @@ export function InvestorDetail({ investor, onEdit, onStageChange }: {
       <Separator />
       <PortalAccessPanel investorId={investor.id} />
 
+      <Separator />
+      <InvestorEngagementPanel investorId={investor.id} />
+
       <EmailDraftModal
         open={emailOpen}
         onClose={() => setEmailOpen(false)}
@@ -1074,6 +1077,127 @@ function PortalAccessPanel({ investorId }: { investorId: number }) {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      )}
+    </div>
+  );
+}
+
+// ── Investor Engagement Panel (Phase 2I) ─────────────────────────────────────
+function InvestorEngagementPanel({ investorId }: { investorId: number }) {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/capital/investors", investorId, "engagement"],
+    queryFn: () => fetch(`/api/capital/investors/${investorId}/engagement`, { credentials: "include" }).then(r => r.json()),
+    staleTime: 60_000,
+  });
+
+  if (isLoading) return (
+    <div className="text-xs text-muted-foreground py-4 text-center" data-testid="engagement-panel-loading">
+      Loading engagement data…
+    </div>
+  );
+  if (!data || data.message) return null;
+
+  const tierColor = (tier: string) => {
+    if (tier === "highly_engaged") return "text-rose-400 bg-rose-500/10 border-rose-500/20";
+    if (tier === "engaged")        return "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+    if (tier === "watching")       return "text-cyan-400 bg-cyan-500/10 border-cyan-500/20";
+    if (tier === "stale")          return "text-amber-400 bg-amber-500/10 border-amber-500/20";
+    return "text-slate-400 bg-slate-500/10 border-slate-500/20";
+  };
+
+  const urgencyColor = (u: string) => {
+    if (u === "critical") return "text-rose-400";
+    if (u === "high")     return "text-amber-400";
+    return "text-muted-foreground";
+  };
+
+  return (
+    <div className="space-y-4" data-testid="investor-engagement-panel">
+      <h4 className="text-sm font-semibold flex items-center gap-2">
+        <Activity className="w-4 h-4 text-primary" /> Engagement Score
+      </h4>
+
+      {/* Score + tier */}
+      <div className="flex items-center gap-4">
+        <div className="flex flex-col items-center gap-1">
+          <div className="w-14 h-14 rounded-full border-2 border-primary/30 flex items-center justify-center"
+            data-testid="eng-score-circle">
+            <span className="text-xl font-bold" data-testid="engagement_score">{data.engagement_score ?? data.score ?? 0}</span>
+          </div>
+          <span className="text-[10px] text-muted-foreground">/ 100</span>
+        </div>
+        <div className="flex-1 space-y-1.5">
+          <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${tierColor(data.engagement_tier ?? data.tier ?? "cold")}`}
+            data-testid="eng-tier-badge">
+            {(data.engagement_tier ?? data.tier ?? "cold").replace(/_/g, " ")}
+          </span>
+          {data.next_action && (
+            <p className="text-xs text-muted-foreground">{data.next_action}</p>
+          )}
+          {data.next_action_reason && (
+            <p className="text-[10px] text-muted-foreground/70">{data.next_action_reason}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Signal counts */}
+      {data.signals && (
+        <div className="grid grid-cols-3 gap-2" data-testid="eng-signals-grid">
+          {[
+            { label: "Meetings",    value: data.signals.meeting_count       ?? 0 },
+            { label: "Portal Opens",value: data.signals.portal_open_count   ?? 0 },
+            { label: "Mat. Views",  value: data.signals.material_view_count ?? 0 },
+            { label: "Email Threads",value: data.signals.email_thread_count ?? 0 },
+            { label: "Last Activity",value: data.signals.days_since_last_activity != null
+              ? (data.signals.days_since_last_activity === 0 ? "Today" : `${data.signals.days_since_last_activity}d ago`)
+              : "—" },
+            { label: "Reply Received",value: data.signals.inbound_reply ? "Yes" : "No" },
+          ].map(s => (
+            <div key={s.label} className="bg-card/60 border border-border rounded-lg p-2 text-center">
+              <p className="text-sm font-semibold">{s.value}</p>
+              <p className="text-[9px] text-muted-foreground leading-tight">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Score breakdown */}
+      {data.score_breakdown && Object.keys(data.score_breakdown).length > 0 && (
+        <div className="space-y-1.5" data-testid="eng-score-breakdown">
+          <p className="text-[10px] font-medium text-muted-foreground">Score Breakdown</p>
+          {Object.entries(data.score_breakdown as Record<string, number>).map(([k, v]) => (
+            <div key={k} className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground w-32 shrink-0 capitalize">{k.replace(/_/g, " ")}</span>
+              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="h-full bg-primary/60 rounded-full" style={{ width: `${Math.min(100, Math.max(0, v))}%` }} />
+              </div>
+              <span className="w-6 text-right text-muted-foreground shrink-0">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Timeline */}
+      {data.timeline && data.timeline.length > 0 && (
+        <div className="space-y-1.5" data-testid="eng-timeline">
+          <p className="text-[10px] font-medium text-muted-foreground">Engagement Timeline</p>
+          <div className="bg-card border border-border rounded-xl divide-y divide-border max-h-52 overflow-y-auto">
+            {data.timeline.slice(0, 10).map((ev: any, i: number) => (
+              <div key={i} className="px-3 py-2 flex items-start gap-2 text-xs">
+                <Eye className="w-3 h-3 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate">{ev.label ?? ev.event_type}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {ev.occurred_at ? new Date(ev.occurred_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                  </p>
+                </div>
+                {ev.urgency && (
+                  <span className={`text-[9px] shrink-0 font-medium ${urgencyColor(ev.urgency)}`}>{ev.urgency}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

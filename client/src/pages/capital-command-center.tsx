@@ -143,6 +143,19 @@ type PortalIntelligence = {
   most_viewed_materials: { material_id: number; title: string; views: number }[];
 };
 
+type EngagementIntelSummary = {
+  total_investors: number;
+  highly_engaged_count: number;
+  engaged_count: number;
+  stale_count: number;
+  cold_count: number;
+  portal_opens_7d: number;
+  material_views_7d: number;
+  hot_with_stale_followup: number;
+  no_engagement_after_portal: number;
+  priority_actions: Array<{ investor_id: number; investor_name: string; action: string; urgency: string; reason: string }>;
+  top_engaged: Array<{ investor_id: number; investor_name: string; score: number; tier: string }>;
+};
 type CommandCenterData = {
   round: Round; summary: Summary;
   lead_candidates: LeadCandidate[];
@@ -156,6 +169,7 @@ type CommandCenterData = {
   close_plan: ClosePlanSummary;
   close_checklist: CloseChecklistItem[];
   portal_intel?: PortalIntelligence;
+  engagement_intel?: EngagementIntelSummary;
   recent_activity: any[];
   recent_emails: any[];
 };
@@ -1396,6 +1410,101 @@ export default function CapitalCommandCenterPage() {
                           <span className="text-[10px] text-muted-foreground shrink-0 flex items-center gap-1">
                             <Eye className="w-2.5 h-2.5" />{m.views}
                           </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ── Engagement Intelligence ── */}
+          {ccData?.engagement_intel && ccData.engagement_intel.total_investors > 0 && (
+            <section data-testid="section-engagement-intel">
+              <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-primary" /> Investor Engagement
+                <a href="/capital/engagement"
+                  className="ml-auto text-[10px] text-primary hover:underline font-normal"
+                  data-testid="link-engagement-full">
+                  Full Report →
+                </a>
+              </h2>
+              <div className="space-y-3">
+                {/* Tier stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { label: "Hot",      value: ccData.engagement_intel.highly_engaged_count, color: "text-rose-400",    testId: "eng-stat-hot" },
+                    { label: "Engaged",  value: ccData.engagement_intel.engaged_count,         color: "text-emerald-400", testId: "eng-stat-engaged" },
+                    { label: "Stale",    value: ccData.engagement_intel.stale_count,            color: "text-amber-400",   testId: "eng-stat-stale" },
+                    { label: "Cold",     value: ccData.engagement_intel.cold_count,             color: "text-slate-400",   testId: "eng-stat-cold" },
+                  ].map(s => (
+                    <div key={s.label} className="bg-card border border-border rounded-xl p-3 text-center" data-testid={s.testId}>
+                      <p className={`text-lg font-semibold ${s.color}`}>{s.value}</p>
+                      <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 7-day activity */}
+                <div className="bg-card border border-border rounded-xl px-4 py-3 flex flex-wrap gap-4 text-xs" data-testid="eng-7d-summary">
+                  <span className="flex items-center gap-1"><Eye className="w-3 h-3 text-cyan-400" /><strong>{ccData.engagement_intel.portal_opens_7d}</strong> portal opens (7d)</span>
+                  <span className="flex items-center gap-1"><Activity className="w-3 h-3 text-primary" /><strong>{ccData.engagement_intel.material_views_7d}</strong> material views (7d)</span>
+                  {ccData.engagement_intel.hot_with_stale_followup > 0 && (
+                    <span className="flex items-center gap-1 text-amber-400"><AlertTriangle className="w-3 h-3" /><strong>{ccData.engagement_intel.hot_with_stale_followup}</strong> hot investors with stale follow-up</span>
+                  )}
+                  {ccData.engagement_intel.no_engagement_after_portal > 0 && (
+                    <span className="flex items-center gap-1 text-rose-400"><AlertTriangle className="w-3 h-3" /><strong>{ccData.engagement_intel.no_engagement_after_portal}</strong> portal opened but no follow-up</span>
+                  )}
+                </div>
+
+                {/* Stale high-value investors: stale_high_value from engagement_risk_flags */}
+                {(ccData.engagement_intel as any).stale_high_value?.length > 0 && (
+                  <div className="bg-card border border-border rounded-xl px-4 py-3 text-xs text-amber-400"
+                    data-testid="stale-high-value-alert">
+                    <span className="font-medium">{(ccData.engagement_intel as any).stale_high_value.length} high-value investors</span>
+                    <span className="text-muted-foreground ml-1">going stale — follow up now</span>
+                  </div>
+                )}
+
+                {/* engagement_risk_flags summary */}
+                {(ccData.engagement_intel as any).engagement_risk_flags?.length > 0 && (
+                  <div className="bg-card border border-border rounded-xl px-4 py-3 text-xs text-rose-400"
+                    data-testid="engagement-risk-flags">
+                    <span className="font-medium">{(ccData.engagement_intel as any).engagement_risk_flags.length} engagement risk flag{(ccData.engagement_intel as any).engagement_risk_flags.length === 1 ? "" : "s"}</span>
+                    <span className="text-muted-foreground ml-1">require immediate attention</span>
+                  </div>
+                )}
+
+                {/* Priority actions */}
+                {ccData.engagement_intel.priority_actions.length > 0 && (
+                  <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="eng-priority-actions">
+                    <p className="text-[10px] font-medium text-muted-foreground px-4 pt-3 pb-1">Priority Actions</p>
+                    <div className="divide-y divide-border">
+                      {ccData.engagement_intel.priority_actions.slice(0, 4).map((a: any) => (
+                        <div key={a.investor_id} className="px-4 py-2 flex items-center gap-2 text-xs" data-testid={`eng-action-${a.investor_id}`}>
+                          <span className={`shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${a.urgency === "critical" ? "bg-rose-500/20 text-rose-400" : a.urgency === "high" ? "bg-amber-500/20 text-amber-400" : "bg-slate-500/20 text-muted-foreground"}`}>
+                            {a.urgency}
+                          </span>
+                          <span className="font-medium shrink-0">{a.investor_name}</span>
+                          <span className="text-muted-foreground truncate">{a.action}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Top engaged investors */}
+                {ccData.engagement_intel.top_engaged.length > 0 && (
+                  <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="top-engaged">
+                    <p className="text-[10px] font-medium text-muted-foreground px-4 pt-3 pb-1">Top Engaged</p>
+                    <div className="divide-y divide-border">
+                      {ccData.engagement_intel.top_engaged.slice(0, 4).map((inv: any, i: number) => (
+                        <div key={inv.investor_id} className="px-4 py-2 flex items-center gap-2 text-xs" data-testid={`eng-top-${inv.investor_id}`}>
+                          <span className="text-[10px] text-muted-foreground w-4 shrink-0">{i + 1}.</span>
+                          <span className="flex-1 font-medium truncate">{inv.investor_name}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${inv.tier === "highly_engaged" ? "bg-rose-500/20 text-rose-400" : inv.tier === "engaged" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>{inv.tier.replace("_", " ")}</span>
+                          <span className="text-muted-foreground shrink-0 w-7 text-right">{inv.score}</span>
                         </div>
                       ))}
                     </div>

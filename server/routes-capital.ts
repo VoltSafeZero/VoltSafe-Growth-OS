@@ -2419,6 +2419,78 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       );
       const portalFlags = computePortalRiskFlags(portalIntel);
 
+      // ── Phase 2I: Engagement Intelligence ─────────────────────────────────────
+      const {
+        extractEngagementSignals,
+        computeEngagementScore,
+        computeCommandCenterEngagement,
+        computeMaterialEngagement,
+      } = await import("./services/capital-engagement.js");
+
+      const [engActivitiesRow, engEmailLinksRow, engCommitmentsRow] = await Promise.all([
+        invIds.length > 0
+          ? db.execute(sql.raw(`
+              SELECT * FROM capital_activities
+              WHERE entity_type = 'investor' AND entity_id IN (${invIds.join(",")})
+              ORDER BY activity_at DESC LIMIT 500
+            `))
+          : Promise.resolve({ rows: [] }),
+        invIds.length > 0
+          ? db.execute(sql.raw(`
+              SELECT * FROM capital_email_links
+              WHERE capital_investor_id IN (${invIds.join(",")})
+                AND deleted_at IS NULL
+              ORDER BY latest_message_at DESC LIMIT 300
+            `))
+          : Promise.resolve({ rows: [] }),
+        invIds.length > 0
+          ? db.execute(sql.raw(`
+              SELECT * FROM capital_commitments
+              WHERE investor_id IN (${invIds.join(",")})
+                AND deleted_at IS NULL
+              ORDER BY created_at DESC LIMIT 200
+            `))
+          : Promise.resolve({ rows: [] }),
+      ]);
+
+      const engInvestorRows = (investors as any[]).map((inv: any) => {
+        const invActivities   = (engActivitiesRow.rows as any[]).filter(a => Number(a.entity_id)            === inv.id);
+        const invEmailLinks   = (engEmailLinksRow.rows  as any[]).filter(e => Number(e.capital_investor_id) === inv.id);
+        const invPortalAccess = (portalAccessRows.rows  as any[]).filter(p => Number(p.investor_id)         === inv.id);
+        const invPortalEvents = (portalEventRows.rows   as any[]).filter(e => Number(e.investor_id)         === inv.id);
+        const invMatShares    = (matSharesRow.rows       as any[]).filter(s => Number(s.investor_id)         === inv.id);
+        const invCommitments  = (engCommitmentsRow.rows  as any[]).filter(c => Number(c.investor_id)         === inv.id);
+        const signals = extractEngagementSignals(
+          inv, invActivities, invEmailLinks, invPortalAccess, invPortalEvents,
+          invMatShares, [], invCommitments, materialsRow.rows as any[]
+        );
+        const result = computeEngagementScore(inv, signals);
+        return {
+          investor_id:   inv.id,
+          investor_name: inv.name,
+          investor_type: inv.investor_type ?? "",
+          stage:         inv.stage ?? "",
+          priority:      inv.priority ?? "",
+          warmth:        inv.warmth ?? "",
+          do_not_contact: !!inv.do_not_contact,
+          ...result,
+          signals,
+        };
+      });
+
+      const matEngagement = computeMaterialEngagement(
+        materialsRow.rows as any[],
+        matSharesRow.rows as any[],
+        portalEventRows.rows as any[]
+      );
+
+      const engagementIntel = computeCommandCenterEngagement(
+        engInvestorRows,
+        matEngagement,
+        [],
+        portalAccessRows.rows as any[]
+      );
+
       // Days open
       const daysOpen = round.open_date
         ? Math.floor((Date.now() - new Date(round.open_date).getTime()) / 86400000)
@@ -2439,6 +2511,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         close_checklist:    closeChecklist,
         data_room_intel:    dataRoomIntel,
         portal_intel:       portalIntel,
+        engagement_intel:   engagementIntel,
         recent_activity:    recentActivity,
         recent_emails:      recentEmails,
       });
@@ -3393,6 +3466,261 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
     } catch (err: any) {
       console.error("[capital] PATCH /commitments/:id/allocation:", err?.message);
       res.status(500).json({ message: "Failed to update allocation data" });
+    }
+  });
+
+  // ── Phase 2I: GET /api/capital/engagement ─────────────────────────────────
+  // Batch engagement analytics across all (or round-scoped) investors.
+  app.get("/api/capital/engagement", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const roundId = safeId(req.query.round_id);
+
+      // Load investors (optionally scoped to round via commitments)
+      let investorsRows: any[];
+      if (roundId) {
+        const rows = await db.execute(sql.raw(`
+          SELECT ci.*
+          FROM capital_investors ci
+          WHERE ci.deleted_at IS NULL
+            AND EXISTS (
+              SELECT 1 FROM capital_commitments cc
+              WHERE cc.investor_id = ci.id AND cc.round_id = ${roundId} AND cc.deleted_at IS NULL
+            )
+          ORDER BY ci.name ASC
+        `));
+        investorsRows = rows.rows as any[];
+      } else {
+        const rows = await db.execute(sql.raw(`
+          SELECT * FROM capital_investors WHERE deleted_at IS NULL ORDER BY name ASC
+        `));
+        investorsRows = rows.rows as any[];
+      }
+
+      const rounds = await db.execute(sql.raw(`
+        SELECT id, name, status FROM capital_rounds WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 20
+      `));
+
+      if (investorsRows.length === 0) {
+        return res.json({
+          investors:          [],
+          analytics:          { total_investors: 0, highly_engaged_count: 0, engaged_count: 0, watching_count: 0, stale_count: 0, cold_count: 0, portal_opens_7d: 0, material_views_7d: 0, material_downloads_7d: 0, recent_inbound_replies: 0, no_engagement_after_portal: 0, hot_with_stale_followup: 0 },
+          material_engagement: [],
+          round_id:           roundId ?? null,
+          rounds:             rounds.rows,
+        });
+      }
+
+      const invIds = investorsRows.map((i: any) => i.id);
+      const inList = invIds.join(",");
+
+      const [activitiesRows, emailLinksRows, portalAccessRows, portalEventRows,
+             matSharesRows, matRequestsRows, commitmentsRows, materialsRows] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT * FROM capital_activities
+          WHERE entity_type = 'investor' AND entity_id IN (${inList})
+          ORDER BY activity_at DESC LIMIT 1000
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_email_links
+          WHERE capital_investor_id IN (${inList}) AND deleted_at IS NULL
+          ORDER BY latest_message_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT cpa.*
+          FROM capital_portal_access cpa
+          WHERE cpa.investor_id IN (${inList}) AND cpa.deleted_at IS NULL
+          ORDER BY cpa.created_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT cpe.*
+          FROM capital_portal_events cpe
+          JOIN capital_portal_access cpa ON cpa.id = cpe.portal_access_id
+          WHERE cpa.investor_id IN (${inList}) AND cpa.deleted_at IS NULL
+          ORDER BY cpe.occurred_at DESC LIMIT 2000
+        `)),
+        db.execute(sql.raw(`
+          SELECT cms.*, cm.material_type
+          FROM capital_material_shares cms
+          LEFT JOIN capital_materials cm ON cm.id = cms.material_id
+          WHERE cms.investor_id IN (${inList}) AND cms.deleted_at IS NULL
+          ORDER BY cms.shared_at DESC LIMIT 1000
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_material_requests
+          WHERE investor_id IN (${inList}) AND deleted_at IS NULL
+          ORDER BY requested_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_commitments
+          WHERE investor_id IN (${inList}) AND deleted_at IS NULL
+          ORDER BY created_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, title, material_type, status, version_label, deleted_at
+          FROM capital_materials WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 200
+        `)),
+      ]);
+
+      const {
+        extractEngagementSignals,
+        computeEngagementScore,
+        computeEngagementAnalytics,
+        computeMaterialEngagement,
+      } = await import("./services/capital-engagement.js");
+
+      const engRows = investorsRows.map((inv: any) => {
+        const invAct   = (activitiesRows.rows as any[]).filter(a => Number(a.entity_id)            === inv.id);
+        const invEmail = (emailLinksRows.rows  as any[]).filter(e => Number(e.capital_investor_id) === inv.id);
+        const invPA    = (portalAccessRows.rows as any[]).filter(p => Number(p.investor_id)        === inv.id);
+        const invPE    = (portalEventRows.rows  as any[]).filter(e => Number(e.investor_id)        === inv.id);
+        const invMS    = (matSharesRows.rows    as any[]).filter(s => Number(s.investor_id)        === inv.id);
+        const invMR    = (matRequestsRows.rows  as any[]).filter(r => Number(r.investor_id)        === inv.id);
+        const invCom   = (commitmentsRows.rows  as any[]).filter(c => Number(c.investor_id)        === inv.id);
+        const signals  = extractEngagementSignals(
+          inv, invAct, invEmail, invPA, invPE, invMS, invMR, invCom, materialsRows.rows as any[]
+        );
+        const result   = computeEngagementScore(inv, signals);
+        return {
+          investor_id:   inv.id,
+          investor_name: inv.name,
+          investor_type: inv.investor_type ?? "",
+          stage:         inv.stage ?? "",
+          priority:      inv.priority ?? "",
+          warmth:        inv.warmth ?? "",
+          do_not_contact: !!inv.do_not_contact,
+          engagement_score: result.engagement_score,
+          engagement_tier:  result.engagement_tier,
+          ...result,
+          signals,
+        };
+      });
+
+      const analytics = computeEngagementAnalytics(
+        engRows,
+        portalEventRows.rows as any[],
+        matSharesRows.rows   as any[],
+        emailLinksRows.rows  as any[],
+      );
+
+      const materialEngagement = computeMaterialEngagement(
+        materialsRows.rows   as any[],
+        matSharesRows.rows   as any[],
+        portalEventRows.rows as any[],
+      );
+
+      res.json({
+        investors:          engRows,
+        analytics,
+        material_engagement: materialEngagement,
+        round_id:           roundId ?? null,
+        rounds:             rounds.rows,
+      });
+    } catch (err: any) {
+      console.error("[capital] GET /engagement:", err?.message);
+      res.status(500).json({ message: "Failed to load engagement analytics" });
+    }
+  });
+
+  // ── Phase 2I: GET /api/capital/investors/:id/engagement ───────────────────
+  // Per-investor engagement score, signals, and timeline.
+  app.get("/api/capital/investors/:id/engagement", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = safeId(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+
+      const invRow = await db.execute(sql.raw(
+        `SELECT * FROM capital_investors WHERE id = ${id} AND deleted_at IS NULL LIMIT 1`
+      ));
+      const inv = invRow.rows[0] as any;
+      if (!inv) return res.status(404).json({ message: "Investor not found" });
+
+      const [activitiesRow, emailLinksRow, portalAccessRow, portalEventRow,
+             matSharesRow, matRequestsRow, commitmentsRow, materialsRow] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT * FROM capital_activities
+          WHERE entity_type = 'investor' AND entity_id = ${id}
+          ORDER BY activity_at DESC LIMIT 200
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_email_links
+          WHERE capital_investor_id = ${id} AND deleted_at IS NULL
+          ORDER BY latest_message_at DESC LIMIT 100
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_portal_access
+          WHERE investor_id = ${id} AND deleted_at IS NULL
+          ORDER BY created_at DESC LIMIT 50
+        `)),
+        db.execute(sql.raw(`
+          SELECT cpe.*
+          FROM capital_portal_events cpe
+          JOIN capital_portal_access cpa ON cpa.id = cpe.portal_access_id
+          WHERE cpa.investor_id = ${id} AND cpa.deleted_at IS NULL
+          ORDER BY cpe.occurred_at DESC LIMIT 500
+        `)),
+        db.execute(sql.raw(`
+          SELECT cms.*, cm.material_type, cm.title AS material_title
+          FROM capital_material_shares cms
+          LEFT JOIN capital_materials cm ON cm.id = cms.material_id
+          WHERE cms.investor_id = ${id} AND cms.deleted_at IS NULL
+          ORDER BY cms.shared_at DESC LIMIT 100
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_material_requests
+          WHERE investor_id = ${id} AND deleted_at IS NULL
+          ORDER BY requested_at DESC LIMIT 50
+        `)),
+        db.execute(sql.raw(`
+          SELECT * FROM capital_commitments
+          WHERE investor_id = ${id} AND deleted_at IS NULL
+          ORDER BY created_at DESC LIMIT 20
+        `)),
+        db.execute(sql.raw(`
+          SELECT id, title, material_type, status, version_label, deleted_at
+          FROM capital_materials WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 100
+        `)),
+      ]);
+
+      const {
+        extractEngagementSignals,
+        computeEngagementScore,
+        buildEngagementTimeline,
+      } = await import("./services/capital-engagement.js");
+
+      const signals  = extractEngagementSignals(
+        inv,
+        activitiesRow.rows as any[],
+        emailLinksRow.rows as any[],
+        portalAccessRow.rows as any[],
+        portalEventRow.rows as any[],
+        matSharesRow.rows as any[],
+        matRequestsRow.rows as any[],
+        commitmentsRow.rows as any[],
+        materialsRow.rows as any[],
+      );
+      const result   = computeEngagementScore(inv, signals);
+      const timeline = buildEngagementTimeline(
+        inv,
+        activitiesRow.rows as any[],
+        emailLinksRow.rows as any[],
+        portalEventRow.rows as any[],
+        matSharesRow.rows as any[],
+        commitmentsRow.rows as any[],
+        materialsRow.rows as any[],
+        50,
+      );
+
+      res.json({
+        investor_id:   inv.id,
+        investor_name: inv.name,
+        stage:         inv.stage,
+        ...result,
+        signals,
+        timeline,
+      });
+    } catch (err: any) {
+      console.error("[capital] GET /investors/:id/engagement:", err?.message);
+      res.status(500).json({ message: "Failed to load investor engagement" });
     }
   });
 }

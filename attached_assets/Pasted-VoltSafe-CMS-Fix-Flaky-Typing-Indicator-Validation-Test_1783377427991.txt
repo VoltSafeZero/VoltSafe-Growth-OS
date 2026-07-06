@@ -1,0 +1,89 @@
+VoltSafe CMS — Fix Flaky Typing Indicator Validation Test
+
+Context:
+Navigation consolidation is complete and the relevant tests are green:
+
+- nav-drift.test.cjs — 101/101 passing
+- nav-consolidation.test.cjs — 331/331 passing
+- admin-signatures.test.cjs — 66/66 passing
+
+However, platform validation still fails because typing-indicators.test.cjs is flaky/live-environment dependent.
+
+Observed issue:
+typing-indicators.test.cjs appears to make real HTTP calls to a running server and waits around 8 seconds for typing indicator TTL expiry. This is unrelated to nav changes, but it causes validation to fail when the server is unavailable, slow, or timing behaves differently in the validation environment.
+
+Goal:
+Make typing-indicators.test.cjs deterministic, fast, and safe for validation.
+
+Requirements:
+
+1. Audit typing indicator implementation
+Before changing tests, inspect:
+- typing indicator routes/API
+- typing indicator service/state store
+- websocket or polling implementation if any
+- TTL cleanup logic
+- typing-indicators.test.cjs
+- any related Currents tests
+
+Document:
+- what the test is trying to prove
+- whether it requires a live server
+- whether it can be converted to a pure/unit test
+- whether TTL can be controlled without waiting real time
+
+2. Remove live-server dependency from validation test
+The test should not require:
+- a running external server
+- real network calls
+- actual 8+ second sleeps
+- timing-sensitive delays
+
+Preferred approaches:
+- test the typing indicator service/helper directly
+- inject/mock time
+- expose TTL cleanup as a pure function
+- use fake timers if the test framework supports them
+- reduce TTL in test via config/env var
+- use an in-memory app/test server if route-level coverage is required
+
+3. Preserve behavior coverage
+The fixed test should still verify:
+- typing indicator can be created/set
+- active typing indicator is visible before expiry
+- expired typing indicator is removed after TTL
+- stopped typing indicator clears correctly
+- user cannot see typing indicators for conversations they cannot access, if applicable
+- cleanup does not remove non-expired indicators
+
+4. Make the test fast
+Target runtime:
+- under 1 second if pure/unit
+- under 2 seconds if route-level test server is needed
+
+Do not use a real 8-second wait.
+
+5. Avoid masking real failures
+Do not simply delete the test.
+Do not skip the test unless there is a very clear reason.
+Do not weaken the assertions.
+Do not make the test pass by checking only that files exist.
+
+6. Validation
+Run:
+- typing-indicators.test.cjs
+- Currents-related tests if available
+- nav-drift.test.cjs
+- nav-consolidation.test.cjs
+- admin-signatures.test.cjs
+- full validation/test:grep if practical
+
+Deliver:
+- root cause of flake
+- files changed
+- new deterministic test strategy
+- test results
+
+Do not modify unrelated modules.
+Do not weaken Currents typing indicator behavior.
+Do not leave live network dependencies in source-grep/unit validation tests.

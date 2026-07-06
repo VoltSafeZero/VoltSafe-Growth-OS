@@ -8,7 +8,7 @@ import {
   Newspaper, PlayCircle, FlaskRound, BellRing, MapPin, ShieldCheck, Tags,
   Zap, HelpCircle, ClipboardList, Snowflake, Search, Settings, Smartphone,
   Mic, Car, PenSquare, GraduationCap, CalendarDays, MessageSquare,
-  Radio, Ban, Flame, Banknote,
+  Radio, Ban, Flame, Banknote, Activity,
 } from "lucide-react";
 
 // Note: a few items intentionally use a different icon on mobile than on desktop
@@ -251,6 +251,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "capital-rounds",         label: "Rounds & Commitments",route: "/capital/rounds",         icon: RefreshCcw },
       { id: "capital-follow-ups",     label: "Follow-Ups",          route: "/capital/follow-ups",     icon: Zap },
       { id: "capital-data-room",      label: "Data Room",           route: "/capital/data-room",      icon: FolderOpen },
+      { id: "capital-engagement",     label: "Engagement",          route: "/capital/engagement",     icon: Activity },
       { id: "capital-updates",        label: "Updates & Reviews",   route: "/capital/updates",        icon: BellRing },
     ],
   },
