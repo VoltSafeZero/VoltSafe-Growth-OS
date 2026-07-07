@@ -1,0 +1,122 @@
+VoltSafe CMS — Post-Deploy Verification for Phase 15–18 Security-Hardened Build
+
+The production deploy has completed. Now verify the live deployment.
+
+Live URL:
+https://image-linker-burgesstrevor76.replit.app
+
+Do not add features.
+Do not change code unless a deploy-blocking issue is found.
+This is verification and monitoring only.
+
+1. Check production deploy logs
+
+Verify:
+- build completed successfully
+- server started with NODE_ENV=production node dist/index.cjs
+- no startup crash
+- no migration failure
+- no prompt/action required to copy dev DB to production
+- no "relation already exists" migration failure
+- no "pool is not defined"
+- no destructive SQL warnings
+
+Specifically confirm these migrations/tables/columns/indexes are clean or already applied:
+- security_audit_events
+- board_packs
+- ceo_forecast_notes
+- ceo_execution_reviews
+- ceo_action_queue
+- ceo_action_events
+- meeting_notes.one_on_one_sections
+
+2. Check live route health
+
+Scan logs for new 500s after the publish, especially:
+
+CEO/security routes:
+- /api/today/ceo-cockpit
+- /api/today/ceo-actions
+- /api/today/ceo-briefing/daily
+- /api/today/ceo-execution/radar
+- /api/today/ceo-forecast
+- /api/board-packs
+
+Core app routes:
+- /api/auth/me
+- /api/calendar/events
+- /api/tasks
+- /api/executive/kpis
+- /api/command-center/*
+- /api/capital/*
+- /api/currents/*
+
+3. Verify security audit table exists
+
+Check production DB has:
+- security_audit_events table
+- indexes on actor/category/created_at if applicable
+
+Do not insert fake data unless there is an existing safe DB check pattern. A SELECT/check is enough.
+
+4. Manual smoke checks
+
+Use the live app if possible:
+
+- login works
+- Today page loads
+- My Day tab still works
+- CEO Cockpit tab appears for authorized admin/CEO
+- CEO Cockpit Overview loads
+- Actions tab loads
+- Briefing tab loads
+- Execution tab loads
+- Forecasting tab loads
+- 1:1s tab loads
+- Board Pack tab links correctly
+- Board Pack is CEO/CFO-only
+- Capital remains gated
+- high-risk confirmations appear for:
+  - Board Pack finalize/archive
+  - Capital portal revoke/regenerate/delete
+  - Admin user delete
+- no browser console errors
+- no raw JSON visible to users
+
+5. Known pre-existing background scheduler errors
+
+The following were seen before this deploy and are not rollback triggers unless they start breaking core app flows:
+- association_feedback missing table in auto-confirm sweep
+- email_accounts label refresh query issue
+- calendar_connections automation tick issue
+
+Report them separately as pre-existing schema-drift cleanup items.
+
+6. Rollback decision
+
+Rollback only if:
+- app fails to boot
+- login/session breaks
+- Today or core CRM fails to load
+- CEO/CFO-only data is exposed to unauthorized users
+- high-risk routes produce widespread 500s
+- migration blocks startup
+- confirmation layer blocks critical admin operations
+
+Do not rollback for:
+- expected 401/403s
+- old background scheduler schema errors
+- one harmless missing audit event
+- cosmetic confirmation dialog issue
+- copy button UX issue
+
+Deliverable:
+Report:
+- deployment status
+- server boot result
+- migration result
+- route health
+- security_audit_events table status
+- manual smoke check result
+- any new warnings/errors after publish
+- rollback needed: yes/no
