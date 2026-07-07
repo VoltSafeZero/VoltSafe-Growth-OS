@@ -1,0 +1,369 @@
+VoltSafe CMS — CEO Cockpit Phase 8: Execution Intelligence, Drift Detection, and Commitments Radar
+
+Goal:
+Build an execution intelligence layer that detects operational drift before it becomes a fire.
+
+The system should compare:
+- what people committed to
+- what tasks/actions were created
+- what changed since the last briefing
+- what is overdue, stale, blocked, or silently drifting
+- what keeps recurring without resolution
+
+This phase should make the CEO Cockpit proactive, not reactive.
+
+Context:
+Phase 4 built CEO Cockpit insights.
+Phase 5 built 1:1 notes, agendas, and commitment extraction.
+Phase 6 built the CEO Action Queue.
+Phase 7 built Daily Briefing, Weekly Review, Team Briefings, and Leadership Agenda.
+
+Now build Phase 8 as the “execution radar” layer on top.
+
+Core requirements:
+
+1. Execution Intelligence service
+Create:
+
+server/services/ceo-execution-intelligence.ts
+
+Functions:
+
+- buildExecutionRadar(actorUser, options)
+  Returns a structured view of execution risk across team, tasks, commitments, action queue, opportunities, and blockers.
+
+- detectExecutionDrift(actorUser, options)
+  Detects items that are slipping, stalled, repeatedly snoozed, repeatedly dismissed, or aging without progress.
+
+- buildCommitmentsRadar(actorUser, options)
+  Tracks commitments from 1:1s, meeting notes, action queue, and tasks.
+
+- buildRecurringRiskPatterns(actorUser, options)
+  Finds repeat blockers, repeated overdue patterns, recurring stale opportunities, and unresolved themes.
+
+- buildExecutionScorecard(actorUser, options)
+  Produces simple operational metrics for CEO use.
+
+No external API calls.
+No OpenAI dependency required.
+Use local DB only.
+Do not auto-send anything.
+
+2. Execution Radar output
+GET /api/today/ceo-execution/radar should return:
+
+Sections:
+- critical_drift
+- slipping_commitments
+- stale_tasks
+- repeated_snoozes
+- unresolved_blockers
+- stale_opportunities
+- owner_load_risk
+- recurring_risks
+- execution_wins
+- recommended_interventions
+
+Each section must include:
+- title
+- severity: info | watch | urgent | critical
+- items array
+- empty_state
+- plain-English reason
+
+Each item should include:
+- id
+- title
+- owner
+- source_type
+- source_id
+- age_days
+- last_activity_at
+- risk_reason
+- suggested_next_step
+- linked_action_id nullable
+- metadata
+
+3. Drift detection rules
+Implement deterministic drift rules.
+
+Examples:
+
+Critical drift:
+- critical/high action queue item overdue
+- blocker open more than 7 days
+- commitment due date missed
+- important opportunity past expected close date
+- task marked blocked with no update for more than 3 days
+
+Slipping commitment:
+- commitment accepted but no task created
+- task created from commitment but still open after due date
+- commitment appears in more than one 1:1 without completion
+
+Repeated snooze:
+- same action snoozed 2+ times
+- snoozed high-priority action now due again
+
+Stale task:
+- active task with no update for 7+ days
+- overdue task with no recent activity
+- task assigned but never touched
+
+Recurring risk:
+- same owner has 3+ overdue items
+- same source/project produces repeated blockers
+- same opportunity appears stale across multiple weekly reviews
+- same theme appears in multiple action queue items
+
+Execution win:
+- blocker resolved
+- commitment completed
+- overdue item closed
+- high-priority action completed
+- stale opportunity moved forward
+
+Keep thresholds centralized in one object so they are easy to adjust.
+
+4. Commitments Radar
+GET /api/today/ceo-execution/commitments should return:
+
+Sections:
+- due_today
+- due_this_week
+- overdue
+- no_owner
+- no_due_date
+- accepted_not_tasked
+- tasked_not_completed
+- completed
+- recurring_commitments
+
+Each commitment should include:
+- commitment text
+- owner
+- source meeting note / 1:1 / action queue
+- due date
+- status
+- linked task if any
+- age
+- risk reason
+- suggested CEO action
+
+5. Execution Scorecard
+GET /api/today/ceo-execution/scorecard should return:
+
+Metrics:
+- open CEO actions
+- overdue CEO actions
+- completed this week
+- dismissed this week
+- snoozed active
+- open blockers
+- blockers resolved this week
+- overdue commitments
+- commitments completed this week
+- stale tasks
+- stale opportunities
+- owner load distribution
+- execution health score: 0–100
+
+Health score should be simple and deterministic.
+Do not pretend it is scientific.
+
+Suggested scoring:
+Start at 100.
+Subtract:
+- 8 for each critical drift item, max 32
+- 5 for each overdue high-priority action, max 20
+- 4 for each overdue commitment, max 20
+- 3 for each unresolved blocker older than 7 days, max 15
+- 2 for each stale task, max 10
+- 1 for each repeated snooze, max 5
+
+Clamp between 0 and 100.
+
+Return:
+- score
+- label: Strong | Watch | At Risk | Critical
+- reason
+- contributing_factors
+
+6. API routes
+Add requireAuth + requireAdmin routes:
+
+GET /api/today/ceo-execution/radar
+GET /api/today/ceo-execution/drift
+GET /api/today/ceo-execution/commitments
+GET /api/today/ceo-execution/recurring-risks
+GET /api/today/ceo-execution/scorecard
+
+Action routes:
+
+POST /api/today/ceo-execution/items/:id/create-action
+POST /api/today/ceo-execution/items/:id/dismiss
+POST /api/today/ceo-execution/items/:id/mark-reviewed
+
+Rules:
+- create-action should use the Phase 6 CEO Action Queue service.
+- dismiss should not delete source data.
+- mark-reviewed should record review state only.
+- no route may auto-send Currents or email.
+- all routes require admin.
+- preserve capital gating.
+
+7. Optional review tracking
+Add a lightweight review state table if no suitable table exists:
+
+ceo_execution_reviews
+- id
+- item_key
+- item_type
+- source_type
+- source_id
+- status: reviewed | dismissed
+- actor_user_id
+- reason nullable
+- metadata jsonb
+- created_at
+- updated_at
+
+Use this to avoid resurfacing dismissed/reviewed radar items too aggressively.
+
+8. Frontend
+Inside Today → CEO Cockpit, add a new section:
+
+“Execution Radar”
+
+Tabs:
+- Radar
+- Commitments
+- Drift
+- Recurring Risks
+- Scorecard
+
+Radar tab:
+- show execution health score at top
+- show critical/urgent drift first
+- show recommended interventions
+- buttons:
+  - Create Action
+  - Mark Reviewed
+  - Dismiss
+
+Commitments tab:
+- grouped by due today, this week, overdue, no owner, no due date, completed
+- show linked task/action where available
+- button to create action
+
+Drift tab:
+- show slipping, stale, blocked, repeated snoozes
+- owner/project/source filters
+
+Recurring Risks tab:
+- group repeated patterns by owner, source, project, opportunity, or risk theme
+- show “why this keeps appearing”
+
+Scorecard tab:
+- simple cards for key metrics
+- health score
+- contributing factors
+- weekly movement if available
+
+9. Integration with Phase 6 and Phase 7
+- CEO Briefing should be able to include top execution radar items.
+- Leadership Agenda should include critical drift and recurring risks.
+- Action Queue should show source link back to Execution Radar where relevant.
+- Do not duplicate logic. Reuse services.
+
+10. Safety / privacy
+Tests must prove:
+
+- non-admins cannot access execution routes
+- private Currents channels excluded
+- DM bodies not broadly exposed
+- capital data only appears when hasCapital is true
+- no sendEmail/sendMessage/auto-send patterns in execution routes
+- dismissed/reviewed items do not delete source data
+- create-action uses Phase 6 queue, not a separate system
+- neutral language only
+- no blame/shaming words
+- local DB only
+- scorecard does not claim scientific precision
+
+Banned language in user-facing strings:
+- lazy
+- failing
+- weak performer
+- poor performer
+- blame
+- underperforming
+
+Use:
+- needs check-in
+- blocked
+- stale
+- drifting
+- follow-up suggested
+- support needed
+- owner load risk
+
+11. Tests
+Create:
+
+tests/ceo-execution-intelligence.test.cjs
+
+Minimum coverage:
+- service file exists
+- routes exist and require auth/admin
+- execution radar includes required sections
+- drift detection thresholds are centralized
+- commitments radar includes required sections
+- scorecard includes score, label, reason, contributing factors
+- score clamps 0–100
+- create-action uses Phase 6 service
+- reviewed/dismissed tracking does not delete source data
+- private channels excluded
+- no broad DM exposure
+- capital gating works
+- no auto-send patterns
+- banned language absent
+- frontend Execution Radar renders
+- tabs render
+- action buttons are wired
+- Phase 4/5/6/7 regressions still pass
+
+12. Validation
+Run:
+
+npm run build
+node tests/ceo-execution-intelligence.test.cjs
+node tests/ceo-briefing.test.cjs
+node tests/ceo-action-loop.test.cjs
+node tests/ceo-cockpit.test.cjs
+node tests/today-cockpit.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/nav-consolidation.test.cjs
+
+Also run any related Today/frontend tests if present.
+
+13. Constraints
+Do not rewrite Phase 4, Phase 5, Phase 6, or Phase 7.
+Do not introduce external API calls.
+Do not add AI dependency.
+Do not auto-send anything.
+Do not expose private data.
+Do not use shaming language.
+Keep it deterministic, fast, and local-DB-first.
+Keep UI practical. This is for CEO execution, not dashboard confetti.
+
+Deliverable:
+Summarize:
+- files changed
+- services added
+- routes added
+- tables/migrations added
+- frontend sections added
+- tests added
+- validation results
+- known limitations

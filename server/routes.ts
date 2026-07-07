@@ -116,6 +116,7 @@ import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsTe
 import { getTodayCapitalSection } from "./services/today-capital-summary";
 import { getCeoCockpitData } from "./services/ceo-cockpit";
 import { getOneOnOneNotes, createOneOnOneNote, updateOneOnOneNote, deleteOneOnOneNote, buildOneOnOneAgenda, extractCommitmentsFromNote, createTasksFromCommitments, getUpdateDraft } from "./services/ceo-one-on-ones";
+import { generateCockpitActions, listCeoActions, createCeoAction, updateCeoAction, completeCeoAction, dismissCeoAction, snoozeCeoAction, buildUpdateRequestDraft, createTaskFromAction } from "./services/ceo-action-loop";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
 import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy, getTuningRecommendations, getExplainabilityData, checkUnderperformance, getOutcomes, getFeedbackOverview } from "./services/feedback-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
@@ -11156,6 +11157,140 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("[ceo-1on1] update-draft:", err?.message);
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  // ── CEO Action Queue (Phase 6) ────────────────────────────────────────
+
+  // GET /api/today/ceo-actions
+  app.get("/api/today/ceo-actions", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const filters = {
+        status: req.query.status as string | undefined,
+        priority: req.query.priority as string | undefined,
+        type: req.query.type as string | undefined,
+        source_section: req.query.source_section as string | undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      };
+      const actions = await listCeoActions(ceoId, filters);
+      res.json({ actions });
+    } catch (err: any) {
+      console.error("[ceo-actions] GET:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-actions/generate
+  app.post("/api/today/ceo-actions/generate", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const result = await generateCockpitActions(ceoId);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-actions] generate:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-actions
+  app.post("/api/today/ceo-actions", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      if (!req.body.title || !req.body.type) {
+        return res.status(400).json({ message: "title and type are required" });
+      }
+      const action = await createCeoAction({ ...req.body, created_by_user_id: ceoId }, ceoId);
+      res.status(201).json(action);
+    } catch (err: any) {
+      console.error("[ceo-actions] POST:", err?.message);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/today/ceo-actions/:id
+  app.patch("/api/today/ceo-actions/:id", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await updateCeoAction(id, ceoId, req.body);
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[ceo-actions] PATCH:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-actions/:id/complete
+  app.post("/api/today/ceo-actions/:id/complete", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await completeCeoAction(id, ceoId);
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[ceo-actions] complete:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-actions/:id/dismiss
+  app.post("/api/today/ceo-actions/:id/dismiss", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      await dismissCeoAction(id, ceoId, req.body.reason ?? null);
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[ceo-actions] dismiss:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-actions/:id/snooze
+  app.post("/api/today/ceo-actions/:id/snooze", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const snoozedUntil = req.body.snoozed_until;
+      if (!snoozedUntil) return res.status(400).json({ message: "snoozed_until required" });
+      await snoozeCeoAction(id, ceoId, snoozedUntil);
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[ceo-actions] snooze:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-actions/:id/update-draft
+  app.post("/api/today/ceo-actions/:id/update-draft", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const result = await buildUpdateRequestDraft(id, ceoId);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-actions] update-draft:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-actions/:id/create-task
+  app.post("/api/today/ceo-actions/:id/create-task", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const result = await createTaskFromAction(id, ceoId);
+      res.status(201).json(result);
+    } catch (err: any) {
+      console.error("[ceo-actions] create-task:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
     }
   });
 

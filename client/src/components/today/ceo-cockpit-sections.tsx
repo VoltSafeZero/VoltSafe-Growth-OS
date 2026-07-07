@@ -15,6 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { OneOnOneDrawer, UpdateDraftSheet } from "./ceo-one-on-ones";
+import { QueueActionButton } from "./ceo-action-queue";
 
 // ── Shared types (mirroring service output) ────────────────────────────────────
 
@@ -225,6 +226,36 @@ export function TeamPulseSection({ data }: { data: CeoCockpitData["sections"]["t
                 </span>
               )}
             </div>
+            {(m.signal.label === "Blocked" || m.signal.label === "Needs follow-up") && (
+              <QueueActionButton
+                label="Queue"
+                testId={`queue-team-pulse-${m.id}`}
+                data={{
+                  type: "ask_for_update", priority: "high",
+                  source_section: "team_pulse", source_type: "user",
+                  source_id: String(m.id),
+                  assigned_to_user_id: m.id,
+                  title: `Ask ${m.name} for update`,
+                  body: `${m.name} has a "${m.signal.label}" signal.`,
+                  suggested_message: `Hey ${m.name.split(" ")[0]}, can you share a quick update and any blockers?`,
+                }}
+              />
+            )}
+            {m.signal.label === "Quiet" && (
+              <QueueActionButton
+                label="Queue check-in"
+                testId={`queue-team-pulse-quiet-${m.id}`}
+                data={{
+                  type: "follow_up", priority: "medium",
+                  source_section: "team_pulse", source_type: "user",
+                  source_id: String(m.id),
+                  assigned_to_user_id: m.id,
+                  title: `Check in with ${m.name}`,
+                  body: m.signal.reason,
+                  suggested_message: `Hey ${m.name.split(" ")[0]}, just checking in — how are things going?`,
+                }}
+              />
+            )}
             {m.lastSignalAt && (
               <span className="text-[10px] text-muted-foreground/50">{fmtAgo(m.lastSignalAt)}</span>
             )}
@@ -269,7 +300,24 @@ export function BlockersSection({ data }: { data: CeoCockpitData["sections"]["bl
               )}
             </div>
           </div>
-          <CopyButton text={b.askForUpdateText} label="Ask update" />
+          <div className="flex flex-col items-end gap-1">
+            <CopyButton text={b.askForUpdateText} label="Ask update" />
+            <QueueActionButton
+              label="Queue follow-up"
+              testId={`queue-blocker-${b.id}`}
+              data={{
+                type: "resolve_blocker",
+                priority: b.severity === "critical" ? "critical" : b.ageDays > 7 ? "high" : "medium",
+                source_section: "blockers",
+                source_type: b.source,
+                source_id: String(b.id),
+                assigned_to_user_id: b.ownerId ?? undefined,
+                title: `Resolve blocker: ${b.title}`,
+                body: `${b.ownerName ?? "Someone"} is blocked on "${b.title}" (${b.ageDays}d). ${b.nextAction ?? ""}`.trim(),
+                suggested_message: b.askForUpdateText,
+              }}
+            />
+          </div>
         </div>
       ))}
     </div>
@@ -307,7 +355,24 @@ export function SilenceWatchSection({ data }: { data: CeoCockpitData["sections"]
               <p className="text-[10px] text-muted-foreground mt-0.5">{s.reason}</p>
             </div>
           </div>
-          <CopyButton text={s.askForUpdateText} label="Check in" />
+          <div className="flex flex-col items-end gap-1">
+            <CopyButton text={s.askForUpdateText} label="Check in" />
+            <QueueActionButton
+              label="Queue check-in"
+              testId={`queue-silence-${s.id}`}
+              data={{
+                type: "follow_up",
+                priority: (s.staleDays ?? 0) > 14 ? "high" : "medium",
+                source_section: "silence_watch",
+                source_type: s.type,
+                source_id: String(s.id),
+                assigned_to_user_id: s.ownerId ?? undefined,
+                title: `Check in: ${s.title}`,
+                body: `${s.reason}. Owner: ${s.ownerName ?? "unknown"}.`,
+                suggested_message: s.askForUpdateText,
+              }}
+            />
+          </div>
         </div>
       ))}
     </div>
@@ -349,11 +414,29 @@ export function CommitmentsSection({ data }: { data: CeoCockpitData["sections"][
               </div>
             </div>
           </div>
-          <Link href={c.link}>
-            <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1">
-              <ExternalLink className="h-3 w-3" /> View
-            </Button>
-          </Link>
+          <div className="flex flex-col items-end gap-1">
+            <Link href={c.link}>
+              <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1">
+                <ExternalLink className="h-3 w-3" /> View
+              </Button>
+            </Link>
+            {c.daysOverdue > 0 && (
+              <QueueActionButton
+                label="Queue review"
+                testId={`queue-commitment-${c.id}`}
+                data={{
+                  type: "review_commitment",
+                  priority: c.daysOverdue > 7 ? "critical" : "high",
+                  source_section: "commitments",
+                  source_type: "task",
+                  source_id: String(c.id),
+                  assigned_to_user_id: c.ownerId ?? undefined,
+                  title: `Overdue commitment: ${c.title}`,
+                  body: `"${c.title}" by ${c.ownerName ?? "unknown"} is ${c.daysOverdue}d overdue.`,
+                }}
+              />
+            )}
+          </div>
         </div>
       ))}
     </div>
@@ -524,6 +607,19 @@ export function CeoAttentionSection({ data }: { data: CeoCockpitData["sections"]
                 <ChevronRight className="h-3 w-3" /> Go
               </Button>
             </Link>
+            <QueueActionButton
+              label="Queue follow-up"
+              testId={`queue-ceo-attention-${item.id}`}
+              data={{
+                type: "follow_up",
+                priority: "medium",
+                source_section: "ceo_attention",
+                source_type: item.source,
+                source_id: String(item.id),
+                title: item.title,
+                body: item.reason,
+              }}
+            />
           </div>
         </div>
       ))}

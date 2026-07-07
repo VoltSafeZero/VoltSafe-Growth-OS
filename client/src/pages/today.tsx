@@ -51,6 +51,7 @@ import {
   CommunicationHotspotsSection,
   type CeoCockpitData,
 } from "@/components/today/ceo-cockpit-sections";
+import { CeoActionQueuePanel } from "@/components/today/ceo-action-queue";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1354,6 +1355,9 @@ export default function TodayPage() {
             const compact = prefs.prefs.compact;
             return (
               <div className={`space-y-4 ${compact ? "space-y-3" : ""}`}>
+                {/* Action Queue — Phase 6 */}
+                <CeoActionQueuePanel />
+
                 {/* Team Pulse */}
                 <SectionCard
                   icon={({ className }: any) => <span className={className}>👥</span>}

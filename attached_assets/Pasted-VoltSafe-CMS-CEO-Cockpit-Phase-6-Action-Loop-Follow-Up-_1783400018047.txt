@@ -1,0 +1,224 @@
+VoltSafe CMS — CEO Cockpit Phase 6: Action Loop, Follow-Up Queue, and Accountability Trail
+
+Goal:
+Turn CEO Cockpit insights into safe, reviewable actions:
+- create/update tasks
+- draft Currents update requests
+- track follow-ups
+- maintain an accountability trail
+- never auto-send messages
+- never expose private channel or DM bodies broadly
+- preserve CEO/CFO/admin permission boundaries
+
+Context:
+Phase 4 built GET /api/today/ceo-cockpit with 7 sections.
+Phase 5 built 1:1 notes, deterministic agendas, commitment extraction, task creation from reviewed commitments, and draft update text.
+
+Now build Phase 6 as a careful extension, not a rewrite.
+
+Core requirements:
+
+1. Action Queue model
+Create a lightweight action queue for CEO Cockpit follow-ups.
+
+Preferred table:
+ceo_action_queue
+- id
+- type: ask_for_update | create_task | follow_up | resolve_blocker | schedule_1on1 | review_commitment
+- status: draft | queued | completed | dismissed | snoozed
+- priority: low | medium | high | critical
+- source_section: team_pulse | blockers | silence_watch | commitments | one_on_ones | ceo_attention | communication_hotspots
+- source_type: task | user | opportunity | meeting_note | current_message | install_workflow
+- source_id
+- assigned_to_user_id nullable
+- created_by_user_id
+- title
+- body
+- suggested_message nullable
+- due_at nullable
+- snoozed_until nullable
+- completed_at nullable
+- dismissed_reason nullable
+- metadata jsonb
+- created_at / updated_at
+
+If an existing generic actions/reminders table already exists, reuse it only if it cleanly supports the above. Do not force-fit and create a mess.
+
+2. Backend service
+Create server/services/ceo-action-loop.ts with deterministic helpers:
+
+- generateCockpitActions(cockpitPayload, actorUser)
+  Produces suggested actions from the existing CEO Cockpit sections.
+  It must dedupe against existing open action queue items.
+
+- listCeoActions(filters)
+  Supports status, priority, type, assigned_to_user_id, source_section.
+
+- createCeoAction(input)
+- updateCeoAction(id, patch)
+- completeCeoAction(id)
+- dismissCeoAction(id, reason)
+- snoozeCeoAction(id, snoozedUntil)
+
+- buildUpdateRequestDraft(actionId)
+  Returns draft text only. Never sends.
+
+- createTaskFromAction(actionId)
+  Creates a real task only after explicit user action.
+  Preserve source metadata:
+  source='ceo_action_queue'
+  sourceMeta={ actionId, sourceSection, sourceType, sourceId }
+
+3. API routes
+Add requireAuth + requireAdmin routes:
+
+GET    /api/today/ceo-actions
+POST   /api/today/ceo-actions/generate
+POST   /api/today/ceo-actions
+PATCH  /api/today/ceo-actions/:id
+POST   /api/today/ceo-actions/:id/complete
+POST   /api/today/ceo-actions/:id/dismiss
+POST   /api/today/ceo-actions/:id/snooze
+POST   /api/today/ceo-actions/:id/update-draft
+POST   /api/today/ceo-actions/:id/create-task
+
+Rules:
+- No route may auto-send Currents messages.
+- No route may send email.
+- No route may create a DM conversation unless there is already a safe existing pattern in the app for doing that, and even then it must only happen after explicit user action.
+- Draft routes return copyable text and optional link only.
+- All routes must validate ownership/permissions.
+
+4. Frontend
+Add a new CEO Cockpit panel:
+“Action Queue”
+
+Placement:
+Inside Today → CEO Cockpit tab, ideally above or beside the 7 insight sections.
+
+UI requirements:
+- Filter chips: Open, High Priority, Snoozed, Completed, Dismissed
+- Action cards showing:
+  - priority
+  - type
+  - source section
+  - title
+  - short body
+  - owner/person involved
+  - due/snooze state
+  - created age
+- Buttons:
+  - Copy Draft
+  - Create Task
+  - Snooze
+  - Complete
+  - Dismiss
+- “Generate Suggested Actions” button
+  - Calls POST /api/today/ceo-actions/generate
+  - Must not duplicate existing open actions
+  - Must show preview/count of generated items
+
+5. Integration with existing CEO Cockpit sections
+Add contextual buttons where appropriate:
+
+team_pulse:
+- “Ask for update” creates/opens an action queue item instead of only copy text.
+
+blockers:
+- “Create blocker follow-up”
+- “Create task” where safe
+
+silence_watch:
+- “Queue check-in”
+
+commitments:
+- “Review commitment”
+- “Create task”
+
+one_on_ones:
+- “Add to next 1:1”
+- “Queue update draft”
+
+ceo_attention:
+- “Mark reviewed”
+- “Create follow-up”
+
+communication_hotspots:
+- “Queue channel follow-up”
+
+6. Accountability trail
+Every queue item should preserve enough metadata to answer:
+- why was this suggested?
+- what source section created it?
+- what object/person did it relate to?
+- who completed/dismissed/snoozed it?
+- when did it change?
+
+Add simple audit events if an audit table exists. If not, keep a status_history array in metadata or create ceo_action_events:
+- id
+- action_id
+- event_type
+- actor_user_id
+- note
+- metadata jsonb
+- created_at
+
+7. Safety / privacy requirements
+Tests must prove:
+- non-admins cannot see or mutate CEO actions
+- private Currents channels are not included
+- DM bodies are not broadly exposed
+- no sendEmail/sendMessage/auto-send happens in these routes
+- update drafts are copy-only
+- capital-sensitive actions remain gated by existing capital permissions
+- actions are deduped
+- dismissed actions are not regenerated immediately
+- snoozed actions are hidden from open view until snoozed_until
+
+8. Tests
+Create a focused test suite, likely:
+tests/ceo-action-loop.test.cjs
+
+Minimum coverage:
+- schema/migration exists
+- all routes require auth + admin
+- generate creates deduped suggested actions
+- generate respects dismissed/snoozed items
+- list filters work
+- complete/dismiss/snooze transitions work
+- update draft does not send anything
+- createTaskFromAction creates one task with correct source metadata
+- private channels excluded
+- no broad DM body exposure
+- no auto-send patterns in scoped route block
+- frontend renders Action Queue
+- frontend buttons are wired
+- Phase 4/5 regressions still pass
+
+9. Validation
+Run:
+- npm run build
+- node tests/ceo-action-loop.test.cjs
+- node tests/ceo-cockpit.test.cjs
+- node tests/today-cockpit.test.cjs
+- node tests/capital-hardening.test.cjs
+- node tests/nav-consolidation.test.cjs
+
+Also run any newly relevant frontend or Today tests if present.
+
+10. Constraints
+Do not rewrite Phase 4 or Phase 5.
+Do not introduce external API calls.
+Do not auto-send Currents or email.
+Do not expose private data.
+Do not add noisy AI dependency for deterministic action generation.
+Keep this practical and surgical.
+
+Deliverable:
+Summarize:
+- files changed
+- routes added
+- tables/migrations added
+- tests added
+- validation results
+- any known limitations

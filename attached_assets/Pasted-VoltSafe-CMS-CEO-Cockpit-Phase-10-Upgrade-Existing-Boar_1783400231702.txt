@@ -1,0 +1,497 @@
+VoltSafe CMS — CEO Cockpit Phase 10: Upgrade Existing Board / Investor Pack Module
+
+Goal:
+Upgrade the existing Board / Investor Pack functionality instead of creating a duplicate module.
+
+We already have some version of board/investor reporting in VoltSafe CMS. First audit what exists, then extend it carefully with the proposed CEO/CFO-only operating pack capabilities.
+
+Do not create a parallel board-pack system if one already exists.
+
+Context:
+Earlier phases built:
+- Phase 4: CEO Cockpit insights
+- Phase 5: 1:1 notes and commitments
+- Phase 6: CEO Action Queue
+- Phase 7: Daily/Weekly CEO Briefing and Leadership Agenda
+- Phase 8: Execution Intelligence / Drift Detection
+
+Phase 10 should upgrade the existing board/investor reporting area so it can pull from these systems and produce a clean, reviewable executive operating pack.
+
+Important permission rule:
+This module must be restricted to CEO and CFO only.
+CEO = Trevor
+CFO = Scott Carlson
+
+Normal admins should not get access unless they are explicitly CEO/CFO or already have a stronger existing board/capital permission that clearly maps to this use case.
+
+1. Audit first
+
+Before changing code, inspect the existing implementation.
+
+Find:
+- existing board pack / investor update / capital reporting routes
+- existing frontend pages/components
+- existing database tables
+- existing permission guards
+- existing capital access rules
+- existing export/copy/draft functionality
+- existing tests
+
+Search terms:
+- board
+- board pack
+- investor
+- investor update
+- capital update
+- executive summary
+- operating pack
+- update draft
+- markdown
+- export
+- capital report
+- fundraising report
+
+Report what exists before modifying:
+- routes found
+- tables found
+- frontend pages found
+- services found
+- permission guards found
+- tests found
+- gaps versus this Phase 10 spec
+
+2. Upgrade principle
+
+Prefer these in order:
+
+1. Extend existing services/routes/components.
+2. Reuse existing tables if they cleanly fit.
+3. Add missing columns with safe migrations if needed.
+4. Add new supporting tables only when the existing model cannot support the feature.
+5. Do not duplicate routes/pages/tables with a similar purpose.
+
+If an existing board/investor module already has tables, do not create board_packs unless no equivalent table exists.
+
+If an existing page already exists, upgrade that page instead of adding a second Board Pack page.
+
+3. Backend upgrade
+
+Add or extend a service layer for the existing module.
+
+If no clean service exists, create:
+
+server/services/board-pack.ts
+
+Functions should support:
+
+- buildBoardPack(actorUser, options)
+- getBoardPack(packId, actorUser)
+- listBoardPacks(actorUser, filters)
+- createBoardPack(actorUser, input)
+- updateBoardPack(packId, actorUser, patch)
+- finalizeBoardPack(packId, actorUser)
+- archiveBoardPack(packId, actorUser)
+- buildBoardPackMarkdown(packId, actorUser)
+- buildBoardPackExecutiveSummary(packId, actorUser)
+- buildInvestorUpdateDraft(packId, actorUser)
+- compareAgainstPreviousPack(actorUser, currentPackOrOptions)
+
+If equivalent functions exist, upgrade them instead of replacing them.
+
+No auto-send.
+No external API calls.
+No AI dependency required.
+Draft functions return copyable text only.
+
+4. Required upgraded pack sections
+
+The upgraded pack must support these sections, whether stored as jsonb, rows, or existing structure:
+
+A. Executive Summary
+- 5 to 10 bullet summary
+- what changed since last pack
+- top wins
+- top risks
+- top CEO asks
+- next 30-day priorities
+
+B. Company Scorecard
+Use existing CEO Cockpit / Execution Intelligence / Action Queue data:
+- execution health score
+- open blockers
+- overdue commitments
+- completed commitments
+- stale tasks
+- high-priority CEO actions
+- weekly movement if available
+
+C. Revenue / Pipeline
+Use existing CRM/pipeline data:
+- total pipeline
+- weighted pipeline if available
+- top opportunities
+- stale opportunities
+- expected close movement
+- hot accounts
+- customer/prospect momentum
+- blockers to revenue
+
+D. Capital / Funding
+Only visible to CEO/CFO users with capital access.
+Include:
+- current raise status if available
+- target raise amount if available
+- investor pipeline
+- active investor conversations
+- committed/soft-circled capital if available
+- grant/government funding opportunities
+- next investor actions
+- funding risks
+- key asks
+
+E. Product / Operations
+Use local product/operations data:
+- deployments/install workflows
+- flagged deployments
+- stalled workflows
+- product risks
+- operational blockers
+- customer implementation risks
+
+F. Team / Accountability
+Use 1:1 notes, commitments, tasks, and action queue:
+- team pulse summary
+- open commitments
+- missed commitments
+- completed commitments
+- owner load risks
+- support needed
+Use neutral language only.
+
+G. Risks / Decisions Needed
+Include:
+- critical drift items
+- recurring risks
+- unresolved blockers
+- capital risks
+- revenue risks
+- product risks
+- decisions needed from board/investors/advisors
+
+H. Wins / Momentum
+Include:
+- completed high-priority actions
+- resolved blockers
+- customer movement
+- partner movement
+- product milestones
+- funding progress
+- team wins
+
+I. Next 30 / 60 / 90 Days
+Structured plan:
+- 30 days: urgent execution
+- 60 days: growth and funding milestones
+- 90 days: strategic outcomes
+
+J. Board / Investor Asks
+Clear asks:
+- intros needed
+- funding asks
+- customer introductions
+- hiring/advisor needs
+- technical/compliance support
+- government/grant support
+- partnership support
+
+5. “What changed since last pack”
+
+Upgrade the existing board/investor module to compare against the previous finalized pack where possible.
+
+Return:
+- new blockers
+- resolved blockers
+- new overdue commitments
+- completed commitments
+- pipeline movement
+- capital movement
+- new risks
+- removed risks
+- new wins
+- action queue movement
+
+If no previous finalized pack exists, return:
+“No previous finalized pack available for comparison.”
+
+6. Permission guard
+
+Add or upgrade a guard:
+
+requireBoardPackAccess
+or
+requireCeoCfo
+
+Rules:
+- Trevor has access.
+- Scott Carlson has access.
+- normal admins do not automatically have access.
+- existing capital permission may be reused only if it is already CEO/CFO-grade.
+- all board/investor operating pack routes must use this guard.
+- frontend must hide the module from users without access.
+
+7. API routes
+
+Audit existing routes first.
+
+If equivalent routes already exist, upgrade them.
+If missing, add routes consistent with existing API naming.
+
+Required capabilities:
+
+- list packs
+- generate pack
+- read pack
+- update pack
+- finalize pack
+- archive pack
+- export/copy markdown
+- get executive summary
+- generate investor update draft
+
+Suggested route shape if no existing equivalent exists:
+
+GET    /api/board-packs
+POST   /api/board-packs
+GET    /api/board-packs/:id
+PATCH  /api/board-packs/:id
+POST   /api/board-packs/:id/finalize
+POST   /api/board-packs/:id/archive
+GET    /api/board-packs/:id/markdown
+GET    /api/board-packs/:id/executive-summary
+POST   /api/board-packs/:id/investor-update-draft
+POST   /api/board-packs/generate
+
+Rules:
+- all routes require auth
+- all routes require CEO/CFO board pack access
+- no route may send email
+- no route may send Currents messages
+- no route may expose private channel/DM bodies
+- capital sections remain capital-gated
+- draft routes return copyable text only
+
+8. Frontend upgrade
+
+Audit existing frontend first.
+
+If a Board Pack / Investor Update / Capital Report page already exists, upgrade it instead of creating a duplicate page.
+
+The upgraded UI should support:
+
+Dashboard:
+- list previous packs/updates
+- create/generate new pack
+- filter by type/status/date
+- show finalized vs draft
+
+Builder:
+- pack type selector:
+  - Board
+  - Investor
+  - Lender
+  - Grant
+  - Internal Exec
+- date range selector
+- Generate / Refresh Pack button
+- section cards with editable text areas
+- “Regenerate section” button only if deterministic and safe
+- “Copy markdown”
+- “Copy executive summary”
+- “Create investor update draft”
+- “Finalize pack”
+- “Archive pack”
+
+Viewer:
+- clean executive layout
+- sections in order
+- status badge
+- date range
+- created/reviewed/finalized metadata
+- copy buttons
+
+Placement:
+Prefer the existing location if one exists.
+If not, add under Today → CEO Cockpit → Board Pack or existing Capital area.
+Do not clutter main nav.
+
+9. Investor update draft
+
+Upgrade or add a copy-only investor update draft.
+
+Format:
+
+Subject suggestion:
+VoltSafe Update — [Month/Quarter] [Year]
+
+Body sections:
+- Opening
+- Top 3 wins
+- Key metrics
+- Product/revenue progress
+- Funding/capital update
+- Risks/asks
+- Next milestones
+- Closing
+
+Return:
+- subject
+- body
+- source_pack_id
+- copy_only: true
+
+Do not create Gmail drafts.
+Do not send email.
+Do not auto-create Currents posts.
+
+10. Markdown export
+
+Upgrade or add clean markdown export.
+
+Return as JSON:
+{
+  markdown: "...",
+  copy_only: true
+}
+
+Markdown should include:
+- Executive Summary
+- Company Scorecard
+- Revenue / Pipeline
+- Capital / Funding
+- Product / Operations
+- Team / Accountability
+- Risks / Decisions Needed
+- Wins / Momentum
+- Next 30 / 60 / 90 Days
+- Board / Investor Asks
+
+Do not generate PDF or PowerPoint in this phase unless existing artifact infrastructure already safely supports it. Keep this upgrade focused.
+
+11. Privacy and safety
+
+Tests must prove:
+
+- unauthenticated users cannot access routes
+- normal admins cannot access unless CEO/CFO
+- CEO Trevor can access
+- CFO Scott Carlson can access
+- capital section is hidden if capital permission fails
+- private Currents channels are excluded
+- DM bodies are not broadly exposed
+- no sendEmail/sendMessage/auto-send patterns in route/service block
+- investor update draft is copy-only
+- markdown export is copy-only
+- finalizing does not send anything
+- archived packs remain readable to CEO/CFO
+- generated pack uses neutral language
+- no blame/shaming words
+- existing board/investor functionality is preserved
+
+Banned user-facing language:
+- lazy
+- failing
+- weak performer
+- poor performer
+- blame
+- underperforming
+
+Use:
+- blocked
+- stale
+- drifting
+- needs check-in
+- follow-up suggested
+- support needed
+- owner load risk
+
+12. Tests
+
+Create or upgrade:
+
+tests/board-pack.test.cjs
+
+Minimum coverage:
+- existing board/investor module audit expectations
+- service exists or existing service upgraded
+- board/investor routes exist
+- routes require auth
+- routes require CEO/CFO access
+- normal admin denied
+- CEO allowed
+- CFO Scott Carlson allowed
+- generate returns all required sections
+- capital section obeys capital permission
+- previous pack comparison works
+- no previous pack empty state works
+- create/update/finalize/archive transitions work
+- markdown export returns markdown only
+- investor update draft returns subject/body/copy_only
+- no auto-send patterns
+- no private channel exposure
+- no broad DM body exposure
+- frontend existing Board/Investor page upgraded
+- Generate Pack button exists
+- Copy markdown button exists
+- Finalize button exists
+- no duplicate board-pack nav/page/module introduced
+- Phase 4/5/6/7/8 regressions still pass
+
+13. Validation
+
+Run:
+
+npm run build
+node tests/board-pack.test.cjs
+node tests/ceo-execution-intelligence.test.cjs
+node tests/ceo-briefing.test.cjs
+node tests/ceo-action-loop.test.cjs
+node tests/ceo-cockpit.test.cjs
+node tests/today-cockpit.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/nav-consolidation.test.cjs
+
+Also run any existing Capital, Investor, Board, Today, or frontend tests found during the audit.
+
+14. Constraints
+
+Do not create duplicate board/investor modules.
+Do not rewrite prior CEO Cockpit phases.
+Do not introduce external API calls.
+Do not add AI dependency.
+Do not auto-send anything.
+Do not expose private data.
+Do not generate PDF/PPT yet unless already safely supported.
+Do not make this visible to broad admins.
+Keep it CEO/CFO-only.
+Keep it deterministic, fast, and local-DB-first.
+Keep the UI executive-clean.
+
+Deliverable:
+First summarize the audit:
+- existing routes
+- existing services
+- existing frontend pages
+- existing tables
+- existing tests
+- gaps found
+
+Then summarize implementation:
+- files changed
+- services upgraded/added
+- routes upgraded/added
+- permission guard added/upgraded
+- tables/migrations added/upgraded
+- frontend sections/pages upgraded
+- tests added/upgraded
+- validation results
+- known limitations

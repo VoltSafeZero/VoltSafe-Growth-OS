@@ -386,6 +386,48 @@ app.use((req, res, next) => {
       await migrateCapitalSchema();
     } catch (_e) { /* already exists */ }
 
+    // CEO Action Queue — Phase 6 tables
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS ceo_action_queue (
+          id                  SERIAL PRIMARY KEY,
+          type                TEXT NOT NULL,
+          status              TEXT NOT NULL DEFAULT 'queued',
+          priority            TEXT NOT NULL DEFAULT 'medium',
+          source_section      TEXT,
+          source_type         TEXT,
+          source_id           TEXT,
+          assigned_to_user_id INT REFERENCES users(id) ON DELETE SET NULL,
+          created_by_user_id  INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          title               TEXT NOT NULL,
+          body                TEXT,
+          suggested_message   TEXT,
+          due_at              TIMESTAMPTZ,
+          snoozed_until       TIMESTAMPTZ,
+          completed_at        TIMESTAMPTZ,
+          dismissed_reason    TEXT,
+          metadata            JSONB DEFAULT '{}'::jsonb,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS ceo_action_events (
+          id             SERIAL PRIMARY KEY,
+          action_id      INT NOT NULL REFERENCES ceo_action_queue(id) ON DELETE CASCADE,
+          event_type     TEXT NOT NULL,
+          actor_user_id  INT,
+          note           TEXT,
+          metadata       JSONB DEFAULT '{}'::jsonb,
+          created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_action_queue_owner_status ON ceo_action_queue(created_by_user_id, status)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_action_queue_dedup ON ceo_action_queue(created_by_user_id, type, source_section, source_type, source_id)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_action_events_action ON ceo_action_events(action_id)`);
+      log("[migration] CEO Action Queue tables ready.");
+    } catch (_e) { /* already exists */ }
+
     // CEO 1:1 Notes: add one_on_one_sections JSONB column to meeting_notes
     try {
       await pool.query(`ALTER TABLE meeting_notes ADD COLUMN IF NOT EXISTS one_on_one_sections jsonb`);
