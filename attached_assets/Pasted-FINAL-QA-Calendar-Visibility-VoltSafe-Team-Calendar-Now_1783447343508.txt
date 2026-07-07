@@ -1,0 +1,91 @@
+FINAL QA — Calendar Visibility + VoltSafe Team Calendar
+
+Now run a full end-to-end QA pass for the completed Calendar work.
+
+Scope:
+1. Calendar visibility bug fix
+2. VoltSafe Team Calendar feature
+3. Role-based create/edit/delete permissions
+4. Day / Week / Month rendering
+5. Sidebar checkbox behavior
+
+Manual/browser validation:
+1. Open Work → Calendar & Meetings.
+2. Confirm default visible calendars:
+   - My primary calendar is visible.
+   - VoltSafe Team Calendar is visible by default.
+   - Optional My Calendars are hidden unless checked.
+   - People Calendars are hidden unless checked.
+
+3. Calendar checkbox behavior:
+   - Uncheck VoltSafe Team Calendar → all VoltSafe Team events disappear immediately.
+   - Re-check VoltSafe Team Calendar → events reappear immediately.
+   - Check one People Calendar → only that person’s events appear.
+   - Uncheck that People Calendar → that person’s events disappear.
+   - Confirm unchecked people calendars never leak into the main grid, Today’s Agenda, Daily Rollup, or suggested openings.
+
+4. Event creation:
+   - Log in as / simulate an allowed role: master_admin, admin, manager, executive, exec, ceo, or cfo.
+   - Click New Event.
+   - Confirm Calendar dropdown includes:
+     a) My Calendar
+     b) VoltSafe Team Calendar
+   - Select VoltSafe Team Calendar.
+   - Confirm team-calendar-specific fields appear:
+     - Category
+     - Milestone Status
+     - Description/location as applicable
+   - Create a test event.
+   - Confirm it appears in Day, Week, and Month views.
+
+5. Event detail:
+   - Click the VoltSafe Team Calendar test event.
+   - Confirm details modal shows:
+     - Category
+     - Milestone status
+     - Created by / updated by attribution
+     - Edit/Delete buttons for allowed roles only
+
+6. Unauthorized user behavior:
+   - Log in as / simulate a regular user.
+   - Confirm they can see VoltSafe Team Calendar events.
+   - Confirm they cannot create/edit/delete VoltSafe Team Calendar events.
+   - Confirm backend POST/PATCH/DELETE rejects unauthorized attempts.
+
+7. Category and status validation:
+   Confirm final category list exactly matches:
+   - Project Milestone
+   - Key Timeline
+   - All-Staff Meeting
+   - Team Event / Social
+   - Company Update
+   - Culture / People
+   - Customer / Partner Milestone
+   - Funding / Board / Investor
+   - Product / Engineering
+   - Operations
+   - Other
+
+   Confirm milestone statuses:
+   - Planned
+   - On Track
+   - At Risk
+   - Delayed
+   - Completed
+
+Automated validation:
+1. Run all calendar-related tests.
+2. Run full build/typecheck.
+3. Restart app.
+4. Confirm no server errors.
+5. Confirm no browser console errors.
+6. Confirm no Vite/React key collision warnings.
+7. Confirm no duplicate events.
+
+Acceptance:
+Report:
+- Files changed
+- Tests run and pass counts
+- Browser/manual QA result
+- Any console/server errors
+- Whether this is safe to publish
