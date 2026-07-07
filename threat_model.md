@@ -34,12 +34,13 @@ Users are VoltSafe sales / customer-success / admin staff plus designated read-o
 
 ## Scan Anchors
 
-- **Production entry points** — `server/index.ts`, `server/routes.ts` (heavy — 21k+ LOC), `server/routes-tasks.ts`, `server/voice-assistant.ts`, `server/voice-assistant-safety.ts`.
-- **Highest-risk surfaces** — file streaming (`/api/attachments/file/:fileName`), Gmail send / draft / sync (`/api/gmail/*`), admin user management (`/api/admin/users/*`), webhook (`/api/webhooks/gmail`), voice-assistant create dispatch (`server/voice-assistant-safety.ts`), CSV / PDF export.
+- **Production entry points** — `server/index.ts`, `server/routes.ts` (heavy — 40k+ LOC), `server/routes-tasks.ts`, `server/routes-capital.ts`, `server/voice-assistant.ts`, `server/voice-assistant-safety.ts`.
+- **Highest-risk surfaces** — file streaming (`/api/attachments/file/:fileName`), Gmail send / draft / sync (`/api/gmail/*`), admin user management (`/api/admin/users/*`), webhook (`/api/webhooks/gmail`), voice-assistant create dispatch (`server/voice-assistant-safety.ts`), CSV / PDF export, Capital/investor/funding routes (`/api/capital/*`), Board Pack routes (`/api/board-packs/*`), forecasting/runway routes (`/api/today/ceo-forecast/*`), investor portal (`/api/investor-portal/:token`).
 - **Authentication & session** — `server/auth.ts`, session config block in `server/index.ts:85-102`, login rate limiter in `server/routes.ts:99-122`.
 - **CSRF** — `server/csrf.ts` (origin/referer host allowlist; webhooks exempt by design).
 - **Public surfaces** — `/health`, `/api/auth/login`, `/api/auth/forgot-password`, `/api/auth/reset-password`, `/api/webhooks/gmail`, OAuth callbacks (`/api/auth/google/callback`, `/api/calendar/auth/callback`), tracking pixel (`/api/tracking/*`). Everything else requires an authenticated session.
 - **Admin-only** — every route under `/api/admin/*` and a small number of `/api/users/:id` mutations; gated by `requireAdmin` in `server/auth.ts:93` or the local copy in `server/routes.ts:4612`.
+- **Capital-only** — every route under `/api/capital/*` gated by `requireCapitalAccess` in `server/routes-capital.ts:31`; Board Pack routes gated by `requireBoardPackAccess` (Trevor + Scott Carlson); runway/funding forecast gated by `requireForecastCapitalAccess` (both require `requireAdmin` as well).
 - **Dev-only / not production** — `scripts/seed-low-perm-user.ts` (test fixture user), `scripts/build2-smoke.ts`, `scripts/build2-llm-harness.ts`, `scripts/security-attachment-idor.test.ts`, `scripts/run-migration-pipeline.js`. None are reachable at runtime in production.
 
 ## Threat Categories
