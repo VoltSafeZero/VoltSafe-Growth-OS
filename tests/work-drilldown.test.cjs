@@ -241,6 +241,59 @@ assert(
 console.log("\n8. Auth invariants");
 assert("defaults ownerId to currentUserId (user scoping)", drilldownSrc.includes("userId") && drilldownSrc.includes("req.user"));
 
+// ── 9. calendar.tsx drilldown wiring ─────────────────────────────────────────
+
+const calendarSrc = fs.readFileSync(
+  path.join(__dirname, "../client/src/pages/calendar.tsx"),
+  "utf8"
+);
+
+console.log("\n9. calendar.tsx drilldown wiring");
+assert(
+  "UniversalDrilldownSheet imported",
+  calendarSrc.includes("UniversalDrilldownSheet")
+);
+assert(
+  "UniversalDrilldownConfig type imported",
+  calendarSrc.includes("UniversalDrilldownConfig")
+);
+assert(
+  "drilldownConfig state declared",
+  calendarSrc.includes("drilldownConfig") && calendarSrc.includes("setDrilldownConfig")
+);
+assert(
+  "events_today metric wired to meeting count row",
+  calendarSrc.includes('"events_today"')
+);
+assert(
+  "events_upcoming metric wired to Upcoming stat",
+  calendarSrc.includes('"events_upcoming"')
+);
+assert(
+  "events_today in WORK_METRICS whitelist",
+  drilldownSrc.includes('"events_today"')
+);
+assert(
+  "events_upcoming in WORK_METRICS whitelist",
+  drilldownSrc.includes('"events_upcoming"')
+);
+assert(
+  "events_* handler in drilldown route",
+  drilldownSrc.includes("events_today") && drilldownSrc.includes("events_upcoming")
+);
+assert(
+  "UniversalDrilldownSheet rendered with work endpoint",
+  calendarSrc.includes('endpoint="/api/work/drilldown"')
+);
+assert(
+  "onDrilldown callback passed to DailyRollupCard",
+  calendarSrc.includes("onDrilldown={setDrilldownConfig}")
+);
+assert(
+  "onDrilldown callback passed to MetricsBar",
+  calendarSrc.includes("onDrilldown={setDrilldownConfig}")
+);
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 console.log(`\n${"─".repeat(50)}`);

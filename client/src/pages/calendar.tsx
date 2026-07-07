@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
@@ -913,12 +914,14 @@ function DailyRollupCard({
   outcomeStatuses,
   scheduledTaskIds,
   onOpenEvent,
+  onDrilldown,
 }: {
   events: DisplayEvent[];
   tasks: any[];
   outcomeStatuses: Record<number, OutcomeStatus>;
   scheduledTaskIds: Set<number>;
   onOpenEvent: (eventId: number, tab: "prep" | "outcome") => void;
+  onDrilldown?: (config: UniversalDrilldownConfig) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const now = new Date();
@@ -972,7 +975,11 @@ function DailyRollupCard({
               <div data-testid="rollup-meetings">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-1.5">Meetings</p>
                 <div className="space-y-0.5">
-                  <div className="flex items-center justify-between text-xs">
+                  <div
+                    className={`flex items-center justify-between text-xs${onDrilldown ? " cursor-pointer hover:text-foreground rounded px-1 -mx-1 transition-colors" : ""}`}
+                    onClick={() => onDrilldown?.({ metric: "events_today" })}
+                    data-testid="rollup-meeting-count-row"
+                  >
                     <span className="text-muted-foreground">Today</span>
                     <span className="font-medium tabular-nums" data-testid="rollup-meeting-count">{meetingCount}</span>
                   </div>
@@ -1371,6 +1378,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   const [popoverOpenTaskId, setPopoverOpenTaskId] = useState<number | null>(null);
   const { toast } = useToast();
 
+  const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
   const calendarTeamIds: number[] = permissions?.calendar_team ?? [];
   const showOverlayPanel = isAdmin || calendarTeamIds.length > 0;
@@ -1765,7 +1773,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
         </div>
       </div>
 
-      <MetricsBar />
+      <MetricsBar onDrilldown={setDrilldownConfig} />
 
       {/* Now / Next command strip — today only */}
       {isToday(currentDate) && (
@@ -1927,6 +1935,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 const ev = (ownEvents ?? []).find(e => e.id === eventId);
                 if (ev) { setSelectedEvent(ev as CalendarEvent); setEventInitialTab(tab); }
               }}
+              onDrilldown={setDrilldownConfig}
             />
           )}
 
@@ -2252,6 +2261,12 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           });
         }}
         isPending={rescheduleMutation.isPending}
+      />
+
+      <UniversalDrilldownSheet
+        config={drilldownConfig}
+        onClose={() => setDrilldownConfig(null)}
+        endpoint="/api/work/drilldown"
       />
     </div>
   );
@@ -3686,7 +3701,7 @@ function PostMeetingTab({ event, opportunities, onDone }: {
 
 // ─── Calendar Metrics Bar ─────────────────────────────────────────────────────
 
-function MetricsBar() {
+function MetricsBar({ onDrilldown }: { onDrilldown?: (config: UniversalDrilldownConfig) => void }) {
   const { data: metrics } = useQuery<CalendarMetrics>({
     queryKey: ["/api/calendar/metrics"],
     refetchInterval: 5 * 60_000,
@@ -3694,9 +3709,9 @@ function MetricsBar() {
 
   if (!metrics) return null;
 
-  const stats = [
-    { label: "This week", value: metrics.meetingsThisWeek, sub: `${metrics.completedThisWeek} completed`, icon: CalendarDays, color: "text-primary" },
-    { label: "Upcoming", value: metrics.upcomingCount, sub: "events scheduled", icon: CalendarPlus, color: "text-blue-500" },
+  const stats: { label: string; value: number; sub: string; icon: any; color: string; metric?: string }[] = [
+    { label: "This week", value: metrics.meetingsThisWeek, sub: `${metrics.completedThisWeek} completed`, icon: CalendarDays, color: "text-primary", metric: "events_this_week" },
+    { label: "Upcoming", value: metrics.upcomingCount, sub: "events scheduled", icon: CalendarPlus, color: "text-blue-500", metric: "events_upcoming" },
     { label: "This month", value: metrics.meetingsThisMonth, sub: "total events", icon: TrendingUp, color: "text-emerald-500" },
     { label: "Overdue tasks", value: metrics.overdueTasks, sub: "need attention", icon: AlertTriangle, color: metrics.overdueTasks > 0 ? "text-amber-500" : "text-muted-foreground" },
     { label: "Dormant accounts", value: metrics.dormantAccounts, sub: "no activity 30d", icon: Building2, color: metrics.dormantAccounts > 0 ? "text-red-400" : "text-muted-foreground" },
@@ -3704,8 +3719,13 @@ function MetricsBar() {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-5 gap-2" data-testid="metrics-bar">
-      {stats.map(({ label, value, sub, icon: Icon, color }) => (
-        <div key={label} className="flex items-center gap-2.5 bg-card border border-border/50 rounded-xl px-3 py-2.5">
+      {stats.map(({ label, value, sub, icon: Icon, color, metric }) => (
+        <div
+          key={label}
+          className={`flex items-center gap-2.5 bg-card border border-border/50 rounded-xl px-3 py-2.5${metric && onDrilldown ? " cursor-pointer hover:border-primary/40 transition-colors" : ""}`}
+          onClick={() => metric && onDrilldown?.({ metric })}
+          data-testid={`metric-card-${label.replace(/\s+/g, "-").toLowerCase()}`}
+        >
           <div className={`${color} shrink-0`}>
             <Icon className="h-5 w-5" />
           </div>

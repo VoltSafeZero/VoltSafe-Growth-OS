@@ -72,6 +72,10 @@ const WORK_METRICS = new Set([
   "meetings_this_week",
   "meetings_upcoming",
   "meetings_past_month",
+  // Calendar / Events (calendar-page drilldowns)
+  "events_today",
+  "events_upcoming",
+  "events_this_week",
   // Activity Feed
   "activity_recent",
   "activity_email",
@@ -296,6 +300,54 @@ export function registerWorkDrilldownRoutes(
           };
 
           return res.json(buildPaginatedResponse(metric, LABELS[metric], DESCS[metric], MEETING_COLS, rowRes.rows, total, page, pageSize, EMPTY[metric]));
+        }
+
+        // ── Calendar / Event metrics (calendar-page drilldowns) ───────────────
+        if (["events_today","events_upcoming","events_this_week"].includes(metric)) {
+          const whereParts: string[] = [`ce.user_id = ${userId}`, `ce.status != 'cancelled'`];
+
+          if (metric === "events_today") {
+            whereParts.push(`ce.start_time::date = CURRENT_DATE`);
+          } else if (metric === "events_upcoming") {
+            whereParts.push(`ce.start_time > NOW()`);
+          } else if (metric === "events_this_week") {
+            whereParts.push(`ce.start_time BETWEEN NOW() AND (NOW() + INTERVAL '7 days')`);
+          }
+
+          if (dateFrom) whereParts.push(`ce.start_time >= '${dateFrom}'`);
+          if (dateTo)   whereParts.push(`ce.start_time <= '${dateTo}'`);
+
+          const sc = searchClause(search, ["ce.title", "ce.location"]);
+          const whereSQL = `WHERE ${whereParts.join(" AND ")} ${sc}`;
+
+          const countRes = await db.execute(sql.raw(`SELECT COUNT(*)::int AS cnt FROM calendar_events ce ${whereSQL}`));
+          const total = (countRes.rows[0] as any)?.cnt ?? 0;
+
+          const rowRes = await db.execute(sql.raw(`
+            SELECT ce.id AS event_id, ce.title AS event_title, ce.start_time, ce.end_time,
+                   ce.event_type, ce.location, ce.status
+            FROM calendar_events ce
+            ${whereSQL}
+            ORDER BY ce.start_time ASC LIMIT ${pageSize} OFFSET ${offset}
+          `));
+
+          const ELABELS: Record<string,string> = {
+            events_today: "Today's Events",
+            events_upcoming: "Upcoming Events",
+            events_this_week: "Events This Week",
+          };
+          const EDESCS: Record<string,string> = {
+            events_today: "All calendar events scheduled for today.",
+            events_upcoming: "All future scheduled calendar events.",
+            events_this_week: "Calendar events in the next 7 days.",
+          };
+          const EEMPTY: Record<string,string> = {
+            events_today: "No events scheduled for today. Clear day ahead.",
+            events_upcoming: "No upcoming events on the calendar.",
+            events_this_week: "No events scheduled this week.",
+          };
+
+          return res.json(buildPaginatedResponse(metric, ELABELS[metric], EDESCS[metric], MEETING_COLS, rowRes.rows, total, page, pageSize, EEMPTY[metric]));
         }
 
         // ── Activity Feed metrics ─────────────────────────────────────────────
