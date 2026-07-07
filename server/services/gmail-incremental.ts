@@ -460,11 +460,18 @@ export async function syncIncremental(accountId: number): Promise<IncrementalRes
 }
 
 // Convenience: run incremental sync for every active account.
+// Only accounts with authStatus="active" are included — expired/revoked/error
+// accounts are skipped at the query level so they generate no log noise and
+// the scheduler never attempts a Gmail API call for them.
 export async function runIncrementalForAll(): Promise<IncrementalResult[]> {
   const accounts = await db
     .select()
     .from(emailAccounts)
-    .where(and(eq(emailAccounts.isActive, true), eq(emailAccounts.syncEnabled, true)));
+    .where(and(
+      eq(emailAccounts.isActive, true),
+      eq(emailAccounts.syncEnabled, true),
+      eq(emailAccounts.authStatus, "active"),
+    ));
   const out: IncrementalResult[] = [];
   for (const a of accounts) {
     out.push(await syncIncremental(a.id));

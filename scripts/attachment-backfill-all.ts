@@ -39,6 +39,10 @@ async function main() {
 
   const [acct] = await db.select().from(emailAccounts).where(eq(emailAccounts.id, ACCOUNT_ID));
   if (!acct) { console.error(`[fatal] no account id=${ACCOUNT_ID}`); process.exit(1); }
+  if (acct.authStatus !== "active") {
+    console.log(`[skip] account=${ACCOUNT_ID} auth_status=${acct.authStatus} — reconnect required, nothing to do`);
+    process.exit(0);
+  }
   const myDomain = (acct.emailAddress.split("@")[1] || "").toLowerCase();
 
   const beforePending = await countPending();

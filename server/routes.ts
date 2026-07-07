@@ -13862,7 +13862,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         //    returns a superset, which the local post-filter then narrows.
         const queryEmpty = !q || q.trim() === "";
         const isInboxOnlyQuery = q?.trim() === "in:inbox";
-        const canOverflow = !isUnified && !!acct?.id && !!acct?.emailAddress;
+        const canOverflow = !isUnified && !!acct?.id && !!acct?.emailAddress && acct?.authStatus === "active";
 
         const sess = req.session as any;
         const SOFT_CAP = 5000;
