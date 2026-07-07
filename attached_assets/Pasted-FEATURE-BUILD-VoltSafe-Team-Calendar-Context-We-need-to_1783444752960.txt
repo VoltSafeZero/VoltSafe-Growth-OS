@@ -1,0 +1,177 @@
+FEATURE BUILD — VoltSafe Team Calendar
+
+Context:
+We need to add a true “VoltSafe Team Calendar” inside Work → Calendar & Meetings.
+
+Important distinction:
+This is NOT the same as viewing individual team members’ Google/email calendars.
+
+The VoltSafe Team Calendar should be its own internal shared company calendar used for company-wide awareness, execution timelines, milestones, team meetings, and culture events.
+
+Goal:
+Create a dedicated shared VoltSafe calendar that is visible to all users, but only editable by authorized roles.
+
+Core behavior:
+1. Add a calendar called “VoltSafe Team Calendar”
+   - It should appear in the calendar sidebar.
+   - It should be visually separate from individual user/team email calendars.
+   - It should not be confused with personal Google calendars or team member email calendars.
+
+2. Visibility:
+   - All authenticated VoltSafe CMS users can view the VoltSafe Team Calendar.
+   - It should be enabled/checked by default for all users unless they manually hide it.
+   - Users can uncheck it to hide its events from their own calendar view.
+   - Re-checking it shows those events again.
+
+3. Edit permissions:
+   Only these roles can create/edit/delete VoltSafe Team Calendar events:
+   - Admin
+   - Executive / Exec
+   - Manager
+   - CEO
+   - CFO
+
+   Regular users can view only.
+   They must not see edit/delete controls for Team Calendar events.
+
+4. Event types/categories:
+   Add event category support for VoltSafe Team Calendar events:
+   - Project Milestone
+   - Key Timeline
+   - All-Staff Meeting
+   - Team Event / Social
+   - Company Update
+   - Culture / People
+   - Customer / Partner Milestone
+   - Funding / Board / Investor
+   - Product / Engineering
+   - Operations
+   - Other
+
+5. Event examples this calendar is for:
+   - Targeted completion dates for major projects
+   - Product/engineering milestones
+   - Company OKR / execution milestones
+   - All-hands meetings
+   - Team lunches and social events
+   - Board/investor deadlines
+   - Customer pilot milestones
+   - Company-wide reminders
+   - Culture/team awareness items
+
+6. Event data model:
+   Add or extend schema to support internal shared calendar events with:
+   - id
+   - title
+   - description
+   - startDateTime
+   - endDateTime
+   - allDay boolean
+   - category
+   - visibility: company-wide
+   - source: voltsafe_team_calendar
+   - createdByUserId
+   - updatedByUserId
+   - createdAt
+   - updatedAt
+   - optional linkedProjectId
+   - optional linkedAccountId / linkedCustomerId if existing models support it
+   - optional milestoneStatus: planned / at-risk / delayed / completed
+
+7. UI requirements:
+   In the right calendar sidebar, add a dedicated section:
+
+   Company Calendars
+   [checked by default] VoltSafe Team Calendar
+
+   Keep this separate from:
+   - My Calendars
+   - Team Calendars / individual people calendars
+
+8. Rendering rules:
+   - Events from VoltSafe Team Calendar should appear only when its checkbox is checked.
+   - They should never depend on any user’s personal email calendar connection.
+   - They should use a distinct calendar color.
+   - Show a small label/tag on the event card such as “VoltSafe Team” or the selected category.
+   - Day, Week, and Month views must all respect the selected checkbox state.
+
+9. Create / edit flow:
+   When an authorized user clicks “New Event”:
+   - Add a “Calendar” dropdown.
+   - Options should include:
+     a) My Calendar
+     b) VoltSafe Team Calendar, only if user has permission
+
+   If “VoltSafe Team Calendar” is selected:
+   - Show category dropdown
+   - Show optional milestone status dropdown
+   - Show optional project/account linking if supported
+   - Save event as internal shared team event, not as a personal Google/email calendar event
+
+10. Event detail modal:
+   For VoltSafe Team Calendar events:
+   - Show category
+   - Show milestone status if present
+   - Show who created it / last updated it
+   - Show linked project/account if present
+   - Edit/delete buttons only for Admin/Exec/Manager/CEO/CFO
+   - View-only users should see the event details but no edit/delete actions
+
+11. Permission enforcement:
+   Permissions must be enforced on both frontend and backend.
+   Do not rely only on hiding UI buttons.
+   Backend routes for create/update/delete must reject unauthorized users.
+
+12. API requirements:
+   Add internal calendar APIs if they do not already exist:
+   - GET /api/calendar/team-events
+   - POST /api/calendar/team-events
+   - PATCH /api/calendar/team-events/:id
+   - DELETE /api/calendar/team-events/:id
+
+   Or use existing route naming if the project already has a calendar event API pattern.
+
+13. Integration with existing calendar bug fix:
+   The visible events selector must treat VoltSafe Team Calendar as just another selectable source:
+   - My primary calendar = default visible
+   - VoltSafe Team Calendar = default visible
+   - Optional My Calendars = hidden unless selected
+   - Individual Team Calendars = hidden unless selected
+
+   Absolutely do not reintroduce the bug where all calendars render automatically.
+
+14. Sidebar wording:
+   Rename or clarify the current “Team Calendars” section if needed so users understand it means individual user calendars, not the company shared calendar.
+
+   Suggested structure:
+   - My Calendars
+   - Company Calendars
+       - VoltSafe Team Calendar
+   - People Calendars
+       - individual team members
+
+15. Tests:
+   Add regression tests for:
+   - VoltSafe Team Calendar appears for all users.
+   - VoltSafe Team Calendar is checked/visible by default.
+   - Unchecking it hides its events.
+   - Re-checking it shows its events.
+   - Regular users can view but cannot create/edit/delete team calendar events.
+   - Admin can create/edit/delete team calendar events.
+   - Exec can create/edit/delete team calendar events.
+   - Manager can create/edit/delete team calendar events.
+   - Unauthorized backend POST/PATCH/DELETE requests are rejected.
+   - Day, Week, and Month views all respect the selected calendar source.
+   - Individual people calendars remain opt-in and do not auto-render.
+   - VoltSafe Team Calendar events are not tied to anyone’s personal email calendar.
+
+16. Acceptance criteria:
+   - There is a clear VoltSafe Team Calendar visible in the sidebar.
+   - It is separate from personal/team member calendars.
+   - Everyone can see it.
+   - Only Admins, Execs, Managers, CEO, and CFO can edit it.
+   - It supports milestones, timelines, all-staff meetings, team events, and company-awareness items.
+   - It respects checkbox visibility.
+   - It does not break the previous selected-calendar-only behavior.
+   - Run full calendar test suite and full build.
+   - Report files changed and tests passed.

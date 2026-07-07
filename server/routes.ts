@@ -130,7 +130,7 @@ import {
   assets, assetFolders, priceLists, priceListItems,
   contacts, accounts, leads, opportunities, partnerships,
   migrationMap, notes,
-  calendarConnections, calendarEvents, tasks,
+  calendarConnections, calendarEvents, teamCalendarEvents, tasks,
   digestConfigs, digestRuns,
   meetingNoteParticipants,
 } from "@shared/schema";
@@ -1545,6 +1545,30 @@ export async function registerRoutes(
     } catch (e) {
       console.error("[migration] user_avatar_library error:", e);
     }
+  })();
+
+  // VoltSafe Team Calendar table migration
+  (() => {
+    db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS team_calendar_events (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        start_time TIMESTAMP NOT NULL,
+        end_time TIMESTAMP,
+        all_day BOOLEAN NOT NULL DEFAULT false,
+        category TEXT NOT NULL DEFAULT 'other',
+        milestone_status TEXT,
+        linked_project_id INTEGER,
+        linked_account_id INTEGER,
+        color TEXT,
+        created_by_user_id INTEGER NOT NULL,
+        updated_by_user_id INTEGER,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `)).then(() => console.log("[migration] team_calendar_events table ready."))
+      .catch((e: any) => console.error("[migration] team_calendar_events error:", e));
   })();
 
   // Memory storage — no local disk, buffer available in req.file.buffer
@@ -9397,6 +9421,112 @@ export async function registerRoutes(
         }
       }
       res.json({ sent, total: invitees.length });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ── VoltSafe Team Calendar ──────────────────────────────────────────────────
+  // Company-wide shared calendar: visible to all, editable by admin/manager only.
+
+  const TEAM_CALENDAR_EDIT_ROLES = ["master_admin", "admin", "manager"];
+
+  function requireTeamCalendarEditor(req: any, res: any, next: any) {
+    const role = String((req.session as any).globalRole || "");
+    if (!TEAM_CALENDAR_EDIT_ROLES.includes(role)) {
+      return res.status(403).json({ message: "Only admins and managers can edit the VoltSafe Team Calendar." });
+    }
+    next();
+  }
+
+  // GET /api/calendar/team-events — all users can view
+  app.get("/api/calendar/team-events", requireAuth, async (req: any, res: any) => {
+    try {
+      const { start, end } = req.query as { start?: string; end?: string };
+      let rows: any[];
+      if (start && end) {
+        rows = await db.execute(sql.raw(
+          `SELECT tce.*, u.name AS created_by_name
+           FROM team_calendar_events tce
+           LEFT JOIN users u ON u.id = tce.created_by_user_id
+           WHERE tce.start_time >= '${new Date(start as string).toISOString()}'
+             AND tce.start_time <= '${new Date(end as string).toISOString()}'
+           ORDER BY tce.start_time ASC`
+        )).then((r: any) => r.rows ?? r);
+      } else {
+        rows = await db.execute(sql.raw(
+          `SELECT tce.*, u.name AS created_by_name
+           FROM team_calendar_events tce
+           LEFT JOIN users u ON u.id = tce.created_by_user_id
+           ORDER BY tce.start_time ASC
+           LIMIT 500`
+        )).then((r: any) => r.rows ?? r);
+      }
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/calendar/team-events — admin/manager only
+  app.post("/api/calendar/team-events", requireAuth, requireTeamCalendarEditor, async (req: any, res: any) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const { title, description, startTime, endTime, allDay, category, milestoneStatus, linkedProjectId, linkedAccountId, color } = req.body;
+      if (!title || !startTime) return res.status(400).json({ message: "title and startTime are required" });
+      const [created] = await db.insert(teamCalendarEvents).values({
+        title: String(title),
+        description: description ? String(description) : null,
+        startTime: new Date(startTime),
+        endTime: endTime ? new Date(endTime) : null,
+        allDay: Boolean(allDay),
+        category: String(category || "other"),
+        milestoneStatus: milestoneStatus ? String(milestoneStatus) : null,
+        linkedProjectId: linkedProjectId ? Number(linkedProjectId) : null,
+        linkedAccountId: linkedAccountId ? Number(linkedAccountId) : null,
+        color: color ? String(color) : null,
+        createdByUserId: userId,
+        updatedByUserId: userId,
+      }).returning();
+      res.json(created);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // PATCH /api/calendar/team-events/:id — admin/manager only
+  app.patch("/api/calendar/team-events/:id", requireAuth, requireTeamCalendarEditor, async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const userId = (req.session as any).userId as number;
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid event id" });
+      const { title, description, startTime, endTime, allDay, category, milestoneStatus, linkedProjectId, linkedAccountId, color } = req.body;
+      const updates: Record<string, any> = { updatedByUserId: userId, updatedAt: new Date() };
+      if (title !== undefined) updates.title = String(title);
+      if (description !== undefined) updates.description = description ? String(description) : null;
+      if (startTime !== undefined) updates.startTime = new Date(startTime);
+      if (endTime !== undefined) updates.endTime = endTime ? new Date(endTime) : null;
+      if (allDay !== undefined) updates.allDay = Boolean(allDay);
+      if (category !== undefined) updates.category = String(category);
+      if (milestoneStatus !== undefined) updates.milestoneStatus = milestoneStatus ? String(milestoneStatus) : null;
+      if (linkedProjectId !== undefined) updates.linkedProjectId = linkedProjectId ? Number(linkedProjectId) : null;
+      if (linkedAccountId !== undefined) updates.linkedAccountId = linkedAccountId ? Number(linkedAccountId) : null;
+      if (color !== undefined) updates.color = color ? String(color) : null;
+      const [updated] = await db.update(teamCalendarEvents).set(updates).where(eq(teamCalendarEvents.id, id)).returning();
+      if (!updated) return res.status(404).json({ message: "Event not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // DELETE /api/calendar/team-events/:id — admin/manager only
+  app.delete("/api/calendar/team-events/:id", requireAuth, requireTeamCalendarEditor, async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid event id" });
+      await db.delete(teamCalendarEvents).where(eq(teamCalendarEvents.id, id));
+      res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

@@ -71,6 +71,8 @@ import {
   Mic,
   GripVertical,
   CalendarCheck,
+  Tag,
+  Flag,
 } from "lucide-react";
 import {
   Tabs,
@@ -210,8 +212,54 @@ const TEAM_OVERLAY_COLORS = [
 
 type TeamMember = { id: number; name: string; email: string; globalRole: string };
 
+// VoltSafe Team Calendar distinct styling
+const COMPANY_CALENDAR_COLOR = "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25";
+const COMPANY_CALENDAR_DOT = "bg-violet-500";
+
+const TEAM_CALENDAR_CATEGORIES = [
+  { value: "project_milestone", label: "Project Milestone" },
+  { value: "key_timeline", label: "Key Timeline" },
+  { value: "all_staff_meeting", label: "All-Staff Meeting" },
+  { value: "team_event", label: "Team Event / Social" },
+  { value: "company_update", label: "Company Update" },
+  { value: "culture_people", label: "Culture / People" },
+  { value: "customer_partner", label: "Customer / Partner Milestone" },
+  { value: "funding_board", label: "Funding / Board / Investor" },
+  { value: "product_engineering", label: "Product / Engineering" },
+  { value: "operations", label: "Operations" },
+  { value: "other", label: "Other" },
+] as const;
+
+const MILESTONE_STATUSES = [
+  { value: "planned", label: "Planned" },
+  { value: "at_risk", label: "At Risk" },
+  { value: "delayed", label: "Delayed" },
+  { value: "completed", label: "Completed" },
+] as const;
+
+const TEAM_CALENDAR_EDIT_ROLES = ["master_admin", "admin", "manager"] as const;
+
+type TeamCalendarEventRaw = {
+  id: number;
+  title: string;
+  description?: string | null;
+  start_time: string;
+  end_time?: string | null;
+  all_day: boolean;
+  category: string;
+  milestone_status?: string | null;
+  linked_project_id?: number | null;
+  linked_account_id?: number | null;
+  color?: string | null;
+  created_by_user_id: number;
+  created_by_name?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type DisplayEvent = CalendarEvent & {
   _team?: { name: string; colorBg: string };
+  _company?: { category: string; milestoneStatus?: string | null; createdByName?: string | null; rawId: number };
 };
 
 type BusyBlock = { start: string; end: string };
@@ -348,6 +396,22 @@ function useTeamCalendarEvents(currentDate: Date, view: ViewMode, enabledIds: nu
       return res.json();
     },
     enabled: enabledIds.length > 0,
+  });
+}
+
+// Fetch VoltSafe Team Calendar events (company-wide, visible to all)
+function useCompanyCalendarEvents(currentDate: Date, view: ViewMode) {
+  const range = getViewRange(currentDate, view);
+  const startStr = range.start.toISOString();
+  const endStr = new Date(range.end.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  return useQuery<TeamCalendarEventRaw[]>({
+    queryKey: ["/api/calendar/team-events", startStr, endStr],
+    queryFn: async () => {
+      const res = await fetch(`/api/calendar/team-events?start=${startStr}&end=${endStr}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 2 * 60_000,
   });
 }
 
@@ -1383,6 +1447,28 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   const calendarTeamIds: number[] = permissions?.calendar_team ?? [];
   const showOverlayPanel = isAdmin || calendarTeamIds.length > 0;
 
+  // VoltSafe Team Calendar visibility — default ON, persisted per-device
+  const [companyCalendarVisible, setCompanyCalendarVisible] = useState<boolean>(() => {
+    try { return localStorage.getItem("vs.companyCalendarVisible") !== "false"; } catch { return true; }
+  });
+  const toggleCompanyCalendar = () => {
+    setCompanyCalendarVisible(v => {
+      const next = !v;
+      try { localStorage.setItem("vs.companyCalendarVisible", String(next)); } catch {}
+      return next;
+    });
+  };
+
+  // Selected company (VoltSafe Team Calendar) event for detail view
+  const [selectedCompanyEvent, setSelectedCompanyEvent] = useState<TeamCalendarEventRaw | null>(null);
+
+  // Current user's global role — for team calendar edit permissions
+  const { data: me } = useQuery<{ globalRole: string; name: string; id: number }>({
+    queryKey: ["/api/auth/me"],
+    staleTime: 5 * 60_000,
+  });
+  const canEditCompanyCalendar = TEAM_CALENDAR_EDIT_ROLES.includes((me?.globalRole ?? "") as any);
+
   // Calendar integrations — for sync status badge
   const { data: calIntegrations = [] } = useQuery<{
     id: number;
@@ -1471,6 +1557,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   const enabledIdsList = [...enabledOverlays].filter((id) => permittedMembers.some((m) => m.id === id));
   const { data: teamEvents } = useTeamCalendarEvents(currentDate, view, enabledIdsList);
   const { data: availability, isLoading: availLoading } = useTeamAvailability(currentDate, enabledIdsList, view);
+  const { data: companyEvents } = useCompanyCalendarEvents(currentDate, view);
 
   const { data: ownEvents, isLoading } = useCalendarEvents(currentDate, view);
 
@@ -1583,6 +1670,37 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           : undefined,
       } as DisplayEvent;
     }),
+    // VoltSafe Team Calendar (company-wide) events — shown when toggle is ON
+    ...(companyCalendarVisible ? (companyEvents ?? []).map((ev): DisplayEvent => ({
+      id: ev.id + 1_000_000, // Offset to avoid key collision with personal event IDs in view renders
+      userId: ev.created_by_user_id,
+      title: ev.title,
+      description: ev.description ?? null,
+      startTime: new Date(ev.start_time),
+      endTime: ev.end_time ? new Date(ev.end_time) : null,
+      allDay: ev.all_day,
+      eventType: "meeting",
+      color: ev.color ?? null,
+      location: null,
+      invitees: null,
+      externalEventId: null,
+      externalCalendarId: null,
+      meetingNotes: null,
+      zoomJoinUrl: null,
+      googleMeetLink: null,
+      calendarConnectionId: null,
+      isRecurring: false,
+      recurrenceRule: null,
+      recurringEventId: null,
+      createdAt: new Date(ev.created_at),
+      updatedAt: new Date(ev.updated_at),
+      _company: {
+        category: ev.category,
+        milestoneStatus: ev.milestone_status,
+        createdByName: ev.created_by_name,
+        rawId: ev.id,
+      },
+    })) : []),
   ];
 
   const createMutation = useMutation({
@@ -1668,6 +1786,64 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
     },
   });
 
+  // VoltSafe Team Calendar mutations
+  const createCompanyEventMutation = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      const res = await apiRequest("POST", "/api/calendar/team-events", data);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message ?? "Failed to create event");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/team-events"] });
+      setCreateOpen(false);
+      setClickedSlot(null);
+      toast({ title: "Company calendar event created" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to create event", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updateCompanyEventMutation = useMutation({
+    mutationFn: async ({ id, ...data }: Record<string, unknown> & { id: number }) => {
+      const res = await apiRequest("PATCH", `/api/calendar/team-events/${id}`, data);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message ?? "Failed to update event");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/team-events"] });
+      setSelectedCompanyEvent(null);
+      toast({ title: "Event updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteCompanyEventMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/calendar/team-events/${id}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).message ?? "Failed to delete event");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/team-events"] });
+      setSelectedCompanyEvent(null);
+      toast({ title: "Event deleted" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to delete", description: err.message, variant: "destructive" });
+    },
+  });
+
   const rescheduleMutation = useMutation({
     mutationFn: async ({
       id, startTime, endTime, notify, prevStartTime, prevEndTime,
@@ -1701,6 +1877,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
 
   const handleReschedule = useCallback((event: DisplayEvent, newStartTime: Date, newEndTime: Date | null) => {
     if (event._team) return;
+    if (event._company) return; // Company events are not draggable
     setRescheduleRequest({ event, newStartTime, newEndTime });
   }, []);
 
@@ -1903,7 +2080,14 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 currentDate={currentDate}
                 events={allEvents}
                 onSlotClick={handleSlotClick}
-                onEventClick={(ev) => { if (!ev._team) setSelectedEvent(ev); }}
+                onEventClick={(ev) => {
+                  if (ev._company) {
+                    const raw = (companyEvents ?? []).find(e => e.id === ev._company!.rawId);
+                    if (raw) setSelectedCompanyEvent(raw);
+                  } else if (!ev._team) {
+                    setSelectedEvent(ev);
+                  }
+                }}
                 onDayClick={(d) => { setCurrentDate(d); setView("day"); }}
               />
             ) : view === "week" ? (
@@ -1911,7 +2095,14 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 currentDate={currentDate}
                 events={allEvents}
                 onSlotClick={handleSlotClick}
-                onEventClick={(ev) => { if (!ev._team) setSelectedEvent(ev); }}
+                onEventClick={(ev) => {
+                  if (ev._company) {
+                    const raw = (companyEvents ?? []).find(e => e.id === ev._company!.rawId);
+                    if (raw) setSelectedCompanyEvent(raw);
+                  } else if (!ev._team) {
+                    setSelectedEvent(ev);
+                  }
+                }}
                 onReschedule={handleReschedule}
               />
             ) : (
@@ -1919,7 +2110,14 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 currentDate={currentDate}
                 events={allEvents}
                 onSlotClick={handleSlotClick}
-                onEventClick={(ev) => { if (!ev._team) setSelectedEvent(ev); }}
+                onEventClick={(ev) => {
+                  if (ev._company) {
+                    const raw = (companyEvents ?? []).find(e => e.id === ev._company!.rawId);
+                    if (raw) setSelectedCompanyEvent(raw);
+                  } else if (!ev._team) {
+                    setSelectedEvent(ev);
+                  }
+                }}
                 onReschedule={handleReschedule}
                 busyOverlays={teamBusyOverlays}
                 availLoading={availLoading && enabledIdsList.length > 0}
@@ -1999,13 +2197,39 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
             </Card>
           )}
 
-          {/* Team Calendars — overlay */}
+          {/* Company Calendars — VoltSafe Team Calendar */}
+          <Card className="border-border/50 w-52 shrink-0" data-testid="company-calendar-panel">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-2 mb-3">
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Company Calendars</span>
+              </div>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer group" data-testid="company-calendar-toggle">
+                  <Checkbox
+                    checked={companyCalendarVisible}
+                    onCheckedChange={toggleCompanyCalendar}
+                    data-testid="checkbox-company-calendar"
+                  />
+                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${COMPANY_CALENDAR_DOT}`} />
+                  <span className="text-xs truncate group-hover:text-foreground text-muted-foreground transition-colors">
+                    VoltSafe Team Calendar
+                  </span>
+                </label>
+                {canEditCompanyCalendar && (
+                  <p className="text-[10px] text-muted-foreground pl-7">You can add &amp; edit events</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* People Calendars — overlay */}
           {showOverlayPanel && permittedMembers.length > 0 && (
             <Card className="border-border/50 w-52 shrink-0" data-testid="team-overlay-panel">
               <CardContent className="p-3">
                 <div className="flex items-center gap-2 mb-3">
                   <Users className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Team Calendars</span>
+                  <span className="text-sm font-medium">People Calendars</span>
                 </div>
                 <div className="space-y-2">
                   {permittedMembers.map((member) => {
@@ -2247,9 +2471,29 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
         <EventFormDialog
           open={createOpen}
           onClose={() => { setCreateOpen(false); setClickedSlot(null); }}
-          onSubmit={(d) => createMutation.mutate(d)}
-          isPending={createMutation.isPending}
+          onSubmit={(d) => {
+            if ((d as any)._targetCalendar === "company") {
+              const { _targetCalendar, ...rest } = d as any;
+              createCompanyEventMutation.mutate(rest);
+            } else {
+              createMutation.mutate(d);
+            }
+          }}
+          isPending={createMutation.isPending || createCompanyEventMutation.isPending}
           initialSlot={clickedSlot}
+          canEditCompany={canEditCompanyCalendar}
+        />
+      )}
+
+      {selectedCompanyEvent && (
+        <CompanyEventDetailDialog
+          event={selectedCompanyEvent}
+          onClose={() => setSelectedCompanyEvent(null)}
+          canEdit={canEditCompanyCalendar}
+          onUpdate={(data) => updateCompanyEventMutation.mutate({ id: selectedCompanyEvent.id, ...data })}
+          onDelete={() => deleteCompanyEventMutation.mutate(selectedCompanyEvent.id)}
+          isUpdating={updateCompanyEventMutation.isPending}
+          isDeleting={deleteCompanyEventMutation.isPending}
         />
       )}
 
@@ -2360,10 +2604,10 @@ function MonthView({
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 3).map((ev) => (
                   <button
-                    key={`${ev.id}-${ev._team?.name ?? "own"}`}
+                    key={`${ev.id}-${ev._team?.name ?? (ev._company ? "company" : "own")}`}
                     data-event
                     className={`w-full text-left text-[10px] sm:text-xs px-1 py-0.5 rounded truncate border ${
-                      ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
+                      ev._company ? COMPANY_CALENDAR_COLOR : ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
                     }`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -2371,7 +2615,7 @@ function MonthView({
                     }}
                     data-testid={`event-month-${ev.id}`}
                   >
-                    {ev._team ? `${ev._team.name.split(" ")[0]}: ` : ""}{ev.title}
+                    {ev._company ? "🏢 " : ev._team ? `${ev._team.name.split(" ")[0]}: ` : ""}{ev.title}
                   </button>
                 ))}
                 {dayEvents.length > 3 && (
@@ -2474,22 +2718,23 @@ function WeekView({
                   >
                     {hourEvents.map((ev) => (
                       <button
-                        key={`${ev.id}-${ev._team?.name ?? "own"}`}
-                        draggable={!ev._team}
+                        key={`${ev.id}-${ev._team?.name ?? (ev._company ? "company" : "own")}`}
+                        draggable={!ev._team && !ev._company}
                         className={`w-full min-w-0 text-left text-[10px] px-1 py-0.5 rounded border mb-0.5 block truncate transition-opacity ${
-                          ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
-                        } ${!ev._team ? "cursor-grab active:cursor-grabbing" : ""}`}
+                          ev._company ? COMPANY_CALENDAR_COLOR : ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
+                        } ${(!ev._team && !ev._company) ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`}
                         onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
                         onDragStart={(e) => {
+                          if (ev._company) { e.preventDefault(); return; }
                           dragRef.current = ev;
                           e.dataTransfer.effectAllowed = "move";
                           e.dataTransfer.setData("text/plain", String(ev.id));
                         }}
                         onDragEnd={() => { dragRef.current = null; setDragOverSlot(null); }}
                         data-testid={`event-week-${ev.id}`}
-                        title={`${formatTime(new Date(ev.startTime))} ${ev.title}${!ev._team ? " · Drag to reschedule" : ""}`}
+                        title={`${formatTime(new Date(ev.startTime))} ${ev.title}${(!ev._team && !ev._company) ? " · Drag to reschedule" : ""}`}
                       >
-                        {ev._team ? `${ev._team.name.split(" ")[0]}: ` : ""}{formatTime(new Date(ev.startTime))} {ev.title}
+                        {ev._company ? "🏢 " : ev._team ? `${ev._team.name.split(" ")[0]}: ` : ""}{formatTime(new Date(ev.startTime))} {ev.title}
                       </button>
                     ))}
                   </div>
@@ -2640,25 +2885,27 @@ function DayView({
               })}
               {hourEvents.map((ev) => (
                 <button
-                  key={`${ev.id}-${ev._team?.name ?? "own"}`}
-                  draggable={!ev._team}
+                  key={`${ev.id}-${ev._team?.name ?? (ev._company ? "company" : "own")}`}
+                  draggable={!ev._team && !ev._company}
                   className={`w-full text-left text-xs px-2 py-1.5 rounded border ${
-                    ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
-                  } ${!ev._team ? "cursor-grab active:cursor-grabbing" : ""}`}
+                    ev._company ? COMPANY_CALENDAR_COLOR : ev._team?.colorBg || EVENT_TYPE_COLORS[ev.eventType] || EVENT_TYPE_COLORS.meeting
+                  } ${(!ev._team && !ev._company) ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`}
                   onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
                   onDragStart={(e) => {
+                    if (ev._company) { e.preventDefault(); return; }
                     dragRef.current = ev;
                     e.dataTransfer.effectAllowed = "move";
                     e.dataTransfer.setData("text/plain", String(ev.id));
                   }}
                   onDragEnd={() => { dragRef.current = null; setDragOverHour(null); }}
                   data-testid={`event-day-${ev.id}`}
-                  title={!ev._team ? "Drag to reschedule" : undefined}
+                  title={(!ev._team && !ev._company) ? "Drag to reschedule" : undefined}
                 >
                   <div className="font-medium flex items-center gap-1 min-w-0">
-                    {!ev._team && <GripVertical className="h-3 w-3 opacity-40 shrink-0" />}
+                    {!ev._team && !ev._company && <GripVertical className="h-3 w-3 opacity-40 shrink-0" />}
+                    {ev._company && <Building2 className="h-3 w-3 opacity-60 shrink-0 text-violet-400" />}
                     <span className="truncate">{ev._team && <span className="opacity-70">{ev._team.name.split(" ")[0]}: </span>}{ev.title}</span>
-                    {!ev._team && ev.meetingUrl && <Video className="h-3 w-3 shrink-0 text-blue-400 ml-auto" title="Meeting link" />}
+                    {!ev._team && !ev._company && ev.meetingUrl && <Video className="h-3 w-3 shrink-0 text-blue-400 ml-auto" title="Meeting link" />}
                   </div>
                   <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap text-[11px]">
                     <span>
@@ -2764,6 +3011,181 @@ function RescheduleConfirmDialog({
   );
 }
 
+// ─── VoltSafe Team Calendar — Company Event Detail Dialog ─────────────────────
+
+function CompanyEventDetailDialog({
+  event,
+  onClose,
+  canEdit,
+  onUpdate,
+  onDelete,
+  isUpdating,
+  isDeleting,
+}: {
+  event: TeamCalendarEventRaw;
+  onClose: () => void;
+  canEdit: boolean;
+  onUpdate: (data: Record<string, unknown>) => void;
+  onDelete: () => void;
+  isUpdating: boolean;
+  isDeleting: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(event.title);
+  const [description, setDescription] = useState(event.description ?? "");
+  const [category, setCategory] = useState(event.category);
+  const [milestoneStatus, setMilestoneStatus] = useState(event.milestone_status ?? "");
+  const { toast } = useToast();
+
+  const categoryLabel = TEAM_CALENDAR_CATEGORIES.find(c => c.value === category)?.label ?? category;
+  const milestoneLabel = MILESTONE_STATUSES.find(s => s.value === milestoneStatus)?.label;
+
+  const handleSave = () => {
+    if (!title.trim()) { toast({ title: "Title is required", variant: "destructive" }); return; }
+    onUpdate({ title: title.trim(), description: description || null, category, milestoneStatus: milestoneStatus || null });
+    setEditing(false);
+  };
+
+  const startDt = new Date(event.start_time);
+  const endDt = event.end_time ? new Date(event.end_time) : null;
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium border ${COMPANY_CALENDAR_COLOR}`}>
+              <Building2 className="h-3 w-3" />
+              VoltSafe Team Calendar
+            </span>
+          </div>
+          <DialogTitle className="leading-snug">
+            {editing ? (
+              <Input value={title} onChange={e => setTitle(e.target.value)} className="text-base font-semibold" autoFocus data-testid="input-company-event-title" />
+            ) : event.title}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3 text-sm">
+          {/* Date & time */}
+          <div className="flex items-start gap-2 text-muted-foreground">
+            <CalendarDays className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <p>{format(startDt, "EEEE, MMMM d, yyyy")}</p>
+              {!event.all_day && (
+                <p className="text-xs">{format(startDt, "h:mm a")}{endDt && ` – ${format(endDt, "h:mm a")}`}</p>
+              )}
+              {event.all_day && <p className="text-xs">All day</p>}
+            </div>
+          </div>
+
+          {/* Category */}
+          <div className="flex items-center gap-2">
+            <Tag className="h-4 w-4 shrink-0 text-muted-foreground" />
+            {editing ? (
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger className="h-8 text-xs flex-1" data-testid="select-edit-category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TEAM_CALENDAR_CATEGORIES.map(c => (
+                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <span className="text-foreground font-medium">{categoryLabel}</span>
+            )}
+          </div>
+
+          {/* Milestone status */}
+          {(editing || milestoneStatus) && (
+            <div className="flex items-center gap-2">
+              <Flag className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {editing ? (
+                <Select value={milestoneStatus} onValueChange={setMilestoneStatus}>
+                  <SelectTrigger className="h-8 text-xs flex-1" data-testid="select-edit-milestone">
+                    <SelectValue placeholder="No status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">No status</SelectItem>
+                    {MILESTONE_STATUSES.map(s => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : milestoneLabel ? (
+                <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${
+                  milestoneStatus === "completed" ? "bg-green-500/10 border-green-500/30 text-green-500" :
+                  milestoneStatus === "at_risk" ? "bg-amber-500/10 border-amber-500/30 text-amber-500" :
+                  milestoneStatus === "delayed" ? "bg-red-500/10 border-red-500/30 text-red-500" :
+                  "bg-muted/50 border-border text-muted-foreground"
+                }`}>
+                  {milestoneLabel}
+                </span>
+              ) : null}
+            </div>
+          )}
+
+          {/* Description */}
+          {editing ? (
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Description</Label>
+              <Textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={3}
+                className="resize-none text-sm"
+                placeholder="Add details..."
+                data-testid="input-company-event-description"
+              />
+            </div>
+          ) : event.description ? (
+            <p className="text-muted-foreground text-xs leading-relaxed whitespace-pre-wrap">{event.description}</p>
+          ) : null}
+
+          {/* Created by */}
+          {event.created_by_name && (
+            <p className="text-[11px] text-muted-foreground/70">Added by {event.created_by_name}</p>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 mt-2">
+          {canEdit && !editing && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-edit-company-event">
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={onDelete}
+                disabled={isDeleting}
+                data-testid="button-delete-company-event"
+              >
+                {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Delete"}
+              </Button>
+            </>
+          )}
+          {editing && (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+              <Button size="sm" onClick={handleSave} disabled={isUpdating} data-testid="button-save-company-event">
+                {isUpdating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+                Save
+              </Button>
+            </>
+          )}
+          {!editing && (
+            <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function EventFormDialog({
   open,
   onClose,
@@ -2771,6 +3193,7 @@ function EventFormDialog({
   isPending,
   initialSlot,
   initialData,
+  canEditCompany,
 }: {
   open: boolean;
   onClose: () => void;
@@ -2778,6 +3201,7 @@ function EventFormDialog({
   isPending: boolean;
   initialSlot?: { date: Date; hour?: number } | null;
   initialData?: CalendarEvent;
+  canEditCompany?: boolean;
 }) {
   const defaultStart = initialSlot
     ? initialSlot.hour !== undefined
@@ -2825,6 +3249,11 @@ function EventFormDialog({
 
   const [invitees, setInvitees] = useState<string[]>(initialData?.invitees || []);
   const [inviteeInput, setInviteeInput] = useState("");
+
+  // Company calendar fields (only shown when canEditCompany and no initialData)
+  const [targetCalendar, setTargetCalendar] = useState<"personal" | "company">("personal");
+  const [companyCategory, setCompanyCategory] = useState("other");
+  const [companyMilestoneStatus, setCompanyMilestoneStatus] = useState("");
 
   // Personal Zoom room URL stored on the user's device — lets us one-click
   // insert the user's own meeting URL without round-tripping through the
@@ -2893,26 +3322,39 @@ function EventFormDialog({
         : new Date(`${formData.endDate}T${formData.endTime || "23:59"}:00`)
       : null;
 
-    onSubmit({
-      title: formData.title,
-      description: formData.description || null,
-      eventType: formData.eventType,
-      startTime: startTime.toISOString(),
-      endTime: endTime?.toISOString() || null,
-      allDay: formData.allDay,
-      location: formData.location || null,
-      meetingUrl: formData.meetingUrl || null,
-      color: formData.color || null,
-      status: formData.status,
-      invitees: invitees.length > 0 ? invitees : null,
-      timeZone: formData.timeZone || null,
-      repeat: formData.repeat,
-      travelTime: formData.travelTime,
-      alert: formData.alert,
-      secondAlert: formData.secondAlert,
-      showAs: formData.showAs,
-      visibility: formData.visibility,
-    });
+    if (targetCalendar === "company") {
+      onSubmit({
+        _targetCalendar: "company",
+        title: formData.title,
+        description: formData.description || null,
+        startTime: startTime.toISOString(),
+        endTime: endTime?.toISOString() || null,
+        allDay: formData.allDay,
+        category: companyCategory,
+        milestoneStatus: companyMilestoneStatus || null,
+      });
+    } else {
+      onSubmit({
+        title: formData.title,
+        description: formData.description || null,
+        eventType: formData.eventType,
+        startTime: startTime.toISOString(),
+        endTime: endTime?.toISOString() || null,
+        allDay: formData.allDay,
+        location: formData.location || null,
+        meetingUrl: formData.meetingUrl || null,
+        color: formData.color || null,
+        status: formData.status,
+        invitees: invitees.length > 0 ? invitees : null,
+        timeZone: formData.timeZone || null,
+        repeat: formData.repeat,
+        travelTime: formData.travelTime,
+        alert: formData.alert,
+        secondAlert: formData.secondAlert,
+        showAs: formData.showAs,
+        visibility: formData.visibility,
+      });
+    }
   };
 
   const set = (key: string, val: unknown) => setFormData((p) => ({ ...p, [key]: val }));
@@ -2924,6 +3366,41 @@ function EventFormDialog({
           <DialogTitle>{initialData ? "Edit Event" : "New Event"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          {/* Calendar selector — only for new events when user has editor role */}
+          {canEditCompany && !initialData && (
+            <div>
+              <Label>Add to Calendar</Label>
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setTargetCalendar("personal")}
+                  className={`flex-1 flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+                    targetCalendar === "personal"
+                      ? "bg-primary/10 border-primary text-primary font-medium"
+                      : "border-border text-muted-foreground hover:border-border/80 hover:text-foreground"
+                  }`}
+                  data-testid="button-calendar-personal"
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  My Calendar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTargetCalendar("company")}
+                  className={`flex-1 flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+                    targetCalendar === "company"
+                      ? "bg-violet-500/10 border-violet-500/60 text-violet-500 font-medium"
+                      : "border-border text-muted-foreground hover:border-border/80 hover:text-foreground"
+                  }`}
+                  data-testid="button-calendar-company"
+                >
+                  <Building2 className="h-3.5 w-3.5" />
+                  VoltSafe Team Calendar
+                </button>
+              </div>
+            </div>
+          )}
+
           <div>
             <Label>Title</Label>
             <Input
@@ -2934,6 +3411,44 @@ function EventFormDialog({
             />
           </div>
 
+          {/* Company calendar category + milestone (only shown when company is selected) */}
+          {canEditCompany && !initialData && targetCalendar === "company" && (
+            <>
+              <div>
+                <Label>Category</Label>
+                <Select value={companyCategory} onValueChange={setCompanyCategory}>
+                  <SelectTrigger data-testid="select-company-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TEAM_CALENDAR_CATEGORIES.map(c => (
+                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {(companyCategory === "project_milestone" || companyCategory === "key_timeline") && (
+                <div>
+                  <Label>Milestone Status</Label>
+                  <Select value={companyMilestoneStatus} onValueChange={setCompanyMilestoneStatus}>
+                    <SelectTrigger data-testid="select-company-milestone-status">
+                      <SelectValue placeholder="Optional" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {MILESTONE_STATUSES.map(s => (
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Hide personal-only fields when company calendar is selected */}
+          {(!canEditCompany || initialData || targetCalendar !== "company") && (
+          <>
           <div>
             <Label className="flex items-center gap-1.5"><Video className="h-3.5 w-3.5" /> Zoom Meeting URL</Label>
             <Input
@@ -3227,6 +3742,8 @@ function EventFormDialog({
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
         <DialogFooter className="gap-2 mt-4">
           <Button variant="ghost" onClick={onClose} data-testid="button-cancel-event">

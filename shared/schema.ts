@@ -1049,6 +1049,29 @@ export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit
 export type CalendarEvent = typeof calendarEvents.$inferSelect;
 export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
 
+// VoltSafe Team Calendar — company-wide shared internal calendar
+// Only admin/manager roles can create/edit/delete; all users can view.
+export const teamCalendarEvents = pgTable("team_calendar_events", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time"),
+  allDay: boolean("all_day").default(false).notNull(),
+  category: text("category").notNull().default("other"),
+  milestoneStatus: text("milestone_status"),
+  linkedProjectId: integer("linked_project_id"),
+  linkedAccountId: integer("linked_account_id"),
+  color: text("color"),
+  createdByUserId: integer("created_by_user_id").notNull(),
+  updatedByUserId: integer("updated_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export const insertTeamCalendarEventSchema = createInsertSchema(teamCalendarEvents).omit({ id: true, createdAt: true, updatedAt: true });
+export type TeamCalendarEvent = typeof teamCalendarEvents.$inferSelect;
+export type InsertTeamCalendarEvent = z.infer<typeof insertTeamCalendarEventSchema>;
+
 // Calendar provider connections — one row per user per connected calendar provider
 export const calendarConnections = pgTable("calendar_connections", {
   id: serial("id").primaryKey(),
