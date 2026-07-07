@@ -1,0 +1,375 @@
+VoltSafe CMS — Phase 16: High-Risk Action Hardening, Confirmation Layer, and Audit Trail Upgrade
+
+Goal:
+Build a focused hardening layer around high-risk user actions across VoltSafe CMS.
+
+This phase should protect:
+- delete actions
+- archive actions
+- bulk changes
+- email send/forward/draft actions
+- export actions
+- integration disconnects
+- permission changes
+- user disable/delete actions
+- Capital/Board Pack/Investor actions
+- Currents private channel membership changes
+
+This is not a feature-building phase.
+This is security, confirmation, auditability, and operator-safety hardening.
+
+Context:
+Phase 15 completed full-app security and permissions audit.
+It created:
+- docs/security-access-control-matrix.md
+- docs/security-client-storage.md
+- tests/full-app-security-hardening.test.cjs
+- updated threat_model.md
+
+Phase 15 found no critical gaps, but now we need stronger safeguards around high-impact actions.
+
+1. Audit first
+
+Before changing code, audit every high-risk action across the app.
+
+Search for:
+- delete
+- archive
+- bulk
+- send_email
+- sendEmail
+- forward
+- createDraft
+- draft
+- export
+- download
+- disconnect
+- revoke
+- disable
+- permission
+- role
+- invite
+- remove
+- trash
+- mark complete
+- finalize
+- archive
+- investor-update-draft
+- board-pack
+- capital
+- current_channel_members
+- current_conversation_members
+
+Report:
+- route path
+- file
+- current guard
+- action type
+- whether it is destructive
+- whether it sends externally
+- whether it exports data
+- whether it affects permissions
+- whether it has object-level authorization
+- whether it has audit logging
+- whether it has frontend confirmation
+
+2. Define high-risk action categories
+
+Create or update:
+
+docs/security-high-risk-actions.md
+
+Document categories:
+
+A. Low-risk
+- refresh
+- read/list/search
+- copy-only draft generation
+- UI preferences
+
+B. Medium-risk
+- create task
+- update task
+- snooze/dismiss internal action
+- update note
+- update CRM field
+
+C. High-risk
+- delete/archive record
+- bulk update
+- export data
+- send email
+- forward email
+- create external-facing draft
+- finalize board pack
+- archive board pack
+- revoke investor portal token
+- disconnect integration
+
+D. Critical-risk
+- permission/role changes
+- user disable/delete
+- Capital/investor data export
+- Board Pack export
+- private Currents membership changes
+- connected mailbox changes
+- credential/token changes
+
+For each category, define required safeguards:
+- server-side guard
+- object-level authorization
+- explicit user action
+- confirmation UI
+- audit event
+- copy-only flag where relevant
+- no silent background execution
+
+3. Backend audit event helper
+
+If a generic audit log already exists, reuse it.
+
+If not, create a lightweight helper:
+
+server/services/security-audit.ts
+
+Functions:
+- recordSecurityAuditEvent(input)
+- recordHighRiskAction(input)
+- getAuditActor(req)
+- safeAuditMetadata(metadata)
+
+Audit event fields should support:
+- actor_user_id
+- action
+- category
+- target_type
+- target_id
+- route
+- severity: low | medium | high | critical
+- result: attempted | succeeded | failed | denied
+- metadata jsonb
+- created_at
+
+If no table exists, add:
+
+security_audit_events
+- id
+- actor_user_id
+- action
+- category
+- target_type
+- target_id
+- route
+- severity
+- result
+- metadata jsonb
+- created_at
+
+Migration rules:
+- CREATE TABLE IF NOT EXISTS
+- CREATE INDEX IF NOT EXISTS
+- no destructive SQL
+- log migration success/failure clearly
+
+Do not store sensitive payloads in audit metadata.
+Do not store email bodies, private DM bodies, credentials, tokens, or Capital memo text.
+Store IDs, counts, route, action type, and safe labels only.
+
+4. Confirmation contract
+
+For high-risk backend routes, standardize request confirmation where appropriate.
+
+For destructive/critical actions, require one of:
+
+- confirm: true
+- confirmationText: exact expected phrase
+- explicitAction: route-specific action string
+
+Examples:
+- delete record: confirm: true
+- bulk delete: confirmationText: "DELETE"
+- disconnect integration: confirmationText: "DISCONNECT"
+- permission change: confirmationText: "CHANGE PERMISSIONS"
+- final board pack archive: confirm: true
+
+Do not break existing UX unnecessarily.
+If a route is already safe and explicit, document it.
+If adding confirmation would break current tests badly, add it first to the highest-risk routes.
+
+5. Backend route hardening targets
+
+Prioritize:
+
+A. User/admin/security routes
+- user role changes
+- user disable/delete
+- invite/remove user
+- permission changes
+
+B. Mail routes
+- send email
+- forward email
+- delete email
+- archive email
+- create draft if externally visible
+- bulk label/archive/delete
+
+C. Capital / Board Pack
+- archive/finalize board pack
+- export markdown
+- investor update draft
+- capital record delete/archive/export
+- investor portal token revoke/create
+
+D. Currents
+- private channel membership changes
+- delete channel
+- archive channel
+- delete message
+- file attachment access
+
+E. CRM / Marketing / Campaigns
+- bulk delete/archive
+- campaign send/schedule
+- export leads/accounts/contacts
+- tracking data export
+
+F. Integrations
+- disconnect Gmail/Zoom/Calendar/etc.
+- credential changes
+- webhook token changes
+
+Rules:
+- do not loosen permissions
+- do not add frontend-only security
+- every hardened route must keep existing guard or stronger
+- every critical route should log audit events
+- denied attempts should be logged where practical
+
+6. Frontend confirmation layer
+
+Create or reuse a shared component:
+
+client/src/components/security/confirm-high-risk-action.tsx
+
+It should support:
+- title
+- description
+- risk level
+- confirmation text requirement
+- confirm button label
+- cancel button
+- loading state
+- warning copy
+- optional “this cannot be undone” text
+
+Use existing dialog/sheet components if available.
+
+Apply first to highest-risk frontend actions:
+- delete/archive buttons
+- send email
+- forward email
+- bulk actions
+- integration disconnect
+- permission changes
+- board pack finalize/archive
+- Capital export/delete/archive
+- investor portal token revoke
+
+Do not over-modal every small action.
+Only high/critical risk actions need the full confirmation layer.
+
+7. Copy-only and external-action clarity
+
+Ensure external-facing flows clearly distinguish:
+
+- Copy-only draft
+- Gmail draft creation
+- Actual send
+- Currents draft/copy
+- Actual Currents post
+
+Rules:
+- copy-only generation must never create external artifacts
+- Gmail draft creation must be explicit
+- send must be explicit and confirmed
+- forward must be explicit and confirmed
+- investor update draft remains copy-only unless a future explicit send flow is built
+
+8. Tests
+
+Create:
+
+tests/high-risk-action-hardening.test.cjs
+
+Minimum coverage:
+- security-audit service exists
+- audit table migration is idempotent
+- audit helper strips sensitive metadata keys
+- high-risk action docs exist
+- send routes require explicit user action
+- delete/archive/bulk routes have guards
+- board pack finalize/archive are guarded and audited
+- Capital high-risk routes are capital-gated
+- investor portal token actions are guarded/audited
+- user permission routes are admin/master-admin guarded
+- Currents private membership routes are guarded
+- confirmation component exists
+- high-risk frontend actions use confirmation component or documented equivalent
+- copy-only routes still return copy_only: true
+- no sensitive payloads written to audit metadata
+- no auto-send patterns introduced
+- no permission loosening
+- Phase 15 tests still pass
+
+Also update:
+- tests/full-app-security-hardening.test.cjs
+- relevant Capital/Currents/Mail tests if needed
+
+9. Validation
+
+Run:
+
+npm run build
+node tests/high-risk-action-hardening.test.cjs
+node tests/full-app-security-hardening.test.cjs
+node tests/ceo-cockpit-smoke.test.cjs
+node tests/board-pack.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/currents-search.test.cjs
+node tests/currents-files-tab.test.cjs
+node tests/today-personalization.test.cjs
+node tests/nav-consolidation.test.cjs
+node tests/startup-invariants.test.cjs
+node tests/nav-drift.test.cjs
+
+Then run the broader regression set if time allows.
+
+10. Deliverable
+
+First summarize audit:
+- high-risk routes found
+- routes already safe
+- routes hardened
+- routes deferred with reason
+
+Then summarize implementation:
+- audit service/table added or reused
+- confirmation layer added
+- routes updated
+- frontend actions updated
+- docs created
+- tests added/updated
+- validation results
+- known remaining risk
+
+Constraints:
+- no major feature work
+- no permission loosening
+- no data deletion
+- no dev DB copy
+- no auto-send
+- no external APIs
+- no sensitive audit payloads
+- no duplicate permission system
+- keep changes surgical and production-safe
