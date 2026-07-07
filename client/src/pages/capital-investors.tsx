@@ -4,6 +4,7 @@ import { Users, Plus, Search, MoreHorizontal, AlertTriangle, DollarSign, Activit
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { ConfirmHighRiskAction } from "@/components/security/confirm-high-risk-action";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -823,6 +824,9 @@ function PortalAccessPanel({ investorId }: { investorId: number }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [tokenDialog, setTokenDialog] = useState<{ raw_token: string; label: string } | null>(null);
   const [copiedToken, setCopiedToken] = useState(false);
+  const [confirmRevokeId, setConfirmRevokeId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [confirmRegenId, setConfirmRegenId] = useState<number | null>(null);
 
   // Form state
   const [formLabel, setFormLabel] = useState("");
@@ -958,7 +962,7 @@ function PortalAccessPanel({ investorId }: { investorId: number }) {
                     <Button
                       variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-400 hover:text-amber-300"
                       title="Revoke access"
-                      onClick={() => revokeMut.mutate(p.id)}
+                      onClick={() => setConfirmRevokeId(p.id)}
                       data-testid={`btn-revoke-portal-${p.id}`}
                     >
                       <X className="w-3 h-3" />
@@ -967,7 +971,7 @@ function PortalAccessPanel({ investorId }: { investorId: number }) {
                   <Button
                     variant="ghost" size="sm" className="h-6 w-6 p-0"
                     title="Regenerate link (revokes old token)"
-                    onClick={() => regenMut.mutate(p.id)}
+                    onClick={() => setConfirmRegenId(p.id)}
                     data-testid={`btn-regen-portal-${p.id}`}
                   >
                     <RotateCcw className="w-3 h-3" />
@@ -975,7 +979,7 @@ function PortalAccessPanel({ investorId }: { investorId: number }) {
                   <Button
                     variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400/70 hover:text-red-400"
                     title="Delete portal"
-                    onClick={() => deleteMut.mutate(p.id)}
+                    onClick={() => setConfirmDeleteId(p.id)}
                     data-testid={`btn-delete-portal-${p.id}`}
                   >
                     <Trash2 className="w-3 h-3" />
@@ -1050,6 +1054,42 @@ function PortalAccessPanel({ investorId }: { investorId: number }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* High-risk confirmation dialogs */}
+      <ConfirmHighRiskAction
+        open={confirmRevokeId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmRevokeId(null); }}
+        title="Revoke Portal Access?"
+        description="The investor will immediately lose access to the portal. This action is logged."
+        riskLevel="critical"
+        confirmButtonLabel="Revoke Access"
+        irreversible={false}
+        loading={revokeMut.isPending}
+        onConfirm={() => { if (confirmRevokeId !== null) { revokeMut.mutate(confirmRevokeId); setConfirmRevokeId(null); } }}
+      />
+      <ConfirmHighRiskAction
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteId(null); }}
+        title="Delete Portal Link?"
+        description="This portal link will be permanently deleted. The investor will lose all access tied to this link."
+        riskLevel="critical"
+        confirmButtonLabel="Delete Link"
+        confirmationText="DELETE"
+        irreversible
+        loading={deleteMut.isPending}
+        onConfirm={() => { if (confirmDeleteId !== null) { deleteMut.mutate(confirmDeleteId); setConfirmDeleteId(null); } }}
+      />
+      <ConfirmHighRiskAction
+        open={confirmRegenId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmRegenId(null); }}
+        title="Regenerate Portal Token?"
+        description="The old token will be revoked immediately and a new one will be generated. Anyone using the old link will lose access."
+        riskLevel="critical"
+        confirmButtonLabel="Regenerate Token"
+        warningCopy="The old portal URL will stop working for anyone who has it."
+        loading={regenMut.isPending}
+        onConfirm={() => { if (confirmRegenId !== null) { regenMut.mutate(confirmRegenId); setConfirmRegenId(null); } }}
+      />
 
       {/* Token Dialog — shown once after create/regenerate */}
       {tokenDialog && (

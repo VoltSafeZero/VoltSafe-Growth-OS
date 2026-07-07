@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
+import { recordHighRiskAction, getAuditActor } from "./services/security-audit";
 
 // ── Capital access allowlist ──────────────────────────────────────────────────
 // IMPORTANT: this gate is identity-based, not role-based.
@@ -3087,6 +3088,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         `));
       } catch { /* non-fatal */ }
 
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "investor_portal_access_create", category: "token_action", target_type: "capital_investor", target_id: invId, route: req.path, severity: "critical", metadata: { portal_access_id: portal.id, investor_id: invId, material_count: matIds.length } });
       res.status(201).json({ ...portal, raw_token: rawToken, material_count: matIds.length });
     } catch (err: any) {
       console.error("[capital] POST /investors/:id/portal-access:", err?.message);
@@ -3137,6 +3139,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         SET status = 'revoked', revoked_at = NOW(), revoked_by = ${req.session.userId ?? "NULL"}, updated_at = NOW()
         WHERE id = ${id} AND deleted_at IS NULL
       `));
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "investor_portal_token_revoke", category: "token_action", target_type: "capital_portal_access", target_id: id, route: req.path, severity: "critical" });
       res.json({ ok: true });
     } catch (err: any) {
       console.error("[capital] POST /portal-access/:id/revoke:", err?.message);
@@ -3154,6 +3157,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         UPDATE capital_portal_access SET deleted_at = NOW(), updated_at = NOW()
         WHERE id = ${id} AND deleted_at IS NULL
       `));
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "investor_portal_access_delete", category: "capital_action", target_type: "capital_portal_access", target_id: id, route: req.path, severity: "critical" });
       res.json({ ok: true });
     } catch (err: any) {
       console.error("[capital] DELETE /portal-access/:id:", err?.message);
@@ -3180,6 +3184,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       `));
       const row = rows.rows[0] as any;
       if (!row) return res.status(404).json({ message: "Portal access not found" });
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "investor_portal_token_regenerate", category: "token_action", target_type: "capital_portal_access", target_id: id, route: req.path, severity: "critical" });
       res.json({ ...row, raw_token: rawToken });
     } catch (err: any) {
       console.error("[capital] POST /portal-access/:id/regenerate:", err?.message);

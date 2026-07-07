@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ConfirmHighRiskAction } from "@/components/security/confirm-high-risk-action";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
@@ -716,24 +717,26 @@ function UserDetailPanel({ user, currentUserId, isMasterAdmin, onClose, onUpdate
         )}
       </div>
 
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="text-red-400">Delete {user.name}?</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">This will permanently delete the account for <strong>{user.email}</strong>. This cannot be undone.</p>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" size="sm" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
-            <Button size="sm" className="bg-red-500 hover:bg-red-600 text-white" disabled={isPending} onClick={() => { onDelete(); setShowDeleteDialog(false); }} data-testid="button-confirm-delete-user">Delete Permanently</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ConfirmHighRiskAction
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        title={`Delete ${user.name}?`}
+        description={`This will permanently delete the account for ${user.email}. This cannot be undone.`}
+        riskLevel="critical"
+        confirmButtonLabel="Delete Permanently"
+        confirmationText="DELETE"
+        irreversible
+        loading={isPending}
+        onConfirm={() => { onDelete(); setShowDeleteDialog(false); }}
+      />
 
-      <Dialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
+      <Dialog open={showSuspendDialog} onOpenChange={(open) => { if (!open) setSuspendReason(""); setShowSuspendDialog(open); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle className="text-red-400">Suspend {user.name}?</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">This user will be locked out immediately. You can reactivate them at any time.</p>
           <div><Label className="text-xs">Reason (optional)</Label><Textarea value={suspendReason} onChange={e => setSuspendReason(e.target.value)} rows={3} className="mt-1.5" data-testid="input-suspend-reason" /></div>
           <div className="flex gap-2 justify-end">
-            <Button variant="outline" size="sm" onClick={() => setShowSuspendDialog(false)}>Cancel</Button>
+            <Button variant="outline" size="sm" onClick={() => { setSuspendReason(""); setShowSuspendDialog(false); }}>Cancel</Button>
             <Button size="sm" className="bg-red-500 hover:bg-red-600 text-white" onClick={() => { onSuspend(suspendReason); setShowSuspendDialog(false); }} data-testid="button-confirm-suspend">Suspend</Button>
           </div>
         </DialogContent>

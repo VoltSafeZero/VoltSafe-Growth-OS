@@ -178,6 +178,7 @@ import { validateAudioChunk, storeChunk } from "./services/meeting-notes-audio";
 import { transcribeMeetingNote } from "./services/meeting-notes-transcription";
 import { processWithAI } from "./services/meeting-notes-ai";
 import { buildOpenAIModelParams } from "./services/openai-compat";
+import { recordHighRiskAction, getAuditActor } from "./services/security-audit";
 
 // ── Avatar URL cache-busting helper ──────────────────────────────────────────
 // Module-level so it's accessible from all route handlers including Currents.
@@ -8142,6 +8143,7 @@ export async function registerRoutes(
       }
       const [updated] = await db.update(users).set({ permissions: parsed.data } as any).where(eq(users.id, targetId)).returning({ id: users.id, permissions: users.permissions });
       if (!updated) return res.status(404).json({ message: "User not found" });
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "user_permissions_change", category: "permission_change", target_type: "user", target_id: targetId, route: req.path, severity: "critical" });
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -8841,6 +8843,7 @@ export async function registerRoutes(
       if (masters.length <= 1) return res.status(400).json({ message: "Cannot suspend the last Master Admin" });
     }
     const [updated] = await db.update(users).set({ status: "suspended", suspendedAt: new Date(), suspendedReason: req.body.reason || null }).where(eq(users.id, userId)).returning();
+    void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "user_suspend", category: "user_management", target_type: "user", target_id: userId, route: req.path, severity: "critical" });
     res.json(updated);
   });
 
@@ -8882,6 +8885,7 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Only a master admin can delete another master admin" });
     }
     await db.delete(users).where(eq(users.id, userId));
+    void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "user_delete", category: "user_management", target_type: "user", target_id: userId, route: req.path, severity: "critical", metadata: { target_role: target.globalRole } });
     res.json({ message: "User deleted" });
   });
 
@@ -11818,6 +11822,7 @@ export async function registerRoutes(
       if (!id) return res.status(400).json({ message: "Invalid id" });
       const updated = await finalizeBoardPack(id);
       if (!updated) return res.status(404).json({ message: "Pack not found or not in draft status" });
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "board_pack_finalize", category: "board_pack_action", target_type: "board_pack", target_id: id, route: req.path, severity: "critical" });
       res.json(updated);
     } catch (err: any) {
       console.error("[board-pack] finalize:", err?.message);
@@ -11833,6 +11838,7 @@ export async function registerRoutes(
       if (!id) return res.status(400).json({ message: "Invalid id" });
       const updated = await archiveBoardPack(id);
       if (!updated) return res.status(404).json({ message: "Pack not found or already archived" });
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "board_pack_archive", category: "board_pack_action", target_type: "board_pack", target_id: id, route: req.path, severity: "critical" });
       res.json(updated);
     } catch (err: any) {
       console.error("[board-pack] archive:", err?.message);
@@ -11862,6 +11868,7 @@ export async function registerRoutes(
         sections: pack.sections_data,
       };
       const result = buildBoardPackMarkdown(builtPack as any);
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "board_pack_markdown_export", category: "board_pack_action", target_type: "board_pack", target_id: id, route: req.path, severity: "high" });
       res.json(result);
     } catch (err: any) {
       console.error("[board-pack] markdown:", err?.message);
@@ -11921,6 +11928,7 @@ export async function registerRoutes(
         sections: pack.sections_data,
       };
       const draft = buildInvestorUpdateDraft(builtPack as any, id);
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "board_pack_investor_draft", category: "board_pack_action", target_type: "board_pack", target_id: id, route: req.path, severity: "high" });
       res.json(draft);
     } catch (err: any) {
       console.error("[board-pack] investor-update-draft:", err?.message);
@@ -19808,6 +19816,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           updatedAt: new Date(),
         })
         .where(eq(emailAccounts.id, accountId));
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "gmail_account_disconnect", category: "integration_change", target_type: "email_account", target_id: accountId, route: req.path, severity: "critical" });
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -19974,6 +19983,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           updatedAt: new Date(),
         })
         .where(eq(emailAccounts.userId, userId));
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "gmail_disconnect", category: "integration_change", target_type: "email_account", target_id: String(userId), route: req.path, severity: "critical" });
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -35239,6 +35249,7 @@ export function registerConfluenceRoutes(app: Express) {
       const existing = await db.execute(sql.raw(`SELECT id, slug FROM current_channels WHERE id = ${id} AND archived_at IS NULL LIMIT 1`));
       if (!existing.rows.length) return res.status(404).json({ message: "Channel not found or already archived" });
       await db.execute(sql.raw(`UPDATE current_channels SET archived_at = NOW(), archived_by = ${userId} WHERE id = ${id}`));
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "currents_channel_archive", category: "currents_membership", target_type: "current_channel", target_id: id, route: req.path, severity: "critical" });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -35888,6 +35899,7 @@ export function registerConfluenceRoutes(app: Express) {
          VALUES (${channelId}, ${targetUserId}, ${adminId})
          ON CONFLICT (channel_id, user_id) DO NOTHING`
       ));
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "currents_member_add", category: "currents_membership", target_type: "current_channel", target_id: channelId, route: req.path, severity: "critical", metadata: { added_user_id: targetUserId } });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -35909,6 +35921,7 @@ export function registerConfluenceRoutes(app: Express) {
       await db.execute(sql.raw(
         `DELETE FROM current_channel_members WHERE channel_id = ${channelId} AND user_id = ${targetUserId}`
       ));
+      void recordHighRiskAction({ actor_user_id: getAuditActor(req), action: "currents_member_remove", category: "currents_membership", target_type: "current_channel", target_id: channelId, route: req.path, severity: "critical", metadata: { removed_user_id: targetUserId } });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

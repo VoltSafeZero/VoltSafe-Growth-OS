@@ -1,0 +1,319 @@
+VoltSafe CMS — Phase 17: Apply High-Risk Confirmation and Security Audit Events to Live Actions
+
+Goal:
+Now that Phase 16 created the high-risk action framework, apply it surgically to the highest-risk real routes and frontend actions.
+
+This phase should connect:
+- security_audit_events
+- recordHighRiskAction()
+- ConfirmHighRiskAction dialog
+- explicit confirmation contracts
+
+to actual production actions across the app.
+
+This is not a new feature phase.
+This is implementation of the security controls created in Phase 16.
+
+Context:
+Phase 15 completed full-app security and permissions audit.
+Phase 16 created:
+- server/services/security-audit.ts
+- migrations/0025_security_audit_events.sql
+- docs/security-high-risk-actions.md
+- client/src/components/security/confirm-high-risk-action.tsx
+- tests/high-risk-action-hardening.test.cjs
+
+Phase 16 confirmed that most routes were already guarded, but many high-risk actions still need stronger confirmation/audit wiring.
+
+1. Audit first
+
+Before editing, identify the best first batch of high-risk actions to wire.
+
+Prioritize routes/actions that are:
+- destructive
+- external-facing
+- permission-changing
+- Capital/Board/Investor related
+- integration/security related
+- bulk actions
+
+Search:
+- recordHighRiskAction
+- sendEmail
+- forward
+- createDraft
+- archive
+- delete
+- revoke
+- regenerate
+- finalize
+- export
+- disconnect
+- permission
+- role
+- user disable
+- current_channel_members
+- investor portal token
+- board pack finalize
+- board pack archive
+- Gmail disconnect
+- campaign send
+- bulk
+
+Report:
+- routes already audited
+- routes already requiring confirm:true
+- routes missing audit event
+- routes missing confirmation contract
+- frontend actions missing ConfirmHighRiskAction
+- recommended first batch
+
+2. First batch target list
+
+Apply Phase 16 controls to these first, unless audit proves a route does not exist:
+
+A. Board Pack
+- finalize board pack
+- archive board pack
+- markdown export
+- investor update draft generation
+
+Requirements:
+- keep requireBoardPackAccess
+- record audit event for finalize/archive/export/draft
+- draft/export remain copy_only: true
+- no auto-send
+
+B. Capital / Investor Portal
+- investor portal token revoke
+- investor portal token regenerate/create
+- Capital export routes if present
+- Capital delete/archive routes if present
+
+Requirements:
+- keep requireCapitalAccess
+- require confirmation for revoke/regenerate/delete/archive/export where appropriate
+- record audit event
+- never log token values or investor memo text
+
+C. Mail
+- send email
+- forward email
+- delete email
+- archive email
+- bulk label/archive/delete if present
+
+Requirements:
+- keep requireAuth and mailbox ownership checks
+- require explicit action/confirmation for send/forward/delete/bulk destructive actions
+- record audit event
+- never log email body, subject content if sensitive, OAuth tokens, or recipient body text
+- audit metadata may include message count, route, action type, mailbox owner id
+
+D. Currents
+- archive/delete channel
+- private channel membership add/remove
+- delete message if present
+
+Requirements:
+- keep membership/admin checks
+- require confirmation for private channel membership changes and archive/delete actions
+- record audit event
+- never log message body or private channel content
+
+E. Admin/User Management
+- role/permission changes
+- user disable/delete
+- invite/remove user if present
+
+Requirements:
+- keep requireAdmin or stronger
+- require confirmationText for critical changes:
+  - CHANGE PERMISSIONS
+  - DISABLE USER
+  - DELETE USER
+- record audit event
+- never log secrets or invite tokens
+
+3. Backend implementation pattern
+
+For each selected route:
+
+- import recordHighRiskAction or recordSecurityAuditEvent
+- preserve existing guard
+- validate confirmation if required
+- perform object-level authorization as already done
+- record attempted/denied/succeeded/failed events where practical
+- do not throw from audit helper
+- do not store sensitive payloads
+
+Example structure:
+
+- if confirmation missing:
+  - record denied/failed audit event if actor exists
+  - return 400 with clear message
+
+- after successful action:
+  - record succeeded audit event with safe metadata
+
+- on caught failure:
+  - record failed audit event with safe metadata
+  - return existing error pattern
+
+Safe metadata only:
+- ids
+- counts
+- route
+- action type
+- target type
+- status
+- booleans
+- safe labels
+
+Never audit:
+- email bodies
+- Currents message bodies
+- private DM content
+- OAuth tokens
+- webhook tokens
+- investor memo text
+- Board Pack full sections
+- Capital confidential notes
+- passwords
+- API keys
+
+4. Frontend implementation pattern
+
+Use:
+
+client/src/components/security/confirm-high-risk-action.tsx
+
+Apply to highest-risk visible actions first:
+
+- Board Pack finalize/archive/export
+- investor portal token revoke/regenerate
+- Capital archive/delete/export if UI exists
+- Mail send/forward/delete/bulk destructive actions
+- Currents private membership changes/archive/delete if UI exists
+- Admin role/permission/user disable/delete if UI exists
+
+Do not over-modal low-risk actions.
+
+Confirmation text examples:
+- DELETE
+- ARCHIVE
+- SEND
+- FORWARD
+- EXPORT
+- REVOKE TOKEN
+- DISCONNECT
+- CHANGE PERMISSIONS
+- DISABLE USER
+
+5. Copy-only contract preservation
+
+Verify:
+- board pack markdown export remains copy_only: true
+- investor update draft remains copy_only: true
+- CEO action draft remains copy_only: true
+- forecast scenario note remains local/copy-only as designed
+- no route sends email or Currents message as side effect
+
+6. Tests
+
+Create or update:
+
+tests/high-risk-action-application.test.cjs
+
+Minimum coverage:
+- recordHighRiskAction imported in selected route blocks
+- board pack finalize/archive/export/draft routes audit events
+- board pack draft/export remain copy_only
+- capital/investor portal token routes audit events
+- token values are not logged
+- mail send/forward/delete/archive routes audit events or documented equivalent
+- mail audit metadata excludes body/token fields
+- Currents private membership/archive routes audit events or documented equivalent
+- admin user/permission routes audit events or documented equivalent
+- confirmation component used by selected frontend actions
+- confirmationText used for critical actions
+- missing confirmation returns safe 400 where implemented
+- no route guard was weakened
+- no sensitive payloads in audit metadata
+- no auto-send introduced
+- Phase 16 tests still pass
+
+Also update:
+- tests/high-risk-action-hardening.test.cjs
+- tests/full-app-security-hardening.test.cjs
+where appropriate.
+
+7. Documentation update
+
+Update:
+
+docs/security-high-risk-actions.md
+
+Add:
+- Phase 17 applied controls table
+- route/action
+- confirmation requirement
+- audit event action name
+- severity
+- status: implemented / deferred
+- reason for deferred actions
+
+Update:
+
+docs/security-access-control-matrix.md
+
+Add audit status for modules touched.
+
+8. Validation
+
+Run:
+
+npm run build
+node tests/high-risk-action-application.test.cjs
+node tests/high-risk-action-hardening.test.cjs
+node tests/full-app-security-hardening.test.cjs
+node tests/ceo-cockpit-smoke.test.cjs
+node tests/board-pack.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/currents-search.test.cjs
+node tests/currents-files-tab.test.cjs
+node tests/today-personalization.test.cjs
+node tests/nav-consolidation.test.cjs
+node tests/startup-invariants.test.cjs
+node tests/nav-drift.test.cjs
+
+Then run broader regression tests if time allows.
+
+9. Deliverable
+
+First summarize audit:
+- selected first batch
+- deferred routes and why
+- existing confirmations found
+- missing audit wiring found
+
+Then summarize implementation:
+- routes updated
+- frontend actions updated
+- audit event names added
+- confirmation contracts added
+- docs updated
+- tests added/updated
+- validation results
+- remaining high-risk routes for future batch
+
+Constraints:
+- no permission loosening
+- no new major features
+- no data deletion
+- no dev DB copy
+- no auto-send
+- no external APIs
+- no sensitive audit payloads
+- no duplicate audit system
+- keep changes surgical and production-safe

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { ConfirmHighRiskAction } from "@/components/security/confirm-high-risk-action";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -1620,6 +1621,8 @@ export default function BoardPackPage() {
   const [copiedDraft, setCopiedDraft] = useState(false);
   const [opInvestorDraft, setOpInvestorDraft] = useState<{ subject: string; body: string } | null>(null);
   const [opMarkdown, setOpMarkdown] = useState<string | null>(null);
+  const [confirmFinalize, setConfirmFinalize] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   // CEO/CFO access check
   const { data: me } = useQuery<any>({ queryKey: ["/api/auth/me"] });
@@ -1969,7 +1972,7 @@ ${previewRef.current.innerHTML}
                 <Button
                   data-testid="button-finalize-pack"
                   variant="outline" size="sm"
-                  onClick={() => finalizePackMutation.mutate(opResult.record.id)}
+                  onClick={() => setConfirmFinalize(true)}
                   disabled={finalizePackMutation.isPending}
                 >
                   <CheckCircle className="w-4 h-4 mr-1.5" />Finalize
@@ -1979,7 +1982,7 @@ ${previewRef.current.innerHTML}
                 <Button
                   data-testid="button-archive-pack"
                   variant="outline" size="sm"
-                  onClick={() => archivePackMutation.mutate(opResult.record.id)}
+                  onClick={() => setConfirmArchive(true)}
                   disabled={archivePackMutation.isPending}
                 >
                   <Archive className="w-4 h-4 mr-1.5" />Archive
@@ -2185,6 +2188,27 @@ ${previewRef.current.innerHTML}
         </div>
       </div>
       )}
+
+      <ConfirmHighRiskAction
+        open={confirmFinalize}
+        onOpenChange={setConfirmFinalize}
+        title="Finalize this Board Pack?"
+        description="Once finalized, this pack will be locked for editing. It will be available for distribution to investors and board members."
+        riskLevel="high"
+        confirmButtonLabel="Finalize Pack"
+        loading={finalizePackMutation.isPending}
+        onConfirm={() => { if (opResult?.record?.id) { finalizePackMutation.mutate(opResult.record.id); setConfirmFinalize(false); } }}
+      />
+      <ConfirmHighRiskAction
+        open={confirmArchive}
+        onOpenChange={setConfirmArchive}
+        title="Archive this Board Pack?"
+        description="This pack will be moved to the archive. Finalized packs archived here are kept for audit purposes."
+        riskLevel="high"
+        confirmButtonLabel="Archive Pack"
+        loading={archivePackMutation.isPending}
+        onConfirm={() => { if (opResult?.record?.id) { archivePackMutation.mutate(opResult.record.id); setConfirmArchive(false); } }}
+      />
 
       <SavePresetDialog
         open={saveDialogOpen}

@@ -265,6 +265,74 @@ The following were audited and confirmed safe:
 
 ---
 
+---
+
+## Phase 17 — Applied Controls (Live Wiring)
+
+*Status: COMPLETE — 2026-07-07*
+
+All routes below have `void recordHighRiskAction(...)` (fire-and-forget, never blocking) added immediately before `res.json(...)`. Frontend confirmation guards are wired using `ConfirmHighRiskAction` for all user-facing critical actions.
+
+### Backend Audit Calls Added
+
+| Route | Action | Category | Severity | File |
+|---|---|---|---|---|
+| `POST /api/board-packs/:id/finalize` | `board_pack_finalize` | `board_pack_action` | critical | routes.ts |
+| `POST /api/board-packs/:id/archive` | `board_pack_archive` | `board_pack_action` | critical | routes.ts |
+| `GET /api/board-packs/:id/markdown` | `board_pack_markdown_export` | `board_pack_action` | high | routes.ts |
+| `POST /api/board-packs/:id/investor-update-draft` | `board_pack_investor_draft` | `board_pack_action` | high | routes.ts |
+| `PATCH /api/admin/users/:id/permissions` | `user_permissions_change` | `permission_change` | critical | routes.ts |
+| `POST /api/admin/users/:id/suspend` | `user_suspend` | `user_management` | critical | routes.ts |
+| `DELETE /api/admin/users/:id` | `user_delete` | `user_management` | critical | routes.ts |
+| `POST /api/current/channels/:id/archive` | `currents_channel_archive` | `currents_membership` | critical | routes.ts |
+| `POST /api/current/channels/:slug/members` | `currents_member_add` | `currents_membership` | critical | routes.ts |
+| `DELETE /api/current/channels/:slug/members/:userId` | `currents_member_remove` | `currents_membership` | critical | routes.ts |
+| `POST /api/gmail/accounts/:id/disconnect` | `gmail_account_disconnect` | `integration_change` | critical | routes.ts |
+| `POST /api/gmail/disconnect` | `gmail_disconnect` | `integration_change` | critical | routes.ts |
+| `POST /api/capital/investors/:id/portal-access` | `investor_portal_access_create` | `token_action` | critical | routes-capital.ts |
+| `POST /api/capital/portal-access/:id/revoke` | `investor_portal_token_revoke` | `token_action` | critical | routes-capital.ts |
+| `DELETE /api/capital/portal-access/:id` | `investor_portal_access_delete` | `capital_action` | critical | routes-capital.ts |
+| `POST /api/capital/portal-access/:id/regenerate` | `investor_portal_token_regenerate` | `token_action` | critical | routes-capital.ts |
+
+**Total: 16 audit call sites. 15 are critical severity, 2 are high.**
+
+### Frontend Confirmation Guards Added
+
+| Component | Actions Guarded | Confirmation Type |
+|---|---|---|
+| `client/src/pages/board-pack.tsx` | Finalize Pack, Archive Pack | `ConfirmHighRiskAction` (riskLevel=high, no typing required) |
+| `client/src/pages/capital-investors.tsx` | Revoke Portal, Delete Portal Link, Regenerate Token | `ConfirmHighRiskAction` (riskLevel=critical; Delete requires typing "DELETE") |
+| `client/src/pages/admin-users.tsx` | Delete User | `ConfirmHighRiskAction` (riskLevel=critical, confirmationText="DELETE", irreversible=true) |
+| `client/src/pages/admin-users.tsx` | Suspend User | Custom Dialog (preserves reason textarea; backend audit already logs) |
+
+### Pattern
+
+```typescript
+// Fire-and-forget — never blocks the response
+void recordHighRiskAction({
+  actor_user_id: getAuditActor(req),
+  action: "action_name",
+  category: "category_name",
+  target_type: "resource_type",
+  target_id: id,
+  route: req.path,
+  severity: "critical",
+  metadata: { /* safe IDs/counts only, no PII/secrets */ },
+});
+res.json(result);
+```
+
+### Test Coverage
+
+`tests/high-risk-action-application.test.cjs` — 84 checks covering:
+- All 16 backend audit call sites (action name, category, severity, metadata)
+- Fire-and-forget pattern (no `await`, no blocking)
+- All frontend `ConfirmHighRiskAction` integrations (state, onClick, dialog props)
+- Metadata sanitization (BLOCKED_METADATA_KEYS)
+- DB migration presence
+
+---
+
 ## Sensitive Payload Prohibitions
 
 The following are **never** stored in audit metadata:
