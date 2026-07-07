@@ -1,0 +1,354 @@
+URGENT RELEASE BLOCKER — DEAD UI ELIMINATION & FULL INTERACTION AUDIT
+
+OBJECTIVE
+
+Perform a comprehensive audit of every page, module, modal, drawer, toolbar, card, button, icon button, chip, badge, segmented control, dropdown, menu item, tab, floating action button, quick action, context menu, table action, and interactive component that has been created or modified within the last 48 hours.
+
+This is a release-blocking task.
+
+There must be ZERO enabled controls anywhere in the application that do nothing when clicked.
+
+═══════════════════════════════════════
+PRIMARY REQUIREMENT
+═══════════════════════════════════════
+
+Every interactive element must do exactly one of the following:
+
+• Navigate somewhere
+• Open a page
+• Open a modal
+• Open a drawer
+• Open a side panel
+• Save data
+• Update data
+• Delete data
+• Duplicate data
+• Create a record
+• Export data
+• Import data
+• Trigger an AI workflow
+• Open a picker
+• Open a menu
+• Filter data
+• Sort data
+• Search
+• Display meaningful information
+• Execute its intended workflow
+
+OR
+
+If the functionality is intentionally unavailable, the control must:
+
+• Be visually disabled
+• Use disabled styling
+• Have cursor-not-allowed
+• Have appropriate aria-disabled attributes
+• Display a tooltip explaining why it is unavailable
+
+Under no circumstances should an enabled button, chip, icon, tab, or menu item do absolutely nothing.
+
+═══════════════════════════════════════
+GLOBAL CODE AUDIT
+═══════════════════════════════════════
+
+Search the entire codebase for placeholder or incomplete interactions including (but not limited to):
+
+onClick={() => {}}
+onClick={() => null}
+onClick={() => undefined}
+onClick={(e)=>e.preventDefault()}
+TODO
+Coming Soon
+Placeholder
+Stub
+noop
+console.log(...)
+alert(...)
+return;
+disabled={false}
+cursor-pointer without action
+
+Also audit:
+
+empty callbacks
+temporary handlers
+fake navigation
+placeholder modals
+unfinished drawers
+hidden TODO comments
+mock data interactions
+unimplemented menu items
+
+Replace every placeholder implementation with the intended production behavior.
+
+═══════════════════════════════════════
+INVESTOR UPDATES MODULE
+═══════════════════════════════════════
+
+The Investor Updates module currently appears visually complete but contains non-functional controls.
+
+Implement every interaction.
+
+CREATE UPDATE
+
+The "Create Update" button must launch a fully functional modal supporting:
+
+• Monthly Update
+• Quarterly Update
+• Milestone
+• Data Room Invite
+• Custom Update
+
+Fields:
+
+• Update Title
+• Update Type
+• Investor Recipients
+• Subject
+• Rich Text Editor
+• Attachments
+• Tags
+• Draft/Published Status
+• Schedule Send
+• Save Draft
+• Send Now
+
+Support editing existing updates.
+
+MONTHLY UPDATE CHIP
+
+Filter list to only Monthly Updates.
+
+QUARTERLY UPDATE CHIP
+
+Filter list to Quarterly Updates.
+
+MILESTONE CHIP
+
+Filter list to Milestone announcements.
+
+DATA ROOM CHIP
+
+Filter list to Data Room invitations.
+
+Empty state should automatically disappear once the first update is created.
+
+═══════════════════════════════════════
+AUDIT EVERY NEW CAPITAL MODULE
+═══════════════════════════════════════
+
+Review every interaction within:
+
+• Investor CRM
+• Fundraising Pipeline
+• Angel Investors
+• High Net Worth Individuals
+• Family Offices
+• Venture Capital
+• Government Grants
+• Strategic Investors
+• Investor Updates
+• Due Diligence
+• Data Room
+• Funding Rounds
+• Meetings
+• Tasks
+• Documents
+• Notes
+• Activities
+
+Every visible interaction must function correctly.
+
+═══════════════════════════════════════
+AUDIT EVERY NEW MODULE CREATED IN THE LAST 48 HOURS
+═══════════════════════════════════════
+
+Do not limit this audit to the Capital module.
+
+Inspect every new page and module created within the last 48 hours, including but not limited to:
+
+• Marketing
+• CRM
+• CEO Cockpit
+• Operations
+• Currents
+• Documents
+• Revenue
+• AI
+• Dashboards
+• Work
+• Calendar
+• Notifications
+• Settings
+• Any new feature branch merged within the last 48 hours
+
+Every button.
+
+Every icon.
+
+Every menu.
+
+Every chip.
+
+Every badge.
+
+Every quick action.
+
+Every context menu.
+
+Every floating action button.
+
+Every toolbar.
+
+Every dropdown.
+
+Every filter.
+
+Every table action.
+
+Every modal button.
+
+Every footer action.
+
+Every row action.
+
+Everything.
+
+═══════════════════════════════════════
+MOBILE VERIFICATION
+═══════════════════════════════════════
+
+Verify on mobile:
+
+• No dead taps
+• Touch targets meet accessibility standards
+• Bottom navigation never blocks buttons
+• No controls hidden behind safe areas
+• No overlapping controls
+• No clipped modals
+• Responsive layouts remain fully interactive
+
+═══════════════════════════════════════
+DESKTOP VERIFICATION
+═══════════════════════════════════════
+
+Verify:
+
+• Mouse interactions
+• Keyboard navigation
+• Proper tab order
+• Enter activates buttons
+• Space activates controls
+• Escape closes dialogs
+• Focus returns correctly after modal close
+• No focus traps
+
+═══════════════════════════════════════
+ACCESSIBILITY
+═══════════════════════════════════════
+
+Every interactive element must have:
+
+• aria-label where appropriate
+• Correct role
+• Visible focus ring
+• Keyboard accessibility
+• Proper disabled state when unavailable
+
+═══════════════════════════════════════
+AUTOMATED INTERACTION AUDIT
+═══════════════════════════════════════
+
+Create an automated Playwright regression test that:
+
+1. Visits every page added or modified during the last 48 hours.
+2. Detects every enabled:
+   • button
+   • icon button
+   • chip
+   • tab
+   • menu item
+   • floating action button
+   • quick action
+   • card action
+   • row action
+3. Clicks every enabled interactive control.
+4. Verifies that each interaction results in an observable outcome such as:
+   • navigation
+   • modal opens
+   • drawer opens
+   • state change
+   • API request
+   • filter change
+   • menu opens
+   • notification
+   • save action
+   • other intended behavior
+
+Fail the test if any enabled control produces no observable result.
+
+Also fail on:
+
+• React errors
+• JavaScript exceptions
+• Unhandled promise rejections
+• Console errors
+• Blank pages
+• Broken routes
+• Rendering failures
+
+═══════════════════════════════════════
+FINAL MANUAL QA
+═══════════════════════════════════════
+
+Manually verify every page modified in the last 48 hours after implementing fixes.
+
+Do not assume a control works simply because it renders.
+
+Actually click every visible interaction.
+
+═══════════════════════════════════════
+ACCEPTANCE CRITERIA
+═══════════════════════════════════════
+
+The task is NOT complete until all of the following are true:
+
+✅ Zero dead buttons
+
+✅ Zero dead tabs
+
+✅ Zero dead chips
+
+✅ Zero dead icon buttons
+
+✅ Zero dead menus
+
+✅ Zero dead quick actions
+
+✅ Zero dead floating action buttons
+
+✅ Zero placeholder callbacks
+
+✅ Zero "Coming Soon" interactions presented as enabled
+
+✅ Investor Updates fully functional
+
+✅ Every new module created in the last 48 hours fully interactive
+
+✅ Mobile verified
+
+✅ Desktop verified
+
+✅ Keyboard accessibility verified
+
+✅ Automated Playwright interaction audit passes
+
+Produce a final report listing:
+
+• Every issue found
+• Every file modified
+• Every interaction implemented
+• Every previously dead control that is now functional
+• Any intentionally disabled controls and the reason they remain disabled
+
+Do not mark this task complete until every enabled control across all new modules and pages created in the last 48 hours has been verified to perform its intended function.

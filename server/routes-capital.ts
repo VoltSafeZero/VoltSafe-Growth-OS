@@ -512,6 +512,30 @@ export async function migrateCapitalSchema(): Promise<void> {
     `));
     console.log("[migration] Capital Phase 2H: investor portal tables ready.");
   } catch (_e2h) { /* idempotent */ }
+
+  // Phase 2I: Investor Updates
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS capital_investor_updates (
+        id          SERIAL PRIMARY KEY,
+        title       TEXT NOT NULL,
+        update_type TEXT NOT NULL DEFAULT 'Monthly Update',
+        subject     TEXT,
+        body        TEXT,
+        status      TEXT NOT NULL DEFAULT 'draft',
+        tags        TEXT[],
+        created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        scheduled_at TIMESTAMPTZ,
+        sent_at     TIMESTAMPTZ,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_cap_updates_type   ON capital_investor_updates(update_type);
+      CREATE INDEX IF NOT EXISTS idx_cap_updates_status ON capital_investor_updates(status);
+      CREATE INDEX IF NOT EXISTS idx_cap_updates_created ON capital_investor_updates(created_at DESC);
+    `));
+    console.log("[migration] Capital Phase 2I: investor updates table ready.");
+  } catch (_e2i) { /* idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -4044,6 +4068,103 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
     } catch (err: any) {
       console.error("[capital] POST /copilot/query:", err?.message);
       res.status(500).json({ message: "Copilot query failed" });
+    }
+  });
+
+  // ── Investor Updates ──────────────────────────────────────────────────────
+  app.get("/api/capital/investor-updates", requireAuth, requireCapitalAccess, async (_req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(
+        `SELECT * FROM capital_investor_updates ORDER BY created_at DESC`
+      ));
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error("[capital] GET /investor-updates:", err?.message);
+      res.status(500).json({ message: "Failed to fetch investor updates" });
+    }
+  });
+
+  app.post("/api/capital/investor-updates", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const { title, update_type, subject, body, status, tags, scheduled_at, sent_at } = req.body;
+      if (!title?.trim()) return res.status(400).json({ message: "title is required" });
+      const tagsArr = typeof tags === "string"
+        ? tags.split(",").map((t: string) => t.trim()).filter(Boolean)
+        : (Array.isArray(tags) ? tags : []);
+      const rows = await db.execute(sql.raw(
+        `INSERT INTO capital_investor_updates
+           (title, update_type, subject, body, status, tags, scheduled_at, sent_at, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING *`,
+        [
+          title.trim(),
+          update_type ?? "Monthly Update",
+          subject?.trim() || null,
+          body?.trim() || null,
+          status ?? "draft",
+          tagsArr.length ? tagsArr : null,
+          scheduled_at || null,
+          sent_at || null,
+          req.user?.id ?? null,
+        ]
+      ));
+      res.json(rows.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] POST /investor-updates:", err?.message);
+      res.status(500).json({ message: "Failed to create investor update" });
+    }
+  });
+
+  app.patch("/api/capital/investor-updates/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "invalid id" });
+      const { title, update_type, subject, body, status, tags, scheduled_at, sent_at } = req.body;
+      const tagsArr = typeof tags === "string"
+        ? tags.split(",").map((t: string) => t.trim()).filter(Boolean)
+        : (Array.isArray(tags) ? tags : null);
+      const rows = await db.execute(sql.raw(
+        `UPDATE capital_investor_updates SET
+           title        = COALESCE($2, title),
+           update_type  = COALESCE($3, update_type),
+           subject      = $4,
+           body         = $5,
+           status       = COALESCE($6, status),
+           tags         = $7,
+           scheduled_at = $8,
+           sent_at      = $9,
+           updated_at   = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [
+          id,
+          title?.trim() || null,
+          update_type || null,
+          subject?.trim() || null,
+          body?.trim() || null,
+          status || null,
+          tagsArr && tagsArr.length ? tagsArr : null,
+          scheduled_at || null,
+          sent_at || null,
+        ]
+      ));
+      if (!rows.rows.length) return res.status(404).json({ message: "not found" });
+      res.json(rows.rows[0]);
+    } catch (err: any) {
+      console.error("[capital] PATCH /investor-updates/:id:", err?.message);
+      res.status(500).json({ message: "Failed to update investor update" });
+    }
+  });
+
+  app.delete("/api/capital/investor-updates/:id", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "invalid id" });
+      await db.execute(sql.raw(`DELETE FROM capital_investor_updates WHERE id = $1`, [id]));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[capital] DELETE /investor-updates/:id:", err?.message);
+      res.status(500).json({ message: "Failed to delete investor update" });
     }
   });
 }
