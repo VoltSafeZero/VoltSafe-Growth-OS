@@ -1,0 +1,79 @@
+VoltSafe CMS — Production Deploy Execution: Security-Hardened Release
+
+Goal:
+Deploy the completed security-hardened VoltSafe CMS build after Phases 15–18.
+
+Do not add features.
+Do not change permissions unless a real deploy-blocking issue appears.
+Do not modify routes unless production smoke tests fail.
+This is deploy execution and monitoring only.
+
+Pre-deploy confirmed:
+- npm run build is clean
+- Phase 15 full-app security hardening tests pass
+- Phase 16 high-risk action hardening tests pass
+- Phase 17 high-risk action application tests pass
+- Phase 18 security production launch tests pass
+- Board Pack, Capital, Currents, Today, nav, and startup tests pass
+- security-production-monitoring.md exists
+- security audit events are fire-and-forget
+- audit metadata strips sensitive keys
+- high-risk confirmation dialogs are wired
+- copy-only routes remain copy_only: true
+- no auto-send paths introduced
+- no destructive SQL introduced
+- migrations are idempotent
+
+Deploy steps:
+1. Trigger production deploy.
+2. Watch build logs until complete.
+3. Confirm migration logs are clean.
+4. Confirm no production DB copy is requested or required.
+5. Confirm app boots.
+6. Confirm Today page loads.
+7. Confirm CEO Cockpit loads for authorized user.
+8. Confirm normal admin/non-admin restrictions behave correctly.
+9. Confirm Board Pack CEO/CFO-only access.
+10. Confirm Capital access remains gated.
+11. Confirm high-risk confirmations appear where expected.
+12. Confirm server logs show no 500 spikes.
+13. Confirm browser console is clean.
+14. Monitor security_audit_events for expected high-risk actions only.
+
+Post-deploy monitoring:
+Use docs/security-production-monitoring.md as the runbook.
+
+Watch for:
+- migration errors
+- 500s on high-risk routes
+- unexpected 401/403 spikes
+- failed audit inserts
+- Board Pack access issues
+- Capital portal token errors
+- Currents membership errors
+- Gmail disconnect errors
+- unexpected send/export/delete spikes
+
+Rollback only if:
+- login/session breaks
+- Today or core CRM fails to load
+- permissions expose restricted data
+- high-risk routes produce widespread 500s
+- audit migration blocks startup
+- confirmation layer blocks critical admin operations
+
+Do not rollback for:
+- expected 403s
+- one harmless missing audit event
+- cosmetic confirmation issue
+- copy button UX issue
+
+Deliverable:
+Report:
+- deployment status
+- build result
+- migration result
+- smoke test result
+- route/access checks
+- any production warnings/errors
+- whether rollback is needed
