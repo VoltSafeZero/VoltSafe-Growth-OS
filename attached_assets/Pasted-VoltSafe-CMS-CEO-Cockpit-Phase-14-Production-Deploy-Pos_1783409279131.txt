@@ -1,0 +1,248 @@
+VoltSafe CMS — CEO Cockpit Phase 14: Production Deploy, Post-Launch Monitoring, and Rollback Safety
+
+Goal:
+Prepare and execute a safe production deployment of CEO Cockpit Phases 4–13.
+
+This phase should focus on:
+- final pre-deploy verification
+- production migration safety
+- deployment smoke checks
+- post-launch monitoring
+- rollback readiness
+- clear production acceptance criteria
+
+Do not add new features.
+Do not rewrite CEO Cockpit modules.
+Do not change permissions unless a bug is found.
+Do not auto-send anything.
+Do not expose private data.
+
+Context:
+Completed:
+- Phase 4: CEO Cockpit insights
+- Phase 5: 1:1 notes and commitments
+- Phase 6: CEO Action Queue
+- Phase 7: CEO Briefing and Leadership Agenda
+- Phase 8: Execution Intelligence / Drift Detection
+- Phase 9: Forecasting / Scenario Planning / Runway Intelligence
+- Phase 10: Board / Investor Operating Pack
+- Phase 11: Hardening and tabbed layout
+- Phase 12: Executive UX polish
+- Phase 13: Smoke testing and release checklist
+
+Phase 13 created:
+- tests/ceo-cockpit-smoke.test.cjs
+- docs/ceo-cockpit-release-checklist.md
+- copy_only: true fix for action drafts
+- improved migration logging
+
+Now perform a production deployment readiness and launch pass.
+
+1. Pre-deploy audit
+
+Before deploying, verify:
+
+- npm run build passes
+- all CEO Cockpit test suites pass
+- startup migrations are idempotent
+- no undefined pool usage remains
+- no silent migration catch blocks remain
+- no CREATE INDEX without IF NOT EXISTS in CEO migration blocks
+- no destructive SQL
+- no production data copy required
+- no auto-send paths
+- no external API calls in deterministic CEO services
+- no private Currents exposure
+- no DM body broad exposure
+- no sensitive localStorage storage
+- no fake runway/cash numbers
+
+Report findings before changing anything.
+
+2. Run final validation suite
+
+Run:
+
+npm run build
+node tests/ceo-cockpit-smoke.test.cjs
+node tests/ceo-cockpit-ux-polish.test.cjs
+node tests/ceo-cockpit-hardening.test.cjs
+node tests/ceo-cockpit.test.cjs
+node tests/ceo-action-loop.test.cjs
+node tests/ceo-briefing.test.cjs
+node tests/ceo-execution-intelligence.test.cjs
+node tests/ceo-forecasting.test.cjs
+node tests/board-pack.test.cjs
+node tests/ceo-one-on-ones.test.cjs
+node tests/today-cockpit.test.cjs
+node tests/today-personalization.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/nav-consolidation.test.cjs
+node tests/cms-theme-structural.test.cjs
+node tests/startup-invariants.test.cjs
+node tests/nav-drift.test.cjs
+
+Also run any currently relevant Currents, Work, Operations, Marketing, Pipeline, and Insights drilldown tests.
+
+If a live-server test fails because the app is restarting, wait for the server to be healthy and rerun that specific test.
+
+3. Production migration checklist
+
+Verify production deploy logs show:
+
+- CEO Action Queue tables ready
+- meeting_notes.one_on_one_sections column ready
+- ceo_execution_reviews table ready
+- board_packs table ready
+- ceo_forecast_notes table ready
+
+If a migration fails:
+- do not copy dev database to production
+- do not drop production tables
+- do not delete production data
+- inspect the failing SQL
+- make migration idempotent
+- rerun deploy only after the fix
+
+4. Post-deploy route smoke checks
+
+After deploy, verify these routes respond correctly for authorized users:
+
+- /api/today/ceo-cockpit
+- /api/today/ceo-actions
+- /api/today/ceo-briefing/daily
+- /api/today/ceo-execution/radar
+- /api/today/ceo-forecast
+- /api/board-packs
+
+Also verify restricted routes reject unauthorized users:
+- non-admin users cannot access CEO Cockpit APIs
+- normal admins cannot access CEO/CFO-only Board Pack and runway/funding routes
+- CEO Trevor can access CEO/CFO-only routes
+- CFO Scott Carlson can access CEO/CFO-only routes
+
+5. Browser QA
+
+Manually check:
+
+Today → My Day:
+- loads normally
+- no regression from CEO Cockpit changes
+
+Today → CEO Cockpit:
+- tab appears only for authorized users
+- Overview loads
+- Actions tab loads
+- Briefing tab loads
+- Execution tab loads
+- Forecasting tab loads
+- 1:1s tab loads
+- Board Pack tab links correctly
+- inactive tabs are not eagerly fetching
+- refresh button works
+- copy buttons work
+- no auto-send behavior occurs
+- no raw JSON visible
+- no console errors
+
+Board Pack page:
+- CEO/CFO access works
+- normal admin denied
+- Operating Pack tab works
+- markdown copy works
+- investor update draft is copy-only
+- capital section gating works
+
+6. Production monitoring
+
+For the first 24 hours after deploy, watch for:
+
+Server logs:
+- migration errors
+- 401/403 spikes
+- 500 errors on CEO routes
+- slow CEO route responses
+- failed DB queries
+- missing column/table errors
+
+Browser:
+- blank Today page
+- tab switching issues
+- copy button errors
+- board-pack access errors
+- mobile overflow
+
+Database:
+- ceo_action_queue rows created only by explicit actions
+- ceo_action_events rows logged correctly
+- ceo_execution_reviews created only by review/dismiss actions
+- board_packs created only by explicit generation/create actions
+- ceo_forecast_notes created only by explicit scenario note actions
+
+7. Rollback readiness
+
+Document rollback triggers:
+
+Rollback if:
+- Today page fails for normal users
+- login/session breaks
+- production migration corrupts or blocks startup
+- CEO Cockpit APIs cause widespread 500s
+- permissions expose CEO/CFO-only data
+- Board Pack exposes capital data incorrectly
+
+Do not rollback for:
+- missing empty state polish
+- one non-critical tab error if Today still loads
+- copy button issue that has no data exposure
+- expected 403s for unauthorized users
+
+8. Update release checklist
+
+Update:
+
+docs/ceo-cockpit-release-checklist.md
+
+Add:
+- final deploy date placeholder
+- production deploy steps
+- post-deploy route smoke checks
+- 24-hour monitoring checklist
+- rollback triggers
+- known limitations from Phases 4–13
+
+9. Optional lightweight production status doc
+
+Create if useful:
+
+docs/ceo-cockpit-production-status.md
+
+Include:
+- deployed version/checkpoint
+- validation suite results
+- migration status
+- permission status
+- known limitations
+- post-launch watch items
+
+10. Deliverable
+
+Summarize:
+- final tests run
+- build result
+- migration readiness
+- files changed
+- release checklist updates
+- production smoke checklist
+- rollback plan
+- known launch risks
+
+Constraints:
+- no new product features
+- no permission loosening
+- no data deletion
+- no production DB copy
+- no auto-send
+- no external APIs
+- no AI dependency added
+- keep this deploy-focused

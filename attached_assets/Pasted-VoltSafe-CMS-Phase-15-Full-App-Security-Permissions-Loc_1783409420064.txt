@@ -1,0 +1,522 @@
+VoltSafe CMS — Phase 15: Full App Security, Permissions Lockdown, and Access-Control Hardening
+
+Goal:
+Perform a full-app security and permissions hardening pass across VoltSafe CMS.
+
+This is not a feature-building phase.
+This is a security, access-control, privacy, route-guard, and production safety audit.
+
+The goal is to ensure:
+- users only see what they are allowed to see
+- users only call APIs they are allowed to call
+- admin-only actions are protected server-side
+- CEO/CFO-only areas are protected server-side
+- Capital/funding/investor data is locked down
+- private Currents/DM content is protected
+- destructive actions require correct authorization
+- frontend hiding is never the only security layer
+- no sensitive data leaks into localStorage
+- no broad route accidentally exposes restricted data
+
+Context:
+VoltSafe CMS now includes:
+- CRM / Leads / Accounts / Contacts
+- Mail / AI email generation / tracking
+- Currents
+- Calendar / Tasks / Work / Operations
+- Marketing / Campaigns
+- Pipeline / Revenue / Insights
+- Capital / Funding / Investors
+- CEO Cockpit Phases 4–13
+- Board / Investor Operating Pack
+- Forecasting / Runway Intelligence
+- 1:1 notes / commitments / action queue
+
+This phase must audit the full app, not just CEO Cockpit.
+
+Important:
+Do not loosen permissions.
+Do not rely on frontend-only hiding.
+Do not auto-send anything.
+Do not delete production data.
+Do not copy dev DB to production.
+Do not add major features.
+Do not create duplicate permission systems if one already exists.
+
+1. Audit first — full permission map
+
+Before changing code, audit all existing roles, permission fields, and guards.
+
+Search for:
+- requireAuth
+- requireAdmin
+- requireMasterAdmin
+- requireCapitalAccess
+- requireBoardPackAccess
+- requireForecastCapitalAccess
+- isBoardPackUser
+- isAdmin
+- master_admin
+- admin
+- role
+- globalRole
+- permissions
+- userType
+- ownerUserId
+- createdByUserId
+- assignedTo
+- team
+- department
+- can
+- access
+- visibility
+- is_private
+- private
+- dm
+- current_channels
+- current_messages
+- capital
+- investor
+- board
+- funding
+- grant
+- delete
+- archive
+- send
+- export
+- tracking
+- localStorage
+
+Report before implementing:
+- existing roles
+- existing permission model
+- all route guards
+- all sensitive modules
+- all unguarded routes
+- routes with requireAuth only that may need stronger guards
+- frontend-only permission checks
+- dangerous write/delete/export/send routes
+- localStorage usage
+- private Currents/DM exposure risks
+- Capital/investor/funding exposure risks
+- Mail/tracking/privacy risks
+- migration/security risks
+- test coverage gaps
+
+2. Create a full access-control matrix
+
+Create:
+
+docs/security-access-control-matrix.md
+
+Document every major module:
+
+- Today / My Day
+- CEO Cockpit
+- Tasks
+- Calendar
+- Currents
+- Mail
+- CRM Leads
+- CRM Accounts
+- CRM Contacts
+- Marketing
+- Campaigns
+- Pipeline / Revenue
+- Operations
+- Work
+- Insights
+- Capital
+- Investor / Funding
+- Board Pack
+- Forecasting / Runway
+- Admin / User Management
+- Settings / Integrations
+- File/Asset Library if present
+
+For each module, document:
+- who can view
+- who can create
+- who can edit
+- who can delete/archive
+- who can export
+- who can send/trigger external actions
+- object-level ownership rules
+- sensitive data rules
+- route guards used
+- frontend visibility rules
+- test coverage
+
+Use a clear table.
+
+3. Define permission tiers
+
+If existing app already has roles, document and harden them rather than replacing them.
+
+Expected tiers:
+
+A. unauthenticated
+- no app data access
+- login/reset-password only
+
+B. standard user
+- own tasks/calendar/items where applicable
+- public Currents channels
+- allowed CRM views if already permitted
+- no admin-only management
+- no Capital/funding/investor data
+- no Board Pack
+- no CEO Cockpit
+- no runway/funding forecast
+
+C. manager/admin
+- broader operational access
+- can manage team tasks/workflows if already intended
+- can access CEO Cockpit only if current product decision allows admin
+- cannot access CEO/CFO-only Board Pack/runway/funding unless explicitly CEO/CFO/capital-permitted
+
+D. master_admin
+- full operational admin
+- still does not automatically imply CEO/CFO-only financial/board access unless current business rule says so
+- confirm intended behavior before changing
+
+E. CEO/CFO-only
+- Trevor
+- Scott Carlson
+- Board Pack
+- Runway Intelligence
+- Funding Forecast
+- Investor/funding sensitive sections
+- Capital sensitive areas where applicable
+
+F. capital access
+- existing capital permission users
+- must be server-enforced
+- must not leak via frontend hidden tabs
+
+4. Backend route hardening
+
+Audit every backend route file.
+
+For each route, classify:
+- public unauthenticated
+- authenticated user
+- owner-scoped
+- admin-only
+- master-admin-only
+- CEO/CFO-only
+- capital-gated
+- dangerous write/delete/send/export
+
+Fix routes where needed.
+
+Rules:
+- every app-data route must use requireAuth at minimum
+- every admin action must use server-side admin guard
+- every CEO/CFO route must use server-side CEO/CFO guard
+- every Capital/funding/investor route must use server-side capital/CEO/CFO guard
+- every destructive route must validate authorization
+- every object-specific route should check object ownership or role permission where appropriate
+- frontend hiding is not enough
+- no route should return broad sensitive objects just because the user is logged in
+
+Pay special attention to:
+- delete routes
+- archive routes
+- send email routes
+- create Gmail draft routes
+- forward email routes
+- export routes
+- tracking routes
+- admin/user management routes
+- integration credential routes
+- Capital/investor routes
+- board-pack routes
+- forecasting/runway routes
+- Currents private channel/DM routes
+- file attachment routes
+
+5. Object-level authorization
+
+Add or improve object-level access checks where needed.
+
+Examples:
+- A user should not edit/delete another user’s task unless admin/manager rules allow it.
+- A user should not read private Currents channels unless a member.
+- A user should not read DM thread content unless a participant.
+- A user should not access Capital records unless capital-permitted.
+- A user should not access Board Pack records unless CEO/CFO.
+- A user should not access Mail data for another connected mailbox unless explicitly authorized.
+- A user should not view tracking details beyond allowed scope.
+
+Prefer helper functions:
+- canViewTask(user, task)
+- canEditTask(user, task)
+- canViewCurrentChannel(user, channel)
+- canViewCurrentMessage(user, message)
+- canViewCapital(user)
+- canViewBoardPack(user)
+- canManageUser(actor, targetUser)
+- canAccessMailbox(actor, mailboxOwner)
+
+If equivalent helpers exist, upgrade them instead of duplicating.
+
+6. Frontend permission hardening
+
+Audit frontend visibility logic.
+
+Ensure:
+- restricted nav items hidden
+- restricted tabs hidden
+- restricted buttons hidden
+- restricted pages show clean access denied
+- frontend checks mirror backend guards
+- frontend never assumes localStorage permissions
+- server permissions are treated as source of truth
+- no sensitive data is loaded then hidden client-side
+
+Pay attention to:
+- sidebar/nav
+- Today / CEO Cockpit
+- Capital nav
+- Board Pack nav
+- Forecasting/runway panels
+- Mail actions
+- Currents private channels
+- Admin/settings pages
+- Delete/send/export buttons
+
+7. LocalStorage / client storage audit
+
+Search all localStorage/sessionStorage usage.
+
+Rules:
+- no Capital content in localStorage
+- no investor/funding content in localStorage
+- no email bodies in localStorage
+- no Currents private/DM bodies in localStorage
+- no credentials/tokens in localStorage
+- no sensitive user data in localStorage
+- preferences may store IDs, booleans, timestamps, layout choices
+- snooze entries may store id/type/until only
+
+Document all allowed localStorage keys in:
+
+docs/security-client-storage.md
+
+8. Mail/security hardening
+
+Audit Mail routes and frontend actions.
+
+Verify:
+- send_email only triggered by explicit user action
+- draft creation only triggered by explicit user action
+- forwarding only explicit
+- archiving/deleting only explicit
+- connected account access is scoped
+- tracking excludes internal @voltsafe.com where required
+- email bodies are not exposed to unauthorized users
+- AI email context does not leak unauthorized records
+- open/click tracking data is access-controlled
+
+No auto-send.
+No background send.
+No silent draft creation unless existing product intentionally does so and is permission-safe.
+
+9. Currents security hardening
+
+Audit Currents.
+
+Verify:
+- public channels visible to all authorized CMS users
+- private channels visible only to members/admins if intended
+- DM conversations visible only to participants
+- message search excludes private/DM content unless user is allowed
+- file attachments inherit channel/message permission
+- mentions do not leak private content
+- CEO Cockpit communication hotspots exclude private channels
+- no broad DM body exposure
+
+10. Capital / investor / funding hardening
+
+Audit all Capital routes, pages, and services.
+
+Verify:
+- Capital routes require capital permission or CEO/CFO where appropriate
+- investor records are not exposed to normal admins unless intended
+- board-pack capital section is gated
+- funding forecast is gated
+- runway intelligence is gated
+- exports are gated
+- email drafts/investor update drafts are copy-only unless explicit send flow exists
+- no Capital data in localStorage
+
+11. Destructive action hardening
+
+Audit:
+- delete
+- archive
+- bulk delete
+- bulk label
+- status change
+- send
+- forward
+- export
+- integration disconnect
+- user disable/delete
+- permission changes
+
+Ensure:
+- server-side guard
+- object-level authorization
+- clear audit trail where available
+- explicit user action required
+- no accidental background action
+- clear frontend confirmation for high-risk actions where appropriate
+
+12. Security headers / app-level hardening
+
+Audit server setup.
+
+Check for:
+- helmet or equivalent security headers
+- CORS configuration
+- cookie/session security
+- secure cookies in production
+- sameSite
+- httpOnly
+- CSRF considerations for cookie-auth writes
+- rate limiting on auth-sensitive routes if available
+- request body size limits
+- file upload limits if present
+- error responses not leaking stack traces in production
+- health endpoint safe
+
+Do not over-engineer, but identify gaps.
+
+If adding headers/rate limits could break the app, document first and make the smallest safe change.
+
+13. Audit logging
+
+Audit whether sensitive actions are logged.
+
+Sensitive events:
+- login/logout if tracked
+- permission changes
+- user invite/disable
+- send email
+- create draft
+- delete/archive records
+- Capital record changes
+- Board Pack finalize/archive/export
+- Forecast scenario notes
+- Currents private channel membership changes
+- integration connect/disconnect
+
+If a generic audit table exists, use it.
+If not, document gaps and add tests for existing logging where possible.
+Do not add a massive audit system unless there is already a pattern to reuse.
+
+14. Tests
+
+Create:
+
+tests/full-app-security-hardening.test.cjs
+
+Minimum coverage:
+- all app-data routes use requireAuth or stronger
+- dangerous routes use stronger guards
+- CEO/CFO-only routes use CEO/CFO guard
+- Capital/funding routes use capital/CEO/CFO guard
+- Board Pack routes use requireBoardPackAccess
+- Forecast runway/funding routes use requireForecastCapitalAccess
+- private Currents queries filter by membership or is_private=false where appropriate
+- DM queries filter by participant/member where appropriate
+- send/draft/forward routes require explicit auth/action
+- no auto-send in CEO/board/forecast/action routes
+- localStorage does not store sensitive text/content
+- permission server values are used instead of localStorage
+- frontend nav hides restricted modules
+- access denied states exist
+- no undefined pool usage
+- migrations are idempotent
+- no destructive SQL
+- no stack traces intentionally returned in production routes
+- security docs exist
+
+Also create or update focused tests if appropriate:
+- tests/currents-security.test.cjs
+- tests/capital-security.test.cjs
+- tests/mail-security.test.cjs
+- tests/route-guards-security.test.cjs
+
+Only split tests if the single file becomes too large.
+
+15. Validation
+
+Run:
+
+npm run build
+node tests/full-app-security-hardening.test.cjs
+node tests/ceo-cockpit-smoke.test.cjs
+node tests/ceo-cockpit-hardening.test.cjs
+node tests/ceo-cockpit-ux-polish.test.cjs
+node tests/ceo-forecasting.test.cjs
+node tests/board-pack.test.cjs
+node tests/ceo-execution-intelligence.test.cjs
+node tests/ceo-briefing.test.cjs
+node tests/ceo-action-loop.test.cjs
+node tests/ceo-cockpit.test.cjs
+node tests/ceo-one-on-ones.test.cjs
+node tests/today-cockpit.test.cjs
+node tests/today-personalization.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/nav-consolidation.test.cjs
+node tests/cms-theme-structural.test.cjs
+node tests/startup-invariants.test.cjs
+node tests/nav-drift.test.cjs
+node tests/currents-search.test.cjs
+node tests/currents-files-tab.test.cjs
+node tests/work-drilldown.test.cjs
+node tests/operations-drilldown.test.cjs
+node tests/marketing-drilldown.test.cjs
+node tests/pipeline-drilldown.test.cjs
+node tests/insights-drilldown.test.cjs
+
+If npm run test:grep times out, run individual suites and report exactly which passed.
+
+16. Deliverables
+
+First summarize audit:
+- route guard gaps
+- object-level permission gaps
+- frontend permission gaps
+- localStorage risks
+- Mail risks
+- Currents risks
+- Capital risks
+- destructive action risks
+- app-level security header/session risks
+- audit logging gaps
+
+Then summarize implementation:
+- guards added/upgraded
+- routes fixed
+- object-level checks added
+- frontend restrictions fixed
+- localStorage fixes
+- docs created
+- tests added/updated
+- validation results
+- known remaining security risks
+
+Constraints:
+- no major new product features
+- no permission loosening
+- no frontend-only security
+- no production data deletion
+- no dev DB copy to production
+- no auto-send
+- no external APIs
+- no duplicate permission systems
+- keep changes surgical and production-safe
