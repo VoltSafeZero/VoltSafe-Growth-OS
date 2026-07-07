@@ -1053,6 +1053,7 @@ function buildRenderGroups(orderedIds: string[]): RenderGroup[] {
 
 export default function TodayPage() {
   const [todayMode, setTodayMode] = useState<"my_day" | "ceo_cockpit">("my_day");
+  const [cockpitTab, setCockpitTab] = useState<string>("overview");
 
   const summaryQuery = useQuery<TodaySummary>({ queryKey: ["/api/today/summary"] });
   const profileQuery = useQuery<UserProfile>({ queryKey: ["/api/users/me/profile"] });
@@ -1341,120 +1342,203 @@ export default function TodayPage() {
 
       {/* CEO Cockpit mode */}
       {todayMode === "ceo_cockpit" && isAdmin && (
-        <div className="space-y-4" data-testid="ceo-cockpit-view">
-          {cockpitQuery.isLoading && (
-            <div className="py-10 flex items-center justify-center" data-testid="ceo-cockpit-loading">
-              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+        <div className="space-y-3" data-testid="ceo-cockpit-view">
+
+          {/* ── Tab navigation ── */}
+          <div className="flex gap-1 flex-wrap border-b border-border pb-2" data-testid="ceo-cockpit-tabs">
+            {([
+              { id: "overview",    label: "Overview"   },
+              { id: "actions",     label: "Actions"    },
+              { id: "briefing",    label: "Briefing"   },
+              { id: "execution",   label: "Execution"  },
+              { id: "forecasting", label: "Forecasting"},
+              { id: "1on1s",       label: "1:1s"       },
+              { id: "board-pack",  label: "Board Pack" },
+            ] as const).map(tab => (
+              <button
+                key={tab.id}
+                data-testid={`ceo-cockpit-tab-${tab.id}`}
+                onClick={() => setCockpitTab(tab.id)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  cockpitTab === tab.id
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Overview tab: core cockpit sections ── */}
+          {cockpitTab === "overview" && (
+            <div className="space-y-3" data-testid="ceo-cockpit-overview">
+              {cockpitQuery.isLoading && (
+                <div className="py-10 flex items-center justify-center" data-testid="ceo-cockpit-loading">
+                  <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+              {cockpitQuery.isError && (
+                <div className="py-6 flex flex-col items-center gap-2" data-testid="ceo-cockpit-error">
+                  <AlertTriangle className="h-5 w-5 text-amber-400" />
+                  <p className="text-xs text-muted-foreground">Failed to load CEO Cockpit data.</p>
+                </div>
+              )}
+              {cockpitQuery.data && (() => {
+                const cs = cockpitQuery.data!.sections;
+                return (
+                  <>
+                    <SectionCard
+                      icon={({ className }: any) => <span className={className}>👥</span>}
+                      title="Team Pulse"
+                      count={cs.team_pulse.source_counts.total || undefined}
+                      testId="section-team-pulse"
+                      isFetching={cockpitQuery.isFetching}
+                      onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                    >
+                      <TeamPulseSection data={cs.team_pulse} />
+                    </SectionCard>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <SectionCard
+                        icon={AlertTriangle}
+                        title="Blockers"
+                        count={cs.blockers.count || undefined}
+                        testId="section-blockers"
+                        isFetching={cockpitQuery.isFetching}
+                        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                      >
+                        <BlockersSection data={cs.blockers} />
+                      </SectionCard>
+                      <SectionCard
+                        icon={Zap}
+                        title="CEO Attention"
+                        count={cs.ceo_attention.count || undefined}
+                        testId="section-ceo-attention"
+                        isFetching={cockpitQuery.isFetching}
+                        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                      >
+                        <CeoAttentionSection data={cs.ceo_attention} />
+                      </SectionCard>
+                    </div>
+
+                    <SectionCard
+                      icon={Clock}
+                      title="Silence Watch"
+                      count={cs.silence_watch.count || undefined}
+                      testId="section-silence-watch"
+                      isFetching={cockpitQuery.isFetching}
+                      onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                    >
+                      <SilenceWatchSection data={cs.silence_watch} />
+                    </SectionCard>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <SectionCard
+                        icon={CheckSquare}
+                        title="Commitments"
+                        count={cs.commitments.count || undefined}
+                        testId="section-commitments"
+                        isFetching={cockpitQuery.isFetching}
+                        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                      >
+                        <CommitmentsSection data={cs.commitments} />
+                      </SectionCard>
+                      <SectionCard
+                        icon={MessageSquare}
+                        title="Communication Hotspots"
+                        testId="section-communication-hotspots"
+                        isFetching={cockpitQuery.isFetching}
+                        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                      >
+                        <CommunicationHotspotsSection data={cs.communication_hotspots} />
+                      </SectionCard>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
-          {cockpitQuery.isError && (
-            <div className="py-6 flex flex-col items-center gap-2" data-testid="ceo-cockpit-error">
-              <AlertTriangle className="h-5 w-5 text-amber-400" />
-              <p className="text-xs text-muted-foreground">Failed to load CEO Cockpit data.</p>
+
+          {/* ── Actions tab ── */}
+          {cockpitTab === "actions" && (
+            <div data-testid="ceo-cockpit-actions-tab">
+              <CeoActionQueuePanel />
             </div>
           )}
-          {cockpitQuery.data && (() => {
-            const cs = cockpitQuery.data.sections;
-            const compact = prefs.prefs.compact;
-            return (
-              <div className={`space-y-4 ${compact ? "space-y-3" : ""}`}>
-                {/* Forecasting — Phase 9 */}
-                <CeoForecastingPanel />
 
-                {/* Execution Radar — Phase 8 */}
-                <CeoExecutionRadarPanel />
+          {/* ── Briefing tab ── */}
+          {cockpitTab === "briefing" && (
+            <div data-testid="ceo-cockpit-briefing-tab">
+              <CeoBriefingPanel />
+            </div>
+          )}
 
-                {/* CEO Briefing — Phase 7 */}
-                <CeoBriefingPanel />
+          {/* ── Execution tab ── */}
+          {cockpitTab === "execution" && (
+            <div data-testid="ceo-cockpit-execution-tab">
+              <CeoExecutionRadarPanel />
+            </div>
+          )}
 
-                {/* Action Queue — Phase 6 */}
-                <CeoActionQueuePanel />
+          {/* ── Forecasting tab ── */}
+          {cockpitTab === "forecasting" && (
+            <div data-testid="ceo-cockpit-forecasting-tab">
+              <CeoForecastingPanel />
+            </div>
+          )}
 
-                {/* Team Pulse */}
-                <SectionCard
-                  icon={({ className }: any) => <span className={className}>👥</span>}
-                  title="Team Pulse"
-                  count={cs.team_pulse.source_counts.total || undefined}
-                  testId="section-team-pulse"
-                  isFetching={cockpitQuery.isFetching}
-                  onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
-                >
-                  <TeamPulseSection data={cs.team_pulse} />
-                </SectionCard>
-
-                {/* Blockers + CEO Attention side-by-side on md+ */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <SectionCard
-                    icon={AlertTriangle}
-                    title="Blockers"
-                    count={cs.blockers.count || undefined}
-                    testId="section-blockers"
-                    isFetching={cockpitQuery.isFetching}
-                    onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
-                  >
-                    <BlockersSection data={cs.blockers} />
-                  </SectionCard>
-                  <SectionCard
-                    icon={Zap}
-                    title="CEO Attention"
-                    count={cs.ceo_attention.count || undefined}
-                    testId="section-ceo-attention"
-                    isFetching={cockpitQuery.isFetching}
-                    onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
-                  >
-                    <CeoAttentionSection data={cs.ceo_attention} />
-                  </SectionCard>
+          {/* ── 1:1s tab ── */}
+          {cockpitTab === "1on1s" && (
+            <div data-testid="ceo-cockpit-1on1s-tab">
+              {cockpitQuery.isLoading && (
+                <div className="py-10 flex items-center justify-center">
+                  <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-
-                {/* Silence Watch */}
-                <SectionCard
-                  icon={Clock}
-                  title="Silence Watch"
-                  count={cs.silence_watch.count || undefined}
-                  testId="section-silence-watch"
-                  isFetching={cockpitQuery.isFetching}
-                  onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
-                >
-                  <SilenceWatchSection data={cs.silence_watch} />
-                </SectionCard>
-
-                {/* Commitments + Communication Hotspots side-by-side */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <SectionCard
-                    icon={CheckSquare}
-                    title="Commitments"
-                    count={cs.commitments.count || undefined}
-                    testId="section-commitments"
-                    isFetching={cockpitQuery.isFetching}
-                    onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
-                  >
-                    <CommitmentsSection data={cs.commitments} />
-                  </SectionCard>
-                  <SectionCard
-                    icon={MessageSquare}
-                    title="Communication Hotspots"
-                    testId="section-communication-hotspots"
-                    isFetching={cockpitQuery.isFetching}
-                    onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
-                  >
-                    <CommunicationHotspotsSection data={cs.communication_hotspots} />
-                  </SectionCard>
+              )}
+              {cockpitQuery.isError && (
+                <div className="py-6 flex flex-col items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-amber-400" />
+                  <p className="text-xs text-muted-foreground">Failed to load 1:1 data.</p>
                 </div>
-
-                {/* 1:1 Operating System */}
+              )}
+              {cockpitQuery.data && (
                 <SectionCard
                   icon={Calendar}
                   title="1:1 Operating System"
-                  count={cs.one_on_ones.items.length || undefined}
+                  count={cockpitQuery.data.sections.one_on_ones.items.length || undefined}
                   testId="section-one-on-ones"
                   isFetching={cockpitQuery.isFetching}
                   onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
                 >
-                  <OneOnOnesSection data={cs.one_on_ones} />
+                  <OneOnOnesSection data={cockpitQuery.data.sections.one_on_ones} />
                 </SectionCard>
+              )}
+            </div>
+          )}
+
+          {/* ── Board Pack tab ── */}
+          {cockpitTab === "board-pack" && (
+            <div className="space-y-3" data-testid="ceo-cockpit-board-pack-tab">
+              <div className="rounded-lg border border-border bg-card p-5 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Board &amp; Investor Pack</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Generate, review, and distribute board reporting packages.</p>
+                  </div>
+                  <Link href="/board-pack">
+                    <Button size="sm" variant="outline" className="gap-1.5 text-xs" data-testid="ceo-cockpit-board-pack-link">
+                      Open Board Pack <ArrowUpRight className="h-3 w-3" />
+                    </Button>
+                  </Link>
+                </div>
+                <p className="text-xs text-muted-foreground border-t border-border pt-3">
+                  Board Pack is a CEO/CFO-only module. Use the full Board Pack page for generation, review, and historical comparisons.
+                </p>
               </div>
-            );
-          })()}
+            </div>
+          )}
+
         </div>
       )}
 

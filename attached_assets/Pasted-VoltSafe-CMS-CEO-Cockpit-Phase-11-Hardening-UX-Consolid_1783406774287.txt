@@ -1,0 +1,300 @@
+VoltSafe CMS — CEO Cockpit Phase 11: Hardening, UX Consolidation, Permissions Audit, and Release Readiness
+
+Goal:
+Now that CEO Cockpit Phases 4–10 are built, stop adding major new modules and harden the system.
+
+This phase should:
+- reduce UI clutter
+- verify all permission gates
+- consolidate CEO Cockpit sections into a clean executive layout
+- ensure migrations are safe and idempotent
+- ensure no duplicate modules/routes/tables were introduced
+- improve loading performance
+- improve empty states
+- validate production readiness
+- prepare a clean release checklist
+
+Context:
+Completed phases:
+- Phase 4: CEO Cockpit insights
+- Phase 5: 1:1 notes and commitments
+- Phase 6: CEO Action Queue
+- Phase 7: CEO Briefing and Leadership Agenda
+- Phase 8: Execution Intelligence / Drift Detection
+- Phase 9: Forecasting / Scenario Planning / Runway Intelligence
+- Phase 10: Board / Investor Operating Pack
+
+Now audit and harden the full CEO Cockpit stack.
+
+Do not build another major feature in this phase.
+This is a cleanup, safety, UX, performance, and production-readiness pass.
+
+1. Full audit first
+
+Audit all CEO Cockpit-related files, routes, services, components, migrations, and tests.
+
+Search for:
+- ceo-cockpit
+- ceo-action
+- ceo-briefing
+- ceo-execution
+- ceo-forecast
+- one-on-one
+- one_on_one
+- board-pack
+- board_packs
+- capital
+- requireAdmin
+- requireBoardPackAccess
+- requireForecastCapitalAccess
+- requireCapitalAccess
+- sendEmail
+- sendMessage
+- openai
+- external API
+- localStorage
+- migration
+- CREATE TABLE
+- CREATE INDEX
+
+Report:
+- all services
+- all routes
+- all frontend components
+- all DB tables/migrations
+- all permission guards
+- all tests
+- any duplicated logic
+- any risky migration statements
+- any broad admin access where CEO/CFO-only is required
+- any UI clutter or repeated panels
+- any slow queries or missing LIMITs
+- any unsafe localStorage use
+- any private data exposure risk
+
+2. Permission audit
+
+Verify and test these access rules:
+
+General CEO Cockpit:
+- admin-only unless explicitly scoped otherwise
+
+CEO/CFO-only:
+- Board / Investor Operating Pack
+- Runway Intelligence
+- Funding Forecasting
+- Capital/Funding sections
+- any investor/fundraising data
+
+Capital-gated:
+- capital-sensitive sections must remain hidden if user lacks capital access
+
+Non-admins:
+- must not see CEO Cockpit toggle
+- must not fetch CEO Cockpit APIs
+- must not access action queue, briefing, execution, forecasting, board pack routes
+
+Tests must prove:
+- unauthenticated users receive 401
+- non-admin users receive 403
+- normal admins cannot access CEO/CFO-only routes
+- CEO Trevor can access CEO/CFO-only routes
+- CFO Scott Carlson can access CEO/CFO-only routes
+- capital sections are hidden if capital permission fails
+- frontend hides restricted tabs/panels
+
+3. Migration hardening
+
+Review every startup migration added in Phases 5–10.
+
+Ensure:
+- CREATE TABLE uses IF NOT EXISTS
+- CREATE INDEX uses IF NOT EXISTS
+- ALTER TABLE ADD COLUMN is protected by information_schema check or equivalent safe pattern
+- no migration uses undefined pool
+- all migrations use the correct in-scope db executor pattern
+- every migration logs success/failure clearly
+- no migration silently swallows errors
+- no migration can fail because an index/table/column already exists
+- no migration drops production data
+- no migration rewrites production data unnecessarily
+
+Add or update tests for migration safety.
+
+4. UI consolidation
+
+The Today → CEO Cockpit view likely now has many panels.
+
+Improve the layout without removing functionality.
+
+Preferred structure:
+- top-level CEO Cockpit navigation:
+  - Overview
+  - Actions
+  - Briefing
+  - Execution
+  - Forecasting
+  - 1:1s
+  - Board Pack
+
+Each top-level area should render only when selected.
+Avoid rendering every heavy panel at once.
+
+Requirements:
+- default tab should be Overview
+- lazy fetch data only for the active tab
+- keep existing section components, but organize them cleanly
+- preserve all existing test IDs where practical
+- do not break Phase 4–10 tests
+- mobile layout must remain usable
+- loading states should be clear
+- empty states should be executive-clean
+
+5. Performance hardening
+
+Audit all CEO Cockpit API routes and services.
+
+Ensure:
+- each query has a LIMIT where appropriate
+- each section has try/catch isolation where appropriate
+- failures in one section do not kill the whole cockpit
+- frontend queries are lazy / enabled only when active
+- no panel fetches data if hidden or inaccessible
+- no excessive polling
+- no external APIs
+- no unnecessary N+1 query patterns if obvious
+- large JSON sections are capped
+
+Add defensive empty states.
+
+6. Privacy and safety audit
+
+Prove:
+- private Currents channels excluded
+- DM bodies not broadly exposed
+- no sendEmail in CEO Cockpit / briefing / execution / forecast / board pack scoped route blocks
+- no sendMessage auto-send
+- no Gmail draft creation unless explicitly requested elsewhere
+- copy-only drafts remain copy_only: true
+- no keystroke tracking
+- no invasive productivity scoring
+- no shaming language
+- no sensitive text stored in localStorage
+- snooze/localStorage stores only IDs and timestamps
+
+Banned user-facing language:
+- lazy
+- failing
+- weak performer
+- poor performer
+- blame
+- underperforming
+
+Use neutral language:
+- blocked
+- stale
+- drifting
+- needs check-in
+- follow-up suggested
+- support needed
+- owner load risk
+
+7. Error and empty-state polish
+
+For every CEO Cockpit panel, ensure it has:
+- loading state
+- error state
+- empty state
+- permission denied state where relevant
+- copy-only disclaimer where relevant
+- clear action labels
+- no scary raw JSON shown to users
+
+Board Pack / Forecasting / Runway should clearly say when data is missing instead of inventing numbers.
+
+8. Test consolidation
+
+Add a new meta-test suite:
+
+tests/ceo-cockpit-hardening.test.cjs
+
+Minimum coverage:
+- all CEO Cockpit service files exist
+- all CEO Cockpit route groups exist
+- permission guards are applied
+- CEO/CFO-only routes are not requireAdmin-only
+- migration blocks are idempotent
+- CREATE INDEX IF NOT EXISTS used where indexes are created
+- no undefined pool usage in late migrations
+- no auto-send patterns in scoped route blocks
+- no external API calls
+- no OpenAI dependency in deterministic services
+- no private Currents channel exposure
+- no broad DM body exposure
+- no sensitive localStorage storage
+- top-level CEO Cockpit tabs exist
+- inactive heavy panels are not eagerly fetched
+- empty states exist
+- banned language absent
+- Phase 4–10 regression tests still pass
+
+9. Validation
+
+Run:
+
+npm run build
+node tests/ceo-cockpit-hardening.test.cjs
+node tests/ceo-forecasting.test.cjs
+node tests/board-pack.test.cjs
+node tests/ceo-execution-intelligence.test.cjs
+node tests/ceo-briefing.test.cjs
+node tests/ceo-action-loop.test.cjs
+node tests/ceo-cockpit.test.cjs
+node tests/today-cockpit.test.cjs
+node tests/today-personalization.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/nav-consolidation.test.cjs
+node tests/cms-theme-structural.test.cjs
+
+Also run:
+- startup-invariants
+- nav-drift
+- currents-search
+- currents-files-tab
+- work-drilldown
+- operations-drilldown
+- marketing-drilldown
+- pipeline-drilldown
+- insights-drilldown
+
+If npm run test:grep times out, run individual suites and report exactly which ones were run.
+
+10. Deliverable
+
+First summarize audit findings:
+- duplicate risks
+- permission risks
+- migration risks
+- UI clutter risks
+- performance risks
+- privacy risks
+
+Then summarize implementation:
+- files changed
+- layout changes
+- permission fixes
+- migration fixes
+- performance fixes
+- tests added/updated
+- validation results
+- known limitations
+
+Constraints:
+- Do not add major new product features.
+- Do not rewrite Phases 4–10.
+- Do not remove existing functionality.
+- Do not expose restricted data.
+- Do not auto-send anything.
+- Do not add AI dependencies.
+- Do not create duplicate modules.
+- Keep this surgical, practical, and production-focused.
