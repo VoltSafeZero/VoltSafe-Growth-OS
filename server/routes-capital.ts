@@ -3930,4 +3930,115 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       res.status(500).json({ message: "Failed to generate report" });
     }
   });
+
+  // ── Phase 2K: Capital AI Copilot ──────────────────────────────────────────
+
+  // GET /api/capital/copilot/metadata — rounds + investors for selectors
+  app.get("/api/capital/copilot/metadata", requireAuth, requireCapitalAccess, async (_req, res) => {
+    try {
+      const [roundsRow, investorsRow] = await Promise.all([
+        db.execute(sql.raw(`SELECT id, name, status FROM capital_rounds WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 20`)),
+        db.execute(sql.raw(`SELECT id, name, pipeline_stage, investor_type FROM capital_investors WHERE deleted_at IS NULL ORDER BY priority DESC NULLS LAST, name ASC LIMIT 200`)),
+      ]);
+      res.json({ rounds: roundsRow.rows, investors: investorsRow.rows });
+    } catch (err: any) {
+      console.error("[capital] GET /copilot/metadata:", err?.message);
+      res.status(500).json({ message: "Failed to load Copilot metadata" });
+    }
+  });
+
+  // POST /api/capital/copilot/query — main copilot query
+  app.post("/api/capital/copilot/query", requireAuth, requireCapitalAccess, async (req: any, res) => {
+    try {
+      const { VALID_COPILOT_MODES, runCopilotQuery } = await import("./services/capital-copilot.js");
+      const { buildCopilotContext } = await import("./services/capital-copilot-context.js");
+
+      const { question, mode, round_id, investor_id, include_sensitive = true } = req.body ?? {};
+
+      if (!question || typeof question !== "string" || !question.trim()) {
+        return res.status(400).json({ message: "question is required" });
+      }
+      if (!mode || !VALID_COPILOT_MODES.includes(mode)) {
+        return res.status(400).json({ message: `Invalid mode. Must be one of: ${VALID_COPILOT_MODES.join(", ")}` });
+      }
+
+      const safeRoundId    = safeId(round_id);
+      const safeInvestorId = safeId(investor_id);
+
+      // Resolve active round
+      let round: any = null;
+      if (safeRoundId) {
+        const r = await db.execute(sql.raw(`SELECT * FROM capital_rounds WHERE id = ${safeRoundId} AND deleted_at IS NULL LIMIT 1`));
+        round = (r.rows as any[])[0] ?? null;
+      } else {
+        const r = await db.execute(sql.raw(`SELECT * FROM capital_rounds WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`));
+        round = (r.rows as any[])[0] ?? null;
+      }
+
+      const effectiveRoundId = round?.id ?? null;
+
+      // Fetch all capital data needed for context
+      const investorFilter = safeInvestorId ? `AND ci.id = ${safeInvestorId}` : "";
+      const [
+        roundsRow, investorsRow, commitmentsRow, contactsRow, activitiesRow,
+        emailLinksRow, portalAccessRow, portalEventRow, materialsRow, matSharesRow, matRequestsRow,
+      ] = await Promise.all([
+        db.execute(sql.raw(`SELECT id, name, status FROM capital_rounds WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 20`)),
+        db.execute(sql.raw(`SELECT * FROM capital_investors ci WHERE ci.deleted_at IS NULL ${investorFilter} ORDER BY ci.priority DESC NULLS LAST LIMIT 500`)),
+        db.execute(sql.raw(`SELECT cc.*, cr.name AS round_name FROM capital_commitments cc LEFT JOIN capital_rounds cr ON cr.id = cc.round_id WHERE cc.deleted_at IS NULL ${effectiveRoundId ? `AND cc.round_id = ${effectiveRoundId}` : ""} LIMIT 500`)),
+        db.execute(sql.raw(`SELECT cc.* FROM capital_contacts cc WHERE cc.deleted_at IS NULL ${safeInvestorId ? `AND cc.investor_id = ${safeInvestorId}` : ""} LIMIT 300`)),
+        db.execute(sql.raw(`SELECT * FROM capital_activities WHERE entity_type = 'investor' ${safeInvestorId ? `AND entity_id = ${safeInvestorId}` : ""} ORDER BY activity_at DESC LIMIT 500`)),
+        db.execute(sql.raw(`SELECT * FROM capital_email_links WHERE deleted_at IS NULL ${safeInvestorId ? `AND capital_investor_id = ${safeInvestorId}` : ""} ORDER BY latest_message_at DESC LIMIT 300`)),
+        db.execute(sql.raw(`SELECT cpa.*, ci.name AS investor_name FROM capital_portal_access cpa LEFT JOIN capital_investors ci ON ci.id = cpa.investor_id WHERE cpa.deleted_at IS NULL ${safeInvestorId ? `AND cpa.investor_id = ${safeInvestorId}` : ""} LIMIT 200`)),
+        db.execute(sql.raw(`SELECT cpe.* FROM capital_portal_events cpe JOIN capital_portal_access cpa ON cpa.id = cpe.portal_access_id WHERE cpa.deleted_at IS NULL ${safeInvestorId ? `AND cpa.investor_id = ${safeInvestorId}` : ""} ORDER BY cpe.occurred_at DESC LIMIT 1000`)),
+        db.execute(sql.raw(`SELECT cm.* FROM capital_materials cm WHERE cm.deleted_at IS NULL ORDER BY cm.updated_at DESC LIMIT 200`)),
+        db.execute(sql.raw(`SELECT cms.*, ci.name AS investor_name, cm.title AS material_title, cm.material_type FROM capital_material_shares cms LEFT JOIN capital_investors ci ON ci.id = cms.investor_id LEFT JOIN capital_materials cm ON cm.id = cms.material_id WHERE cms.deleted_at IS NULL ${safeInvestorId ? `AND cms.investor_id = ${safeInvestorId}` : ""} ORDER BY cms.shared_at DESC LIMIT 300`)),
+        db.execute(sql.raw(`SELECT cmr.*, ci.name AS investor_name FROM capital_material_requests cmr LEFT JOIN capital_investors ci ON ci.id = cmr.investor_id WHERE cmr.deleted_at IS NULL LIMIT 200`)),
+      ]);
+
+      const rawInput = {
+        round,
+        rounds:           roundsRow.rows       as any[],
+        investors:        investorsRow.rows     as any[],
+        commitments:      commitmentsRow.rows   as any[],
+        contacts:         contactsRow.rows      as any[],
+        activities:       activitiesRow.rows    as any[],
+        emailLinks:       emailLinksRow.rows    as any[],
+        portalAccesses:   portalAccessRow.rows  as any[],
+        portalEvents:     portalEventRow.rows   as any[],
+        materials:        materialsRow.rows     as any[],
+        materialShares:   matSharesRow.rows     as any[],
+        materialRequests: matRequestsRow.rows   as any[],
+      };
+
+      const context = buildCopilotContext(rawInput, {
+        investor_id:      safeInvestorId,
+        round_id:         effectiveRoundId,
+        include_sensitive: Boolean(include_sensitive),
+        mode,
+      });
+
+      const response = await runCopilotQuery(
+        question.trim(),
+        context.text,
+        context.source_labels,
+        mode,
+        Boolean(include_sensitive),
+        safeInvestorId,
+        effectiveRoundId,
+      );
+
+      res.json({
+        answer:              response.answer,
+        context_used:        response.context_used,
+        recommended_actions: response.recommended_actions,
+        draft_output:        response.draft_output,
+        warnings:            [...(context.warnings ?? []), ...(response.warnings ?? [])],
+        generated_at:        response.generated_at,
+      });
+    } catch (err: any) {
+      console.error("[capital] POST /copilot/query:", err?.message);
+      res.status(500).json({ message: "Copilot query failed" });
+    }
+  });
 }
