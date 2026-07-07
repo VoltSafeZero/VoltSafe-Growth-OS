@@ -115,6 +115,7 @@ import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { getTodayCapitalSection } from "./services/today-capital-summary";
 import { getCeoCockpitData } from "./services/ceo-cockpit";
+import { getOneOnOneNotes, createOneOnOneNote, updateOneOnOneNote, deleteOneOnOneNote, buildOneOnOneAgenda, extractCommitmentsFromNote, createTasksFromCommitments, getUpdateDraft } from "./services/ceo-one-on-ones";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
 import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy, getTuningRecommendations, getExplainabilityData, checkUnderperformance, getOutcomes, getFeedbackOverview } from "./services/feedback-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
@@ -11037,6 +11038,124 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("[ceo-cockpit] GET /api/today/ceo-cockpit:", err?.message);
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── CEO 1:1 Operating System ───────────────────────────────────────────
+
+  // GET /api/today/ceo-cockpit/one-on-ones/:teamMemberId/notes
+  app.get("/api/today/ceo-cockpit/one-on-ones/:teamMemberId/notes", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const teamMemberId = Number(req.params.teamMemberId);
+      if (!teamMemberId) return res.status(400).json({ message: "Invalid teamMemberId" });
+      const notes = await getOneOnOneNotes(ceoId, teamMemberId);
+      res.json({ notes });
+    } catch (err: any) {
+      console.error("[ceo-1on1] GET notes:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-cockpit/one-on-ones/:teamMemberId/notes
+  app.post("/api/today/ceo-cockpit/one-on-ones/:teamMemberId/notes", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const teamMemberId = Number(req.params.teamMemberId);
+      if (!teamMemberId) return res.status(400).json({ message: "Invalid teamMemberId" });
+      const result = await createOneOnOneNote(ceoId, teamMemberId, req.body);
+      res.status(201).json(result);
+    } catch (err: any) {
+      console.error("[ceo-1on1] POST note:", err?.message);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/today/ceo-cockpit/one-on-ones/notes/:noteId
+  app.patch("/api/today/ceo-cockpit/one-on-ones/notes/:noteId", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const noteId = Number(req.params.noteId);
+      if (!noteId) return res.status(400).json({ message: "Invalid noteId" });
+      await updateOneOnOneNote(noteId, ceoId, req.body);
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[ceo-1on1] PATCH note:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/today/ceo-cockpit/one-on-ones/notes/:noteId
+  app.delete("/api/today/ceo-cockpit/one-on-ones/notes/:noteId", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const noteId = Number(req.params.noteId);
+      if (!noteId) return res.status(400).json({ message: "Invalid noteId" });
+      await deleteOneOnOneNote(noteId, ceoId);
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[ceo-1on1] DELETE note:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
+    }
+  });
+
+  // GET /api/today/ceo-cockpit/one-on-ones/:teamMemberId/agenda
+  app.get("/api/today/ceo-cockpit/one-on-ones/:teamMemberId/agenda", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const teamMemberId = Number(req.params.teamMemberId);
+      if (!teamMemberId) return res.status(400).json({ message: "Invalid teamMemberId" });
+      const agenda = await buildOneOnOneAgenda(ceoId, teamMemberId);
+      res.json(agenda);
+    } catch (err: any) {
+      console.error("[ceo-1on1] GET agenda:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-cockpit/one-on-ones/notes/:noteId/extract-commitments
+  app.post("/api/today/ceo-cockpit/one-on-ones/notes/:noteId/extract-commitments", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const noteId = Number(req.params.noteId);
+      if (!noteId) return res.status(400).json({ message: "Invalid noteId" });
+      const result = await extractCommitmentsFromNote(noteId, ceoId);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-1on1] extract-commitments:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-cockpit/one-on-ones/notes/:noteId/commitments
+  app.post("/api/today/ceo-cockpit/one-on-ones/notes/:noteId/commitments", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const noteId = Number(req.params.noteId);
+      if (!noteId) return res.status(400).json({ message: "Invalid noteId" });
+      const { commitments } = req.body;
+      if (!Array.isArray(commitments) || commitments.length === 0) {
+        return res.status(400).json({ message: "commitments array required" });
+      }
+      const result = await createTasksFromCommitments(noteId, ceoId, commitments);
+      res.status(201).json(result);
+    } catch (err: any) {
+      console.error("[ceo-1on1] create-commitments:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-cockpit/update-draft
+  app.post("/api/today/ceo-cockpit/update-draft", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const ceoId = Number((req.session as any).userId);
+      const { target_user_id, source_type, source_id, message } = req.body;
+      if (!target_user_id) return res.status(400).json({ message: "target_user_id required" });
+      const result = await getUpdateDraft(ceoId, Number(target_user_id), source_type ?? "general", source_id ?? 0, message ?? null);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-1on1] update-draft:", err?.message);
+      res.status(400).json({ message: err.message });
     }
   });
 

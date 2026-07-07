@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { OneOnOneDrawer, UpdateDraftSheet } from "./ceo-one-on-ones";
 
 // ── Shared types (mirroring service output) ────────────────────────────────────
 
@@ -363,74 +364,126 @@ export function CommitmentsSection({ data }: { data: CeoCockpitData["sections"][
 
 export function OneOnOnesSection({ data }: { data: CeoCockpitData["sections"]["one_on_ones"] }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [drawerUserId, setDrawerUserId] = useState<number | null>(null);
+  const [updateDraftUserId, setUpdateDraftUserId] = useState<number | null>(null);
+
+  const drawerItem = data.items.find(i => i.userId === drawerUserId) ?? null;
+  const updateDraftItem = data.items.find(i => i.userId === updateDraftUserId) ?? null;
 
   if (!data.items.length) return <EmptyCockpitState text={data.empty_state} />;
 
   return (
-    <div className="space-y-2" data-testid="one-on-ones-section">
-      {data.items.map((item) => {
-        const isExpanded = expandedId === item.userId;
-        const hasWarnings = item.overdueCommitments > 0 || item.openActionItems > 0;
-        return (
-          <div
-            key={item.userId}
-            className="rounded-md border border-border/30 overflow-hidden"
-            data-testid={`one-on-one-row-${item.userId}`}
-          >
-            <button
-              className="w-full flex items-center justify-between gap-3 py-2.5 px-3 hover:bg-card/50 transition-colors text-left"
-              onClick={() => setExpandedId(isExpanded ? null : item.userId)}
-              data-testid={`one-on-one-expand-${item.userId}`}
+    <>
+      <div className="space-y-2" data-testid="one-on-ones-section">
+        {data.items.map((item) => {
+          const isExpanded = expandedId === item.userId;
+          const hasWarnings = item.overdueCommitments > 0 || item.openActionItems > 0;
+          return (
+            <div
+              key={item.userId}
+              className="rounded-md border border-border/30 overflow-hidden"
+              data-testid={`one-on-one-row-${item.userId}`}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="h-7 w-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
-                  <User className="h-3.5 w-3.5 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <span className="text-sm font-medium">{item.userName}</span>
-                  {hasWarnings && (
-                    <span className="ml-2 text-[10px] text-amber-400">
-                      {item.overdueCommitments > 0 ? `${item.overdueCommitments} overdue` : `${item.openActionItems} open`}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0 text-right">
-                <div>
-                  {item.nextScheduled ? (
-                    <p className="text-[11px] text-primary">{fmtDate(item.nextScheduled)}</p>
-                  ) : (
-                    <p className="text-[10px] text-muted-foreground">No 1:1 scheduled</p>
-                  )}
-                  {item.lastMeeting && (
-                    <p className="text-[10px] text-muted-foreground/50">Last: {fmtDate(item.lastMeeting)}</p>
-                  )}
-                </div>
-                <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-              </div>
-            </button>
-            {isExpanded && (
-              <div className="border-t border-border/30 px-3 py-2.5 bg-card/30 space-y-2" data-testid={`one-on-one-detail-${item.userId}`}>
-                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Suggested Agenda</p>
-                <ul className="space-y-1">
-                  {item.suggestedAgenda.map((topic, i) => (
-                    <li key={i} className="flex items-start gap-2 text-[11px] text-foreground/80">
-                      <span className="text-muted-foreground mt-0.5">·</span>
-                      {topic}
-                    </li>
-                  ))}
-                </ul>
-                <Link href={item.link}>
-                  <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 mt-1">
-                    <ExternalLink className="h-2.5 w-2.5" /> View tasks
+              <div className="w-full flex items-center justify-between gap-3 py-2.5 px-3">
+                <button
+                  className="flex items-center gap-2.5 min-w-0 flex-1 text-left hover:bg-card/50 transition-colors rounded"
+                  onClick={() => setExpandedId(isExpanded ? null : item.userId)}
+                  data-testid={`one-on-one-expand-${item.userId}`}
+                >
+                  <div className="h-7 w-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+                    <User className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium">{item.userName}</span>
+                    {hasWarnings && (
+                      <span className="ml-2 text-[10px] text-amber-400">
+                        {item.overdueCommitments > 0 ? `${item.overdueCommitments} overdue` : `${item.openActionItems} open`}
+                      </span>
+                    )}
+                  </div>
+                </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="text-right hidden sm:block">
+                    {item.nextScheduled ? (
+                      <p className="text-[11px] text-primary">{fmtDate(item.nextScheduled)}</p>
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground">No 1:1 scheduled</p>
+                    )}
+                    {item.lastMeeting && (
+                      <p className="text-[10px] text-muted-foreground/50">Last: {fmtDate(item.lastMeeting)}</p>
+                    )}
+                  </div>
+                  <Button
+                    size="sm" variant="outline"
+                    className="h-6 text-[10px] gap-1 flex-shrink-0"
+                    onClick={() => setDrawerUserId(item.userId)}
+                    data-testid={`open-one-on-one-drawer-${item.userId}`}
+                  >
+                    <Calendar className="h-2.5 w-2.5" /> Open 1:1
                   </Button>
-                </Link>
+                  <ChevronRight
+                    className={`h-3.5 w-3.5 text-muted-foreground transition-transform cursor-pointer ${isExpanded ? "rotate-90" : ""}`}
+                    onClick={() => setExpandedId(isExpanded ? null : item.userId)}
+                  />
+                </div>
               </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
+              {isExpanded && (
+                <div className="border-t border-border/30 px-3 py-2.5 bg-card/30 space-y-2" data-testid={`one-on-one-detail-${item.userId}`}>
+                  <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Suggested Agenda</p>
+                  <ul className="space-y-1">
+                    {item.suggestedAgenda.map((topic, i) => (
+                      <li key={i} className="flex items-start gap-2 text-[11px] text-foreground/80">
+                        <span className="text-muted-foreground mt-0.5">·</span>
+                        {topic}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      size="sm" variant="outline" className="h-6 text-[10px] gap-1"
+                      onClick={() => setDrawerUserId(item.userId)}
+                      data-testid={`open-1on1-notes-${item.userId}`}
+                    >
+                      <Zap className="h-2.5 w-2.5" /> Notes &amp; Commitments
+                    </Button>
+                    <Button
+                      size="sm" variant="ghost" className="h-6 text-[10px] gap-1"
+                      onClick={() => setUpdateDraftUserId(item.userId)}
+                      data-testid={`open-update-draft-inline-${item.userId}`}
+                    >
+                      <MessageSquare className="h-2.5 w-2.5" /> Ask for Update
+                    </Button>
+                    <Link href={item.link}>
+                      <Button size="sm" variant="ghost" className="h-6 text-[10px] gap-1">
+                        <ExternalLink className="h-2.5 w-2.5" /> Tasks
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {drawerItem && (
+        <OneOnOneDrawer
+          item={drawerItem}
+          isOpen={drawerUserId !== null}
+          onClose={() => setDrawerUserId(null)}
+        />
+      )}
+
+      {updateDraftItem && (
+        <UpdateDraftSheet
+          targetUserId={updateDraftItem.userId}
+          targetName={updateDraftItem.userName}
+          sourceType="team_pulse"
+          isOpen={updateDraftUserId !== null}
+          onClose={() => setUpdateDraftUserId(null)}
+        />
+      )}
+    </>
   );
 }
 

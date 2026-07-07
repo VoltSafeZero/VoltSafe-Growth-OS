@@ -386,6 +386,12 @@ app.use((req, res, next) => {
       await migrateCapitalSchema();
     } catch (_e) { /* already exists */ }
 
+    // CEO 1:1 Notes: add one_on_one_sections JSONB column to meeting_notes
+    try {
+      await pool.query(`ALTER TABLE meeting_notes ADD COLUMN IF NOT EXISTS one_on_one_sections jsonb`);
+      log("[migration] meeting_notes.one_on_one_sections column ready.");
+    } catch (_e) { /* already exists */ }
+
     // Derived label backfill: fire-and-forget (idempotent, safe to run concurrently)
     migrateDerivedLabelColumns().catch(err =>
       console.error("[startup] derived label backfill background error:", err)
