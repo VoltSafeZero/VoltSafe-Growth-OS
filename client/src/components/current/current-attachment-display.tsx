@@ -18,7 +18,7 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function getMimeIcon(mimeType: string) {
+export function getMimeIcon(mimeType: string) {
   if (mimeType.startsWith("image/")) return FileImage;
   if (mimeType.startsWith("video/")) return FileVideo;
   if (mimeType.startsWith("audio/")) return Music;
@@ -31,7 +31,7 @@ function getMimeIcon(mimeType: string) {
   return File;
 }
 
-function getMimeColor(mimeType: string): string {
+export function getMimeColor(mimeType: string): string {
   if (mimeType.startsWith("image/")) return "text-violet-400";
   if (mimeType.startsWith("video/")) return "text-rose-400";
   if (mimeType.startsWith("audio/")) return "text-amber-400";
@@ -43,7 +43,7 @@ function getMimeColor(mimeType: string): string {
   return "text-muted-foreground";
 }
 
-function getMimeBg(mimeType: string): string {
+export function getMimeBg(mimeType: string): string {
   if (mimeType.startsWith("image/")) return "bg-violet-500/10";
   if (mimeType.startsWith("video/")) return "bg-rose-500/10";
   if (mimeType.startsWith("audio/")) return "bg-amber-500/10";

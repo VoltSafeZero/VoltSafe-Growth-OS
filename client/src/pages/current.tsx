@@ -68,6 +68,7 @@ import { CurrentSummaryPanel } from "@/components/current/current-summary-panel"
 import type { CurrentSummaryData } from "@/components/current/current-summary-panel";
 import { CreateTaskFromCurrentDialog } from "@/components/current/create-task-from-current-dialog";
 import type { CreateTaskSource } from "@/components/current/create-task-from-current-dialog";
+import { CurrentFilesTab } from "@/components/current/current-files-tab";
 import {
   useSlashCommand,
   SlashCommandMenu,
@@ -5372,52 +5373,16 @@ export default function CurrentPage() {
               )}
             </div>
 
-            {/* Phase 19B: DM Files tab — dedicated gallery view */}
+            {/* Phase 19B: DM Files tab — real file library */}
             {dmTab === "files" && (
-              <div className="flex-1 overflow-y-auto px-4 py-4">
-                {dmMessages.filter(m => m.attachments && m.attachments.length > 0).length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full gap-3 select-none">
-                    <FileText className="w-12 h-12 text-muted-foreground/15" />
-                    <div className="text-center">
-                      <p className="text-[13px] font-medium text-muted-foreground/50">No files shared yet</p>
-                      <p className="text-[12px] text-muted-foreground/35 mt-1">Files shared in this conversation will appear here.</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {dmMessages.filter(m => m.attachments && m.attachments.length > 0).map((msg, i, arr) => {
-                      const prev = arr[i - 1];
-                      const showDivider = msgIsNewDay(prev?.createdAt, msg.createdAt);
-                      return (
-                        <div key={msg.id}>
-                          {showDivider && (
-                            <div className="flex items-center gap-3 py-3 select-none" aria-hidden>
-                              <div className="flex-1 h-px bg-border/30" />
-                              <span className="text-[11px] font-medium text-muted-foreground/40 px-2 whitespace-nowrap">
-                                {formatDateDivider(msg.createdAt)}
-                              </span>
-                              <div className="flex-1 h-px bg-border/30" />
-                            </div>
-                          )}
-                          <div className="flex items-start gap-3 px-2 py-2.5 rounded-xl hover:bg-muted/20 transition-colors">
-                            <div className={cn("w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-white text-[11px] font-bold mt-0.5 overflow-hidden select-none", avatarBg(msg.userId))}>
-                              {msg.userAvatarUrl ? (
-                                <img src={msg.userAvatarUrl} alt={msg.userName} className="w-full h-full object-cover" />
-                              ) : initials(msg.userName)}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-baseline gap-2 mb-2">
-                                <span className="text-[12.5px] font-semibold text-foreground/85">{msg.userName}</span>
-                                <span className="text-[11px] text-muted-foreground/50">{formatTs(msg.createdAt)}</span>
-                              </div>
-                              <FilesTabAttachments attachments={msg.attachments!} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+              <div className="flex-1 flex flex-col min-h-0">
+                <CurrentFilesTab
+                  conversationId={selectedDmId}
+                  onJumpToMessage={(_msgId, snippet) => {
+                    setDmTab("messages");
+                    toast({ title: "Showing messages", description: snippet ? `"${snippet.slice(0, 80)}"` : undefined });
+                  }}
+                />
               </div>
             )}
 
@@ -5557,52 +5522,16 @@ export default function CurrentPage() {
             {channelTab === "messages" && <PinnedBar pins={pins} onUnpin={(mid) => unpinMutation.mutate(mid)} />}
 
             {/* Phase 19A: tab panels */}
-            {/* Phase 19B: channel Files tab — dedicated gallery view */}
+            {/* Phase 19B: channel Files tab — real file library */}
             {channelTab === "files" && (
-              <div className="flex-1 overflow-y-auto px-5 py-4">
-                {messages.filter(m => m.attachments && m.attachments.length > 0).length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full gap-3 select-none">
-                    <FileText className="w-12 h-12 text-muted-foreground/15" />
-                    <div className="text-center">
-                      <p className="text-[13px] font-medium text-muted-foreground/50">No files shared yet</p>
-                      <p className="text-[12px] text-muted-foreground/35 mt-1">Files attached in this channel will appear here.</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {messages.filter(m => m.attachments && m.attachments.length > 0).map((msg, i, arr) => {
-                      const prev = arr[i - 1];
-                      const showDivider = msgIsNewDay(prev?.createdAt, msg.createdAt);
-                      return (
-                        <div key={msg.id}>
-                          {showDivider && (
-                            <div className="flex items-center gap-3 py-3 select-none" aria-hidden>
-                              <div className="flex-1 h-px bg-border/30" />
-                              <span className="text-[11px] font-medium text-muted-foreground/40 px-2 whitespace-nowrap">
-                                {formatDateDivider(msg.createdAt)}
-                              </span>
-                              <div className="flex-1 h-px bg-border/30" />
-                            </div>
-                          )}
-                          <div className="flex items-start gap-3 px-2 py-2.5 rounded-xl hover:bg-muted/20 transition-colors">
-                            <div className={cn("w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-white text-[11px] font-bold mt-0.5 overflow-hidden select-none", avatarBg(msg.userId))}>
-                              {msg.userAvatarUrl ? (
-                                <img src={msg.userAvatarUrl} alt={msg.userName} className="w-full h-full object-cover" />
-                              ) : initials(msg.userName)}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-baseline gap-2 mb-2">
-                                <span className="text-[12.5px] font-semibold text-foreground/85">{msg.userName}</span>
-                                <span className="text-[11px] text-muted-foreground/50">{formatTs(msg.createdAt)}</span>
-                              </div>
-                              <FilesTabAttachments attachments={msg.attachments!} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+              <div className="flex-1 flex flex-col min-h-0">
+                <CurrentFilesTab
+                  channelSlug={selectedSlug}
+                  onJumpToMessage={(_msgId, snippet) => {
+                    setChannelTab("messages");
+                    toast({ title: "Showing messages", description: snippet ? `"${snippet.slice(0, 80)}"` : undefined });
+                  }}
+                />
               </div>
             )}
             {channelTab === "pins" && (

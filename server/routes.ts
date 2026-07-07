@@ -36537,6 +36537,136 @@ export function registerConfluenceRoutes(app: Express) {
 
   // ── Typing indicators (Phase 12A) ─────────────────────────────────────────
   // In-memory TTL map via existing cache.ts. No schema change required.
+  // GET /api/currents/files — paginated file library for a channel or DM conversation
+  app.get("/api/currents/files", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const channelSlug = req.query.channel_slug ? String(req.query.channel_slug) : null;
+      const conversationIdRaw = req.query.conversation_id ? Number(req.query.conversation_id) : null;
+      const search = req.query.search ? String(req.query.search).trim().slice(0, 200) : null;
+      const fileType = req.query.file_type ? String(req.query.file_type) : null;
+      const uploaderId = req.query.uploader_id ? Number(req.query.uploader_id) : null;
+      const dateFrom = req.query.date_from ? String(req.query.date_from) : null;
+      const dateTo = req.query.date_to ? String(req.query.date_to) : null;
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number(req.query.page_size) || 25));
+      const offset = (page - 1) * pageSize;
+
+      if (!channelSlug && !conversationIdRaw) {
+        return res.status(400).json({ message: "channel_slug or conversation_id is required" });
+      }
+
+      // Access check and scope clause
+      let scopeClause = "";
+      if (channelSlug) {
+        const access = await resolveChannelAccess(userId, channelSlug);
+        if (!access) return res.status(404).json({ message: "Channel not found" });
+        if (access === "forbidden") return res.status(403).json({ message: "Not a member of this channel" });
+        scopeClause = `m.channel_id = ${access.id}`;
+      } else {
+        const convId = Number(conversationIdRaw);
+        if (!(convId > 0)) return res.status(400).json({ message: "Invalid conversation_id" });
+        const role = String((req.session as any).globalRole || "");
+        const isAdminRole = role === "master_admin" || role === "admin";
+        if (!isAdminRole) {
+          const memberCheck = await db.execute(sql.raw(
+            `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+          ));
+          if (!memberCheck.rows.length) return res.status(403).json({ message: "Not a member of this conversation" });
+        }
+        scopeClause = `m.conversation_id = ${convId}`;
+      }
+
+      // Search filter (ILIKE on filename and uploader name)
+      let searchClause = "";
+      if (search) {
+        const safeQ = search.replace(/'/g, "''");
+        searchClause = `AND (a.original_name ILIKE '%${safeQ}%' OR COALESCE(a.uploaded_by_name, u.name, '') ILIKE '%${safeQ}%')`;
+      }
+
+      // File type filter — whitelist switch, no user input interpolated
+      let fileTypeClause = "";
+      if (fileType) {
+        switch (fileType) {
+          case "image":        fileTypeClause = `AND a.mime_type LIKE 'image/%'`; break;
+          case "pdf":          fileTypeClause = `AND a.mime_type = 'application/pdf'`; break;
+          case "document":     fileTypeClause = `AND (a.mime_type LIKE '%word%' OR a.mime_type LIKE '%document%' OR a.mime_type LIKE '%odt%')`; break;
+          case "spreadsheet":  fileTypeClause = `AND (a.mime_type LIKE '%excel%' OR a.mime_type LIKE '%spreadsheet%' OR a.mime_type LIKE '%csv%' OR a.mime_type LIKE '%ods%')`; break;
+          case "presentation": fileTypeClause = `AND (a.mime_type LIKE '%powerpoint%' OR a.mime_type LIKE '%presentation%' OR a.mime_type LIKE '%odp%')`; break;
+          case "archive":      fileTypeClause = `AND (a.mime_type LIKE '%zip%' OR a.mime_type LIKE '%tar%' OR a.mime_type LIKE '%7z%' OR a.mime_type LIKE '%rar%' OR a.mime_type LIKE '%gzip%')`; break;
+          case "text":         fileTypeClause = `AND a.mime_type LIKE 'text/%'`; break;
+          default: break;
+        }
+      }
+
+      // Uploader filter (numeric, no interpolation risk)
+      let uploaderClause = "";
+      if (uploaderId && uploaderId > 0) {
+        uploaderClause = `AND a.uploaded_by = ${uploaderId}`;
+      }
+
+      // Date filters — strip to safe ISO-8601 chars only
+      let dateClause = "";
+      if (dateFrom) {
+        const safeFrom = dateFrom.replace(/[^0-9\-T:Z]/g, "").slice(0, 32);
+        if (safeFrom) dateClause += ` AND a.created_at >= '${safeFrom}'`;
+      }
+      if (dateTo) {
+        const safeTo = dateTo.replace(/[^0-9\-T:Z]/g, "").slice(0, 32);
+        if (safeTo) dateClause += ` AND a.created_at <= '${safeTo}'`;
+      }
+
+      const whereClause = `${scopeClause} AND m.deleted_at IS NULL ${searchClause} ${fileTypeClause} ${uploaderClause} ${dateClause}`;
+
+      const baseQuery = `
+        FROM attachments a
+        JOIN current_messages m ON m.id = a.object_id AND a.object_type = 'current_message'
+        LEFT JOIN users u ON u.id = a.uploaded_by
+        WHERE ${whereClause}
+      `;
+
+      const [dataRows, countRow] = await Promise.all([
+        db.execute(sql.raw(`
+          SELECT
+            a.id          AS attachment_id,
+            a.file_name,
+            a.original_name,
+            a.mime_type,
+            a.file_size,
+            a.uploaded_by AS uploader_user_id,
+            COALESCE(a.uploaded_by_name, u.name, 'Unknown') AS uploader_name,
+            m.id          AS message_id,
+            SUBSTRING(m.body, 1, 120) AS message_snippet,
+            a.created_at
+          ${baseQuery}
+          ORDER BY a.created_at DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `)),
+        db.execute(sql.raw(`SELECT COUNT(*) AS total ${baseQuery}`)),
+      ]);
+
+      const total = Number((countRow.rows[0] as any)?.total ?? 0);
+      const items = (dataRows.rows as any[]).map((r) => ({
+        attachmentId: Number(r.attachment_id),
+        originalName: r.original_name,
+        mimeType: r.mime_type,
+        fileSize: Number(r.file_size ?? 0),
+        uploaderUserId: r.uploader_user_id,
+        uploaderName: r.uploader_name ?? "Unknown",
+        messageId: Number(r.message_id),
+        messageSnippet: r.message_snippet
+          ? (r.message_snippet as string).replace(/@\[([^\]]+)\]\(user:\d+\)/g, "@$1").slice(0, 120)
+          : null,
+        downloadUrl: `/api/attachments/file/${r.file_name}`,
+        createdAt: r.created_at,
+      }));
+
+      res.json({ items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Keys: typing:channel:${slug}  typing:dm:${convId}  typing:thread:${rootMsgId}
 
   interface TypingEntry { userId: number; name: string; expiresAt: number; }

@@ -1,0 +1,261 @@
+CURRENTS Phase 2 — Files Tab + Attachment Library Polish
+
+Current completed state:
+
+CURRENTS drag/drop and message attachment behavior is already implemented and pinned by tests:
+- currents-drag-drop.test.cjs passing
+- currents-attachments.test.cjs passing
+- attachments table already exists with object_type="current_message"
+- uploadCurrentAttachments exists
+- FilesTabAttachments exists
+- attachment display in messages is already tested
+
+Goal:
+Upgrade the CURRENTS Files tab from a basic/static attachment view into a useful Slack-style file library.
+
+Users should be able to:
+- see all files shared in the current channel/DM
+- search files
+- filter by type/uploader/date
+- open/download files
+- jump back to the message where the file was shared
+- see useful empty/loading/error states
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not fake files.
+Do not expose private files through public unauthenticated URLs.
+Do not break existing CURRENTS drag/drop or attachment tests.
+
+1. Audit current CURRENTS file infrastructure
+
+Before writing code, inspect:
+- current.tsx
+- CURRENTS message composer
+- message attachment rendering
+- FilesTabAttachments
+- uploadCurrentAttachments
+- attachments table/schema
+- message schema
+- channel/DM access checks
+- existing CURRENTS routes
+- protected file serving/download patterns
+- currents-drag-drop.test.cjs
+- currents-attachments.test.cjs
+
+Document:
+- how attachments are stored
+- how attachments link to messages
+- how Files tab currently gets data
+- whether file URLs are protected
+- whether files are channel/DM scoped
+- what is fake/static, if anything
+
+2. Backend file library endpoint
+
+Add or improve a real endpoint for CURRENTS file browsing.
+
+Suggested:
+
+GET /api/currents/files
+
+Query params:
+- conversation_id or channel_id/dm_id, matching existing model
+- search
+- file_type
+- uploader_id
+- date_from
+- date_to
+- page
+- page_size
+
+Requirements:
+- require auth
+- verify user has access to the channel/DM/conversation
+- return only files from conversations the user can access
+- paginate always
+- cap page_size at 100
+- support search by filename/uploader/message text where practical
+- support file type filter:
+  - image
+  - pdf
+  - document
+  - spreadsheet
+  - presentation
+  - archive
+  - other
+- include linked message metadata where available
+
+Response rows should include:
+- attachment_id
+- file_name
+- original_file_name
+- mime_type
+- file_size_bytes
+- attachment_type/file_type
+- uploader_user_id
+- uploader_name
+- channel/conversation name
+- message_id
+- message_snippet
+- created_at
+- open/download URL if protected/safe
+- whether current user can delete, if supported
+
+3. File download/open behavior
+
+Verify existing file serving pattern.
+
+If protected download exists:
+- use it
+
+If not:
+- add a safe protected route, for example:
+  GET /api/currents/attachments/:id/download
+
+Requirements:
+- require auth
+- verify access to parent channel/DM
+- do not expose raw storage keys
+- sanitize filenames
+- set safe content-disposition
+- do not preview executables inline
+- return 404/403 safely
+
+Do not claim secure storage exists unless it actually does.
+
+4. Files tab UI
+
+Upgrade FilesTabAttachments or equivalent.
+
+UI should include:
+- search input
+- file type filter
+- uploader filter if practical
+- date filter if practical
+- paginated list/grid
+- file icon/thumbnail
+- file name
+- size
+- uploader
+- shared date
+- channel/conversation context
+- message snippet
+- open/download action
+- “Jump to message” action where practical
+
+States:
+- loading
+- error
+- empty channel
+- no search results
+- no files yet
+
+5. Jump to message
+
+Where possible, add “Jump to message” from a file row.
+
+Behavior:
+- opens/selects the parent channel/DM
+- scrolls to or highlights the message if existing message navigation supports it
+- if exact scroll is not available, open the conversation and show a safe toast/note
+
+Do not invent brittle scrolling if the message virtualization does not support it.
+
+6. Delete/remove behavior
+
+If attachment delete already exists:
+- show delete only when user has permission
+- confirm before delete
+- soft-delete preferred
+- remove from Files tab and message attachment display
+
+If delete does not exist:
+- do not add fake delete UI
+- document as follow-up
+
+7. File type classification
+
+Add a small utility if needed:
+- image
+- pdf
+- document
+- spreadsheet
+- presentation
+- archive
+- text
+- other
+
+Use MIME type first, extension fallback second.
+
+8. Permissions and privacy
+
+Must verify:
+- users cannot see files from private channels/DMs they are not part of
+- unauthenticated users cannot list/download files
+- file search does not leak names from inaccessible conversations
+- deleted attachments do not appear
+- raw storage keys are not returned to the frontend
+- public investor portal or Capital file surfaces are not affected
+
+9. Tests
+
+Add/update tests:
+
+tests/currents-files-tab.test.cjs
+
+Backend/source checks:
+- /api/currents/files route exists
+- route requires auth
+- route verifies channel/DM access
+- page_size cap exists
+- search support exists
+- file_type filter exists
+- deleted attachments are excluded
+- raw storage keys are not exposed
+- download route, if added, requires auth and access check
+
+Frontend/source checks:
+- FilesTabAttachments uses real endpoint
+- no hardcoded fake file list
+- search input exists
+- file type filter exists
+- loading/error/empty states exist
+- file size/date/uploader render
+- open/download action exists
+- jump-to-message action exists where supported
+- delete action is permission-gated if present
+
+Regression:
+- currents-drag-drop.test.cjs still passes
+- currents-attachments.test.cjs still passes
+- typing-indicators.test.cjs still passes
+- nav tests still pass
+
+10. Validation
+
+Run:
+- currents-files-tab.test.cjs
+- currents-drag-drop.test.cjs
+- currents-attachments.test.cjs
+- typing-indicators.test.cjs
+- nav-drift.test.cjs
+- nav-consolidation.test.cjs
+- build if practical
+
+Deliver:
+- audit summary
+- backend endpoint details
+- UI behavior summary
+- permission/security confirmation
+- files changed
+- tests run and results
+- follow-up recommendations
+
+Guardrails:
+- Do not modify unrelated modules.
+- Do not weaken auth.
+- Do not fake files.
+- Do not expose raw storage keys.
+- Do not expose private files through public URLs.
+- Do not break existing CURRENTS message/attachment behavior.
