@@ -113,6 +113,7 @@ import {
 import { createGmailDraftFromBooking, DRAFT_APPROVAL_TASK_SOURCE } from "./services/booking-gmail-draft";
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
+import { getTodayCapitalSection } from "./services/today-capital-summary";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
 import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy, getTuningRecommendations, getExplainabilityData, checkUnderperformance, getOutcomes, getFeedbackOverview } from "./services/feedback-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
@@ -10964,54 +10965,8 @@ export async function registerRoutes(
         opsCounts = { blocked_installs: Number(r.blocked_installs ?? 0), overdue_installs: Number(r.overdue_installs ?? 0), blocked_procurement: Number(r.blocked_procurement ?? 0) };
       } catch (_) { /* ops tables may be empty */ }
 
-      // ── Capital section (hasCapital users only — strict permission gate) ───────
-      let capitalSection: any = null;
-      if (hasCapital) {
-        try {
-          const [capInvRes, capStatsRes] = await Promise.all([
-            db.execute(sql.raw(
-              `SELECT id, name, stage, priority,
-                      next_step_date AS "nextStepDate", last_touch_at AS "lastTouchAt"
-               FROM capital_investors
-               WHERE stage NOT IN ('Passed','Wired / Closed')
-                 AND (do_not_contact IS NULL OR do_not_contact = FALSE)
-               ORDER BY
-                 CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END,
-                 next_step_date ASC NULLS LAST
-               LIMIT 5`
-            )),
-            db.execute(sql.raw(
-              `SELECT
-                 COUNT(*)::int AS total_active,
-                 COUNT(*) FILTER (WHERE next_step_date < NOW())::int AS overdue_follow_ups,
-                 COUNT(*) FILTER (WHERE priority IN ('Critical','High'))::int AS hot_count
-               FROM capital_investors
-               WHERE stage NOT IN ('Passed','Wired / Closed')
-                 AND (do_not_contact IS NULL OR do_not_contact = FALSE)`
-            )),
-          ]);
-          const capStats = (capStatsRes as any).rows[0] ?? {};
-          capitalSection = {
-            title: "Capital & Fundraising",
-            investors: ((capInvRes as any).rows ?? []).map((inv: any) => ({
-              id: inv.id, name: inv.name, stage: inv.stage, priority: inv.priority,
-              nextStepDate: inv.nextStepDate, lastTouchAt: inv.lastTouchAt,
-              nextStepOverdue: inv.nextStepDate ? new Date(inv.nextStepDate) < now : false,
-              daysSinceTouch: inv.lastTouchAt ? Math.floor((now.getTime() - new Date(inv.lastTouchAt).getTime()) / 86400000) : null,
-            })),
-            stats: {
-              total_active:       Number(capStats.total_active ?? 0),
-              overdue_follow_ups: Number(capStats.overdue_follow_ups ?? 0),
-              hot_count:          Number(capStats.hot_count ?? 0),
-            },
-            link: "/capital",
-            drilldown_endpoint: "/api/capital/follow-ups",
-            empty_state: "No active investor follow-ups.",
-          };
-        } catch (_capErr) {
-          capitalSection = { title: "Capital & Fundraising", investors: [], stats: { total_active: 0, overdue_follow_ups: 0, hot_count: 0 }, link: "/capital", empty_state: "Capital data unavailable." };
-        }
-      }
+      // ── Capital section — delegated to today-capital-summary service ──────────
+      const capitalSection = await getTodayCapitalSection(userId, hasCapital, now);
 
       // ── Priority Actions: aggregate top 10 urgency items ─────────────────────
       type ActionSeverity = "critical" | "high" | "medium" | "low";

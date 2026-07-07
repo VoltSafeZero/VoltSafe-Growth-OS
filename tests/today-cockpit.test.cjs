@@ -116,11 +116,13 @@ test("operations section exists with drilldown endpoint", () => {
 
 test("capital section is null for non-Capital users", () => {
   has(routesSrc, "capital:   capitalSection", "capital field in response");
-  has(routesSrc, "let capitalSection: any = null", "capitalSection defaults to null");
+  // Capital section is delegated to today-capital-summary service which returns null when !hasCapital
+  has(routesSrc, "getTodayCapitalSection", "getTodayCapitalSection service called in route");
 });
 
 test("capital section only populated if hasCapital", () => {
-  has(routesSrc, "if (hasCapital) {", "capital gated by hasCapital");
+  // getTodayCapitalSection receives hasCapital param and returns null when false
+  has(routesSrc, "getTodayCapitalSection(userId, hasCapital, now)", "hasCapital passed to service");
 });
 
 test("capital access uses CAPITAL_USER_IDS = new Set([4])", () => {
@@ -133,12 +135,13 @@ test("capital access uses CAPITAL_USER_IDS = new Set([4])", () => {
   has(summaryBlock, "scott.carlson@voltsafe.com", "scott.carlson capital email in today/summary");
 });
 
-test("capital uses capital_investors table", () => {
-  const summaryBlock = routesSrc.slice(
-    routesSrc.indexOf('app.get("/api/today/summary"'),
-    routesSrc.indexOf('// ── Growth OS Command Center')
+test("capital uses capital_investors table (via isolated service)", () => {
+  // Query lives in server/services/today-capital-summary.ts, not routes.ts (isolation invariant)
+  const serviceSrc = fs.readFileSync(
+    path.join(__dirname, "../server/services/today-capital-summary.ts"), "utf-8"
   );
-  has(summaryBlock, "capital_investors", "capital_investors table queried in today/summary");
+  has(serviceSrc, "capital_investors", "capital_investors table queried in today-capital-summary service");
+  has(serviceSrc, "getTodayCapitalSection", "getTodayCapitalSection exported from service");
 });
 
 test("task queries are user-scoped by owner_user_id", () => {
