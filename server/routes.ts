@@ -36433,9 +36433,7 @@ export function registerConfluenceRoutes(app: Express) {
       ));
       if (!memberCheck.rows.length)
         return res.status(403).json({ message: "Not a member of this conversation" });
-      // Load-older support: safe-strip before timestamp to ISO-8601 chars
-      const beforeParamDm = req.query.before ? String(req.query.before) : null;
-      const safeBeforeDm  = beforeParamDm ? beforeParamDm.replace(/[^0-9\-T:Z.]/g, "").slice(0, 40) : null;
+      const safeBeforeDm = req.query.before ? String(req.query.before).replace(/[^0-9\-T:Z.]/g,"").slice(0,40)||null : null;
       const rows = await db.execute(sql.raw(`
         WITH recent_ids AS (
           SELECT id FROM current_messages

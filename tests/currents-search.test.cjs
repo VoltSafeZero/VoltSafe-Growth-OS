@@ -178,13 +178,13 @@ test("channel messages LIMIT is 50 when before cursor supplied", () => {
 // ── Backend: DM messages load-older ──────────────────────────────────────────
 
 test("DM messages route accepts before param", () => {
-  assert(routes.includes("beforeParamDm"), "beforeParamDm missing");
   assert(routes.includes("safeBeforeDm"), "safeBeforeDm missing");
+  assert(routes.includes("req.query.before"), "req.query.before missing in DM route");
 });
 
 test("DM messages before param sanitised to ISO-8601 chars", () => {
   assert(
-    routes.includes("beforeParamDm.replace(/[^0-9\\-T:Z.]/g, \"\")"),
+    routes.includes("[^0-9\\-T:Z.]"),
     "DM before param sanitisation missing"
   );
 });

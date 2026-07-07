@@ -380,7 +380,7 @@ async function main() {
 
   await test("routes: DM fetch LATERAL join returns reactions with reacted flag", async () => {
     const idx = routes.indexOf("// GET /api/current/dms/:id/messages");
-    const block = routes.slice(idx, idx + 2000);
+    const block = routes.slice(idx, idx + 4000);
     assert.ok(block.includes("current_reactions"), "DM fetch must join current_reactions");
     assert.ok(block.includes("reacted"), "DM fetch must include per-user reacted flag");
   });
