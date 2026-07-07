@@ -1,0 +1,442 @@
+VoltSafe CMS — Today Page: Executive Operating Cockpit
+
+Current completed state:
+
+Major CMS systems are now strong:
+- Capital Phase 2A–2L complete and release-ready
+- Marketing drilldowns complete, including export/actions/polish
+- Pipeline, Insights, Operations, and Work drilldowns complete
+- Navigation consolidation complete
+- Favorites and recent pages added
+- CURRENTS attachments, Files tab, and search/history polish complete
+- Build currently passes after fixing UniversalDrilldownSheet and current.tsx syntax issues
+
+Now build the Today Page into the default executive operating cockpit.
+
+Primary goal:
+When a user opens VoltSafe CMS, the Today page should immediately show the most important work, risks, messages, meetings, follow-ups, blockers, and opportunities for that user.
+
+For Trevor/CEO, Today should answer:
+- What needs my attention today?
+- What is overdue?
+- What is blocked?
+- What meetings are coming up?
+- What important emails/messages need response?
+- What hot accounts or deals need follow-up?
+- What marketing/compliance risks need attention?
+- What operations/support/procurement issues are blocking progress?
+- What Capital/funding items need action? Only for Trevor/Scott.
+
+For regular users, Today should be scoped to their work and permissions.
+
+Do not modify unrelated modules.
+Do not weaken permissions.
+Do not expose Capital to non-Capital users.
+Do not fake data.
+Do not call Gmail/Calendar/external APIs directly from Today unless there is already a local synced table/API pattern.
+Use existing local DB-backed data and existing APIs wherever possible.
+
+1. Audit current Today page
+
+Before writing code, inspect:
+- Today page route/component
+- current dashboard/home page behavior
+- App.tsx default route behavior
+- sidebar/nav link for Today
+- user permissions/auth context
+- existing APIs for tasks, meetings, mail summaries, campaigns, marketing drilldowns, operations drilldowns, work drilldowns, capital follow-ups, CURRENTS mentions/messages
+- existing card/KPI components
+- existing UniversalDrilldownSheet
+- existing grouped landing page components
+- existing favorites/recent pages hooks
+
+Document:
+- what Today currently shows
+- what data is already locally available
+- what APIs can be reused
+- what data should be user-scoped
+- what data should be permission-gated
+- what should be out of scope
+
+2. Build backend summary endpoint
+
+Add a backend endpoint:
+
+GET /api/today/summary
+
+Requirements:
+- require authentication
+- return only data current user is allowed to see
+- use local database-backed data only
+- do not proxy external Gmail/Calendar APIs
+- keep endpoint fast
+- cap list sizes
+- include generated_at
+- include safe empty states
+
+Suggested response shape:
+
+{
+  generated_at,
+  user,
+  sections: {
+    priority_actions,
+    schedule,
+    tasks,
+    inbox,
+    currents,
+    pipeline,
+    marketing,
+    operations,
+    capital,
+    favorites,
+    recents
+  }
+}
+
+Each section should include:
+- title
+- count
+- items
+- severity/priority where applicable
+- link or drilldown config where applicable
+- empty_state
+
+3. Priority Actions section
+
+Create a top section called “Priority Actions”.
+
+This should aggregate the highest-value items from the rest of Today.
+
+Examples:
+- overdue tasks assigned to me
+- meetings starting soon
+- high-priority emails needing reply if locally available
+- CURRENTS mentions or unread important messages if locally available
+- hot accounts requiring follow-up
+- blocked installs/deployments
+- critical support tickets
+- procurement blockers
+- campaign compliance blockers
+- Capital follow-ups, only if user has Capital access
+
+Rules:
+- max 8–10 items
+- sort by urgency and severity
+- each item should have a clear action label
+- each item should link to source page or open drilldown
+- no fake priority scoring
+- if confidence is low, use explicit source reason instead of pretending AI certainty
+
+4. Schedule section
+
+Show today’s meetings/events if locally available.
+
+Include:
+- next meeting
+- meetings today
+- meetings this week count if useful
+- meetings missing notes
+- meetings needing follow-up
+
+Actions:
+- open calendar/meeting page
+- open meeting notes if available
+- create follow-up task if existing task creation pattern supports it
+
+If local calendar data is not available:
+- show useful empty state and link to Calendar & Meetings
+- do not call external Google Calendar directly in this endpoint
+
+5. Tasks section
+
+Show:
+- due today
+- overdue
+- high-priority
+- blocked
+- completed today
+- due this week
+
+Use existing Work drilldown metrics where possible:
+- /api/work/drilldown metrics or underlying service/query pattern
+
+Cards should open UniversalDrilldownSheet:
+- endpoint="/api/work/drilldown"
+- correct metric
+- user-scoped filters
+
+6. Inbox / Mail section
+
+Show only locally available mail data.
+
+Possible metrics:
+- unread inbox
+- priority emails
+- emails needing reply
+- drafts
+- failed/bounced sends if available
+- recently received important external emails
+
+Actions:
+- open Inbox/Mail
+- open specific mail item if route exists
+- open drilldown if backed by local data
+
+Do not directly query Gmail API from Today.
+
+7. CURRENTS section
+
+Show:
+- unread/mentions if available
+- recent channels/DMs
+- files shared recently if useful
+- messages requiring attention if local data supports it
+
+Actions:
+- open CURRENTS
+- jump to channel/DM/message where supported
+
+Do not expose private channel/DM content unless the user is a member.
+
+8. Pipeline section
+
+Show:
+- hot accounts
+- deals closing soon
+- overdue follow-ups
+- quotes awaiting response
+- renewals due/churn risk if available
+
+Use existing Pipeline/Insights drilldown endpoints where practical.
+
+Cards should open UniversalDrilldownSheet:
+- /api/pipeline/drilldown
+- /api/insights/drilldown
+
+9. Marketing section
+
+Show:
+- campaign blockers
+- compliance issues
+- hot replies
+- hot accounts
+- audiences needing cleanup
+- spam/unsubscribe warnings if available
+
+Use existing Marketing drilldowns:
+- /api/marketing/drilldown
+
+Actions:
+- open Marketing drilldown
+- open campaign
+- open compliance dashboard
+- create follow-up where existing safe action exists
+
+Do not add unsafe compliance mutations.
+
+10. Operations section
+
+Show:
+- blocked installs
+- overdue installs
+- critical support tickets
+- delayed procurement
+- data quality issues
+- stale documents if relevant
+
+Use existing Operations drilldown endpoint:
+- /api/operations/drilldown
+
+Cards should open UniversalDrilldownSheet.
+
+11. Capital section
+
+Only show Capital section if user has Capital access.
+
+Capital access means Trevor/CEO and Scott/CFO only, following existing Capital permission model.
+
+Show:
+- investor follow-ups due
+- hot investors
+- stale hot investors
+- round blockers
+- data room requests
+- portal engagement
+- capital tasks this week
+- upcoming close-plan items
+
+Use existing Capital services/APIs if safe:
+- follow-ups
+- command center
+- engagement
+- reports
+- copilot metadata/context only if safe
+
+Do not expose Capital section, labels, counts, favorites, or recents to non-Capital users.
+
+12. Favorites and Recent Pages section
+
+Use existing favorites/recents hooks.
+
+Show:
+- user’s favorite pages
+- recently visited pages
+
+Respect permissions:
+- hide Capital recents/favorites if user lacks Capital access
+- hide Admin recents/favorites if user lacks Admin access
+- do not track or display public investor portal pages
+
+13. Today page UI
+
+Design the Today page as a clean operating cockpit.
+
+Suggested layout:
+- Header: “Today”
+- Subheader: date, generated_at, maybe user name
+- Top row: Priority Actions
+- Next row: Schedule + Tasks
+- Next row: Inbox + CURRENTS
+- Next row: Pipeline + Marketing
+- Next row: Operations
+- Capital section only for Trevor/Scott
+- Favorites/Recent Pages near bottom or side rail
+
+UX requirements:
+- clear empty states
+- loading skeletons
+- retry state on error
+- severity badges
+- source labels
+- “View all” links
+- drilldown support on metric cards
+- no dead buttons
+- no fake stats
+- no overwhelming wall of cards
+
+14. Drilldown integration
+
+Today metric cards should open UniversalDrilldownSheet where supported.
+
+Examples:
+- overdue tasks → /api/work/drilldown?metric=tasks_overdue
+- campaign blockers → /api/marketing/drilldown?metric=campaigns_blocked
+- blocked installs → /api/operations/drilldown?metric=blocked_installs
+- hot accounts → /api/insights/drilldown or /api/marketing/drilldown depending existing source
+- quotes awaiting response → /api/pipeline/drilldown
+
+Keep the pattern:
+See number → click it → inspect records → act.
+
+15. Permissions and privacy
+
+Tests must prove:
+- unauthenticated users cannot access /api/today/summary
+- Today summary only returns user-authorized data
+- Capital section excluded for non-Capital users
+- Admin-only items excluded for non-admins
+- private CURRENTS content excluded unless member
+- no raw storage keys
+- no raw portal tokens
+- no private Capital data in generic priority actions for unauthorized users
+
+16. Performance
+
+Today must be fast.
+
+Rules:
+- cap each section list, e.g. 5–10 items
+- no unbounded queries
+- no giant joined payloads
+- no external API calls
+- use existing indexed fields where possible
+- if a section is expensive, return a lightweight count/link and lazy-load later
+- log slow Today endpoint in development if existing pattern supports it
+
+17. Tests
+
+Add:
+
+tests/today-cockpit.test.cjs
+
+Backend/source checks:
+- /api/today/summary route exists
+- requireAuth exists
+- section caps exist
+- generated_at returned
+- no external Gmail/Calendar API calls
+- Capital section is permission-gated
+- Admin items are permission-gated
+- private CURRENTS data checks exist
+- no raw token/storage-key exposure
+- priority_actions section exists
+- empty states exist
+
+Frontend/source checks:
+- Today page uses /api/today/summary
+- loading state exists
+- error/retry state exists
+- Priority Actions section exists
+- Schedule section exists
+- Tasks section exists
+- Inbox section exists
+- CURRENTS section exists
+- Pipeline section exists
+- Marketing section exists
+- Operations section exists
+- Capital section gated
+- Favorites/Recent Pages section exists
+- UniversalDrilldownSheet integration exists
+- View all links exist
+- no fake hardcoded dashboard stats
+
+Regression:
+- work-drilldown tests still pass
+- operations-drilldown tests still pass
+- marketing-drilldown tests still pass
+- pipeline-drilldown tests still pass
+- insights-drilldown tests still pass
+- currents-search/files/attachments tests still pass
+- capital-hardening tests still pass
+- nav tests still pass
+- startup-invariants tests still pass
+- build passes if practical
+
+18. Validation
+
+Run:
+- today-cockpit.test.cjs
+- work-drilldown.test.cjs
+- operations-drilldown.test.cjs
+- marketing-drilldown.test.cjs
+- marketing-drilldown-polish.test.cjs
+- pipeline-drilldown.test.cjs
+- insights-drilldown.test.cjs
+- currents-search.test.cjs
+- currents-files-tab.test.cjs
+- capital-hardening.test.cjs
+- nav-drift.test.cjs
+- nav-consolidation.test.cjs
+- startup-invariants.test.cjs
+- npm run build
+
+Deliver:
+- audit summary
+- backend endpoint details
+- Today page UI summary
+- permission/security confirmation
+- performance limits
+- files changed
+- test results
+- known limitations
+- recommended next phase
+
+Guardrails:
+- Do not modify unrelated modules.
+- Do not weaken permissions.
+- Do not expose Capital to non-Capital users.
+- Do not fake stats.
+- Do not query external APIs directly from Today.
+- Do not return unbounded lists.
+- Do not break existing drilldowns, CURRENTS, Capital, or nav.
