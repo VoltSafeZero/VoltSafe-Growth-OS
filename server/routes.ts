@@ -118,6 +118,7 @@ import { getCeoCockpitData } from "./services/ceo-cockpit";
 import { getOneOnOneNotes, createOneOnOneNote, updateOneOnOneNote, deleteOneOnOneNote, buildOneOnOneAgenda, extractCommitmentsFromNote, createTasksFromCommitments, getUpdateDraft } from "./services/ceo-one-on-ones";
 import { generateCockpitActions, listCeoActions, createCeoAction, updateCeoAction, completeCeoAction, dismissCeoAction, snoozeCeoAction, buildUpdateRequestDraft, createTaskFromAction } from "./services/ceo-action-loop";
 import { buildDailyCeoBriefing, buildWeeklyCeoReview, buildTeamMemberBriefing, buildLeadershipMeetingAgenda, buildWeeklyReviewDraft } from "./services/ceo-briefing";
+import { buildExecutionRadar, detectExecutionDrift, buildCommitmentsRadar, buildRecurringRiskPatterns, buildExecutionScorecard } from "./services/ceo-execution-intelligence";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
 import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy, getTuningRecommendations, getExplainabilityData, checkUnderperformance, getOutcomes, getFeedbackOverview } from "./services/feedback-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
@@ -11393,6 +11394,147 @@ export async function registerRoutes(
       res.json({ draftText: agenda.copy_text, generated_at: agenda.generated_at });
     } catch (err: any) {
       console.error("[ceo-briefing] leadership-agenda/draft:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── CEO Execution Intelligence (Phase 8) ──────────────────────────────
+  // All routes: requireAuth + requireAdmin. No auto-send. Local DB only.
+
+  // GET /api/today/ceo-execution/radar
+  app.get("/api/today/ceo-execution/radar", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const result = await buildExecutionRadar({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-execution] radar:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/today/ceo-execution/drift
+  app.get("/api/today/ceo-execution/drift", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const result = await detectExecutionDrift({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-execution] drift:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/today/ceo-execution/commitments
+  app.get("/api/today/ceo-execution/commitments", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const result = await buildCommitmentsRadar({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-execution] commitments:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/today/ceo-execution/recurring-risks
+  app.get("/api/today/ceo-execution/recurring-risks", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const result = await buildRecurringRiskPatterns({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-execution] recurring-risks:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/today/ceo-execution/scorecard
+  app.get("/api/today/ceo-execution/scorecard", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const result = await buildExecutionScorecard({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-execution] scorecard:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-execution/items/:id/create-action
+  // Uses Phase 6 CEO Action Queue — does NOT auto-send
+  app.post("/api/today/ceo-execution/items/:id/create-action", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const itemId = String(req.params.id);
+      const { title, type = "follow_up", priority = "medium", source_type, source_id, body } = req.body ?? {};
+      if (!title) return res.status(400).json({ message: "title required" });
+      const action = await createCeoAction({
+        title,
+        type,
+        priority,
+        source_section: "execution_radar",
+        source_type: source_type ?? "radar_item",
+        source_id: source_id ?? itemId,
+        body: body ?? null,
+        created_by_user_id: userId,
+      }, userId);
+      res.json({ action });
+    } catch (err: any) {
+      console.error("[ceo-execution] create-action:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-execution/items/:id/dismiss
+  // Records dismiss state — does NOT delete source data
+  app.post("/api/today/ceo-execution/items/:id/dismiss", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const itemKey = String(req.params.id);
+      const { reason, source_type, source_id } = req.body ?? {};
+      await db.execute(sql.raw(`
+        INSERT INTO ceo_execution_reviews (item_key, item_type, source_type, source_id, status, actor_user_id, reason)
+        VALUES ('${itemKey.replace(/'/g, "''")}', 'radar_item', '${(source_type ?? "").replace(/'/g, "''")}', '${(source_id ?? "").replace(/'/g, "''")}', 'dismissed', ${userId}, ${reason ? `'${String(reason).replace(/'/g, "''")}'` : 'NULL'})
+        ON CONFLICT DO NOTHING
+      `));
+      res.json({ ok: true, item_key: itemKey, status: "dismissed" });
+    } catch (err: any) {
+      console.error("[ceo-execution] dismiss:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-execution/items/:id/mark-reviewed
+  // Records review state only — does NOT delete source data
+  app.post("/api/today/ceo-execution/items/:id/mark-reviewed", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const itemKey = String(req.params.id);
+      const { source_type, source_id } = req.body ?? {};
+      await db.execute(sql.raw(`
+        INSERT INTO ceo_execution_reviews (item_key, item_type, source_type, source_id, status, actor_user_id)
+        VALUES ('${itemKey.replace(/'/g, "''")}', 'radar_item', '${(source_type ?? "").replace(/'/g, "''")}', '${(source_id ?? "").replace(/'/g, "''")}', 'reviewed', ${userId})
+        ON CONFLICT DO NOTHING
+      `));
+      res.json({ ok: true, item_key: itemKey, status: "reviewed" });
+    } catch (err: any) {
+      console.error("[ceo-execution] mark-reviewed:", err?.message);
       res.status(500).json({ message: err.message });
     }
   });

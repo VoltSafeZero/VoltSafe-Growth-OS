@@ -434,6 +434,28 @@ app.use((req, res, next) => {
       log("[migration] meeting_notes.one_on_one_sections column ready.");
     } catch (_e) { /* already exists */ }
 
+    // CEO Execution Intelligence (Phase 8): review/dismiss tracking table
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS ceo_execution_reviews (
+          id              SERIAL PRIMARY KEY,
+          item_key        TEXT NOT NULL,
+          item_type       TEXT NOT NULL DEFAULT 'radar_item',
+          source_type     TEXT,
+          source_id       TEXT,
+          status          TEXT NOT NULL DEFAULT 'reviewed' CHECK (status IN ('reviewed', 'dismissed')),
+          actor_user_id   INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          reason          TEXT,
+          metadata        JSONB DEFAULT '{}'::jsonb,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_execution_reviews_key ON ceo_execution_reviews(item_key)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_execution_reviews_actor ON ceo_execution_reviews(actor_user_id, status)`);
+      log("[migration] ceo_execution_reviews table ready.");
+    } catch (_e) { /* already exists */ }
+
     // Derived label backfill: fire-and-forget (idempotent, safe to run concurrently)
     migrateDerivedLabelColumns().catch(err =>
       console.error("[startup] derived label backfill background error:", err)
