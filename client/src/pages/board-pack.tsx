@@ -19,7 +19,8 @@ import {
   TrendingUp, DollarSign, Package, Shield, Users, Globe,
   BarChart3, Zap, BookOpen, Save, Trash2, Play, RefreshCw,
   Calendar, Clock, Send, Pause, History, Plus, Mail, Bell,
-  CheckCircle, XCircle, Timer, Settings,
+  CheckCircle, XCircle, Timer, Settings, Lock, Briefcase,
+  Copy, Archive, Star, ChevronDown, ChevronUp, ClipboardList,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1047,6 +1048,546 @@ function SavePresetDialog({
   );
 }
 
+// ── Operating Pack Types ──────────────────────────────────────────────────────
+const PACK_TYPES = [
+  { value: "board", label: "Board Pack" },
+  { value: "investor", label: "Investor Update" },
+  { value: "lender", label: "Lender Pack" },
+  { value: "grant", label: "Grant Report" },
+  { value: "internal_exec", label: "Internal Executive" },
+] as const;
+
+const SECTION_LABELS: Record<string, { label: string; letter: string; icon: any }> = {
+  executive_summary:  { label: "Executive Summary",    letter: "A", icon: Star },
+  company_scorecard:  { label: "Company Scorecard",    letter: "B", icon: BarChart3 },
+  revenue_pipeline:   { label: "Revenue / Pipeline",   letter: "C", icon: TrendingUp },
+  capital_funding:    { label: "Capital / Funding",    letter: "D", icon: DollarSign },
+  product_operations: { label: "Product / Operations", letter: "E", icon: Package },
+  team_accountability:{ label: "Team / Accountability",letter: "F", icon: Users },
+  risks_decisions:    { label: "Risks / Decisions",    letter: "G", icon: AlertTriangle },
+  wins_momentum:      { label: "Wins / Momentum",      letter: "H", icon: CheckCircle },
+  next_30_60_90:      { label: "Next 30/60/90 Days",   letter: "I", icon: Calendar },
+  board_investor_asks:{ label: "Board / Investor Asks",letter: "J", icon: ClipboardList },
+};
+
+const fmt$ = (v: number) =>
+  v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}K` : `$${v}`;
+
+function OpSectionRow({ sectionKey, data, expanded, onToggle, isCapitalUser }: {
+  sectionKey: string; data: any; expanded: boolean; onToggle: () => void; isCapitalUser: boolean;
+}) {
+  const meta = SECTION_LABELS[sectionKey];
+  if (!meta) return null;
+  if (sectionKey === "capital_funding" && (!data || !isCapitalUser)) return null;
+  const Icon = meta.icon;
+  return (
+    <div className="border border-border rounded-lg overflow-hidden">
+      <button
+        data-testid={`op-section-toggle-${sectionKey}`}
+        className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+        onClick={onToggle}
+      >
+        <div className="flex items-center gap-2">
+          <span className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">{meta.letter}</span>
+          <Icon className="w-4 h-4 text-primary" />
+          <span className="font-medium text-sm">{meta.label}</span>
+          {sectionKey === "capital_funding" && (
+            <Badge variant="outline" className="text-xs ml-1">Confidential</Badge>
+          )}
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+      </button>
+      {expanded && data && (
+        <div className="px-4 py-3 space-y-2 text-sm">
+          <OpSectionContent sectionKey={sectionKey} data={data} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OpSectionContent({ sectionKey, data }: { sectionKey: string; data: any }) {
+  const pill = (v: number, warn = false) => (
+    <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${warn && v > 0 ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}>{v}</span>
+  );
+  const strList = (items: string[]) => items.length
+    ? <ul className="list-disc list-inside space-y-0.5">{items.map((i, idx) => <li key={idx} className="text-muted-foreground">{i}</li>)}</ul>
+    : <p className="text-muted-foreground italic">None this period.</p>;
+
+  if (sectionKey === "executive_summary") {
+    return (
+      <div className="space-y-3">
+        {data.bullets?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Highlights</p>{strList(data.bullets.slice(0, 6))}</div>
+        )}
+        {data.top_wins?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Top Wins</p>{strList(data.top_wins)}</div>
+        )}
+        {data.top_risks?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Key Risks</p>{strList(data.top_risks)}</div>
+        )}
+        {data.top_ceo_asks?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Top CEO Asks</p>{strList(data.top_ceo_asks)}</div>
+        )}
+        {data.what_changed && !data.what_changed.no_previous_pack && (
+          <div className="bg-muted/30 rounded-lg p-3 text-xs space-y-1">
+            <p className="font-semibold">What Changed Since Last Pack</p>
+            <p>New Blockers: {data.what_changed.new_blockers} · Resolved: {data.what_changed.resolved_blockers}</p>
+            <p>{data.what_changed.pipeline_movement}</p>
+            {data.what_changed.capital_movement && <p>{data.what_changed.capital_movement}</p>}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (sectionKey === "company_scorecard") {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        {[
+          { label: "Execution Score", val: `${data.execution_health_score}/100`, sub: data.execution_health_label },
+          { label: "Open Blockers", val: data.open_blockers, warn: data.open_blockers > 0 },
+          { label: "Overdue Commitments", val: data.overdue_commitments, warn: data.overdue_commitments > 0 },
+          { label: "Completed Commitments", val: data.completed_commitments },
+          { label: "Stale Tasks", val: data.stale_tasks, warn: data.stale_tasks > 0 },
+          { label: "High-Priority Actions", val: data.high_priority_ceo_actions },
+          { label: "Total Pipeline", val: fmt$(data.total_pipeline) },
+          { label: "Closed Won", val: fmt$(data.closed_won_amount) },
+          { label: "Win Rate", val: `${data.win_rate?.toFixed(1)}%` },
+        ].map(k => (
+          <div key={k.label} className={`rounded-md p-2 ${(k as any).warn && Number(k.val) > 0 ? "bg-destructive/5" : "bg-muted/40"}`}>
+            <p className="text-xs text-muted-foreground">{k.label}</p>
+            <p className={`font-bold ${(k as any).warn && Number(k.val) > 0 ? "text-destructive" : "text-foreground"}`}>{String(k.val)}</p>
+            {(k as any).sub && <p className="text-xs text-muted-foreground">{(k as any).sub}</p>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (sectionKey === "revenue_pipeline") {
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: "Total Pipeline", val: fmt$(data.total_pipeline) },
+            { label: "Weighted", val: fmt$(data.weighted_pipeline) },
+            { label: "Closed Won", val: fmt$(data.closed_won_amount) },
+            { label: "Win Rate", val: `${data.win_rate?.toFixed(1)}%` },
+            { label: "Stale Opps", val: data.stale_opportunities },
+            { label: "Quotes Sent", val: data.quote_sent },
+          ].map(k => (
+            <div key={k.label} className="bg-muted/40 rounded-md p-2">
+              <p className="text-xs text-muted-foreground">{k.label}</p>
+              <p className="font-bold">{String(k.val)}</p>
+            </div>
+          ))}
+        </div>
+        {data.top_opportunities?.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Top Opportunities</p>
+            {data.top_opportunities.map((o: any, i: number) => (
+              <div key={i} className="flex items-center justify-between py-1 border-b border-border/50 last:border-0">
+                <span className="text-sm">{o.name}</span>
+                <span className="text-xs text-muted-foreground">{fmt$(o.amount)} · {o.stage}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {data.revenue_blockers?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Revenue Blockers</p>{strList(data.revenue_blockers)}</div>
+        )}
+      </div>
+    );
+  }
+  if (sectionKey === "capital_funding") {
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: "Raise Status", val: data.raise_status },
+            { label: "Target Raise", val: data.target_raise_amount ? fmt$(data.target_raise_amount) : "TBD" },
+            { label: "Total Investors", val: data.total_investors },
+            { label: "Active Convos", val: data.active_conversations },
+            { label: "Committed", val: fmt$(data.committed_capital) },
+            { label: "Soft-Circled", val: fmt$(data.soft_circled) },
+            { label: "Grant Opps", val: data.grant_opportunities },
+          ].map(k => (
+            <div key={k.label} className="bg-muted/40 rounded-md p-2">
+              <p className="text-xs text-muted-foreground">{k.label}</p>
+              <p className="font-bold">{String(k.val)}</p>
+            </div>
+          ))}
+        </div>
+        {data.next_investor_actions?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Next Actions</p>{strList(data.next_investor_actions)}</div>
+        )}
+        {data.funding_risks?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Funding Risks</p>{strList(data.funding_risks)}</div>
+        )}
+      </div>
+    );
+  }
+  if (sectionKey === "product_operations") {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        {[
+          { label: "Total Installs", val: data.total_installs },
+          { label: "In Progress", val: data.installs_in_progress },
+          { label: "Flagged", val: data.flagged_deployments, warn: true },
+          { label: "Stalled Workflows", val: data.stalled_workflows, warn: true },
+          { label: "Certs Blocked", val: data.cert_blocked, warn: true },
+          { label: "Certs At-Risk", val: data.cert_at_risk, warn: true },
+          { label: "Low-Stock Items", val: data.procurement_low_stock, warn: true },
+        ].map(k => (
+          <div key={k.label} className={`rounded-md p-2 ${k.warn && k.val > 0 ? "bg-destructive/5" : "bg-muted/40"}`}>
+            <p className="text-xs text-muted-foreground">{k.label}</p>
+            <p className={`font-bold ${k.warn && k.val > 0 ? "text-destructive" : ""}`}>{k.val}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (sectionKey === "team_accountability") {
+    return (
+      <div className="space-y-3">
+        <p className="text-muted-foreground">{data.team_pulse_summary}</p>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "Open", val: data.open_commitments },
+            { label: "Missed", val: data.missed_commitments, warn: true },
+            { label: "Completed", val: data.completed_commitments },
+          ].map(k => (
+            <div key={k.label} className={`rounded-md p-2 ${(k as any).warn && k.val > 0 ? "bg-destructive/5" : "bg-muted/40"}`}>
+              <p className="text-xs text-muted-foreground">{k.label}</p>
+              <p className={`font-bold ${(k as any).warn && k.val > 0 ? "text-destructive" : ""}`}>{k.val}</p>
+            </div>
+          ))}
+        </div>
+        {data.support_needed?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Support Needed</p>{strList(data.support_needed)}</div>
+        )}
+        {data.owner_load_risks?.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Owner Load Risks</p>
+            {data.owner_load_risks.map((r: any, i: number) => (
+              <div key={i} className="flex items-center justify-between py-1 border-b border-border/50 last:border-0">
+                <span>{r.name}</span>
+                <span className="text-xs text-muted-foreground">{r.overdue_count} overdue</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (sectionKey === "risks_decisions") {
+    return (
+      <div className="space-y-3">
+        {data.critical_drift_items?.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Critical Drift</p>
+            {data.critical_drift_items.map((d: any, i: number) => (
+              <div key={i} className="flex items-start gap-2 py-1">
+                <Badge variant="outline" className={`text-xs shrink-0 ${d.severity === "critical" ? "border-destructive text-destructive" : "border-yellow-500 text-yellow-600"}`}>{d.severity}</Badge>
+                <span className="text-sm">{d.summary}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {data.decisions_needed?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Decisions Needed</p>{strList(data.decisions_needed)}</div>
+        )}
+        {data.revenue_risks?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Revenue Risks</p>{strList(data.revenue_risks)}</div>
+        )}
+        {data.product_risks?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Product Risks</p>{strList(data.product_risks)}</div>
+        )}
+        {data.capital_risks?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Capital Risks</p>{strList(data.capital_risks)}</div>
+        )}
+        {data.unresolved_blockers > 0 && (
+          <p className="text-sm text-destructive">{data.unresolved_blockers} unresolved blocker(s)</p>
+        )}
+      </div>
+    );
+  }
+  if (sectionKey === "wins_momentum") {
+    return (
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: "High-Priority Actions Completed", val: data.completed_high_priority_actions },
+            { label: "Resolved Blockers", val: data.resolved_blockers },
+          ].map(k => (
+            <div key={k.label} className="bg-muted/40 rounded-md p-2">
+              <p className="text-xs text-muted-foreground">{k.label}</p>
+              <p className="font-bold">{k.val}</p>
+            </div>
+          ))}
+        </div>
+        {data.team_wins?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Team Wins</p>{strList(data.team_wins)}</div>
+        )}
+        {data.product_milestones?.length > 0 && (
+          <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Product Milestones</p>{strList(data.product_milestones)}</div>
+        )}
+      </div>
+    );
+  }
+  if (sectionKey === "next_30_60_90") {
+    return (
+      <div className="space-y-3">
+        {[
+          { label: "Next 30 Days — Urgent Execution", items: data.next_30_days },
+          { label: "Next 60 Days — Growth & Funding", items: data.next_60_days },
+          { label: "Next 90 Days — Strategic Outcomes", items: data.next_90_days },
+        ].map(group => (
+          <div key={group.label}>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">{group.label}</p>
+            {strList(group.items ?? [])}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (sectionKey === "board_investor_asks") {
+    const hasAny = [
+      data.funding_asks, data.intros_needed, data.technical_compliance_support,
+      data.government_grant_support, data.customer_introductions, data.hiring_advisor_needs,
+    ].some((arr: any[]) => arr?.length > 0);
+    if (!hasAny) return <p className="text-muted-foreground italic">No active board asks this period.</p>;
+    return (
+      <div className="space-y-2">
+        {data.funding_asks?.length > 0 && <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Funding Asks</p>{strList(data.funding_asks)}</div>}
+        {data.intros_needed?.length > 0 && <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Introductions Needed</p>{strList(data.intros_needed)}</div>}
+        {data.technical_compliance_support?.length > 0 && <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Technical / Compliance Support</p>{strList(data.technical_compliance_support)}</div>}
+        {data.government_grant_support?.length > 0 && <div><p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Government / Grant Support</p>{strList(data.government_grant_support)}</div>}
+      </div>
+    );
+  }
+  return null;
+}
+
+// ── OperatingPackView ─────────────────────────────────────────────────────────
+
+function OperatingPackView({
+  isCapitalUser, opPackType, setOpPackType,
+  opDateFrom, setOpDateFrom, opDateTo, setOpDateTo,
+  opTitle, setOpTitle, opNotes, setOpNotes,
+  opPreviousPackId, setOpPreviousPackId,
+  opPacks, opResult, opMarkdown, opInvestorDraft,
+  expandedSections, onToggleSection, isGenerating, onGenerate,
+}: {
+  isCapitalUser: boolean;
+  opPackType: string; setOpPackType: (v: any) => void;
+  opDateFrom: string; setOpDateFrom: (v: string) => void;
+  opDateTo: string; setOpDateTo: (v: string) => void;
+  opTitle: string; setOpTitle: (v: string) => void;
+  opNotes: string; setOpNotes: (v: string) => void;
+  opPreviousPackId: number | null; setOpPreviousPackId: (v: number | null) => void;
+  opPacks: any[];
+  opResult: any;
+  opMarkdown: string | null;
+  opInvestorDraft: { subject: string; body: string } | null;
+  expandedSections: Set<string>;
+  onToggleSection: (key: string) => void;
+  isGenerating: boolean;
+  onGenerate: () => void;
+}) {
+  if (!isCapitalUser) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center space-y-3 max-w-sm">
+          <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7 text-muted-foreground" />
+          </div>
+          <h2 className="text-lg font-semibold">Restricted Access</h2>
+          <p className="text-sm text-muted-foreground">Board Pack & Operating Pack access requires CEO or CFO role.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const sectionOrder = Object.keys(SECTION_LABELS);
+  const finalizedPacks = opPacks.filter((p: any) => p.status === "finalized");
+
+  return (
+    <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* Left panel: Config */}
+      <div className="no-print w-72 shrink-0 border-r border-border overflow-y-auto p-4 space-y-5">
+        <div>
+          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Pack Type</Label>
+          <Select value={opPackType} onValueChange={v => setOpPackType(v as any)}>
+            <SelectTrigger data-testid="select-op-pack-type"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {PACK_TYPES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Title (optional)</Label>
+          <Input
+            data-testid="input-op-title"
+            placeholder="e.g. Q3 2026 Board Pack"
+            value={opTitle}
+            onChange={e => setOpTitle(e.target.value)}
+            className="text-sm"
+          />
+        </div>
+        <Separator />
+        <div>
+          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Date Range</Label>
+          <div className="space-y-1.5">
+            <Input type="date" data-testid="input-op-date-from" value={opDateFrom} onChange={e => setOpDateFrom(e.target.value)} className="text-sm" placeholder="From" />
+            <Input type="date" data-testid="input-op-date-to" value={opDateTo} onChange={e => setOpDateTo(e.target.value)} className="text-sm" placeholder="To" />
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Notes (optional)</Label>
+          <Textarea
+            data-testid="input-op-notes"
+            placeholder="Context, board agenda items..."
+            value={opNotes}
+            onChange={e => setOpNotes(e.target.value)}
+            className="text-sm h-20 resize-none"
+          />
+        </div>
+        {finalizedPacks.length > 0 && (
+          <div>
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Compare Against</Label>
+            <Select
+              value={opPreviousPackId ? String(opPreviousPackId) : "none"}
+              onValueChange={v => setOpPreviousPackId(v === "none" ? null : Number(v))}
+            >
+              <SelectTrigger data-testid="select-op-previous-pack"><SelectValue placeholder="No comparison" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No comparison</SelectItem>
+                {finalizedPacks.map((p: any) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.title} ({new Date(p.created_at).toLocaleDateString()})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">Shows "what changed" vs previous finalized pack.</p>
+          </div>
+        )}
+        <Separator />
+        <Button
+          data-testid="button-generate-pack-sidebar"
+          className="w-full"
+          onClick={onGenerate}
+          disabled={isGenerating}
+        >
+          {isGenerating ? (
+            <><RefreshCw className="w-4 h-4 mr-1.5 animate-spin" />Generating...</>
+          ) : (
+            <><Briefcase className="w-4 h-4 mr-1.5" />Generate Operating Pack</>
+          )}
+        </Button>
+        {opPacks.length > 0 && (
+          <div>
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Previous Packs</Label>
+            <div className="space-y-1">
+              {opPacks.slice(0, 8).map((p: any) => (
+                <div key={p.id} className="flex items-center justify-between rounded-md px-2 py-1.5 bg-muted/30 hover:bg-muted/50">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium truncate">{p.title}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(p.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`text-xs shrink-0 ml-1 ${p.status === "finalized" ? "border-green-500 text-green-600" : p.status === "archived" ? "opacity-50" : ""}`}
+                  >
+                    {p.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Right panel: Pack view */}
+      <div className="flex-1 overflow-y-auto pb-24 px-6 py-5">
+        {!opResult ? (
+          <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <Briefcase className="w-8 h-8 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold">Generate Operating Pack</h2>
+              <p className="text-sm text-muted-foreground mt-1 max-w-sm">Configure the pack type and date range on the left, then click <strong>Generate Operating Pack</strong>.</p>
+              <p className="text-xs text-muted-foreground mt-2">Sections A–J pull live data from CEO Cockpit, CRM, and capital systems.</p>
+            </div>
+            <Button data-testid="button-generate-pack-empty" onClick={onGenerate} disabled={isGenerating}>
+              {isGenerating ? "Generating..." : "Generate Operating Pack"}
+            </Button>
+          </div>
+        ) : (
+          <div className="max-w-3xl mx-auto space-y-3">
+            {/* Pack header */}
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold">{opResult.record?.title}</h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant="outline" className={`text-xs ${opResult.record?.status === "finalized" ? "border-green-500 text-green-600" : opResult.record?.status === "archived" ? "opacity-50" : ""}`}>
+                    {opResult.record?.status}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    Generated {opResult.meta?.generated_at ? new Date(opResult.meta.generated_at).toLocaleString() : "just now"} · by {opResult.meta?.generated_by}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Sections A–J */}
+            {sectionOrder.map(key => (
+              <OpSectionRow
+                key={key}
+                sectionKey={key}
+                data={opResult.sections?.[key]}
+                expanded={expandedSections.has(key)}
+                onToggle={() => onToggleSection(key)}
+                isCapitalUser={isCapitalUser}
+              />
+            ))}
+
+            {/* Investor update draft preview */}
+            {opInvestorDraft && (
+              <div className="border border-border rounded-lg overflow-hidden mt-4">
+                <div className="px-4 py-3 bg-muted/30">
+                  <p className="font-medium text-sm flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-primary" />Investor Update Draft
+                    <Badge variant="outline" className="text-xs">Copy Only</Badge>
+                  </p>
+                </div>
+                <div className="px-4 py-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">Subject: <span className="text-foreground font-medium">{opInvestorDraft.subject}</span></p>
+                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-sans bg-muted/20 rounded p-2 max-h-48 overflow-y-auto">{opInvestorDraft.body}</pre>
+                </div>
+              </div>
+            )}
+
+            {/* Markdown preview */}
+            {opMarkdown && (
+              <div className="border border-border rounded-lg overflow-hidden mt-4">
+                <div className="px-4 py-3 bg-muted/30">
+                  <p className="font-medium text-sm flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-primary" />Markdown Export
+                    <Badge variant="outline" className="text-xs">Copy Only</Badge>
+                  </p>
+                </div>
+                <pre className="px-4 py-3 text-xs text-muted-foreground whitespace-pre-wrap font-mono bg-muted/20 max-h-64 overflow-y-auto">{opMarkdown.slice(0, 1500)}{opMarkdown.length > 1500 ? "\n\n[... truncated — full markdown copied to clipboard ...]" : ""}</pre>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function BoardPackPage() {
@@ -1064,12 +1605,34 @@ export default function BoardPackPage() {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [activeTab, setActiveTab] = useState<"builder" | "preview">("builder");
-  const [pageView, setPageView] = useState<"builder" | "schedules">("builder");
+  const [pageView, setPageView] = useState<"builder" | "schedules" | "operating-pack">("builder");
+
+  // Operating Pack state
+  const [opPackType, setOpPackType] = useState<"board" | "investor" | "lender" | "grant" | "internal_exec">("board");
+  const [opDateFrom, setOpDateFrom] = useState("");
+  const [opDateTo, setOpDateTo] = useState("");
+  const [opTitle, setOpTitle] = useState("");
+  const [opNotes, setOpNotes] = useState("");
+  const [opResult, setOpResult] = useState<any | null>(null);
+  const [opPreviousPackId, setOpPreviousPackId] = useState<number | null>(null);
+  const [opExpandedSections, setOpExpandedSections] = useState<Set<string>>(new Set(["executive_summary", "company_scorecard"]));
+  const [copiedMd, setCopiedMd] = useState(false);
+  const [copiedDraft, setCopiedDraft] = useState(false);
+  const [opInvestorDraft, setOpInvestorDraft] = useState<{ subject: string; body: string } | null>(null);
+  const [opMarkdown, setOpMarkdown] = useState<string | null>(null);
+
+  // CEO/CFO access check
+  const { data: me } = useQuery<any>({ queryKey: ["/api/auth/me"] });
+  const isCapitalUser: boolean = !!(me?.isCapitalUser || me?.isCeo || me?.isCfo);
 
   // Metadata
   const { data: types = [] } = useQuery<ReportType[]>({ queryKey: ["/api/reports/types"] });
   const { data: sections = [] } = useQuery<SectionMeta[]>({ queryKey: ["/api/reports/sections"] });
   const { data: presets = [] } = useQuery<Preset[]>({ queryKey: ["/api/reports/presets"] });
+  const { data: opPacks = [] } = useQuery<any[]>({
+    queryKey: ["/api/board-packs"],
+    enabled: isCapitalUser,
+  });
 
   // Sync default sections when report type changes
   const syncDefaults = (type: string) => {
@@ -1130,6 +1693,88 @@ export default function BoardPackPage() {
     }
     if (regionFilter.trim()) payload.region = regionFilter.trim();
     composeMutation.mutate(payload);
+  };
+
+  // ── Operating Pack mutations ──────────────────────────────────────────────
+
+  const generatePackMutation = useMutation({
+    mutationFn: (body: any) =>
+      apiRequest("POST", "/api/board-packs/generate", body).then(r => r.json()),
+    onSuccess: (data) => {
+      setOpResult(data);
+      qc.invalidateQueries({ queryKey: ["/api/board-packs"] });
+      toast({ title: "Operating Pack generated", description: `${Object.keys(data.sections ?? {}).length} sections built.` });
+    },
+    onError: (e: any) => toast({ title: "Failed to generate pack", description: e.message, variant: "destructive" }),
+  });
+
+  const finalizePackMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiRequest("POST", `/api/board-packs/${id}/finalize`, {}).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/board-packs"] });
+      toast({ title: "Pack finalized" });
+      if (opResult?.record) setOpResult((prev: any) => ({ ...prev, record: { ...prev.record, status: "finalized" } }));
+    },
+    onError: (e: any) => toast({ title: "Failed to finalize", description: e.message, variant: "destructive" }),
+  });
+
+  const archivePackMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiRequest("POST", `/api/board-packs/${id}/archive`, {}).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/board-packs"] });
+      toast({ title: "Pack archived" });
+      if (opResult?.record) setOpResult((prev: any) => ({ ...prev, record: { ...prev.record, status: "archived" } }));
+    },
+    onError: (e: any) => toast({ title: "Failed to archive", description: e.message, variant: "destructive" }),
+  });
+
+  const handleCopyMarkdown = async () => {
+    if (!opResult?.record?.id) return;
+    try {
+      const res = await apiRequest("GET", `/api/board-packs/${opResult.record.id}/markdown`).then(r => r.json());
+      setOpMarkdown(res.markdown);
+      await navigator.clipboard.writeText(res.markdown);
+      setCopiedMd(true);
+      setTimeout(() => setCopiedMd(false), 2500);
+      toast({ title: "Markdown copied to clipboard" });
+    } catch (e: any) {
+      toast({ title: "Failed to copy markdown", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleInvestorDraft = async () => {
+    if (!opResult?.record?.id) return;
+    try {
+      const res = await apiRequest("POST", `/api/board-packs/${opResult.record.id}/investor-update-draft`, {}).then(r => r.json());
+      setOpInvestorDraft({ subject: res.subject, body: res.body });
+      await navigator.clipboard.writeText(`Subject: ${res.subject}\n\n${res.body}`);
+      setCopiedDraft(true);
+      setTimeout(() => setCopiedDraft(false), 2500);
+      toast({ title: "Investor update draft copied to clipboard" });
+    } catch (e: any) {
+      toast({ title: "Failed to build investor draft", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleGeneratePack = () => {
+    generatePackMutation.mutate({
+      packType: opPackType,
+      dateFrom: opDateFrom || undefined,
+      dateTo: opDateTo || undefined,
+      title: opTitle || undefined,
+      notes: opNotes || undefined,
+      previousPackId: opPreviousPackId ?? undefined,
+    });
+  };
+
+  const toggleOpSection = (key: string) => {
+    setOpExpandedSections(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
   };
 
   // Load preset
@@ -1277,6 +1922,15 @@ ${previewRef.current.innerHTML}
             >
               <Calendar className="w-3.5 h-3.5 inline mr-1.5" />Auto-Scheduling
             </button>
+            {isCapitalUser && (
+              <button
+                data-testid="tab-operating-pack"
+                onClick={() => setPageView("operating-pack")}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${pageView === "operating-pack" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Briefcase className="w-3.5 h-3.5 inline mr-1.5" />Operating Pack
+              </button>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -1309,11 +1963,80 @@ ${previewRef.current.innerHTML}
               )}
             </Button>
           )}
+          {pageView === "operating-pack" && opResult?.record && (
+            <>
+              {opResult.record.status === "draft" && (
+                <Button
+                  data-testid="button-finalize-pack"
+                  variant="outline" size="sm"
+                  onClick={() => finalizePackMutation.mutate(opResult.record.id)}
+                  disabled={finalizePackMutation.isPending}
+                >
+                  <CheckCircle className="w-4 h-4 mr-1.5" />Finalize
+                </Button>
+              )}
+              {opResult.record.status !== "archived" && (
+                <Button
+                  data-testid="button-archive-pack"
+                  variant="outline" size="sm"
+                  onClick={() => archivePackMutation.mutate(opResult.record.id)}
+                  disabled={archivePackMutation.isPending}
+                >
+                  <Archive className="w-4 h-4 mr-1.5" />Archive
+                </Button>
+              )}
+              <Button
+                data-testid="button-copy-markdown"
+                variant="outline" size="sm"
+                onClick={handleCopyMarkdown}
+              >
+                <Copy className="w-4 h-4 mr-1.5" />{copiedMd ? "Copied!" : "Copy Markdown"}
+              </Button>
+              <Button
+                data-testid="button-investor-draft"
+                variant="outline" size="sm"
+                onClick={handleInvestorDraft}
+              >
+                <Mail className="w-4 h-4 mr-1.5" />{copiedDraft ? "Copied!" : "Investor Update"}
+              </Button>
+            </>
+          )}
+          {pageView === "operating-pack" && (
+            <Button
+              data-testid="button-generate-pack"
+              onClick={handleGeneratePack}
+              disabled={generatePackMutation.isPending}
+            >
+              {generatePackMutation.isPending ? (
+                <><RefreshCw className="w-4 h-4 mr-1.5 animate-spin" />Generating...</>
+              ) : (
+                <><Briefcase className="w-4 h-4 mr-1.5" />Generate Pack</>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
       {pageView === "schedules" ? (
         <SchedulesPanel reportTypes={types as ReportType[]} sectionMeta={sections as SectionMeta[]} />
+      ) : pageView === "operating-pack" ? (
+        <OperatingPackView
+          isCapitalUser={isCapitalUser}
+          opPackType={opPackType} setOpPackType={setOpPackType}
+          opDateFrom={opDateFrom} setOpDateFrom={setOpDateFrom}
+          opDateTo={opDateTo} setOpDateTo={setOpDateTo}
+          opTitle={opTitle} setOpTitle={setOpTitle}
+          opNotes={opNotes} setOpNotes={setOpNotes}
+          opPreviousPackId={opPreviousPackId} setOpPreviousPackId={setOpPreviousPackId}
+          opPacks={opPacks as any[]}
+          opResult={opResult}
+          opMarkdown={opMarkdown}
+          opInvestorDraft={opInvestorDraft}
+          expandedSections={opExpandedSections}
+          onToggleSection={toggleOpSection}
+          isGenerating={generatePackMutation.isPending}
+          onGenerate={handleGeneratePack}
+        />
       ) : (
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left panel: Builder config */}

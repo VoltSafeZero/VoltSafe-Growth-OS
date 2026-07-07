@@ -119,6 +119,7 @@ import { getOneOnOneNotes, createOneOnOneNote, updateOneOnOneNote, deleteOneOnOn
 import { generateCockpitActions, listCeoActions, createCeoAction, updateCeoAction, completeCeoAction, dismissCeoAction, snoozeCeoAction, buildUpdateRequestDraft, createTaskFromAction } from "./services/ceo-action-loop";
 import { buildDailyCeoBriefing, buildWeeklyCeoReview, buildTeamMemberBriefing, buildLeadershipMeetingAgenda, buildWeeklyReviewDraft } from "./services/ceo-briefing";
 import { buildExecutionRadar, detectExecutionDrift, buildCommitmentsRadar, buildRecurringRiskPatterns, buildExecutionScorecard } from "./services/ceo-execution-intelligence";
+import { isBoardPackUser, buildBoardPack, buildBoardPackMarkdown, buildBoardPackExecutiveSummary, buildInvestorUpdateDraft, compareAgainstPreviousPack, createBoardPack, getBoardPack, listBoardPacks, updateBoardPack, finalizeBoardPack, archiveBoardPack } from "./services/board-pack";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
 import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy, getTuningRecommendations, getExplainabilityData, checkUnderperformance, getOutcomes, getFeedbackOverview } from "./services/feedback-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
@@ -11535,6 +11536,218 @@ export async function registerRoutes(
       res.json({ ok: true, item_key: itemKey, status: "reviewed" });
     } catch (err: any) {
       console.error("[ceo-execution] mark-reviewed:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Board Pack — Phase 10 (CEO/CFO Only) ─────────────────────────────────
+
+  // requireBoardPackAccess: CEO (Trevor, user 4) and CFO (Scott Carlson) only
+  function requireBoardPackAccess(req: any, res: any, next: any) {
+    const userId = Number((req.session as any)?.userId);
+    if (!userId) return res.status(401).json({ message: "Not authenticated" });
+    (async () => {
+      try {
+        const row = await db.execute(sql`SELECT id, email FROM users WHERE id = ${userId} LIMIT 1`);
+        const u = (row.rows[0] as any);
+        if (!u || !isBoardPackUser(u.id, u.email)) {
+          return res.status(403).json({ message: "Board Pack access requires CEO or CFO role" });
+        }
+        next();
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    })();
+  }
+
+  // GET /api/board-packs — list packs (CEO/CFO only)
+  app.get("/api/board-packs", requireAuth, requireBoardPackAccess, async (req: any, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const limit = Math.min(Number(req.query.limit ?? 50), 100);
+      const packs = await listBoardPacks({ status: status as any, limit });
+      res.json(packs);
+    } catch (err: any) {
+      console.error("[board-pack] list:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/board-packs/generate — generate + save a new pack (CEO/CFO only)
+  app.post("/api/board-packs/generate", requireAuth, requireBoardPackAccess, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const uRow = await db.execute(sql`SELECT name, email, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = uRow.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const actorUser = { id: userId, name: u?.name ?? "CEO", hasCapital };
+      const { packType, dateFrom, dateTo, title, notes, previousPackId } = req.body ?? {};
+      const builtPack = await buildBoardPack(actorUser, { packType, dateFrom, dateTo, title, notes });
+      // Compare against previous if provided
+      if (previousPackId) {
+        builtPack.sections.executive_summary.what_changed = await compareAgainstPreviousPack(
+          builtPack.sections, Number(previousPackId)
+        ).catch(() => null);
+      }
+      const record = await createBoardPack(actorUser, {
+        title: title ?? "Board Pack",
+        pack_type: packType ?? "board",
+        date_from: dateFrom,
+        date_to: dateTo,
+        notes,
+        sections_data: builtPack.sections,
+        previous_pack_id: previousPackId ? Number(previousPackId) : undefined,
+      });
+      res.json({ record, meta: builtPack.meta, sections: builtPack.sections });
+    } catch (err: any) {
+      console.error("[board-pack] generate:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/board-packs/:id — read a pack (CEO/CFO only)
+  app.get("/api/board-packs/:id", requireAuth, requireBoardPackAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const pack = await getBoardPack(id);
+      if (!pack) return res.status(404).json({ message: "Pack not found" });
+      res.json(pack);
+    } catch (err: any) {
+      console.error("[board-pack] get:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/board-packs/:id — update title/notes on a draft pack (CEO/CFO only)
+  app.patch("/api/board-packs/:id", requireAuth, requireBoardPackAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const { title, notes } = req.body ?? {};
+      const updated = await updateBoardPack(id, { title, notes });
+      if (!updated) return res.status(404).json({ message: "Pack not found or not in draft status" });
+      res.json(updated);
+    } catch (err: any) {
+      console.error("[board-pack] patch:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/board-packs/:id/finalize — finalize a draft pack (CEO/CFO only)
+  // Does NOT send email, does NOT send Currents messages
+  app.post("/api/board-packs/:id/finalize", requireAuth, requireBoardPackAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const updated = await finalizeBoardPack(id);
+      if (!updated) return res.status(404).json({ message: "Pack not found or not in draft status" });
+      res.json(updated);
+    } catch (err: any) {
+      console.error("[board-pack] finalize:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/board-packs/:id/archive — archive a pack (CEO/CFO only)
+  // Archived packs remain readable. Does NOT delete.
+  app.post("/api/board-packs/:id/archive", requireAuth, requireBoardPackAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const updated = await archiveBoardPack(id);
+      if (!updated) return res.status(404).json({ message: "Pack not found or already archived" });
+      res.json(updated);
+    } catch (err: any) {
+      console.error("[board-pack] archive:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/board-packs/:id/markdown — export markdown (copy-only, CEO/CFO only)
+  app.get("/api/board-packs/:id/markdown", requireAuth, requireBoardPackAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const pack = await getBoardPack(id);
+      if (!pack || !pack.sections_data) return res.status(404).json({ message: "Pack not found or not generated" });
+      const userId = Number((req.session as any).userId);
+      const uRow = await db.execute(sql`SELECT name, email, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = uRow.rows[0] as any;
+      const builtPack = {
+        meta: {
+          pack_type: pack.pack_type,
+          generated_at: pack.created_at,
+          date_from: pack.date_from,
+          date_to: pack.date_to,
+          generated_by: u?.name ?? "CEO",
+          has_capital: u?.permissions?.capital !== "none" && u?.permissions?.capital != null,
+        },
+        sections: pack.sections_data,
+      };
+      const result = buildBoardPackMarkdown(builtPack as any);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[board-pack] markdown:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/board-packs/:id/executive-summary — executive summary (CEO/CFO only)
+  app.get("/api/board-packs/:id/executive-summary", requireAuth, requireBoardPackAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const pack = await getBoardPack(id);
+      if (!pack || !pack.sections_data) return res.status(404).json({ message: "Pack not found or not generated" });
+      const userId = Number((req.session as any).userId);
+      const uRow = await db.execute(sql`SELECT name, email, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = uRow.rows[0] as any;
+      const builtPack = {
+        meta: {
+          pack_type: pack.pack_type,
+          generated_at: pack.created_at,
+          date_from: pack.date_from,
+          date_to: pack.date_to,
+          generated_by: u?.name ?? "CEO",
+          has_capital: u?.permissions?.capital !== "none" && u?.permissions?.capital != null,
+        },
+        sections: pack.sections_data,
+      };
+      const result = buildBoardPackExecutiveSummary(builtPack as any);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[board-pack] executive-summary:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/board-packs/:id/investor-update-draft — copy-only investor update (CEO/CFO only)
+  // Does NOT create Gmail drafts. Does NOT send email.
+  app.post("/api/board-packs/:id/investor-update-draft", requireAuth, requireBoardPackAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ message: "Invalid id" });
+      const pack = await getBoardPack(id);
+      if (!pack || !pack.sections_data) return res.status(404).json({ message: "Pack not found or not generated" });
+      const userId = Number((req.session as any).userId);
+      const uRow = await db.execute(sql`SELECT name, email, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = uRow.rows[0] as any;
+      const builtPack = {
+        meta: {
+          pack_type: pack.pack_type,
+          generated_at: pack.created_at,
+          date_from: pack.date_from,
+          date_to: pack.date_to,
+          generated_by: u?.name ?? "CEO",
+          has_capital: u?.permissions?.capital !== "none" && u?.permissions?.capital != null,
+        },
+        sections: pack.sections_data,
+      };
+      const draft = buildInvestorUpdateDraft(builtPack as any, id);
+      res.json(draft);
+    } catch (err: any) {
+      console.error("[board-pack] investor-update-draft:", err?.message);
       res.status(500).json({ message: err.message });
     }
   });

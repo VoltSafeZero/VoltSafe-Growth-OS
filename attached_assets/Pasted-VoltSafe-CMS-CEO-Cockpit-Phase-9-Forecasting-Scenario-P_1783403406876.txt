@@ -1,0 +1,451 @@
+VoltSafe CMS — CEO Cockpit Phase 9: Forecasting, Scenario Planning, and Runway Intelligence
+
+Goal:
+Build a deterministic CEO forecasting and scenario planning layer that turns live CMS data into forward-looking operating scenarios.
+
+This should help answer:
+- Are we on track?
+- What is likely to slip?
+- What risks affect runway, revenue, product, and funding?
+- What happens in Base / Upside / Downside scenarios?
+- What CEO actions improve the outcome?
+
+Context:
+Earlier phases built:
+- Phase 4: CEO Cockpit insights
+- Phase 5: 1:1 notes and commitments
+- Phase 6: CEO Action Queue
+- Phase 7: Daily/Weekly CEO Briefing and Leadership Agenda
+- Phase 8: Execution Intelligence / Drift Detection
+
+Phase 9 should sit between Execution Intelligence and Board Pack reporting.
+
+Important:
+This is not financial advice.
+This is not scientific prediction.
+This is deterministic planning intelligence from local CMS data.
+
+No external API calls.
+No auto-send.
+No AI dependency.
+CEO/CFO-sensitive financial/runway sections must be permission-gated.
+
+1. Audit first
+
+Before coding, audit existing forecasting/planning/capital/runway functionality.
+
+Search for:
+- forecast
+- scenario
+- runway
+- burn
+- cash
+- capital
+- raise
+- funding
+- pipeline forecast
+- revenue forecast
+- weighted pipeline
+- board pack
+- investor update
+- planning
+- targets
+- milestones
+
+Report:
+- existing services
+- existing routes
+- existing frontend pages/components
+- existing tables
+- existing capital permission gates
+- existing tests
+- gaps versus this spec
+
+Do not create duplicate planning modules if one already exists. Upgrade existing pieces where appropriate.
+
+2. Backend service
+
+Create or upgrade:
+
+server/services/ceo-forecasting.ts
+
+Functions:
+
+- buildCeoForecast(actorUser, options)
+- buildScenarioPlan(actorUser, options)
+- buildRunwayIntelligence(actorUser, options)
+- buildRevenueForecast(actorUser, options)
+- buildExecutionForecast(actorUser, options)
+- buildFundingForecast(actorUser, options)
+- buildForecastInterventions(actorUser, options)
+
+No external APIs.
+No auto-send.
+No AI dependency.
+
+3. Forecast sections
+
+GET /api/today/ceo-forecast should return:
+
+Sections:
+- executive_forecast_summary
+- base_case
+- upside_case
+- downside_case
+- revenue_forecast
+- funding_forecast
+- runway_intelligence
+- execution_risk_forecast
+- product_operations_forecast
+- team_capacity_forecast
+- key_assumptions
+- leading_indicators
+- recommended_interventions
+
+Each section must include:
+- title
+- severity: info | watch | urgent | critical
+- items array
+- empty_state
+- reason text in plain English
+- assumptions used
+
+4. Scenario planning
+
+GET /api/today/ceo-forecast/scenarios should return:
+
+Scenarios:
+- base_case
+- upside_case
+- downside_case
+
+Each scenario includes:
+- summary
+- likely_outcome
+- key_assumptions
+- revenue_implications
+- funding_implications if permitted
+- runway_implications if permitted
+- execution_implications
+- product_operations_implications
+- team_implications
+- top_risks
+- top_opportunities
+- recommended_actions
+
+Scenario logic must be simple and deterministic.
+
+Use language like:
+- “suggests”
+- “likely”
+- “risk”
+- “planning assumption”
+- “scenario”
+
+Do not present this as certainty.
+
+5. Runway intelligence
+
+GET /api/today/ceo-forecast/runway
+
+This section must be CEO/CFO/capital-gated.
+
+If no reliable cash/burn data exists, return:
+- clear empty state
+- no fake runway number
+- list of missing inputs needed:
+  - current cash balance
+  - monthly burn
+  - expected receivables
+  - committed funding
+  - planned hires/spend
+  - expected grant/funding inflows
+
+If data exists, return:
+- current cash if available
+- monthly burn if available
+- estimated runway months
+- committed funding
+- expected funding
+- revenue inflows
+- downside runway
+- upside runway
+- key risks
+- recommended CEO actions
+
+Never invent financial numbers.
+Never estimate cash/burn unless source data exists.
+Label all assumptions clearly.
+
+6. Revenue forecast
+
+GET /api/today/ceo-forecast/revenue
+
+Use existing CRM opportunities.
+
+Return:
+- total open pipeline
+- weighted pipeline if probability data exists
+- forecast by expected close month
+- high-confidence opportunities
+- stale opportunities
+- slipped opportunities
+- at-risk opportunities
+- expected next 30/60/90 day movement
+- blockers to revenue
+- recommended CEO actions
+
+If probability/amount/close date data is missing, return honest empty states per field.
+
+7. Execution forecast
+
+GET /api/today/ceo-forecast/execution
+
+Use Phase 8 Execution Intelligence.
+
+Return:
+- forecasted slips
+- commitments likely to miss
+- recurring risks likely to continue
+- owner load risks
+- blockers likely to age
+- stale tasks likely to remain stale
+- execution wins likely if current actions complete
+- recommended interventions
+
+8. API routes
+
+Add requireAuth + requireAdmin routes:
+
+GET /api/today/ceo-forecast
+GET /api/today/ceo-forecast/scenarios
+GET /api/today/ceo-forecast/runway
+GET /api/today/ceo-forecast/revenue
+GET /api/today/ceo-forecast/execution
+GET /api/today/ceo-forecast/funding
+POST /api/today/ceo-forecast/interventions/create-actions
+POST /api/today/ceo-forecast/scenario-note
+
+Rules:
+- all routes require auth
+- forecast route requires admin
+- runway/funding routes require CEO/CFO/capital access
+- no route may send email
+- no route may send Currents messages
+- intervention actions must use Phase 6 CEO Action Queue
+- scenario-note should save a local note only if a suitable notes table exists; otherwise return copy-only text
+
+9. Optional data model
+
+If no suitable table exists, add:
+
+ceo_forecast_notes
+- id
+- scenario_type: base | upside | downside | general
+- title
+- body
+- assumptions jsonb
+- created_by_user_id
+- created_at
+- updated_at
+
+Optional:
+
+ceo_forecast_snapshots
+- id
+- snapshot_type: daily | weekly | manual
+- period_start
+- period_end
+- forecast_payload jsonb
+- created_by_user_id
+- created_at
+
+Only add snapshots if useful and not too heavy.
+
+10. Frontend
+
+Inside Today → CEO Cockpit, add:
+
+“Forecasting”
+
+Tabs:
+- Overview
+- Scenarios
+- Runway
+- Revenue
+- Execution
+- Funding
+- Assumptions
+
+Overview tab:
+- forecast summary
+- Base / Upside / Downside cards
+- top risks
+- top recommended interventions
+- create action buttons
+
+Scenarios tab:
+- three scenario cards
+- assumptions
+- implications
+- recommended actions
+
+Runway tab:
+- CEO/CFO/capital-gated
+- show empty state if missing data
+- show missing required inputs
+- show scenario runway only if real inputs exist
+
+Revenue tab:
+- pipeline totals
+- weighted pipeline if available
+- close-month grouping
+- stale/slipped opportunities
+- recommended actions
+
+Execution tab:
+- likely slips
+- commitments at risk
+- recurring risks
+- owner load risks
+
+Funding tab:
+- CEO/CFO/capital-gated
+- investor/grant/funding movement
+- active conversations
+- next funding actions
+- risks
+
+Assumptions tab:
+- list assumptions used by each forecast section
+- clearly label missing data
+- allow copy assumptions text
+
+11. Integration with prior phases
+
+Reuse:
+- Phase 6 CEO Action Queue for intervention creation
+- Phase 7 CEO Briefing for top priorities where useful
+- Phase 8 Execution Intelligence for drift/risk data
+
+Do not duplicate logic.
+Import services where appropriate.
+
+Phase 10 Board / Investor Pack should later be able to include:
+- scenario summary
+- revenue forecast
+- runway intelligence
+- key assumptions
+- recommended CEO actions
+
+12. Safety / privacy
+
+Tests must prove:
+
+- unauthenticated users cannot access routes
+- non-admins cannot access general forecast routes
+- normal admins cannot access runway/funding without capital/CEO/CFO access
+- CEO can access runway/funding
+- CFO Scott Carlson can access runway/funding
+- no fake runway number appears when cash/burn data is missing
+- missing data is clearly surfaced
+- no sendEmail/sendMessage/auto-send patterns
+- intervention creation uses Phase 6 action queue
+- private Currents channels excluded
+- DM bodies not broadly exposed
+- capital/funding data is gated
+- scenario language avoids certainty
+- no financial advice wording
+- score/forecast does not claim scientific precision
+
+Banned certainty phrases in forecast user-facing strings:
+- guaranteed
+- certain
+- will definitely
+- prediction engine
+- scientifically predicts
+- financial advice
+
+Use:
+- planning assumption
+- likely
+- suggests
+- risk
+- scenario
+- estimated where source data exists
+- missing input
+
+13. Tests
+
+Create:
+
+tests/ceo-forecasting.test.cjs
+
+Minimum coverage:
+- service file exists
+- routes exist
+- routes require auth/admin
+- runway/funding routes require capital/CEO/CFO access
+- CEO Trevor allowed
+- CFO Scott Carlson allowed
+- forecast returns required sections
+- scenarios return Base/Upside/Downside
+- missing runway inputs produce empty state, not fake numbers
+- revenue forecast handles missing probability/amount/close date
+- execution forecast reuses Phase 8 service
+- interventions use Phase 6 action queue
+- no auto-send
+- no private channel exposure
+- no broad DM exposure
+- no banned certainty/financial-advice language
+- frontend Forecasting panel renders
+- all tabs render
+- create-action buttons wired
+- Phase 4/5/6/7/8 regressions still pass
+
+14. Validation
+
+Run:
+
+npm run build
+node tests/ceo-forecasting.test.cjs
+node tests/ceo-execution-intelligence.test.cjs
+node tests/ceo-briefing.test.cjs
+node tests/ceo-action-loop.test.cjs
+node tests/ceo-cockpit.test.cjs
+node tests/today-cockpit.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/nav-consolidation.test.cjs
+node tests/cms-theme-structural.test.cjs
+
+Also run any existing Capital, Revenue, Pipeline, Today, or Board tests found during audit.
+
+15. Constraints
+
+Do not rewrite prior phases.
+Do not create duplicate forecasting modules if one exists.
+Do not introduce external API calls.
+Do not add AI dependency.
+Do not auto-send anything.
+Do not expose private data.
+Do not invent financial numbers.
+Do not provide financial advice.
+Do not claim scientific prediction.
+Keep it deterministic, local-DB-first, and executive-useful.
+
+Deliverable:
+First summarize audit:
+- existing forecasting/planning/runway/capital pieces found
+- routes/services/pages/tables/tests found
+- gaps versus this spec
+
+Then summarize implementation:
+- files changed
+- services added/upgraded
+- routes added/upgraded
+- permission gates added/upgraded
+- tables/migrations added/upgraded
+- frontend sections added/upgraded
+- tests added/upgraded
+- validation results
+- known limitations

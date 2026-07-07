@@ -388,7 +388,7 @@ app.use((req, res, next) => {
 
     // CEO Action Queue — Phase 6 tables
     try {
-      await pool.query(`
+      await _db.execute(_sql.raw(`
         CREATE TABLE IF NOT EXISTS ceo_action_queue (
           id                  SERIAL PRIMARY KEY,
           type                TEXT NOT NULL,
@@ -410,8 +410,8 @@ app.use((req, res, next) => {
           created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
-      `);
-      await pool.query(`
+      `));
+      await _db.execute(_sql.raw(`
         CREATE TABLE IF NOT EXISTS ceo_action_events (
           id             SERIAL PRIMARY KEY,
           action_id      INT NOT NULL REFERENCES ceo_action_queue(id) ON DELETE CASCADE,
@@ -421,22 +421,22 @@ app.use((req, res, next) => {
           metadata       JSONB DEFAULT '{}'::jsonb,
           created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
-      `);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_action_queue_owner_status ON ceo_action_queue(created_by_user_id, status)`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_action_queue_dedup ON ceo_action_queue(created_by_user_id, type, source_section, source_type, source_id)`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_action_events_action ON ceo_action_events(action_id)`);
+      `));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_action_queue_owner_status ON ceo_action_queue(created_by_user_id, status)`));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_action_queue_dedup ON ceo_action_queue(created_by_user_id, type, source_section, source_type, source_id)`));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_action_events_action ON ceo_action_events(action_id)`));
       log("[migration] CEO Action Queue tables ready.");
     } catch (_e) { /* already exists */ }
 
     // CEO 1:1 Notes: add one_on_one_sections JSONB column to meeting_notes
     try {
-      await pool.query(`ALTER TABLE meeting_notes ADD COLUMN IF NOT EXISTS one_on_one_sections jsonb`);
+      await _db.execute(_sql.raw(`ALTER TABLE meeting_notes ADD COLUMN IF NOT EXISTS one_on_one_sections jsonb`));
       log("[migration] meeting_notes.one_on_one_sections column ready.");
     } catch (_e) { /* already exists */ }
 
     // CEO Execution Intelligence (Phase 8): review/dismiss tracking table
     try {
-      await pool.query(`
+      await _db.execute(_sql.raw(`
         CREATE TABLE IF NOT EXISTS ceo_execution_reviews (
           id              SERIAL PRIMARY KEY,
           item_key        TEXT NOT NULL,
@@ -450,10 +450,34 @@ app.use((req, res, next) => {
           created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
-      `);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_execution_reviews_key ON ceo_execution_reviews(item_key)`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_ceo_execution_reviews_actor ON ceo_execution_reviews(actor_user_id, status)`);
+      `));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_execution_reviews_key ON ceo_execution_reviews(item_key)`));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_execution_reviews_actor ON ceo_execution_reviews(actor_user_id, status)`));
       log("[migration] ceo_execution_reviews table ready.");
+    } catch (_e) { /* already exists */ }
+
+    // Board Packs: CEO/CFO-only operating pack storage (Phase 10)
+    try {
+      await _db.execute(_sql.raw(`
+        CREATE TABLE IF NOT EXISTS board_packs (
+          id               SERIAL PRIMARY KEY,
+          title            TEXT NOT NULL DEFAULT 'Board Pack',
+          pack_type        TEXT NOT NULL DEFAULT 'board',
+          status           TEXT NOT NULL DEFAULT 'draft',
+          date_from        DATE,
+          date_to          DATE,
+          sections_data    JSONB,
+          notes            TEXT,
+          created_by       INTEGER,
+          previous_pack_id INTEGER,
+          created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          finalized_at     TIMESTAMPTZ,
+          archived_at      TIMESTAMPTZ
+        )
+      `));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_board_packs_status ON board_packs(status)`));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_board_packs_created_by ON board_packs(created_by)`));
+      log("[migration] board_packs table ready.");
     } catch (_e) { /* already exists */ }
 
     // Derived label backfill: fire-and-forget (idempotent, safe to run concurrently)
