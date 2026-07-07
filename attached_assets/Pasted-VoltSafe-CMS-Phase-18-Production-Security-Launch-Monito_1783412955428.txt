@@ -1,0 +1,248 @@
+VoltSafe CMS — Phase 18: Production Security Launch, Monitoring, and Final Verification
+
+Goal:
+Run the final production-launch security verification after Phases 15–17.
+
+This phase should verify that the full app security hardening is ready for deployment and that post-launch monitoring is in place.
+
+Do not add new features.
+Do not loosen permissions.
+Do not rewrite existing modules.
+Do not add new security systems unless a real gap is found.
+This is final verification, deployment readiness, and monitoring setup.
+
+Context:
+Phase 15 completed full-app security and permissions audit.
+Phase 16 created the high-risk audit/confirmation framework.
+Phase 17 wired audit events and confirmation dialogs into real high-risk routes/actions.
+
+Now verify the full system end-to-end before production rollout.
+
+1. Final security audit
+
+Before making changes, audit:
+
+- all high-risk routes touched in Phase 17
+- all audit event calls
+- all confirmation contracts
+- all ConfirmHighRiskAction frontend usages
+- security_audit_events migration
+- docs/security-high-risk-actions.md
+- docs/security-access-control-matrix.md
+- docs/security-client-storage.md
+- threat_model.md
+
+Confirm:
+- no route guard was weakened
+- no permission was loosened
+- no sensitive audit metadata is stored
+- no email body is audited
+- no token is audited
+- no Capital memo text is audited
+- no Board Pack section content is audited
+- no private Currents message body is audited
+- copy-only routes remain copy_only: true
+- no auto-send was introduced
+- no destructive SQL was introduced
+
+2. Audit event spot checks
+
+Verify each selected Phase 17 area records safe audit events:
+
+Board Pack:
+- finalize
+- archive
+- markdown export
+- investor update draft
+
+Admin Users:
+- permissions change
+- suspend
+- delete
+
+Currents:
+- channel archive
+- member add
+- member remove
+
+Gmail:
+- account disconnect
+- personal disconnect
+
+Capital Portal:
+- create link
+- revoke
+- delete
+- regenerate token
+
+For each:
+- action name is clear
+- severity is appropriate
+- actor_user_id is included where available
+- target_type and target_id are safe
+- metadata contains IDs/counts/status only
+- audit call is fire-and-forget
+- route response does not depend on audit success
+
+3. Confirmation UX spot checks
+
+Verify frontend confirmation exists for:
+
+- Board Pack finalize
+- Board Pack archive
+- Capital portal revoke
+- Capital portal regenerate
+- Capital portal delete
+- Admin user delete
+
+Confirm:
+- high/critical risk level is visually clear
+- DELETE confirmation text is required where intended
+- irreversible warning appears where intended
+- cancel works
+- loading state works
+- action only fires after confirmation
+- existing custom suspend dialog still preserves reason textarea
+
+4. Production migration safety
+
+Verify:
+
+- security_audit_events table migration is idempotent
+- CREATE TABLE IF NOT EXISTS
+- CREATE INDEX IF NOT EXISTS
+- no DROP
+- no TRUNCATE
+- no DELETE FROM
+- no undefined pool usage
+- migration logs clearly
+- production data copy is not required
+
+5. Monitoring plan
+
+Create or update:
+
+docs/security-production-monitoring.md
+
+Include:
+
+A. What to monitor for first 24 hours
+- 500 errors on high-risk routes
+- 401/403 spikes
+- failed audit inserts
+- migration errors
+- failed confirmation requests
+- unexpected send/export/delete spikes
+- Gmail disconnect errors
+- Board Pack access denials
+- Capital portal token errors
+- Currents membership errors
+
+B. Audit event review checklist
+- confirm events are being written
+- confirm metadata is safe
+- confirm no sensitive payloads
+- confirm denied/failed events where implemented
+
+C. Rollback triggers
+Rollback if:
+- Today or core CRM fails to load
+- login/session breaks
+- high-risk routes produce widespread 500s
+- permissions expose restricted data
+- audit migration blocks startup
+- confirmation layer prevents critical admin operations
+
+Do not rollback for:
+- harmless missing audit event on one non-critical route
+- cosmetic confirmation dialog issue
+- expected 403s
+- copy button UX issue
+
+D. Manual smoke checklist
+- login as CEO
+- login as CFO
+- login as normal admin
+- login as standard user
+- Board Pack access check
+- Capital access check
+- Admin delete confirmation check
+- Capital portal confirmation check
+- Gmail disconnect confirmation check if safe
+- Currents private channel access check
+
+6. Tests
+
+Create or update:
+
+tests/security-production-launch.test.cjs
+
+Minimum coverage:
+- Phase 15 docs exist
+- Phase 16 framework exists
+- Phase 17 applied controls exist
+- security-production-monitoring doc exists
+- audit event calls exist for Phase 17 selected routes
+- fire-and-forget audit pattern used
+- safeAuditMetadata strips sensitive keys
+- confirmation dialogs are wired
+- DELETE confirmation required where intended
+- copy_only contracts preserved
+- no auto-send patterns introduced
+- no sensitive metadata strings in audit calls
+- no route guard weakened
+- migration is idempotent
+- no destructive SQL
+- no undefined pool usage
+- high-risk docs updated
+- access-control matrix exists
+- client-storage doc exists
+- threat model includes Capital/Board Pack/Forecast surfaces
+
+7. Validation
+
+Run:
+
+npm run build
+node tests/security-production-launch.test.cjs
+node tests/high-risk-action-application.test.cjs
+node tests/high-risk-action-hardening.test.cjs
+node tests/full-app-security-hardening.test.cjs
+node tests/ceo-cockpit-smoke.test.cjs
+node tests/board-pack.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/currents-search.test.cjs
+node tests/currents-files-tab.test.cjs
+node tests/today-personalization.test.cjs
+node tests/nav-consolidation.test.cjs
+node tests/startup-invariants.test.cjs
+node tests/nav-drift.test.cjs
+
+If time allows, also run the broader CEO Cockpit and drilldown regression suites.
+
+8. Deliverable
+
+First summarize audit:
+- security controls verified
+- any production risks found
+- any deferred risks
+- any fixes made
+
+Then summarize implementation:
+- docs created/updated
+- tests added/updated
+- validation results
+- production monitoring checklist
+- rollback triggers
+- known remaining security limitations
+
+Constraints:
+- no new features
+- no permission loosening
+- no data deletion
+- no dev DB copy
+- no auto-send
+- no external APIs
+- no sensitive audit payloads
+- no duplicate audit system
+- keep this deploy-focused and production-safe
