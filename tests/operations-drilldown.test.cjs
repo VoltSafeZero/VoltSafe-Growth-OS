@@ -83,9 +83,10 @@ const requiredMetrics = [
   "tickets_open",
   "tickets_high_priority",
   "tickets_closed_recently",
-  "procurement_open_pos",
-  "procurement_delayed_pos",
-  "procurement_blocked_batches",
+  "orders_open",
+  "orders_overdue",
+  "orders_blocked",
+  "batches_blocked",
   "active_projects",
   "overdue_projects",
 ];
@@ -221,16 +222,16 @@ assert(
   procurementSrc.includes("drilldownConfig") && procurementSrc.includes("setDrilldownConfig")
 );
 assert(
-  "procurement_open_pos metric wired",
-  procurementSrc.includes('"procurement_open_pos"')
+  "orders_open metric wired (Open POs)",
+  procurementSrc.includes('"orders_open"')
 );
 assert(
-  "procurement_delayed_pos metric wired",
-  procurementSrc.includes('"procurement_delayed_pos"')
+  "orders_overdue metric wired (Delayed POs)",
+  procurementSrc.includes('"orders_overdue"')
 );
 assert(
-  "procurement_blocked_batches metric wired",
-  procurementSrc.includes('"procurement_blocked_batches"')
+  "batches_blocked metric wired (Blocked Batches)",
+  procurementSrc.includes('"batches_blocked"')
 );
 assert(
   "blocked_installs metric wired in procurement KPI",

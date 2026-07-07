@@ -330,11 +330,11 @@ export default function ProcurementPage() {
       ) : dash && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3" data-testid="kpi-strip">
           {[
-            { label: "Open POs",         value: dash.pos.totalOpen,         icon: Truck,       color: "",                                                                          metric: "procurement_open_pos" },
-            { label: "Delayed POs",      value: dash.pos.totalDelayed,      icon: AlertTriangle, color: dash.pos.totalDelayed > 0 ? "text-red-400" : "",                          metric: "procurement_delayed_pos" },
+            { label: "Open POs",         value: dash.pos.totalOpen,         icon: Truck,       color: "",                                                                          metric: "orders_open" },
+            { label: "Delayed POs",      value: dash.pos.totalDelayed,      icon: AlertTriangle, color: dash.pos.totalDelayed > 0 ? "text-red-400" : "",                          metric: "orders_overdue" },
             { label: "In Assembly",      value: dash.batches.byStatus.in_assembly?.count ?? 0, icon: Factory, color: "text-blue-400",                                             metric: "" },
             { label: "Ready to Ship",    value: dash.batches.totalReady,    icon: CheckCircle2, color: "text-emerald-400",                                                        metric: "" },
-            { label: "Blocked Batches",  value: dash.batches.totalBlocked,  icon: XCircle,     color: dash.batches.totalBlocked > 0 ? "text-red-400" : "",                       metric: "procurement_blocked_batches" },
+            { label: "Blocked Batches",  value: dash.batches.totalBlocked,  icon: XCircle,     color: dash.batches.totalBlocked > 0 ? "text-red-400" : "",                       metric: "batches_blocked" },
             { label: "SKU Locations",    value: dash.inventory.totalSkuLocations, icon: Boxes, color: "",                                                                         metric: "" },
             { label: "Available Stock",  value: Math.round(dash.inventory.totalAvailable), icon: Boxes, color: dash.inventory.totalAvailable < 0 ? "text-red-400" : "text-emerald-400", metric: "" },
             { label: "Blocked Installs", value: dash.blockedInstalls,       icon: Hammer,      color: dash.blockedInstalls > 0 ? "text-amber-400" : "",                           metric: "blocked_installs" },
