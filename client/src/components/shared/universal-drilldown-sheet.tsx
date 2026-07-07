@@ -186,7 +186,6 @@ function CellValue({ col, row }: { col: DrilldownColumn; row: DrilldownRow }) {
   if (col.key === "doc_title" && row.document_id) {
     return <Link href={`/documents`}><span className="text-primary hover:underline cursor-pointer font-medium">{val || "—"}</span></Link>;
   }
-  }
 
   // ── Badge cells ───────────────────────────────────────────────────────────
   const badge = <StatusBadge colKey={col.key} val={val} />;
