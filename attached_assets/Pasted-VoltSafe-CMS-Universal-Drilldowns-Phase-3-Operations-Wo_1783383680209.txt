@@ -1,0 +1,452 @@
+VoltSafe CMS Universal Drilldowns — Phase 3: Operations + Work
+
+Current completed state:
+
+Marketing Universal Drilldowns:
+- GET /api/marketing/drilldown
+- 31 metric types
+- reusable MarketingDrilldownSheet
+- Compliance Dashboard, Marketing Dashboard, Campaigns, Hot Accounts, Replies, Audiences wired
+- tests passing: 155/155
+
+Pipeline + Insights Universal Drilldowns:
+- server/routes-pipeline-drilldown.ts
+- server/routes-insights-drilldown.ts
+- shared UniversalDrilldownSheet
+- Pipeline metrics: 28
+- Insights metrics: 25
+- pages wired:
+  - pipeline.tsx
+  - executive-dashboard.tsx
+  - quotes.tsx
+  - renewals.tsx
+  - booking-outreach.tsx
+  - revenue-intelligence.tsx
+  - source-attribution.tsx
+- tests passing:
+  - pipeline-drilldown.test.cjs: 66/66
+  - insights-drilldown.test.cjs: 67/67
+
+Capital Phase 2A–2L is complete and release-ready.
+Do not modify Capital unless required by shared component regressions.
+
+Now implement Universal Drilldowns Phase 3 for Operations + Work.
+
+Primary goal:
+Any number, summary card, risk badge, workload count, chart segment, table row, status chip, warning, or health indicator in Operations and Work should be clickable and show the granular underlying records.
+
+Product rule:
+If the user can see a number, they should be able to click it and see exactly what created that number.
+
+Do not modify unrelated modules.
+Do not weaken permissions.
+Do not fake data.
+Do not return unpaginated giant datasets.
+Do not break the existing Marketing/Pipeline/Insights drilldown system.
+
+1. Audit Operations and Work modules
+
+Before writing code, inspect:
+
+Operations:
+- Operations nav config
+- Install Workflows
+- Procurement
+- Deployments
+- Projects
+- Events
+- Communications
+- Document Hub
+- Knowledge Assets
+- Territory Routing
+- Support Tickets
+- Winter Support
+- Data Quality
+- any grouped Operations landing pages from nav consolidation
+
+Work:
+- Work nav config
+- Mission Control
+- Inbox & Mail
+- Inbox
+- Tasks
+- Daily Execution
+- Activity Feed
+- Work Calendar
+- Calendar
+- Meeting Notes
+- My Travel
+- Email Signatures
+- AI Voice Profiles
+- Digest Settings
+- any grouped Work landing pages from nav consolidation
+- Currents only if a Work dashboard references it; otherwise do not touch Currents in this phase
+
+Also inspect:
+- existing APIs powering these pages
+- database schema for tasks, projects, events, support, documents, meetings, mail summaries, activities
+- existing permissions for Operations and Work
+- UniversalDrilldownSheet implementation
+- Marketing/Pipeline/Insights drilldown route patterns
+- existing route registration structure
+
+Document:
+- all visible metrics
+- which records power each metric
+- which metrics are currently not clickable
+- which APIs already exist
+- which filtered drilldown endpoints are needed
+
+2. Backend endpoints
+
+Add new backend drilldown endpoints:
+
+GET /api/operations/drilldown
+GET /api/work/drilldown
+
+Both must:
+- require authentication
+- enforce the same permissions as the source pages
+- use metric dispatch via switch/whitelist
+- reject unknown metrics with 400
+- paginate always
+- cap page_size, preferably max 100
+- support search where practical
+- never return large unpaginated datasets
+- return only data the user is authorized to see
+
+Suggested response shape:
+- title
+- description
+- total
+- filters
+- columns
+- rows
+- pagination
+- available_actions optional
+
+Query params:
+- metric
+- module optional
+- status optional
+- owner_id optional
+- project_id optional
+- account_id optional
+- contact_id optional
+- date_from optional
+- date_to optional
+- page
+- page_size
+- search
+- sort optional
+- extra filters as needed
+
+3. Reuse UniversalDrilldownSheet
+
+Reuse client/src/components/shared/universal-drilldown-sheet.tsx if possible.
+
+If it needs small generalization:
+- keep backwards compatibility with Marketing, Pipeline, and Insights
+- support Operations/Work-specific column types
+- support record links for:
+  - projects
+  - tasks
+  - support tickets
+  - meetings
+  - documents
+  - inbox/mail items
+  - activities
+  - calendar events
+
+Do not duplicate the whole component unless absolutely necessary.
+
+4. Operations drilldown metrics
+
+Implement practical drilldowns for visible metrics across Operations.
+
+Likely metrics to support:
+
+Install / Deployments:
+- active installs
+- upcoming installs
+- overdue installs
+- blocked installs
+- completed installs
+- deployments in progress
+- deployments needing attention
+- installs missing owner
+- installs missing scheduled date
+
+Projects:
+- active projects
+- overdue projects
+- blocked projects
+- projects due this week
+- completed projects
+- projects missing owner
+- high-priority projects
+- recently updated projects
+
+Procurement:
+- open procurement items
+- overdue procurement items
+- vendor follow-ups needed
+- purchase orders pending
+- supply risks
+- procurement blocked
+- items awaiting approval
+- items received this month
+
+Support:
+- open support tickets
+- overdue tickets
+- high-priority tickets
+- unresolved tickets
+- tickets waiting on customer
+- tickets waiting on internal team
+- recently closed tickets
+- winter support issues
+
+Communications / Events:
+- upcoming events
+- events needing follow-up
+- communications sent
+- communications needing response
+- event contacts
+- event tasks
+
+Documents / Knowledge:
+- total documents
+- recently added documents
+- stale documents
+- missing owner
+- knowledge assets by category
+- documents needing review
+- documents linked to projects/accounts
+
+Territory / Data Quality:
+- unrouted territories
+- accounts missing territory
+- data quality issues
+- duplicate records
+- missing required fields
+- stale records
+- records needing cleanup
+
+Only implement metrics backed by real data.
+If a page shows a metric that is computed from unavailable data, make the drilldown show a truthful empty state or explanation.
+
+5. Work drilldown metrics
+
+Implement practical drilldowns for visible metrics across Work.
+
+Likely metrics to support:
+
+Mission Control:
+- today’s tasks
+- overdue tasks
+- high-priority tasks
+- due this week
+- meetings today
+- unread/priority inbox items if available
+- blocked work
+- recent activity
+- assigned to me
+- delegated by me
+
+Inbox & Mail:
+- unread inbox count
+- priority emails
+- emails needing reply
+- emails from external contacts
+- emails linked to CRM
+- emails unlinked to CRM
+- emails with attachments
+- drafts
+- sent today
+- bounced/failed sends if available
+
+Tasks / Daily Execution:
+- open tasks
+- overdue tasks
+- completed today
+- due today
+- due this week
+- blocked tasks
+- tasks by owner
+- tasks by priority
+- recurring tasks
+- tasks without due date
+- tasks without owner
+
+Calendar / Meetings:
+- meetings today
+- meetings this week
+- upcoming meetings
+- meetings missing notes
+- meetings with notes
+- meetings needing follow-up
+- external meetings
+- internal meetings
+- overdue meeting follow-ups
+
+Activity Feed:
+- recent activity by type
+- activity requiring action
+- unread activity
+- CRM-linked activity
+- email activity
+- task activity
+- meeting activity
+
+Travel:
+- upcoming trips
+- active trips
+- trip tasks
+- travel approvals if available
+- past trips
+
+Settings / Personal:
+Usually settings pages should not need drilldowns unless they show counts. If they show counts:
+- signatures configured
+- AI voice profiles
+- digest settings enabled/disabled
+
+6. UI wiring
+
+Wire clickable metrics/cards/chips in Operations and Work pages.
+
+Each clickable item should:
+- open UniversalDrilldownSheet
+- pass endpoint:
+  - /api/operations/drilldown
+  - /api/work/drilldown
+- pass metric
+- pass title
+- pass description
+- pass any segment/status/date filters
+- show pointer cursor and hover state
+- include keyboard/focus affordance where practical
+
+Zero-count cards:
+- should open useful empty states where practical
+- example: “No overdue tasks. Nice. The machine is not on fire.”
+
+Do not make the UI noisy.
+Make it obvious and useful.
+
+7. Table row behavior
+
+Where pages show tables/lists:
+- preserve existing row click behavior
+- if a row already opens a detail drawer, do not replace it
+- add drilldowns mainly to summary counts, chips, chart segments, and grouped totals
+- avoid double-click ambiguity
+
+8. Chart drilldowns
+
+If Operations or Work pages include charts:
+- make chart bars/segments/points clickable where practical
+- pass segment filters to the drilldown sheet
+- preserve existing tooltip behavior
+
+9. Data integrity
+
+The drilldown total should match the visible card count.
+
+If counts are cached or computed differently:
+- refresh on drawer open
+- show last refreshed timestamp if available
+- log mismatch in development
+- do not silently show a different number without explanation
+
+10. Permissions
+
+Respect existing permissions.
+
+Examples:
+- users should only see their own Work items if the source page is scoped that way
+- Operations pages should only show records the user is authorized to see
+- Admin-only/private data should not appear in drilldowns
+- Capital records must not appear through Work/Operations drilldowns unless the user has Capital access and the source page already permits that; safest default is exclude Capital-specific data
+
+Backend permission checks are required.
+Frontend hiding alone is not enough.
+
+11. Tests
+
+Add new tests:
+
+tests/operations-drilldown.test.cjs
+tests/work-drilldown.test.cjs
+
+Backend tests/source checks:
+- /api/operations/drilldown route exists
+- /api/work/drilldown route exists
+- both require auth
+- both enforce appropriate permissions
+- both use metric switch/whitelist
+- unknown metrics return 400
+- pagination exists
+- page_size cap exists
+- search support exists where implemented
+- no unpaginated giant list behavior
+- no unsafe SQL interpolation using raw metric strings
+
+Operations frontend tests/source checks:
+- key Operations pages import/use UniversalDrilldownSheet or equivalent
+- summary cards/counts are clickable
+- install/deployment metrics drill down
+- project metrics drill down
+- procurement metrics drill down where present
+- support ticket metrics drill down
+- document/data quality metrics drill down
+- empty states exist
+- hover/click affordance exists
+
+Work frontend tests/source checks:
+- key Work pages import/use UniversalDrilldownSheet or equivalent
+- Mission Control metrics drill down
+- task metrics drill down
+- inbox/mail metrics drill down where present
+- calendar/meeting metrics drill down
+- activity metrics drill down
+- zero-count empty states exist
+- hover/click affordance exists
+
+Regression tests:
+- marketing drilldown tests still pass
+- pipeline drilldown tests still pass
+- insights drilldown tests still pass
+- nav tests still pass
+- startup invariants still pass
+
+12. Validation
+
+Run:
+- operations-drilldown tests
+- work-drilldown tests
+- marketing-drilldown tests
+- pipeline-drilldown tests
+- insights-drilldown tests
+- nav-drift tests
+- nav-consolidation tests
+- startup-invariants tests
+- build if practical
+
+Deliver:
+- audit summary
+- list of Operations metrics made clickable
+- list of Work metrics made clickable
+- new APIs
+- files changed
+- permission confirmation
+- test results
+- follow-up recommendations for Universal Drilldowns Phase 4
+
+Do not modify unrelated modules.
+Do not weaken permissions.
+Do not fake data.
+Do not return unpaginated large lists.
+Do not break existing Marketing/Pipeline/Insights drilldowns.
+Do not show summary numbers without a path to underlying records.
