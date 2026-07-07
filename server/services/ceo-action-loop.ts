@@ -470,7 +470,7 @@ export async function snoozeCeoAction(id: number, ceoId: number, snoozedUntil: s
 export async function buildUpdateRequestDraft(
   actionId: number,
   ceoId: number
-): Promise<{ draftText: string; dmConversationId: number | null; currentsLink: string | null }> {
+): Promise<{ draftText: string; dmConversationId: number | null; currentsLink: string | null; copy_only: true }> {
   actionId = safeId(actionId); ceoId = safeId(ceoId);
 
   const [action] = (await db.execute(sql`
@@ -499,7 +499,7 @@ export async function buildUpdateRequestDraft(
   }
 
   await logEvent(actionId, "draft_copied", ceoId, null, { has_dm: !!dmConversationId });
-  return { draftText, dmConversationId, currentsLink };
+  return { draftText, dmConversationId, currentsLink, copy_only: true as const };
 }
 
 // ── 9. createTaskFromAction ───────────────────────────────────────────────────

@@ -384,7 +384,7 @@ app.use((req, res, next) => {
     try {
       const { migrateCapitalSchema } = await import("./routes-capital");
       await migrateCapitalSchema();
-    } catch (_e) { /* already exists */ }
+    } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
     // CEO Action Queue — Phase 6 tables
     try {
@@ -426,13 +426,13 @@ app.use((req, res, next) => {
       await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_action_queue_dedup ON ceo_action_queue(created_by_user_id, type, source_section, source_type, source_id)`));
       await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_action_events_action ON ceo_action_events(action_id)`));
       log("[migration] CEO Action Queue tables ready.");
-    } catch (_e) { /* already exists */ }
+    } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
     // CEO 1:1 Notes: add one_on_one_sections JSONB column to meeting_notes
     try {
       await _db.execute(_sql.raw(`ALTER TABLE meeting_notes ADD COLUMN IF NOT EXISTS one_on_one_sections jsonb`));
       log("[migration] meeting_notes.one_on_one_sections column ready.");
-    } catch (_e) { /* already exists */ }
+    } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
     // CEO Execution Intelligence (Phase 8): review/dismiss tracking table
     try {
@@ -454,7 +454,7 @@ app.use((req, res, next) => {
       await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_execution_reviews_key ON ceo_execution_reviews(item_key)`));
       await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_execution_reviews_actor ON ceo_execution_reviews(actor_user_id, status)`));
       log("[migration] ceo_execution_reviews table ready.");
-    } catch (_e) { /* already exists */ }
+    } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
     // Board Packs: CEO/CFO-only operating pack storage (Phase 10)
     try {
@@ -478,7 +478,7 @@ app.use((req, res, next) => {
       await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_board_packs_status ON board_packs(status)`));
       await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_board_packs_created_by ON board_packs(created_by)`));
       log("[migration] board_packs table ready.");
-    } catch (_e) { /* already exists */ }
+    } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
     // Phase 9: ceo_forecast_notes table
     try {
@@ -497,7 +497,7 @@ app.use((req, res, next) => {
       await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_forecast_notes_user ON ceo_forecast_notes(created_by_user_id)`));
       await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_forecast_notes_type ON ceo_forecast_notes(scenario_type)`));
       log("[migration] ceo_forecast_notes table ready.");
-    } catch (_e) { /* already exists */ }
+    } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
     // Derived label backfill: fire-and-forget (idempotent, safe to run concurrently)
     migrateDerivedLabelColumns().catch(err =>

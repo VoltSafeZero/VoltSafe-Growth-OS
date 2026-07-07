@@ -1,0 +1,315 @@
+VoltSafe CMS — CEO Cockpit Phase 13: Real Data QA, Smoke Testing, and Production Launch Checklist
+
+Goal:
+Run a full real-world QA pass on CEO Cockpit Phases 4–12 before production rollout.
+
+This is not a feature-building phase.
+This is live workflow QA, smoke testing, permissions verification, data sanity checking, and release readiness.
+
+Completed phases:
+- Phase 4: CEO Cockpit insights
+- Phase 5: 1:1 notes and commitments
+- Phase 6: CEO Action Queue
+- Phase 7: CEO Briefing and Leadership Agenda
+- Phase 8: Execution Intelligence / Drift Detection
+- Phase 9: Forecasting / Scenario Planning / Runway Intelligence
+- Phase 10: Board / Investor Operating Pack
+- Phase 11: Hardening, tabbed layout, permissions audit
+- Phase 12: Executive UX polish
+
+Phase 13 should verify the full system end-to-end.
+
+1. Audit first
+
+Review all CEO Cockpit entry points:
+
+Frontend:
+- Today → My Day
+- Today → CEO Cockpit
+- CEO Cockpit tabs:
+  - Overview
+  - Actions
+  - Briefing
+  - Execution
+  - Forecasting
+  - 1:1s
+  - Board Pack
+- Board Pack page/module
+- 1:1 drawer
+- Copy draft sheets
+- Create action/task flows
+
+Backend:
+- /api/today/ceo-cockpit
+- /api/today/ceo-actions/*
+- /api/today/ceo-briefing/*
+- /api/today/ceo-execution/*
+- /api/today/ceo-forecast/*
+- /api/board-packs/*
+- 1:1 routes
+
+Report before changing:
+- broken routes
+- slow routes
+- missing empty states
+- missing permission states
+- UI overflow
+- console errors
+- server errors
+- migration issues
+- test gaps
+
+2. Live route smoke tests
+
+Create a smoke script if none exists:
+
+tests/ceo-cockpit-smoke.test.cjs
+
+The smoke test should verify route definitions and safe request behavior without requiring fragile real user data.
+
+Minimum checks:
+- all CEO Cockpit route groups exist
+- routes include requireAuth
+- correct routes include requireAdmin
+- CEO/CFO-only routes include CEO/CFO guard
+- copy-only routes do not send anything
+- action creation routes use Phase 6 action queue
+- board pack routes are CEO/CFO-only
+- forecast runway/funding routes are CEO/CFO/capital-gated
+- no auto-send patterns
+- no external API calls
+- migrations are idempotent
+
+3. Real data sanity checks
+
+Add deterministic service-level checks or debug-safe assertions where possible.
+
+Verify:
+- Team Pulse does not include CEO as team member
+- private Currents channels are excluded
+- DM message bodies are not broadly exposed
+- Capital data appears only for permitted user
+- Board Pack capital section is gated
+- Forecasting never invents runway numbers
+- Missing runway inputs show missing-input empty state
+- Action Queue dedupes suggested actions
+- Dismissed actions are not immediately regenerated
+- Snoozed actions are hidden until due
+- 1:1 commitment extraction never auto-creates tasks
+- Drafts are copy-only
+- Board Pack investor draft is copy-only
+
+4. Frontend route QA
+
+Use source checks and, where possible, live app screenshots.
+
+Verify:
+- Today loads
+- CEO Cockpit tab appears only for admin/CEO access
+- Overview tab renders
+- each tab can be selected
+- inactive heavy panels are not mounted/fetched
+- loading states render
+- error states render
+- empty states render
+- mobile tab bar scrolls horizontally
+- no horizontal overflow
+- Board Pack link routes correctly
+- copy buttons show feedback
+- create-action buttons are wired
+- no raw JSON visible to users
+
+5. Production migration QA
+
+Review startup migrations added in Phases 5–10.
+
+Verify:
+- all use IF NOT EXISTS or safe ALTER checks
+- no undefined pool usage
+- no destructive SQL
+- all migration errors are logged
+- no silent catch blocks
+- no duplicate index creation risk
+- no production data copy required
+- app starts cleanly after restart
+
+Also verify logs show:
+- CEO Action Queue tables ready
+- meeting_notes.one_on_one_sections column ready
+- ceo_execution_reviews table ready
+- board_packs table ready
+- ceo_forecast_notes table ready
+
+6. Performance QA
+
+Check:
+- CEO Cockpit Overview fetch time
+- each tab fetch behavior
+- no hidden tab fetches
+- all major DB queries have LIMITs where appropriate
+- no obvious N+1 loops in services
+- no large uncapped JSON payloads
+- no excessive polling
+- no startup slowdown from migrations
+
+If route timing instrumentation exists, use it.
+If not, add lightweight console/server timing only if consistent with existing logging patterns.
+
+7. Security / privacy QA
+
+Tests must prove:
+- unauthenticated users blocked
+- non-admin users blocked from CEO Cockpit APIs
+- normal admins blocked from CEO/CFO-only Board Pack and runway/funding routes
+- CEO Trevor allowed
+- CFO Scott Carlson allowed
+- private Currents excluded
+- DM bodies protected
+- no sendEmail/sendMessage in scoped CEO route blocks
+- no Gmail draft creation
+- no sensitive text stored in localStorage
+- no Capital content stored in localStorage
+- no shaming language
+- no fake financial forecasting
+
+8. UX QA checklist document
+
+Create:
+
+docs/ceo-cockpit-release-checklist.md
+
+Include:
+
+A. Pre-release checks
+- migrations
+- tests
+- permissions
+- production env
+- backup reminder
+
+B. Smoke test checklist
+- login as CEO
+- login as CFO
+- login as normal admin
+- login as non-admin
+- Today page
+- CEO Cockpit tabs
+- Board Pack
+- Forecasting
+- Action Queue
+- 1:1 drawer
+
+C. Privacy checks
+- private Currents excluded
+- DM body exposure check
+- capital gating check
+- copy-only draft check
+
+D. UX checks
+- desktop
+- tablet
+- mobile
+- loading states
+- empty states
+- error states
+
+E. Production deploy checks
+- build
+- migration logs
+- app boot
+- route smoke
+- browser console
+- server logs
+
+F. Rollback notes
+- what to watch
+- what errors matter
+- what to do if migration fails
+- never copy dev DB to production unless explicitly intended
+
+9. Tests
+
+Create or update:
+
+tests/ceo-cockpit-smoke.test.cjs
+
+Minimum coverage:
+- all phase service files exist
+- all phase route groups exist
+- all permission guards exist
+- CEO/CFO-only guards applied
+- migration safety
+- no undefined pool usage
+- no silent migration errors
+- no auto-send
+- no external APIs
+- no OpenAI in deterministic services
+- copy_only present on draft/export responses
+- localStorage safety
+- tabbed UI preserved
+- mobile overflow classes preserved
+- release checklist document exists
+
+10. Validation
+
+Run:
+
+npm run build
+node tests/ceo-cockpit-smoke.test.cjs
+node tests/ceo-cockpit-ux-polish.test.cjs
+node tests/ceo-cockpit-hardening.test.cjs
+node tests/ceo-forecasting.test.cjs
+node tests/board-pack.test.cjs
+node tests/ceo-execution-intelligence.test.cjs
+node tests/ceo-briefing.test.cjs
+node tests/ceo-action-loop.test.cjs
+node tests/ceo-cockpit.test.cjs
+node tests/ceo-one-on-ones.test.cjs
+node tests/today-cockpit.test.cjs
+node tests/today-personalization.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/nav-consolidation.test.cjs
+node tests/cms-theme-structural.test.cjs
+
+Also run:
+- startup-invariants
+- nav-drift
+- currents-search
+- currents-files-tab
+- work-drilldown
+- operations-drilldown
+- marketing-drilldown
+- pipeline-drilldown
+- insights-drilldown
+
+If any live-server test fails due to restart timing, rerun it after confirming the server is healthy and report clearly.
+
+11. Constraints
+
+Do not add major new features.
+Do not rewrite prior phases.
+Do not change permissions casually.
+Do not remove safety gates.
+Do not auto-send anything.
+Do not add AI dependencies.
+Do not expose private data.
+Do not invent financial numbers.
+Do not create duplicate modules.
+Keep this phase focused on QA, launch readiness, and production confidence.
+
+Deliverable:
+First summarize audit findings:
+- route issues
+- UI issues
+- permission issues
+- migration issues
+- performance issues
+- privacy issues
+
+Then summarize implementation:
+- smoke tests added
+- release checklist added
+- bugs fixed
+- files changed
+- validation results
+- known launch risks
