@@ -1418,12 +1418,14 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
 
   const toggleCalendarSource = (sourceId: string) => {
     if (!sourcesData) return;
-    const all = sourcesData.sources.map(s => s.id);
-    const current = sourcesData.selectedIds ?? all;
+    const primaryId = sourcesData.sources.find(s => s.primary)?.id ?? null;
+    // null = never configured → default is primary only (not all)
+    const current = sourcesData.selectedIds ?? (primaryId ? [primaryId] : []);
     const next = current.includes(sourceId)
       ? current.filter(id => id !== sourceId)
       : [...current, sourceId];
-    sourceSelectionMutation.mutate({ connectionId: sourcesData.connectionId, selectedIds: next.length === all.length ? null : next });
+    // Always save explicit array — null is reserved for "uninitialized / primary only"
+    sourceSelectionMutation.mutate({ connectionId: sourcesData.connectionId, selectedIds: next });
   };
 
   const lastSyncTime = calIntegrations
@@ -1472,6 +1474,23 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
 
   const { data: ownEvents, isLoading } = useCalendarEvents(currentDate, view);
 
+  // Filter ownEvents to only the calendars the user has checked.
+  // externalCalendarId = the Google Calendar source ID for synced events;
+  // null = event created in-app (always show).
+  // When selectedIds is null (never configured), default to primary-only.
+  const visibleOwnEvents = useMemo(() => {
+    if (!ownEvents) return [];
+    if (!sourcesData?.sources?.length) return ownEvents;
+    const primaryId = sourcesData.sources.find(s => s.primary)?.id ?? null;
+    const selectedIds = sourcesData.selectedIds ?? (primaryId ? [primaryId] : null);
+    if (selectedIds === null) return ownEvents; // no primary found → show all
+    return ownEvents.filter(e => {
+      const extCalId = (e as any).externalCalendarId as string | null | undefined;
+      if (!extCalId) return true; // app-created event — always visible
+      return selectedIds.includes(extCalId);
+    });
+  }, [ownEvents, sourcesData]);
+
   // Pending tasks due within the next 7 days (for Tasks to Schedule panel)
   const { data: pendingTasks } = useQuery<any[]>({
     queryKey: ["/api/tasks", "pending", "calendar"],
@@ -1485,12 +1504,12 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
 
   // Cross-session outcome detection — one batched POST for today's own events
   const todayOwnEvents = useMemo(() => {
-    if (!isToday(currentDate) || !ownEvents) return null;
+    if (!isToday(currentDate) || !visibleOwnEvents.length) return null;
     const today = new Date();
-    return ownEvents
+    return visibleOwnEvents
       .filter(e => !e._team && isSameDay(new Date(e.startTime), today))
       .map(e => ({ id: e.id, externalId: (e as any).externalId ?? null, title: e.title, startTime: e.startTime }));
-  }, [currentDate, ownEvents]);
+  }, [currentDate, visibleOwnEvents]);
 
   const todayDateStr = format(currentDate, "yyyy-MM-dd");
 
@@ -1539,8 +1558,8 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   // Suggested openings (only in day view with teammates selected)
   const suggestedOpenings = useMemo(() => {
     if (view !== "day" || enabledIdsList.length === 0 || !availability) return [];
-    return computeSuggestedOpenings(currentDate, ownEvents ?? [], availability.users);
-  }, [view, enabledIdsList, availability, currentDate, ownEvents]);
+    return computeSuggestedOpenings(currentDate, visibleOwnEvents, availability.users);
+  }, [view, enabledIdsList, availability, currentDate, visibleOwnEvents]);
 
   // Tasks due within 7 days or overdue (for Tasks to Schedule panel)
   const dueTasks = useMemo(() => {
@@ -1554,7 +1573,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   }, [pendingTasks]);
 
   const allEvents: DisplayEvent[] = [
-    ...(ownEvents ?? []),
+    ...visibleOwnEvents,
     ...(teamEvents ?? []).map((ev) => {
       const member = permittedMembers.find((m) => m.id === ev.userId);
       return {
@@ -1778,7 +1797,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
       {/* Now / Next command strip — today only */}
       {isToday(currentDate) && (
         <NowNextStrip
-          events={ownEvents ?? []}
+          events={visibleOwnEvents}
           tasks={pendingTasks ?? []}
           outcomeStatuses={mergedOutcomeStatuses}
           scheduledTaskIds={scheduledTaskIds}
@@ -1786,7 +1805,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           calendarConnected={calIntegrations.length > 0 || !!(sourcesData?.sources?.length)}
           onJoin={(url) => window.open(url, "_blank", "noopener,noreferrer")}
           onOpenEvent={(eventId, tab) => {
-            const ev = (ownEvents ?? []).find(e => e.id === eventId);
+            const ev = visibleOwnEvents.find(e => e.id === eventId);
             if (ev) { setSelectedEvent(ev as CalendarEvent); setEventInitialTab(tab); }
           }}
           onScheduleTask={(taskId) => setPopoverOpenTaskId(taskId)}
@@ -1913,7 +1932,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           {/* Workday Agenda — always shown for today (Phase 1) */}
           {isToday(currentDate) && (
             <WorkdayAgendaPanel
-              events={ownEvents ?? []}
+              events={visibleOwnEvents}
               tasks={pendingTasks ?? []}
               onEventClick={(ev) => setSelectedEvent(ev)}
               onAddOutcome={(ev) => {
@@ -1927,12 +1946,12 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
           {/* Daily Rollup — today only, compact sidebar card */}
           {isToday(currentDate) && (
             <DailyRollupCard
-              events={ownEvents ?? []}
+              events={visibleOwnEvents}
               tasks={pendingTasks ?? []}
               outcomeStatuses={mergedOutcomeStatuses}
               scheduledTaskIds={scheduledTaskIds}
               onOpenEvent={(eventId, tab) => {
-                const ev = (ownEvents ?? []).find(e => e.id === eventId);
+                const ev = visibleOwnEvents.find(e => e.id === eventId);
                 if (ev) { setSelectedEvent(ev as CalendarEvent); setEventInitialTab(tab); }
               }}
               onDrilldown={setDrilldownConfig}
@@ -1949,8 +1968,9 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 </div>
                 <div className="space-y-2">
                   {sourcesData.sources.map((src) => {
-                    const allIds = sourcesData.sources.map(s => s.id);
-                    const current = sourcesData.selectedIds ?? allIds;
+                    const primaryId = sourcesData.sources.find(s => s.primary)?.id ?? null;
+                    // null = never configured → only primary is checked by default
+                    const current = sourcesData.selectedIds ?? (primaryId ? [primaryId] : []);
                     const checked = current.includes(src.id);
                     return (
                       <label
@@ -2075,7 +2095,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
             // Phase 2: check if any calendar is connected
             const hasCalendarConnected = calIntegrations.length > 0 || (sourcesData && sourcesData.sources.length > 0);
             // Compute windows once outside the map (perf fix)
-            const todayWindows = computeSuggestedOpenings(new Date(), ownEvents ?? [], []);
+            const todayWindows = computeSuggestedOpenings(new Date(), visibleOwnEvents, []);
             return (
               <Card className="border-border/50 w-52 shrink-0" data-testid="tasks-to-schedule-panel">
                 <CardContent className="p-3">

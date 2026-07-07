@@ -1,0 +1,70 @@
+BUG FIX — Calendar visibility / selected calendars only
+
+Context:
+In Work → Calendar & Meetings, my calendar is currently showing appointments from other users / team calendars even when their checkbox is NOT selected. This is wrong and creates a noisy, unusable calendar.
+
+Expected behavior:
+1. The main calendar grid should show ONLY:
+   - My primary calendar events by default
+   - Any additional calendar from “My Calendars” ONLY after I manually check that calendar box
+   - Any “Team Calendars” user ONLY after I manually check that user/calendar box
+
+2. Additional calendars must be opt-in, not auto-visible.
+   - Unchecked calendar = zero events from that calendar should appear in the schedule grid
+   - Checked calendar = include that calendar’s events
+   - Unchecking it again = immediately remove those events
+
+3. This must apply to:
+   - Day view
+   - Week view
+   - Month view
+   - Today’s Agenda / right sidebar if it is using the same event source
+   - Open Windows / rollups only if they are derived from visible calendar events
+
+4. Do NOT show other users’ events just because:
+   - They are on the team
+   - They are listed in Team Calendars
+   - Their calendar is available in the sidebar
+   - The backend returned their events
+   - They are invitees/attendees on some events
+
+5. Calendar checkbox state should be the single source of truth:
+   - selectedCalendarIds / visibleCalendarIds should control what is rendered
+   - Do not merge all fetched events into the visible event list without filtering
+   - Filter events by calendarId / sourceCalendarId / ownerEmail before render
+   - Preserve my own default calendar as selected by default
+   - All optional My Calendars and Team Calendars should default to unchecked unless explicitly saved as selected by the user
+
+6. Add a clear visual distinction when multiple calendars are selected:
+   - Events should retain source calendar color
+   - If possible, add tooltip or small metadata showing which calendar the event came from
+   - But do not change the layout beyond what is needed for the bug fix
+
+Implementation requirements:
+- Audit the calendar data flow from API fetch → state → filtered visible events → day/week/month render.
+- Find where all calendars are being fetched and accidentally displayed.
+- Introduce or repair a visibleEvents selector that only includes:
+  a) primary user calendar events
+  b) events whose calendarId/sourceCalendarId/ownerEmail is present in selectedCalendarIds
+- Ensure checkbox toggles update selectedCalendarIds correctly.
+- Ensure selected calendar state survives refresh only if persistence already exists; do not invent risky new persistence unless the app already supports it.
+- Make sure unchecked team calendars do not leak into agenda, rollup, or focus windows.
+
+Regression tests:
+Add tests covering:
+1. Default calendar load shows only the current user’s primary calendar events.
+2. Team calendar events are hidden when their checkbox is unchecked.
+3. Clicking/checking a team calendar immediately shows that user’s events.
+4. Unchecking the same team calendar immediately hides those events.
+5. My Calendars optional calendars behave the same way.
+6. Day, Week, and Month views all use the same filtered visibleEvents source.
+7. Today’s Agenda does not include events from unchecked calendars.
+8. No duplicate events appear when multiple calendars are selected.
+9. Events where another user is an attendee should not appear unless the source calendar is selected or the event is on my own calendar.
+
+Acceptance criteria:
+- In the screenshot state, only my selected calendar should be visible.
+- Other users’ events should not appear until I click their checkbox.
+- The checkbox list must behave exactly like Google Calendar: unchecked means hidden. Period.
+- Run the relevant calendar tests and the full app build.
+- Report exactly what files changed and what tests passed.
