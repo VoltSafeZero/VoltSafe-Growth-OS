@@ -530,7 +530,7 @@ console.log("\n[15] Regression — existing marketing-drilldown.test.cjs");
     } else {
       assert(output.includes("PASSED") || output.includes("passed"), "existing tests report PASSED");
     }
-  } catch (e: any) {
+  } catch (e) {
     assert(false, `existing marketing-drilldown.test.cjs threw: ${String(e).slice(0, 120)}`);
   }
 }
