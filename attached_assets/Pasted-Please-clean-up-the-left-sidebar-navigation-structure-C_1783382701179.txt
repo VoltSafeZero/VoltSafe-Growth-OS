@@ -1,0 +1,149 @@
+Please clean up the left sidebar navigation structure.
+
+Current issue:
+
+* The Work section is getting cluttered.
+* “Email Signatures” and “AI Voice Profiles” are currently under Work, but these are user configuration/settings features.
+* “Tasks & Execution” is too wordy and should simply be called “Tasks.”
+
+Requested changes:
+
+1. Rename “Tasks & Execution” to “Tasks”
+
+In the Work section, change the sidebar label:
+
+From:
+Tasks & Execution
+
+To:
+Tasks
+
+Do not change the underlying route/API names unless necessary. Prefer preserving existing route paths to avoid breaking links.
+
+2. Create a new “Settings” sidebar section
+
+Add a new top-level sidebar item called:
+
+Settings
+
+Placement:
+
+* Put Settings directly below Learn
+* Put Settings above the Admin section
+
+The left sidebar order should become roughly:
+
+Today
+Currents
+Work
+Pipeline
+Operations
+Insights
+Ecosystem
+Marketing
+Capital
+Learn
+Settings
+Admin
+
+3. Move Email Signatures into Settings
+
+Remove “Email Signatures” from the Work submenu.
+
+Add it under Settings.
+
+Label:
+Email Signatures
+
+Preserve the existing page/component/route if possible.
+
+4. Move AI Voice Profiles into Settings
+
+Remove “AI Voice Profiles” from the Work submenu.
+
+Add it under Settings.
+
+Label:
+AI Voice Profiles
+
+Preserve the existing page/component/route if possible.
+
+5. Work section after cleanup
+
+The Work submenu should no longer include Email Signatures or AI Voice Profiles.
+
+Work should include only true work-execution items, such as:
+
+* Mission Control
+* Inbox & Mail
+* Tasks
+* Calendar & Meetings
+* Daily Execution
+
+Use the current existing items, but remove the settings/configuration pages from Work.
+
+6. Settings submenu
+
+The new Settings section should include:
+
+* Email Signatures
+* AI Voice Profiles
+
+If there are already user settings/profile/preferences pages elsewhere, include them here too if appropriate, but do not invent placeholder pages unless needed.
+
+7. Active state / highlighting
+
+Ensure active sidebar highlighting still works after the move.
+
+Examples:
+
+* When viewing Email Signatures, Settings should be expanded/active, not Work.
+* When viewing AI Voice Profiles, Settings should be expanded/active, not Work.
+* When viewing Tasks, Work should be expanded/active.
+
+8. Routing behavior
+
+Preserve existing routes where possible.
+
+For example:
+
+* If Email Signatures currently uses /work/email-signatures, it can stay there if changing routes is risky.
+* But the navigation grouping should show it under Settings.
+
+If route changes are made, add redirects from the old routes so existing bookmarks do not break.
+
+9. Tests
+
+Update or add tests to confirm:
+
+* “Tasks & Execution” no longer appears in the sidebar
+* “Tasks” appears in the Work submenu
+* Email Signatures no longer appears under Work
+* AI Voice Profiles no longer appears under Work
+* Settings appears below Learn and above Admin
+* Email Signatures appears under Settings
+* AI Voice Profiles appears under Settings
+* Active state works for Email Signatures under Settings
+* Active state works for AI Voice Profiles under Settings
+* Existing routes still load
+
+10. Smoke verification
+
+After implementation, visually verify:
+
+* Sidebar is cleaner
+* Work section is less cluttered
+* Settings appears below Learn
+* Email Signatures and AI Voice Profiles are accessible from Settings
+* Tasks label is shortened correctly
+* No blank pages
+* No console errors
+* No backend errors
+
+Acceptance criteria:
+
+* Work is decluttered
+* Settings exists as a top-level sidebar item below Learn
+* Email Signatures and AI Voice Profiles live under Settings
+* Tasks & Execution is renamed to Tasks
+* Existing functionality still works

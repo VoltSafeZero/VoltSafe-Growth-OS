@@ -412,6 +412,7 @@ export type PageNavEntry = {
   url: string;
   section: string;
   aliases?: string[];
+  capitalOnly?: true;
 };
 
 export const PAGE_NAV_INDEX: PageNavEntry[] = [
@@ -482,19 +483,22 @@ export const PAGE_NAV_INDEX: PageNavEntry[] = [
   { name: "Replies",                url: "/marketing/replies",      section: "Marketing", aliases: ["Marketing Replies"] },
   { name: "Hot Accounts",           url: "/marketing/hot-accounts", section: "Marketing" },
   { name: "Compliance",             url: "/marketing/compliance",   section: "Marketing", aliases: ["Marketing Compliance"] },
-  // Capital
-  { name: "Capital Command Center", url: "/capital/command-center", section: "Capital", aliases: ["Command Center"] },
-  { name: "Capital Dashboard",      url: "/capital/dashboard",      section: "Capital" },
-  { name: "Investors",              url: "/capital/pipeline",       section: "Capital", aliases: ["Investor Pipeline"] },
-  { name: "Investor Targets",       url: "/capital/targets",        section: "Capital", aliases: ["Targets"] },
-  { name: "Investor Contacts",      url: "/capital/contacts",       section: "Capital" },
-  { name: "Rounds & Commitments",   url: "/capital/rounds",         section: "Capital", aliases: ["Funding Rounds", "Rounds"] },
-  { name: "Commitments",            url: "/capital/commitments",    section: "Capital" },
-  { name: "Grants & Non-Dilutive",  url: "/capital/grants",         section: "Capital", aliases: ["Grants"] },
-  { name: "Follow-Ups",             url: "/capital/follow-ups",     section: "Capital", aliases: ["Follow-Up Queue"] },
-  { name: "Data Room",              url: "/capital/data-room",      section: "Capital" },
-  { name: "Updates & Reviews",      url: "/capital/updates",        section: "Capital", aliases: ["Investor Updates"] },
-  { name: "Capital Email Review",   url: "/capital/email-review",   section: "Capital", aliases: ["Email Review"] },
+  // Capital — all entries are capitalOnly: true (hidden from non-CEO/CFO users in global search)
+  { name: "Capital Command Center", url: "/capital/command-center", section: "Capital", capitalOnly: true, aliases: ["Command Center"] },
+  { name: "Capital Dashboard",      url: "/capital/dashboard",      section: "Capital", capitalOnly: true },
+  { name: "Investors",              url: "/capital/pipeline",       section: "Capital", capitalOnly: true, aliases: ["Investor Pipeline"] },
+  { name: "Investor Targets",       url: "/capital/targets",        section: "Capital", capitalOnly: true, aliases: ["Targets"] },
+  { name: "Investor Contacts",      url: "/capital/contacts",       section: "Capital", capitalOnly: true },
+  { name: "Rounds & Commitments",   url: "/capital/rounds",         section: "Capital", capitalOnly: true, aliases: ["Funding Rounds", "Rounds"] },
+  { name: "Commitments",            url: "/capital/commitments",    section: "Capital", capitalOnly: true },
+  { name: "Grants & Non-Dilutive",  url: "/capital/grants",         section: "Capital", capitalOnly: true, aliases: ["Grants"] },
+  { name: "Follow-Ups",             url: "/capital/follow-ups",     section: "Capital", capitalOnly: true, aliases: ["Follow-Up Queue"] },
+  { name: "Data Room",              url: "/capital/data-room",      section: "Capital", capitalOnly: true, aliases: ["Capital Data Room"] },
+  { name: "Updates & Reviews",      url: "/capital/updates",        section: "Capital", capitalOnly: true, aliases: ["Investor Updates"] },
+  { name: "Capital Email Review",   url: "/capital/email-review",   section: "Capital", capitalOnly: true, aliases: ["Email Review"] },
+  { name: "Investor Engagement",    url: "/capital/engagement",     section: "Capital", capitalOnly: true, aliases: ["Capital Engagement", "Engagement Analytics"] },
+  { name: "Capital Reports",        url: "/capital/reports",        section: "Capital", capitalOnly: true, aliases: ["Board Report", "CFO Report", "Investor Reports"] },
+  { name: "Capital AI Copilot",     url: "/capital/copilot",        section: "Capital", capitalOnly: true, aliases: ["Capital Copilot", "Investor Copilot"] },
   // Learn
   { name: "Training",               url: "/training",               section: "Learn" },
   { name: "Help",                   url: "/help",                   section: "Learn" },

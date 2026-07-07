@@ -284,7 +284,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
     return (
       <>
         <Suspense fallback={null}>
-          <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+          <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} isCapitalUser={perms.capital === "edit"} />
         </Suspense>
         <AppShell user={user} onLogout={onLogout}>
           <ChunkErrorBoundary key={appLocation}>

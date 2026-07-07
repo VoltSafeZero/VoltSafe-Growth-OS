@@ -92,10 +92,12 @@ function useGlobalSearch(query: string) {
 // still surface as navigable results even after the sidebar consolidation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function matchPageNav(query: string): PageNavEntry[] {
+function matchPageNav(query: string, isCapitalUser?: boolean): PageNavEntry[] {
   if (!query.trim() || query.length < 2) return [];
   const q = query.toLowerCase();
   return PAGE_NAV_INDEX.filter(p => {
+    // Capital-only pages are hidden from non-Capital users — security gate
+    if (p.capitalOnly && !isCapitalUser) return false;
     if (p.name.toLowerCase().includes(q)) return true;
     if (p.aliases?.some(a => a.toLowerCase().includes(q))) return true;
     if (p.section.toLowerCase().includes(q)) return true;
@@ -122,16 +124,17 @@ function typeBadgeColor(type: SearchResult["type"]) {
 interface GlobalSearchProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  isCapitalUser?: boolean;
 }
 
-export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
+export function GlobalSearch({ open, onOpenChange, isCapitalUser = false }: GlobalSearchProps) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
   const { results, loading } = useGlobalSearch(query);
 
-  const pageNavResults = matchPageNav(query);
+  const pageNavResults = matchPageNav(query, isCapitalUser);
   const totalResults = pageNavResults.length + results.length;
 
   useEffect(() => {
