@@ -114,6 +114,7 @@ import { createGmailDraftFromBooking, DRAFT_APPROVAL_TASK_SOURCE } from "./servi
 import { seedDefaultRules } from "./services/engagement-defaults";
 import { composeDigest, getSectionsForRole, formatDigestAsHtml, formatDigestAsText, DEFAULT_ALERT_RULES as DC_DEFAULT_SECTIONS, type DigestSection } from "./services/digest-composer";
 import { getTodayCapitalSection } from "./services/today-capital-summary";
+import { getCeoCockpitData } from "./services/ceo-cockpit";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
 import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy, getTuningRecommendations, getExplainabilityData, checkUnderperformance, getOutcomes, getFeedbackOverview } from "./services/feedback-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
@@ -11016,6 +11017,25 @@ export async function registerRoutes(
       });
     } catch (err: any) {
       console.error("[today] GET /api/today/summary:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── CEO Cockpit ─────────────────────────────────────────────────────────
+  // Executive-only endpoint. Requires master_admin or admin role.
+  // No Capital data unless hasCapital is true.
+  // No external API calls. No auto-send actions. No keystroke/mouse tracking.
+  app.get("/api/today/ceo-cockpit", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const userEmail: string = (req.session as any).email ?? "";
+      const CAPITAL_USER_IDS = new Set([4]);
+      const CAPITAL_EMAILS = new Set(["trevor@voltsafe.com"]);
+      const hasCapital = CAPITAL_USER_IDS.has(userId) || CAPITAL_EMAILS.has(userEmail);
+      const data = await getCeoCockpitData(userId, hasCapital);
+      res.json(data);
+    } catch (err: any) {
+      console.error("[ceo-cockpit] GET /api/today/ceo-cockpit:", err?.message);
       res.status(500).json({ message: err.message });
     }
   });

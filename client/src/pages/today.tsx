@@ -1,7 +1,8 @@
-// today.tsx — Executive Operating Cockpit (Phase 2: Personalization + Actions)
-// Phase 2 adds: section order/hide/pin preferences, Priority Action sorting,
-// snooze controls, inline task completion, follow-up task creation,
-// Customize Today sheet, and improved empty states.
+// today.tsx — Executive Operating Cockpit (Phase 2 + CEO Cockpit)
+// Phase 2: section order/hide/pin preferences, Priority Action sorting,
+// snooze controls, inline task completion, follow-up task creation.
+// CEO Cockpit (admin-only): Team Pulse, Blockers, Silence Watch, Commitments,
+// 1:1 Operating System, CEO Attention, Communication Hotspots.
 
 import { useState, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -44,6 +45,12 @@ import { useRecentPages } from "@/hooks/use-recent-pages";
 import { useToast } from "@/hooks/use-toast";
 import { useTodayPrefs } from "@/hooks/use-today-prefs";
 import { type UserProfile } from "@/lib/dashboard-config";
+import {
+  TeamPulseSection, BlockersSection, SilenceWatchSection,
+  CommitmentsSection, OneOnOnesSection, CeoAttentionSection,
+  CommunicationHotspotsSection,
+  type CeoCockpitData,
+} from "@/components/today/ceo-cockpit-sections";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1041,6 +1048,8 @@ function buildRenderGroups(orderedIds: string[]): RenderGroup[] {
 // ── Main export ────────────────────────────────────────────────────────────────
 
 export default function TodayPage() {
+  const [todayMode, setTodayMode] = useState<"my_day" | "ceo_cockpit">("my_day");
+
   const summaryQuery = useQuery<TodaySummary>({ queryKey: ["/api/today/summary"] });
   const profileQuery = useQuery<UserProfile>({ queryKey: ["/api/users/me/profile"] });
 
@@ -1049,6 +1058,12 @@ export default function TodayPage() {
   const isCapital = profile?.permissions?.capital === "edit";
   const role      = String(profile?.globalRole ?? "").toLowerCase();
   const isAdmin   = role === "admin" || role === "master_admin";
+
+  const cockpitQuery = useQuery<CeoCockpitData>({
+    queryKey: ["/api/today/ceo-cockpit"],
+    enabled: isAdmin && todayMode === "ceo_cockpit",
+    staleTime: 60_000,
+  });
 
   const prefs = useTodayPrefs(userId);
 
@@ -1300,8 +1315,135 @@ export default function TodayPage() {
         </div>
       </div>
 
-      {/* Sections in user-defined order */}
-      {renderGroups.map((group, gi) => {
+      {/* Mode toggle — admin only */}
+      {isAdmin && (
+        <div className="flex items-center gap-1 bg-muted/30 rounded-lg p-0.5 w-fit" data-testid="today-mode-toggle">
+          <button
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${todayMode === "my_day" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            onClick={() => setTodayMode("my_day")}
+            data-testid="today-mode-my-day"
+          >
+            My Day
+          </button>
+          <button
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${todayMode === "ceo_cockpit" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            onClick={() => setTodayMode("ceo_cockpit")}
+            data-testid="today-mode-ceo-cockpit"
+          >
+            CEO Cockpit
+          </button>
+        </div>
+      )}
+
+      {/* CEO Cockpit mode */}
+      {todayMode === "ceo_cockpit" && isAdmin && (
+        <div className="space-y-4" data-testid="ceo-cockpit-view">
+          {cockpitQuery.isLoading && (
+            <div className="py-10 flex items-center justify-center" data-testid="ceo-cockpit-loading">
+              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {cockpitQuery.isError && (
+            <div className="py-6 flex flex-col items-center gap-2" data-testid="ceo-cockpit-error">
+              <AlertTriangle className="h-5 w-5 text-amber-400" />
+              <p className="text-xs text-muted-foreground">Failed to load CEO Cockpit data.</p>
+            </div>
+          )}
+          {cockpitQuery.data && (() => {
+            const cs = cockpitQuery.data.sections;
+            const compact = prefs.prefs.compact;
+            return (
+              <div className={`space-y-4 ${compact ? "space-y-3" : ""}`}>
+                {/* Team Pulse */}
+                <SectionCard
+                  icon={({ className }: any) => <span className={className}>👥</span>}
+                  title="Team Pulse"
+                  count={cs.team_pulse.source_counts.total || undefined}
+                  testId="section-team-pulse"
+                  isFetching={cockpitQuery.isFetching}
+                  onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                >
+                  <TeamPulseSection data={cs.team_pulse} />
+                </SectionCard>
+
+                {/* Blockers + CEO Attention side-by-side on md+ */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <SectionCard
+                    icon={AlertTriangle}
+                    title="Blockers"
+                    count={cs.blockers.count || undefined}
+                    testId="section-blockers"
+                    isFetching={cockpitQuery.isFetching}
+                    onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                  >
+                    <BlockersSection data={cs.blockers} />
+                  </SectionCard>
+                  <SectionCard
+                    icon={Zap}
+                    title="CEO Attention"
+                    count={cs.ceo_attention.count || undefined}
+                    testId="section-ceo-attention"
+                    isFetching={cockpitQuery.isFetching}
+                    onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                  >
+                    <CeoAttentionSection data={cs.ceo_attention} />
+                  </SectionCard>
+                </div>
+
+                {/* Silence Watch */}
+                <SectionCard
+                  icon={Clock}
+                  title="Silence Watch"
+                  count={cs.silence_watch.count || undefined}
+                  testId="section-silence-watch"
+                  isFetching={cockpitQuery.isFetching}
+                  onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                >
+                  <SilenceWatchSection data={cs.silence_watch} />
+                </SectionCard>
+
+                {/* Commitments + Communication Hotspots side-by-side */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <SectionCard
+                    icon={CheckSquare}
+                    title="Commitments"
+                    count={cs.commitments.count || undefined}
+                    testId="section-commitments"
+                    isFetching={cockpitQuery.isFetching}
+                    onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                  >
+                    <CommitmentsSection data={cs.commitments} />
+                  </SectionCard>
+                  <SectionCard
+                    icon={MessageSquare}
+                    title="Communication Hotspots"
+                    testId="section-communication-hotspots"
+                    isFetching={cockpitQuery.isFetching}
+                    onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                  >
+                    <CommunicationHotspotsSection data={cs.communication_hotspots} />
+                  </SectionCard>
+                </div>
+
+                {/* 1:1 Operating System */}
+                <SectionCard
+                  icon={Calendar}
+                  title="1:1 Operating System"
+                  count={cs.one_on_ones.items.length || undefined}
+                  testId="section-one-on-ones"
+                  isFetching={cockpitQuery.isFetching}
+                  onRefresh={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                >
+                  <OneOnOnesSection data={cs.one_on_ones} />
+                </SectionCard>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* My Day mode — sections in user-defined order */}
+      {todayMode === "my_day" && renderGroups.map((group, gi) => {
         if (group.kind === "pair") {
           const [idA, idB] = group.ids;
           const nodeA = renderSection(idA);

@@ -1,0 +1,483 @@
+VoltSafe CMS — CEO Cockpit Phase 4: Team Communication Radar + 1:1 Operating System
+
+Current completed state:
+
+Today Page Phase 1:
+- GET /api/today/summary exists behind requireAuth
+- Today page is an executive operating cockpit
+- sections include Priority Actions, Schedule, Tasks, Inbox, CURRENTS, Pipeline, Marketing, Operations, Capital, Favorites/Recents
+- Capital summary is isolated in server/services/today-capital-summary.ts
+- drilldown chips open UniversalDrilldownSheet
+
+Today Page Phase 2:
+- section ordering
+- hide/show sections
+- pin/unpin sections
+- compact mode
+- priority action sorting
+- snooze
+- mark task complete
+- create follow-up task
+- per-section refresh
+- safe localStorage preferences
+
+CURRENTS:
+- team messaging exists
+- attachments exist
+- Files tab exists
+- search/history exists
+- private channel/DM permissions exist
+
+Goal:
+Evolve Today into a CEO Cockpit that keeps Trevor close to the highest-value signals inside VoltSafe:
+- what each team member is working on
+- what is blocked
+- what has not moved
+- what needs CEO attention
+- what commitments were made
+- what follow-ups are overdue
+- what should be covered in upcoming 1:1s
+- which people/projects/accounts/deals are creating the most urgency
+
+This should feel like an executive communication radar and team operating system.
+
+Important philosophy:
+Build this as a signal-and-accountability tool, not a surveillance tool.
+Do not track keystrokes.
+Do not track mouse movement.
+Do not create invasive productivity scoring.
+Do not shame people.
+Do not expose private DMs broadly.
+Do not infer intent from silence too aggressively.
+Surface work signals, blockers, commitments, and communication gaps from existing CMS data.
+
+Primary user:
+Trevor / CEO.
+
+Secondary users:
+Managers may eventually get a scoped version, but this phase should focus on CEO Cockpit behavior.
+
+1. Audit current team communication and work-signal data
+
+Before writing code, inspect:
+- Today page
+- /api/today/summary
+- CURRENTS messages/channels/DMs
+- tasks
+- projects
+- meetings/calendar
+- meeting notes
+- activity feed
+- comments/mentions if they exist
+- user/team schema
+- roles/permissions
+- inbox/mail summaries if locally available
+- existing 1:1 or meeting-note structures
+- existing user profile/team member data
+- current auth/permission model
+- UniversalDrilldownSheet
+- command search/favorites/recents
+
+Document:
+- what team-member data exists
+- how tasks are assigned to users
+- how projects are owned
+- how meetings are stored
+- whether 1:1 meetings are identifiable
+- whether CURRENTS mentions/replies can be linked to users
+- what data is private and should not be exposed
+- what signals can be safely summarized
+
+2. Backend CEO cockpit endpoint
+
+Add a new endpoint:
+
+GET /api/today/ceo-cockpit
+
+Requirements:
+- require authentication
+- CEO-only for now, or permission-gated using an existing executive/admin permission
+- do not expose to normal users
+- use local database-backed data only
+- no external Gmail/Calendar/CURRENTS APIs
+- no raw private DM bodies unless Trevor is a participant
+- no Capital data unless user has Capital access
+- cap all lists
+- include generated_at
+- include source counts
+- include safe empty states
+
+Suggested response shape:
+
+{
+  generated_at,
+  user,
+  sections: {
+    team_pulse,
+    blockers,
+    silence_watch,
+    commitments,
+    one_on_ones,
+    direct_reports,
+    project_health,
+    communication_hotspots,
+    followups_needed,
+    ceo_attention
+  }
+}
+
+3. Team Pulse section
+
+Create a “Team Pulse” section.
+
+For each team member, show:
+- name
+- role/title if available
+- active tasks count
+- overdue tasks count
+- blocked tasks count
+- projects owned
+- recent activity count
+- last visible work signal timestamp
+- upcoming 1:1 if available
+- open commitments
+- CEO attention flag if needed
+
+Important:
+Do not create a simplistic productivity score.
+Instead use signal labels:
+- Active
+- Needs follow-up
+- Blocked
+- Quiet
+- Overloaded
+- Waiting on CEO
+- No current signals
+
+Each label must be explainable from real data.
+
+Example:
+“Quiet — no task/project/message activity in 5 business days.”
+
+4. Blockers section
+
+Surface blockers across the company.
+
+Sources:
+- blocked tasks
+- blocked projects
+- blocked installs/deployments
+- procurement blockers
+- support blockers
+- campaign blockers
+- Capital blockers only for Capital users
+- CURRENTS messages containing blocker-style signals if safe and practical
+
+Each blocker should show:
+- title
+- owner
+- source module
+- age
+- severity
+- what is blocked
+- next action
+- link to source record
+- optional “Ask for update” action
+
+Do not invent blockers.
+Do not rely only on AI text interpretation in this phase.
+
+5. Silence Watch section
+
+Surface areas where there has been no visible movement.
+
+Examples:
+- assigned task overdue with no update
+- project stale for 7+ days
+- open support ticket stale
+- deal/opportunity stale
+- marketing campaign draft untouched
+- procurement item pending too long
+- team member with no visible work signal for X days
+
+Important:
+This must be framed carefully.
+
+Use language like:
+- “Needs check-in”
+- “No recent update”
+- “Stale item”
+- “No visible movement”
+
+Avoid:
+- “Not working”
+- “Unproductive”
+- “Lazy”
+- “Bad performer”
+
+Each item must show why it appeared.
+
+6. Commitments section
+
+Track commitments and promises.
+
+Sources:
+- tasks created from meetings
+- follow-up tasks
+- manually assigned tasks
+- CURRENTS messages if explicit task/commitment markers exist
+- meeting notes action items
+- CRM follow-ups
+
+Show:
+- commitment title
+- owner
+- due date
+- source
+- status
+- days overdue if overdue
+- link to source
+- “nudge owner” action if safe
+
+If commitment extraction does not exist yet:
+- only use existing tasks/action items
+- document AI commitment extraction as follow-up
+
+7. 1:1 Operating System
+
+Add a 1:1 section for team members.
+
+For each direct report/team member:
+- next scheduled 1:1 if available
+- last 1:1 if available
+- open action items from prior 1:1
+- overdue commitments
+- blockers
+- wins/recent progress
+- suggested agenda items
+
+Suggested agenda categories:
+- Blockers
+- Commitments
+- Priorities
+- Support needed
+- Decisions needed
+- Wins
+- Follow-ups from last meeting
+
+If no 1:1 data exists:
+- show “No recurring 1:1 detected”
+- provide link/action to schedule or create 1:1 note if existing meeting/task systems support it
+
+Do not auto-create calendar events unless explicitly requested.
+
+8. CEO Attention section
+
+Aggregate items that specifically need Trevor.
+
+Examples:
+- tasks waiting on Trevor
+- decisions assigned to Trevor
+- blocked items where CEO is the blocker
+- high-value customer/prospect needing CEO response
+- investor follow-up only if Capital access
+- team member waiting for decision
+- unresolved question in CURRENTS mentioning Trevor
+
+Each item should show:
+- reason it needs CEO
+- source
+- age
+- owner/requester
+- action link
+
+9. Communication Hotspots
+
+Show where team communication is heating up.
+
+Sources:
+- CURRENTS channel activity
+- message mentions
+- replies/threads if available
+- project comments if available
+- meeting notes volume if available
+
+Metrics:
+- most active channels
+- quiet critical channels
+- unanswered mentions
+- recent decisions
+- open questions
+
+Privacy:
+- only show channels/DMs Trevor has access to
+- do not reveal private DM content where Trevor is not a participant
+- do not create broad employee surveillance
+
+10. “Ask for Update” action
+
+Add safe communication actions.
+
+For a blocker/stale commitment/team pulse item, add:
+- “Ask for update”
+
+Behavior:
+- creates a draft CURRENTS message, not auto-send
+or
+- opens CURRENTS DM composer prefilled with a suggested message
+or
+- creates a task/comment requesting update
+
+Do not auto-send messages.
+
+Suggested copy:
+“Quick check-in — can you post a brief update on this today? Specifically: current status, blocker, and next step.”
+
+If draft/prefill infrastructure does not exist:
+- add copy-to-clipboard suggested message
+- document real prefilled CURRENTS DM as follow-up
+
+11. Today page integration
+
+Add a CEO Cockpit section or mode to Today.
+
+Options:
+- tab toggle at top: “My Day” / “CEO Cockpit”
+- or dedicated section below Executive Briefing
+- or route /today/ceo
+
+Recommended:
+Add a top-level toggle:
+- My Day
+- CEO Cockpit
+
+CEO Cockpit should include:
+- Team Pulse
+- Blockers
+- Silence Watch
+- Commitments
+- 1:1s
+- CEO Attention
+- Communication Hotspots
+
+Only show this toggle to CEO/executive users.
+
+12. Drilldown integration
+
+Where metrics are backed by existing drilldowns:
+- overdue tasks → /api/work/drilldown
+- blocked installs → /api/operations/drilldown
+- support blockers → /api/operations/drilldown
+- campaign blockers → /api/marketing/drilldown
+- stale opportunities → /api/pipeline/drilldown or /api/insights/drilldown
+- Capital follow-ups → Capital endpoints, only if authorized
+
+Use UniversalDrilldownSheet where practical.
+
+13. Permissions and privacy
+
+Must prove:
+- endpoint requires auth
+- endpoint is executive/CEO-gated
+- normal users cannot access CEO Cockpit
+- Capital data excluded unless Capital access
+- Admin-only data excluded unless Admin access
+- private CURRENTS channels/DMs excluded unless user is a member
+- no raw private message bodies are broadly exposed
+- no raw storage keys/tokens/IPs
+- no external APIs
+- no auto-send communication actions
+- no invasive productivity tracking
+
+14. Tests
+
+Add:
+
+tests/ceo-cockpit.test.cjs
+
+Backend/source checks:
+- /api/today/ceo-cockpit route exists
+- requireAuth exists
+- executive/CEO guard exists
+- list caps exist
+- team_pulse section exists
+- blockers section exists
+- silence_watch section exists
+- commitments section exists
+- one_on_ones section exists
+- ceo_attention section exists
+- communication_hotspots section exists
+- Capital gating exists
+- CURRENTS membership checks exist
+- no external Gmail/Calendar API calls
+- no auto-send calls
+- no raw storage key/token/IP exposure
+- no invasive productivity terms like keystroke/mouse tracking
+
+Frontend/source checks:
+- CEO Cockpit mode/toggle exists
+- hidden from non-executive users
+- Team Pulse UI exists
+- Blockers UI exists
+- Silence Watch UI exists
+- Commitments UI exists
+- 1:1 UI exists
+- CEO Attention UI exists
+- Communication Hotspots UI exists
+- Ask for Update action exists as draft/copy/prefill only
+- Drilldown integration exists
+- empty states exist
+- no shaming language appears
+
+Regression:
+- today-cockpit.test.cjs still passes
+- today-personalization.test.cjs still passes
+- today-briefing.test.cjs if it exists still passes
+- capital-hardening.test.cjs still passes
+- currents-search/files tests still pass
+- work/operations/marketing/pipeline/insights drilldown tests still pass
+- nav tests still pass
+- build passes
+
+15. Validation
+
+Run:
+- ceo-cockpit.test.cjs
+- today-cockpit.test.cjs
+- today-personalization.test.cjs
+- capital-hardening.test.cjs
+- currents-search.test.cjs
+- currents-files-tab.test.cjs
+- work-drilldown.test.cjs
+- operations-drilldown.test.cjs
+- marketing-drilldown.test.cjs
+- pipeline-drilldown.test.cjs
+- insights-drilldown.test.cjs
+- nav-drift.test.cjs
+- nav-consolidation.test.cjs
+- startup-invariants.test.cjs
+- npm run build
+
+Deliver:
+- audit summary
+- endpoint details
+- team signal model
+- CEO Cockpit UI summary
+- 1:1 system behavior
+- communication action behavior
+- permission/security confirmation
+- files changed
+- tests run and results
+- known limitations
+- recommended next phase
+
+Guardrails:
+- Do not modify unrelated modules.
+- Do not weaken permissions.
+- Do not expose Capital to non-Capital users.
+- Do not expose private DMs/channels unless the CEO is a member.
+- Do not track keystrokes, mouse movement, or invasive activity.
+- Do not shame employees.
+- Do not auto-send messages.
+- Do not fabricate blockers or commitments.
+- Do not rely on AI-only inference for accountability signals in this phase.
