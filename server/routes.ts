@@ -39216,7 +39216,220 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // ── GET /api/marketing/drilldown/export — CSV export ─────────────────────────
+  // Same metric whitelist as /api/marketing/drilldown. Hard cap at 5,000 rows.
+  // Enforces requireAuth + crm:view — no extra permissions beyond the drilldown.
+  app.get("/api/marketing/drilldown/export", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+    const EXPORT_CAP = 5000;
+    try {
+      const metric  = String(req.query.metric  ?? "").trim();
+      const search  = String(req.query.search  ?? "").trim();
 
+      if (!metric) return res.status(400).json({ message: "metric query param is required" });
+
+      const safeSearch = search.replace(/'/g, "''");
+      const dateStr    = new Date().toISOString().slice(0, 10);
+
+      // ── Contact-level compliance metrics ────────────────────────────────────
+      const CONTACT_WHERE: Record<string, string> = {
+        unknown_jurisdiction:  "(c.jurisdiction IS NULL OR c.jurisdiction = '' OR c.jurisdiction = 'unknown')",
+        jurisdiction_canada:   "c.jurisdiction = 'canada'",
+        jurisdiction_us:       "c.jurisdiction = 'us'",
+        jurisdiction_other:    "c.jurisdiction = 'international'",
+        express_consent:       "c.jurisdiction = 'canada' AND c.consent_status = 'express'",
+        implied_active:        "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND (c.implied_consent_expiry_date IS NULL OR c.implied_consent_expiry_date > CURRENT_DATE)",
+        implied_expiring_30:   "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND c.implied_consent_expiry_date IS NOT NULL AND c.implied_consent_expiry_date > CURRENT_DATE AND c.implied_consent_expiry_date <= CURRENT_DATE + INTERVAL '30 days'",
+        implied_expiring_60:   "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND c.implied_consent_expiry_date IS NOT NULL AND c.implied_consent_expiry_date > CURRENT_DATE AND c.implied_consent_expiry_date <= CURRENT_DATE + INTERVAL '60 days'",
+        implied_expiring_90:   "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND c.implied_consent_expiry_date IS NOT NULL AND c.implied_consent_expiry_date > CURRENT_DATE AND c.implied_consent_expiry_date <= CURRENT_DATE + INTERVAL '90 days'",
+        implied_expired:       "c.jurisdiction = 'canada' AND c.consent_status = 'implied' AND c.implied_consent_expiry_date IS NOT NULL AND c.implied_consent_expiry_date <= CURRENT_DATE",
+        missing_consent_proof: "c.jurisdiction = 'canada' AND c.consent_status = 'express' AND (c.consent_source IS NULL OR c.consent_source = '')",
+        unknown_consent:       "(c.consent_status IS NULL OR c.consent_status = '' OR c.consent_status = 'unknown')",
+        us_biz_eligible:       "c.jurisdiction = 'us' AND (c.suppression_status = 'none' OR c.suppression_status IS NULL) AND (c.unsubscribe_status = 'subscribed' OR c.unsubscribe_status IS NULL)",
+        us_opted_out:          "c.jurisdiction = 'us' AND (c.unsubscribe_status = 'unsubscribed' OR (c.suppression_status IS NOT NULL AND c.suppression_status != 'none' AND c.suppression_status != 'quarantined'))",
+        unsubscribed:          "c.unsubscribe_status = 'unsubscribed'",
+        suppressed:            "c.suppression_status IS NOT NULL AND c.suppression_status != 'none' AND c.suppression_status != 'quarantined'",
+        quarantined:           "c.suppression_status = 'quarantined'",
+      };
+
+      if (CONTACT_WHERE[metric] || metric === "consent_source" || metric === "audience_contacts") {
+        let where = CONTACT_WHERE[metric] ?? "1=1";
+        if (metric === "consent_source") {
+          const source  = String(req.query.source ?? "").trim();
+          const safeSrc = source.replace(/'/g, "''");
+          where = source && source !== "Unknown"
+            ? `c.consent_source = '${safeSrc}'`
+            : source === "Unknown"
+            ? "(c.consent_source IS NULL OR c.consent_source = '')"
+            : "1=1";
+        }
+        const srch = safeSearch
+          ? ` AND (c.name ILIKE '%${safeSearch}%' OR c.email ILIKE '%${safeSearch}%' OR COALESCE(a.name,'') ILIKE '%${safeSearch}%')`
+          : "";
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT c.id, c.name, c.email,
+            COALESCE(a.name,'') AS account_name,
+            c.jurisdiction, c.consent_status, c.consent_source, c.consent_type,
+            c.implied_consent_expiry_date, c.unsubscribe_status, c.unsubscribe_source,
+            c.suppression_status, c.suppression_reason,
+            c.province_state, c.lead_source, c.created_at
+          FROM contacts c
+          LEFT JOIN accounts a ON a.id = c.account_id
+          WHERE ${where}${srch}
+          ORDER BY c.created_at DESC
+          LIMIT ${EXPORT_CAP}
+        `))).rows as any[];
+
+        const COLS: CsvColumn[] = [
+          { key: "name",                        header: "Name" },
+          { key: "email",                       header: "Email" },
+          { key: "account_name",                header: "Company" },
+          { key: "jurisdiction",                header: "Jurisdiction" },
+          { key: "consent_status",              header: "Consent Status" },
+          { key: "consent_source",              header: "Consent Source" },
+          { key: "consent_type",                header: "Consent Type" },
+          { key: "implied_consent_expiry_date", header: "Consent Expiry" },
+          { key: "unsubscribe_status",          header: "Unsub Status" },
+          { key: "unsubscribe_source",          header: "Unsub Source" },
+          { key: "suppression_status",          header: "Suppression" },
+          { key: "suppression_reason",          header: "Suppression Reason" },
+          { key: "province_state",              header: "Province/State" },
+          { key: "lead_source",                 header: "Lead Source" },
+          { key: "created_at",                  header: "Created" },
+        ];
+        setCsvHeaders(res, `marketing_${metric}_${dateStr}.csv`);
+        return res.send(toCsv(rows, COLS));
+      }
+
+      // ── Campaign metrics ─────────────────────────────────────────────────────
+      const CAMPAIGN_METRICS = ["all_campaigns","active_campaigns","campaigns_blocked","campaigns_needs_approval","campaigns_with_replies","avg_unsub_rate","avg_bounce_rate","spam_complaint_rate"];
+      if (CAMPAIGN_METRICS.includes(metric)) {
+        const srch = safeSearch ? ` AND mc.campaign_name ILIKE '%${safeSearch}%'` : "";
+        let where = "1=1";
+        if (metric === "active_campaigns")         where = "mc.status = 'active'";
+        else if (metric === "campaigns_with_replies")   where = "mc.replied_count > 0";
+        else if (metric === "campaigns_needs_approval") where = "mc.status = 'scheduled'";
+        else if (metric === "campaigns_blocked")        where = "(mc.compliance_status = 'preflight_failed' OR mc.compliance_status = 'blocked')";
+        else if (metric === "avg_unsub_rate" || metric === "avg_bounce_rate" || metric === "spam_complaint_rate") where = "mc.sent_count > 0";
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT mc.id, mc.campaign_name, mc.campaign_type, mc.status, mc.compliance_status,
+            mc.total_recipients, mc.sent_count, mc.opened_count, mc.clicked_count,
+            mc.replied_count, mc.bounced_count, mc.unsubscribed_count,
+            mc.blocked_recipient_count,
+            ROUND(100.0 * mc.unsubscribed_count / NULLIF(mc.sent_count, 0), 2) AS unsub_rate,
+            ROUND(100.0 * mc.bounced_count      / NULLIF(mc.sent_count, 0), 2) AS bounce_rate,
+            COALESCE(u.name,'') AS owner_name, mc.created_at
+          FROM marketing_campaigns mc
+          LEFT JOIN users u ON u.id = mc.owner_user_id
+          WHERE ${where}${srch}
+          ORDER BY mc.created_at DESC
+          LIMIT ${EXPORT_CAP}
+        `))).rows as any[];
+
+        const COLS: CsvColumn[] = [
+          { key: "campaign_name",          header: "Campaign" },
+          { key: "campaign_type",          header: "Type" },
+          { key: "status",                 header: "Status" },
+          { key: "compliance_status",      header: "Compliance" },
+          { key: "sent_count",             header: "Sent" },
+          { key: "opened_count",           header: "Opened" },
+          { key: "clicked_count",          header: "Clicked" },
+          { key: "replied_count",          header: "Replies" },
+          { key: "bounced_count",          header: "Bounced" },
+          { key: "unsubscribed_count",     header: "Unsubscribed" },
+          { key: "blocked_recipient_count",header: "Blocked Recipients" },
+          { key: "unsub_rate",             header: "Unsub %" },
+          { key: "bounce_rate",            header: "Bounce %" },
+          { key: "owner_name",             header: "Owner" },
+          { key: "created_at",             header: "Created" },
+        ];
+        setCsvHeaders(res, `marketing_${metric}_${dateStr}.csv`);
+        return res.send(toCsv(rows, COLS));
+      }
+
+      // ── Reply metrics ────────────────────────────────────────────────────────
+      const REPLY_STATUS_WHERE: Record<string, string> = {
+        replies_total:         "1=1",
+        replies_pending:       "rc.status = 'pending'",
+        replies_auto_ingested: "rc.ingestion_source = 'inbound_ingested'",
+        replies_task_created:  "rc.status = 'task_created'",
+      };
+      if (REPLY_STATUS_WHERE[metric]) {
+        const where = REPLY_STATUS_WHERE[metric];
+        const srch  = safeSearch ? ` AND (COALESCE(c.name,'') ILIKE '%${safeSearch}%' OR COALESCE(c.email,'') ILIKE '%${safeSearch}%')` : "";
+
+        const rows = (await db.execute(sql.raw(`
+          SELECT rc.id, rc.classification, rc.sentiment, rc.status, rc.confidence,
+            rc.reply_body_preview, rc.ingestion_source, rc.created_at,
+            COALESCE(c.name,'')  AS contact_name,
+            COALESCE(c.email,'') AS contact_email,
+            COALESCE(a.name,'')  AS account_name,
+            COALESCE(mc.campaign_name,'') AS campaign_name
+          FROM marketing_reply_classifications rc
+          LEFT JOIN contacts c  ON c.id  = rc.contact_id
+          LEFT JOIN accounts a  ON a.id  = rc.account_id
+          LEFT JOIN marketing_campaigns mc ON mc.id = rc.campaign_id
+          WHERE ${where}${srch}
+          ORDER BY rc.created_at DESC
+          LIMIT ${EXPORT_CAP}
+        `))).rows as any[];
+
+        const COLS: CsvColumn[] = [
+          { key: "contact_name",      header: "Contact" },
+          { key: "contact_email",     header: "Email" },
+          { key: "account_name",      header: "Company" },
+          { key: "campaign_name",     header: "Campaign" },
+          { key: "classification",    header: "Classification" },
+          { key: "sentiment",         header: "Sentiment" },
+          { key: "status",            header: "Status" },
+          { key: "reply_body_preview",header: "Reply Preview" },
+          { key: "created_at",        header: "Date" },
+        ];
+        setCsvHeaders(res, `marketing_${metric}_${dateStr}.csv`);
+        return res.send(toCsv(rows, COLS));
+      }
+
+      // ── Hot accounts ─────────────────────────────────────────────────────────
+      if (metric === "hot_accounts_by_label") {
+        const srch = safeSearch ? ` AND LOWER(a.name) LIKE LOWER('%${safeSearch}%')` : "";
+        const rows = (await db.execute(sql.raw(`
+          SELECT a.id AS account_id, a.name AS account_name, a.marina_type, a.state_province,
+            COUNT(DISTINCT ce.contact_id) AS engaged_contacts,
+            SUM(CASE WHEN ce.event_type='open'  THEN 1 ELSE 0 END) AS open_count,
+            SUM(CASE WHEN ce.event_type='click' THEN 1 ELSE 0 END) AS click_count,
+            SUM(CASE WHEN ce.event_type='reply' THEN 1 ELSE 0 END) AS reply_count,
+            MAX(ce.created_at) AS last_engagement_at
+          FROM campaign_events ce
+          JOIN campaign_recipients cr ON cr.id = ce.recipient_id
+          JOIN contacts c ON c.id = cr.contact_id
+          JOIN accounts a ON a.id = c.account_id
+          WHERE 1=1${srch}
+          GROUP BY a.id, a.name, a.marina_type, a.state_province
+          ORDER BY last_engagement_at DESC NULLS LAST
+          LIMIT ${EXPORT_CAP}
+        `))).rows as any[];
+
+        const COLS: CsvColumn[] = [
+          { key: "account_name",       header: "Account" },
+          { key: "marina_type",        header: "Type" },
+          { key: "state_province",     header: "Region" },
+          { key: "engaged_contacts",   header: "Engaged Contacts" },
+          { key: "open_count",         header: "Opens" },
+          { key: "click_count",        header: "Clicks" },
+          { key: "reply_count",        header: "Replies" },
+          { key: "last_engagement_at", header: "Last Engagement" },
+        ];
+        setCsvHeaders(res, `marketing_hot_accounts_${dateStr}.csv`);
+        return res.send(toCsv(rows, COLS));
+      }
+
+      return res.status(400).json({ message: `Unknown metric: ${metric}` });
+    } catch (err: any) {
+      console.error("[drilldown-export] GET /api/marketing/drilldown/export:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
