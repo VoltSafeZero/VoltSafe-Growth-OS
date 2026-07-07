@@ -1,0 +1,150 @@
+QA + ROLE/PERMISSION HARDENING — VoltSafe Team Calendar
+
+The VoltSafe Team Calendar feature is built, but before final acceptance, run a hard QA pass and fix any mismatches against the original requirements.
+
+Critical permission mismatch to verify/fix:
+Original requirement:
+Only these roles can create/edit/delete VoltSafe Team Calendar events:
+- Admin
+- Executive / Exec
+- Manager
+- CEO
+- CFO
+
+Implementation summary says backend write access currently allows only:
+- master_admin
+- admin
+- manager
+
+Task:
+1. Audit the actual role names used in the app/database/auth layer.
+2. Confirm how CEO, CFO, Exec, Executive, Admin, Manager, and master_admin are represented.
+3. Update the frontend permission gate and backend requireTeamCalendarEditor middleware so the intended roles can create/edit/delete.
+4. Ensure regular users remain view-only.
+5. Add regression tests for each allowed and denied role.
+
+Allowed writer roles should include all equivalent app role names for:
+- master_admin
+- admin
+- manager
+- executive
+- exec
+- ceo
+- cfo
+
+Do not guess blindly. Use the app’s actual existing role strings/patterns and normalize safely.
+
+Category mismatch:
+Original requested categories:
+- Project Milestone
+- Key Timeline
+- All-Staff Meeting
+- Team Event / Social
+- Company Update
+- Culture / People
+- Customer / Partner Milestone
+- Funding / Board / Investor
+- Product / Engineering
+- Operations
+- Other
+
+Implementation summary says current categories are:
+- All-Hands
+- Sprint
+- Milestone
+- OOO
+- Holiday
+- Training
+- Launch
+- Other
+
+Task:
+Replace or expand the category list to match the original business purpose. This is a company execution/team awareness calendar, not a personal HR absence calendar.
+
+Use these final categories:
+- Project Milestone
+- Key Timeline
+- All-Staff Meeting
+- Team Event / Social
+- Company Update
+- Culture / People
+- Customer / Partner Milestone
+- Funding / Board / Investor
+- Product / Engineering
+- Operations
+- Other
+
+Milestone status:
+Keep:
+- Planned
+- On Track
+- At Risk
+- Delayed
+- Completed
+
+Visibility behavior to verify:
+1. VoltSafe Team Calendar appears under a separate “Company Calendars” section.
+2. It is checked by default for all users.
+3. Unchecking it hides its events immediately.
+4. Re-checking it shows its events again.
+5. It stays separate from People Calendars / individual user email calendars.
+6. It does not reintroduce the previous bug where unchecked people calendars render anyway.
+
+Create/edit behavior to verify:
+1. Authorized users see “VoltSafe Team Calendar” in the New Event calendar selector.
+2. Regular users do not see that option.
+3. Authorized users can create VoltSafe Team Calendar events.
+4. Authorized users can edit/delete VoltSafe Team Calendar events.
+5. Regular users can click and view details only.
+6. Backend POST/PATCH/DELETE routes reject unauthorized users even if they manually call the API.
+
+Event rendering:
+1. Company events should display with a distinct visual style.
+2. Event card should show either “VoltSafe Team” or the category label.
+3. Day, Week, and Month views must all work.
+4. Today’s Agenda should respect the Company Calendar checkbox.
+5. No duplicate events.
+6. Company events must not depend on personal Google/email calendar sync.
+
+Data model sanity:
+Confirm teamCalendarEvents table supports:
+- id
+- title
+- description
+- startDateTime
+- endDateTime
+- allDay
+- category
+- source = voltsafe_team_calendar or equivalent
+- createdByUserId
+- updatedByUserId
+- createdAt
+- updatedAt
+- optional linkedProjectId if safe/existing
+- optional linkedAccountId / linkedCustomerId if safe/existing
+- milestoneStatus
+
+Do not add risky project/account links if the models/routes are not already stable. But confirm the schema can support future linking if appropriate.
+
+Tests to add/update:
+- Allowed role can create/edit/delete: master_admin
+- Allowed role can create/edit/delete: admin
+- Allowed role can create/edit/delete: manager
+- Allowed role can create/edit/delete: exec/executive
+- Allowed role can create/edit/delete: CEO
+- Allowed role can create/edit/delete: CFO
+- Regular user cannot create/edit/delete
+- Viewer can view event details
+- VoltSafe Team Calendar checked by default
+- Unchecked hides events
+- Checked shows events
+- Day/Week/Month all respect selected calendars
+- People Calendars remain opt-in
+- Categories match final approved category list
+- Backend rejects unauthorized write attempts
+
+Acceptance:
+- Run full calendar tests.
+- Run full build/typecheck if available.
+- Restart app and verify no server/Vite errors.
+- Report exact files changed and tests passed.

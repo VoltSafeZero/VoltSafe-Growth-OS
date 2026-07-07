@@ -232,12 +232,13 @@ const TEAM_CALENDAR_CATEGORIES = [
 
 const MILESTONE_STATUSES = [
   { value: "planned", label: "Planned" },
+  { value: "on_track", label: "On Track" },
   { value: "at_risk", label: "At Risk" },
   { value: "delayed", label: "Delayed" },
   { value: "completed", label: "Completed" },
 ] as const;
 
-const TEAM_CALENDAR_EDIT_ROLES = ["master_admin", "admin", "manager"] as const;
+const TEAM_CALENDAR_EDIT_ROLES = ["master_admin", "admin", "manager", "executive", "exec", "ceo", "cfo"] as const;
 
 type TeamCalendarEventRaw = {
   id: number;
@@ -3117,6 +3118,7 @@ function CompanyEventDetailDialog({
               ) : milestoneLabel ? (
                 <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${
                   milestoneStatus === "completed" ? "bg-green-500/10 border-green-500/30 text-green-500" :
+                  milestoneStatus === "on_track" ? "bg-blue-500/10 border-blue-500/30 text-blue-400" :
                   milestoneStatus === "at_risk" ? "bg-amber-500/10 border-amber-500/30 text-amber-500" :
                   milestoneStatus === "delayed" ? "bg-red-500/10 border-red-500/30 text-red-500" :
                   "bg-muted/50 border-border text-muted-foreground"

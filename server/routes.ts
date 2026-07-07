@@ -9429,7 +9429,7 @@ export async function registerRoutes(
   // ── VoltSafe Team Calendar ──────────────────────────────────────────────────
   // Company-wide shared calendar: visible to all, editable by admin/manager only.
 
-  const TEAM_CALENDAR_EDIT_ROLES = ["master_admin", "admin", "manager"];
+  const TEAM_CALENDAR_EDIT_ROLES = ["master_admin", "admin", "manager", "executive", "exec", "ceo", "cfo"];
 
   function requireTeamCalendarEditor(req: any, res: any, next: any) {
     const role = String((req.session as any).globalRole || "");
