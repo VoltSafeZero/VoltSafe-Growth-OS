@@ -1,0 +1,494 @@
+VoltSafe CMS — CEO Cockpit Phase 5: 1:1 Notes, Commitment Extraction, and Currents Update Drafts
+
+Current completed state:
+
+Today Page Phase 1:
+- GET /api/today/summary exists behind requireAuth
+- Today page is an executive operating cockpit
+- sections include Priority Actions, Schedule, Tasks, Inbox, CURRENTS, Pipeline, Marketing, Operations, Capital, Favorites/Recents
+- Capital summary is isolated in server/services/today-capital-summary.ts
+- drilldown chips open UniversalDrilldownSheet
+
+Today Page Phase 2:
+- section ordering
+- hide/show sections
+- pin/unpin sections
+- compact mode
+- priority action sorting
+- snooze
+- mark task complete
+- create follow-up task
+- per-section refresh
+- safe localStorage preferences
+
+CEO Cockpit Phase 4:
+- GET /api/today/ceo-cockpit exists behind requireAuth + requireAdmin
+- Today has My Day / CEO Cockpit toggle
+- CEO Cockpit includes:
+  - Team Pulse
+  - Blockers
+  - Silence Watch
+  - Commitments
+  - 1:1 Operating System
+  - CEO Attention
+  - Communication Hotspots
+- “Ask for Update” is currently clipboard-copy only
+- 1:1 detection is currently pattern-matched from calendar event titles
+- commitments currently come from tasks with source = meeting_note or follow_up
+- tests pass:
+  - ceo-cockpit.test.cjs
+  - today-cockpit.test.cjs
+  - today-personalization.test.cjs
+  - capital-hardening.test.cjs
+  - currents-search/files tests
+  - drilldown tests
+  - nav tests
+  - npm run build
+
+Goal:
+Close the executive operating loop.
+
+CEO Cockpit should not only detect signals. It should help Trevor:
+- prepare for 1:1s
+- capture notes during/after 1:1s
+- extract commitments from notes
+- create/track follow-up tasks
+- draft update requests to team members in CURRENTS
+- see whether commitments actually moved after the meeting
+
+Important philosophy:
+Build this as a coaching, unblock, and accountability system — not surveillance.
+Do not track keystrokes.
+Do not track mouse movement.
+Do not shame team members.
+Do not auto-send messages.
+Do not expose private DMs/channels unless Trevor is a member.
+Do not fabricate commitments.
+Do not rely on AI-only inference without user review.
+
+1. Audit existing 1:1, notes, tasks, and CURRENTS infrastructure
+
+Before writing code, inspect:
+- server/services/ceo-cockpit.ts
+- GET /api/today/ceo-cockpit route
+- client/src/components/today/ceo-cockpit-sections.tsx
+- client/src/pages/today.tsx
+- meeting notes schema/routes/pages
+- calendar event schema/routes/pages
+- task creation/completion APIs
+- task source/source_id patterns
+- CURRENTS message/channel/DM composer infrastructure
+- CURRENTS DM membership model
+- user/team schema
+- AI service helpers if available
+- existing Cortex/AI extraction patterns if available
+- existing permissions/role model
+- tests/ceo-cockpit.test.cjs
+
+Document:
+- where meeting notes currently live
+- whether 1:1 notes have a dedicated structure
+- whether tasks can link back to meeting notes
+- whether CURRENTS DM draft/prefill exists
+- whether AI helpers can be safely reused
+- what should remain deterministic/manual in this phase
+
+2. Add 1:1 notes data model if needed
+
+If a dedicated 1:1 notes table does not exist, add one.
+
+Suggested table:
+
+one_on_one_notes
+- id
+- owner_user_id                 -- CEO/user creating the note
+- team_member_user_id           -- person the 1:1 is with
+- calendar_event_id nullable
+- title
+- meeting_date
+- notes_text
+- wins_text nullable
+- blockers_text nullable
+- priorities_text nullable
+- support_needed_text nullable
+- decisions_text nullable
+- followups_text nullable
+- private_to_owner boolean default true
+- created_at
+- updated_at
+- deleted_at nullable
+
+Important:
+- Notes are private to the creator by default.
+- Do not expose 1:1 notes broadly.
+- Do not store notes in localStorage.
+- Do not make notes visible to the team member unless explicitly designed later.
+
+If an existing meeting-notes system is strong enough:
+- reuse it
+- add a type/category for one_on_one
+- preserve existing behavior
+
+3. Backend 1:1 notes APIs
+
+Add safe APIs:
+
+GET /api/today/ceo-cockpit/one-on-ones/:teamMemberId/notes
+POST /api/today/ceo-cockpit/one-on-ones/:teamMemberId/notes
+PATCH /api/today/ceo-cockpit/one-on-ones/notes/:noteId
+DELETE /api/today/ceo-cockpit/one-on-ones/notes/:noteId
+
+Requirements:
+- requireAuth
+- requireAdmin or same CEO/executive guard used by CEO Cockpit
+- verify note owner
+- no normal user access
+- no broad team visibility
+- validate teamMemberId
+- sanitize/bound note length
+- soft delete preferred
+- return safe metadata only
+- no Capital data mixed into 1:1 notes unless explicitly in note text by user
+
+4. 1:1 agenda builder
+
+Add endpoint:
+
+GET /api/today/ceo-cockpit/one-on-ones/:teamMemberId/agenda
+
+This should build a deterministic agenda from real data.
+
+Agenda sections:
+- open commitments
+- overdue tasks
+- blockers
+- stale work items
+- recent wins/progress
+- upcoming priorities
+- decisions needed
+- support needed
+- prior 1:1 follow-ups
+- suggested questions
+
+Rules:
+- use local DB-backed data
+- cap each section
+- no external APIs
+- no AI required
+- every agenda item must have a reason/source
+- no shaming language
+- do not invent agenda items
+
+Suggested question examples:
+- “What is the biggest blocker I can help remove?”
+- “What changed since our last 1:1?”
+- “Which commitment is at risk?”
+- “What decision do you need from me?”
+- “What should we stop doing?”
+
+5. Commitment extraction from 1:1 notes
+
+Add a reviewed extraction flow.
+
+When a 1:1 note is saved, the user should be able to click:
+
+“Extract commitments”
+
+The system should identify candidate commitments from:
+- action items section
+- followups_text
+- notes_text if safe
+- deterministic patterns first:
+  - “I will…”
+  - “Follow up…”
+  - “Need to…”
+  - “By Friday…”
+  - checkbox-style lines
+  - owner/date phrases
+
+Optional AI:
+- If existing AI helper is safe, add AI-assisted extraction
+- AI output must be review-only
+- AI must not create tasks automatically
+- AI must preserve exact wording where possible
+- AI must not invent owners/dates
+- deterministic fallback must work without AI/API keys
+
+Add endpoint:
+
+POST /api/today/ceo-cockpit/one-on-ones/notes/:noteId/extract-commitments
+
+Response:
+{
+  candidates: [
+    {
+      title,
+      owner_user_id,
+      due_date nullable,
+      source_quote,
+      confidence,
+      suggested_priority,
+      needs_review: true
+    }
+  ],
+  warnings
+}
+
+6. Create tasks from reviewed commitments
+
+Add endpoint:
+
+POST /api/today/ceo-cockpit/one-on-ones/notes/:noteId/commitments
+
+Body:
+{
+  commitments: [
+    {
+      title,
+      owner_user_id,
+      due_date,
+      priority,
+      source_quote
+    }
+  ]
+}
+
+Requirements:
+- require CEO/executive guard
+- user must review candidates first
+- create tasks using existing task system
+- source should be one_on_one_note
+- source_id should reference noteId if task schema supports it
+- link task to team_member_user_id where possible
+- return created task IDs
+- do not create duplicate tasks if same note/candidate already converted
+- do not assign tasks to invalid users
+- do not auto-create commitments from AI without review
+
+7. Commitment movement tracking
+
+Enhance CEO Cockpit commitments section.
+
+For each commitment/task sourced from 1:1:
+Show:
+- owner
+- source 1:1 note/date
+- due date
+- status
+- days since created
+- days overdue
+- last update timestamp
+- whether it moved since last 1:1
+- link to source note
+- link to task
+
+Signal labels:
+- On track
+- Due soon
+- Overdue
+- No movement
+- Blocked
+- Completed
+
+Do not create productivity scores.
+
+8. Currents update draft / Ask for Update
+
+Upgrade “Ask for Update” from clipboard-only to a safer draft/prefill flow if possible.
+
+Preferred behavior:
+- open CURRENTS DM composer with a prefilled draft
+- do not auto-send
+- user must click Send manually
+
+Fallback behavior:
+- copy suggested message to clipboard
+- show toast
+- link to CURRENTS DM
+
+Suggested endpoint if needed:
+
+POST /api/today/ceo-cockpit/update-draft
+
+Body:
+{
+  target_user_id,
+  source_type,
+  source_id,
+  message
+}
+
+Response:
+{
+  draft_text,
+  dm_conversation_id nullable,
+  currents_link nullable
+}
+
+Requirements:
+- require CEO/executive guard
+- target_user_id must be valid internal user
+- do not auto-send
+- do not create real CURRENTS message unless user explicitly sends from composer
+- do not expose private DMs user is not part of
+- store draft only if existing draft infrastructure exists; otherwise use prefill/copy
+- message must be editable
+
+Suggested message:
+“Quick check-in — can you post a brief update on this today? Please include: current status, blocker if any, and next step.”
+
+9. Frontend 1:1 operating UI
+
+Enhance CEO Cockpit 1:1 section.
+
+For each team member:
+- View Agenda
+- Add 1:1 Note
+- View Prior Notes
+- Extract Commitments
+- Review Commitment Candidates
+- Create Tasks from selected commitments
+- Ask for Update
+
+UI behavior:
+- agenda accordion/drawer
+- notes editor modal/sheet
+- prior notes list
+- extraction candidate review checklist
+- created task confirmation
+- source links back to note/task
+- loading/error states
+- empty states
+
+Do not make the main Today page overwhelming.
+Use expandable drawers/sheets.
+
+10. 1:1 note template
+
+Add structured note template fields:
+
+- Wins / progress
+- Blockers
+- Priorities
+- Support needed from CEO
+- Decisions made
+- Follow-ups / commitments
+- Notes
+
+Allow freeform text too.
+
+Add placeholder prompts:
+- “What changed since last 1:1?”
+- “What is blocked?”
+- “What decision does Trevor need to make?”
+- “What commitment should be tracked?”
+
+11. Privacy and permission model
+
+Must prove:
+- normal users cannot access CEO 1:1 APIs
+- team members cannot read Trevor’s private 1:1 notes unless future sharing exists
+- notes are private to owner by default
+- Capital data not mixed into generic 1:1 notes
+- CURRENTS private content remains membership-gated
+- update drafts do not auto-send
+- AI extraction is review-only
+- no sensitive note text stored in localStorage
+- no raw tokens/storage keys/IPs exposed
+
+12. Tests
+
+Add:
+
+tests/ceo-one-on-ones.test.cjs
+
+Backend/source checks:
+- one_on_one_notes table or equivalent exists
+- 1:1 notes APIs exist
+- requireAuth exists
+- executive/admin guard exists
+- note owner checks exist
+- note length bounds exist
+- soft delete exists if implemented
+- agenda endpoint exists
+- agenda builder is deterministic
+- commitment extraction endpoint exists
+- extraction is review-only
+- task creation from reviewed commitments exists
+- task source = one_on_one_note or equivalent exists
+- duplicate prevention exists
+- update-draft endpoint or copy/prefill flow exists
+- no auto-send calls
+- no external API dependency
+- no raw token/storage key/IP exposure
+
+Frontend/source checks:
+- 1:1 agenda UI exists
+- Add 1:1 Note UI exists
+- structured note template fields exist
+- prior notes UI exists
+- Extract Commitments button exists
+- candidate review checklist exists
+- Create Tasks from selected commitments exists
+- Ask for Update draft/prefill/copy action exists
+- loading/error/empty states exist
+- no sensitive note text stored in localStorage
+- no shaming language appears
+
+Regression:
+- ceo-cockpit.test.cjs still passes
+- today-cockpit.test.cjs still passes
+- today-personalization.test.cjs still passes
+- capital-hardening.test.cjs still passes
+- currents-search/files tests still pass
+- work/operations/marketing/pipeline/insights drilldown tests still pass
+- nav tests still pass
+- npm run build passes
+
+13. Validation
+
+Run:
+- ceo-one-on-ones.test.cjs
+- ceo-cockpit.test.cjs
+- today-cockpit.test.cjs
+- today-personalization.test.cjs
+- capital-hardening.test.cjs
+- currents-search.test.cjs
+- currents-files-tab.test.cjs
+- work-drilldown.test.cjs
+- operations-drilldown.test.cjs
+- marketing-drilldown.test.cjs
+- pipeline-drilldown.test.cjs
+- insights-drilldown.test.cjs
+- nav-drift.test.cjs
+- nav-consolidation.test.cjs
+- startup-invariants.test.cjs
+- npm run build
+
+Deliver:
+- audit summary
+- data model / reuse decision
+- API details
+- 1:1 agenda behavior
+- notes UI behavior
+- commitment extraction behavior
+- task creation behavior
+- Currents update draft behavior
+- permission/security confirmation
+- files changed
+- tests run and results
+- known limitations
+- recommended next phase
+
+Guardrails:
+- Do not modify unrelated modules.
+- Do not weaken permissions.
+- Do not expose private 1:1 notes to team members.
+- Do not expose Capital to non-Capital users.
+- Do not expose private DMs/channels unless user is a member.
+- Do not auto-send CURRENTS messages.
+- Do not auto-create AI commitments without user review.
+- Do not fabricate commitments.
+- Do not use shaming language.
+- Do not track keystrokes, mouse movement, or invasive activity.
+- Do not store sensitive note text in localStorage.
