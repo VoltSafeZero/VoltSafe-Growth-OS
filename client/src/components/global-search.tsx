@@ -9,8 +9,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, User, Building2, Mail, ArrowRight, LayoutDashboard } from "lucide-react";
+import { Search, User, Building2, Mail, ArrowRight, LayoutDashboard, Clock, Star } from "lucide-react";
 import { PAGE_NAV_INDEX, type PageNavEntry } from "@/lib/nav-config";
+import { useRecentPages } from "@/hooks/use-recent-pages";
+import { usePageFavorites } from "@/hooks/use-page-favorites";
 
 interface SearchResult {
   type: "contact" | "account" | "email";
@@ -92,12 +94,14 @@ function useGlobalSearch(query: string) {
 // still surface as navigable results even after the sidebar consolidation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function matchPageNav(query: string, isCapitalUser?: boolean): PageNavEntry[] {
+function matchPageNav(query: string, isCapitalUser?: boolean, isAdmin?: boolean): PageNavEntry[] {
   if (!query.trim() || query.length < 2) return [];
   const q = query.toLowerCase();
   return PAGE_NAV_INDEX.filter(p => {
     // Capital-only pages are hidden from non-Capital users — security gate
     if (p.capitalOnly && !isCapitalUser) return false;
+    // Admin-only pages are hidden from non-admin users — security gate
+    if (p.adminOnly && !isAdmin) return false;
     if (p.name.toLowerCase().includes(q)) return true;
     if (p.aliases?.some(a => a.toLowerCase().includes(q))) return true;
     if (p.section.toLowerCase().includes(q)) return true;
@@ -125,16 +129,19 @@ interface GlobalSearchProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   isCapitalUser?: boolean;
+  isAdmin?: boolean;
 }
 
-export function GlobalSearch({ open, onOpenChange, isCapitalUser = false }: GlobalSearchProps) {
+export function GlobalSearch({ open, onOpenChange, isCapitalUser = false, isAdmin = false }: GlobalSearchProps) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
   const { results, loading } = useGlobalSearch(query);
+  const { recents } = useRecentPages(isCapitalUser, isAdmin);
+  const { favorites } = usePageFavorites(isCapitalUser, isAdmin);
 
-  const pageNavResults = matchPageNav(query, isCapitalUser);
+  const pageNavResults = matchPageNav(query, isCapitalUser, isAdmin);
   const totalResults = pageNavResults.length + results.length;
 
   useEffect(() => {
@@ -214,8 +221,60 @@ export function GlobalSearch({ open, onOpenChange, isCapitalUser = false }: Glob
         {/* Results */}
         <div className="max-h-[400px] overflow-y-auto py-1">
           {!query.trim() || query.length < 2 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground/60">
-              Type at least 2 characters to search
+            <div data-testid="search-empty-state">
+              {favorites.length > 0 && (
+                <div data-testid="search-favorites-section">
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 flex items-center gap-1.5">
+                    <Star className="w-3 h-3" />
+                    Favorites
+                  </div>
+                  {favorites.slice(0, 4).map(fav => (
+                    <button
+                      key={fav.url}
+                      onClick={() => { onOpenChange(false); navigate(fav.url); }}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-secondary/50 transition-colors text-foreground/90"
+                      data-testid={`search-fav-${fav.url.replace(/\//g, "-")}`}
+                    >
+                      <span className="p-1 rounded-md border bg-amber-500/10 text-amber-400 border-amber-500/20">
+                        <Star className="w-3.5 h-3.5 shrink-0" />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{fav.label}</p>
+                        <p className="text-xs text-muted-foreground truncate">{fav.section}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {recents.length > 0 && (
+                <div data-testid="search-recents-section">
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 flex items-center gap-1.5">
+                    <Clock className="w-3 h-3" />
+                    Recent
+                  </div>
+                  {recents.slice(0, 5).map(r => (
+                    <button
+                      key={r.url}
+                      onClick={() => { onOpenChange(false); navigate(r.url); }}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-secondary/50 transition-colors text-foreground/90"
+                      data-testid={`search-recent-${r.url.replace(/\//g, "-")}`}
+                    >
+                      <span className="p-1 rounded-md border bg-muted text-muted-foreground border-border/50">
+                        <Clock className="w-3.5 h-3.5 shrink-0" />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{r.label}</p>
+                        <p className="text-xs text-muted-foreground truncate">{r.section}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {favorites.length === 0 && recents.length === 0 && (
+                <div className="py-8 text-center text-sm text-muted-foreground/60">
+                  Type at least 2 characters to search
+                </div>
+              )}
             </div>
           ) : loading && !hasAnyResults ? (
             <div className="px-3 py-2 space-y-1.5">

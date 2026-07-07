@@ -424,6 +424,7 @@ export type PageNavEntry = {
   section: string;
   aliases?: string[];
   capitalOnly?: true;
+  adminOnly?: true;
 };
 
 export const PAGE_NAV_INDEX: PageNavEntry[] = [
@@ -513,14 +514,35 @@ export const PAGE_NAV_INDEX: PageNavEntry[] = [
   // Learn
   { name: "Training",               url: "/training",               section: "Learn" },
   { name: "Help",                   url: "/help",                   section: "Learn" },
+  // Grouped landing pages (Nav Consolidation Phase 2)
+  { name: "Inbox & Mail",          url: "/work/inbox-mail",              section: "Work",      aliases: ["Inbox Hub", "Mail Hub"] },
+  { name: "Tasks & Execution",     url: "/work/tasks-execution",         section: "Work",      aliases: ["Task Hub Overview", "Execution Hub"] },
+  { name: "Calendar & Meetings",   url: "/work/calendar-meetings",       section: "Work",      aliases: ["Meetings Hub", "Calendar Hub"] },
+  { name: "Personal Settings",     url: "/work/personal-settings",       section: "Work",      aliases: ["My Settings", "Preferences Hub"] },
+  { name: "Leads & Accounts Hub",  url: "/pipeline/leads-accounts",      section: "Pipeline",  aliases: ["CRM Hub", "Leads Hub"] },
+  { name: "Quotes & Renewals Hub", url: "/pipeline/quotes-renewals",     section: "Pipeline",  aliases: ["Quotes Hub"] },
+  { name: "Outreach Hub",          url: "/pipeline/outreach",            section: "Pipeline",  aliases: ["Booking Outreach Hub"] },
+  { name: "Revenue Tools Hub",     url: "/pipeline/revenue-tools",       section: "Pipeline",  aliases: ["Price Lists Hub"] },
+  { name: "Install & Deployments Hub", url: "/operations/install-deployments", section: "Operations", aliases: ["Deployments Hub", "Install Hub"] },
+  { name: "Support Hub",           url: "/operations/support",           section: "Operations", aliases: ["Tickets Hub", "Support Overview"] },
+  { name: "Knowledge & Documents Hub", url: "/operations/knowledge-documents", section: "Operations", aliases: ["Docs Hub", "Documents Hub"] },
+  { name: "Revenue Intelligence Hub", url: "/insights/revenue-intelligence", section: "Insights", aliases: ["Rev Intel Hub"] },
+  { name: "Cortex Hub",            url: "/insights/cortex",              section: "Insights",  aliases: ["AI Hub", "Copilot Hub"] },
+  { name: "Simulators & Feedback Hub", url: "/insights/simulators-feedback", section: "Insights", aliases: ["Simulator Hub"] },
+  { name: "Partners Hub",          url: "/ecosystem/partners",           section: "Ecosystem", aliases: ["Partnership Hub", "Industry Hub"] },
+  { name: "Channels Hub",          url: "/ecosystem/channels",           section: "Ecosystem", aliases: ["Channel Partners Hub", "Gov Grants Hub"] },
+  { name: "Events & Media Hub",    url: "/ecosystem/events-media",       section: "Ecosystem", aliases: ["Events Hub", "Media Hub"] },
+  { name: "Users & Roles Hub",     url: "/admin/users-roles",            section: "Admin",     aliases: ["User Management Hub", "Role Hub"],                   adminOnly: true },
+  { name: "Mailboxes & Signatures Hub", url: "/admin/mailboxes-signatures", section: "Admin",  aliases: ["Mailbox Hub", "Signature Admin Hub"],               adminOnly: true },
+  { name: "System Settings Hub",   url: "/admin/system-settings",        section: "Admin",     aliases: ["Settings Hub", "Admin Settings Hub", "Config Hub"], adminOnly: true },
   // Admin
-  { name: "Users & Roles",          url: "/admin/users",            section: "Admin", aliases: ["Users", "Admin Users"] },
-  { name: "Task Hub Access",        url: "/admin/task-hub-access",  section: "Admin" },
-  { name: "Role Manager",           url: "/admin/roles",            section: "Admin", aliases: ["Roles"] },
-  { name: "Integrations",           url: "/admin/integrations",     section: "Admin" },
-  { name: "Mailboxes & Signatures", url: "/settings/mailbox",       section: "Admin", aliases: ["My Mailboxes", "Mailboxes"] },
-  { name: "User Signatures",        url: "/admin/signatures",       section: "Admin" },
-  { name: "System Settings",        url: "/settings",               section: "Admin", aliases: ["Settings"] },
-  { name: "Global Search",          url: "/search",                 section: "Admin" },
-  { name: "Automations",            url: "/automations",            section: "Admin" },
+  { name: "Users & Roles",          url: "/admin/users",            section: "Admin", aliases: ["Users", "Admin Users"],    adminOnly: true },
+  { name: "Task Hub Access",        url: "/admin/task-hub-access",  section: "Admin",                                      adminOnly: true },
+  { name: "Role Manager",           url: "/admin/roles",            section: "Admin", aliases: ["Roles"],                  adminOnly: true },
+  { name: "Integrations",           url: "/admin/integrations",     section: "Admin",                                      adminOnly: true },
+  { name: "Mailboxes & Signatures", url: "/settings/mailbox",       section: "Admin", aliases: ["My Mailboxes", "Mailboxes"], adminOnly: true },
+  { name: "User Signatures",        url: "/admin/signatures",       section: "Admin",                                      adminOnly: true },
+  { name: "System Settings",        url: "/settings",               section: "Admin", aliases: ["Settings"],               adminOnly: true },
+  { name: "Global Search",          url: "/search",                 section: "Admin",                                      adminOnly: true },
+  { name: "Automations",            url: "/automations",            section: "Admin",                                      adminOnly: true },
 ];

@@ -19,6 +19,7 @@ import { Header } from "@/components/dashboard/header";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { GlobalCreateContact } from "@/components/contacts/global-create-contact";
 import { isAdvisorRole } from "@/lib/nav-config";
+import { useRecentPagesTracker } from "@/hooks/use-recent-pages";
 import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
 import { DemoModeBanner } from "@/lib/demo-mode";
 import { DemoCalloutOverlay } from "@/components/demo-callout";
@@ -150,6 +151,28 @@ const InvestorPortalPage = lazy(() => import("@/pages/investor-portal"));
 const GlobalSearch = lazy(() => import("@/components/global-search").then(m => ({ default: m.GlobalSearch })));
 const DemonAtmospherics = lazy(() => import("@/components/demon-atmospherics").then(m => ({ default: m.DemonAtmospherics })));
 
+// ── Grouped landing pages (Nav Consolidation Phase 2) ─────────────────────────
+const WorkInboxMailPage           = lazy(() => import("@/pages/work-inbox-mail"));
+const WorkTasksExecutionPage      = lazy(() => import("@/pages/work-tasks-execution"));
+const WorkCalendarMeetingsPage    = lazy(() => import("@/pages/work-calendar-meetings"));
+const WorkPersonalSettingsPage    = lazy(() => import("@/pages/work-personal-settings"));
+const PipelineLeadsAccountsPage   = lazy(() => import("@/pages/pipeline-leads-accounts"));
+const PipelineQuotesRenewalsPage  = lazy(() => import("@/pages/pipeline-quotes-renewals"));
+const PipelineOutreachPage        = lazy(() => import("@/pages/pipeline-outreach"));
+const PipelineRevenueToolsPage    = lazy(() => import("@/pages/pipeline-revenue-tools"));
+const OpsInstallDeploymentsPage   = lazy(() => import("@/pages/operations-install-deployments"));
+const OpsSupportPage              = lazy(() => import("@/pages/operations-support"));
+const OpsKnowledgeDocsPage        = lazy(() => import("@/pages/operations-knowledge-documents"));
+const InsightsRevIntelPage        = lazy(() => import("@/pages/insights-revenue-intelligence"));
+const InsightsCortexPage          = lazy(() => import("@/pages/insights-cortex"));
+const InsightsSimulatorsPage      = lazy(() => import("@/pages/insights-simulators-feedback"));
+const EcoPartnersPage             = lazy(() => import("@/pages/ecosystem-partners"));
+const EcoChannelsPage             = lazy(() => import("@/pages/ecosystem-channels"));
+const EcoEventsMediaPage          = lazy(() => import("@/pages/ecosystem-events-media"));
+const AdminUsersRolesPage         = lazy(() => import("@/pages/admin-users-roles"));
+const AdminMailboxesSigsPage      = lazy(() => import("@/pages/admin-mailboxes-signatures"));
+const AdminSystemSettingsPage     = lazy(() => import("@/pages/admin-system-settings"));
+
 // ── Page-level loading fallback ───────────────────────────────────────────────
 function PageLoader() {
   return (
@@ -265,8 +288,12 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
   const perms = user.permissions ?? FULL_PERMISSIONS;
   const role = user.globalRole || "sales";
   const isAdvisor = isAdvisorRole(role);
+  const isUserAdmin = isAdmin(role);
   const [searchOpen, setSearchOpen] = useState(false);
   const [appLocation] = useLocation();
+
+  // Track page visits for the recents system (⌘K empty state)
+  useRecentPagesTracker(perms.capital === "edit", isUserAdmin);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -284,7 +311,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
     return (
       <>
         <Suspense fallback={null}>
-          <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} isCapitalUser={perms.capital === "edit"} />
+          <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} isCapitalUser={perms.capital === "edit"} isAdmin={isUserAdmin} />
         </Suspense>
         <AppShell user={user} onLogout={onLogout}>
           <ChunkErrorBoundary key={appLocation}>
@@ -471,6 +498,28 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
           </div>
         </div>
       )}</Route>
+
+      {/* ── Grouped landing pages (Nav Consolidation Phase 2) ───────────────── */}
+      <Route path="/work/inbox-mail">{() => wrap(<WorkInboxMailPage />)}</Route>
+      <Route path="/work/tasks-execution">{() => wrap(<WorkTasksExecutionPage />)}</Route>
+      <Route path="/work/calendar-meetings">{() => wrap(<WorkCalendarMeetingsPage />)}</Route>
+      <Route path="/work/personal-settings">{() => wrap(<WorkPersonalSettingsPage />)}</Route>
+      <Route path="/pipeline/leads-accounts">{() => guard("crm", isAdvisor ? <AccessDenied /> : <PipelineLeadsAccountsPage />)}</Route>
+      <Route path="/pipeline/quotes-renewals">{() => guard("quoting", isAdvisor ? <AccessDenied /> : <PipelineQuotesRenewalsPage />)}</Route>
+      <Route path="/pipeline/outreach">{() => guard("crm", isAdvisor ? <AccessDenied /> : <PipelineOutreachPage />)}</Route>
+      <Route path="/pipeline/revenue-tools">{() => guard("quoting", isAdvisor ? <AccessDenied /> : <PipelineRevenueToolsPage />)}</Route>
+      <Route path="/operations/install-deployments">{() => wrap(<OpsInstallDeploymentsPage />)}</Route>
+      <Route path="/operations/support">{() => wrap(<OpsSupportPage />)}</Route>
+      <Route path="/operations/knowledge-documents">{() => wrap(<OpsKnowledgeDocsPage />)}</Route>
+      <Route path="/insights/revenue-intelligence">{() => guard("crm", isAdvisor ? <AccessDenied /> : <InsightsRevIntelPage />)}</Route>
+      <Route path="/insights/cortex">{() => wrap(<InsightsCortexPage />)}</Route>
+      <Route path="/insights/simulators-feedback">{() => advisorBlock(<InsightsSimulatorsPage />)}</Route>
+      <Route path="/ecosystem/partners">{() => wrap(<EcoPartnersPage />)}</Route>
+      <Route path="/ecosystem/channels">{() => wrap(<EcoChannelsPage />)}</Route>
+      <Route path="/ecosystem/events-media">{() => wrap(<EcoEventsMediaPage />)}</Route>
+      <Route path="/admin/users-roles">{() => wrap(<AdminUsersRolesPage />)}</Route>
+      <Route path="/admin/mailboxes-signatures">{() => wrap(<AdminMailboxesSigsPage />)}</Route>
+      <Route path="/admin/system-settings">{() => wrap(<AdminSystemSettingsPage />)}</Route>
 
       <Route path="/tasks">{() => <Redirect to="/execution/tasks" />}</Route>
       <Route path="/leads">{() => <Redirect to="/opportunities" />}</Route>
