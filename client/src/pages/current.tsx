@@ -43,6 +43,9 @@ import {
   Lock,
   FileText,
   Upload,
+  ImageIcon,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -241,20 +244,47 @@ interface MentionMessage {
 // ── SearchResult ──────────────────────────────────────────────────────────────
 
 interface SearchResult {
-  id: number;
-  parentMessageId: number | null;
-  snippet: string;
-  userName: string;
-  createdAt: string;
-  channelSlug: string | null;
-  channelName: string | null;
+  resultType?: "message" | "file" | "channel" | "person";
+  id?: number;
+  parentMessageId?: number | null;
+  snippet?: string;
+  userName?: string;
+  userId?: number;
+  createdAt?: string;
+  channelSlug?: string | null;
+  channelName?: string | null;
+  conversationId?: number | null;
   isChannelArchived?: boolean;
-  objectType: string | null;
-  objectId: number | null;
-  attachmentNames: string[];
-  matchedAttachment: boolean;
-  actionUrl: string | null;
-  isReply: boolean;
+  objectType?: string | null;
+  objectId?: number | null;
+  attachmentNames?: string[];
+  matchedAttachment?: boolean;
+  actionUrl?: string | null;
+  isReply?: boolean;
+  // file-specific
+  attachmentId?: number;
+  originalName?: string;
+  mimeType?: string;
+  fileSizeBytes?: number;
+  uploaderName?: string;
+  messageId?: number;
+  downloadUrl?: string;
+  // channel-specific
+  isPrivate?: boolean;
+  description?: string | null;
+  lastActivityAt?: string | null;
+  // person-specific
+  displayName?: string;
+  email?: string;
+  avatarUrl?: string | null;
+}
+
+interface SearchResponse {
+  items: SearchResult[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -2020,21 +2050,117 @@ function SearchResultCard({
   query: string;
   onNavigate?: () => void;
 }) {
+  const rType = result.resultType ?? "message";
+
+  // ── File result ──────────────────────────────────────────────────────────
+  if (rType === "file") {
+    const fileKey = result.attachmentId ?? Math.random();
+    const ext = (result.originalName ?? "").split(".").pop()?.toLowerCase() ?? "";
+    const isImg = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext);
+    return (
+      <a
+        href={result.downloadUrl ?? "#"}
+        target="_blank"
+        rel="noreferrer"
+        className="block no-underline"
+        data-testid={`search-result-file-${fileKey}`}
+      >
+        <div className="w-full text-left rounded-xl px-3.5 py-3 border border-border/40 hover:border-primary/30 hover:bg-muted/30 transition-all group/src">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            {isImg ? <ImageIcon className="w-3 h-3 text-primary/60 shrink-0" /> : <Paperclip className="w-3 h-3 text-primary/60 shrink-0" />}
+            <span className="text-[10.5px] font-semibold text-primary/70 truncate">
+              {result.channelSlug ? `#${displaySlug(result.channelSlug)}` : "DM"}
+            </span>
+            <span className="ml-auto text-[10.5px] text-muted-foreground/40 shrink-0 tabular-nums">
+              {formatTs(result.createdAt ?? "")}
+            </span>
+          </div>
+          <p className="text-[12.5px] font-medium text-foreground/80 line-clamp-1 break-all mb-0.5">
+            {highlightMatch(result.originalName ?? "", query)}
+          </p>
+          <p className="text-[11px] text-muted-foreground/50">
+            {result.uploaderName ?? ""}
+            {result.fileSizeBytes ? ` · ${(result.fileSizeBytes / 1024).toFixed(0)} KB` : ""}
+          </p>
+          <div className="mt-2 flex justify-end">
+            <span className="text-[10.5px] text-primary/50 font-medium group-hover/src:text-primary transition-colors">Download →</span>
+          </div>
+        </div>
+      </a>
+    );
+  }
+
+  // ── Channel result ────────────────────────────────────────────────────────
+  if (rType === "channel") {
+    return (
+      <button
+        onClick={onNavigate}
+        className="block w-full"
+        data-testid={`search-result-channel-${result.channelSlug}`}
+      >
+        <div className="w-full text-left rounded-xl px-3.5 py-3 border border-border/40 hover:border-primary/30 hover:bg-muted/30 transition-all group/src">
+          <div className="flex items-center gap-1.5 mb-1">
+            {result.isPrivate ? <Lock className="w-3 h-3 text-primary/60 shrink-0" /> : <Hash className="w-3 h-3 text-primary/60 shrink-0" />}
+            <span className="text-[12.5px] font-semibold text-foreground/80 truncate">
+              {highlightMatch(result.channelName ?? result.channelSlug ?? "", query)}
+            </span>
+            {result.isPrivate && <span className="text-[9.5px] text-muted-foreground/40 ml-auto shrink-0">Private</span>}
+          </div>
+          {result.description && (
+            <p className="text-[11.5px] text-muted-foreground/60 line-clamp-1">{result.description}</p>
+          )}
+          <div className="mt-2 flex justify-end">
+            <span className="text-[10.5px] text-primary/50 font-medium group-hover/src:text-primary transition-colors">Open channel →</span>
+          </div>
+        </div>
+      </button>
+    );
+  }
+
+  // ── Person result ─────────────────────────────────────────────────────────
+  if (rType === "person") {
+    return (
+      <div
+        className="rounded-xl px-3.5 py-3 border border-border/40 hover:border-primary/30 hover:bg-muted/30 transition-all"
+        data-testid={`search-result-person-${result.userId}`}
+      >
+        <div className="flex items-center gap-2.5">
+          {result.avatarUrl ? (
+            <img src={result.avatarUrl} className="w-7 h-7 rounded-full object-cover shrink-0" alt={result.displayName ?? ""} />
+          ) : (
+            <div className={cn("w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[9px] font-bold text-white", avatarBg(result.userId ?? 0))}>
+              {initials(result.displayName ?? "")}
+            </div>
+          )}
+          <div className="min-w-0">
+            <p className="text-[12.5px] font-semibold text-foreground/80 truncate">
+              {highlightMatch(result.displayName ?? "", query)}
+            </p>
+            <p className="text-[11px] text-muted-foreground/50 truncate">{result.email ?? ""}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Message result (default) ──────────────────────────────────────────────
+  const msgId = result.id ?? 0;
   const sourceLabel = result.channelSlug
     ? `#${displaySlug(result.channelSlug)}`
+    : result.conversationId
+    ? "Direct Message"
     : result.objectType
     ? `${result.objectType.replace(/_/g, " ")} · ${result.objectId}`
     : "CURRENTS";
 
   const recordUrl = (() => {
-    if (result.channelSlug || !result.objectType || !result.objectId) return null;
+    if (result.channelSlug || result.conversationId || !result.objectType || !result.objectId) return null;
     const threadPart = result.parentMessageId ? `&thread=${result.parentMessageId}` : "";
-    const msgPart = `&message=${result.id}`;
+    const msgPart = `&message=${msgId}`;
     if (result.objectType === "lead") {
       return `/opportunities?selected=${result.objectId}&tab=current${msgPart}${threadPart}`;
     }
-    return buildRecordUrl(result.objectType, result.objectId) +
-      `?tab=current${msgPart}${threadPart}`;
+    return buildRecordUrl(result.objectType, result.objectId) + `?tab=current${msgPart}${threadPart}`;
   })();
 
   const inner = (
@@ -2042,30 +2168,23 @@ function SearchResultCard({
       <div className="flex items-center gap-1.5 mb-1.5 min-w-0">
         {result.channelSlug ? (
           <Hash className="w-3 h-3 text-primary/60 shrink-0" />
+        ) : result.conversationId ? (
+          <MessageSquare className="w-3 h-3 text-primary/60 shrink-0" />
         ) : (
           <MessageSquare className="w-3 h-3 text-primary/60 shrink-0" />
         )}
-        <span className="text-[10.5px] font-semibold text-primary/70 truncate">
-          {sourceLabel}
-        </span>
-        {result.isReply && (
-          <span className="text-[10px] text-muted-foreground/50 shrink-0">· thread</span>
-        )}
+        <span className="text-[10.5px] font-semibold text-primary/70 truncate">{sourceLabel}</span>
+        {result.isReply && <span className="text-[10px] text-muted-foreground/50 shrink-0">· thread</span>}
         {result.isChannelArchived && <ArchivedBadge />}
         <span className="ml-auto text-[10.5px] text-muted-foreground/40 shrink-0 tabular-nums">
-          {formatTs(result.createdAt)}
+          {formatTs(result.createdAt ?? "")}
         </span>
       </div>
       <div className="flex items-center gap-1.5 mb-1.5">
-        <div
-          className={cn(
-            "w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[7px] font-bold text-white",
-            avatarBg(result.id)
-          )}
-        >
-          {initials(result.userName)}
+        <div className={cn("w-4 h-4 rounded-full flex items-center justify-center shrink-0 text-[7px] font-bold text-white", avatarBg(msgId))}>
+          {initials(result.userName ?? "")}
         </div>
-        <span className="text-[11.5px] font-medium text-foreground/70">{result.userName}</span>
+        <span className="text-[11.5px] font-medium text-foreground/70">{result.userName ?? ""}</span>
       </div>
       {result.snippet ? (
         <p className="text-[12.5px] text-foreground/80 leading-relaxed line-clamp-2 break-words">
@@ -2074,13 +2193,10 @@ function SearchResultCard({
       ) : result.matchedAttachment ? (
         <p className="text-[12px] text-muted-foreground/50 italic">Matched in attached file</p>
       ) : null}
-      {result.matchedAttachment && result.attachmentNames.length > 0 && (
+      {result.matchedAttachment && (result.attachmentNames ?? []).length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
-          {result.attachmentNames.slice(0, 3).map((name, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted/50 text-muted-foreground border border-border/30 max-w-[160px] truncate"
-            >
+          {(result.attachmentNames ?? []).slice(0, 3).map((name, i) => (
+            <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted/50 text-muted-foreground border border-border/30 max-w-[160px] truncate">
               <Paperclip className="w-2.5 h-2.5 shrink-0" />
               <span className="truncate">{name}</span>
             </span>
@@ -2097,17 +2213,11 @@ function SearchResultCard({
 
   if (recordUrl) {
     return (
-      <a href={recordUrl} className="block no-underline" data-testid={`search-result-${result.id}`}>
-        {inner}
-      </a>
+      <a href={recordUrl} className="block no-underline" data-testid={`search-result-${msgId}`}>{inner}</a>
     );
   }
   return (
-    <button
-      onClick={onNavigate}
-      className="block w-full"
-      data-testid={`search-result-${result.id}`}
-    >
+    <button onClick={onNavigate} className="block w-full" data-testid={`search-result-${msgId}`}>
       {inner}
     </button>
   );
@@ -3047,49 +3157,73 @@ function TypingIndicator({
 
 // ── SearchPanel ───────────────────────────────────────────────────────────────
 
+type SearchType = "all" | "messages" | "files" | "channels" | "people";
+const SEARCH_TYPE_LABELS: Record<SearchType, string> = {
+  all: "All",
+  messages: "Messages",
+  files: "Files",
+  channels: "Channels",
+  people: "People",
+};
+
 function SearchPanel({
   onNavigate,
+  onNavigateDm,
 }: {
   onNavigate: (slug: string, messageId: number, threadId?: number) => void;
+  onNavigateDm?: (convId: number, messageId: number) => void;
 }) {
   const [query, setQuery] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
+  const [searchType, setSearchType] = useState<SearchType>("all");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 15;
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(query.trim()), 300);
+    const t = setTimeout(() => { setDebouncedQ(query.trim()); setPage(1); }, 350);
     return () => clearTimeout(t);
   }, [query]);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  useEffect(() => { setPage(1); }, [searchType]);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
   const {
-    data: results = [],
+    data: resp,
     isLoading,
     isError,
-  } = useQuery<SearchResult[]>({
-    queryKey: ["/api/current/search", debouncedQ],
-    queryFn: () =>
-      fetch(`/api/current/search?q=${encodeURIComponent(debouncedQ)}&limit=50`, {
-        credentials: "include",
-      }).then((r) => r.json()),
-    enabled: debouncedQ.length > 0,
+  } = useQuery<SearchResponse>({
+    queryKey: ["/api/current/search", debouncedQ, searchType, page],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        q: debouncedQ,
+        type: searchType,
+        page: String(page),
+        page_size: String(PAGE_SIZE),
+      });
+      return fetch(`/api/current/search?${params}`, { credentials: "include" }).then((r) => r.json());
+    },
+    enabled: debouncedQ.length >= 1,
     staleTime: 30_000,
+    placeholderData: keepPreviousData,
   });
+
+  const items   = resp?.items ?? [];
+  const total   = resp?.total ?? 0;
+  const totalPages = resp?.totalPages ?? 0;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Search bar */}
-      <div className="px-4 py-3 border-b border-border/60 shrink-0">
-        <div className="relative">
+      {/* Search bar + type tabs */}
+      <div className="px-4 pt-3 pb-0 border-b border-border/60 shrink-0">
+        <div className="relative mb-2.5">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50 pointer-events-none" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search messages, files, people…"
+            placeholder="Search messages, files, channels, people…"
             className={cn(
               "w-full pl-8 pr-8 py-1.5 text-[13px] rounded-lg border",
               "bg-muted/30 border-border/40 text-foreground placeholder:text-muted-foreground/40",
@@ -3099,7 +3233,7 @@ function SearchPanel({
           />
           {query && (
             <button
-              onClick={() => setQuery("")}
+              onClick={() => { setQuery(""); setPage(1); }}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
               data-testid="current-search-clear"
             >
@@ -3107,13 +3241,24 @@ function SearchPanel({
             </button>
           )}
         </div>
-        {debouncedQ && !isLoading && (
-          <p className="text-[10.5px] text-muted-foreground/40 mt-1.5 px-0.5">
-            {results.length === 0
-              ? "No results"
-              : `${results.length} result${results.length === 1 ? "" : "s"}`}
-          </p>
-        )}
+        {/* Type filter tabs */}
+        <div className="flex items-end gap-0 overflow-x-auto" data-testid="search-type-tabs">
+          {(["all", "messages", "files", "channels", "people"] as SearchType[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setSearchType(t)}
+              data-testid={`search-tab-${t}`}
+              className={cn(
+                "px-2.5 py-1.5 text-[11.5px] font-medium transition-colors border-b-2 -mb-px whitespace-nowrap shrink-0",
+                searchType === t
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground/50 hover:text-foreground hover:bg-muted/20",
+              )}
+            >
+              {SEARCH_TYPE_LABELS[t]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Results */}
@@ -3123,11 +3268,9 @@ function SearchPanel({
             <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4 ring-1 ring-primary/10">
               <Search className="w-6 h-6 text-primary/50" />
             </div>
-            <p className="text-[13.5px] font-semibold text-foreground/70 mb-1.5">
-              Search CURRENTS
-            </p>
+            <p className="text-[13.5px] font-semibold text-foreground/70 mb-1.5">Search CURRENTS</p>
             <p className="text-[12px] text-muted-foreground/60 max-w-[230px] leading-relaxed">
-              Find messages, files, and people across all channels and records.
+              Find messages, files, channels, and people across all your workspaces.
             </p>
           </div>
         )}
@@ -3144,30 +3287,81 @@ function SearchPanel({
           </div>
         )}
 
-        {debouncedQ && !isLoading && !isError && results.length === 0 && (
+        {debouncedQ && !isLoading && !isError && items.length === 0 && (
           <div className="flex flex-col items-center py-16 text-center select-none">
-            <p className="text-[13px] text-muted-foreground/60">
-              No results for &ldquo;{debouncedQ}&rdquo;
-            </p>
-            <p className="text-[11.5px] text-muted-foreground/40 mt-1">
-              Try different keywords.
-            </p>
+            <p className="text-[13px] text-muted-foreground/60">No results for &ldquo;{debouncedQ}&rdquo;</p>
+            <p className="text-[11.5px] text-muted-foreground/40 mt-1">Try different keywords or change the filter.</p>
           </div>
         )}
 
-        {results.map((r) => (
-          <SearchResultCard
-            key={r.id}
-            result={r}
-            query={debouncedQ}
-            onNavigate={
-              r.channelSlug
-                ? () => onNavigate(r.channelSlug!, r.id, r.parentMessageId ?? undefined)
-                : undefined
+        {debouncedQ && !isLoading && !isError && items.length > 0 && (
+          <p className="text-[10.5px] text-muted-foreground/40 mb-1" data-testid="search-result-count">
+            {total.toLocaleString()} result{total === 1 ? "" : "s"}
+            {totalPages > 1 ? ` · page ${page} of ${totalPages}` : ""}
+          </p>
+        )}
+
+        {items.map((r, idx) => {
+          const key = r.resultType === "message"
+            ? `msg-${r.id}`
+            : r.resultType === "file"
+            ? `file-${r.attachmentId}`
+            : r.resultType === "channel"
+            ? `ch-${r.channelSlug}`
+            : r.resultType === "person"
+            ? `person-${r.userId}`
+            : `item-${idx}`;
+
+          const handleNavigate = (() => {
+            if (r.resultType === "channel" && r.channelSlug) {
+              return () => onNavigate(r.channelSlug!, 0);
             }
-          />
-        ))}
+            if (r.resultType === "message") {
+              if (r.channelSlug) return () => onNavigate(r.channelSlug!, r.id!, r.parentMessageId ?? undefined);
+              if (r.conversationId && onNavigateDm) return () => onNavigateDm(r.conversationId!, r.id!);
+            }
+            return undefined;
+          })();
+
+          return (
+            <SearchResultCard
+              key={key}
+              result={r}
+              query={debouncedQ}
+              onNavigate={handleNavigate}
+            />
+          );
+        })}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-t border-border/40 bg-muted/5" data-testid="search-pagination">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            data-testid="search-page-prev"
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-[11.5px] font-medium transition-colors",
+              page <= 1 ? "text-muted-foreground/30 cursor-not-allowed" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+            )}
+          >
+            <ChevronLeft className="w-3.5 h-3.5" /> Prev
+          </button>
+          <span className="text-[11px] text-muted-foreground/50 tabular-nums">{page} / {totalPages}</span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            data-testid="search-page-next"
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-[11.5px] font-medium transition-colors",
+              page >= totalPages ? "text-muted-foreground/30 cursor-not-allowed" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+            )}
+          >
+            Next <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -3641,6 +3835,17 @@ export default function CurrentPage() {
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [threadRootId, setThreadRootId] = useState<number | null>(null);
   const [view, setView] = useState<"channel" | "mentions" | "search" | "structured" | "dm">("channel");
+  // In-conversation search state
+  const [inConvSearchOpen, setInConvSearchOpen] = useState(false);
+  const [inConvSearchQ, setInConvSearchQ] = useState("");
+  const [inConvSearchDebounced, setInConvSearchDebounced] = useState("");
+  // Load-older state
+  const [olderChannelCursor, setOlderChannelCursor] = useState<string | null>(null);
+  const [olderChannelMsgs, setOlderChannelMsgs] = useState<Message[]>([]);
+  const [loadingOlderChannel, setLoadingOlderChannel] = useState(false);
+  const [olderDmCursor, setOlderDmCursor] = useState<string | null>(null);
+  const [olderDmMsgs, setOlderDmMsgs] = useState<DmMessage[]>([]);
+  const [loadingOlderDm, setLoadingOlderDm] = useState(false);
   const [channelTab, setChannelTab] = useState<"messages" | "files" | "pins" | "structured">("messages");
   const [dmTab, setDmTab] = useState<"messages" | "files">("messages");
   const [selectedDmId, setSelectedDmId] = useState<number | null>(null);
@@ -3787,6 +3992,88 @@ export default function CurrentPage() {
   });
 
   const pinnedMessageIds = new Set(pins.map((p) => p.messageId));
+
+  // ── In-conv search debounce ───────────────────────────────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => setInConvSearchDebounced(inConvSearchQ.trim()), 350);
+    return () => clearTimeout(t);
+  }, [inConvSearchQ]);
+
+  // Reset in-conv search + older msgs when channel changes
+  useEffect(() => {
+    setInConvSearchOpen(false);
+    setInConvSearchQ("");
+    setInConvSearchDebounced("");
+    setOlderChannelMsgs([]);
+    setOlderChannelCursor(null);
+  }, [selectedSlug]);
+
+  // Reset older DM msgs when DM changes
+  useEffect(() => {
+    setOlderDmMsgs([]);
+    setOlderDmCursor(null);
+    setInConvSearchOpen(false);
+    setInConvSearchQ("");
+  }, [selectedDmId]);
+
+  // ── In-conv search query (scoped to current channel or DM) ───────────────
+  const { data: inConvSearchResp } = useQuery<SearchResponse>({
+    queryKey: ["/api/current/search", "conv", view === "dm" ? selectedDmId : selectedSlug, inConvSearchDebounced],
+    queryFn: () => {
+      const p = new URLSearchParams({ q: inConvSearchDebounced, scope: "current", page_size: "12" });
+      if (view === "channel" && selectedSlug) p.set("channel_slug", selectedSlug);
+      else if (view === "dm" && selectedDmId) p.set("conversation_id", String(selectedDmId));
+      return fetch(`/api/current/search?${p}`, { credentials: "include" }).then((r) => r.json());
+    },
+    enabled: inConvSearchDebounced.length >= 2 && inConvSearchOpen,
+    staleTime: 20_000,
+  });
+  const inConvSearchItems = inConvSearchResp?.items ?? [];
+
+  // ── Load-older handlers ───────────────────────────────────────────────────
+  async function handleLoadOlderChannel() {
+    if (!selectedSlug || loadingOlderChannel) return;
+    const cursor = olderChannelMsgs.length > 0 ? olderChannelMsgs[0].createdAt : messages[0]?.createdAt;
+    if (!cursor) return;
+    setLoadingOlderChannel(true);
+    try {
+      const r = await fetch(
+        `/api/current/channels/${encodeURIComponent(selectedSlug)}/messages?before=${encodeURIComponent(cursor)}`,
+        { credentials: "include" }
+      );
+      if (!r.ok) return;
+      const older: Message[] = await r.json();
+      older.reverse(); // backend returns DESC when before= given; flip to ASC
+      if (older.length > 0) {
+        setOlderChannelMsgs((prev) => [...older, ...prev]);
+        setOlderChannelCursor(older[0].createdAt);
+      }
+    } catch {
+      // silently ignore
+    } finally {
+      setLoadingOlderChannel(false);
+    }
+  }
+
+  async function handleLoadOlderDm() {
+    if (!selectedDmId || loadingOlderDm) return;
+    const cursor = olderDmMsgs.length > 0 ? olderDmMsgs[0].createdAt : dmMessages[0]?.createdAt;
+    if (!cursor) return;
+    setLoadingOlderDm(true);
+    try {
+      const r = await fetch(
+        `/api/current/dms/${selectedDmId}/messages?before=${encodeURIComponent(cursor)}`,
+        { credentials: "include" }
+      );
+      if (!r.ok) return;
+      const older: DmMessage[] = await r.json();
+      if (older.length > 0) setOlderDmMsgs((prev) => [...older, ...prev]);
+    } catch {
+      // silently ignore
+    } finally {
+      setLoadingOlderDm(false);
+    }
+  }
 
   // ── DM queries ────────────────────────────────────────────────────────────
 
@@ -5129,6 +5416,20 @@ export default function CurrentPage() {
                   : <Sparkles className="w-3 h-3" />}
                 <span className="hidden sm:inline">Summarize</span>
               </button>
+              <button
+                onClick={() => { setInConvSearchOpen((v) => !v); setInConvSearchQ(""); }}
+                data-testid="btn-conv-search-toggle"
+                title={inConvSearchOpen ? "Close search" : "Search in this conversation"}
+                className={cn(
+                  "shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] font-medium transition-colors",
+                  inConvSearchOpen
+                    ? "bg-primary/10 text-primary/80 hover:bg-primary/15"
+                    : "text-muted-foreground/50 hover:text-foreground hover:bg-muted/60",
+                )}
+              >
+                <Search className="w-3 h-3" />
+                <span className="hidden sm:inline">{inConvSearchOpen ? "Close" : "Search"}</span>
+              </button>
               {isAdmin && (
                 <button
                   data-testid="btn-edit-channel-header"
@@ -5152,6 +5453,60 @@ export default function CurrentPage() {
             </>
           )}
         </div>
+
+        {/* In-conversation search panel */}
+        {inConvSearchOpen && (view === "channel" || view === "dm") && (
+          <div className="border-b border-border/50 bg-muted/5 px-4 py-2.5 shrink-0" data-testid="in-conv-search-panel">
+            <div className="relative mb-2">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none" />
+              <input
+                value={inConvSearchQ}
+                onChange={(e) => setInConvSearchQ(e.target.value)}
+                placeholder={view === "channel" ? `Search in #${displaySlug(selectedSlug)}…` : "Search in this conversation…"}
+                autoFocus
+                data-testid="in-conv-search-input"
+                className={cn(
+                  "w-full pl-7 pr-7 py-1.5 text-[12.5px] rounded-lg border",
+                  "bg-background/80 border-border/40 text-foreground placeholder:text-muted-foreground/40",
+                  "focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40 transition-all"
+                )}
+              />
+              {inConvSearchQ && (
+                <button onClick={() => setInConvSearchQ("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground" data-testid="in-conv-search-clear">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            {inConvSearchDebounced.length >= 2 && (
+              <div className="space-y-1 max-h-56 overflow-y-auto" data-testid="in-conv-search-results">
+                {inConvSearchItems.length === 0 ? (
+                  <p className="text-[11.5px] text-muted-foreground/50 py-2 text-center">No messages found for &ldquo;{inConvSearchDebounced}&rdquo;</p>
+                ) : (
+                  inConvSearchItems.slice(0, 10).map((r) => (
+                    <button
+                      key={`iconv-${r.id}`}
+                      data-testid={`in-conv-result-${r.id}`}
+                      onClick={() => {
+                        if (r.id) setHighlight(r.id);
+                        setInConvSearchOpen(false);
+                        setInConvSearchQ("");
+                      }}
+                      className="w-full text-left rounded-lg px-3 py-2 hover:bg-muted/40 transition-colors border border-transparent hover:border-border/30"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <span className="text-[11px] font-medium text-foreground/70 truncate">{r.userName ?? ""}</span>
+                        <span className="text-[10px] text-muted-foreground/40 shrink-0 tabular-nums">{formatTs(r.createdAt ?? "")}</span>
+                      </div>
+                      <p className="text-[11.5px] text-foreground/60 line-clamp-1">
+                        {r.snippet ? highlightMatch(r.snippet, inConvSearchDebounced) : <span className="italic text-muted-foreground/40">No preview</span>}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Phase 19A: Slack-style tab row */}
         {(view === "channel" || view === "dm") && (
@@ -5210,9 +5565,12 @@ export default function CurrentPage() {
               setSelectedSlug(slug);
               setView("channel");
               setThreadRootId(threadId ?? null);
-              // Highlight the root message (visible in main list) when
-              // navigating to a reply; the reply itself is only in the thread panel.
               setHighlight(threadId ?? messageId);
+            }}
+            onNavigateDm={(convId, messageId) => {
+              setSelectedDmId(convId);
+              setView("dm");
+              setTimeout(() => setHighlight(messageId), 300);
             }}
           />
         ) : view === "structured" ? (
@@ -5319,7 +5677,45 @@ export default function CurrentPage() {
                   </div>
                 </div>
               ) : (
-                dmMessages.map((msg, i) => {
+                <>
+                  {/* DM Load older messages */}
+                  {(olderDmMsgs.length > 0 || dmMessages.length >= 100) && (
+                    <div className="flex justify-center py-3" data-testid="load-older-dm-wrapper">
+                      <button
+                        onClick={handleLoadOlderDm}
+                        disabled={loadingOlderDm}
+                        data-testid="btn-load-older-dm"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-medium text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/50 border border-border/30 transition-colors disabled:opacity-50"
+                      >
+                        {loadingOlderDm ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronLeft className="w-3 h-3" />}
+                        Load older messages
+                      </button>
+                    </div>
+                  )}
+                  {olderDmMsgs.map((msg) => (
+                    <div
+                      key={`older-dm-${msg.id}`}
+                      data-testid={`message-row-${msg.id}`}
+                      className={cn(msg.id === highlightedMsgId && "rounded-lg ring-1 ring-primary/30 bg-primary/[0.04] transition-all")}
+                    >
+                      <MessageRow
+                        key={msg.id}
+                        message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: [] }}
+                        isArchived={false}
+                        grouped={false}
+                        isAdmin={isAdmin}
+                        pinnedMessageIds={new Set()}
+                        onToggleReaction={(mid, emoji) => dmReactMutation.mutate({ messageId: mid, emoji })}
+                        onEdit={() => setEditingDmMessage(msg)}
+                        onDelete={() => dmDeleteMutation.mutate(msg.id)}
+                        onPin={() => {}}
+                        onOpenThread={() => {}}
+                        onMarkStructured={() => {}}
+                        onUnmarkStructured={() => {}}
+                      />
+                    </div>
+                  ))}
+                  {dmMessages.map((msg, i) => {
                   const prev = dmMessages[i - 1];
                   const isConsecutive =
                     prev &&
@@ -5632,6 +6028,44 @@ export default function CurrentPage() {
                 <EmptyFeed slug={selectedSlug} />
               ) : (
                 <>
+                  {/* Load older messages — shown when there are 100+ messages loaded */}
+                  {(olderChannelMsgs.length > 0 || messages.length >= 100) && (
+                    <div className="flex justify-center py-3" data-testid="load-older-channel-wrapper">
+                      <button
+                        onClick={handleLoadOlderChannel}
+                        disabled={loadingOlderChannel}
+                        data-testid="btn-load-older-channel"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-medium text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/50 border border-border/30 transition-colors disabled:opacity-50"
+                      >
+                        {loadingOlderChannel ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronLeft className="w-3 h-3" />}
+                        Load older messages
+                      </button>
+                    </div>
+                  )}
+                  {/* Older messages prepended */}
+                  {olderChannelMsgs.map((msg) => (
+                    <div
+                      key={`older-${msg.id}`}
+                      data-testid={`message-row-${msg.id}`}
+                      className={cn(msg.id === highlightedMsgId && "rounded-lg ring-1 ring-primary/30 bg-primary/[0.04] transition-all")}
+                    >
+                      <MessageRow
+                        message={msg}
+                        isArchived={isArchivedChannel}
+                        grouped={false}
+                        isAdmin={isAdmin}
+                        isArchived2={isArchivedChannel}
+                        pinnedMessageIds={pinnedMessageIds}
+                        onToggleReaction={(mid, emoji) => reactMutation.mutate({ messageId: mid, emoji })}
+                        onEdit={() => setEditingMessage(msg)}
+                        onDelete={() => deleteMutation.mutate(msg.id)}
+                        onPin={() => pinMutation.mutate({ slug: selectedSlug, messageId: msg.id })}
+                        onOpenThread={() => setThreadRootId(msg.id)}
+                        onMarkStructured={() => {}}
+                        onUnmarkStructured={() => {}}
+                      />
+                    </div>
+                  ))}
                   {messages.map((msg, i) => {
                     const isHighlighted = msg.id === highlightedMsgId;
                     const showDateDivider = !msg.deletedAt && msgIsNewDay(messages[i - 1]?.createdAt, msg.createdAt);

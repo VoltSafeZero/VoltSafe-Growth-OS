@@ -1,0 +1,294 @@
+CURRENTS Phase 3 — Search + Message History Polish
+
+Current completed state:
+
+CURRENTS attachments are complete:
+- drag/drop upload behavior is pinned by tests
+- message attachment display is pinned by tests
+- Files tab now uses GET /api/currents/files
+- Files tab supports search, file type filters, pagination, protected download/open links, and jump-to-message
+- CURRENTS permission/member checks are enforced
+- currents-files-tab.test.cjs, currents-drag-drop.test.cjs, currents-attachments.test.cjs, typing-indicators.test.cjs all pass
+
+Now improve CURRENTS search and message history.
+
+Goal:
+Users should be able to quickly find past messages, files, threads, people, channels, and decisions inside CURRENTS without scrolling forever.
+
+Primary user experience:
+- Search within the current channel or DM
+- Search globally across CURRENTS conversations the user has access to
+- Filter search results by messages, files, people, channels, date, and sender
+- Jump directly to a message result
+- Preserve existing message list behavior
+- Do not break typing indicators, attachments, drag/drop, or Files tab
+
+Do not modify unrelated modules.
+Do not weaken auth.
+Do not expose private channels or DMs.
+Do not proxy external APIs.
+Do not fake search results.
+
+1. Audit current CURRENTS search/history infrastructure
+
+Before writing code, inspect:
+- current.tsx
+- CURRENTS message list
+- channel/DM message loading APIs
+- current_messages schema
+- current_channels schema
+- current_conversations schema
+- current_conversation_members schema
+- attachment schema
+- Files tab endpoint
+- typing indicator code/tests
+- existing search components if any
+- existing command search/global search patterns
+- permissions/member access checks
+
+Document:
+- how messages are loaded today
+- whether search already exists
+- whether messages are paginated
+- how channel/DM access is checked
+- how jump-to-message currently works from Files tab
+- what can be reused
+
+2. Backend search endpoint
+
+Add:
+
+GET /api/currents/search
+
+Query params:
+- q
+- scope optional: current | all
+- channel_slug optional
+- conversation_id optional
+- type optional: all | messages | files | channels | people
+- sender_id optional
+- date_from optional
+- date_to optional
+- page
+- page_size
+
+Requirements:
+- require auth
+- q must be trimmed and bounded, e.g. max 200 chars
+- page_size capped at 100
+- scope=current searches only the active channel/DM
+- scope=all searches only channels/DMs the user can access
+- private channels require membership
+- DMs require current_conversation_members membership
+- unknown type returns 400
+- inaccessible channel/conversation returns 403 or safe 404
+- no raw SQL interpolation of q/type/scope
+- deleted messages excluded
+- deleted attachments excluded
+- raw storage keys excluded
+
+Result types:
+
+Message result:
+- type: message
+- message_id
+- channel_slug or conversation_id
+- channel/conversation label
+- sender_name
+- sender_id
+- snippet with matched term if practical
+- created_at
+- attachment_count
+- jump target metadata
+
+File result:
+- type: file
+- attachment_id
+- message_id
+- file_name
+- mime_type
+- file_size_bytes
+- uploader_name
+- channel/conversation label
+- created_at
+- downloadUrl if safe/protected
+- jump target metadata
+
+Channel result:
+- type: channel
+- channel_slug
+- channel_name
+- is_private
+- last_activity_at if available
+
+People result:
+- type: person
+- user_id
+- display_name
+- email if already visible in CURRENTS
+- shared channels/DM context if safe
+
+3. Current conversation search
+
+Add a search box in the active CURRENTS conversation header or toolbar.
+
+Behavior:
+- typing searches current channel/DM only
+- debounce 300ms
+- show loading state
+- show grouped results
+- clicking result jumps to message/file/channel/person where applicable
+- empty state: “No matches in this conversation”
+- clear search button
+
+Do not replace the main message composer.
+Do not interfere with typing indicators.
+
+4. Global CURRENTS search
+
+Add a CURRENTS search mode or page if practical.
+
+Options:
+- Search modal within CURRENTS
+- dedicated tab inside CURRENTS
+- or integrate with existing command search only if safe and simple
+
+Global CURRENTS search should:
+- search only accessible CURRENTS surfaces
+- show grouped results by type
+- let user filter by Messages / Files / Channels / People
+- support sender/date filters if practical
+- jump to result
+
+5. Jump to message polish
+
+Improve or reuse existing jump-to-message behavior.
+
+When clicking a search result:
+- switch to the correct channel/DM
+- switch to Messages tab if needed
+- attempt to scroll/highlight the target message
+- if exact scroll is not supported, show a toast:
+  “Opened conversation. Message: [snippet]”
+- avoid brittle hacks if virtualization/history loading makes exact scroll unsafe
+
+Add highlight state if practical:
+- temporary glow or outline on target message
+- fades after a few seconds
+
+6. Message history pagination / load older
+
+Audit whether CURRENTS currently loads only a fixed number of messages.
+
+If it does:
+- add or improve “Load older messages”
+- preserve current scroll position where practical
+- avoid loading massive history at once
+- keep message fetches paginated
+- ensure search can find older stored messages even if not currently loaded in the UI
+
+Do not rewrite the entire message virtualization system unless necessary.
+
+7. Search result UI
+
+Results should show:
+- icon/type
+- sender/uploader
+- snippet/file name
+- channel/DM context
+- date/time
+- attachment indicator
+- jump/open action
+
+Nice to have:
+- matched text highlighting
+- grouped headings
+- recent searches in localStorage
+- keyboard navigation
+
+Only add nice-to-haves if low risk.
+
+8. Permissions and privacy
+
+Verify:
+- non-members cannot search private channel messages
+- non-members cannot search DM messages
+- global search does not leak private channel names
+- global search does not leak DM participant names unless the user is a member
+- deleted messages are excluded
+- deleted attachments are excluded
+- raw storage keys are not returned
+- file download links remain protected
+- search result snippets do not expose inaccessible records
+
+9. Tests
+
+Add:
+
+tests/currents-search.test.cjs
+
+Backend/source checks:
+- /api/currents/search route exists
+- route requires auth
+- q is bounded/sanitized
+- page_size cap exists
+- type whitelist exists
+- scope whitelist exists
+- private channel access is checked
+- DM membership access is checked
+- deleted messages are excluded
+- deleted attachments are excluded
+- raw storage keys are not exposed
+- no unsafe SQL interpolation of q/type/scope
+
+Frontend/source checks:
+- current conversation search UI exists
+- search is debounced
+- loading state exists
+- empty state exists
+- clear search exists
+- grouped results exist
+- message/file result rendering exists
+- jump-to-message action exists
+- highlight/toast behavior exists where implemented
+- does not interfere with message composer
+- does not remove Files tab behavior
+
+Regression:
+- currents-files-tab.test.cjs still passes
+- currents-drag-drop.test.cjs still passes
+- currents-attachments.test.cjs still passes
+- typing-indicators.test.cjs still passes
+- nav tests still pass
+- startup-invariants still pass
+
+10. Validation
+
+Run:
+- currents-search.test.cjs
+- currents-files-tab.test.cjs
+- currents-drag-drop.test.cjs
+- currents-attachments.test.cjs
+- typing-indicators.test.cjs
+- nav-drift.test.cjs
+- nav-consolidation.test.cjs
+- startup-invariants.test.cjs
+- build if practical
+
+Deliver:
+- audit summary
+- endpoint details
+- UI behavior summary
+- permission/security confirmation
+- files changed
+- tests run and results
+- known limitations
+- recommended next phase
+
+Guardrails:
+- Do not modify unrelated modules.
+- Do not weaken auth.
+- Do not expose private channels or DMs.
+- Do not fake results.
+- Do not return unpaginated search results.
+- Do not break attachments, Files tab, drag/drop, or typing indicators.

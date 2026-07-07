@@ -34131,6 +34131,9 @@ export function registerConfluenceRoutes(app: Express) {
       if (chAccess === null) return res.status(404).json({ message: "Channel not found" });
       if (chAccess === 'forbidden') return res.status(403).json({ message: "Not a member of this private channel" });
       const escapedSlug = String(slug).replace(/'/g, "''");
+      // Load-older support: safe-strip before timestamp to ISO-8601 chars
+      const beforeParamCh = req.query.before ? String(req.query.before) : null;
+      const safeBeforeCh  = beforeParamCh ? beforeParamCh.replace(/[^0-9\-T:Z.]/g, "").slice(0, 40) : null;
       const rows = await db.execute(sql.raw(`
         SELECT
           m.id, m.channel_id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
@@ -34177,8 +34180,9 @@ export function registerConfluenceRoutes(app: Express) {
           SELECT id FROM current_channels WHERE slug = '${escapedSlug}' LIMIT 1
         )
           AND (m.parent_message_id IS NULL)
-        ORDER BY m.created_at ASC
-        LIMIT 200
+          ${safeBeforeCh ? `AND m.created_at < '${safeBeforeCh}'` : ""}
+        ORDER BY m.created_at ${safeBeforeCh ? "DESC" : "ASC"}
+        LIMIT ${safeBeforeCh ? 50 : 200}
       `));
       const messages = rows.rows.map((r: any) => ({
         id: r.id,
@@ -35397,125 +35401,289 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  // GET /api/current/search — ILIKE search across Current messages, authors, attachments
+  // GET /api/current/search — paginated search across messages, files, channels, people
   app.get("/api/current/search", requireAuth, async (req, res) => {
     try {
       const userId = getSessionUserId(req);
       const q = String(req.query.q || "").trim();
-      if (!q) return res.json([]);
+      if (!q) return res.json({ items: [], total: 0, page: 1, pageSize: 25, totalPages: 0 });
       if (q.length > 200) return res.status(400).json({ message: "Query too long" });
 
-      const scope = String(req.query.scope || "all");
-      const channelParam = req.query.channel ? String(req.query.channel) : null;
-      const objectTypeParam = req.query.objectType ? String(req.query.objectType) : null;
-      const objectIdParam = req.query.objectId ? Number(req.query.objectId) : null;
-      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+      // type whitelist — no user input interpolated
+      const typeParam = String(req.query.type || "all");
+      const SEARCH_TYPE_WHITELIST = new Set(["all", "messages", "files", "channels", "people"]);
+      if (!SEARCH_TYPE_WHITELIST.has(typeParam)) return res.status(400).json({ message: "Invalid type. Must be: all, messages, files, channels, people" });
 
-      // Escape single-quotes for SQL safety; wrap in % for ILIKE
+      // scope whitelist
+      const scopeParam = String(req.query.scope || "all");
+      const SEARCH_SCOPE_WHITELIST = new Set(["all", "current"]);
+      if (!SEARCH_SCOPE_WHITELIST.has(scopeParam)) return res.status(400).json({ message: "Invalid scope. Must be: all, current" });
+
+      // channel / conversation scoping
+      const channelSlugParam = req.query.channel_slug ? String(req.query.channel_slug)
+                             : req.query.channel ? String(req.query.channel) : null;
+      const convIdParam = req.query.conversation_id ? Number(req.query.conversation_id) : null;
+
+      // filters (numeric only — no interpolation risk for sender_id)
+      const senderIdParam = req.query.sender_id ? Number(req.query.sender_id) : null;
+      const dateFromParam = req.query.date_from ? String(req.query.date_from) : null;
+      const dateToParam   = req.query.date_to   ? String(req.query.date_to)   : null;
+
+      // pagination (backward-compat with old `limit` param)
+      const page     = Math.max(1, Number(req.query.page) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number(req.query.page_size) || Number(req.query.limit) || 25));
+      const offset   = (page - 1) * pageSize;
+
       const safeQ = q.replace(/'/g, "''");
-      const like = `%${safeQ}%`;
+      const like  = `%${safeQ}%`;
 
-      let scopeClause = "";
-      if (scope === "channel") scopeClause = "AND m.channel_id IS NOT NULL AND m.object_type IS NULL";
-      else if (scope === "record") scopeClause = "AND m.object_type IS NOT NULL";
-
-      let channelClause = "";
-      if (channelParam) {
-        const safeSlug = channelParam.replace(/[^a-zA-Z0-9_\-]/g, "").replace(/'/g, "''");
-        channelClause = `AND cc.slug = '${safeSlug}'`;
+      // Date clauses — strip to ISO-8601-safe chars only
+      let dateClause = "";
+      if (dateFromParam) {
+        const s = dateFromParam.replace(/[^0-9\-T:Z]/g, "").slice(0, 32);
+        if (s) dateClause += ` AND m.created_at >= '${s}'`;
+      }
+      if (dateToParam) {
+        const s = dateToParam.replace(/[^0-9\-T:Z]/g, "").slice(0, 32);
+        if (s) dateClause += ` AND m.created_at <= '${s}'`;
       }
 
-      let recordClause = "";
-      if (objectTypeParam && objectIdParam && objectIdParam > 0) {
-        const safeOT = objectTypeParam.replace(/[^a-zA-Z0-9_]/g, "");
-        recordClause = `AND m.object_type = '${safeOT}' AND m.object_id = ${objectIdParam}`;
-      }
+      // Sender clause (numeric — safe)
+      const senderClause = (senderIdParam && senderIdParam > 0) ? `AND m.user_id = ${senderIdParam}` : "";
 
-      const rows = await db.execute(sql.raw(`
-        SELECT
-          m.id,
-          m.channel_id,
-          m.object_type,
-          m.object_id,
-          m.user_id,
-          m.parent_message_id,
-          m.created_at,
-          CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
-          u.name AS user_name,
-          cc.slug AS channel_slug,
-          cc.name AS channel_name,
-          (cc.archived_at IS NOT NULL) AS is_channel_archived,
-          CASE WHEN m.deleted_at IS NOT NULL THEN '[]'::json
-               ELSE COALESCE(att.att_list, '[]'::json) END AS att_list,
-          EXISTS (
-            SELECT 1 FROM attachments ax
-            WHERE ax.object_type = 'current_message' AND ax.object_id = m.id
-              AND ax.original_name ILIKE '${like}'
-          ) AS matched_attachment
-        FROM current_messages m
-        JOIN users u ON u.id = m.user_id
-        LEFT JOIN current_channels cc ON cc.id = m.channel_id
-        LEFT JOIN LATERAL (
-          SELECT json_agg(
-            json_build_object('name', a.original_name) ORDER BY a.created_at
-          ) AS att_list
-          FROM attachments a
-          WHERE a.object_type = 'current_message' AND a.object_id = m.id
-        ) att ON true
-        WHERE m.deleted_at IS NULL
-          AND (
-            m.body ILIKE '${like}'
-            OR u.name ILIKE '${like}'
-            OR EXISTS (
-              SELECT 1 FROM attachments ay
-              WHERE ay.object_type = 'current_message' AND ay.object_id = m.id
-                AND ay.original_name ILIKE '${like}'
-            )
-          )
-          ${scopeClause}
-          ${channelClause}
-          ${recordClause}
-          AND (cc.id IS NULL OR cc.is_private = FALSE OR EXISTS (
-            SELECT 1 FROM current_channel_members WHERE channel_id = cc.id AND user_id = ${userId}
-          ))
-        ORDER BY m.created_at DESC
-        LIMIT ${limit}
-      `));
+      // ── Resolve scope ────────────────────────────────────────────────────────
+      let scopedChannelId: number | null = null;
+      let scopedConvId: number | null = null;
 
-      const results = (rows.rows as any[]).map((r) => {
-        // Strip mention tokens from snippet for clean display
-        const raw = (r.body as string | null) || "";
-        const snippet = raw.replace(/@\[([^\]]+)\]\(user:\d+\)/g, "@$1").slice(0, 240);
-
-        // Build deep-link actionUrl for channel messages
-        let actionUrl: string | null = null;
-        if (r.channel_slug) {
-          actionUrl = r.parent_message_id
-            ? `/current?channel=${r.channel_slug}&thread=${r.parent_message_id}&message=${r.id}`
-            : `/current?channel=${r.channel_slug}&message=${r.id}`;
+      if (scopeParam === "current") {
+        if (channelSlugParam) {
+          const chAccess = await resolveChannelAccess(userId, channelSlugParam);
+          if (!chAccess) return res.status(404).json({ message: "Channel not found" });
+          if (chAccess === "forbidden") return res.status(403).json({ message: "Not a member of this private channel" });
+          scopedChannelId = chAccess.id;
+        } else if (convIdParam && convIdParam > 0) {
+          const memRow = await db.execute(sql.raw(
+            `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convIdParam} AND user_id = ${userId} LIMIT 1`
+          ));
+          if (!memRow.rows.length) return res.status(403).json({ message: "Not a member of this conversation" });
+          scopedConvId = convIdParam;
         }
+      }
 
-        return {
-          id: Number(r.id),
-          parentMessageId: r.parent_message_id ? Number(r.parent_message_id) : null,
-          snippet,
-          userName: r.user_name,
-          createdAt: r.created_at,
+      // Build message-scope WHERE fragment
+      function buildMsgScope(): string {
+        if (scopedChannelId) return `AND m.channel_id = ${scopedChannelId}`;
+        if (scopedConvId)    return `AND m.conversation_id = ${scopedConvId}`;
+        // scope=all: public channels OR joined private channels OR DMs user is in
+        return `AND (
+          (m.channel_id IS NOT NULL AND (
+            cc.is_private = FALSE OR EXISTS (
+              SELECT 1 FROM current_channel_members WHERE channel_id = cc.id AND user_id = ${userId}
+            )
+          ))
+          OR (m.conversation_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM current_conversation_members WHERE conversation_id = m.conversation_id AND user_id = ${userId}
+          ))
+        )`;
+      }
+
+      // Build file-scope WHERE fragment (aliases: mAlias = current_messages, ccAlias = current_channels)
+      function buildFileScope(mAlias: string, ccAlias: string): string {
+        if (scopedChannelId) return `AND ${mAlias}.channel_id = ${scopedChannelId}`;
+        if (scopedConvId)    return `AND ${mAlias}.conversation_id = ${scopedConvId}`;
+        return `AND (
+          (${mAlias}.channel_id IS NOT NULL AND (
+            ${ccAlias}.is_private = FALSE OR EXISTS (
+              SELECT 1 FROM current_channel_members WHERE channel_id = ${ccAlias}.id AND user_id = ${userId}
+            )
+          ))
+          OR (${mAlias}.conversation_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM current_conversation_members WHERE conversation_id = ${mAlias}.conversation_id AND user_id = ${userId}
+          ))
+        )`;
+      }
+
+      let items: any[] = [];
+      let total = 0;
+
+      // ── Messages ─────────────────────────────────────────────────────────────
+      if (typeParam === "all" || typeParam === "messages") {
+        const msgScope = buildMsgScope();
+        const matchExpr = `(m.body ILIKE '${like}' OR u.name ILIKE '${like}'
+          OR EXISTS (SELECT 1 FROM attachments ax WHERE ax.object_type = 'current_message' AND ax.object_id = m.id AND ax.original_name ILIKE '${like}'))`;
+
+        const countRow = await db.execute(sql.raw(`
+          SELECT COUNT(*)::int AS total
+          FROM current_messages m
+          JOIN users u ON u.id = m.user_id
+          LEFT JOIN current_channels cc ON cc.id = m.channel_id
+          WHERE m.deleted_at IS NULL AND ${matchExpr} ${msgScope} ${senderClause} ${dateClause}
+        `));
+        total = Number((countRow.rows[0] as any)?.total ?? 0);
+
+        const dataRow = await db.execute(sql.raw(`
+          SELECT
+            m.id, m.channel_id, m.conversation_id, m.object_type, m.object_id,
+            m.user_id, m.parent_message_id, m.created_at,
+            CASE WHEN m.deleted_at IS NOT NULL THEN NULL ELSE m.body END AS body,
+            u.name AS user_name,
+            cc.slug AS channel_slug, cc.name AS channel_name,
+            (cc.archived_at IS NOT NULL) AS is_channel_archived,
+            COALESCE(att.att_list, '[]'::json) AS att_list,
+            EXISTS (SELECT 1 FROM attachments ax WHERE ax.object_type = 'current_message' AND ax.object_id = m.id AND ax.original_name ILIKE '${like}') AS matched_attachment
+          FROM current_messages m
+          JOIN users u ON u.id = m.user_id
+          LEFT JOIN current_channels cc ON cc.id = m.channel_id
+          LEFT JOIN LATERAL (
+            SELECT json_agg(json_build_object('name', a.original_name) ORDER BY a.created_at) AS att_list
+            FROM attachments a WHERE a.object_type = 'current_message' AND a.object_id = m.id
+          ) att ON true
+          WHERE m.deleted_at IS NULL AND ${matchExpr} ${msgScope} ${senderClause} ${dateClause}
+          ORDER BY m.created_at DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `));
+
+        items = (dataRow.rows as any[]).map((r) => {
+          const raw     = (r.body as string | null) || "";
+          const snippet = raw.replace(/@\[([^\]]+)\]\(user:\d+\)/g, "@$1").slice(0, 240);
+          let actionUrl: string | null = null;
+          if (r.channel_slug) {
+            actionUrl = r.parent_message_id
+              ? `/current?channel=${r.channel_slug}&thread=${r.parent_message_id}&message=${r.id}`
+              : `/current?channel=${r.channel_slug}&message=${r.id}`;
+          } else if (r.conversation_id) {
+            actionUrl = `/current?dm=${r.conversation_id}&message=${r.id}`;
+          }
+          return {
+            resultType: "message",
+            id: Number(r.id),
+            parentMessageId: r.parent_message_id ? Number(r.parent_message_id) : null,
+            snippet,
+            userName: r.user_name,
+            userId: Number(r.user_id),
+            createdAt: r.created_at,
+            channelSlug: r.channel_slug ?? null,
+            channelName: r.channel_name ?? null,
+            conversationId: r.conversation_id ? Number(r.conversation_id) : null,
+            isChannelArchived: Boolean(r.is_channel_archived),
+            objectType: r.object_type ?? null,
+            objectId: r.object_id ? Number(r.object_id) : null,
+            attachmentNames: Array.isArray(r.att_list) ? (r.att_list as any[]).map((a: any) => a.name as string) : [],
+            matchedAttachment: Boolean(r.matched_attachment),
+            actionUrl,
+            isReply: !!r.parent_message_id,
+          };
+        });
+
+      // ── Files ─────────────────────────────────────────────────────────────────
+      } else if (typeParam === "files") {
+        const fileScope  = buildFileScope("m", "cc");
+        const fileMatch  = `(a.original_name ILIKE '${like}' OR COALESCE(a.uploaded_by_name, u.name, '') ILIKE '${like}')`;
+        const fileBase   = `FROM attachments a
+          JOIN current_messages m ON m.id = a.object_id AND a.object_type = 'current_message'
+          LEFT JOIN users u ON u.id = a.uploaded_by
+          LEFT JOIN current_channels cc ON cc.id = m.channel_id
+          WHERE m.deleted_at IS NULL AND ${fileMatch} ${fileScope}`;
+
+        const fileCount = await db.execute(sql.raw(`SELECT COUNT(*)::int AS total ${fileBase}`));
+        total = Number((fileCount.rows[0] as any)?.total ?? 0);
+
+        const fileData = await db.execute(sql.raw(`
+          SELECT a.id AS attachment_id, a.file_name, a.original_name, a.mime_type, a.file_size,
+            COALESCE(a.uploaded_by_name, u.name, 'Unknown') AS uploader_name,
+            m.id AS message_id, m.conversation_id,
+            cc.slug AS channel_slug, cc.name AS channel_name,
+            a.created_at
+          ${fileBase}
+          ORDER BY a.created_at DESC LIMIT ${pageSize} OFFSET ${offset}
+        `));
+
+        items = (fileData.rows as any[]).map((r) => ({
+          resultType: "file",
+          attachmentId: Number(r.attachment_id),
+          originalName: r.original_name,
+          mimeType: r.mime_type,
+          fileSizeBytes: Number(r.file_size ?? 0),
+          uploaderName: r.uploader_name,
+          messageId: Number(r.message_id),
           channelSlug: r.channel_slug ?? null,
           channelName: r.channel_name ?? null,
-          isChannelArchived: Boolean(r.is_channel_archived),
-          objectType: r.object_type ?? null,
-          objectId: r.object_id ? Number(r.object_id) : null,
-          attachmentNames: Array.isArray(r.att_list)
-            ? (r.att_list as any[]).map((a) => a.name as string)
-            : [],
-          matchedAttachment: Boolean(r.matched_attachment),
-          actionUrl,
-          isReply: !!r.parent_message_id,
-        };
-      });
+          conversationId: r.conversation_id ? Number(r.conversation_id) : null,
+          downloadUrl: `/api/attachments/file/${r.file_name}`,
+          createdAt: r.created_at,
+        }));
 
-      res.json(results);
+      // ── Channels ──────────────────────────────────────────────────────────────
+      } else if (typeParam === "channels") {
+        const chanBase = `FROM current_channels cc
+          WHERE cc.archived_at IS NULL
+            AND (cc.name ILIKE '${like}' OR cc.slug ILIKE '${like}')
+            AND (cc.is_private = FALSE OR EXISTS (
+              SELECT 1 FROM current_channel_members WHERE channel_id = cc.id AND user_id = ${userId}
+            ))`;
+
+        const chanCount = await db.execute(sql.raw(`SELECT COUNT(*)::int AS total ${chanBase}`));
+        total = Number((chanCount.rows[0] as any)?.total ?? 0);
+
+        const chanData = await db.execute(sql.raw(`
+          SELECT cc.id, cc.name, cc.slug, cc.is_private, cc.description,
+            (SELECT MAX(m.created_at) FROM current_messages m WHERE m.channel_id = cc.id AND m.deleted_at IS NULL) AS last_activity_at
+          ${chanBase}
+          ORDER BY last_activity_at DESC NULLS LAST
+          LIMIT ${pageSize} OFFSET ${offset}
+        `));
+
+        items = (chanData.rows as any[]).map((r) => ({
+          resultType: "channel",
+          channelSlug: r.slug,
+          channelName: r.name,
+          isPrivate: Boolean(r.is_private),
+          description: r.description ?? null,
+          lastActivityAt: r.last_activity_at ?? null,
+        }));
+
+      // ── People ────────────────────────────────────────────────────────────────
+      } else if (typeParam === "people") {
+        // Only return users visible via shared channels/DMs — never leaks private context
+        const pplBase = `FROM users u
+          WHERE (u.name ILIKE '${like}' OR u.email ILIKE '${like}')
+            AND (
+              EXISTS (
+                SELECT 1 FROM current_channel_members ccm
+                JOIN current_channels cc ON cc.id = ccm.channel_id
+                WHERE ccm.user_id = u.id
+                  AND (cc.is_private = FALSE OR EXISTS (
+                    SELECT 1 FROM current_channel_members cm2
+                    WHERE cm2.channel_id = cc.id AND cm2.user_id = ${userId}
+                  ))
+              )
+              OR EXISTS (
+                SELECT 1 FROM current_conversation_members cm1
+                JOIN current_conversation_members cm2 ON cm1.conversation_id = cm2.conversation_id
+                WHERE cm1.user_id = ${userId} AND cm2.user_id = u.id AND u.id != ${userId}
+              )
+            )`;
+
+        const pplCount = await db.execute(sql.raw(`SELECT COUNT(DISTINCT u.id)::int AS total ${pplBase}`));
+        total = Number((pplCount.rows[0] as any)?.total ?? 0);
+
+        const pplData = await db.execute(sql.raw(`
+          SELECT DISTINCT u.id, u.name, u.email, u.avatar_url
+          ${pplBase}
+          ORDER BY u.name
+          LIMIT ${pageSize} OFFSET ${offset}
+        `));
+
+        items = (pplData.rows as any[]).map((r) => ({
+          resultType: "person",
+          userId: Number(r.id),
+          displayName: r.name,
+          email: r.email,
+          avatarUrl: withAvatarVersion(r.avatar_url) ?? null,
+        }));
+      }
+
+      res.json({ items, total, page, pageSize, totalPages: total > 0 ? Math.ceil(total / pageSize) : 0 });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -36265,12 +36433,16 @@ export function registerConfluenceRoutes(app: Express) {
       ));
       if (!memberCheck.rows.length)
         return res.status(403).json({ message: "Not a member of this conversation" });
+      // Load-older support: safe-strip before timestamp to ISO-8601 chars
+      const beforeParamDm = req.query.before ? String(req.query.before) : null;
+      const safeBeforeDm  = beforeParamDm ? beforeParamDm.replace(/[^0-9\-T:Z.]/g, "").slice(0, 40) : null;
       const rows = await db.execute(sql.raw(`
         WITH recent_ids AS (
           SELECT id FROM current_messages
           WHERE conversation_id = ${convId} AND parent_message_id IS NULL
+            ${safeBeforeDm ? `AND created_at < '${safeBeforeDm}'` : ""}
           ORDER BY created_at DESC
-          LIMIT 200
+          LIMIT ${safeBeforeDm ? 50 : 200}
         )
         SELECT
           m.id, m.conversation_id, m.user_id, m.is_edited, m.edited_at, m.deleted_at, m.created_at,
