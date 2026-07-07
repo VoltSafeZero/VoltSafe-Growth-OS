@@ -1,0 +1,159 @@
+URGENT BUG FIX — Capital module blank pages, failed data loads, and failed investor update creation
+
+Context:
+Production has multiple broken Capital pages / flows. See screenshots from July 7:
+
+1. /capital/reports
+   - Page crashes into the generic error boundary:
+   - “Something went wrong”
+   - “An unexpected error occurred. Please reload and try again.”
+   - This is a full page failure and must be fixed.
+
+2. /capital/command-center
+   - Page loads shell/header but shows:
+   - “Failed to load command center data.”
+   - This means the frontend route exists, but the data query/API is failing or the response shape is wrong.
+
+3. /capital/updates
+   - Create Investor Update modal opens.
+   - Submitting fails with toast:
+   - “Failed to create update”
+   - This means POST/create flow is broken, likely API route/schema/validation/payload mismatch.
+
+Task:
+Run a full Capital module bug audit and fix all broken routes and API flows.
+
+Scope:
+- Capital → Reports
+- Capital → Command Center
+- Capital → Updates & Reviews / Investor Updates
+- Any shared Capital API/data hooks these pages depend on
+
+Required investigation:
+1. Reproduce each issue locally.
+2. Check browser console errors.
+3. Check server logs for the failing endpoints.
+4. Identify exact failing frontend queries/mutations.
+5. Identify exact backend route failures.
+6. Check whether failures are caused by:
+   - missing API route
+   - wrong route path
+   - wrong HTTP method
+   - bad auth/session handling
+   - missing DB table/column
+   - schema mismatch
+   - Zod validation mismatch
+   - frontend expecting fields backend does not return
+   - backend returning shape frontend does not handle
+   - null/undefined crash in React render
+   - date parsing issue
+   - migration not run in production/dev
+   - incorrect import/export after Capital nav expansion
+
+Bug 1 — /capital/reports crash:
+Fix the generic error boundary crash.
+Requirements:
+- Page must render a stable Reports UI.
+- If data is missing or endpoint fails, show an inline empty/error state, not a full-page crash.
+- No unhandled null/undefined property access.
+- No uncaught React render exceptions.
+- Add defensive guards around report data, arrays, dates, totals, and metrics.
+- Confirm route /capital/reports is correctly wired in App/router.
+
+Bug 2 — /capital/command-center failed load:
+Fix the “Failed to load command center data.” state.
+Requirements:
+- Identify the API endpoint being called.
+- Ensure backend route exists and returns the expected shape.
+- If no real data exists, return safe empty defaults.
+- Do not leave the user with a dead page.
+- Command Center should render useful empty-state cards instead of only a failure message.
+- Ensure selected round dropdown still works.
+
+Bug 3 — Investor Update create failure:
+Fix create investor update flow.
+Requirements:
+- Opening modal should work.
+- Submitting a valid update should successfully create a record.
+- Required fields:
+  - title
+  - updateType
+  - subjectLine optional/safe
+  - body optional/safe
+  - status
+  - scheduledSendAt optional
+  - tags optional
+- Frontend payload must match backend schema exactly.
+- Backend must validate and insert safely.
+- Dates must serialize/parse correctly.
+- Empty optional fields must not break validation.
+- Tags string should be parsed safely or stored safely depending on existing schema.
+- On success:
+  - close modal
+  - show success toast
+  - invalidate/refetch investor updates query
+  - new update appears in list
+- On failure:
+  - show meaningful error in console/logs, not just generic toast
+
+Backend requirements:
+- Add/repair API routes as needed, following existing Capital route patterns.
+- Add/repair DB migration/table/schema only if missing.
+- Do not create duplicate tables if equivalent tables already exist.
+- Ensure production-safe migrations are idempotent.
+- Ensure all endpoints are auth-gated correctly.
+- Do not require external services for basic page load/create behavior.
+
+Frontend requirements:
+- No generic full-page crash for Capital pages.
+- All Capital pages should degrade gracefully with empty states.
+- Fix query keys and invalidation keys.
+- Fix any incorrect API client usage.
+- Add loading, empty, and error states where missing.
+- Make errors visible enough for debugging but not ugly for users.
+
+Tests:
+Add regression tests covering:
+1. /capital/reports route renders without throwing.
+2. Reports page handles empty API data.
+3. Reports page handles failed API data without full-page crash.
+4. /capital/command-center route renders shell.
+5. Command Center API returns safe default shape.
+6. Command Center does not show failed-load state when backend returns empty defaults.
+7. Investor Update modal opens.
+8. Create Investor Update builds correct payload.
+9. Backend accepts valid investor update payload.
+10. Optional empty subject/body/tags/scheduledSendAt do not break create.
+11. Successful create invalidates/refetches updates.
+12. Failed create surfaces useful error.
+13. No Capital route uses raw undefined/null data in render.
+14. Full Capital nav routes do not crash:
+    - /capital/command-center
+    - /capital/investors
+    - /capital/rounds
+    - /capital/follow-ups
+    - /capital/data-room
+    - /capital/engagement
+    - /capital/reports
+    - /capital/ai-copilot
+    - /capital/updates
+
+Validation:
+- Run all Capital tests.
+- Run full build/typecheck.
+- Restart app.
+- Manually open:
+  - /capital/reports
+  - /capital/command-center
+  - /capital/updates
+- Create a test investor update.
+- Confirm no browser console errors.
+- Confirm no server errors.
+- Report exact root causes, files changed, and tests passed.
+
+Acceptance criteria:
+- /capital/reports no longer shows “Something went wrong.”
+- /capital/command-center no longer shows “Failed to load command center data” when safe defaults can render.
+- Investor Update creation succeeds with valid input.
+- Capital pages fail gracefully instead of exploding.
+- No unrelated Calendar/Currents/Work modules are changed.

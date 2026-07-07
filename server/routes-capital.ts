@@ -536,6 +536,15 @@ export async function migrateCapitalSchema(): Promise<void> {
     `));
     console.log("[migration] Capital Phase 2I: investor updates table ready.");
   } catch (_e2i) { /* idempotent */ }
+
+  // Phase 2J: Add deleted_at to core tables (additive — safe if already exists)
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE capital_investors ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+      ALTER TABLE capital_rounds    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    `));
+    console.log("[migration] Capital Phase 2J: deleted_at columns ready on capital_investors + capital_rounds.");
+  } catch (_e2j) { /* idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1884,7 +1893,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       ].slice(0, 15);
       res.json({
         total_active: all.filter(i => i.stage !== "Wired / Closed").length,
-        total_weighted,
+        total_weighted: totalWeighted,
         hot_count: hot.length,
         warm_count: warm.length,
         overdue_follow_ups: overdue.length,
@@ -2367,7 +2376,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
           FROM capital_materials cm
           LEFT JOIN capital_rounds cr ON cr.id = cm.round_id
           WHERE cm.deleted_at IS NULL
-            AND (cm.round_id = ${roundId} OR cm.round_id IS NULL)
+            AND (cm.round_id = ${id} OR cm.round_id IS NULL)
           ORDER BY cm.updated_at DESC LIMIT 100
         `)),
         db.execute(sql.raw(`
@@ -2383,7 +2392,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
           FROM capital_material_requests cmr
           LEFT JOIN capital_investors ci ON ci.id = cmr.investor_id
           WHERE cmr.deleted_at IS NULL
-            AND (cmr.round_id = ${roundId} OR cmr.round_id IS NULL)
+            AND (cmr.round_id = ${id} OR cmr.round_id IS NULL)
           ORDER BY cmr.requested_at DESC LIMIT 100
         `)),
       ]);
@@ -4091,10 +4100,14 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       const tagsArr = typeof tags === "string"
         ? tags.split(",").map((t: string) => t.trim()).filter(Boolean)
         : (Array.isArray(tags) ? tags : []);
+      // Build a PostgreSQL array literal string e.g. {"q2","fundraising"} — avoids JS-array serialisation issues with sql.raw()
+      const tagsParam = tagsArr.length > 0
+        ? `{${tagsArr.map((t: string) => `"${t.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",")}}`
+        : null;
       const rows = await db.execute(sql.raw(
         `INSERT INTO capital_investor_updates
            (title, update_type, subject, body, status, tags, scheduled_at, sent_at, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9)
          RETURNING *`,
         [
           title.trim(),
@@ -4102,7 +4115,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
           subject?.trim() || null,
           body?.trim() || null,
           status ?? "draft",
-          tagsArr.length ? tagsArr : null,
+          tagsParam,
           scheduled_at || null,
           sent_at || null,
           req.user?.id ?? null,
@@ -4122,7 +4135,10 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       const { title, update_type, subject, body, status, tags, scheduled_at, sent_at } = req.body;
       const tagsArr = typeof tags === "string"
         ? tags.split(",").map((t: string) => t.trim()).filter(Boolean)
-        : (Array.isArray(tags) ? tags : null);
+        : (Array.isArray(tags) ? tags : []);
+      const tagsParam = tagsArr.length > 0
+        ? `{${tagsArr.map((t: string) => `"${t.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",")}}`
+        : null;
       const rows = await db.execute(sql.raw(
         `UPDATE capital_investor_updates SET
            title        = COALESCE($2, title),
@@ -4130,7 +4146,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
            subject      = $4,
            body         = $5,
            status       = COALESCE($6, status),
-           tags         = $7,
+           tags         = $7::text[],
            scheduled_at = $8,
            sent_at      = $9,
            updated_at   = NOW()
@@ -4143,7 +4159,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
           subject?.trim() || null,
           body?.trim() || null,
           status || null,
-          tagsArr && tagsArr.length ? tagsArr : null,
+          tagsParam,
           scheduled_at || null,
           sent_at || null,
         ]

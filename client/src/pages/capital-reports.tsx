@@ -636,12 +636,15 @@ export default function CapitalReportsPage() {
   // Fetch report metadata (types + rounds)
   const { data: meta, isLoading: metaLoading } = useQuery<ReportMeta>({
     queryKey: ["/api/capital/reports"],
-    queryFn: () => fetch("/api/capital/reports", { credentials: "include" }).then(r => r.json()),
+    queryFn: () => fetch("/api/capital/reports", { credentials: "include" }).then(r => {
+      if (!r.ok) throw new Error("Failed to load report metadata");
+      return r.json();
+    }),
   });
 
   const rounds: Round[] = meta?.rounds ?? [];
   const activeRoundId   = selectedRoundId ?? rounds[0]?.id ?? null;
-  const currentMeta     = meta?.report_types[selectedType];
+  const currentMeta     = meta?.report_types?.[selectedType];
 
   async function handleGenerate() {
     if (!activeRoundId) return;
