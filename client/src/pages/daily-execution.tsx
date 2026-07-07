@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
@@ -261,6 +262,7 @@ export default function DailyExecutionPage() {
   const [search, setSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
 
   const { data: today, isLoading, refetch } = useQuery<TodayData>({
     queryKey: ["/api/execution/today"],
@@ -396,17 +398,22 @@ export default function DailyExecutionPage() {
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="summary-stats">
           {[
-            { label: "Total Open", value: summary.totalOpen, icon: CheckCircle2, color: "text-muted-foreground" },
-            { label: "Due Today", value: summary.dueToday, icon: Calendar, color: "text-blue-400" },
-            { label: "Overdue", value: summary.overdueCount, icon: AlertTriangle, color: summary.overdueCount > 0 ? "text-red-400" : "text-muted-foreground" },
-            { label: "7d Completion", value: `${summary.completionRateLast7d}%`, icon: TrendingUp, color: "text-green-400" },
-          ].map(({ label, value, icon: Icon, color }) => (
-            <div key={label} className="rounded-xl border bg-card p-3">
+            { label: "Total Open",    value: summary.totalOpen,            icon: CheckCircle2, color: "text-muted-foreground", metric: "tasks_open" },
+            { label: "Due Today",     value: summary.dueToday,             icon: Calendar,     color: "text-blue-400",         metric: "tasks_due_today" },
+            { label: "Overdue",       value: summary.overdueCount,         icon: AlertTriangle, color: summary.overdueCount > 0 ? "text-red-400" : "text-muted-foreground", metric: "tasks_overdue" },
+            { label: "7d Completion", value: `${summary.completionRateLast7d}%`, icon: TrendingUp, color: "text-green-400",   metric: "" },
+          ].map(({ label, value, icon: Icon, color, metric }) => (
+            <div
+              key={label}
+              className={`rounded-xl border bg-card p-3 ${metric ? "cursor-pointer hover:border-primary/40 hover:bg-card/80 transition-all" : ""}`}
+              data-testid={`stat-${label.replace(/\s/g, "-").toLowerCase()}`}
+              onClick={metric ? () => setDrilldownConfig({ metric }) : undefined}
+            >
               <div className="flex items-center gap-1.5 mb-1">
                 <Icon className={`w-3.5 h-3.5 ${color}`} />
                 <span className="text-xs text-muted-foreground">{label}</span>
               </div>
-              <div className="text-xl font-bold" data-testid={`stat-${label.replace(/\s/g, "-").toLowerCase()}`}>
+              <div className="text-xl font-bold">
                 {value}
               </div>
             </div>
@@ -642,6 +649,12 @@ export default function DailyExecutionPage() {
           ))
         )}
       </Section>
+
+      <UniversalDrilldownSheet
+        config={drilldownConfig}
+        onClose={() => setDrilldownConfig(null)}
+        endpoint="/api/work/drilldown"
+      />
     </div>
   );
 }

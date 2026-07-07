@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -641,6 +642,7 @@ export default function TasksHubPage() {
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
   const [viewingUserId, setViewingUserId] = useState<number | null>(null);
+  const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
 
   // Allow any list-row component to request the drawer via a window event
   useEffect(() => {
@@ -968,6 +970,27 @@ export default function TasksHubPage() {
           </div>
         </div>
 
+        {/* Drilldown stats chips */}
+        {counts && (
+          <div className="px-4 md:px-6 flex items-center gap-2 pb-1 flex-wrap">
+            {[
+              { label: "My Tasks", value: counts.my_count, metric: "tasks_open", color: "text-primary" },
+              { label: "Due Today", value: counts.today_count, metric: "tasks_due_today", color: "text-blue-400" },
+              { label: "Overdue", value: counts.overdue_count, metric: "tasks_overdue", color: counts.overdue_count > 0 ? "text-red-400" : "text-muted-foreground" },
+            ].filter(c => (c.value ?? 0) > 0).map(chip => (
+              <button
+                key={chip.label}
+                onClick={() => setDrilldownConfig({ metric: chip.metric })}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border/50 bg-secondary/30 hover:border-primary/40 hover:bg-secondary/60 transition-all text-xs font-medium"
+                data-testid={`chip-tasks-${chip.label.toLowerCase().replace(" ","-")}`}
+              >
+                <span className="text-muted-foreground">{chip.label}</span>
+                <span className={`font-bold ${chip.color}`}>{chip.value}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* View tabs */}
         <div className="px-4 md:px-6 flex gap-0.5 overflow-x-auto pb-px scrollbar-hide">
           {viewTabs.map(v => {
@@ -1174,6 +1197,12 @@ export default function TasksHubPage() {
           queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
           queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });
         }}
+      />
+
+      <UniversalDrilldownSheet
+        config={drilldownConfig}
+        onClose={() => setDrilldownConfig(null)}
+        endpoint="/api/work/drilldown"
       />
     </div>
   );

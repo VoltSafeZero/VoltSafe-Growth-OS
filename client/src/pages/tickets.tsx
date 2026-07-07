@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ export default function TicketsPage({ canEdit = true }: { canEdit?: boolean }) {
   const [search, setSearch] = useState("");
   const [filterSeverity, setFilterSeverity] = useState("all");
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -116,10 +118,10 @@ export default function TicketsPage({ canEdit = true }: { canEdit?: boolean }) {
   });
 
   const summaryCards = [
-    { label: "Open", filterKey: "open_all", value: allTickets.filter(t => ["new","open","in_progress"].includes(t.status)).length, icon: LifeBuoy, color: "text-blue-400", bg: "bg-blue-500/10", ring: "ring-blue-500/40" },
-    { label: "Critical", filterKey: "critical_sev", value: allTickets.filter(t => t.severity === "critical").length, icon: AlertTriangle, color: "text-red-400", bg: "bg-red-500/10", ring: "ring-red-500/40" },
-    { label: "In Progress", filterKey: "in_progress", value: allTickets.filter(t => t.status === "in_progress").length, icon: Timer, color: "text-orange-400", bg: "bg-orange-500/10", ring: "ring-orange-500/40" },
-    { label: "Resolved", filterKey: "resolved", value: allTickets.filter(t => t.status === "resolved").length, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10", ring: "ring-green-500/40" },
+    { label: "Open", filterKey: "open_all", value: allTickets.filter(t => ["new","open","in_progress"].includes(t.status)).length, icon: LifeBuoy, color: "text-blue-400", bg: "bg-blue-500/10", ring: "ring-blue-500/40", metric: "tickets_open" },
+    { label: "Critical", filterKey: "critical_sev", value: allTickets.filter(t => t.severity === "critical").length, icon: AlertTriangle, color: "text-red-400", bg: "bg-red-500/10", ring: "ring-red-500/40", metric: "tickets_high_priority" },
+    { label: "In Progress", filterKey: "in_progress", value: allTickets.filter(t => t.status === "in_progress").length, icon: Timer, color: "text-orange-400", bg: "bg-orange-500/10", ring: "ring-orange-500/40", metric: "tickets_open" },
+    { label: "Resolved", filterKey: "resolved", value: allTickets.filter(t => t.status === "resolved").length, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10", ring: "ring-green-500/40", metric: "tickets_closed_recently" },
   ];
 
   const groupedByStatus = STATUSES.map(s => ({
@@ -176,7 +178,7 @@ export default function TicketsPage({ canEdit = true }: { canEdit?: boolean }) {
               <Card
                 key={card.label}
                 className={`border-border/50 bg-card/50 cursor-pointer transition-all hover:border-primary/40 hover:bg-card/80 ${isActive ? `ring-2 ${card.ring} border-transparent` : ""}`}
-                onClick={() => toggleStatusFilter(card.filterKey)}
+                onClick={() => { toggleStatusFilter(card.filterKey); setDrilldownConfig({ metric: card.metric }); }}
                 data-testid={`card-ticket-summary-${card.label.toLowerCase().replace(" ","-")}`}
               >
                 <CardContent className="p-4 flex items-center gap-3">
@@ -329,6 +331,12 @@ export default function TicketsPage({ canEdit = true }: { canEdit?: boolean }) {
           onClose={() => setSelectedTicket(null)}
         />
       )}
+
+      <UniversalDrilldownSheet
+        config={drilldownConfig}
+        onClose={() => setDrilldownConfig(null)}
+        endpoint="/api/operations/drilldown"
+      />
     </div>
   );
 }

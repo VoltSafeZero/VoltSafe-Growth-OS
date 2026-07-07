@@ -1,4 +1,5 @@
 import { useState, Fragment } from "react";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { DatePicker } from "@/components/ui/date-picker";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -241,6 +242,7 @@ export default function ProcurementPage() {
   const [poStatusFilter, setPoStatusFilter] = useState("all");
   const [batchStatusFilter, setBatchStatusFilter] = useState("all");
   const [selectedPoId, setSelectedPoId] = useState<number | null>(null);
+  const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
 
   const { data: dashboard, isLoading: dashLoading } = useQuery<DashboardData>({
     queryKey: ["/api/procurement/dashboard"],
@@ -328,16 +330,21 @@ export default function ProcurementPage() {
       ) : dash && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3" data-testid="kpi-strip">
           {[
-            { label: "Open POs",         value: dash.pos.totalOpen,         icon: Truck,       color: "" },
-            { label: "Delayed POs",      value: dash.pos.totalDelayed,      icon: AlertTriangle, color: dash.pos.totalDelayed > 0 ? "text-red-400" : "" },
-            { label: "In Assembly",      value: dash.batches.byStatus.in_assembly?.count ?? 0, icon: Factory, color: "text-blue-400" },
-            { label: "Ready to Ship",    value: dash.batches.totalReady,    icon: CheckCircle2, color: "text-emerald-400" },
-            { label: "Blocked Batches",  value: dash.batches.totalBlocked,  icon: XCircle,     color: dash.batches.totalBlocked > 0 ? "text-red-400" : "" },
-            { label: "SKU Locations",    value: dash.inventory.totalSkuLocations, icon: Boxes, color: "" },
-            { label: "Available Stock",  value: Math.round(dash.inventory.totalAvailable), icon: Boxes, color: dash.inventory.totalAvailable < 0 ? "text-red-400" : "text-emerald-400" },
-            { label: "Blocked Installs", value: dash.blockedInstalls,       icon: Hammer,      color: dash.blockedInstalls > 0 ? "text-amber-400" : "" },
+            { label: "Open POs",         value: dash.pos.totalOpen,         icon: Truck,       color: "",                                                                          metric: "procurement_open_pos" },
+            { label: "Delayed POs",      value: dash.pos.totalDelayed,      icon: AlertTriangle, color: dash.pos.totalDelayed > 0 ? "text-red-400" : "",                          metric: "procurement_delayed_pos" },
+            { label: "In Assembly",      value: dash.batches.byStatus.in_assembly?.count ?? 0, icon: Factory, color: "text-blue-400",                                             metric: "" },
+            { label: "Ready to Ship",    value: dash.batches.totalReady,    icon: CheckCircle2, color: "text-emerald-400",                                                        metric: "" },
+            { label: "Blocked Batches",  value: dash.batches.totalBlocked,  icon: XCircle,     color: dash.batches.totalBlocked > 0 ? "text-red-400" : "",                       metric: "procurement_blocked_batches" },
+            { label: "SKU Locations",    value: dash.inventory.totalSkuLocations, icon: Boxes, color: "",                                                                         metric: "" },
+            { label: "Available Stock",  value: Math.round(dash.inventory.totalAvailable), icon: Boxes, color: dash.inventory.totalAvailable < 0 ? "text-red-400" : "text-emerald-400", metric: "" },
+            { label: "Blocked Installs", value: dash.blockedInstalls,       icon: Hammer,      color: dash.blockedInstalls > 0 ? "text-amber-400" : "",                           metric: "blocked_installs" },
           ].map(k => (
-            <Card key={k.label} className="border border-border/50" data-testid={`kpi-${k.label.toLowerCase().replace(/\s/g,"-")}`}>
+            <Card
+              key={k.label}
+              className={`border border-border/50 ${k.metric ? "cursor-pointer hover:border-primary/40 hover:bg-card/80 transition-all" : ""}`}
+              data-testid={`kpi-${k.label.toLowerCase().replace(/\s/g,"-")}`}
+              onClick={k.metric ? () => setDrilldownConfig({ metric: k.metric }) : undefined}
+            >
               <CardContent className="p-3">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[10px] text-muted-foreground font-medium">{k.label}</span>
@@ -713,6 +720,12 @@ export default function ProcurementPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <UniversalDrilldownSheet
+        config={drilldownConfig}
+        onClose={() => setDrilldownConfig(null)}
+        endpoint="/api/operations/drilldown"
+      />
     </div>
   );
 }

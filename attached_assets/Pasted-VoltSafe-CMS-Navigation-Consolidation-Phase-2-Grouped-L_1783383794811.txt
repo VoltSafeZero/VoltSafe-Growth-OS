@@ -1,0 +1,351 @@
+VoltSafe CMS Navigation Consolidation — Phase 2: Grouped Landing Page Polish + Breadcrumbs + Favorites/Recent Pages
+
+Current completed state:
+
+Navigation Consolidation Phase 1 is complete:
+- Sidebar subcategories were consolidated.
+- Old routes remain preserved.
+- PAGE_NAV_INDEX supports command-search aliases.
+- Global search was updated.
+- Relevant tests pass:
+  - nav-drift.test.cjs
+  - nav-consolidation.test.cjs
+  - admin-signatures.test.cjs
+
+Universal Drilldowns:
+- Marketing drilldowns complete.
+- Pipeline + Insights drilldowns complete.
+- Operations + Work drilldowns may already be complete or in progress.
+- Shared UniversalDrilldownSheet exists.
+
+Capital Phase 2A–2L is complete and release-ready.
+Do not modify Capital unless required by shared nav/search/breadcrumb behavior.
+
+Now implement Navigation Consolidation Phase 2.
+
+Primary goal:
+Polish the consolidated navigation experience so users can quickly find tools without feeling buried. Grouped landing pages should feel useful, breadcrumbs should clarify location, and users should have fast access to favorites and recently visited pages.
+
+This is a UX/navigation hardening phase.
+Do not delete functionality.
+Do not break old URLs.
+Do not loosen permissions.
+Do not expose restricted pages through search, breadcrumbs, favorites, or recents.
+
+1. Audit current navigation experience
+
+Before writing code, inspect:
+- nav-config.ts
+- App.tsx routes
+- app-sidebar component
+- global-search component
+- PAGE_NAV_INDEX
+- existing grouped landing pages
+- existing breadcrumbs if any
+- existing user preferences/local storage patterns
+- existing auth/permission guard patterns
+- tests for nav, route drift, command search, permissions
+
+Document:
+- which grouped landing pages exist
+- which grouped landing pages are placeholders/thin
+- which old routes map to each group
+- whether breadcrumbs exist
+- whether favorites/recent pages exist
+- whether command search respects permissions everywhere
+
+2. Grouped landing page polish
+
+Improve grouped landing pages so they are not just link dumps.
+
+Grouped pages should include:
+- clear title
+- short plain-English description
+- cards or tabs for each underlying tool
+- route link to each original page
+- short “what this is for” text per card
+- optional badge/count only if real data exists
+- no fake stats
+- no dead buttons
+- loading/error/empty states where data is fetched
+- permission-safe rendering
+
+Grouped pages to verify/polish:
+
+Work:
+- /work/inbox-mail
+- /work/tasks-execution
+- /work/calendar-meetings
+- /work/personal-settings
+
+Pipeline:
+- /pipeline/leads-accounts
+- /pipeline/quotes-renewals
+- /pipeline/outreach
+- /pipeline/revenue-tools
+
+Operations:
+- /operations/install-deployments
+- /operations/support
+- /operations/knowledge-documents
+
+Insights:
+- /insights/revenue-intelligence
+- /insights/cortex
+- /insights/simulators-feedback
+
+Ecosystem:
+- /ecosystem/partners
+- /ecosystem/channels
+- /ecosystem/events-media
+
+Marketing:
+- /marketing/engagement
+
+Capital:
+- /capital/investors
+- /capital/rounds-commitments
+- /capital/follow-ups
+- /capital/updates-reviews
+
+Admin:
+- /admin/users-roles
+- /admin/mailboxes-signatures
+- /admin/system-settings
+
+If any of these routes do not exist, either:
+- create the grouped landing page, or
+- document why it is not needed and ensure the nav does not point to a dead route.
+
+3. Breadcrumbs
+
+Add or improve breadcrumbs across the CMS.
+
+Breadcrumbs should show:
+- parent category
+- grouped section
+- current page
+
+Examples:
+- Work / Inbox & Mail / Inbox
+- Work / Calendar & Meetings / Meeting Notes
+- Pipeline / Leads & Accounts / Accounts
+- Operations / Knowledge & Documents / Document Hub
+- Insights / Cortex / Cortex Intel Library
+- Marketing / Engagement / Hot Accounts
+- Capital / Investors / Investor Contacts
+- Admin / Users & Roles / Role Manager
+
+Requirements:
+- breadcrumbs must respect permissions
+- restricted pages should not leak through breadcrumb labels to unauthorized users
+- old routes should show the new grouping where practical
+- grouped landing pages should show two-level breadcrumbs
+- active/current item should be clear
+- breadcrumbs should not be visually noisy
+
+4. Favorites
+
+Add a lightweight favorites system for pages.
+
+Users should be able to:
+- favorite/unfavorite a page
+- see favorite pages in Today or sidebar section if existing pattern supports it
+- access favorites through command search
+- persist favorites per user
+
+Implementation options:
+- Prefer existing user preferences API/storage if available.
+- If no backend preference system exists, use localStorage as Phase 2 fallback.
+- If using localStorage, keep the implementation simple and document it as client-local.
+
+Favorite record should include:
+- label
+- route
+- category
+- icon if available
+- created_at if available
+
+Security:
+- do not allow favoriting restricted pages unless the user currently has access
+- if user later loses access, hide that favorite
+- Capital favorites must remain hidden from non-Capital users
+
+5. Recent pages
+
+Add a lightweight recent pages system.
+
+Track recently visited CMS pages:
+- label
+- route
+- category
+- last_visited_at
+
+Show recent pages in:
+- Today page if practical
+- command search if practical
+- optional sidebar mini-section if existing design supports it
+
+Rules:
+- cap recent pages, e.g. 8–12 items
+- do not track public investor portal pages
+- do not show restricted pages if user loses permission
+- do not show Capital recents to non-Capital users
+- avoid storing sensitive query params where possible
+
+6. Command search improvements
+
+Improve command search so it becomes the escape hatch for the consolidated nav.
+
+Command search should find:
+- old page names
+- new group names
+- common synonyms
+- favorites
+- recent pages
+
+Examples:
+- “Inbox” → Work / Inbox & Mail
+- “Meeting Notes” → Work / Calendar & Meetings
+- “Role Manager” → Admin / Users & Roles
+- “Revenue Ops” → Insights / Revenue Intelligence
+- “Investor Contacts” → Capital / Investors, only for Trevor/Scott
+- “Email Review” → Capital / Follow-Ups, only for Trevor/Scott
+- “Hot Accounts” → Marketing / Engagement
+- “Quotes” → Pipeline / Quotes & Renewals
+
+Requirements:
+- command search must respect permissions
+- favorites and recents must respect permissions
+- Capital results require Capital access
+- Admin results require Admin access
+- no duplicate or confusing results
+- old labels should still be searchable
+
+7. Sidebar polish
+
+Improve sidebar usability after consolidation.
+
+Requirements:
+- active state should work for old routes and grouped routes
+- grouped route should highlight when a child route is active
+- parent category expansion should behave predictably
+- no duplicate labels
+- no broken hrefs
+- no category should be overloaded if avoidable
+- hover/focus states should be clear
+- icons should be consistent
+
+8. Route aliases and redirects
+
+Verify old routes still work.
+
+For each old route:
+- either render original page
+- redirect to grouped page with tab/section
+- or remain accessible through command search and grouped cards
+
+Do not break bookmarks.
+
+If redirecting:
+- preserve relevant query params where safe
+- avoid redirect loops
+- ensure breadcrumbs still make sense
+
+9. Permission hardening
+
+Add/verify tests proving:
+- Capital pages do not appear in sidebar/search/favorites/recents for unauthorized users
+- Admin pages do not appear for unauthorized users
+- restricted old routes are still guarded
+- grouped landing pages do not leak restricted child cards
+- breadcrumbs do not leak restricted page names
+- command search does not leak restricted aliases
+
+10. Tests
+
+Add/update tests covering:
+
+Grouped pages:
+- all grouped landing pages render
+- each grouped page links to underlying original pages
+- cards have useful descriptions
+- no dead links
+- no fake stats
+- empty states render safely
+
+Breadcrumbs:
+- breadcrumbs render on grouped pages
+- breadcrumbs render on old child pages where practical
+- breadcrumbs show new grouping
+- restricted breadcrumbs do not leak unauthorized labels
+
+Favorites:
+- favorite button exists where implemented
+- favorite/unfavorite works
+- favorites persist using chosen storage approach
+- favorites show in command search or Today
+- restricted favorites are hidden when user lacks access
+
+Recent pages:
+- recent page tracking exists
+- recents are capped
+- recents show in command search or Today
+- restricted recents are hidden
+- public investor portal pages are not tracked
+
+Command search:
+- old page names still resolve
+- new group names resolve
+- aliases resolve
+- favorites/recents show
+- no restricted Capital results for non-Capital users
+- no restricted Admin results for non-Admin users
+- no duplicate route collisions
+
+Sidebar:
+- active state works for grouped and child routes
+- no duplicate IDs
+- no duplicate labels within the same group
+- no broken hrefs
+- sidebar child counts remain reduced
+
+Regression:
+- nav-drift tests pass
+- nav-consolidation tests pass
+- admin-signatures tests pass
+- Capital hardening tests pass
+- Marketing/Pipeline/Insights drilldown tests still pass
+- build passes if practical
+
+11. Validation
+
+Run:
+- nav-drift.test.cjs
+- nav-consolidation.test.cjs
+- admin-signatures.test.cjs
+- capital-hardening.test.cjs
+- marketing-drilldown.test.cjs
+- pipeline-drilldown.test.cjs
+- insights-drilldown.test.cjs
+- startup-invariants.test.cjs
+- new nav phase 2 tests
+- build if practical
+
+Deliver:
+- audit summary
+- grouped pages polished/created
+- breadcrumb behavior
+- favorites implementation
+- recent pages implementation
+- command search improvements
+- permission confirmation
+- tests run and results
+- recommended next phase
+
+Do not delete functionality.
+Do not loosen permissions.
+Do not break old URLs.
+Do not leak Capital/Admin pages through search, breadcrumbs, favorites, or recents.
+Do not create fake stats.
+Do not create a deep confusing submenu maze.

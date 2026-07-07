@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -506,6 +507,7 @@ export default function InstallWorkflowsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
 
   const { data: summary } = useQuery<any>({
     queryKey: ["/api/install-workflows/summary"],
@@ -554,12 +556,17 @@ export default function InstallWorkflowsPage() {
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { label: "Total",       value: summary.total,        color: "text-foreground" },
-            { label: "In Progress", value: summary.byStatus?.in_progress ?? 0, color: "text-blue-400" },
-            { label: "Overdue",     value: summary.overdue,      color: summary.overdue > 0 ? "text-red-400" : "text-foreground" },
-            { label: "With Blockers", value: summary.withBlockers, color: summary.withBlockers > 0 ? "text-amber-400" : "text-foreground" },
+            { label: "Total",       value: summary.total,        color: "text-foreground",  metric: "" },
+            { label: "In Progress", value: summary.byStatus?.in_progress ?? 0, color: "text-blue-400",  metric: "active_installs" },
+            { label: "Overdue",     value: summary.overdue,      color: summary.overdue > 0 ? "text-red-400" : "text-foreground",   metric: "overdue_installs" },
+            { label: "With Blockers", value: summary.withBlockers, color: summary.withBlockers > 0 ? "text-amber-400" : "text-foreground", metric: "blocked_installs" },
           ].map(card => (
-            <Card key={card.label} className="border border-border/50" data-testid={`summary-card-${card.label.toLowerCase().replace(/\s/g,"-")}`}>
+            <Card
+              key={card.label}
+              className={`border border-border/50 ${card.metric ? "cursor-pointer hover:border-primary/40 hover:bg-card/80 transition-all" : ""}`}
+              data-testid={`summary-card-${card.label.toLowerCase().replace(/\s/g,"-")}`}
+              onClick={card.metric ? () => setDrilldownConfig({ metric: card.metric }) : undefined}
+            >
               <CardContent className="p-3">
                 <div className="text-xs text-muted-foreground">{card.label}</div>
                 <div className={`text-2xl font-bold tabular-nums ${card.color}`}>{card.value}</div>
@@ -606,6 +613,12 @@ export default function InstallWorkflowsPage() {
         <WorkflowDetailDialog workflowId={selectedId} open={true} onClose={() => setSelectedId(null)} />
       )}
       <CreateWorkflowDialog open={showCreate} onClose={() => setShowCreate(false)} />
+
+      <UniversalDrilldownSheet
+        config={drilldownConfig}
+        onClose={() => setDrilldownConfig(null)}
+        endpoint="/api/operations/drilldown"
+      />
     </div>
   );
 }

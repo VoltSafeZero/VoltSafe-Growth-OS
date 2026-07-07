@@ -149,6 +149,37 @@ function CellValue({ col, row }: { col: DrilldownColumn; row: DrilldownRow }) {
   if (col.key === "install_title" && row.install_id) {
     return <Link href={`/install-workflows/${row.install_id}`}><span className="text-primary hover:underline cursor-pointer">{val || "—"}</span></Link>;
   }
+  if (col.key === "project_name") {
+    return <span className="font-medium text-foreground">{val || "—"}</span>;
+  }
+  if (col.key === "task_title") {
+    return <span className="font-medium text-foreground">{val || "—"}</span>;
+  }
+  if (col.key === "ticket_number") {
+    return <span className="font-mono text-xs text-muted-foreground">{val || "—"}</span>;
+  }
+  if (col.key === "subject" && row.ticket_id) {
+    return <span className="font-medium text-foreground">{val || "—"}</span>;
+  }
+  if (col.key === "deploy_number") {
+    return <span className="font-mono text-xs text-muted-foreground">{val || "—"}</span>;
+  }
+  if (col.key === "site_name" && row.deploy_id) {
+    return <Link href={`/install-workflows`}><span className="text-primary hover:underline cursor-pointer">{val || "—"}</span></Link>;
+  }
+  if (col.key === "asset_name") {
+    return <span className="font-medium text-foreground">{val || "—"}</span>;
+  }
+  if (col.key === "event_title") {
+    return <span className="font-medium text-foreground">{val || "—"}</span>;
+  }
+  if (col.key === "full_name" && (row.contact_id || row.lead_id)) {
+    const href = row.contact_id ? `/contacts/${row.contact_id}` : `/opportunities/${row.lead_id}`;
+    return <Link href={href}><span className="text-primary hover:underline cursor-pointer font-medium">{val || "—"}</span></Link>;
+  }
+  if (col.key === "po_number") {
+    return <span className="font-mono text-xs text-muted-foreground">{val || "—"}</span>;
+  }
 
   // ── Badge cells ───────────────────────────────────────────────────────────
   const badge = <StatusBadge colKey={col.key} val={val} />;
@@ -328,9 +359,9 @@ export function UniversalDrilldownSheet({
                 <tbody>
                   {rows.map((row, i) => (
                     <tr
-                      key={row.opp_id ?? row.lead_id ?? row.contact_id ?? row.quote_id ?? row.account_id ?? row.install_id ?? i}
+                      key={row.opp_id ?? row.lead_id ?? row.contact_id ?? row.quote_id ?? row.account_id ?? row.install_id ?? row.project_id ?? row.task_id ?? row.ticket_id ?? row.deploy_id ?? row.event_id ?? row.id ?? i}
                       className="border-b border-border/20 hover:bg-muted/10 transition-colors"
-                      data-testid={`drilldown-row-${row.opp_id ?? row.lead_id ?? row.contact_id ?? row.quote_id ?? row.install_id ?? i}`}
+                      data-testid={`drilldown-row-${row.opp_id ?? row.lead_id ?? row.contact_id ?? row.quote_id ?? row.install_id ?? row.project_id ?? row.task_id ?? row.ticket_id ?? row.id ?? i}`}
                     >
                       {columns.map(col => (
                         <td key={col.key} className="px-4 py-2.5 max-w-[220px]">

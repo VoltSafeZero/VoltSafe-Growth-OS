@@ -1,0 +1,396 @@
+Marketing Drilldowns Phase 2 — Granular Actions, Exports, and Drilldown Polish
+
+Current completed state:
+
+Marketing Universal Drilldowns are complete:
+- GET /api/marketing/drilldown
+- 31 metric types
+- requireAuth + crm:view
+- reusable MarketingDrilldownSheet
+- wired across:
+  - Compliance Dashboard
+  - Marketing Dashboard
+  - Campaigns
+  - Hot Accounts
+  - Replies
+  - Audiences
+- tests/marketing-drilldown.test.cjs passing: 155/155
+
+Universal Drilldowns Phase 2 is complete:
+- Pipeline drilldowns
+- Insights drilldowns
+- shared UniversalDrilldownSheet
+
+Goal:
+Upgrade Marketing drilldowns from “view underlying records” to “inspect, fix, export, and act.”
+
+Every Marketing drilldown should help users answer:
+- What records make up this number?
+- Why are they in this bucket?
+- What needs to be fixed?
+- What action can I take next?
+
+Do not modify unrelated modules.
+Do not weaken compliance.
+Do not fake data.
+Do not return unpaginated large lists.
+Do not break existing Marketing drilldowns.
+
+1. Audit current Marketing drilldowns
+
+Before writing code, inspect:
+- GET /api/marketing/drilldown
+- MarketingDrilldownSheet
+- UniversalDrilldownSheet
+- Compliance Dashboard
+- Marketing Dashboard
+- Campaigns
+- Audiences
+- Replies
+- Hot Accounts
+- Marketing permissions
+- CRM edit/contact/lead/account routes
+- export/CSV helper if any
+- existing task/follow-up creation patterns
+
+Document:
+- current supported metrics
+- current columns per metric
+- missing useful fields
+- which drilldowns need actions
+- which drilldowns need export
+- which compliance metrics need remediation actions
+
+2. Add CSV export for Marketing drilldowns
+
+Add export support for drilldown results.
+
+Preferred API:
+GET /api/marketing/drilldown/export
+
+Query params should match /api/marketing/drilldown:
+- metric
+- segment
+- status
+- campaign_id
+- audience_id
+- jurisdiction
+- consent_status
+- date_from
+- date_to
+- search
+- sort
+
+Requirements:
+- requireAuth + crm:view
+- enforce same permission logic as drilldown endpoint
+- export only the filtered dataset
+- reasonable max export cap, e.g. 5,000 rows
+- include generated_at and filters in metadata if practical
+- do not export hidden/private fields
+- do not export unsubscribed/suppressed records in a way that encourages accidental sending
+
+UI:
+- Add “Export CSV” button inside MarketingDrilldownSheet
+- Disable or explain when export is unavailable
+- Show safe loading/error state
+
+3. Add drilldown count reconciliation
+
+The drilldown total should match the card count.
+
+When opening a drilldown:
+- refresh total from backend
+- show total in drawer header
+- if card count was passed and differs from backend total, show small note:
+  “Updated count: X”
+- log mismatch in development only
+
+Do not silently show a different number.
+
+4. Compliance remediation actions
+
+For compliance-related drilldowns, add safe single-record actions.
+
+Examples:
+
+Unknown Jurisdiction:
+- open CRM record
+- edit country/province/state if existing edit flow supports it
+- mark for review
+
+Unknown Consent:
+- open CRM record
+- update consent status if existing flow supports it
+- mark for consent review
+
+Missing Consent Proof:
+- open CRM record
+- add/update consent source/proof if existing flow supports it
+- create follow-up task if task system supports it
+
+Expiring Implied Consent:
+- create re-permission follow-up
+- add to re-permission audience if existing audience flow supports it
+
+Unsubscribed/Suppressed:
+- open CRM record
+- view suppression reason
+- do not allow unsafe “resubscribe” bulk actions
+
+Campaigns Blocked:
+- open campaign
+- view blocked recipients
+- view reasons
+- fix audience/compliance issue where supported
+
+Important:
+Do not add risky bulk compliance changes.
+Single-record actions only unless existing safe workflow already exists.
+
+5. Add row detail drawer
+
+Inside MarketingDrilldownSheet, clicking a row should open a row detail panel or expand row where useful.
+
+Show:
+- record name
+- email
+- company/account
+- source
+- status/reason
+- campaign/audience context
+- timestamps
+- compliance explanation
+- available actions
+- link to source record
+
+This is especially useful for:
+- compliance records
+- blocked recipients
+- bounces
+- unsubscribes
+- spam complaints
+- hot account signals
+- replies
+
+6. Improve campaign metric drilldowns
+
+Campaign drilldowns should show granular event context.
+
+For sent/opened/clicked/replied/bounced/unsubscribed/blocked:
+- campaign name
+- sequence step
+- subject
+- recipient
+- contact/account link
+- event type
+- event timestamp
+- reason if failed/blocked/bounced
+- CTA URL if click event exists
+- reply sentiment/category if available
+- opened/clicked counts if available
+
+Add quick actions:
+- open campaign
+- open contact
+- open account
+- open email thread if available
+- create follow-up task if available
+
+7. Improve audience drilldowns
+
+Audience drilldowns should clearly explain eligibility.
+
+For audience counts:
+- total records
+- eligible records
+- excluded records
+- missing email
+- invalid email
+- unsubscribed
+- suppressed
+- compliance blocked
+- duplicate records
+- missing jurisdiction
+- missing consent
+
+Each excluded row should show:
+- reason
+- source field
+- recommended fix
+- open record action
+
+8. Improve replies drilldowns
+
+Replies drilldowns should show underlying email threads/replies.
+
+Include:
+- sender
+- contact/account
+- campaign
+- subject
+- reply snippet
+- sentiment/category
+- timestamp
+- owner
+- reviewed status if available
+- open in VoltSafe Mail
+- mark reviewed if supported
+- create follow-up task if supported
+
+9. Improve Hot Accounts drilldowns
+
+Hot account drilldowns should explain why the account is hot.
+
+Include:
+- account
+- contacts involved
+- campaign events
+- opens/clicks/replies
+- latest activity
+- signal type
+- score contribution if available
+- recommended next action
+- open account
+- create task/follow-up
+
+10. Add filter chips inside drawer
+
+Each drilldown drawer should show active filters as chips:
+- metric
+- status
+- segment
+- campaign
+- audience
+- jurisdiction
+- consent status
+- date range
+- search
+
+Users should be able to clear search.
+Only add removable filter chips if easy/safe.
+
+11. Improve zero-count states
+
+Zero-count drilldowns should be educational.
+
+Examples:
+- Express Consent: 0
+  “No contacts currently have express consent. Add consent proof from CRM records or create a consent capture workflow.”
+
+- Campaigns Blocked: 0
+  “No campaigns are currently blocked by compliance checks.”
+
+- Spam Complaint Rate: 0
+  “No spam complaints found for the selected period.”
+
+No dead blank drawers.
+
+12. Pagination and performance
+
+Verify:
+- page_size max cap exists
+- default page size is reasonable, e.g. 25 or 50
+- search does not trigger unbounded queries
+- export has a separate cap
+- campaign/event drilldowns do not fetch huge datasets
+- indexes exist or queries are not obviously terrible
+
+Add tests/source checks for capped exports and pagination.
+
+13. Permissions
+
+Marketing drilldowns must respect:
+- auth
+- crm:view
+- marketing/campaign permissions if they exist
+- contact/account visibility rules if they exist
+
+No user should be able to export or drill into records they cannot normally view.
+
+14. Tests
+
+Add/update tests covering:
+
+Backend:
+- /api/marketing/drilldown/export exists
+- export route requires auth
+- export route enforces crm:view
+- export uses same metric whitelist as drilldown
+- export has row cap
+- unknown export metric returns 400
+- drilldown still paginates
+- no unsafe metric SQL interpolation
+- total is returned for reconciliation
+
+UI:
+- MarketingDrilldownSheet has Export CSV button
+- row detail drawer/expanded detail exists
+- active filter chips render
+- empty states are useful
+- refresh button remains
+- pagination remains
+- count mismatch note exists where card count differs
+- loading/error states render
+
+Compliance:
+- Unknown Jurisdiction has remediation/open-record action
+- Unknown Consent has remediation/open-record action
+- Missing Consent Proof has action
+- Expiring consent has follow-up/re-permission action where supported
+- Unsubscribed/Suppressed do not expose unsafe bulk resubscribe action
+- Campaigns Blocked shows blocked reason and campaign link
+
+Campaigns:
+- campaign event drilldowns include recipient, event type, timestamp, sequence step/subject where available
+- bounced/blocked rows include reason
+- replied rows can link to thread where available
+
+Audiences:
+- eligibility/exclusion drilldowns show reason
+- missing email/invalid/suppressed records are drillable
+
+Replies:
+- reply drilldowns show thread/contact/account links
+- reviewed/follow-up actions are safe
+
+Hot Accounts:
+- hot account drilldowns show signal breakdown
+- recommended next action appears
+
+Regression:
+- existing marketing-drilldown tests still pass
+- pipeline-drilldown tests still pass
+- insights-drilldown tests still pass
+- nav tests still pass
+- build passes if practical
+
+15. Validation
+
+Run:
+- marketing-drilldown tests
+- new marketing-drilldown-polish tests
+- pipeline-drilldown tests
+- insights-drilldown tests
+- nav-drift tests
+- nav-consolidation tests
+- startup-invariants tests
+- build if practical
+
+Deliver:
+- audit summary
+- metrics improved
+- export support details
+- actions added
+- permission confirmation
+- performance limits
+- files changed
+- test results
+- recommended next phase
+
+Do not modify unrelated modules.
+Do not weaken compliance.
+Do not fake data.
+Do not add unsafe bulk compliance actions.
+Do not return unpaginated large lists.
+Do not export restricted/private data.
