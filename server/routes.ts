@@ -117,6 +117,7 @@ import { getTodayCapitalSection } from "./services/today-capital-summary";
 import { getCeoCockpitData } from "./services/ceo-cockpit";
 import { getOneOnOneNotes, createOneOnOneNote, updateOneOnOneNote, deleteOneOnOneNote, buildOneOnOneAgenda, extractCommitmentsFromNote, createTasksFromCommitments, getUpdateDraft } from "./services/ceo-one-on-ones";
 import { generateCockpitActions, listCeoActions, createCeoAction, updateCeoAction, completeCeoAction, dismissCeoAction, snoozeCeoAction, buildUpdateRequestDraft, createTaskFromAction } from "./services/ceo-action-loop";
+import { buildDailyCeoBriefing, buildWeeklyCeoReview, buildTeamMemberBriefing, buildLeadershipMeetingAgenda, buildWeeklyReviewDraft } from "./services/ceo-briefing";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
 import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy, getTuningRecommendations, getExplainabilityData, checkUnderperformance, getOutcomes, getFeedbackOverview } from "./services/feedback-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
@@ -11291,6 +11292,108 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("[ceo-actions] create-task:", err?.message);
       res.status(err.message.includes("not found") ? 404 : 400).json({ message: err.message });
+    }
+  });
+
+  // ── CEO Briefing (Phase 7) ────────────────────────────────────────────
+
+  // GET /api/today/ceo-briefing/daily
+  app.get("/api/today/ceo-briefing/daily", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const userRow = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = userRow.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const result = await buildDailyCeoBriefing({ id: userId, name: u?.name ?? "", hasCapital }, { date: req.query.date as string | undefined });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-briefing] daily:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/today/ceo-briefing/weekly
+  app.get("/api/today/ceo-briefing/weekly", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const userRow = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = userRow.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const result = await buildWeeklyCeoReview(
+        { id: userId, name: u?.name ?? "", hasCapital },
+        { startDate: req.query.start_date as string | undefined, endDate: req.query.end_date as string | undefined },
+      );
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-briefing] weekly:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/today/ceo-briefing/team-member/:userId
+  app.get("/api/today/ceo-briefing/team-member/:userId", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const actorId = Number((req.session as any).userId);
+      const memberId = Number(req.params.userId);
+      if (!memberId) return res.status(400).json({ message: "Invalid userId" });
+      const userRow = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${actorId} LIMIT 1`);
+      const u = userRow.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const result = await buildTeamMemberBriefing(memberId, { id: actorId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-briefing] team-member:", err?.message);
+      res.status(err.message.includes("not found") ? 404 : 500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/today/ceo-briefing/leadership-agenda
+  app.get("/api/today/ceo-briefing/leadership-agenda", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const userRow = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = userRow.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      const result = await buildLeadershipMeetingAgenda({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-briefing] leadership-agenda:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-briefing/weekly/draft — copy-only, no auto-send
+  app.post("/api/today/ceo-briefing/weekly/draft", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const userRow = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = userRow.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      // Returns copyable text only. Never sends.
+      const result = await buildWeeklyReviewDraft(
+        { id: userId, name: u?.name ?? "", hasCapital },
+        { startDate: req.body.start_date, endDate: req.body.end_date },
+      );
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-briefing] weekly/draft:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/today/ceo-briefing/leadership-agenda/draft — copy-only, no auto-send
+  app.post("/api/today/ceo-briefing/leadership-agenda/draft", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const userRow = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = userRow.rows[0] as any;
+      const hasCapital = u?.permissions?.capital !== "none" && u?.permissions?.capital != null;
+      // Returns copyable text only. Never sends.
+      const agenda = await buildLeadershipMeetingAgenda({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json({ draftText: agenda.copy_text, generated_at: agenda.generated_at });
+    } catch (err: any) {
+      console.error("[ceo-briefing] leadership-agenda/draft:", err?.message);
+      res.status(500).json({ message: err.message });
     }
   });
 
