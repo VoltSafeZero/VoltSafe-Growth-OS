@@ -114,10 +114,11 @@ export const NAV_CONFIG: NavSection[] = [
     ],
   },
 
-  // ── WORK (7 items) ─────────────────────────────────────────────────────────
+  // ── WORK (5 items) ─────────────────────────────────────────────────────────
   // Removed from sidebar (still accessible via direct URL / ⌘K):
   //   Work Calendar (/work/team-calendar), Meeting Notes (/meeting-notes),
   //   Activity Feed (/activity), Travel (/my-travel), Personal Settings hub (/settings/personal)
+  // Email Signatures + AI Voice Profiles moved to Settings section.
   {
     id: "work",
     label: "Work",
@@ -125,10 +126,8 @@ export const NAV_CONFIG: NavSection[] = [
     items: [
       { id: "mission-control", label: "Mission Control",    route: "/",                       icon: LayoutDashboard, exactMatch: true },
       { id: "inbox",           label: "Inbox & Mail",       route: "/gmail",                  icon: Mail },
-      { id: "tasks",           label: "Tasks & Execution",  route: "/execution/tasks",        icon: CheckSquare },
+      { id: "tasks",           label: "Tasks",              route: "/execution/tasks",        icon: CheckSquare },
       { id: "calendar",        label: "Calendar & Meetings",route: "/execution/calendar",     icon: CalendarClock, permKey: "calendar" },
-      { id: "signatures",      label: "Email Signatures",   route: "/settings/signatures",    icon: PenSquare },
-      { id: "voice-profiles",  label: "AI Voice Profiles",  route: "/settings/voice-profiles",icon: Mic },
       { id: "daily-exec",      label: "Daily Execution",    route: "/execution/daily",        icon: CalendarDays },
       // nav-drift phase 4B: { label: "Digest Settings", route: "/alerts-digest" } — accessible via ⌘K
     ],
@@ -266,6 +265,18 @@ export const NAV_CONFIG: NavSection[] = [
     items: [
       { id: "training", label: "Training", route: "/training", icon: GraduationCap },
       { id: "help",     label: "Help",     route: "/help",     icon: HelpCircle },
+    ],
+  },
+
+  // ── SETTINGS (2 items) ─────────────────────────────────────────────────────
+  // User configuration pages moved out of Work for a cleaner Work section.
+  {
+    id: "settings",
+    label: "Settings",
+    icon: SlidersHorizontal,
+    items: [
+      { id: "signatures",     label: "Email Signatures",  route: "/settings/signatures",    icon: PenSquare },
+      { id: "voice-profiles", label: "AI Voice Profiles", route: "/settings/voice-profiles",icon: Mic },
     ],
   },
 
@@ -420,7 +431,7 @@ export const PAGE_NAV_INDEX: PageNavEntry[] = [
   { name: "Today",             url: "/today",                   section: "Work" },
   { name: "Mission Control",   url: "/",                        section: "Work" },
   { name: "Inbox & Mail",      url: "/gmail",                   section: "Work", aliases: ["Inbox", "Email", "Gmail"] },
-  { name: "Tasks & Execution", url: "/execution/tasks",         section: "Work", aliases: ["Tasks", "Task Hub"] },
+  { name: "Tasks",             url: "/execution/tasks",         section: "Work", aliases: ["Tasks", "Task Hub", "Tasks & Execution"] },
   { name: "Daily Execution",   url: "/execution/daily",         section: "Work" },
   { name: "Calendar & Meetings",url: "/execution/calendar",     section: "Work", aliases: ["Calendar"] },
   { name: "Work Calendar",     url: "/work/team-calendar",      section: "Work", aliases: ["Team Calendar"] },
@@ -428,8 +439,8 @@ export const PAGE_NAV_INDEX: PageNavEntry[] = [
   { name: "Activity Feed",     url: "/activity",                section: "Work", aliases: ["Activity"] },
   { name: "Travel",            url: "/my-travel",               section: "Work", aliases: ["My Travel"] },
   { name: "Personal Settings", url: "/settings/personal",       section: "Work" },
-  { name: "Email Signatures",  url: "/settings/signatures",     section: "Work", aliases: ["Signatures"] },
-  { name: "AI Voice Profiles", url: "/settings/voice-profiles", section: "Work", aliases: ["Voice Profiles"] },
+  { name: "Email Signatures",  url: "/settings/signatures",     section: "Settings", aliases: ["Signatures"] },
+  { name: "AI Voice Profiles", url: "/settings/voice-profiles", section: "Settings", aliases: ["Voice Profiles"] },
   { name: "Digest Settings",   url: "/alerts-digest",           section: "Work", aliases: ["Digest", "Alerts"] },
   // Pipeline
   { name: "Snapshot",          url: "/pipeline",                section: "Pipeline", aliases: ["Pipeline"] },

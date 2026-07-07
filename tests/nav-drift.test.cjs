@@ -106,13 +106,24 @@ ok("Email Signatures route (/settings/signatures) exists in nav",
 ok("AI Voice Profiles route (/settings/voice-profiles) exists in nav",
   src.includes('route: "/settings/voice-profiles"'));
 
-ok("Email Signatures is in Work group",
-  workSection.includes('/settings/signatures'),
-  "Email Signatures should be in Work, not Admin");
+// Email Signatures + AI Voice Profiles moved to Settings section (Phase 2L cleanup)
+const settingsSection = sectionText("settings");
 
-ok("AI Voice Profiles is in Work group",
-  workSection.includes('/settings/voice-profiles'),
-  "AI Voice Profiles should be in Work, not Admin");
+ok("Email Signatures is in Settings group (moved from Work)",
+  settingsSection.includes('/settings/signatures'),
+  "Email Signatures should be in Settings, not Work or Admin");
+
+ok("AI Voice Profiles is in Settings group (moved from Work)",
+  settingsSection.includes('/settings/voice-profiles'),
+  "AI Voice Profiles should be in Settings, not Work or Admin");
+
+ok("Email Signatures NOT in Work group after move",
+  !workSection.includes('/settings/signatures'),
+  "Email Signatures should no longer be in Work submenu");
+
+ok("AI Voice Profiles NOT in Work group after move",
+  !workSection.includes('/settings/voice-profiles'),
+  "AI Voice Profiles should no longer be in Work submenu");
 
 // ── Phase 1: Channels → Ecosystem ────────────────────────────────────────────
 console.log("\nPhase 1 — Channels group label rename:");
