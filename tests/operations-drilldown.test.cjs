@@ -45,6 +45,16 @@ const procurementSrc = fs.readFileSync(
   "utf8"
 );
 
+const projectsSrc = fs.readFileSync(
+  path.join(__dirname, "../client/src/pages/projects.tsx"),
+  "utf8"
+);
+
+const documentsSrc = fs.readFileSync(
+  path.join(__dirname, "../client/src/pages/documents.tsx"),
+  "utf8"
+);
+
 // ── 1. Route registration ─────────────────────────────────────────────────────
 
 console.log("\n1. Route registration in server/routes.ts");
@@ -273,6 +283,94 @@ assert(
 console.log("\n9. Auth invariants");
 assert("requirePermission crm view applied", drilldownSrc.includes('requirePermission("crm", "view")'));
 assert("dq_* metrics are admin-only gated", drilldownSrc.includes('metric.startsWith("dq_")') && drilldownSrc.includes("403"));
+
+// ── 10. projects.tsx drilldown wiring ─────────────────────────────────────────
+
+console.log("\n10. projects.tsx drilldown wiring");
+assert(
+  "UniversalDrilldownSheet imported in projects.tsx",
+  projectsSrc.includes("UniversalDrilldownSheet")
+);
+assert(
+  "UniversalDrilldownConfig type imported in projects.tsx",
+  projectsSrc.includes("UniversalDrilldownConfig")
+);
+assert(
+  "drilldownConfig state declared in projects.tsx",
+  projectsSrc.includes("drilldownConfig") && projectsSrc.includes("setDrilldownConfig")
+);
+assert(
+  "active_projects metric wired in projects.tsx",
+  projectsSrc.includes('"active_projects"')
+);
+assert(
+  "overdue_projects metric wired in projects.tsx",
+  projectsSrc.includes('"overdue_projects"')
+);
+assert(
+  "completed_projects metric wired in projects.tsx",
+  projectsSrc.includes('"completed_projects"')
+);
+assert(
+  "projects_due_this_week metric wired in projects.tsx",
+  projectsSrc.includes('"projects_due_this_week"')
+);
+assert(
+  "UniversalDrilldownSheet rendered with operations endpoint in projects.tsx",
+  projectsSrc.includes('endpoint="/api/operations/drilldown"')
+);
+assert(
+  "CertSummaryStrip stat buttons have cursor-pointer",
+  projectsSrc.includes("cursor-pointer")
+);
+
+// ── 11. documents.tsx drilldown wiring ───────────────────────────────────────
+
+console.log("\n11. documents.tsx drilldown wiring");
+assert(
+  "UniversalDrilldownSheet imported in documents.tsx",
+  documentsSrc.includes("UniversalDrilldownSheet")
+);
+assert(
+  "UniversalDrilldownConfig type imported in documents.tsx",
+  documentsSrc.includes("UniversalDrilldownConfig")
+);
+assert(
+  "drilldownConfig state declared in documents.tsx",
+  documentsSrc.includes("drilldownConfig") && documentsSrc.includes("setDrilldownConfig")
+);
+assert(
+  "documents_total metric wired (Total Assets stat chip)",
+  documentsSrc.includes('"documents_total"') && documentsSrc.includes("Total Assets")
+);
+assert(
+  "documents_recent metric wired (Insights shortcut)",
+  documentsSrc.includes('"documents_recent"') && documentsSrc.includes("Recent")
+);
+assert(
+  "documents_stale metric wired (Insights shortcut)",
+  documentsSrc.includes('"documents_stale"') && documentsSrc.includes("Stale")
+);
+assert(
+  "documents_missing_owner metric wired (Insights shortcut)",
+  documentsSrc.includes('"documents_missing_owner"') && documentsSrc.includes("No Owner")
+);
+assert(
+  "Total Assets stat chip maps to documents_total drilldown",
+  (() => {
+    const totalAssetsIdx = documentsSrc.indexOf('"Total Assets"');
+    const docTotalIdx = documentsSrc.indexOf('"documents_total"');
+    return totalAssetsIdx !== -1 && docTotalIdx !== -1 && Math.abs(totalAssetsIdx - docTotalIdx) < 200;
+  })()
+);
+assert(
+  "all 4 count-bearing stat chips are drillable (cursor-pointer on stat buttons)",
+  documentsSrc.includes("cursor-pointer") && documentsSrc.includes("setDrilldownConfig({ metric: s.metric })")
+);
+assert(
+  "UniversalDrilldownSheet rendered with operations endpoint in documents.tsx",
+  documentsSrc.includes('endpoint="/api/operations/drilldown"')
+);
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 

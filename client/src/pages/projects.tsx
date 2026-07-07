@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Button } from "@/components/ui/button";
@@ -849,7 +850,7 @@ type CertSummary = {
   failure_open: number; next_due_items: any[];
 };
 
-function CertSummaryStrip({ onCertFilter }: { onCertFilter: (f: string) => void }) {
+function CertSummaryStrip({ onCertFilter, onDrilldown }: { onCertFilter: (f: string) => void; onDrilldown: (metric: string) => void }) {
   const { data, isLoading } = useQuery<CertSummary>({
     queryKey: ["/api/projects/cert-summary"],
     queryFn: () => fetch("/api/projects/cert-summary", { credentials: "include" }).then(r => r.json()),
@@ -859,13 +860,13 @@ function CertSummaryStrip({ onCertFilter }: { onCertFilter: (f: string) => void 
   if (isLoading || !data || data.total === 0) return null;
 
   const stats = [
-    { label: "Total", value: data.total, color: "text-foreground", filter: "" },
-    { label: "On Track", value: data.on_track, color: "text-emerald-400", filter: "" },
-    { label: "At Risk", value: data.at_risk, color: "text-orange-400", filter: "" },
-    { label: "Blocked", value: data.blocked, color: "text-red-400", filter: "blocked" },
-    { label: "Retest", value: data.retest_required, color: "text-amber-400", filter: "retest" },
-    { label: "Certified", value: data.certified, color: "text-emerald-400", filter: "passed" },
-    { label: "Expiring 90d", value: data.cert_expiring_90d, color: "text-yellow-400", filter: "cert_expiring" },
+    { label: "Total", value: data.total, color: "text-foreground", filter: "", metric: "active_projects" },
+    { label: "On Track", value: data.on_track, color: "text-emerald-400", filter: "", metric: "active_projects" },
+    { label: "At Risk", value: data.at_risk, color: "text-orange-400", filter: "", metric: "overdue_projects" },
+    { label: "Blocked", value: data.blocked, color: "text-red-400", filter: "blocked", metric: "overdue_projects" },
+    { label: "Retest", value: data.retest_required, color: "text-amber-400", filter: "retest", metric: "active_projects" },
+    { label: "Certified", value: data.certified, color: "text-emerald-400", filter: "passed", metric: "completed_projects" },
+    { label: "Expiring 90d", value: data.cert_expiring_90d, color: "text-yellow-400", filter: "cert_expiring", metric: "projects_due_this_week" },
   ];
 
   return (
@@ -876,7 +877,7 @@ function CertSummaryStrip({ onCertFilter }: { onCertFilter: (f: string) => void 
       </div>
       <div className="px-4 py-3 flex items-start gap-6 flex-wrap">
         {stats.map(s => (
-          <button key={s.label} className="flex flex-col items-center gap-0.5 min-w-[48px] hover:opacity-80 transition-opacity" onClick={() => s.filter && onCertFilter(s.filter)} data-testid={`cert-stat-${s.label.toLowerCase().replace(/\s/g, "-")}`}>
+          <button key={s.label} className="flex flex-col items-center gap-0.5 min-w-[48px] cursor-pointer hover:opacity-80 transition-opacity" onClick={() => { if (s.filter) onCertFilter(s.filter); onDrilldown(s.metric); }} data-testid={`cert-stat-${s.label.toLowerCase().replace(/\s/g, "-")}`}>
             <span className={`text-xl font-bold tabular-nums ${s.color}`}>{s.value}</span>
             <span className="text-[10px] text-muted-foreground">{s.label}</span>
           </button>
@@ -1837,6 +1838,7 @@ export default function ProjectsPage() {
   const [certFilter, setCertFilter] = useState("");  // Phase 2
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<Project | null>(null);
+  const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
   const { toast } = useToast();
 
   const { data: projectsData, isLoading } = useQuery<Project[]>({
@@ -1891,7 +1893,7 @@ export default function ProjectsPage() {
       </div>
 
       {/* Phase 1 — Certification Oversight strip */}
-      <CertSummaryStrip onCertFilter={handleCertFilter} />
+      <CertSummaryStrip onCertFilter={handleCertFilter} onDrilldown={(metric) => setDrilldownConfig({ metric })} />
 
       <div className="px-6 py-4 border-b border-border/30">
         <div className="flex flex-wrap gap-1.5 mb-3">
@@ -1968,6 +1970,12 @@ export default function ProjectsPage() {
           onDelete={() => deleteMutation.mutate(selected.id)}
         />
       )}
+
+      <UniversalDrilldownSheet
+        config={drilldownConfig}
+        onClose={() => setDrilldownConfig(null)}
+        endpoint="/api/operations/drilldown"
+      />
     </div>
   );
 }

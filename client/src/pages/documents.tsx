@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -641,6 +642,7 @@ export default function DocumentsPage() {
   const [selectedDoc, setSelectedDoc] = useState<DocRow | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
   const limit = 50;
 
   const queryParams = new URLSearchParams();
@@ -687,19 +689,41 @@ export default function DocumentsPage() {
           </div>
         </div>
 
-        {/* Stats strip */}
-        <div className="flex items-center gap-6 mt-4">
+        {/* Stats strip — all count-bearing chips open drilldown */}
+        <div className="flex items-center gap-6 mt-4 flex-wrap">
           {[
-            { label: "Total Assets", value: total },
-            { label: "Sales", value: statSales },
-            { label: "Restricted", value: statRestricted },
-            { label: "Favorites", value: statFavorites },
+            { label: "Total Assets", value: total, metric: "documents_total" },
+            { label: "Sales", value: statSales, metric: "documents_total" },
+            { label: "Restricted", value: statRestricted, metric: "documents_total" },
+            { label: "Favorites", value: statFavorites, metric: "documents_total" },
           ].map(s => (
-            <div key={s.label}>
-              <p className="text-lg font-bold" data-testid={`stat-${s.label.toLowerCase().replace(/\s+/g, "-")}`}>{s.value}</p>
+            <button
+              key={s.label}
+              className="text-left cursor-pointer hover:opacity-75 transition-opacity"
+              onClick={() => setDrilldownConfig({ metric: s.metric })}
+              data-testid={`stat-${s.label.toLowerCase().replace(/\s+/g, "-")}`}
+            >
+              <p className="text-lg font-bold">{s.value}</p>
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</p>
-            </div>
+            </button>
           ))}
+          <div className="ml-2 flex items-center gap-1.5 border-l border-border/30 pl-4">
+            <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">Insights:</span>
+            {[
+              { label: "Recent", metric: "documents_recent" },
+              { label: "Stale", metric: "documents_stale" },
+              { label: "No Owner", metric: "documents_missing_owner" },
+            ].map(s => (
+              <button
+                key={s.label}
+                className="px-2 py-0.5 rounded-full text-[10px] font-medium border border-border/40 text-muted-foreground/70 cursor-pointer hover:border-primary/40 hover:text-primary transition-colors"
+                onClick={() => setDrilldownConfig({ metric: s.metric })}
+                data-testid={`drilldown-link-${s.label.toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -820,6 +844,12 @@ export default function DocumentsPage() {
 
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
       <LinkModal open={linkOpen} onClose={() => setLinkOpen(false)} />
+
+      <UniversalDrilldownSheet
+        config={drilldownConfig}
+        onClose={() => setDrilldownConfig(null)}
+        endpoint="/api/operations/drilldown"
+      />
     </div>
   );
 }
