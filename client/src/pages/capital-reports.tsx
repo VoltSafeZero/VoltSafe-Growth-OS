@@ -646,6 +646,11 @@ export default function CapitalReportsPage() {
   const activeRoundId   = selectedRoundId ?? rounds[0]?.id ?? null;
   const currentMeta     = meta?.report_types?.[selectedType];
 
+  async function parseApiError(r: Response): Promise<string> {
+    const text = await r.text();
+    try { const j = JSON.parse(text); return j.message ?? text; } catch { return text; }
+  }
+
   async function handleGenerate() {
     if (!activeRoundId) return;
     setIsGenerating(true);
@@ -657,7 +662,7 @@ export default function CapitalReportsPage() {
         include_sensitive: String(includeSensitive),
       });
       const r = await fetch(`/api/capital/reports/${selectedType}?${params}`, { credentials: "include" });
-      if (!r.ok) throw new Error(await r.text());
+      if (!r.ok) throw new Error(await parseApiError(r));
       const json = await r.json();
       setGeneratedData(json);
     } catch (err: any) {
@@ -676,7 +681,7 @@ export default function CapitalReportsPage() {
         format:            "markdown",
       });
       const r = await fetch(`/api/capital/reports/${selectedType}?${params}`, { credentials: "include" });
-      if (!r.ok) throw new Error(await r.text());
+      if (!r.ok) throw new Error(await parseApiError(r));
       const text = await r.text();
       await navigator.clipboard.writeText(text);
       toast({ title: "Markdown copied", description: "Paste into Notion, Docs, or email." });
@@ -694,7 +699,7 @@ export default function CapitalReportsPage() {
         format:            "csv",
       });
       const r = await fetch(`/api/capital/reports/${selectedType}?${params}`, { credentials: "include" });
-      if (!r.ok) throw new Error(await r.text());
+      if (!r.ok) throw new Error(await parseApiError(r));
       const blob = await r.blob();
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");

@@ -117,15 +117,17 @@ export function buildCopilotContext(
   }
 
   // ── 2. Weighted Pipeline ─────────────────────────────────────────────────
+  let hoistedPipeline: any = null;
   try {
-    const pipeline = computeWeightedPipeline(scopedInvestors, input.commitments, round);
+    const pipeline = computeWeightedPipeline(round, scopedInvestors, input.commitments);
+    hoistedPipeline = pipeline;
     source_labels.push("weighted_pipeline");
     const pLines = [
       `Weighted Pipeline:    ${fmt(pipeline.weighted_pipeline)}`,
       `Committed Amount:     ${fmt(pipeline.committed_amount)}`,
       `Soft-Circled:         ${fmt(pipeline.soft_circled_amount)}`,
-      `Total Investors:      ${pipeline.total_investors}`,
-      `Active Investors:     ${pipeline.active_investors}`,
+      `Total Investors:      ${pipeline.total_active}`,
+      `Hot / Lead Investors: ${pipeline.hot_count}`,
     ];
     if (round?.target_amount) {
       const pct = Math.round((pipeline.weighted_pipeline / round.target_amount) * 100);
@@ -136,7 +138,8 @@ export function buildCopilotContext(
 
   // ── 3. Risk Flags ────────────────────────────────────────────────────────
   try {
-    const risks = computeRiskFlags(scopedInvestors, input.commitments, round);
+    const emptyPipeline = { weighted_pipeline: 0, committed_amount: 0, soft_circled_amount: 0, wired_amount: 0, total_active: 0, remaining_to_target: 0, remaining_to_min_close: 0, committed_count: 0, soft_circled_count: 0, hot_count: 0, likely_lead_count: 0, confidence_low: 0, confidence_high: 0, target_amount: 0, minimum_close_target: 0 };
+    const risks = computeRiskFlags(round, scopedInvestors, hoistedPipeline ?? emptyPipeline);
     if (risks.length > 0) {
       source_labels.push("risk_flags");
       const body = risks.map((r: any) => `  [${r.severity?.toUpperCase() ?? "MEDIUM"}] ${r.flag}`).join("\n");
@@ -146,11 +149,11 @@ export function buildCopilotContext(
 
   // ── 4. This-Week Actions ────────────────────────────────────────────────
   try {
-    const actions = computeThisWeekActions(scopedInvestors, input.commitments, input.activities);
+    const actions = computeThisWeekActions(scopedInvestors, input.commitments, new Map());
     if (actions.length > 0) {
       source_labels.push("this_week_actions");
       const body = actions.slice(0, 8).map((a: any) =>
-        `  [${a.priority?.toUpperCase() ?? "MED"}] ${a.investor_name}: ${a.action_title} — ${a.reason}`
+        `  [${a.priority?.toUpperCase() ?? "MED"}] ${a.investor_name}: ${a.action} — ${a.reason}`
       ).join("\n");
       parts.push(section("THIS WEEK ACTIONS [this_week_actions]", body));
     }
@@ -158,11 +161,11 @@ export function buildCopilotContext(
 
   // ── 5. Lead Candidates ──────────────────────────────────────────────────
   try {
-    const leads = computeLeadCandidates(scopedInvestors, input.commitments);
+    const leads = computeLeadCandidates(scopedInvestors, input.commitments, input.contacts ?? [], new Map());
     if (leads.length > 0) {
       source_labels.push("lead_candidates");
       const body = leads.slice(0, 5).map((l: any) =>
-        `  ${l.investor_name} (${l.investor_type}) — Check: ${fmt(l.check_size_target)} — Reason: ${l.reason}`
+        `  ${l.investor_name} (${l.investor_type}) — Check: ${fmt(l.check_size_target ?? l.target_cheque_amount)} — Reason: ${l.reason}`
       ).join("\n");
       parts.push(section("LEAD CANDIDATES [lead_candidates]", body));
     }
@@ -171,7 +174,7 @@ export function buildCopilotContext(
   // ── 6. Runway ───────────────────────────────────────────────────────────
   if (round) {
     try {
-      const runway = computeRunway(round);
+      const runway = computeRunway(round, hoistedPipeline?.weighted_pipeline ?? 0);
       source_labels.push("runway");
       const body = [
         `Monthly Burn: ${fmt(runway.monthly_burn)}`,
@@ -265,11 +268,11 @@ export function buildCopilotContext(
         input.portalAccesses.filter((p: any) => p.investor_id === investor_id),
         input.materialShares.filter((s: any) => s.investor_id === investor_id),
       );
-      const eng = computeEngagementScore(signals);
-      const nextAct = recommendNextAction(signals, eng);
+      const eng = computeEngagementScore(scopedInv, signals);
+      const nextAct = recommendNextAction(scopedInv, signals, eng.engagement_tier);
       source_labels.push("investor_engagement");
       const engLines = [
-        `Engagement Score: ${eng.score}/100 (${eng.tier})`,
+        `Engagement Score: ${eng.engagement_score}/100 (${eng.engagement_tier})`,
         `Recommended Action: ${nextAct}`,
         `Engagement Reasons: ${eng.reasons.slice(0, 3).join("; ")}`,
       ];

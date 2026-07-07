@@ -1,0 +1,50 @@
+Fix the broken Capital module production failures shown in the attached screenshots.
+
+Observed issues:
+1. Capital → Command Center shows:
+   "Failed to load command center data."
+2. Capital → AI Copilot accepts a prompt but fails with toast:
+   "Copilot error — Failed to get a response. Try again."
+3. Capital → Reports fails on Generate with toast:
+   "Report failed {\"message\":\"Failed to generate report\"}"
+4. On Capital AI Copilot and Capital Reports, the left sidebar appears horizontally clipped/off-screen. Fix the layout so the full sidebar/logo/navigation are visible and aligned consistently across all Capital pages.
+
+Requirements:
+- Audit the frontend components and backend API routes for:
+  - Command Center data loading
+  - Capital AI Copilot response generation
+  - Capital Reports generation
+- Find the exact failing API endpoints and inspect server logs/errors.
+- Do not hide failures with generic UI only. Fix the underlying backend/data/contract issue.
+- If OpenAI/AI provider credentials are missing in dev/prod, implement graceful fallback demo output for these internal Capital tools so the pages remain usable instead of hard failing.
+- If seed/context data is missing, return a valid empty/default payload with a clear non-blocking empty state.
+- Ensure frontend request payloads match backend schemas.
+- Ensure backend responses match frontend expectations.
+- Add defensive parsing on the frontend so one missing field does not crash or blank the module.
+- Replace raw JSON error toasts with clean user-facing messages.
+- Fix the sidebar/page layout regression causing the left nav to be clipped on Copilot and Reports pages.
+
+Validation required:
+- Open Capital → Command Center: no failed-load message; page renders usable data or a clean empty state.
+- Open Capital → AI Copilot: submit "Whats going on?" and receive a response or useful fallback response; no red error toast.
+- Open Capital → Reports: click Generate and receive a generated report or useful fallback report; no red error toast.
+- Confirm sidebar is fully visible and aligned on:
+  - Command Center
+  - AI Copilot
+  - Reports
+  - Investors
+  - Rounds & Commitments
+  - Follow-Ups
+  - Data Room
+  - Engagement
+  - Updates & Reviews
+- Check browser console: zero errors.
+- Check server logs: zero 500s for Capital endpoints.
+- Add/repair tests covering:
+  - Command Center API success and empty-state fallback
+  - Copilot API success and provider-missing fallback
+  - Reports API success and provider-missing fallback
+  - Frontend does not show raw JSON error toasts
+  - Capital page layout/sidebar is not clipped
+
+Do not mark complete until the three screenshot failures are gone and the sidebar clipping is fixed.

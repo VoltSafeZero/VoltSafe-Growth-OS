@@ -2481,7 +2481,6 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
           ? db.execute(sql.raw(`
               SELECT * FROM capital_commitments
               WHERE investor_id IN (${invIds.join(",")})
-                AND deleted_at IS NULL
               ORDER BY created_at DESC LIMIT 200
             `))
           : Promise.resolve({ rows: [] }),
@@ -2550,7 +2549,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         recent_emails:      recentEmails,
       });
     } catch (err: any) {
-      console.error("[capital] GET /rounds/:id/command-center:", err?.message);
+      console.error("[capital] GET /rounds/:id/command-center:", err?.stack ?? err?.message);
       res.status(500).json({ message: "Failed to load command center" });
     }
   });
@@ -3853,7 +3852,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
           SELECT cc.*, ci.name AS investor_name, ci.stage AS investor_stage
           FROM capital_commitments cc
           LEFT JOIN capital_investors ci ON ci.id = cc.investor_id
-          WHERE cc.deleted_at IS NULL
+          WHERE 1=1
             ${effectiveRoundId ? `AND cc.round_id = ${effectiveRoundId}` : ""}
           ORDER BY cc.created_at DESC LIMIT 500
         `)),
@@ -3861,7 +3860,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
           SELECT cc.*, ci.name AS investor_name
           FROM capital_contacts cc
           LEFT JOIN capital_investors ci ON ci.id = cc.investor_id
-          WHERE cc.deleted_at IS NULL
+          WHERE 1=1
           ORDER BY cc.influence_level DESC, cc.created_at DESC LIMIT 500
         `)),
         db.execute(sql.raw(`
@@ -3964,7 +3963,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
 
       res.json(report);
     } catch (err: any) {
-      console.error("[capital] GET /reports/:type:", err?.message);
+      console.error("[capital] GET /reports/:type:", err?.stack ?? err?.message);
       res.status(500).json({ message: "Failed to generate report" });
     }
   });
@@ -4023,8 +4022,8 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
       ] = await Promise.all([
         db.execute(sql.raw(`SELECT id, name, status FROM capital_rounds WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 20`)),
         db.execute(sql.raw(`SELECT * FROM capital_investors ci WHERE ci.deleted_at IS NULL ${investorFilter} ORDER BY ci.priority DESC NULLS LAST LIMIT 500`)),
-        db.execute(sql.raw(`SELECT cc.*, cr.name AS round_name FROM capital_commitments cc LEFT JOIN capital_rounds cr ON cr.id = cc.round_id WHERE cc.deleted_at IS NULL ${effectiveRoundId ? `AND cc.round_id = ${effectiveRoundId}` : ""} LIMIT 500`)),
-        db.execute(sql.raw(`SELECT cc.* FROM capital_contacts cc WHERE cc.deleted_at IS NULL ${safeInvestorId ? `AND cc.investor_id = ${safeInvestorId}` : ""} LIMIT 300`)),
+        db.execute(sql.raw(`SELECT cc.*, cr.name AS round_name FROM capital_commitments cc LEFT JOIN capital_rounds cr ON cr.id = cc.round_id WHERE 1=1 ${effectiveRoundId ? `AND cc.round_id = ${effectiveRoundId}` : ""} LIMIT 500`)),
+        db.execute(sql.raw(`SELECT cc.* FROM capital_contacts cc WHERE 1=1 ${safeInvestorId ? `AND cc.investor_id = ${safeInvestorId}` : ""} LIMIT 300`)),
         db.execute(sql.raw(`SELECT * FROM capital_activities WHERE entity_type = 'investor' ${safeInvestorId ? `AND entity_id = ${safeInvestorId}` : ""} ORDER BY activity_at DESC LIMIT 500`)),
         db.execute(sql.raw(`SELECT * FROM capital_email_links WHERE deleted_at IS NULL ${safeInvestorId ? `AND capital_investor_id = ${safeInvestorId}` : ""} ORDER BY latest_message_at DESC LIMIT 300`)),
         db.execute(sql.raw(`SELECT cpa.*, ci.name AS investor_name FROM capital_portal_access cpa LEFT JOIN capital_investors ci ON ci.id = cpa.investor_id WHERE cpa.deleted_at IS NULL ${safeInvestorId ? `AND cpa.investor_id = ${safeInvestorId}` : ""} LIMIT 200`)),
@@ -4075,7 +4074,7 @@ export function registerCapitalRoutes(app: Express, requireAuth: any): void {
         generated_at:        response.generated_at,
       });
     } catch (err: any) {
-      console.error("[capital] POST /copilot/query:", err?.message);
+      console.error("[capital] POST /copilot/query:", err?.stack ?? err?.message);
       res.status(500).json({ message: "Copilot query failed" });
     }
   });
