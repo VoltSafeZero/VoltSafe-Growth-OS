@@ -124,6 +124,11 @@ const ALLOWLIST = [
     lineSubstr: "bg-[#0a0f1a]",
     reason: "Public compliance-unsubscribe page — same brand dark background, outside CMS shell",
   },
+  {
+    fileSubstr: "components/today/ceo-execution-radar.tsx",
+    lineSubstr: "bg-[#0a0f1a]",
+    reason: "CEO Execution Radar panel — intentional dark navy card background matching CEO Cockpit brand surface across all today-panel components",
+  },
 
   // ── Category 4 (cont.): Investor portal — public token-gated page ─────────
   // investor-portal.tsx renders without the CMS shell using a fixed dark navy
