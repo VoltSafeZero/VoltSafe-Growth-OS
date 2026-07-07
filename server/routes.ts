@@ -120,6 +120,7 @@ import { generateCockpitActions, listCeoActions, createCeoAction, updateCeoActio
 import { buildDailyCeoBriefing, buildWeeklyCeoReview, buildTeamMemberBriefing, buildLeadershipMeetingAgenda, buildWeeklyReviewDraft } from "./services/ceo-briefing";
 import { buildExecutionRadar, detectExecutionDrift, buildCommitmentsRadar, buildRecurringRiskPatterns, buildExecutionScorecard } from "./services/ceo-execution-intelligence";
 import { isBoardPackUser, buildBoardPack, buildBoardPackMarkdown, buildBoardPackExecutiveSummary, buildInvestorUpdateDraft, compareAgainstPreviousPack, createBoardPack, getBoardPack, listBoardPacks, updateBoardPack, finalizeBoardPack, archiveBoardPack } from "./services/board-pack";
+import { buildCeoForecast, buildScenarioPlan, buildRunwayIntelligence, buildRevenueForecast, buildExecutionForecast, buildFundingForecast, buildForecastInterventions, saveScenarioNote, createForecastActions } from "./services/ceo-forecasting";
 import { runAlertEngine, DEFAULT_ALERT_RULES, type AlertRule } from "./services/alert-engine";
 import { snapshotScore, recordOutcome, computeModelAccuracy, getAllModelAccuracy, getTuningRecommendations, getExplainabilityData, checkUnderperformance, getOutcomes, getFeedbackOverview } from "./services/feedback-engine";
 import { computeAwaitingReply, clearAwaitingReply, getTriageSummary, getAwaitingReplyThreads } from "./services/awaiting-reply";
@@ -11537,6 +11538,181 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("[ceo-execution] mark-reviewed:", err?.message);
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Phase 9: CEO Forecasting, Scenario Planning, and Runway Intelligence ─────
+  // All routes: requireAuth + requireAdmin. No auto-send. Local DB only.
+  // Runway/funding routes additionally require CEO/CFO capital access.
+
+  function requireForecastCapitalAccess(req: any, res: any, next: any) {
+    const userId = Number((req.session as any)?.userId);
+    if (!userId) return res.status(401).json({ message: "Not authenticated" });
+    (async () => {
+      try {
+        const row = await db.execute(sql`SELECT id, email, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+        const u = (row.rows[0] as any);
+        const hasCapital = (u?.permissions?.capital !== "none" && u?.permissions?.capital != null) || isBoardPackUser(u?.id, u?.email);
+        if (!hasCapital) return res.status(403).json({ message: "Runway and funding forecasts require CEO or CFO access." });
+        next();
+      } catch (err: any) {
+        return res.status(500).json({ message: err?.message });
+      }
+    })();
+  }
+
+  // GET /api/today/ceo-forecast — full forecast summary
+  app.get("/api/today/ceo-forecast", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = (u?.permissions?.capital !== "none" && u?.permissions?.capital != null) || isBoardPackUser(userId, u?.email ?? "");
+      const result = await buildCeoForecast({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-forecast] full:", err?.message);
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  // GET /api/today/ceo-forecast/scenarios
+  app.get("/api/today/ceo-forecast/scenarios", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = (u?.permissions?.capital !== "none" && u?.permissions?.capital != null) || isBoardPackUser(userId, u?.email ?? "");
+      const result = await buildScenarioPlan({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-forecast] scenarios:", err?.message);
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  // GET /api/today/ceo-forecast/runway — capital-gated
+  app.get("/api/today/ceo-forecast/runway", requireAuth, requireAdmin, requireForecastCapitalAccess, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const result = await buildRunwayIntelligence({ id: userId, name: u?.name ?? "", hasCapital: true });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-forecast] runway:", err?.message);
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  // GET /api/today/ceo-forecast/revenue
+  app.get("/api/today/ceo-forecast/revenue", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = (u?.permissions?.capital !== "none" && u?.permissions?.capital != null) || isBoardPackUser(userId, u?.email ?? "");
+      const result = await buildRevenueForecast({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-forecast] revenue:", err?.message);
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  // GET /api/today/ceo-forecast/execution
+  app.get("/api/today/ceo-forecast/execution", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = (u?.permissions?.capital !== "none" && u?.permissions?.capital != null) || isBoardPackUser(userId, u?.email ?? "");
+      const result = await buildExecutionForecast({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-forecast] execution:", err?.message);
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  // GET /api/today/ceo-forecast/funding — capital-gated
+  app.get("/api/today/ceo-forecast/funding", requireAuth, requireAdmin, requireForecastCapitalAccess, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const result = await buildFundingForecast({ id: userId, name: u?.name ?? "", hasCapital: true });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-forecast] funding:", err?.message);
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  // GET /api/today/ceo-forecast/interventions
+  app.get("/api/today/ceo-forecast/interventions", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = (u?.permissions?.capital !== "none" && u?.permissions?.capital != null) || isBoardPackUser(userId, u?.email ?? "");
+      const result = await buildForecastInterventions({ id: userId, name: u?.name ?? "", hasCapital });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-forecast] interventions:", err?.message);
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  // POST /api/today/ceo-forecast/interventions/create-actions — Phase 6 integration
+  app.post("/api/today/ceo-forecast/interventions/create-actions", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name, permissions FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const hasCapital = (u?.permissions?.capital !== "none" && u?.permissions?.capital != null) || isBoardPackUser(userId, u?.email ?? "");
+      const { interventions } = req.body;
+      if (!Array.isArray(interventions) || interventions.length === 0) {
+        return res.status(400).json({ message: "interventions array is required" });
+      }
+      const result = await createForecastActions({ id: userId, name: u?.name ?? "", hasCapital }, interventions);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-forecast] create-actions:", err?.message);
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  // POST /api/today/ceo-forecast/scenario-note — save a local note
+  app.post("/api/today/ceo-forecast/scenario-note", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = Number((req.session as any).userId);
+      const row = await db.execute(sql`SELECT name FROM users WHERE id = ${userId} LIMIT 1`);
+      const u = row.rows[0] as any;
+      const { scenario_type = "general", title, body, assumptions } = req.body;
+      if (!title || !body) return res.status(400).json({ message: "title and body are required" });
+      const result = await saveScenarioNote({ id: userId, name: u?.name ?? "", hasCapital: false }, { scenario_type, title, body, assumptions });
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ceo-forecast] scenario-note:", err?.message);
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  // GET /api/today/ceo-forecast/notes — list saved notes (admin only)
+  app.get("/api/today/ceo-forecast/notes", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT n.id, n.scenario_type, n.title, n.body, n.assumptions, n.created_at, u.name AS author
+        FROM ceo_forecast_notes n
+        JOIN users u ON u.id = n.created_by_user_id
+        ORDER BY n.created_at DESC
+        LIMIT 50
+      `);
+      res.json({ notes: result.rows });
+    } catch (err: any) {
+      console.error("[ceo-forecast] notes:", err?.message);
+      res.status(500).json({ message: err?.message });
     }
   });
 

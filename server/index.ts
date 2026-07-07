@@ -480,6 +480,25 @@ app.use((req, res, next) => {
       log("[migration] board_packs table ready.");
     } catch (_e) { /* already exists */ }
 
+    // Phase 9: ceo_forecast_notes table
+    try {
+      await _db.execute(_sql.raw(`
+        CREATE TABLE IF NOT EXISTS ceo_forecast_notes (
+          id                 SERIAL PRIMARY KEY,
+          scenario_type      TEXT NOT NULL DEFAULT 'general',
+          title              TEXT NOT NULL,
+          body               TEXT NOT NULL DEFAULT '',
+          assumptions        JSONB NOT NULL DEFAULT '{}',
+          created_by_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_forecast_notes_user ON ceo_forecast_notes(created_by_user_id)`));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_ceo_forecast_notes_type ON ceo_forecast_notes(scenario_type)`));
+      log("[migration] ceo_forecast_notes table ready.");
+    } catch (_e) { /* already exists */ }
+
     // Derived label backfill: fire-and-forget (idempotent, safe to run concurrently)
     migrateDerivedLabelColumns().catch(err =>
       console.error("[startup] derived label backfill background error:", err)

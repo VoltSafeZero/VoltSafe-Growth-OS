@@ -54,6 +54,7 @@ import {
 import { CeoActionQueuePanel } from "@/components/today/ceo-action-queue";
 import { CeoBriefingPanel } from "@/components/today/ceo-briefing";
 import { CeoExecutionRadarPanel } from "@/components/today/ceo-execution-radar";
+import { CeoForecastingPanel } from "@/components/today/ceo-forecasting";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1357,6 +1358,9 @@ export default function TodayPage() {
             const compact = prefs.prefs.compact;
             return (
               <div className={`space-y-4 ${compact ? "space-y-3" : ""}`}>
+                {/* Forecasting — Phase 9 */}
+                <CeoForecastingPanel />
+
                 {/* Execution Radar — Phase 8 */}
                 <CeoExecutionRadarPanel />
 
