@@ -46,7 +46,7 @@ import {
   Sparkles, Code2, Type, Rows3, Rows2, Inbox as InboxIcon,
   Maximize2, Minimize2, Pin, PinOff, LayoutList, List as ListIcon,
   Command as CommandIcon, AlignJustify, Hash, AtSign, Folders, Zap as ZapIcon,
-  ShieldAlert, Upload, ImagePlus,
+  ShieldAlert, Upload, ImagePlus, Anchor,
 } from "lucide-react";
 import {
   groupSmartInbox,
@@ -211,7 +211,7 @@ function parseSenderEmail(from: string) {
   return match ? match[1] : from;
 }
 
-type InboxCategory = "all" | "people" | "updates" | "promotions" | "social" | "forums" | "priority";
+type InboxCategory = "all" | "people" | "marine" | "updates" | "promotions" | "social" | "forums" | "priority";
 type CrmInboxFilter = "all" | "unread" | "starred" | "follow-up" | "needs-reply" | "awaiting-reply" | "hot" | "unlinked";
 
 type MailFolderDomain = { id: number; folderId: number; domain: string; matchType: string };
@@ -5333,6 +5333,26 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     [blockedSendersQuery.data],
   );
 
+  const marineDataQuery = useQuery<{ taggedThreadIds: string[]; senderEmails: string[] }>({
+    queryKey: ["/api/gmail/marine-related/data", activeAccountId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (activeAccountId != null) params.set("asAccountId", String(activeAccountId));
+      const res = await fetch(`/api/gmail/marine-related/data?${params}`, { credentials: "include" });
+      if (!res.ok) return { taggedThreadIds: [], senderEmails: [] };
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+  const marineThreadIds = useMemo(
+    () => new Set((marineDataQuery.data?.taggedThreadIds ?? []).map((id) => id)),
+    [marineDataQuery.data],
+  );
+  const marineSenderEmails = useMemo(
+    () => new Set((marineDataQuery.data?.senderEmails ?? []).map((e) => e.toLowerCase())),
+    [marineDataQuery.data],
+  );
+
   const foldersQuery = useQuery<MailFolder[]>({
     queryKey: ["/api/mail-folders"],
     queryFn: async () => {
@@ -5578,6 +5598,24 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     onError: (err: any) => {
       toast({ title: "Backfill failed", description: err.message, variant: "destructive" });
     },
+  });
+
+  const toggleMarineMutation = useMutation({
+    mutationFn: async ({ threadId, messageId, senderEmail, senderName }: {
+      threadId: string; messageId: string; senderEmail: string; senderName?: string;
+    }) => {
+      const body: Record<string, any> = { threadId, messageId, senderEmail };
+      if (senderName) body.senderName = senderName;
+      if (activeAccountId != null) body.asAccountId = activeAccountId;
+      const res = await apiRequest("POST", "/api/gmail/marine-related/toggle", body);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed");
+      return res.json() as Promise<{ tagged: boolean }>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/marine-related/data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gmail/category-counts"] });
+    },
+    onError: (err: any) => toast({ title: "Marine tag failed", description: err.message, variant: "destructive" }),
   });
 
   const toggleStarMutation = useMutation({
@@ -7468,6 +7506,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     ? inboxMain
     : inboxCategory === "priority"    ? inboxMain.filter((m) => isStarred(m.labelIds)) :
       inboxCategory === "all"         ? inboxMain :
+      inboxCategory === "marine"      ? inboxMain.filter((m) =>
+          marineThreadIds.has(m.threadId) ||
+          marineSenderEmails.has((m.fromEmail || "").toLowerCase())
+        ) :
       inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory);
 
   const priorityCount    = inboxMain.filter((m) => isStarred(m.labelIds)).length;
@@ -7503,11 +7545,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     const promotions = cc?.promotions?.unread ?? 0;
     const social     = cc?.social?.unread     ?? 0;
     const forums     = cc?.forums?.unread     ?? 0;
+    const marine     = cc?.marine?.unread     ?? 0;
     const people     = cc?.people?.unread
                      ?? Math.max(0, inbox - updates - promotions - social - forums);
     const categorySum = people + updates + promotions + social + forums;
     return {
-      inbox, people, updates, promotions, social, forums,
+      inbox, people, marine, updates, promotions, social, forums,
       categorySum, gap: inbox - categorySum, isReconciled: inbox === categorySum,
       sourceTimestamp: Date.now(),
     };
@@ -7533,6 +7576,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // the full inbox, so inboxUnreadCount < serverInboxUnreadCount always.
   const inboxCategoryServerUnread = useMemo(() => {
     if (inboxCategory === "people")     return countSnapshot.people;
+    if (inboxCategory === "marine")     return countSnapshot.marine;
     if (inboxCategory === "updates")    return countSnapshot.updates;
     if (inboxCategory === "promotions") return countSnapshot.promotions;
     if (inboxCategory === "social")     return countSnapshot.social;
@@ -7560,6 +7604,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // All values sourced from countSnapshot (stabilised joint freshness).
   const sidebarCategoryBadges = useMemo(() => ({
     people:     countSnapshot.people,
+    marine:     countSnapshot.marine,
     updates:    countSnapshot.updates,
     promotions: countSnapshot.promotions,
     social:     countSnapshot.social,
@@ -9011,6 +9056,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         {([
                           { key: "all" as const,         label: "All",                   Icon: Inbox,     badge: 0 },
                           { key: "people" as const,      label: "People",                Icon: User,      badge: sidebarCategoryBadges.people },
+                          { key: "marine" as const,      label: "Marine Related",        Icon: Anchor,    badge: sidebarCategoryBadges.marine },
                           { key: "updates" as const, label: "Updates", Icon: Newspaper, badge: sidebarCategoryBadges.updates },
                           { key: "promotions" as const,  label: "Promotions",            Icon: Tag,       badge: sidebarCategoryBadges.promotions },
                           { key: "social" as const,      label: "Social",                Icon: Users,     badge: sidebarCategoryBadges.social },
@@ -10526,6 +10572,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             }}
                           />
                         )}
+                        {(marineThreadIds.has(msg.threadId) || marineSenderEmails.has(rowSenderEmail)) && (
+                          <span
+                            className="inline-flex items-center text-cyan-400/70 flex-shrink-0"
+                            title="Marine Related"
+                            data-testid={`marine-badge-${msg.id}`}
+                          >
+                            <Anchor className="h-2.5 w-2.5" />
+                          </span>
+                        )}
                         <span className={`${densityClasses.senderText} leading-none truncate ${
                           unread
                             ? "font-semibold text-foreground tracking-[-0.01em]"
@@ -10853,6 +10908,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   isSpamView={tab === "spam"}
                   senderEmail={focusedMsg.fromEmail?.toLowerCase() || ""}
                   isBlocked={blockedEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")}
+                  isMarineRelated={
+                    marineThreadIds.has(selectedThreadId) ||
+                    marineSenderEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")
+                  }
+                  onToggleMarineRelated={() => toggleMarineMutation.mutate({
+                    threadId: selectedThreadId,
+                    messageId: focusedMsg.id,
+                    senderEmail: focusedMsg.fromEmail?.toLowerCase() || "",
+                    senderName: parseSenderName(focusedMsg.from || ""),
+                  })}
                   handlers={{
                     onClose: handleBack,
                     onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
@@ -10918,6 +10983,16 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     isSpamView={tab === "spam"}
                     senderEmail={focusedMsg.fromEmail?.toLowerCase() || ""}
                     isBlocked={blockedEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")}
+                    isMarineRelated={
+                      marineThreadIds.has(selectedThreadId) ||
+                      marineSenderEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")
+                    }
+                    onToggleMarineRelated={() => toggleMarineMutation.mutate({
+                      threadId: selectedThreadId,
+                      messageId: focusedMsg.id,
+                      senderEmail: focusedMsg.fromEmail?.toLowerCase() || "",
+                      senderName: parseSenderName(focusedMsg.from || ""),
+                    })}
                     handlers={{
                       onClose: handleBack,
                       onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),

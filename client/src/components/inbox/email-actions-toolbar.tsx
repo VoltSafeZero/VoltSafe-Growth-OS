@@ -51,6 +51,7 @@ import {
   ShieldCheck,
   Star,
   Brain,
+  Anchor,
 } from "lucide-react";
 import {
   Tooltip,
@@ -145,6 +146,10 @@ export interface EmailActionsToolbarProps {
   senderEmail?: string;
   /** True when this sender is already in the blocked_senders list. */
   isBlocked?: boolean;
+  /** True when this thread/sender has been tagged as Marine Related. */
+  isMarineRelated?: boolean;
+  /** Called when the user clicks the Marine Related anchor toggle. */
+  onToggleMarineRelated?: () => void;
   handlers: ActionsToolbarHandlers;
   /** Optional callback fired AFTER assignedUserId is mutated successfully so the parent can refresh queries. */
   onAssignChanged?: (userId: number | null) => void;
@@ -249,6 +254,8 @@ function EmailActionsToolbarImpl({
   isSpamView = false,
   senderEmail = "",
   isBlocked = false,
+  isMarineRelated = false,
+  onToggleMarineRelated,
   handlers,
   onAssignChanged,
   isCapitalUser = false,
@@ -633,6 +640,33 @@ function EmailActionsToolbarImpl({
                 <span className="ml-2 opacity-60 font-mono">U</span>
               </TooltipContent>
             </Tooltip>
+
+            {onToggleMarineRelated && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onToggleMarineRelated}
+                    data-testid="action-marine-related"
+                    aria-label={isMarineRelated ? "Remove Marine Related tag" : "Tag as Marine Related"}
+                    aria-pressed={isMarineRelated}
+                    className={`p-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 ${
+                      isMarineRelated
+                        ? "text-cyan-400 bg-cyan-500/15"
+                        : "text-muted-foreground/70 hover:text-cyan-400 hover:bg-cyan-500/10"
+                    }`}
+                  >
+                    <Anchor
+                      className={`h-3.5 w-3.5 ${isMarineRelated ? "drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]" : ""}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-[11px]">
+                  {isMarineRelated ? "Remove Marine Related tag" : "Tag as Marine Related"}
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             <Tooltip>
               <TooltipTrigger asChild>

@@ -1,0 +1,131 @@
+Implement a new VoltSafe Mail feature: “Marine Related” email tagging + smart subtab routing.
+
+Context:
+VoltSafe Mail currently has mailbox subtabs under trevor@voltsafe.com:
+- Inbox
+- All
+- People
+- Updates
+- Promotions
+- Social
+- Forums & Communities
+etc.
+
+I want a new custom subtab called “Marine Related” that appears:
+- Below People
+- Above Updates
+
+This subtab should collect emails that I manually tag as marine-related, plus future emails from the same sender once that sender has been tagged.
+
+Core UX:
+1. Add a visible “anchor” tag action/icon in the opened email toolbar/header area.
+   - Use an anchor icon.
+   - Tooltip: “Tag as Marine Related”
+   - When active/tagged, show the anchor icon filled/highlighted.
+   - When inactive, show normal/neutral state.
+   - Clicking it toggles Marine Related tagging for the opened email.
+
+2. When I open any email and click the anchor icon:
+   - That specific email/thread is tagged as Marine Related.
+   - The sender email address is also saved as a Marine Related sender rule.
+   - The email immediately appears in the new “Marine Related” subtab.
+   - It may still appear in Inbox/All depending on current logic, but the Marine Related subtab must reliably show it.
+
+3. Any new email received from a sender already saved as Marine Related must automatically route/show in the Marine Related subtab.
+   - Example: I tag an email from association@marinaindustries.com.
+   - Future emails from association@marinaindustries.com automatically appear in Marine Related.
+   - This should work for both unread and read/opened emails.
+
+4. Add the new subtab count badge.
+   - The Marine Related count should reflect emails/threads currently matching the Marine Related category.
+   - Follow existing count style used by People/Updates.
+   - Do not break existing unread count logic.
+
+5. Add persistence.
+   Create database support for:
+   A) Marine tagged messages/threads
+   B) Marine sender rules
+
+Suggested schema:
+- marine_related_email_tags
+  - id
+  - user_id/account_id if available in current mail schema
+  - gmail_message_id nullable if thread-based system uses thread id
+  - gmail_thread_id nullable
+  - sender_email
+  - created_at
+  - created_by if available
+
+- marine_related_senders
+  - id
+  - user_id/account_id if available
+  - sender_email unique per user/account
+  - sender_name nullable
+  - created_at
+  - created_by if available
+  - last_matched_at nullable
+
+Use the app’s existing migration/schema conventions. Do not invent a second mail architecture.
+
+6. Backend/API:
+Add endpoints consistent with existing VoltSafe Mail API style:
+- GET marine-related status for a message/thread
+- POST/PUT toggle marine-related tag for a message/thread
+- GET list/query Marine Related emails for the new subtab
+- Include Marine Related count in existing mailbox/category counts endpoint if one exists
+
+Expected behavior:
+- Toggle ON:
+  - Save tag for the current message/thread
+  - Save sender email to marine_related_senders
+  - Return updated state
+- Toggle OFF:
+  - Remove tag from current message/thread
+  - Ask/handle through UI whether sender rule remains? For now: toggle off only removes that specific email/thread tag, but keep sender rule unless there is an existing settings/rules UI. This prevents accidentally disabling future routing.
+  - Add a small secondary option if easy: “Remove sender rule”
+- New inbound/list sync:
+  - When emails are loaded/synced, if sender_email exists in marine_related_senders, classify/show that email/thread as Marine Related automatically.
+
+7. Frontend:
+- Add “Marine Related” subtab in the left mailbox category list below People and above Updates.
+- Add anchor icon toggle in opened email toolbar/header area.
+- In the email list, optionally show a small anchor pill/badge on Marine Related emails, consistent with the existing label pill style.
+- Subtab route/filter should load all Marine Related emails/threads.
+- Preserve existing grouping, unread handling, search, priority highlights, and category filters.
+
+8. Important rules:
+- Do not classify all “marine” keyword emails automatically yet. This first version is rule/tag based only.
+- Do not use broad AI auto-tagging in this pass.
+- Do not break Gmail sync.
+- Do not break existing People/Updates/Promotions category logic.
+- Do not duplicate messages.
+- Respect the app’s current thread-based vs message-based source of truth.
+- Internal @voltsafe.com emails should not become Marine Related sender rules unless explicitly tagged by me.
+- The feature must work for historical/opened emails and future newly received emails from tagged senders.
+
+9. Tests:
+Add regression tests for:
+- Marine Related subtab appears below People and above Updates.
+- Anchor icon appears on opened email.
+- Clicking anchor tags the current email/thread.
+- Tagged email appears in Marine Related subtab.
+- Sender rule is created when email is tagged.
+- Future/new email from the same sender appears in Marine Related automatically.
+- Existing People/Updates/Promotions filters still work.
+- Counts update correctly.
+- Toggling the tag off removes the specific email/thread from Marine Related if it does not match sender rule logic.
+- No duplicate rows/messages in Marine Related.
+
+10. Visual polish:
+- Use existing VoltSafe Mail styling.
+- The anchor icon should feel like a lightweight CRM/mail tag, not a giant new button.
+- “Marine Related” should use the same sidebar row styling as People/Updates.
+- Use an anchor icon badge/pill where appropriate.
+
+Deliverable:
+Implement the full feature end-to-end, run the relevant tests/build, and report:
+- files changed
+- migrations added
+- endpoints added
+- tests added/passing
+- any assumptions made about message vs thread source of truth

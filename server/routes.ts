@@ -19618,6 +19618,101 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   // ── Category-folder counts ─────────────────────────────────────────────────
+  // ── Marine Related tables — idempotent startup migration ─────────────────
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS marine_related_email_tags (
+        id SERIAL PRIMARY KEY,
+        gmail_thread_id TEXT NOT NULL,
+        gmail_message_id TEXT,
+        sender_email TEXT,
+        sender_name TEXT,
+        owner_user_id INTEGER,
+        source_account_id INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_by INTEGER
+      )
+    `));
+    await db.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS idx_marine_tags_thread_user ON marine_related_email_tags(gmail_thread_id, owner_user_id)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_marine_tags_user ON marine_related_email_tags(owner_user_id)`));
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS marine_related_senders (
+        id SERIAL PRIMARY KEY,
+        owner_user_id INTEGER NOT NULL,
+        sender_email TEXT NOT NULL,
+        sender_name TEXT,
+        last_matched_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_by INTEGER
+      )
+    `));
+    await db.execute(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS idx_marine_senders_user_email ON marine_related_senders(owner_user_id, sender_email)`));
+  } catch (e: any) {
+    console.warn("[marine] startup migration warning:", e.message);
+  }
+
+  // GET /api/gmail/marine-related/data?asAccountId=<id|all>
+  // Returns the set of marine-tagged thread IDs and sender emails for the current user.
+  app.get("/api/gmail/marine-related/data", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const rows1 = await db.execute(sql.raw(
+        `SELECT gmail_thread_id FROM marine_related_email_tags WHERE owner_user_id = ${Number(userId)}`
+      ));
+      const rows2 = await db.execute(sql.raw(
+        `SELECT sender_email FROM marine_related_senders WHERE owner_user_id = ${Number(userId)}`
+      ));
+      const taggedThreadIds = ((rows1 as any).rows ?? rows1).map((r: any) => r.gmail_thread_id);
+      const senderEmails    = ((rows2 as any).rows ?? rows2).map((r: any) => r.sender_email);
+      res.json({ taggedThreadIds, senderEmails });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/gmail/marine-related/toggle
+  // Toggles the Marine Related tag on a thread. If adding, also creates a sender rule
+  // (unless the sender is an internal @voltsafe.com address).
+  app.post("/api/gmail/marine-related/toggle", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId;
+      const { threadId, messageId, senderEmail, senderName } = req.body as {
+        threadId: string; messageId?: string; senderEmail?: string; senderName?: string;
+      };
+      if (!threadId) return res.status(400).json({ message: "threadId required" });
+      const existing = await db.execute(sql.raw(
+        `SELECT id FROM marine_related_email_tags WHERE gmail_thread_id = '${threadId.replace(/'/g,"''")}' AND owner_user_id = ${Number(userId)} LIMIT 1`
+      ));
+      const alreadyTagged = (((existing as any).rows ?? existing).length) > 0;
+      if (alreadyTagged) {
+        await db.execute(sql.raw(
+          `DELETE FROM marine_related_email_tags WHERE gmail_thread_id = '${threadId.replace(/'/g,"''")}' AND owner_user_id = ${Number(userId)}`
+        ));
+        return res.json({ tagged: false });
+      }
+      const msgIdVal = messageId ? `'${String(messageId).replace(/'/g,"''")}'` : "NULL";
+      const senderEmailVal = senderEmail ? `'${String(senderEmail).replace(/'/g,"''")}'` : "NULL";
+      const senderNameVal  = senderName  ? `'${String(senderName).replace(/'/g,"''")}'`  : "NULL";
+      await db.execute(sql.raw(
+        `INSERT INTO marine_related_email_tags (gmail_thread_id, gmail_message_id, sender_email, sender_name, owner_user_id, created_by)
+         VALUES ('${threadId.replace(/'/g,"''")}', ${msgIdVal}, ${senderEmailVal}, ${senderNameVal}, ${Number(userId)}, ${Number(userId)})
+         ON CONFLICT (gmail_thread_id, owner_user_id) DO NOTHING`
+      ));
+      const normalizedEmail = (senderEmail || "").toLowerCase().trim();
+      const isInternal = normalizedEmail.endsWith("@voltsafe.com");
+      if (normalizedEmail && !isInternal) {
+        await db.execute(sql.raw(
+          `INSERT INTO marine_related_senders (owner_user_id, sender_email, sender_name, last_matched_at, created_by)
+           VALUES (${Number(userId)}, '${normalizedEmail.replace(/'/g,"''")}', ${senderNameVal}, NOW(), ${Number(userId)})
+           ON CONFLICT (owner_user_id, sender_email) DO UPDATE SET last_matched_at = NOW(), sender_name = EXCLUDED.sender_name`
+        ));
+      }
+      res.json({ tagged: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // GET /api/gmail/category-counts?asAccountId=<id|all>
   // Returns unread counts for each of the four Gmail category labels
   // (CATEGORY_UPDATES, CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, CATEGORY_FORUMS).
@@ -19667,11 +19762,18 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true
                              AND smart_category = 'forums')::int     AS forums_unread,
           COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true
-                             AND smart_category = 'people')::int     AS people_unread
-        FROM email_messages
-        WHERE source_account_id IN (${validIds.join(",")})
+                             AND smart_category = 'people')::int     AS people_unread,
+          COUNT(DISTINCT em.gmail_thread_id) FILTER (WHERE em.is_inbox = true AND em.is_unread = true
+                             AND (EXISTS (
+                               SELECT 1 FROM marine_related_email_tags mrt
+                               WHERE mrt.gmail_thread_id = em.gmail_thread_id AND mrt.owner_user_id = ${Number(userId)}
+                             ) OR em.from_email IN (
+                               SELECT sender_email FROM marine_related_senders mrs WHERE mrs.owner_user_id = ${Number(userId)}
+                             )))::int AS marine_unread
+        FROM email_messages em
+        WHERE em.source_account_id IN (${validIds.join(",")})
           AND NOT EXISTS (
-            SELECT 1 FROM blocked_senders bs WHERE bs.email = email_messages.from_email
+            SELECT 1 FROM blocked_senders bs WHERE bs.email = em.from_email
           )
       `));
       const r = (((rows as any).rows ?? rows)[0] ?? {}) as Record<string, number>;
@@ -19681,6 +19783,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         social:     { total: 0, unread: r.social_unread     ?? 0 },
         forums:     { total: 0, unread: r.forums_unread     ?? 0 },
         people:     { total: 0, unread: r.people_unread     ?? 0 },
+        marine:     { total: 0, unread: r.marine_unread     ?? 0 },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
