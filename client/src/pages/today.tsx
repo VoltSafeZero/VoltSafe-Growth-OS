@@ -14,6 +14,7 @@ import {
   CheckCircle2, Circle, SlidersHorizontal, Pin, PinOff,
   BellOff, ChevronUp, ChevronDown, Plus, MoreVertical,
   RotateCcw, Eye, EyeOff, CheckCircle,
+  LayoutDashboard, FileText, Activity, Users, BookOpen, Shield, BarChart2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1049,6 +1050,36 @@ function buildRenderGroups(orderedIds: string[]): RenderGroup[] {
   return groups;
 }
 
+// ── CEO Cockpit helpers ────────────────────────────────────────────────────────
+
+function fmtCockpitRefreshed(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  return `${Math.floor(m / 60)}h ago`;
+}
+
+const TAB_SUBTITLES: Record<string, string> = {
+  overview:     "Team pulse, blockers, commitments, and CEO attention",
+  actions:      "Review, copy, and queue follow-up actions",
+  briefing:     "Daily priorities, weekly review, and leadership agenda",
+  execution:    "Drift detection, scorecard, and execution health",
+  forecasting:  "Scenario planning, runway, and revenue intelligence",
+  "1on1s":      "1:1 schedules, agenda prep, and commitment tracking",
+  "board-pack": "Board and investor reporting pack",
+};
+
+const TAB_CONFIG = [
+  { id: "overview",    label: "Overview",    icon: LayoutDashboard },
+  { id: "actions",     label: "Actions",     icon: Zap             },
+  { id: "briefing",    label: "Briefing",    icon: FileText        },
+  { id: "execution",   label: "Execution",   icon: Activity        },
+  { id: "forecasting", label: "Forecasting", icon: TrendingUp      },
+  { id: "1on1s",       label: "1:1s",        icon: Users           },
+  { id: "board-pack",  label: "Board Pack",  icon: BookOpen        },
+] as const;
+
 // ── Main export ────────────────────────────────────────────────────────────────
 
 export default function TodayPage() {
@@ -1344,30 +1375,71 @@ export default function TodayPage() {
       {todayMode === "ceo_cockpit" && isAdmin && (
         <div className="space-y-3" data-testid="ceo-cockpit-view">
 
-          {/* ── Tab navigation ── */}
-          <div className="flex gap-1 flex-wrap border-b border-border pb-2" data-testid="ceo-cockpit-tabs">
-            {([
-              { id: "overview",    label: "Overview"   },
-              { id: "actions",     label: "Actions"    },
-              { id: "briefing",    label: "Briefing"   },
-              { id: "execution",   label: "Execution"  },
-              { id: "forecasting", label: "Forecasting"},
-              { id: "1on1s",       label: "1:1s"       },
-              { id: "board-pack",  label: "Board Pack" },
-            ] as const).map(tab => (
-              <button
-                key={tab.id}
-                data-testid={`ceo-cockpit-tab-${tab.id}`}
-                onClick={() => setCockpitTab(tab.id)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  cockpitTab === tab.id
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                }`}
+          {/* ── Cockpit header ── */}
+          <div className="flex items-start justify-between gap-3" data-testid="ceo-cockpit-header">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-foreground leading-tight" data-testid="ceo-cockpit-title">CEO Cockpit</h2>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate" data-testid="ceo-cockpit-subtitle">
+                {TAB_SUBTITLES[cockpitTab] ?? "Executive operating view"}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              {cockpitQuery.data?.generated_at && (
+                <span className="text-[10px] text-muted-foreground/60 hidden md:block" data-testid="ceo-cockpit-last-refreshed">
+                  Updated {fmtCockpitRefreshed(cockpitQuery.data.generated_at)}
+                </span>
+              )}
+              <Button
+                size="sm" variant="ghost"
+                className="h-7 gap-1 text-xs px-2"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/today/ceo-cockpit"] })}
+                disabled={cockpitQuery.isFetching}
+                data-testid="ceo-cockpit-refresh-btn"
               >
-                {tab.label}
-              </button>
-            ))}
+                <RefreshCw className={`h-3 w-3 ${cockpitQuery.isFetching ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+              <Badge variant="secondary" className="text-[10px] hidden sm:flex items-center gap-1 h-5 px-1.5" data-testid="ceo-cockpit-admin-badge">
+                <Shield className="h-2.5 w-2.5" />
+                CEO&nbsp;/&nbsp;Admin
+              </Badge>
+            </div>
+          </div>
+
+          {/* ── Tab navigation ── */}
+          <div className="flex gap-1 overflow-x-auto border-b border-border pb-2 [&::-webkit-scrollbar]:hidden" data-testid="ceo-cockpit-tabs">
+            {TAB_CONFIG.map(tab => {
+              const Icon = tab.icon;
+              const oneOnOneBadge = tab.id === "1on1s" && cockpitQuery.data
+                ? (cockpitQuery.data.sections.one_on_ones.items.length ?? 0) : 0;
+              return (
+                <button
+                  key={tab.id}
+                  data-testid={`ceo-cockpit-tab-${tab.id}`}
+                  onClick={() => setCockpitTab(tab.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap flex-shrink-0 ${
+                    cockpitTab === tab.id
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                  {oneOnOneBadge > 0 && (
+                    <span
+                      className={`text-[9px] font-medium px-1 rounded-full leading-none ${
+                        cockpitTab === tab.id
+                          ? "bg-primary-foreground/20 text-primary-foreground"
+                          : "bg-muted-foreground/20 text-muted-foreground"
+                      }`}
+                      data-testid="ceo-cockpit-tab-badge-1on1s"
+                    >
+                      {oneOnOneBadge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* ── Overview tab: core cockpit sections ── */}
@@ -1386,8 +1458,35 @@ export default function TodayPage() {
               )}
               {cockpitQuery.data && (() => {
                 const cs = cockpitQuery.data!.sections;
+                const urgentCount = (cs.blockers.count ?? 0) + (cs.ceo_attention.count ?? 0) + (cs.commitments.overdue ?? 0);
                 return (
                   <>
+                    {urgentCount > 0 && (
+                      <div
+                        className="rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2.5 flex items-center gap-2.5"
+                        data-testid="ceo-priority-summary"
+                      >
+                        <Zap className="h-3.5 w-3.5 text-orange-400 flex-shrink-0" />
+                        <div className="flex items-center gap-3 flex-wrap text-xs flex-1 min-w-0">
+                          {(cs.blockers.count ?? 0) > 0 && (
+                            <span className="text-red-400 font-medium">
+                              {cs.blockers.count} blocker{cs.blockers.count !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                          {(cs.ceo_attention.count ?? 0) > 0 && (
+                            <span className="text-amber-400 font-medium">
+                              {cs.ceo_attention.count} need{cs.ceo_attention.count === 1 ? "s" : ""} CEO attention
+                            </span>
+                          )}
+                          {(cs.commitments.overdue ?? 0) > 0 && (
+                            <span className="text-orange-400 font-medium">
+                              {cs.commitments.overdue} overdue commitment{cs.commitments.overdue !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/60 hidden sm:block flex-shrink-0">Review below ↓</span>
+                      </div>
+                    )}
                     <SectionCard
                       icon={({ className }: any) => <span className={className}>👥</span>}
                       title="Team Pulse"
@@ -1520,21 +1619,36 @@ export default function TodayPage() {
           {/* ── Board Pack tab ── */}
           {cockpitTab === "board-pack" && (
             <div className="space-y-3" data-testid="ceo-cockpit-board-pack-tab">
-              <div className="rounded-lg border border-border bg-card p-5 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
+              <div className="rounded-lg border border-border bg-card p-5 flex flex-col gap-4">
+                <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-foreground">Board &amp; Investor Pack</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Generate, review, and distribute board reporting packages.</p>
+                    <div className="flex items-center gap-2 mb-1">
+                      <BookOpen className="h-4 w-4 text-primary" />
+                      <p className="text-sm font-semibold text-foreground">Board &amp; Investor Pack</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Generate, review, and distribute board reporting packages. CEO and CFO access only.</p>
                   </div>
                   <Link href="/board-pack">
-                    <Button size="sm" variant="outline" className="gap-1.5 text-xs" data-testid="ceo-cockpit-board-pack-link">
-                      Open Board Pack <ArrowUpRight className="h-3 w-3" />
+                    <Button size="sm" variant="outline" className="gap-1.5 text-xs flex-shrink-0" data-testid="ceo-cockpit-board-pack-link">
+                      Open <ArrowUpRight className="h-3 w-3" />
                     </Button>
                   </Link>
                 </div>
-                <p className="text-xs text-muted-foreground border-t border-border pt-3">
-                  Board Pack is a CEO/CFO-only module. Use the full Board Pack page for generation, review, and historical comparisons.
-                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 border-t border-border pt-3">
+                  {[
+                    { icon: BarChart2, label: "Pack Generation", desc: "AI-assembled reports from live CRM and revenue data" },
+                    { icon: Clock,     label: "Historical Comparisons", desc: "QoQ and YoY snapshots against prior board packs" },
+                    { icon: Star,      label: "Investor Updates", desc: "Lightweight investor-ready summaries from the same data" },
+                  ].map(({ icon: Icon, label, desc }) => (
+                    <div key={label} className="rounded-md border border-border/50 bg-muted/20 p-2.5 space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <Icon className="h-3 w-3 text-primary/70" />
+                        <p className="text-[11px] font-medium text-foreground">{label}</p>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">{desc}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

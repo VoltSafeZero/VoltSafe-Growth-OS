@@ -1,0 +1,316 @@
+VoltSafe CMS — CEO Cockpit Phase 12: Executive UX Polish, Visual Hierarchy, and Live QA
+
+Goal:
+Now that CEO Cockpit Phases 4–11 are built and hardened, polish the actual executive user experience.
+
+This phase should make the CEO Cockpit feel clear, fast, premium, and usable every day.
+
+Do not add another major backend module.
+Do not add new heavy data systems.
+Do not rewrite Phases 4–11.
+Focus on UX, visual hierarchy, interaction quality, responsive behavior, live QA, and final polish.
+
+Context:
+Completed:
+- Phase 4: CEO Cockpit insights
+- Phase 5: 1:1 notes and commitments
+- Phase 6: CEO Action Queue
+- Phase 7: CEO Briefing and Leadership Agenda
+- Phase 8: Execution Intelligence / Drift Detection
+- Phase 9: Forecasting / Scenario Planning / Runway Intelligence
+- Phase 10: Board / Investor Operating Pack
+- Phase 11: Hardening, tabbed layout, permissions audit, migration hardening
+
+Phase 12 should polish the CEO Cockpit so it is practical for daily CEO use.
+
+1. Audit live UX first
+
+Review:
+- client/src/pages/today.tsx
+- all CEO Cockpit components:
+  - ceo-cockpit-sections
+  - ceo-action-queue
+  - ceo-briefing
+  - ceo-execution-radar
+  - ceo-forecasting
+  - one-on-one drawer/components
+  - board-pack link/entry
+- shared card/button/badge/loading components
+- theme structural tests
+- mobile/responsive patterns
+
+Identify:
+- crowded areas
+- repeated labels
+- unclear buttons
+- weak empty states
+- poor mobile wrapping
+- inconsistent spacing
+- inconsistent severity colors
+- panels with too much text
+- sections missing “why this matters”
+- slow-feeling loading states
+- missing skeletons/spinners
+- unclear copy-only affordances
+- tabs that need counts/badges
+
+Report audit findings before implementing.
+
+2. Top-level CEO Cockpit header polish
+
+Improve the CEO Cockpit header.
+
+Add:
+- clear title: CEO Cockpit
+- short subtitle explaining the selected tab
+- last refreshed timestamp if available
+- refresh button for active tab
+- compact “today’s priority count” if available
+- permission-safe badge if relevant, e.g. CEO/Admin view
+
+Do not expose restricted data in the header.
+
+3. Tab bar polish
+
+For the CEO Cockpit tabs:
+- Overview
+- Actions
+- Briefing
+- Execution
+- Forecasting
+- 1:1s
+- Board Pack
+
+Improve:
+- active state clarity
+- mobile horizontal scroll
+- icons if existing icon library is already used
+- optional count badges if available cheaply:
+  - Actions: open/high-priority action count
+  - Execution: critical drift count
+  - Briefing: urgent item count
+  - 1:1s: upcoming count
+
+Counts must not trigger heavy extra fetches.
+Only use already-loaded data or cheap existing payloads.
+
+4. Overview tab polish
+
+Overview should feel like the CEO landing page.
+
+Reorganize Overview into:
+- Top Priorities
+- Team Pulse
+- Critical Blockers
+- CEO Attention
+- Silence Watch
+- Commitments
+- Communication Hotspots
+
+Add visual hierarchy:
+- urgent/critical cards first
+- compact summary cards where helpful
+- “why it matters” text for important items
+- empty states that tell the CEO what good looks like
+
+Avoid wall-of-text.
+
+5. Action Queue UX polish
+
+Improve:
+- action card density
+- priority badges
+- status labels
+- snoozed/completed/dismissed clarity
+- Copy Draft flow
+- Create Task confirmation
+- filter chips
+- empty states
+
+Make it obvious:
+- nothing auto-sends
+- draft text is copy-only
+- dismissed does not delete source data
+
+6. Briefing UX polish
+
+Improve:
+- Today tab priority stack
+- Weekly Review summary cards
+- Leadership Agenda readability
+- Team Briefing selector and output
+
+Add:
+- copy buttons with clear success feedback
+- section anchors or collapsible groups if needed
+- cleaner “recommended action” styling
+
+7. Execution Radar UX polish
+
+Improve:
+- health score display
+- critical drift prominence
+- risk item cards
+- action buttons
+- reviewed/dismissed states
+- scorecard cards
+
+Make disclaimer subtle but present:
+- score is planning guidance, not a scientific score
+
+8. Forecasting UX polish
+
+Improve:
+- Base / Upside / Downside scenario cards
+- Runway missing-input empty state
+- Revenue forecast clarity
+- Assumptions tab readability
+- “planning assumption” language
+
+Make sure:
+- no fake numbers
+- missing data is obvious
+- CEO/CFO-gated sections show clean restricted or missing-data states
+
+9. 1:1 UX polish
+
+Improve:
+- 1:1 list readability
+- drawer layout
+- commitment extraction review flow
+- task creation confirmation
+- update draft copy flow
+
+Make sure:
+- no auto-send
+- commitment candidates are clearly “review before creating”
+- action items are not created silently
+
+10. Board Pack entry polish
+
+The CEO Cockpit Board Pack tab can stay as an entry/link if the main module lives elsewhere.
+
+Improve:
+- explain what the Board Pack does
+- show last pack if cheaply available
+- buttons:
+  - Open Board Pack
+  - Generate Operating Pack if existing route supports it
+  - Copy latest summary if existing route supports it safely
+
+Do not duplicate the full board-pack UI inside Today.
+
+11. Loading/error/empty states
+
+Every CEO Cockpit tab should have:
+- loading state
+- empty state
+- error state
+- permission denied state where relevant
+
+Empty states should be useful:
+Bad:
+“No data.”
+
+Good:
+“No critical blockers right now. New blockers will appear here when tasks, installs, or deployments become blocked.”
+
+12. Mobile QA
+
+Check:
+- tab bar scrolls on small screens
+- cards do not overflow
+- buttons wrap cleanly
+- drawers/sheets fit mobile
+- no horizontal page overflow
+- text remains readable
+- critical actions remain reachable
+
+Add/adjust responsive classes only where needed.
+
+13. Theme and visual consistency
+
+Follow existing VoltSafe CMS theme rules.
+
+Do not introduce random hardcoded colors unless already allowed.
+Use existing badge/card/button patterns where possible.
+If a hardcoded color is necessary, update structural theme allowlist carefully and explain why.
+
+14. Tests
+
+Create or update:
+
+tests/ceo-cockpit-ux-polish.test.cjs
+
+Minimum coverage:
+- CEO Cockpit tab bar exists
+- all seven tabs exist
+- active tab state exists
+- lazy tab rendering preserved
+- header title/subtitle exists
+- refresh affordance exists
+- empty states exist for major panels
+- loading/error states exist
+- copy-only disclaimers still exist
+- no auto-send patterns
+- mobile overflow protections/classes exist
+- action buttons are clearly labeled
+- Forecasting has missing-input empty states
+- Execution has score disclaimer
+- 1:1 has review-before-create language
+- Board Pack tab links to board-pack module
+- no banned/shaming language
+- structural theme rules pass
+
+Also update existing tests only if necessary and keep compatibility with Phase 4–11 tests.
+
+15. Validation
+
+Run:
+
+npm run build
+node tests/ceo-cockpit-ux-polish.test.cjs
+node tests/ceo-cockpit-hardening.test.cjs
+node tests/ceo-forecasting.test.cjs
+node tests/board-pack.test.cjs
+node tests/ceo-execution-intelligence.test.cjs
+node tests/ceo-briefing.test.cjs
+node tests/ceo-action-loop.test.cjs
+node tests/ceo-cockpit.test.cjs
+node tests/today-cockpit.test.cjs
+node tests/today-personalization.test.cjs
+node tests/capital-hardening.test.cjs
+node tests/nav-consolidation.test.cjs
+node tests/cms-theme-structural.test.cjs
+
+If live-server tests fail due to restart timing, report that clearly and rerun source/static suites individually.
+
+16. Constraints
+
+Do not add a major new backend module.
+Do not rewrite prior phases.
+Do not remove functionality.
+Do not break permissions.
+Do not auto-send anything.
+Do not add AI dependency.
+Do not introduce external APIs.
+Do not expose private data.
+Do not invent financial numbers.
+Keep this surgical, visual, practical, and executive-clean.
+
+Deliverable:
+First summarize UX audit:
+- clutter issues
+- visual hierarchy issues
+- mobile issues
+- loading/empty/error issues
+- permission-state issues
+
+Then summarize implementation:
+- files changed
+- UX improvements
+- responsive improvements
+- copy/empty-state improvements
+- tests added/updated
+- validation results
+- known limitations

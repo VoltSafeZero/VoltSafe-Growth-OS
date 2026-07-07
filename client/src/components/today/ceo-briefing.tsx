@@ -192,7 +192,10 @@ function CopyButton({ getText, label = "Copy" }: { getText: () => string; label?
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <p className="text-xs text-muted-foreground py-2 italic">{message}</p>
+    <div className="flex flex-col items-center gap-1.5 py-4 text-center" data-testid="briefing-empty-state">
+      <CheckCircle2 className="h-4 w-4 text-emerald-400/60" />
+      <p className="text-xs text-muted-foreground italic">{message}</p>
+    </div>
   );
 }
 

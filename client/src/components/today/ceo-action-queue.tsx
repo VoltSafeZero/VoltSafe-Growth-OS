@@ -445,7 +445,7 @@ export function CeoActionQueuePanel() {
       </div>
 
       {/* Filter chips */}
-      <div className="flex gap-1.5 flex-wrap" data-testid="action-filter-chips">
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 [&::-webkit-scrollbar]:hidden" data-testid="action-filter-chips">
         {STATUS_FILTERS.map(f => (
           <button
             key={f.key}
