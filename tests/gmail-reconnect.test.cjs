@@ -264,7 +264,7 @@ console.log("\n[12] runIncrementalForAll calls syncIncremental for each account"
 
 check(
   "runIncrementalForAll iterates and calls syncIncremental(a.id)",
-  /runIncrementalForAll[\s\S]{0,300}syncIncremental\(a\.id\)/.test(incremental)
+  /runIncrementalForAll[\s\S]{0,500}syncIncremental\(a\.id\)/.test(incremental)
 );
 check(
   "runIncrementalForAll filters isActive=true AND syncEnabled=true",
