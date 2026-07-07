@@ -10791,6 +10791,280 @@ export async function registerRoutes(
     res.json({ ok: true, message: "Cache cleared — next GET will re-fetch live data." });
   });
 
+  // ── Today: Executive Operating Cockpit Summary ───────────────────────────
+  app.get("/api/today/summary", requireAuth, async (req: any, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const now = new Date();
+      const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+      const todayEnd   = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+      const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+      const sevenDaysAgo    = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      // ── Capital access (mirrors bootstrap route; kept in sync) ─────────────
+      const CAPITAL_USER_IDS = new Set([4]);
+      const CAPITAL_EMAILS   = new Set(["scott.carlson@voltsafe.com"]);
+      const userEmailRow = await db.execute(sql.raw(`SELECT email FROM users WHERE id = ${userId} LIMIT 1`));
+      const userEmail    = String((userEmailRow as any).rows?.[0]?.email ?? "").toLowerCase();
+      const hasCapital   = CAPITAL_USER_IDS.has(userId) || CAPITAL_EMAILS.has(userEmail);
+
+      // ── Schedule ────────────────────────────────────────────────────────────
+      const [scheduleRes, nextMtgRes] = await Promise.all([
+        db.execute(sql.raw(
+          `SELECT id, title, start_time AS "startTime", end_time AS "endTime", event_type AS "eventType", location, meeting_url AS "meetingUrl"
+           FROM calendar_events
+           WHERE user_id = ${userId}
+             AND start_time >= '${todayStart.toISOString()}'
+             AND start_time <= '${todayEnd.toISOString()}'
+             AND status != 'cancelled'
+           ORDER BY start_time ASC LIMIT 8`
+        )),
+        db.execute(sql.raw(
+          `SELECT id, title, start_time AS "startTime" FROM calendar_events
+           WHERE user_id = ${userId}
+             AND start_time >= NOW()
+             AND start_time <= '${twoHoursFromNow.toISOString()}'
+             AND status != 'cancelled'
+           ORDER BY start_time ASC LIMIT 1`
+        )),
+      ]);
+      const todayMeetings = (scheduleRes as any).rows ?? [];
+      const nextMeeting   = ((nextMtgRes as any).rows ?? [])[0] ?? null;
+
+      // ── Tasks (user-scoped) ─────────────────────────────────────────────────
+      const [tasksTodayRes, overdueTasksRes, highPriorityTasksRes, taskCountsRes] = await Promise.all([
+        db.execute(sql.raw(
+          `SELECT id, title, due_date AS "dueDate", priority FROM tasks
+           WHERE owner_user_id = ${userId}
+             AND status NOT IN ('done','completed','cancelled')
+             AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}'
+           ORDER BY priority DESC, due_date ASC LIMIT 5`
+        )),
+        db.execute(sql.raw(
+          `SELECT id, title, due_date AS "dueDate", priority FROM tasks
+           WHERE owner_user_id = ${userId}
+             AND status NOT IN ('done','completed','cancelled')
+             AND due_date < '${todayStart.toISOString()}'
+           ORDER BY due_date ASC LIMIT 5`
+        )),
+        db.execute(sql.raw(
+          `SELECT id, title, due_date AS "dueDate", priority FROM tasks
+           WHERE owner_user_id = ${userId}
+             AND status NOT IN ('done','completed','cancelled')
+             AND priority IN ('high','urgent')
+           ORDER BY priority DESC, due_date ASC NULLS LAST LIMIT 5`
+        )),
+        db.execute(sql.raw(
+          `SELECT
+             COUNT(*) FILTER (WHERE status NOT IN ('done','completed','cancelled') AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}')::int AS due_today,
+             COUNT(*) FILTER (WHERE status NOT IN ('done','completed','cancelled') AND due_date < '${todayStart.toISOString()}')::int AS overdue,
+             COUNT(*) FILTER (WHERE status NOT IN ('done','completed','cancelled') AND priority IN ('high','urgent'))::int AS high_priority,
+             COUNT(*) FILTER (WHERE status IN ('done','completed') AND completed_at >= '${todayStart.toISOString()}')::int AS completed_today
+           FROM tasks WHERE owner_user_id = ${userId}`
+        )),
+      ]);
+      const tasksDueToday    = (tasksTodayRes as any).rows ?? [];
+      const overdueTasks     = (overdueTasksRes as any).rows ?? [];
+      const highPriorityTasks = (highPriorityTasksRes as any).rows ?? [];
+      const taskCounts        = (taskCountsRes as any).rows[0] ?? {};
+
+      // ── Inbox (local email_messages only — no external Gmail API calls) ──────
+      const inboxRes = await db.execute(sql.raw(
+        `SELECT
+           COUNT(*) FILTER (WHERE is_unread = true AND label_ids ILIKE '%INBOX%')::int AS unread_inbox,
+           COUNT(*) FILTER (WHERE is_unread = true)::int AS unread_total,
+           COUNT(*) FILTER (WHERE direction = 'inbound' AND is_unread = true AND sent_at >= '${sevenDaysAgo.toISOString()}')::int AS recent_unread_inbound
+         FROM email_messages WHERE owner_user_id = ${userId}`
+      ));
+      const inboxCounts = (inboxRes as any).rows[0] ?? {};
+
+      // ── CURRENTS: only channels the user is a member of + their DMs ──────────
+      let currentsChannelMessages: any[] = [];
+      let currentsDmMessages: any[] = [];
+      try {
+        const [chRes, dmRes] = await Promise.all([
+          db.execute(sql.raw(
+            `SELECT cm.id, LEFT(cm.body::text, 120) AS body, cm.created_at AS "createdAt",
+                    u.name AS "userName", cc.slug AS "channelSlug", cc.display_name AS "channelName"
+             FROM current_messages cm
+             JOIN current_channels cc ON cc.id = cm.channel_id
+             JOIN current_channel_members ccm ON ccm.channel_id = cc.id AND ccm.user_id = ${userId}
+             JOIN users u ON u.id = cm.user_id
+             WHERE cm.deleted_at IS NULL AND cm.user_id != ${userId}
+               AND cm.channel_id IS NOT NULL
+               AND cm.created_at >= '${sevenDaysAgo.toISOString()}'
+               AND cc.archived_at IS NULL
+             ORDER BY cm.created_at DESC LIMIT 5`
+          )),
+          db.execute(sql.raw(
+            `SELECT cm.id, LEFT(cm.body::text, 120) AS body, cm.created_at AS "createdAt",
+                    u.name AS "userName", cm.conversation_id AS "conversationId"
+             FROM current_messages cm
+             JOIN current_conversation_members ccm ON ccm.conversation_id = cm.conversation_id AND ccm.user_id = ${userId}
+             JOIN users u ON u.id = cm.user_id
+             WHERE cm.deleted_at IS NULL AND cm.user_id != ${userId}
+               AND cm.channel_id IS NULL
+               AND cm.created_at >= '${sevenDaysAgo.toISOString()}'
+             ORDER BY cm.created_at DESC LIMIT 5`
+          )),
+        ]);
+        currentsChannelMessages = (chRes as any).rows ?? [];
+        currentsDmMessages      = (dmRes as any).rows ?? [];
+      } catch (_currentsErr) {
+        // CURRENTS unavailable — return empty safely
+      }
+
+      // ── Pipeline (user-scoped opportunities) ──────────────────────────────────
+      const [hotOppsRes, stalledCountRes, quotesCountRes] = await Promise.all([
+        db.execute(sql.raw(
+          `SELECT o.id, o.title, o.stage, o.amount, a.name AS "accountName", o.updated_at AS "updatedAt"
+           FROM opportunities o
+           LEFT JOIN accounts a ON a.id = o.account_id
+           WHERE o.owner_user_id = ${userId} AND o.stage NOT IN ('closed_won','closed_lost')
+           ORDER BY o.amount DESC NULLS LAST LIMIT 5`
+        )),
+        db.execute(sql.raw(
+          `SELECT COUNT(*)::int AS n FROM opportunities
+           WHERE owner_user_id = ${userId} AND stage NOT IN ('closed_won','closed_lost')
+             AND (last_activity_date IS NULL OR last_activity_date <= '${sevenDaysAgo.toISOString()}')`
+        )),
+        db.execute(sql.raw(
+          `SELECT COUNT(*)::int AS n FROM quotes WHERE status = 'sent' AND owner_user_id = ${userId}`
+        )),
+      ]);
+      const hotOpps       = (hotOppsRes as any).rows ?? [];
+      const stalledCount  = Number((stalledCountRes as any).rows[0]?.n ?? 0);
+      const quotesAwaiting = Number((quotesCountRes as any).rows[0]?.n ?? 0);
+
+      // ── Marketing counts ──────────────────────────────────────────────────────
+      let mktCounts = { active: 0, draft: 0, paused: 0, blocked: 0 };
+      try {
+        const mktRes = await db.execute(sql.raw(
+          `SELECT
+             COUNT(*) FILTER (WHERE status = 'active')::int AS active_count,
+             COUNT(*) FILTER (WHERE status = 'draft')::int AS draft_count,
+             COUNT(*) FILTER (WHERE status = 'paused')::int AS paused_count,
+             COUNT(*) FILTER (WHERE compliance_status = 'preflight_failed' AND status IN ('draft','scheduled'))::int AS blocked_count
+           FROM marketing_campaigns`
+        ));
+        const r = (mktRes as any).rows[0] ?? {};
+        mktCounts = { active: Number(r.active_count ?? 0), draft: Number(r.draft_count ?? 0), paused: Number(r.paused_count ?? 0), blocked: Number(r.blocked_count ?? 0) };
+      } catch (_) { /* table may not exist in all environments */ }
+
+      // ── Operations counts (capped queries) ────────────────────────────────────
+      let opsCounts = { blocked_installs: 0, overdue_installs: 0, blocked_procurement: 0 };
+      try {
+        const opsRes = await db.execute(sql.raw(
+          `SELECT
+             (SELECT COUNT(*)::int FROM install_workflows WHERE blockers IS NOT NULL AND blockers != '' AND status NOT IN ('complete','cancelled')) AS blocked_installs,
+             (SELECT COUNT(*)::int FROM install_workflows WHERE scheduled_date < NOW() AND status NOT IN ('complete','cancelled')) AS overdue_installs,
+             (SELECT COUNT(*)::int FROM purchase_orders WHERE status IN ('delayed','pending_delivery') AND created_at >= '${sevenDaysAgo.toISOString()}') AS blocked_procurement`
+        ));
+        const r = (opsRes as any).rows[0] ?? {};
+        opsCounts = { blocked_installs: Number(r.blocked_installs ?? 0), overdue_installs: Number(r.overdue_installs ?? 0), blocked_procurement: Number(r.blocked_procurement ?? 0) };
+      } catch (_) { /* ops tables may be empty */ }
+
+      // ── Capital section (hasCapital users only — strict permission gate) ───────
+      let capitalSection: any = null;
+      if (hasCapital) {
+        try {
+          const [capInvRes, capStatsRes] = await Promise.all([
+            db.execute(sql.raw(
+              `SELECT id, name, stage, priority,
+                      next_step_date AS "nextStepDate", last_touch_at AS "lastTouchAt"
+               FROM capital_investors
+               WHERE stage NOT IN ('Passed','Wired / Closed')
+                 AND (do_not_contact IS NULL OR do_not_contact = FALSE)
+               ORDER BY
+                 CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 ELSE 4 END,
+                 next_step_date ASC NULLS LAST
+               LIMIT 5`
+            )),
+            db.execute(sql.raw(
+              `SELECT
+                 COUNT(*)::int AS total_active,
+                 COUNT(*) FILTER (WHERE next_step_date < NOW())::int AS overdue_follow_ups,
+                 COUNT(*) FILTER (WHERE priority IN ('Critical','High'))::int AS hot_count
+               FROM capital_investors
+               WHERE stage NOT IN ('Passed','Wired / Closed')
+                 AND (do_not_contact IS NULL OR do_not_contact = FALSE)`
+            )),
+          ]);
+          const capStats = (capStatsRes as any).rows[0] ?? {};
+          capitalSection = {
+            title: "Capital & Fundraising",
+            investors: ((capInvRes as any).rows ?? []).map((inv: any) => ({
+              id: inv.id, name: inv.name, stage: inv.stage, priority: inv.priority,
+              nextStepDate: inv.nextStepDate, lastTouchAt: inv.lastTouchAt,
+              nextStepOverdue: inv.nextStepDate ? new Date(inv.nextStepDate) < now : false,
+              daysSinceTouch: inv.lastTouchAt ? Math.floor((now.getTime() - new Date(inv.lastTouchAt).getTime()) / 86400000) : null,
+            })),
+            stats: {
+              total_active:       Number(capStats.total_active ?? 0),
+              overdue_follow_ups: Number(capStats.overdue_follow_ups ?? 0),
+              hot_count:          Number(capStats.hot_count ?? 0),
+            },
+            link: "/capital",
+            drilldown_endpoint: "/api/capital/follow-ups",
+            empty_state: "No active investor follow-ups.",
+          };
+        } catch (_capErr) {
+          capitalSection = { title: "Capital & Fundraising", investors: [], stats: { total_active: 0, overdue_follow_ups: 0, hot_count: 0 }, link: "/capital", empty_state: "Capital data unavailable." };
+        }
+      }
+
+      // ── Priority Actions: aggregate top 10 urgency items ─────────────────────
+      type ActionSeverity = "critical" | "high" | "medium" | "low";
+      const priorityActions: Array<{ id: string; type: string; title: string; description: string; severity: ActionSeverity; link: string; source: string }> = [];
+
+      if (nextMeeting) {
+        const minsUntil = Math.max(0, Math.floor((new Date(nextMeeting.startTime).getTime() - now.getTime()) / 60000));
+        priorityActions.push({ id: `meeting-${nextMeeting.id}`, type: "meeting", title: `"${nextMeeting.title}" in ${minsUntil}m`, description: "Meeting starting soon — review briefing", severity: "critical", link: "/execution/calendar", source: "Schedule" });
+      }
+      if (overdueTasks.length > 0) {
+        priorityActions.push({ id: "overdue-tasks", type: "tasks", title: `${overdueTasks.length} overdue task${overdueTasks.length > 1 ? "s" : ""}`, description: (overdueTasks[0] as any)?.title ?? "", severity: "high", link: "/tasks", source: "Tasks" });
+      }
+      if (opsCounts.blocked_installs > 0) {
+        priorityActions.push({ id: "blocked-installs", type: "operations", title: `${opsCounts.blocked_installs} blocked install${opsCounts.blocked_installs > 1 ? "s" : ""}`, description: "Site deployments blocked — action required", severity: "high", link: "/install-workflows", source: "Operations" });
+      }
+      if (mktCounts.blocked > 0) {
+        priorityActions.push({ id: "campaigns-blocked", type: "marketing", title: `${mktCounts.blocked} campaign${mktCounts.blocked > 1 ? "s" : ""} blocked by compliance`, description: "Preflight failed — review campaign settings", severity: "high", link: "/marketing", source: "Marketing" });
+      }
+      if (hasCapital && capitalSection?.stats?.overdue_follow_ups > 0) {
+        const n = capitalSection.stats.overdue_follow_ups;
+        priorityActions.push({ id: "capital-followups-overdue", type: "capital", title: `${n} investor follow-up${n > 1 ? "s" : ""} overdue`, description: "Capital fundraising action required", severity: "high", link: "/capital", source: "Capital" });
+      }
+      if (stalledCount > 0) {
+        priorityActions.push({ id: "stalled-deals", type: "pipeline", title: `${stalledCount} stalled deal${stalledCount > 1 ? "s" : ""} (7+ days inactive)`, description: "Opportunities need follow-up", severity: "medium", link: "/opportunities", source: "Pipeline" });
+      }
+      if (quotesAwaiting > 0) {
+        priorityActions.push({ id: "quotes-awaiting", type: "pipeline", title: `${quotesAwaiting} quote${quotesAwaiting > 1 ? "s" : ""} awaiting response`, description: "Sent quotes with no reply", severity: "medium", link: "/quotes", source: "Pipeline" });
+      }
+      if (tasksDueToday.length > 0) {
+        priorityActions.push({ id: "tasks-due-today", type: "tasks", title: `${tasksDueToday.length} task${tasksDueToday.length > 1 ? "s" : ""} due today`, description: (tasksDueToday[0] as any)?.title ?? "", severity: "medium", link: "/tasks", source: "Tasks" });
+      }
+
+      res.json({
+        generated_at: now.toISOString(),
+        user: { id: userId, is_capital_user: hasCapital },
+        sections: {
+          priority_actions: { title: "Priority Actions", count: priorityActions.slice(0, 10).length, items: priorityActions.slice(0, 10), empty_state: "Nothing urgent right now. Have a great day." },
+          schedule:  { title: "Schedule",   count: todayMeetings.length, items: todayMeetings, next_meeting: nextMeeting, empty_state: "No meetings scheduled today.", link: "/execution/calendar" },
+          tasks:     { title: "Tasks",      counts: { due_today: Number(taskCounts.due_today ?? 0), overdue: Number(taskCounts.overdue ?? 0), high_priority: Number(taskCounts.high_priority ?? 0), completed_today: Number(taskCounts.completed_today ?? 0) }, due_today: tasksDueToday, overdue: overdueTasks, high_priority: highPriorityTasks, empty_state: "No tasks due today.", link: "/tasks", drilldown_endpoint: "/api/work/drilldown" },
+          inbox:     { title: "Inbox",      counts: { unread_inbox: Number(inboxCounts.unread_inbox ?? 0), unread_total: Number(inboxCounts.unread_total ?? 0), recent_unread_inbound: Number(inboxCounts.recent_unread_inbound ?? 0) }, empty_state: "Inbox is clear.", link: "/mail" },
+          currents:  { title: "CURRENTS",   count: currentsChannelMessages.length + currentsDmMessages.length, channel_messages: currentsChannelMessages, dm_messages: currentsDmMessages, empty_state: "No new messages.", link: "/currents" },
+          pipeline:  { title: "Pipeline",   counts: { stalled: stalledCount, quotes_awaiting: quotesAwaiting, hot_opportunities: hotOpps.length }, hot_opportunities: hotOpps, empty_state: "No active opportunities.", link: "/opportunities", drilldown_endpoint: "/api/pipeline/drilldown" },
+          marketing: { title: "Marketing",  counts: mktCounts, empty_state: "No active campaigns.", link: "/marketing", drilldown_endpoint: "/api/marketing/drilldown" },
+          operations:{ title: "Operations", counts: opsCounts, empty_state: "No operational blockers.", link: "/install-workflows", drilldown_endpoint: "/api/operations/drilldown" },
+          capital:   capitalSection,
+        },
+      });
+    } catch (err: any) {
+      console.error("[today] GET /api/today/summary:", err?.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Growth OS Command Center ───────────────────────────────────────────
   app.get("/api/command-center", requireAuth, async (req, res) => {
     try {
