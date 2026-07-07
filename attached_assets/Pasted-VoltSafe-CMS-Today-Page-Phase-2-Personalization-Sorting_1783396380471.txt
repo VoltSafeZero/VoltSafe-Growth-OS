@@ -1,0 +1,279 @@
+VoltSafe CMS — Today Page Phase 2: Personalization, Sorting, and Action Completion
+
+Current completed state:
+
+Today Page Phase 1 is complete:
+- GET /api/today/summary exists behind requireAuth
+- Today page is rewritten into an executive operating cockpit
+- sections include Priority Actions, Schedule, Tasks, Inbox, CURRENTS, Pipeline, Marketing, Operations, Capital, Favorites/Recents
+- Capital is gated behind permissions.capital === "edit"
+- Capital summary logic is isolated in server/services/today-capital-summary.ts
+- Today drilldown chips open UniversalDrilldownSheet
+- today-cockpit.test.cjs passes
+- capital-hardening.test.cjs passes
+
+Goal:
+Make Today customizable and action-oriented.
+
+Users should be able to:
+- reorder Today sections
+- hide/show sections
+- pin important sections
+- mark certain Today actions complete where safe
+- create follow-up tasks from Today
+- snooze non-critical Today items
+- refresh individual sections
+- keep their preferences between sessions
+
+Do not modify unrelated modules.
+Do not weaken permissions.
+Do not expose Capital to non-Capital users.
+Do not fake data.
+Do not add unsafe destructive actions.
+Do not call external APIs directly from Today.
+
+1. Audit current Today implementation
+
+Before writing code, inspect:
+- client/src/pages/today.tsx
+- /api/today/summary implementation
+- server/services/today-capital-summary.ts
+- existing user preference/localStorage patterns
+- favorites/recent pages hooks
+- task creation APIs
+- task completion APIs
+- existing snooze/defer patterns if any
+- existing toast patterns
+- existing drag/reorder UI patterns if any
+- permissions/auth context
+
+Document:
+- current Today section structure
+- section IDs
+- which sections can safely be hidden
+- which sections should always remain visible
+- which action types can be completed from Today
+- which action types can only link out
+- whether backend user preferences exist or localStorage should be used
+
+2. Today preferences
+
+Add a lightweight preference system for Today.
+
+Preferred:
+- use existing user preferences API if available
+
+Fallback:
+- localStorage per user
+
+Preferences should support:
+- section order
+- hidden sections
+- pinned sections
+- compact/detailed view
+- snoozed item IDs
+- last dismissed empty-state tips if useful
+
+Security:
+- never store sensitive Capital content in localStorage
+- store only section IDs/item IDs/routes, not private text bodies
+- if user loses permission, hide restricted saved preferences automatically
+
+3. Section customization UI
+
+Add a “Customize Today” control.
+
+It should let users:
+- show/hide sections
+- reorder sections
+- pin/unpin sections
+- reset to default layout
+
+Keep UI simple:
+- sheet/modal is fine
+- no complex drag-and-drop required unless existing components make it easy
+- up/down buttons are acceptable
+- clear labels
+
+Required default sections:
+- Priority Actions should always remain visible
+- Capital should only appear for Capital users
+- Admin/private sections should remain permission-gated
+
+4. Sorting and severity controls
+
+Add sorting options for Priority Actions:
+- urgency
+- severity
+- due time
+- source/module
+
+Default:
+- urgency/severity hybrid
+
+Each Priority Action should show:
+- source module
+- severity
+- due date/time where available
+- reason it appeared
+- primary action
+
+5. Safe action completion from Today
+
+Add safe inline actions where existing APIs support it.
+
+Examples:
+- mark task complete
+- create follow-up task
+- mark reply reviewed if existing safe endpoint exists
+- open drilldown
+- open source record
+- snooze Today item
+- dismiss non-critical tip
+
+Do not add unsafe actions:
+- do not delete records
+- do not bulk change compliance
+- do not send emails
+- do not mutate Capital commitments
+- do not auto-resolve support tickets unless existing workflow supports it safely
+
+6. Snooze Today items
+
+Allow users to snooze non-critical items.
+
+Behavior:
+- snooze until tomorrow
+- snooze for 3 days
+- unsnooze option if practical
+- snoozed items hidden from Priority Actions until expiry
+- critical/security/compliance blockers should either not be snoozable or should show a warning
+
+Storage:
+- user preferences/localStorage fallback
+- store item ID/type/expiry only, not sensitive text
+
+7. Per-section refresh
+
+Add refresh controls:
+- full Today refresh
+- optional per-section refresh if easy
+
+Behavior:
+- show refreshing state
+- keep layout/preferences stable
+- do not clear section order
+- show generated_at or refreshed_at
+
+8. Empty-state polish
+
+Improve empty states:
+- helpful message
+- link to source module
+- no blank cards
+- no fake positivity where risk data is simply unavailable
+
+Examples:
+- “No overdue tasks. Nice.”
+- “No blocked installs found.”
+- “No Capital follow-ups due.” only visible to Capital users.
+
+9. Mobile/responsive polish
+
+Make Today usable on smaller screens:
+- priority actions stack cleanly
+- section cards do not overflow
+- customization modal/sheet is usable
+- metric chips wrap nicely
+- buttons remain tappable
+
+10. Permissions
+
+Verify:
+- Capital preferences do not show for non-Capital users
+- Capital snoozed item IDs do not reveal labels/content to non-Capital users
+- Admin/private items remain hidden
+- CURRENTS private channel/DM data remains member-gated
+- inline actions check backend permissions, not only frontend
+
+11. Tests
+
+Add/update:
+
+tests/today-personalization.test.cjs
+
+Backend/source checks:
+- no external Gmail/Calendar API calls added
+- Today summary still requires auth
+- Capital still delegated through today-capital-summary service
+- action endpoints used by Today require auth
+- no unsafe destructive Today actions
+
+Frontend/source checks:
+- Customize Today control exists
+- section order preferences exist
+- hidden sections preferences exist
+- pinned sections preferences exist
+- reset layout exists
+- Priority Actions always visible
+- Capital section remains permission-gated
+- localStorage fallback or user preference hook exists
+- compact/detailed view exists if implemented
+- snooze controls exist
+- snooze stores only IDs/expiry, not sensitive text
+- mark task complete action exists only if backed by existing API
+- create follow-up action exists if backed by existing API
+- section refresh/full refresh exists
+- empty states exist
+- responsive layout classes exist
+
+Regression:
+- today-cockpit.test.cjs still passes
+- capital-hardening.test.cjs still passes
+- work-drilldown tests still pass
+- operations-drilldown tests still pass
+- marketing/pipeline/insights drilldown tests still pass
+- currents search/files tests still pass
+- nav tests still pass
+- build passes
+
+12. Validation
+
+Run:
+- today-personalization.test.cjs
+- today-cockpit.test.cjs
+- capital-hardening.test.cjs
+- work-drilldown.test.cjs
+- operations-drilldown.test.cjs
+- marketing-drilldown.test.cjs
+- marketing-drilldown-polish.test.cjs
+- pipeline-drilldown.test.cjs
+- insights-drilldown.test.cjs
+- currents-search.test.cjs
+- currents-files-tab.test.cjs
+- nav-drift.test.cjs
+- nav-consolidation.test.cjs
+- startup-invariants.test.cjs
+- npm run build
+
+Deliver:
+- audit summary
+- preference storage approach
+- customization UI summary
+- inline actions added
+- snooze behavior
+- permission/security confirmation
+- files changed
+- tests run and results
+- known limitations
+- recommended next phase
+
+Guardrails:
+- Do not modify unrelated modules.
+- Do not weaken permissions.
+- Do not expose Capital to non-Capital users.
+- Do not store sensitive message/email/Capital text in localStorage.
+- Do not add unsafe destructive actions.
+- Do not send emails.
+- Do not call external APIs directly from Today.
+- Do not break the Phase 1 Today cockpit.

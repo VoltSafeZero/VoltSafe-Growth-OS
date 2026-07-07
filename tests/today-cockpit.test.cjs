@@ -284,7 +284,9 @@ test("Operations section exists", () => {
 });
 
 test("Capital section is permission-gated", () => {
-  has(pageSrc, "isCapital && s.capital", "Capital section gated by isCapital");
+  // Accept either the Phase 1 inline gate (isCapital && s.capital) or the Phase 2
+  // early-return guard (!isCapital || !s.capital) — both are logically equivalent.
+  has(pageSrc, /isCapital && s\.capital|!isCapital \|\| !s\.capital/, "Capital section gated by isCapital (inline or return-guard form)");
   has(pageSrc, 'testId="section-capital"', "section-capital testId prop");
   has(pageSrc, "CapitalSection", "CapitalSection component");
   has(pageSrc, 'data-testid="capital-section-content"', "capital-section-content testid");
