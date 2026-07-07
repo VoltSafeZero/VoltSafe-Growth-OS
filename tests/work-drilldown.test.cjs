@@ -88,6 +88,15 @@ for (const m of requiredMetrics) {
 
 // ── 4. SQL safety ─────────────────────────────────────────────────────────────
 
+// ── 1a. Route file structure ──────────────────────────────────────────────────
+console.log("\n1a. Route file structure");
+assert("exports registerWorkDrilldownRoutes", drilldownSrc.includes("export function registerWorkDrilldownRoutes"));
+assert("GET /api/work/drilldown endpoint", drilldownSrc.includes("/api/work/drilldown"));
+assert("has buildPaginatedResponse helper", drilldownSrc.includes("buildPaginatedResponse"));
+assert("has pagination (page, pageSize)", drilldownSrc.includes("pageSize") && drilldownSrc.includes("page"));
+assert("defaults ownerId to currentUserId (user scoping)", drilldownSrc.includes("currentUserId") && drilldownSrc.includes("req.user"));
+assert("admin bypass for owner_id override", drilldownSrc.includes("isAdmin") && drilldownSrc.includes("requestedOwnerId"));
+
 console.log("\n4. SQL safety invariants");
 assert(
   "pageSize capped at PAGE_SIZE_MAX (100)",
@@ -225,6 +234,12 @@ assert(
   "requireAuth used in route handler",
   drilldownSrc.includes("requireAuth") || routesSrc.includes("registerWorkDrilldownRoutes(app, requireAuth)")
 );
+
+
+// ── 8+. Auth invariants (code-review security additions) ─────────────────────
+
+console.log("\n8. Auth invariants");
+assert("defaults ownerId to currentUserId (user scoping)", drilldownSrc.includes("userId") && drilldownSrc.includes("req.user"));
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 

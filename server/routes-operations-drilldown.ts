@@ -144,10 +144,14 @@ const ASSET_COLS = [
 export function registerOperationsDrilldownRoutes(
   app: Express,
   requireAuth: any,
+  requirePermission: (section: string, level: string) => any,
 ) {
+  // Broad gate: any user with CRM view can read operational metrics.
+  // Data-quality (dq_*) metrics are admin-only — checked inside the handler.
   app.get(
     "/api/operations/drilldown",
     requireAuth,
+    requirePermission("crm", "view"),
     async (req: any, res) => {
       try {
         const metric   = String(req.query.metric   ?? "");
@@ -163,6 +167,10 @@ export function registerOperationsDrilldownRoutes(
 
         if (!OPERATIONS_METRICS.has(metric)) {
           return res.status(400).json({ error: `Unknown metric: ${metric}` });
+        }
+        // Data-quality metrics expose system-wide record hygiene — admin only.
+        if (metric.startsWith("dq_") && !req.user?.isAdmin && req.user?.role !== "admin" && req.user?.role !== "master_admin") {
+          return res.status(403).json({ message: "Admin access required for data quality metrics" });
         }
 
         // ── Install / Deployment metrics ───────────────────────────────────────

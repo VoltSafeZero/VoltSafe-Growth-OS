@@ -149,14 +149,17 @@ function CellValue({ col, row }: { col: DrilldownColumn; row: DrilldownRow }) {
   if (col.key === "install_title" && row.install_id) {
     return <Link href={`/install-workflows/${row.install_id}`}><span className="text-primary hover:underline cursor-pointer">{val || "—"}</span></Link>;
   }
-  if (col.key === "project_name") {
-    return <span className="font-medium text-foreground">{val || "—"}</span>;
+  if (col.key === "project_name" && row.project_id) {
+    return <Link href={`/projects`}><span className="text-primary hover:underline cursor-pointer font-medium">{val || "—"}</span></Link>;
   }
-  if (col.key === "task_title") {
-    return <span className="font-medium text-foreground">{val || "—"}</span>;
+  if (col.key === "task_title" && row.task_id) {
+    return <Link href={`/tasks`}><span className="text-primary hover:underline cursor-pointer font-medium">{val || "—"}</span></Link>;
   }
   if (col.key === "ticket_number") {
     return <span className="font-mono text-xs text-muted-foreground">{val || "—"}</span>;
+  }
+  if (col.key === "ticket_subject" && row.ticket_id) {
+    return <Link href={`/support/tickets?selected=${row.ticket_id}`}><span className="text-primary hover:underline cursor-pointer font-medium">{val || "—"}</span></Link>;
   }
   if (col.key === "subject" && row.ticket_id) {
     return <span className="font-medium text-foreground">{val || "—"}</span>;
@@ -170,15 +173,19 @@ function CellValue({ col, row }: { col: DrilldownColumn; row: DrilldownRow }) {
   if (col.key === "asset_name") {
     return <span className="font-medium text-foreground">{val || "—"}</span>;
   }
-  if (col.key === "event_title") {
-    return <span className="font-medium text-foreground">{val || "—"}</span>;
+  if (col.key === "event_title" && row.event_id) {
+    return <Link href={`/calendar`}><span className="text-primary hover:underline cursor-pointer font-medium">{val || "—"}</span></Link>;
   }
   if (col.key === "full_name" && (row.contact_id || row.lead_id)) {
     const href = row.contact_id ? `/contacts/${row.contact_id}` : `/opportunities/${row.lead_id}`;
     return <Link href={href}><span className="text-primary hover:underline cursor-pointer font-medium">{val || "—"}</span></Link>;
   }
-  if (col.key === "po_number") {
-    return <span className="font-mono text-xs text-muted-foreground">{val || "—"}</span>;
+  if (col.key === "po_number" && row.po_id) {
+    return <Link href={`/procurement`}><span className="text-primary hover:underline cursor-pointer font-mono text-xs">{val || "—"}</span></Link>;
+  }
+  if (col.key === "doc_title" && row.document_id) {
+    return <Link href={`/documents`}><span className="text-primary hover:underline cursor-pointer font-medium">{val || "—"}</span></Link>;
+  }
   }
 
   // ── Badge cells ───────────────────────────────────────────────────────────
@@ -205,12 +212,18 @@ function CellValue({ col, row }: { col: DrilldownColumn; row: DrilldownRow }) {
 // ── Row link helper ───────────────────────────────────────────────────────────
 
 function RowLink({ row }: { row: DrilldownRow }) {
-  if (row.opp_id)     return <Link href={`/opportunities/${row.opp_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open opportunity" /></Link>;
-  if (row.lead_id)    return <Link href={`/opportunities/${row.lead_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open lead" /></Link>;
-  if (row.contact_id) return <Link href={`/contacts/${row.contact_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open contact" /></Link>;
-  if (row.account_id) return <Link href={`/accounts/${row.account_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open account" /></Link>;
-  if (row.quote_id)   return <Link href={`/quotes/${row.quote_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open quote" /></Link>;
-  if (row.install_id) return <Link href={`/install-workflows/${row.install_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open install workflow" /></Link>;
+  if (row.opp_id)      return <Link href={`/opportunities/${row.opp_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open opportunity" /></Link>;
+  if (row.lead_id)     return <Link href={`/opportunities/${row.lead_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open lead" /></Link>;
+  if (row.contact_id)  return <Link href={`/contacts/${row.contact_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open contact" /></Link>;
+  if (row.account_id)  return <Link href={`/accounts/${row.account_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open account" /></Link>;
+  if (row.quote_id)    return <Link href={`/quotes/${row.quote_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open quote" /></Link>;
+  if (row.install_id)  return <Link href={`/install-workflows/${row.install_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open install workflow" /></Link>;
+  if (row.project_id)  return <Link href={`/projects`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open project" /></Link>;
+  if (row.po_id)       return <Link href={`/procurement`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open purchase order" /></Link>;
+  if (row.ticket_id)   return <Link href={`/support/tickets?selected=${row.ticket_id}`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open ticket" /></Link>;
+  if (row.task_id)     return <Link href={`/tasks`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open task" /></Link>;
+  if (row.event_id)    return <Link href={`/calendar`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open calendar" /></Link>;
+  if (row.document_id) return <Link href={`/documents`}><ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors cursor-pointer" aria-label="Open document" /></Link>;
   return null;
 }
 

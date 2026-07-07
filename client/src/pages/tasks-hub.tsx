@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { UniversalDrilldownSheet } from "@/components/shared/universal-drilldown-sheet";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { apiRequest } from "@/lib/queryClient";
@@ -1010,10 +1011,24 @@ export default function TasksHubPage() {
               >
                 <Icon className="h-3.5 w-3.5" />
                 {VIEW_LABELS[v]}
-                {count != null && count > 0 && (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ${
-                    v === "overdue" ? "bg-red-500/15 text-red-400" : "bg-primary/15 text-primary"
-                  }`}>
+                {count != null && (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center cursor-pointer hover:opacity-70 ${
+                      v === "overdue" ? "bg-red-500/15 text-red-400" : "bg-primary/15 text-primary"
+                    }`}
+                    onClick={e => {
+                      e.stopPropagation();
+                      const metricMap: Partial<Record<ViewTab, string>> = {
+                        overdue:  "tasks_overdue",
+                        today:    "tasks_due_today",
+                        upcoming: "tasks_due_this_week",
+                        my:       "tasks_open",
+                      };
+                      const metric = metricMap[v];
+                      if (metric) setDrilldown({ metric, title: VIEW_LABELS[v] });
+                    }}
+                    data-testid={`drilldown-count-${v}`}
+                  >
                     {count}
                   </span>
                 )}

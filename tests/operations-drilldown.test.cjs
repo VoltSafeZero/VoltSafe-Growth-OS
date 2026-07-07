@@ -96,6 +96,15 @@ for (const m of requiredMetrics) {
 
 // ── 4. SQL safety ─────────────────────────────────────────────────────────────
 
+// ── 1a. Route file structure ──────────────────────────────────────────────────
+console.log("\n1a. Route file structure");
+assert("exports registerOperationsDrilldownRoutes", drilldownSrc.includes("export function registerOperationsDrilldownRoutes"));
+assert("GET /api/operations/drilldown endpoint", drilldownSrc.includes("/api/operations/drilldown"));
+assert("has buildPaginatedResponse helper", drilldownSrc.includes("buildPaginatedResponse"));
+assert("has pagination (page, pageSize)", drilldownSrc.includes("pageSize") && drilldownSrc.includes("page"));
+assert("requirePermission crm view applied", drilldownSrc.includes('requirePermission("crm", "view")'));
+assert("dq_* metrics are admin-only gated", drilldownSrc.includes('metric.startsWith("dq_")') && drilldownSrc.includes("403"));
+
 console.log("\n4. SQL safety invariants");
 assert(
   "pageSize capped at PAGE_SIZE_MAX (100)",
@@ -257,6 +266,13 @@ assert(
   "route registered with requireAuth middleware",
   drilldownSrc.includes("requireAuth") || routesSrc.includes("registerOperationsDrilldownRoutes(app, requireAuth)")
 );
+
+
+// ── 9+. Auth invariants (code-review security additions) ──────────────────────
+
+console.log("\n9. Auth invariants");
+assert("requirePermission crm view applied", drilldownSrc.includes('requirePermission("crm", "view")'));
+assert("dq_* metrics are admin-only gated", drilldownSrc.includes('metric.startsWith("dq_")') && drilldownSrc.includes("403"));
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 

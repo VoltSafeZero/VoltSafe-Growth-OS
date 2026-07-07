@@ -112,6 +112,7 @@ const ACTIVITY_COLS = [
 export function registerWorkDrilldownRoutes(
   app: Express,
   requireAuth: any,
+  _requirePermission: (section: string, level: string) => any,
 ) {
   app.get(
     "/api/work/drilldown",
@@ -124,9 +125,13 @@ export function registerWorkDrilldownRoutes(
         const pageSize = Math.min(PAGE_SIZE_MAX, Math.max(1, safeInt(req.query.page_size, PAGE_SIZE_DEFAULT)));
         const offset   = (page - 1) * pageSize;
 
-        const ownerId   = safeInt(req.query.owner_id, 0);
+        // Scope to the current user by default; admins may pass ?owner_id=N to inspect another user.
+        const currentUserId = (req.user as any)?.id ?? 0;
+        const userId = currentUserId;  // alias used by calendar/inbox handlers below
+        const isAdmin = (req.user as any)?.isAdmin || ["admin", "master_admin"].includes((req.user as any)?.role ?? "");
+        const requestedOwnerId = safeInt(req.query.owner_id, 0);
+        const ownerId = requestedOwnerId > 0 && isAdmin ? requestedOwnerId : currentUserId;
         const accountId = safeInt(req.query.account_id, 0);
-        const userId    = req.user?.id ?? 0;   // authenticated user
         const dateFrom  = req.query.date_from ? String(req.query.date_from).slice(0, 20) : null;
         const dateTo    = req.query.date_to   ? String(req.query.date_to).slice(0, 20) : null;
 

@@ -20,6 +20,7 @@ import {
   Eye, EyeOff, Zap, ChevronRight, X, UserPlus, Hash, GitMerge,
   ArrowLeftRight, ChevronDown, ChevronUp, Loader2, History,
 } from "lucide-react";
+import { UniversalDrilldownSheet } from "@/components/shared/universal-drilldown-sheet";
 
 interface HealthScore { score: number; issues: number; }
 interface Summary {
@@ -1151,6 +1152,7 @@ function OverviewTab({ summary, onNavigate }: { summary: Summary; onNavigate: (t
 export default function DataQualityPage() {
   const [activeTab, setActiveTab] = useState("overview");
   const [subFilter, setSubFilter] = useState<string | undefined>(undefined);
+  const [drilldown, setDrilldown] = useState<{ metric: string; title: string } | null>(null);
 
   function navigate(tab: string, sf?: string) {
     setSubFilter(sf);
@@ -1162,6 +1164,14 @@ export default function DataQualityPage() {
     queryFn: () => fetch("/api/data-quality/summary", { credentials: "include" }).then(r => r.json()),
     refetchInterval: 60_000,
   });
+
+  const DQ_METRIC_MAP: Record<string, string> = {
+    accounts:      "dq_accounts_no_owner",
+    contacts:      "dq_contacts_no_email",
+    leads:         "dq_leads_no_owner",
+    opportunities: "dq_opps_no_close_date",
+    quotes:        "dq_opps_no_amount",
+  };
 
   const healthCards = summary ? [
     { key: "accounts",      label: "Accounts",      icon: Building2,   ...summary.health.accounts },
@@ -1203,7 +1213,11 @@ export default function DataQualityPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          {healthCards.map(h => <HealthCard key={h.key} {...h} />)}
+          {healthCards.map(h => (
+            <div key={h.key} className="cursor-pointer" onClick={() => h.issues > 0 && setDrilldown({ metric: DQ_METRIC_MAP[h.key] ?? "dq_leads_no_owner", title: `${h.label} Issues` })}>
+              <HealthCard {...h} />
+            </div>
+          ))}
         </div>
       )}
 
@@ -1250,6 +1264,15 @@ export default function DataQualityPage() {
         <TabsContent value="orphans"        className="mt-4"><OrphansTab subFilter={activeTab === "orphans" ? subFilter : undefined} /></TabsContent>
         <TabsContent value="stale"          className="mt-4"><StaleTab /></TabsContent>
       </Tabs>
+      {drilldown && (
+        <UniversalDrilldownSheet
+          open={!!drilldown}
+          onClose={() => setDrilldown(null)}
+          metric={drilldown.metric}
+          title={drilldown.title}
+          endpoint="/api/operations/drilldown"
+        />
+      )}
     </div>
   );
 }

@@ -773,9 +773,9 @@ export async function registerRoutes(
   const { registerInsightsDrilldownRoutes } = await import("./routes-insights-drilldown");
   registerInsightsDrilldownRoutes(app, requireAuth, requirePermission);
   const { registerOperationsDrilldownRoutes } = await import("./routes-operations-drilldown");
-  registerOperationsDrilldownRoutes(app, requireAuth);
+  registerOperationsDrilldownRoutes(app, requireAuth, requirePermission);
   const { registerWorkDrilldownRoutes } = await import("./routes-work-drilldown");
-  registerWorkDrilldownRoutes(app, requireAuth);
+  registerWorkDrilldownRoutes(app, requireAuth, requirePermission);
 
   // ── Help Center: end-of-day asset refresh ───────────────────────────────────
   // Runs only on days when the production app has been republished that day

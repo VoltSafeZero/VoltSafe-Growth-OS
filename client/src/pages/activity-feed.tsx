@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { UniversalDrilldownSheet } from "@/components/shared/universal-drilldown-sheet";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,15 @@ function EntityLink({ type, id, name }: { type: string | null; id: number | null
 export default function ActivityFeedPage() {
   const [filterType, setFilterType] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [drilldown, setDrilldown] = useState<{ metric: string; title: string } | null>(null);
+
+  const ACTIVITY_METRIC_MAP: Record<string, string> = {
+    email:    "activities_email",
+    meeting:  "activities_meeting",
+    note:     "activities_note",
+    task:     "activities_all",
+    activity: "activities_all",
+  };
 
   const { data = [], isLoading, isError, refetch } = useQuery<FeedItem[]>({
     queryKey: ["/api/activity-feed"],
@@ -124,7 +134,13 @@ export default function ActivityFeedPage() {
               onClick={() => setFilterType(type)} className="h-8 text-xs gap-1" data-testid={`filter-${type}`}>
               <cfg.icon className="h-3 w-3" />
               {cfg.label}
-              {counts[type] > 0 && <span className="ml-0.5 text-muted-foreground">{counts[type]}</span>}
+              <span
+                className="ml-0.5 text-muted-foreground hover:text-primary cursor-pointer"
+                onClick={e => { e.stopPropagation(); setDrilldown({ metric: ACTIVITY_METRIC_MAP[type] ?? "activities_all", title: `${cfg.label} Activities` }); }}
+                data-testid={`drilldown-count-${type}`}
+              >
+                {counts[type] ?? 0}
+              </span>
             </Button>
           ))}
         </div>
@@ -186,6 +202,15 @@ export default function ActivityFeedPage() {
             );
           })}
         </div>
+      )}
+      {drilldown && (
+        <UniversalDrilldownSheet
+          open={!!drilldown}
+          onClose={() => setDrilldown(null)}
+          metric={drilldown.metric}
+          title={drilldown.title}
+          endpoint="/api/work/drilldown"
+        />
       )}
     </div>
   );
