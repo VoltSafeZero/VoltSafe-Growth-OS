@@ -197,14 +197,18 @@ export async function getNewCrmActivitySince(
   const sinceIso = esc(sinceTimestamp);
   const items: RawActivityItem[] = [];
 
-  // New emails (newest first)
+  // New emails (newest first).
+  // Privacy: exclude emails from private_personal mailboxes — those are
+  // personal and must not enter shared AI context regardless of CRM linkage.
   const emailRows = await safeRows(`
     SELECT em.id, em.subject, em.from_email, em.snippet, em.body_text,
            em.direction, em.sent_at, em.to_recipients
     FROM email_associations ea
     JOIN email_messages em ON ea.email_message_id = em.id
+    JOIN email_accounts eacc ON eacc.id = em.source_account_id
     WHERE ea.object_type = '${recordType}' AND ea.object_id = ${id}
       AND em.sent_at > '${sinceIso}'
+      AND COALESCE(eacc.visibility_type, 'private_personal') != 'private_personal'
     ORDER BY em.sent_at DESC NULLS LAST
     LIMIT ${limit}
   `);
@@ -306,12 +310,16 @@ async function getLastOutboundEmail(
   recordId: number
 ): Promise<LastOutboundEmail | null> {
   const id = Number(recordId);
+  // Privacy: exclude emails from private_personal mailboxes — those are
+  // personal and must not enter shared AI context regardless of CRM linkage.
   const rows = await safeRows(`
     SELECT em.subject, em.sent_at, em.to_recipients, em.snippet, em.body_text
     FROM email_associations ea
     JOIN email_messages em ON ea.email_message_id = em.id
+    JOIN email_accounts eacc ON eacc.id = em.source_account_id
     WHERE ea.object_type = '${recordType}' AND ea.object_id = ${id}
       AND em.direction = 'outbound'
+      AND COALESCE(eacc.visibility_type, 'private_personal') != 'private_personal'
     ORDER BY em.sent_at DESC NULLS LAST
     LIMIT 1
   `);

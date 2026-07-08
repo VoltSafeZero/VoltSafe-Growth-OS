@@ -10595,6 +10595,15 @@ export async function registerRoutes(
   // InboxSignalBadge (is_bot=false AND is_duplicate IS NOT TRUE) so counts match.
   app.get("/api/dashboard/needs-reply-high-engagement", requireAuth, async (req, res) => {
     try {
+      // Privacy: scope to the requester's accessible mailboxes only.
+      // Private_personal mailboxes owned by other users must never contribute
+      // subjects, snippets, or engagement data to this dashboard widget.
+      const userId = (req.session as any).userId as number;
+      const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
+      const accessibleIds = await getAccessibleAccountIds(userId, isAdmin, mailTeamPerms);
+      if (accessibleIds.length === 0) return res.json({ items: [] });
+      const acctFilter = `em.source_account_id IN (${accessibleIds.join(",")})`;
+
       const rows = (await db.execute(sql.raw(`
         WITH thread_eng AS (
           SELECT
@@ -10620,7 +10629,7 @@ export async function registerRoutes(
               MAX(occurred_at) FILTER (WHERE event_type='click' AND is_bot=false AND is_duplicate=false AND is_internal IS NOT TRUE) AS last_click_at
             FROM email_engagement_events WHERE tracking_id = p.tracking_id
           ) ev ON true
-          WHERE em.direction = 'outbound'
+          WHERE em.direction = 'outbound' AND ${acctFilter}
           GROUP BY em.gmail_thread_id
           HAVING COALESCE(SUM(ev.unique_opens), 0) + COALESCE(SUM(ev.unique_clicks), 0) > 0
         ),
@@ -10639,15 +10648,15 @@ export async function registerRoutes(
             ), 0)::int AS video_clicks
           FROM signature_cta_clicks s
           JOIN email_messages em ON em.gmail_message_id = s.gmail_message_id
-          WHERE s.click_count > 0
+          WHERE s.click_count > 0 AND ${acctFilter}
           GROUP BY em.gmail_thread_id
         ),
         latest_msg AS (
-          SELECT DISTINCT ON (gmail_thread_id)
-            gmail_thread_id, subject, from_name, from_email, snippet, sent_at, label_ids
-          FROM email_messages
-          WHERE gmail_thread_id IS NOT NULL
-          ORDER BY gmail_thread_id, sent_at DESC NULLS LAST
+          SELECT DISTINCT ON (em.gmail_thread_id)
+            em.gmail_thread_id, em.subject, em.from_name, em.from_email, em.snippet, em.sent_at, em.label_ids
+          FROM email_messages em
+          WHERE em.gmail_thread_id IS NOT NULL AND ${acctFilter}
+          ORDER BY em.gmail_thread_id, em.sent_at DESC NULLS LAST
         )
         SELECT
           et.gmail_thread_id,
@@ -18523,15 +18532,24 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   // Useful for diagnosing broken images in the mail viewer (data:image stripping, etc.)
   // Usage: GET /api/dev/message-img-inspect/:gmailMessageId
   if (process.env.NODE_ENV !== "production") {
-    app.get("/api/dev/message-img-inspect/:gmailMessageId", requireAuth, async (req, res) => {
+    app.get("/api/dev/message-img-inspect/:gmailMessageId", requireAuth, requireAdmin, async (req, res) => {
       try {
         const { gmailMessageId } = req.params;
+        // Privacy: verify the message belongs to a mailbox this admin can access.
+        const imgInspUserId = (req.session as any).userId as number;
+        const { isAdmin: imgIsAdmin, mailTeamPerms: imgMtp } = await getSessionUserAccess(req.session);
+        const imgAccessibleIds = await getAccessibleAccountIds(imgInspUserId, imgIsAdmin, imgMtp);
         const rows = await db.execute(
-          sql.raw(`SELECT id, gmail_message_id, body_html FROM gmail_messages WHERE gmail_message_id = '${gmailMessageId.replace(/'/g, "''")}' LIMIT 1`)
+          sql.raw(`SELECT id, gmail_message_id, body_html, source_account_id FROM email_messages WHERE gmail_message_id = '${gmailMessageId.replace(/'/g, "''")}' LIMIT 1`)
         );
         const row = (rows as any).rows?.[0] ?? (rows as any)[0];
         if (!row?.body_html) {
           return res.status(404).json({ error: "Message not found or no body_html stored" });
+        }
+        // Enforce: message must belong to one of the admin's accessible accounts.
+        const msgAcctId = Number(row.source_account_id);
+        if (msgAcctId && imgAccessibleIds.length > 0 && !imgAccessibleIds.includes(msgAcctId)) {
+          return res.status(403).json({ error: "Access denied" });
         }
         const html: string = row.body_html;
         const srcRe = /\bsrc="([^"]+)"/gi;
@@ -21032,9 +21050,20 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
       if (assocs.length === 0) return res.json([]);
 
+      // Privacy: only return emails from mailboxes the requester can access.
+      // This prevents private_personal mailbox content from appearing in the
+      // CRM activity tab for non-owners.
+      const crmEmailUserId = (req.session as any).userId as number;
+      const { isAdmin: crmIsAdmin, mailTeamPerms: crmMtp } = await getSessionUserAccess(req.session);
+      const crmAccessibleIds = await getAccessibleAccountIds(crmEmailUserId, crmIsAdmin, crmMtp);
+
       const msgIds = assocs.map(a => a.emailMessageId);
       const msgs = await db.select().from(emailMessages)
-        .where(inArray(emailMessages.id, msgIds));
+        .where(
+          crmAccessibleIds.length > 0
+            ? and(inArray(emailMessages.id, msgIds), inArray(emailMessages.sourceAccountId, crmAccessibleIds))
+            : inArray(emailMessages.id, [])
+        );
 
       // Batch attachment counts (non-inline attachments only — no schema change)
       const attachCountMap: Record<number, number> = {};
@@ -21100,10 +21129,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   const TIMELINE_OBJECT_TYPES = new Set(["account", "contact", "opportunity", "lead", "partner", "ticket", "quote"]);
   const TIMELINE_ITEM_TYPES = new Set(["note", "activity", "attachment", "email", "task", "quote", "stage_change"]);
 
-  async function buildTimeline(objectType: string, objectId: number, typeFilter: string | undefined, limit: number) {
+  // Privacy: only emails from the caller's accessible mailboxes may appear in
+  // the CRM timeline. Private_personal accounts owned by another user are
+  // excluded by getAccessibleAccountIds — pass the result here so the email
+  // UNION is scoped correctly. An empty array means no emails are shown.
+  async function buildTimeline(objectType: string, objectId: number, typeFilter: string | undefined, limit: number, accessibleAccountIds: number[] = []) {
     const ot = objectType;
     const oid = objectId;
     const lim = limit;
+    const emailAcctClause = accessibleAccountIds.length > 0
+      ? `AND em.source_account_id IN (${accessibleAccountIds.join(",")})`
+      : "AND FALSE";
     const typeWhere = typeFilter ? `WHERE tl.type = '${typeFilter}'` : "";
 
     // Exclude status_change/stage_change activities for opportunities — they surface via stage_change union
@@ -21243,6 +21279,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           FROM email_messages em
           JOIN email_associations ea ON ea.email_message_id = em.id
           WHERE ea.object_type = '${ot}' AND ea.object_id = ${oid}
+          ${emailAcctClause}
 
           UNION ALL
 
@@ -21286,7 +21323,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (isNaN(oid) || oid < 1) return res.status(400).json({ message: "objectId must be a positive integer" });
       if (typeFilter && !TIMELINE_ITEM_TYPES.has(typeFilter)) return res.status(400).json({ message: "Invalid type filter" });
       const lim = Math.min(parseInt(limitQ || "150"), 300);
-      const items = await buildTimeline(objectType, oid, typeFilter, lim);
+      const tlUserId = (req.session as any).userId as number;
+      const { isAdmin: tlIsAdmin, mailTeamPerms: tlMtp } = await getSessionUserAccess(req.session);
+      const tlAccIds = await getAccessibleAccountIds(tlUserId, tlIsAdmin, tlMtp);
+      const items = await buildTimeline(objectType, oid, typeFilter, lim, tlAccIds);
       res.json({ items, total: items.length });
     } catch (err: any) {
       console.error("Timeline error:", err);
@@ -21303,7 +21343,10 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         const typeFilter = req.query.type as string | undefined;
         if (typeFilter && !TIMELINE_ITEM_TYPES.has(typeFilter)) return res.status(400).json({ message: "Invalid type filter" });
         const lim = Math.min(parseInt((req.query.limit as string) || "150"), 300);
-        const items = await buildTimeline(recType, oid, typeFilter, lim);
+        const tlUserId = (req.session as any).userId as number;
+        const { isAdmin: tlIsAdmin, mailTeamPerms: tlMtp } = await getSessionUserAccess(req.session);
+        const tlAccIds = await getAccessibleAccountIds(tlUserId, tlIsAdmin, tlMtp);
+        const items = await buildTimeline(recType, oid, typeFilter, lim, tlAccIds);
         res.json({ items, total: items.length });
       } catch (err: any) {
         console.error(`Timeline/${recType} error:`, err);

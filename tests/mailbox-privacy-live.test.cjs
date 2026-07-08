@@ -453,6 +453,156 @@ check(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[22] /api/dashboard/needs-reply-high-engagement — account-scoped");
+
+const needsReplySnippet = (() => {
+  const idx = routes.indexOf('"/api/dashboard/needs-reply-high-engagement"');
+  return routes.slice(idx, idx + 6000);
+})();
+
+check(
+  "needs-reply calls getAccessibleAccountIds before SQL",
+  /getAccessibleAccountIds\(/.test(needsReplySnippet)
+);
+check(
+  "needs-reply bails early when no accessible accounts",
+  /accessibleIds\.length === 0.*return res\.json\(\{.*items.*\[\]/.test(needsReplySnippet.replace(/\s+/g, " "))
+);
+check(
+  "needs-reply thread_eng CTE filters by accessible account ids",
+  /WHERE em\.direction = 'outbound' AND \$\{acctFilter\}/.test(needsReplySnippet)
+);
+check(
+  "needs-reply thread_cta CTE filters by accessible account ids",
+  /WHERE s\.click_count > 0 AND \$\{acctFilter\}/.test(needsReplySnippet)
+);
+check(
+  "needs-reply latest_msg CTE filters by accessible account ids (with em alias)",
+  /FROM email_messages em[\s\S]{0,100}WHERE em\.gmail_thread_id IS NOT NULL AND \$\{acctFilter\}/.test(needsReplySnippet)
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[23] /api/crm-emails — accessible accounts filter");
+
+const crmEmailsSnippet = (() => {
+  const idx = routes.indexOf('"/api/crm-emails"');
+  return routes.slice(idx, idx + 5000);
+})();
+
+check(
+  "crm-emails calls getAccessibleAccountIds",
+  /getAccessibleAccountIds\(/.test(crmEmailsSnippet)
+);
+check(
+  "crm-emails uses inArray on sourceAccountId for accessible accounts",
+  /inArray\(emailMessages\.sourceAccountId,\s*crmAccessibleIds\)/.test(crmEmailsSnippet)
+);
+check(
+  "crm-emails returns empty array when no accessible accounts",
+  /inArray\(emailMessages\.id,\s*\[\]\)/.test(crmEmailsSnippet)
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[24] buildTimeline — email UNION scoped to accessible accounts");
+
+const buildTimelineSnippet = (() => {
+  const idx = routes.indexOf("async function buildTimeline(");
+  return routes.slice(idx, idx + 10000);
+})();
+
+check(
+  "buildTimeline signature accepts accessibleAccountIds parameter",
+  /function buildTimeline\([^)]*accessibleAccountIds\s*:\s*number\[\]/.test(buildTimelineSnippet)
+);
+check(
+  "buildTimeline constructs emailAcctClause from accessible ids",
+  /emailAcctClause/.test(buildTimelineSnippet)
+);
+check(
+  "buildTimeline email UNION WHERE clause uses emailAcctClause",
+  /WHERE ea\.object_type[\s\S]{0,200}\$\{emailAcctClause\}/.test(buildTimelineSnippet)
+);
+check(
+  "buildTimeline defaults to AND FALSE when no accessible ids (fail-safe)",
+  /AND FALSE/.test(buildTimelineSnippet)
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[25] /api/timeline routes — pass accessibleAccountIds to buildTimeline");
+
+const timelineRouteSnippet = (() => {
+  const idx = routes.indexOf('"/api/timeline"');
+  return routes.slice(idx, idx + 2500);
+})();
+
+check(
+  "timeline route calls getAccessibleAccountIds before buildTimeline",
+  /getAccessibleAccountIds\(tlUserId/.test(timelineRouteSnippet)
+);
+check(
+  "timeline route passes tlAccIds to buildTimeline",
+  /buildTimeline\([^)]*tlAccIds\)/.test(timelineRouteSnippet)
+);
+check(
+  "per-record timeline shortcut calls getAccessibleAccountIds",
+  /getAccessibleAccountIds\(tlUserId[\s\S]{0,500}buildTimeline\(recType[\s\S]{0,100}tlAccIds\)/.test(timelineRouteSnippet)
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[26] /api/dev/message-img-inspect — requireAdmin + account check");
+
+const imgInspectSnippet = (() => {
+  const idx = routes.indexOf('"/api/dev/message-img-inspect/');
+  return routes.slice(idx, idx + 1500);
+})();
+
+check(
+  "message-img-inspect is gated by requireAdmin middleware",
+  /requireAuth,\s*requireAdmin/.test(imgInspectSnippet)
+);
+check(
+  "message-img-inspect calls getAccessibleAccountIds",
+  /getAccessibleAccountIds\(imgInspUserId/.test(imgInspectSnippet)
+);
+check(
+  "message-img-inspect returns 403 when account not accessible",
+  /imgAccessibleIds.*includes\(msgAcctId\)[\s\S]{0,200}403/.test(imgInspectSnippet)
+);
+check(
+  "message-img-inspect queries email_messages (not non-existent gmail_messages)",
+  /FROM email_messages WHERE gmail_message_id/.test(imgInspectSnippet)
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[27] crm-intelligence-context.ts — private_personal excluded from AI context");
+
+const crmIntelCtx = (() => {
+  try {
+    return require("fs").readFileSync(
+      require("path").join(__dirname, "../server/services/crm-intelligence-context.ts"), "utf8"
+    );
+  } catch { return ""; }
+})();
+
+check(
+  "getNewCrmActivitySince JOINs email_accounts to check visibility_type",
+  /JOIN email_accounts eacc ON eacc\.id = em\.source_account_id[\s\S]{0,300}private_personal/.test(crmIntelCtx)
+);
+check(
+  "getNewCrmActivitySince excludes private_personal mailboxes from AI context",
+  /COALESCE\(eacc\.visibility_type,\s*'private_personal'\)\s*!=\s*'private_personal'/.test(crmIntelCtx)
+);
+check(
+  "getLastOutboundEmail JOINs email_accounts to check visibility_type",
+  /JOIN email_accounts eacc ON eacc\.id = em\.source_account_id[\s\S]{0,500}private_personal/.test(crmIntelCtx)
+);
+check(
+  "getLastOutboundEmail excludes private_personal mailboxes from AI context",
+  // Both occurrences of the filter exist — the second one covers getLastOutboundEmail
+  (crmIntelCtx.match(/COALESCE\(eacc\.visibility_type,\s*'private_personal'\)\s*!=\s*'private_personal'/g) || []).length >= 2
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(60)}`);
 console.log(`Results: ${passed + failed} checks — ${passed} passed, ${failed} failed`);
 if (failed === 0) console.log("All checks passed ✓");

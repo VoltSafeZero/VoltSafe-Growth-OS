@@ -1,0 +1,81 @@
+Final production hardening pass for VoltSafe Mail private mailbox isolation.
+
+Goal:
+Do one final cross-feature privacy sweep to ensure private_personal mailbox content cannot leak through adjacent modules.
+
+Do not add new features. Only fix true privacy leaks.
+
+Check these surfaces:
+
+1. VoltSafe Mail
+- inbox list
+- category tabs
+- All Inboxes
+- search
+- opened message
+- attachments
+- drafts/sent/replies/forwards
+- priority highlights
+- Marine Related
+- tracking/open/click views
+
+2. CRM
+- contact/account activity timeline
+- auto-linking
+- linked email cards
+- CRM search
+- AI summary inside CRM
+- any “recent emails” panels
+
+3. AI / Cortex
+- email generation context
+- summaries
+- save-to-Cortex
+- company/shared context
+- CEO Cockpit context
+- global assistant context
+
+4. Admin tools
+- mailbox diagnostics
+- sync status
+- account list
+- logs/debug panels
+- backfill/resync controls
+
+5. API direct access
+Try direct calls as:
+- mailbox owner
+- non-owner
+- admin/master_admin
+
+Use known private_personal mailbox ids and message/thread ids.
+
+Expected behavior:
+- Owner can access own private mailbox.
+- Non-owner cannot access private mailbox content.
+- Admin cannot access private mailbox content unless admin is the owner.
+- Admin may only see safe connection metadata.
+- No private subject/snippet/body/sender/recipient/message id/attachment/count leaks through CRM, AI, Cortex, CEO Cockpit, or admin diagnostics.
+
+Add or update tests proving:
+- private mailbox emails do not appear in CRM timelines for other users
+- private mailbox emails do not enter AI email context for other users
+- private mailbox emails do not enter Cortex/shared context unless explicitly shared by owner
+- private mailbox emails do not appear in CEO Cockpit/company summaries
+- private mailbox tracking data is owner-only
+- private mailbox Marine Related tags are mailbox-scoped
+- private attachments return 403 to non-owner/admin
+
+Validation:
+- Run mailbox privacy tests
+- Run CRM mail-link tests
+- Run AI email context tests
+- Run Marine Related tests
+- Run Gmail/mailbox switching tests
+- Run full build/typecheck
+
+Report:
+- surfaces audited
+- leaks found/fixed
+- tests added/updated
+- final pass/fail status
