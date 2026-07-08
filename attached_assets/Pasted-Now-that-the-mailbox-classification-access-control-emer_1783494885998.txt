@@ -1,0 +1,430 @@
+Now that the mailbox classification/access-control emergency fix is complete, start the full VoltSafe CMS Role + Widget + API Exposure Audit.
+
+This is a security task. Do not refactor unrelated UI. Do not redesign anything. Do not implement broad fixes yet unless you find an immediate critical data leak; if you do, stop and report it first.
+
+Goal:
+Create a complete, factual audit of what every role-defined user can currently see and access in VoltSafe CMS, including:
+- sidebar modules
+- direct routes
+- pages
+- dashboards
+- command centers
+- widgets
+- widget settings
+- role-specific widgets
+- buttons/actions
+- API endpoints
+- database queries
+- private/team/shared data boundaries
+
+The purpose is to lock down VoltSafe CMS so sensitive information is never exposed to users who should not have access.
+
+PHASE 1 — Discover all roles and permissions
+
+Search the entire codebase and schema for:
+- role definitions
+- permissions
+- user role fields
+- auth middleware
+- route guards
+- API guards
+- widget visibility rules
+- dashboard center definitions
+- default layouts
+- saved layouts
+- role-specific widget definitions
+- feature flags
+- admin checks
+- ownership/team/org scoping
+- hardcoded role checks
+
+Find every role currently defined, including but not limited to:
+- Master Admin
+- Admin
+- Executive
+- CEO
+- CFO
+- CTO
+- Manager
+- Sales
+- Marketing
+- Operations
+- Finance
+- Capital
+- Investor
+- Standard User
+- Viewer
+- Any other role currently present in code or database
+
+For each role, document:
+- role name
+- where it is defined
+- whether it exists in schema/database/code
+- whether it is actively enforced
+- whether it controls sidebar visibility
+- whether it controls route access
+- whether it controls widget access
+- whether it controls backend API access
+- whether it controls database query scoping
+
+PHASE 2 — Audit every page, route, and module
+
+Create a full access matrix for every route/page/module.
+
+Audit at minimum:
+- Today
+- Currents
+- Work
+- Pipeline
+- Operations
+- Insights
+- Ecosystem
+- Marketing
+- Capital
+- Learn
+- Settings
+- Admin
+- Users & Roles
+- Integrations
+- Mailboxes & Signatures
+- System Settings
+- Automations
+- Task Hub Access
+- Role Manager
+- Search
+- User Signatures
+- CEO Command Center
+- CFO Command Center
+- CTO Command Center
+- CEO Cockpit
+- Today Cockpit
+- Mission Control
+- Command Center
+- Revenue Ops
+- CRM Leads
+- CRM Accounts
+- CRM Contacts
+- Capital/Fundraising/Investor modules
+- Reports
+- VoltSafe Mail
+- Gmail integrations
+- email tracking/open tracking/click tracking
+- drafts/replies/forwarding
+- Calendar
+- meeting notes/recordings/transcripts if present
+- Currents channels
+- private Currents channels
+- Currents pins/replies/reactions/emoji uploads
+- Asset Library
+- Files
+- Any hidden route not linked in the sidebar
+- Any route/module/widget created in the last 7 days
+
+For every route/page/module, document:
+- module/page name
+- frontend route
+- frontend file/component
+- sidebar visible: yes/no
+- direct URL accessible: yes/no
+- backend APIs used
+- backend APIs protected: yes/no
+- roles that can view today
+- roles that can create/edit/delete/export/send today
+- access enforcement type: frontend-only / backend-only / both / neither
+- sensitive data exposed
+- risk level: Critical / High / Medium / Low
+- recommended lock-down rule
+
+PHASE 3 — Audit dashboard widgets and role-specific widgets
+
+Search for:
+- widget registries
+- widget definitions
+- widget settings panels
+- visible widget settings
+- role-specific widgets
+- default center definitions
+- saved dashboard layouts
+- dashboard widget APIs
+
+Audit all widgets, including:
+- Executive Summary
+- Pipeline Health
+- Revenue at Risk
+- Close-Likelihood Deals
+- Churn Risk Signals
+- Certification Blockers
+- Deployment Blockers
+- Key Accounts Needing Action
+- New Widgets
+- Role-Specific Widgets
+- CEO Command Center widgets
+- CFO Command Center widgets
+- CTO Command Center widgets
+- any widget hidden by default
+- any widget accessible through saved layouts
+
+For every widget, document:
+- widget name
+- widget ID/key
+- dashboard/center where it appears
+- component/file path
+- API/data source used
+- current default visibility
+- whether user can toggle it on/off
+- current visible roles
+- whether frontend visibility is role-gated
+- whether backend API is role-gated
+- whether direct API access leaks data
+- sensitive data exposed
+- risk level
+- recommended permission rule
+
+Important:
+A hidden widget is not secure unless its API is also blocked for unauthorized roles.
+
+PHASE 4 — Audit backend API endpoints
+
+Search all backend routes and API handlers.
+
+For every endpoint, classify it as:
+- public
+- authenticated only
+- role-restricted
+- permission-restricted
+- owner/team/org scoped
+- unprotected but should be protected
+
+Flag endpoints where:
+- frontend hides a feature but the backend still allows the call
+- endpoint only checks logged-in status
+- endpoint does not check role/permission
+- endpoint returns sensitive data too broadly
+- endpoint mutates data without proper permission checks
+- endpoint leaks data across users, teams, accounts, organizations, or mailboxes
+- endpoint exposes Gmail/email/calendar/capital/revenue/security data without strict access control
+- endpoint exposes private Currents channels/messages to non-members
+- endpoint exposes admin/security/audit logs to non-admins
+
+PHASE 5 — Audit database query scoping
+
+For role-sensitive modules, inspect DB queries and services.
+
+Flag queries that:
+- return all users’ data
+- return all CRM records without ownership/team/org scoping
+- return all Gmail/email data without connected account ownership/access checks
+- return all calendar data without ownership/access checks
+- return private Currents channels/messages to unauthorized users
+- return capital/fundraising/investor data too broadly
+- return revenue/finance data too broadly
+- return executive widgets to unauthorized users
+- return security/audit logs too broadly
+
+PHASE 6 — Produce the audit report
+
+Create this file:
+
+docs/security/role-widget-api-exposure-audit.md
+
+The report must include:
+
+1. Executive summary
+- total roles discovered
+- total routes audited
+- total widgets audited
+- total APIs audited
+- total database query risks found
+- critical exposures found
+- high-risk exposures found
+
+2. Role inventory table
+Columns:
+- Role
+- Defined in
+- Active/inactive
+- Frontend enforced
+- Route enforced
+- Backend/API enforced
+- Widget enforced
+- Query scoped
+- Notes
+
+3. Page/module access matrix
+Columns:
+- Area/module
+- Route
+- Sidebar visible
+- Direct URL accessible
+- APIs used
+- Backend protected
+- Roles that can view today
+- Roles that can mutate today
+- Sensitive data exposed
+- Risk
+- Recommended rule
+
+4. Widget access matrix
+Columns:
+- Widget
+- Widget key
+- Dashboard/center
+- Component path
+- Data source/API
+- Current visible roles
+- Direct API accessible roles
+- Sensitive data
+- Frontend gated
+- Backend gated
+- Risk
+- Recommended rule
+
+5. API protection matrix
+Columns:
+- Endpoint
+- Method
+- Handler/file
+- Current protection
+- Data returned/mutated
+- Sensitive data
+- Roles allowed today
+- Roles that should be allowed
+- Risk
+- Fix recommendation
+
+6. Database scoping findings
+Columns:
+- Query/service/file
+- Data area
+- Current scope
+- Missing scope
+- Sensitive exposure
+- Risk
+- Recommended scope
+
+7. Top 10 highest-risk exposure issues
+For each:
+- issue
+- why it matters
+- who can access it today
+- who should access it
+- files involved
+- recommended fix
+
+PHASE 7 — Recommend locked-down permission model
+
+Propose a clean VoltSafe CMS permission model using roles plus granular permissions.
+
+Recommended roles:
+- Master Admin
+- Admin
+- Executive
+- CEO
+- CFO
+- CTO
+- Manager
+- Sales
+- Marketing
+- Operations
+- Finance/Capital
+- Standard User
+- Viewer
+
+Recommended permission groups:
+- dashboard:view
+- dashboard:executive:view
+- dashboard:ceo:view
+- dashboard:cfo:view
+- dashboard:cto:view
+- crm:view
+- crm:create
+- crm:edit
+- crm:delete
+- crm:export
+- mail:view
+- mail:send
+- mail:admin
+- mailbox:own:view
+- mailbox:team:view
+- mailbox:admin:view
+- calendar:view
+- calendar:manage
+- currents:view
+- currents:post
+- currents:admin
+- currents:private:view
+- files:view
+- files:upload
+- files:delete
+- capital:view
+- capital:edit
+- capital:admin
+- revenue:view
+- revenue:edit
+- finance:view
+- finance:edit
+- operations:view
+- operations:edit
+- integrations:manage
+- admin:users
+- admin:settings
+- security:audit:view
+
+For each role, recommend:
+- visible modules
+- hidden modules
+- allowed widgets
+- denied widgets
+- allowed actions
+- denied actions
+- sensitive data restrictions
+
+PHASE 8 — Add audit tests, but do not force broad behaviour changes yet
+
+Create tests that document current access and expose leaks.
+
+Use the existing project test framework. Suggested file:
+
+tests/security/role-widget-api-exposure-audit.test.cjs
+
+Tests should verify:
+- every role’s sidebar visibility
+- every role’s direct route access
+- every role’s API access
+- every role’s widget visibility
+- CEO widgets blocked from non-CEO/non-authorized users
+- CFO widgets blocked from non-CFO/non-authorized users
+- CTO widgets blocked from non-CTO/non-authorized users
+- capital/investor data blocked from unauthorized users
+- finance/revenue widgets blocked from unauthorized users
+- email/Gmail/calendar data cannot be accessed across users
+- private Currents channels only visible to allowed users
+- admin/security logs are admin-only
+- hidden widgets cannot leak data through APIs
+
+Important:
+If existing behaviour is insecure, write tests that clearly identify the exposure. Do not silently rewrite expectations to match insecure behaviour.
+
+PHASE 9 — Stop and report
+
+Do not implement the full lock-down yet.
+
+Return:
+1. Path to the audit report
+2. Full list of roles discovered
+3. Full list of widgets discovered
+4. Full list of role-specific widgets discovered
+5. Top 10 highest-risk exposure issues
+6. Any APIs that are frontend-hidden but backend-accessible
+7. Any widgets that are frontend-hidden but API-accessible
+8. Any direct routes that bypass sidebar visibility
+9. Recommended locked-down role/permission model
+10. Test files created
+11. Whether any immediate emergency patch is required
+
+Do not claim the system is secure unless:
+- frontend visibility is role-gated
+- direct routes are role-gated
+- backend APIs are role-gated
+- database queries are scoped
+- tests prove unauthorized users are blocked
