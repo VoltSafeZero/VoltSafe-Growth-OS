@@ -20357,7 +20357,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       return;
     }
 
-    // ── Gmail OAuth callback (personal + shared + visibility types) ──────
+    // ── Gmail OAuth callback (personal + shared) ──────
     // Re-check master_admin for shared flows — the initiation route already
     // enforced this, but we verify again at token exchange time to close the
     // window between initiation and callback.
