@@ -257,6 +257,17 @@ export const NAV_CONFIG: NavSection[] = [
     ],
   },
 
+  // ── FEED CORTEX — teach Cortex new intelligence via URL ingestion ───────────
+  {
+    id: "feed-cortex",
+    label: "Feed CORTEX",
+    icon: Brain,
+    url: "/feed-cortex",
+    items: [
+      { id: "feed-cortex-home", label: "Feed CORTEX", route: "/feed-cortex", icon: Brain, showOn: ["mobile"] },
+    ],
+  },
+
   // ── LEARN (2 items — unchanged) ────────────────────────────────────────────
   {
     id: "learn",
@@ -511,6 +522,8 @@ export const PAGE_NAV_INDEX: PageNavEntry[] = [
   { name: "Investor Engagement",    url: "/capital/engagement",     section: "Capital", capitalOnly: true, aliases: ["Capital Engagement", "Engagement Analytics"] },
   { name: "Capital Reports",        url: "/capital/reports",        section: "Capital", capitalOnly: true, aliases: ["Board Report", "CFO Report", "Investor Reports"] },
   { name: "Capital AI Copilot",     url: "/capital/copilot",        section: "Capital", capitalOnly: true, aliases: ["Capital Copilot", "Investor Copilot"] },
+  // Feed CORTEX
+  { name: "Feed CORTEX",            url: "/feed-cortex",            section: "Feed CORTEX", aliases: ["Feed Cortex", "Cortex Ingestion", "URL Ingestion", "Teach Cortex"] },
   // Learn
   { name: "Training",               url: "/training",               section: "Learn" },
   { name: "Help",                   url: "/help",                   section: "Learn" },

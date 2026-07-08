@@ -40981,6 +40981,88 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // GET /api/cortex/url/history — ingestion history with user attribution
+  app.get("/api/cortex/url/history", requireAuth, async (req: any, res) => {
+    try {
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          c.id, c.source_url, c.canonical_url, c.domain, c.title,
+          c.intel_type, c.importance, c.ai_summary, c.created_at,
+          c.created_by_user_id, c.use_in_ai_context,
+          u.name AS created_by_name, u.email AS created_by_email
+        FROM cortex_email_intel c
+        LEFT JOIN users u ON u.id = c.created_by_user_id
+        WHERE c.deleted_at IS NULL AND c.source_type = 'url'
+        ORDER BY c.created_at DESC
+        LIMIT ${limit}
+      `));
+      res.json({ records: (rows as any).rows ?? [] });
+    } catch (err: any) {
+      console.error("[cortex-url] GET /api/cortex/url/history:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/cortex/ask — Q&A using ingested URL intel as knowledge base
+  app.post("/api/cortex/ask", requireAuth, async (req: any, res) => {
+    try {
+      const { question } = req.body || {};
+      if (!question || typeof question !== "string" || question.trim().length < 3) {
+        return res.status(400).json({ error: "question required" });
+      }
+
+      const rows = await db.execute(sql.raw(`
+        SELECT title, canonical_url, domain, ai_summary, intel_type, importance
+        FROM cortex_email_intel
+        WHERE deleted_at IS NULL AND source_type = 'url' AND use_in_ai_context = true
+        ORDER BY created_at DESC
+        LIMIT 20
+      `));
+      const records = (rows as any).rows ?? [];
+
+      if (records.length === 0) {
+        return res.json({ answer: "I don't have any ingested knowledge yet. Feed me some URLs first and I'll be able to answer questions based on what I learn!" });
+      }
+
+      const contextText = records.map((r: any) => {
+        const parts: string[] = [`Source: ${r.domain ?? r.canonical_url}`];
+        if (r.title)      parts.push(`Title: ${r.title}`);
+        if (r.intel_type) parts.push(`Category: ${r.intel_type}`);
+        if (r.ai_summary) parts.push(`Summary: ${r.ai_summary}`);
+        return parts.join("\n");
+      }).join("\n\n---\n\n");
+
+      const { default: OpenAI } = await import("openai");
+      const oai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const completion = await oai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are VoltSafe Cortex, an internal AI assistant for VoltSafe — a company building EV charging solutions for marinas and marine environments. Answer questions based ONLY on the knowledge that has been ingested into your knowledge base. If you don't have relevant information, say so clearly and briefly. Do not fabricate facts. Be helpful, concise, and professional. Respond in plain text without markdown formatting.\n\nYour current knowledge base:\n\n${contextText}`,
+          },
+          {
+            role: "user",
+            content: question.trim().slice(0, 2000),
+          },
+        ],
+        max_tokens: 600,
+        temperature: 0.4,
+      });
+
+      const answer = completion.choices[0]?.message?.content?.trim() ?? "I wasn't able to generate an answer. Please try again.";
+      res.json({ answer });
+    } catch (err: any) {
+      console.error("[cortex-ask] POST /api/cortex/ask:", err.message);
+      res.status(500).json({ error: "Failed to get an answer. Please try again." });
+    }
+  });
+
   // ── GET /api/marketing/drilldown — universal Marketing drilldown ─────────────
   // Supports: contact-level compliance metrics + campaign-level rate metrics + consent source
   app.get("/api/marketing/drilldown", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {

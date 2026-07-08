@@ -1,0 +1,240 @@
+FEATURE BUILD — Add “Feed CORTEX” left-nav page
+
+Context:
+Add a new main left-sidebar navigation item called “Feed CORTEX” in VoltSafe Growth OS.
+
+Placement:
+- Add it below “Capital”
+- Add it above “Learn”
+- It should be a primary sidebar item, not nested under Insights
+- Use a brain / neural / Cortex-style icon if available
+- Route should be something like:
+  /feed-cortex
+  or follow the app’s existing route naming pattern
+
+Goal:
+Create a fun, obvious, company-wide URL ingestion page where users can feed useful external knowledge into VoltSafe Cortex, see what has been ingested, and ask Cortex questions based on permitted knowledge.
+
+This page should feel like:
+“Feed the company brain.”
+
+Core page sections:
+
+1. Hero / Brain Visual
+At the top/main center of the page, show a giant animated VoltSafe Cortex brain visual.
+
+Requirements:
+- Fun, cool, gamified, engaging
+- Should feel like users are feeding a living company brain
+- Use CSS animation if possible:
+  - pulsing glow
+  - neural nodes
+  - electric arcs
+  - slow breathing animation
+  - subtle particle/ring effect
+- Do not rely on a huge external asset
+- Keep it performant
+- Should look good in light and dark mode
+- Use VoltSafe teal/cyan visual language
+
+Suggested labels:
+- “Feed CORTEX”
+- “VoltSafe’s living knowledge brain”
+- “Drop in useful links. Cortex reads, remembers, and helps the team move faster.”
+
+2. URL ingestion field
+Add a prominent field where users can paste relevant URLs.
+
+Requirements:
+- Input placeholder:
+  “Paste an article, customer page, marina website, report, investor link, or useful source…”
+- Button:
+  “Feed Cortex”
+- On submit:
+  - Validate URL
+  - Fetch metadata if supported by existing Cortex URL routes
+  - Save URL to Cortex using the existing Save URL / Cortex ingestion backend
+  - Show loading state like “Feeding Cortex…”
+  - Show success state like “Cortex learned something new”
+  - Show friendly error state if invalid/fails
+
+Important:
+Use the existing Cortex URL ingestion backend if available:
+- POST /api/cortex/url/fetch-metadata
+- GET /api/cortex/url/check
+- POST /api/cortex/url
+- PUT /api/cortex/url/:id
+
+Do not create a duplicate URL-ingestion system if these already exist. This page should be a better front door for the same Cortex URL save pipeline.
+
+3. Ingestion history / audit trail
+Always show a visible history list of ingested URLs.
+
+Requirements:
+- Most recent at top
+- Show:
+  - URL title
+  - canonical URL/domain
+  - user who pasted it
+  - timestamp
+  - category/importance if available
+  - status if available: learned / pending / failed / duplicate
+- Must be visible on the page, not hidden in a modal
+- This is important for transparency: users should know who fed Cortex what and when
+
+If backend history endpoint does not exist:
+- Add one safely, using existing Cortex records:
+  GET /api/cortex/url/history
+  or follow existing route style
+- Must be auth-gated
+- Must respect user/site permissions
+- Must not expose private records to users who should not see them
+
+4. “What Cortex learned today” summary
+Add a daily summary panel.
+
+Requirements:
+- Title:
+  “What Cortex learned today”
+- Show:
+  - count of URLs ingested today
+  - list of today’s ingested URLs
+  - short generated or structured summary if backend can support it
+  - fallback summary if no AI summary exists:
+    “No new knowledge fed today yet.”
+- Most recent links first
+- Should make the page feel rewarding after someone feeds Cortex
+
+If no AI summary endpoint exists yet:
+- Implement a safe first version using structured metadata:
+  - titles
+  - domains
+  - categories
+  - timestamps
+- Do not block launch on AI generation
+- Add TODO/placeholder for future AI daily digest if needed
+
+5. Ask VoltSafe Cortex question box
+Below the ingestion/history sections, add a question field where users can ask Cortex questions.
+
+Requirements:
+- Textarea/input placeholder:
+  “Ask Cortex what it knows about marinas, investors, customers, products, emails, or VoltSafe…”
+- Button:
+  “Ask Cortex”
+- Response area below
+- Answers must respect user permissions
+- Use existing Cortex/AI question-answering endpoint if available
+- If no endpoint exists, implement a safe placeholder that does not fake AI:
+  “Cortex Q&A is connected to saved knowledge, but answering is not enabled yet.”
+- Do not hallucinate answers from the frontend
+- Do not expose private emails or restricted knowledge to unauthorized users
+
+6. Permission model
+Requirements:
+- All authenticated users can open Feed CORTEX
+- All authenticated users can paste/save URLs unless existing policy says otherwise
+- History must show only records the user is allowed to see
+- Cortex answers must respect user permissions
+- Admins may see richer audit data if role patterns already exist
+- Do not weaken existing Cortex access controls
+
+7. UI / UX requirements
+- Page should not look like a boring database form
+- Make the brain visual the emotional center
+- Use cards/panels:
+  - Feed card
+  - Today learned card
+  - History card
+  - Ask Cortex card
+- Keep layout clean and executive-friendly
+- Works on desktop and narrower widths
+- Light/dark mode safe
+- Loading states, empty states, error states
+- No full-page crash if data fails
+- No raw JSON showing to users
+
+8. Sidebar/nav requirements
+- Add “Feed CORTEX” main nav item below Capital and above Learn
+- Active state works
+- Route works on refresh
+- Search/command palette route mapping should include it if the app has nav search
+- Do not break existing Insights → Cortex Intel page
+- Do not remove the existing Quick Capture → Cortex URL tile
+- This is an additional front door, not a replacement
+
+9. Backend/data requirements
+Reuse existing Cortex URL tables/columns where possible:
+- cortex_email_intel source_type = url
+- canonical_url
+- domain
+- title
+- use_in_ai_context
+- created_by / user tracking if present
+- created_at / updated_at
+- deleted_at filtering
+
+If user attribution is missing:
+- Add safe tracking if needed:
+  - createdByUserId
+  - createdByName/email if existing user joins support it
+- Avoid duplicate tables unless truly necessary
+
+10. Duplicate behavior
+If URL already exists:
+- Show friendly duplicate message:
+  “Cortex already knows this URL.”
+- Offer to view existing record or update it if user has permission
+- Do not create duplicate URL records
+- Respect existing unique index on canonical_url where deleted_at IS NULL
+
+11. Tests
+Add regression tests covering:
+- Feed CORTEX nav item appears below Capital and above Learn
+- /feed-cortex route renders
+- Brain visual renders
+- URL input validates URLs
+- Invalid URL shows controlled error
+- Valid URL calls existing Cortex URL save flow
+- Duplicate URL check is used
+- Successful URL save appears in history
+- History shows user + URL + timestamp
+- History sorts newest first
+- Today learned panel handles empty state
+- Today learned panel shows today’s ingested URLs
+- Ask Cortex panel renders
+- Ask Cortex does not expose unauthorized data
+- Page handles failed history API without crashing
+- Existing Insights → Cortex Intel still works
+- Existing Quick Capture → Cortex URL still works
+- Existing Save Email to Cortex → Save URL instead still works
+
+12. Validation
+Run:
+- relevant Cortex tests
+- new Feed CORTEX tests
+- full build/typecheck if available
+- restart app
+- manually open /feed-cortex
+- paste a test URL
+- confirm it saves
+- confirm it appears in history
+- refresh page
+- confirm history persists
+- ask a test question
+- confirm safe response behavior
+- check browser console
+- check server logs
+
+Acceptance criteria:
+- “Feed CORTEX” appears in left nav below Capital and above Learn
+- Clicking it opens a polished Feed Cortex page
+- Animated brain visual is visible and engaging
+- Users can paste URLs and feed Cortex
+- Ingestion history shows who pasted what and when
+- Today’s learned summary exists
+- Ask Cortex section exists and respects permissions
+- Existing Cortex URL save routes are reused, not duplicated
+- No console/server errors
+- No unrelated Calendar/Capital/Currents/Mail regressions
+- Report files changed and tests passed
