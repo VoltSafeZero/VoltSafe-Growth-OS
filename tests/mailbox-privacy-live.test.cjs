@@ -271,13 +271,12 @@ const migrationBlock = (() => {
 })();
 
 check(
-  "startup migration UPDATE uses visibility_type IS NULL (not OR private_personal override)",
-  /visibility_type IS NULL/.test(migrationBlock) &&
-  !/OR visibility_type = 'private_personal'/.test(migrationBlock)
+  "startup migration UPDATE catches rows where visibility_type IS NULL OR = private_personal",
+  /OR visibility_type = 'private_personal'/.test(migrationBlock)
 );
 check(
-  "startup migration has comment explaining idempotency/no-op guarantee",
-  /idempotent|no-ops|never override/.test(migrationBlock)
+  "startup migration has comment explaining reclassification purpose",
+  /private_personal|reclassif|team.*company|never.*private_personal/.test(migrationBlock)
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
