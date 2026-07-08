@@ -226,10 +226,10 @@ function ImportanceBadge({ importance }: { importance: string }) {
     "Board-Level / Strategic":"bg-purple-900/50 text-purple-300 border-purple-700",
     "High":                   "bg-orange-900/50 text-orange-300 border-orange-700",
     "Medium":                 "bg-teal-900/50 text-teal-300 border-teal-700",
-    "Low":                    "bg-slate-800 text-slate-400 border-slate-600",
+    "Low":                    "bg-muted text-muted-foreground border-border",
   };
   return (
-    <Badge variant="outline" className={`text-xs ${colorMap[importance] ?? "bg-slate-800 text-slate-400 border-slate-600"}`}>
+    <Badge variant="outline" className={`text-xs ${colorMap[importance] ?? "bg-muted text-muted-foreground border-border"}`}>
       {importance}
     </Badge>
   );
