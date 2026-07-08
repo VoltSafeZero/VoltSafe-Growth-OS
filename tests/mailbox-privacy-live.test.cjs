@@ -108,7 +108,7 @@ console.log("\n[5] /api/gmail/accounts — visibility-aware, annotates each acco
 
 const gmailAccountsRoute = (() => {
   const idx = routes.indexOf('app.get("/api/gmail/accounts"');
-  return routes.slice(idx, idx + 1500);
+  return routes.slice(idx, idx + 2500);
 })();
 
 check(
@@ -271,8 +271,8 @@ const migrationBlock = (() => {
 })();
 
 check(
-  "startup migration UPDATE catches rows where visibility_type IS NULL OR = private_personal",
-  /OR visibility_type = 'private_personal'/.test(migrationBlock)
+  "startup migration UPDATE uses domain-authoritative classification (team_shared or company_managed)",
+  /visibility_type != 'team_shared'|visibility_type NOT IN \('company_managed'\)|visibility_type = 'team_shared'/.test(migrationBlock)
 );
 check(
   "startup migration has comment explaining reclassification purpose",

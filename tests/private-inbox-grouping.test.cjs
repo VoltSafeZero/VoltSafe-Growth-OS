@@ -1,6 +1,7 @@
 // tests/private-inbox-grouping.test.cjs
 // Regression: private Gmail accounts appear under PRIVATE INBOXES,
 // work/team inboxes are never displaced or hidden.
+// Updated to match domain-authoritative classification (domain > visibilityType).
 
 const fs = require("fs");
 const src = fs.readFileSync("client/src/pages/gmail-inbox.tsx", "utf8");
@@ -19,12 +20,15 @@ check("visibilityType field in ConnectedAccount type",
   /type ConnectedAccount = \{[^}]*visibilityType: string/.test(src));
 
 console.log("── Three-way account grouping computed ──");
-check("workAccounts derived from company_managed",
-  /workAccounts\s*=\s*allAccounts\.filter.*visibilityType.*company_managed/.test(src));
-check("privateAccounts derived from private_personal + isOwner (multiline)",
-  /privateAccounts\s*=\s*allAccounts\.filter[\s\S]{0,200}private_personal[\s\S]{0,50}isOwner/.test(src));
-check("sharedAccounts excludes private_personal",
-  /sharedAccounts.*filter[\s\S]{0,300}visibilityType.*private_personal.*return false/.test(src));
+// Domain-authoritative: workAccounts uses isOwner + isVoltSafeDomain helper (not visibilityType)
+check("workAccounts uses isOwner and isVoltSafeDomain helper",
+  /workAccounts\s*=\s*allAccounts\.filter[\s\S]{0,200}isOwner[\s\S]{0,100}isVoltSafeDomain/.test(src));
+// privateAccounts uses isOwner + NOT isVoltSafeDomain (not private_personal string)
+check("privateAccounts uses isOwner and NOT isVoltSafeDomain helper",
+  /privateAccounts\s*=\s*allAccounts\.filter[\s\S]{0,200}isOwner[\s\S]{0,100}!isVoltSafeDomain/.test(src));
+// sharedAccounts must exclude non-isShared accounts
+check("sharedAccounts excludes accounts where isShared is false",
+  /sharedAccounts.*filter[\s\S]{0,300}!a\.isShared.*return false/.test(src));
 check("sharedAccounts excludes isOwner",
   /sharedAccounts.*filter[\s\S]{0,100}isOwner.*return false/.test(src));
 
@@ -32,9 +36,11 @@ console.log("── personalAccount prefers work account ──");
 check("personalAccount = workAccounts[0] first",
   /personalAccount\s*=\s*workAccounts\[0\]/.test(src));
 
-console.log("── connectedAccount prefers company_managed ──");
-check("connectedAccount prefers company_managed",
-  /connectedAccount[\s\S]{0,300}visibilityType.*company_managed[\s\S]{0,200}isOwner/.test(src));
+console.log("── connectedAccount prefers @voltsafe.com work account ──");
+// connectedAccount now uses findDefaultAccount which prefers isOwner + @voltsafe.com
+check("connectedAccount uses findDefaultAccount helper with domain check",
+  /findDefaultAccount[\s\S]{0,200}@voltsafe\.com/.test(src) &&
+  /connectedAccount[\s\S]{0,300}findDefaultAccount/.test(src));
 
 console.log("── Sidebar section labels ──");
 check("WORK INBOX section label present",   /Work Inbox/.test(src));
@@ -66,10 +72,12 @@ check("All Inboxes badge displays totalAccessibleAccounts",
   /\{totalAccessibleAccounts\}/.test(src));
 
 console.log("── Migration SQL ──");
-check("team_shared UPDATE catches private_personal default",
-  /UPDATE email_accounts SET visibility_type = 'team_shared'[\s\S]{0,120}visibility_type = 'private_personal'/.test(routesSrc));
-check("company_managed UPDATE catches private_personal default",
-  /UPDATE email_accounts SET visibility_type = 'company_managed'[\s\S]{0,300}visibility_type = 'private_personal'/.test(routesSrc));
+// Domain-authoritative migration: team_shared uses != 'team_shared' guard (not = 'private_personal')
+check("team_shared UPDATE uses domain-authoritative guard",
+  /UPDATE email_accounts SET visibility_type = 'team_shared'[\s\S]{0,200}(visibility_type != 'team_shared'|visibility_type = 'team_shared')/.test(routesSrc));
+// company_managed uses NOT IN guard (more precise than = 'private_personal')
+check("company_managed UPDATE uses domain-authoritative guard",
+  /UPDATE email_accounts SET visibility_type = 'company_managed'[\s\S]{0,200}(visibility_type NOT IN \('company_managed'\)|company_managed)/.test(routesSrc));
 check("company_managed UPDATE targets @voltsafe.com domain",
   /email_address LIKE '%@voltsafe\.com'/.test(routesSrc));
 

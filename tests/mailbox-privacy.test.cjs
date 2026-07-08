@@ -68,16 +68,16 @@ check(
 );
 
 check(
-  "S3: getAccessibleAccounts uses raw SQL to filter non-owned private_personal out",
-  () => contains(routes, "Non-owned: private_personal is blocked for ALL non-owners (no admin bypass)")
+  "S3: getAccessibleAccounts uses raw SQL to filter non-owned to shared @voltsafe.com only",
+  () => contains(routes, "Non-owned: ONLY explicitly shared team inboxes (@voltsafe.com + is_shared=true).")
 );
 
 check(
-  "S4: getAccessibleAccounts admin path still filters private_personal at SQL level",
+  "S4: getAccessibleAccounts SQL restricts non-owned to is_shared=true AND @voltsafe.com domain",
   () => {
-    // The raw SQL query itself blocks private_personal — admin only governs what's left
+    // The raw SQL query itself blocks private accounts — only is_shared=true @voltsafe.com pass
     const inFn = routes.match(/async function getAccessibleAccounts[\s\S]+?return \[\.\.\.ownAccts/)?.[0] ?? "";
-    return contains(inFn, "COALESCE(visibility_type, 'private_personal') != 'private_personal'");
+    return contains(inFn, "AND is_shared = true") && contains(inFn, "email_address LIKE '%@voltsafe.com'");
   }
 );
 
@@ -161,8 +161,8 @@ check(
 console.log("\n[S16] /api/gmail/accounts visibility type annotation");
 
 check(
-  "S16: /api/gmail/accounts annotates each account with visibilityType from DB",
-  () => contains(routes, "vtMap.get(a.id) ?? (a.isShared ? 'team_shared' : 'private_personal')")
+  "S16: /api/gmail/accounts annotates each account with visibilityType from DB (domain-authoritative fallback)",
+  () => contains(routes, "vtMap.get(a.id) ?? (") && contains(routes, "isVoltSafeFallback ? 'team_shared'")
 );
 
 // ── SCENARIO 17-18: Migration ─────────────────────────────────────────────────
