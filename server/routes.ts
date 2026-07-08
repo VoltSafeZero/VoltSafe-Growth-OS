@@ -19586,11 +19586,32 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const acctIds = accounts.map((a: any) => a.id);
       const vtRows = await db.execute(sql.raw(`SELECT id, COALESCE(visibility_type, 'private_personal') AS vt FROM email_accounts WHERE id IN (${acctIds.join(",")})`));
       const vtMap = new Map(((vtRows as any).rows ?? []).map((r: any) => [Number(r.id), String(r.vt)]));
-      const annotated = accounts.map((a: any) => ({
-        ...a,
-        isOwner: a.userId === userId && !a.isShared,
-        visibilityType: vtMap.get(a.id) ?? (a.isShared ? 'team_shared' : 'private_personal'),
-      }));
+      const annotated = accounts.map((a: any) => {
+        // Normalize: ownAccts come from Drizzle (camelCase); nonOwnedAccts come from
+        // db.execute(sql.raw) which returns snake_case. Merge both so the frontend
+        // always sees consistent camelCase field names.
+        const emailAddress = a.emailAddress ?? a.email_address ?? '';
+        const displayName = a.displayName ?? a.display_name ?? null;
+        const isShared = a.isShared ?? a.is_shared ?? false;
+        const userId2 = a.userId ?? a.user_id ?? null;
+        const authStatus = a.authStatus ?? a.auth_status ?? null;
+        const syncEnabled = a.syncEnabled ?? a.sync_enabled ?? false;
+        const isActive = a.isActive ?? a.is_active ?? true;
+        const isOwner = userId2 === userId && !isShared;
+        const visibilityType = vtMap.get(a.id) ?? (isShared ? 'team_shared' : 'private_personal');
+        return {
+          ...a,
+          emailAddress,
+          displayName,
+          isShared,
+          isActive,
+          userId: userId2,
+          authStatus,
+          syncEnabled,
+          isOwner,
+          visibilityType,
+        };
+      });
       res.json(annotated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

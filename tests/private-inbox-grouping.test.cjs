@@ -74,8 +74,16 @@ check("company_managed UPDATE targets @voltsafe.com domain",
   /email_address LIKE '%@voltsafe\.com'/.test(routesSrc));
 
 console.log("── accounts API annotates visibilityType per account ──");
-check("GET /api/gmail/accounts returns visibilityType from vtMap",
-  /visibilityType:\s*vtMap\.get/.test(routesSrc));
+check("GET /api/gmail/accounts uses vtMap to resolve visibilityType",
+  /vtMap\.get\(a\.id\)/.test(routesSrc));
+check("accounts API normalizes emailAddress from snake_case email_address",
+  /emailAddress\s*=\s*a\.emailAddress\s*\?\?\s*a\.email_address/.test(routesSrc));
+check("accounts API normalizes isShared from snake_case is_shared",
+  /isShared\s*=\s*a\.isShared\s*\?\?\s*a\.is_shared/.test(routesSrc));
+check("accounts API normalizes userId from snake_case user_id",
+  /userId.*=\s*a\.userId\s*\?\?\s*a\.user_id/.test(routesSrc));
+check("frontend emailAddress access guarded with || fallback",
+  /acct\.emailAddress \|\| acct\.displayName \|\|/.test(src));
 
 console.log("────────────────────────────────────────────────────────────");
 console.log(`Results: ${pass + fail} checks — ${pass} passed, ${fail} failed`);

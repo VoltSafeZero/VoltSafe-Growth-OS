@@ -1,0 +1,143 @@
+Urgent production bug: VoltSafe Mail page crashes with “Something went wrong” and inboxes do not load.
+
+Production URL:
+https://image-linker-burgesstrevor76.replit.app/gmail
+
+Screenshot:
+The /gmail page shows the generic error boundary:
+“Something went wrong. An unexpected error occurred. Please reload and try again.”
+
+Context:
+This happened after recent Private Inbox / mailbox visibility / sidebar grouping changes.
+
+Likely area:
+client/src/pages/gmail-inbox.tsx
+Recent changes around:
+- grouping accounts into WORK INBOX / TEAM INBOXES / PRIVATE INBOXES
+- visibility_type handling
+- personalAccount/workAccounts/privateAccounts/teamAccounts logic
+- default selected account logic
+- All Inboxes count logic
+
+Immediate goal:
+Restore VoltSafe Mail loading in production without weakening private mailbox isolation.
+
+Do not remove the privacy hardening.
+Do not revert the whole feature.
+Fix the crash surgically.
+
+Required investigation:
+1. Pull production/browser console error for /gmail.
+2. Pull production server logs around the failed /gmail load.
+3. Identify the exact frontend runtime exception and stack trace.
+4. Check whether any of these are undefined/null in production:
+   - accounts
+   - personalAccount
+   - workAccounts
+   - privateAccounts
+   - teamAccounts
+   - activeAccountId
+   - selectedAccount
+   - countSnapshot
+   - accountCounts
+   - visibility_type
+   - email_address vs email
+   - isOwner
+   - id
+
+5. Check production API response from account list endpoint:
+   - /api/gmail/accounts or equivalent
+   - confirm exact field names returned:
+     - id
+     - email_address or email
+     - visibility_type
+     - isOwner
+     - is_shared
+     - unreadCount
+     - status
+
+6. Fix frontend grouping to be defensive:
+   - accounts must default to []
+   - every grouping filter must tolerate missing visibility_type
+   - every display email must support email_address OR email
+   - counts must default to 0
+   - no .map/.filter/.find over undefined
+   - no property access on undefined selected account
+   - no assumption that a work account exists
+   - no assumption that exactly one owner account exists
+
+7. Safe grouping fallback:
+If visibility_type is missing in production response:
+   - @voltsafe.com owned user mailbox should be treated as work/company mailbox
+   - sales@voltsafe.com/support@voltsafe.com or is_shared=true should be treated as team inbox
+   - non-@voltsafe.com owned mailbox should be treated as private inbox
+
+8. Production DB/schema check:
+Verify:
+   - email_accounts has visibility_type column
+   - mailbox_access_grants exists
+If missing:
+   - ensure migration runs on startup
+   - run/apply migration safely
+   - do not crash frontend if migration has not run yet
+
+9. Reading pane crash guard:
+If selected account disappears or account data changes:
+   - clear selectedThreadId/focusedMsg
+   - show “Your inbox is ready” empty state
+   - do not crash
+
+10. Add an error boundary/logging improvement if needed:
+   - log component name and failing account data shape in dev only
+   - do not expose private email data in logs
+
+Tests required:
+Add/update tests proving:
+
+1. /gmail does not crash when accounts response is empty.
+2. /gmail does not crash when visibility_type is missing.
+3. /gmail does not crash when account uses email_address instead of email.
+4. /gmail does not crash when account uses email instead of email_address.
+5. /gmail does not crash when there is no work inbox.
+6. /gmail does not crash when there are multiple owner accounts.
+7. /gmail renders WORK INBOX / TEAM INBOXES / PRIVATE INBOXES when visibility_type exists.
+8. /gmail falls back to domain/is_shared grouping when visibility_type is missing.
+9. private inboxes remain under PRIVATE INBOXES.
+10. team inboxes remain under TEAM INBOXES.
+11. work inbox remains visible.
+12. All Inboxes count defaults safely.
+13. selected reading pane clears safely when selected account is missing.
+14. no privacy access-control tests regress.
+
+Validation:
+1. Run relevant tests:
+   - private-inbox-grouping
+   - mailbox-privacy-live
+   - mail-permissions
+   - mailbox-switching
+   - Gmail inbox tests
+   - build/typecheck
+
+2. Boot locally and open /gmail.
+3. Confirm no React error boundary.
+4. Confirm sidebar loads.
+5. Confirm inbox list loads.
+6. Confirm account groups display:
+   - WORK INBOX
+   - TEAM INBOXES
+   - PRIVATE INBOXES
+
+7. Deploy/publish.
+8. Open production /gmail.
+9. Confirm the production crash is gone.
+10. Confirm server/browser logs are clean.
+
+Deliverable:
+Report:
+- exact runtime error
+- exact root cause
+- files changed
+- schema/migration status
+- tests added/updated
+- production verification result
+- screenshot confirmation that /gmail loads

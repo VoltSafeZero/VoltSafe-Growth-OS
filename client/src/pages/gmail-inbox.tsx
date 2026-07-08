@@ -374,7 +374,7 @@ function AccountSourceBadge({ accounts, sourceAccountId, messageId }: {
 }) {
   const acct = accounts?.find((a) => a.id === sourceAccountId);
   if (!acct) return null;
-  const letter = (acct.displayName || acct.emailAddress)[0].toUpperCase();
+  const letter = (acct.displayName || acct.emailAddress || "?")[0].toUpperCase();
   const colour = acct.isShared
     ? "bg-teal-500/20 text-teal-300 border-teal-500/30"
     : "bg-primary/20 text-primary border-primary/30";
@@ -9057,7 +9057,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     className={`flex-1 flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${activeAccountId === null ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
                   >
                     <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${activeAccountId === null ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                      {(personalAccount.displayName || personalAccount.emailAddress)[0].toUpperCase()}
+                      {(personalAccount.displayName || personalAccount.emailAddress || "?")[0].toUpperCase()}
                       {/* Multi-mailbox Phase 1: sync-status dot */}
                       {(() => {
                         const h = healthById.get(personalAccount.id);
@@ -9196,7 +9196,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 </div>
                 {sharedAccounts.map((acct) => {
                   const isThisActive = activeAccountId === acct.id;
-                  const letter = acct.emailAddress[0].toUpperCase();
+                  const letter = (acct.emailAddress || acct.displayName || "?")[0].toUpperCase();
                   return (
                     <div key={acct.id}>
                       <div className="group flex items-center gap-0.5">
@@ -9205,7 +9205,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             setActiveAccountId(acct.id); setTab("inbox"); setInboxCategory("all"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
                           }}
                           data-testid={`btn-account-shared-${acct.id}`}
-                          title={acct.emailAddress}
+                          title={acct.emailAddress || ""}
                           className={`flex-1 flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${isThisActive ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
                         >
                           <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isThisActive ? "bg-teal-500 text-white" : "bg-teal-900/60 text-teal-300"}`}>
@@ -9336,7 +9336,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 </div>
                 {privateAccounts.map((acct) => {
                   const isThisActive = activeAccountId === acct.id;
-                  const letter = acct.emailAddress[0].toUpperCase();
+                  const letter = (acct.emailAddress || acct.displayName || "?")[0].toUpperCase();
                   return (
                     <div key={acct.id}>
                       <div className="group flex items-center gap-0.5">
@@ -9345,7 +9345,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             setActiveAccountId(acct.id); setTab("inbox"); setInboxCategory("all"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
                           }}
                           data-testid={`btn-account-private-${acct.id}`}
-                          title={`${acct.emailAddress} — Private inbox (only visible to you)`}
+                          title={`${acct.emailAddress || ""} — Private inbox (only visible to you)`}
                           className={`flex-1 flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${isThisActive ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
                         >
                           <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isThisActive ? "bg-violet-500 text-white" : "bg-violet-900/40 text-violet-300"}`}>
