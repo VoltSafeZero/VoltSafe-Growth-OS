@@ -8334,8 +8334,9 @@ export async function registerRoutes(
   // sync freshness, watch expiration, in-flight + most-recent-terminal
   // backfill jobs, and stored message counts. Single round-trip to Postgres
   // (correlated subqueries instead of N+1 fetches).
-  app.get("/api/admin/mailbox/diagnostics", requireAuth, requireAdmin, async (_req, res) => {
+  app.get("/api/admin/mailbox/diagnostics", requireAuth, requireAdmin, async (req, res) => {
     try {
+      const reqUserId = (req.session as any).userId as number;
       const { isPushConfigured } = await import("./services/gmail-watch");
       const pushConfigured = isPushConfigured();
       const STALE_MS = 24 * 60 * 60 * 1000; // "stale webhook" = no push in 24h
@@ -8359,6 +8360,7 @@ export async function registerRoutes(
           a.watch_expiration_at                     AS "watchExpirationAt",
           a.watch_history_id                        AS "watchHistoryId",
           a.watch_topic                             AS "watchTopic",
+          COALESCE(a.visibility_type, 'private_personal') AS "visibilityType",
           (SELECT COUNT(*)::int FROM email_messages m WHERE m.source_account_id = a.id) AS "storedMessageCount",
           (SELECT MAX(m.sent_at)  FROM email_messages m WHERE m.source_account_id = a.id) AS "lastMessageAt",
           (SELECT COUNT(*)::int FROM backfill_jobs b WHERE b.email_account_id = a.id AND b.status IN ('pending','running','cancelling')) AS "queueDepth",
@@ -8390,12 +8392,23 @@ export async function registerRoutes(
       // Compute derived freshness fields server-side so operators don't have
       // to do timestamp math by hand. Raw timestamps remain in the payload
       // for anyone who wants them.
+      // Privacy: private_personal accounts owned by another user have their
+      // content-revealing fields (message counts, timestamps, backfill history)
+      // stripped — admins may see only connection metadata for those accounts.
       const accounts = (accountsR.rows ?? []).map((r: any) => {
         const lastWebhookAt = r.lastWebhookAt ? new Date(r.lastWebhookAt).getTime() : null;
         const watchExp      = r.watchExpirationAt ? new Date(r.watchExpirationAt).getTime() : null;
         const webhookAgeMs  = lastWebhookAt ? (now - lastWebhookAt) : null;
+        const isPrivateOther = r.visibilityType === 'private_personal' && Number(r.userId) !== reqUserId;
         return {
           ...r,
+          // Strip content-revealing fields for private accounts not owned by this admin.
+          storedMessageCount: isPrivateOther ? null : r.storedMessageCount,
+          lastMessageAt:      isPrivateOther ? null : r.lastMessageAt,
+          queueDepth:         isPrivateOther ? null : r.queueDepth,
+          inflightBackfill:   isPrivateOther ? null : r.inflightBackfill,
+          latestTerminalBackfill: isPrivateOther ? null : r.latestTerminalBackfill,
+          contentProtected:   isPrivateOther ? true : undefined,
           webhookStaleness: {
             ageMs:   webhookAgeMs,
             isStale: webhookAgeMs == null ? null : webhookAgeMs > STALE_MS,
@@ -8430,6 +8443,7 @@ export async function registerRoutes(
   // import taking so long?" — you see the full job timeline).
   app.get("/api/admin/mailbox/:id/diagnostics", requireAuth, requireAdmin, async (req, res) => {
     try {
+      const reqUserId = (req.session as any).userId as number;
       const accountId = parseInt(req.params.id, 10);
       if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid mailbox id" });
 
@@ -8443,11 +8457,16 @@ export async function registerRoutes(
                a.watch_expiration_at AS "watchExpirationAt",
                a.watch_history_id AS "watchHistoryId",
                a.watch_topic AS "watchTopic",
-               a.created_at AS "createdAt"
+               a.created_at AS "createdAt",
+               COALESCE(a.visibility_type, 'private_personal') AS "visibilityType"
         FROM email_accounts a WHERE a.id = ${accountId} LIMIT 1
       `)) as any;
       const acct = acctR.rows?.[0];
       if (!acct) return res.status(404).json({ message: "Mailbox not found" });
+      // Privacy: private_personal accounts owned by another user — return connection
+      // metadata only; strip content-revealing fields (message count, timestamps,
+      // backfill history) so admins cannot infer mail activity of private mailboxes.
+      const isPrivateOther = acct.visibilityType === 'private_personal' && Number(acct.userId) !== reqUserId;
 
       const [counts, lastMsg, recentBackfills] = await Promise.all([
         db.execute(sql.raw(`SELECT COUNT(*)::int AS count FROM email_messages WHERE source_account_id = ${accountId}`)),
@@ -8476,16 +8495,17 @@ export async function registerRoutes(
         staleThresholdMs: STALE_MS,
         account: {
           ...acct,
-          storedMessageCount: Number((counts as any).rows?.[0]?.count ?? 0),
-          lastMessageAt: (lastMsg as any).rows?.[0]?.at ?? null,
+          storedMessageCount: isPrivateOther ? null : Number((counts as any).rows?.[0]?.count ?? 0),
+          lastMessageAt: isPrivateOther ? null : ((lastMsg as any).rows?.[0]?.at ?? null),
           webhookStaleness: { ageMs: webhookAgeMs, isStale: webhookAgeMs == null ? null : webhookAgeMs > STALE_MS },
           watch: {
             expirationAt: acct.watchExpirationAt, historyId: acct.watchHistoryId, topic: acct.watchTopic,
             isExpired: watchExp == null ? null : watchExp < now,
             expiresInMs: watchExp == null ? null : (watchExp - now),
           },
+          contentProtected: isPrivateOther ? true : undefined,
         },
-        recentBackfills: (recentBackfills as any).rows ?? [],
+        recentBackfills: isPrivateOther ? [] : ((recentBackfills as any).rows ?? []),
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -8513,14 +8533,18 @@ export async function registerRoutes(
   //       ?force=true.)
   app.post("/api/admin/mailbox/:id/trigger-backfill", requireAuth, requireAdmin, async (req, res) => {
     try {
+      const reqUserId = (req.session as any).userId as number;
       const accountId = parseInt(req.params.id, 10);
       if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid mailbox id" });
 
       const acctR = await db.execute(sql.raw(
-        `SELECT id, user_id AS "userId", email_address AS "emailAddress" FROM email_accounts WHERE id = ${accountId} LIMIT 1`
+        `SELECT id, user_id AS "userId", email_address AS "emailAddress", COALESCE(visibility_type, 'private_personal') AS "visibilityType" FROM email_accounts WHERE id = ${accountId} LIMIT 1`
       )) as any;
       const acct = acctR.rows?.[0];
       if (!acct) return res.status(404).json({ message: "Mailbox not found" });
+      if (acct.visibilityType === 'private_personal' && Number(acct.userId) !== reqUserId) {
+        return res.status(403).json({ message: "Cannot trigger backfill on a private personal mailbox you do not own." });
+      }
 
       const force = String(req.query.force ?? "").toLowerCase() === "true";
       const dateFromOverride = typeof req.body?.dateFrom === "string" ? req.body.dateFrom : undefined;
@@ -8576,14 +8600,18 @@ export async function registerRoutes(
   //                        in-flight guard; will NOT skip-idempotency).
   app.post("/api/admin/mailbox/:id/force-full-resync", requireAuth, requireAdmin, async (req, res) => {
     try {
+      const reqUserId = (req.session as any).userId as number;
       const accountId = parseInt(req.params.id, 10);
       if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid mailbox id" });
 
       const acctR = await db.execute(sql.raw(
-        `SELECT id, user_id AS "userId", email_address AS "emailAddress" FROM email_accounts WHERE id = ${accountId} LIMIT 1`
+        `SELECT id, user_id AS "userId", email_address AS "emailAddress", COALESCE(visibility_type, 'private_personal') AS "visibilityType" FROM email_accounts WHERE id = ${accountId} LIMIT 1`
       )) as any;
       const acct = acctR.rows?.[0];
       if (!acct) return res.status(404).json({ message: "Mailbox not found" });
+      if (acct.visibilityType === 'private_personal' && Number(acct.userId) !== reqUserId) {
+        return res.status(403).json({ message: "Cannot force-resync a private personal mailbox you do not own." });
+      }
 
       await db.execute(sql.raw(`
         UPDATE email_accounts
@@ -35214,11 +35242,14 @@ export function registerConfluenceRoutes(app: Express) {
   `)).catch(() => {});
 
   // Additive migration: mailbox visibility_type + access grants (private personal mailbox support)
+  // NOTE: UPDATEs use "WHERE visibility_type IS NULL" only — never override a value the user has
+  // explicitly set. The column DEFAULT is 'private_personal', so after the initial migration run
+  // every row has a non-NULL value and these UPDATEs become no-ops on subsequent server restarts.
   db.execute(sql.raw(`
     ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS visibility_type TEXT NOT NULL DEFAULT 'private_personal';
-    UPDATE email_accounts SET visibility_type = 'team_shared' WHERE is_shared = TRUE AND (visibility_type IS NULL OR visibility_type = 'private_personal');
+    UPDATE email_accounts SET visibility_type = 'team_shared' WHERE is_shared = TRUE AND visibility_type IS NULL;
     UPDATE email_accounts SET visibility_type = 'company_managed'
-      WHERE is_shared = FALSE AND (visibility_type IS NULL OR visibility_type = 'private_personal')
+      WHERE is_shared = FALSE AND visibility_type IS NULL
         AND (email_address LIKE '%@voltsafe.com' OR email_address LIKE 'sales@%' OR email_address LIKE 'support@%'
              OR email_address LIKE 'info@%' OR email_address LIKE 'hello@%' OR email_address LIKE 'billing@%'
              OR email_address LIKE 'ops@%' OR email_address LIKE 'admin@%');

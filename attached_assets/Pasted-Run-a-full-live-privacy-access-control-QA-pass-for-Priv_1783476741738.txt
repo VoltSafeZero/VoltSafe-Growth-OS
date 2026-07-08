@@ -1,0 +1,95 @@
+Run a full live privacy/access-control QA pass for Private Personal Mailboxes.
+
+Goal:
+Prove that private_personal mailboxes cannot be accessed by anyone except the owner, including admins/master_admins, direct API calls, search, counts, CRM, AI context, attachments, and All Inboxes.
+
+Use at least:
+- Trevor as owner of a private personal mailbox
+- Another normal user
+- An admin/master_admin
+- One team/shared mailbox
+- One company-managed mailbox
+
+Test cases:
+
+1. Owner access:
+- Log in as private mailbox owner.
+- Confirm private mailbox appears in sidebar with lock icon.
+- Confirm owner can list inbox.
+- Confirm owner can open/read a message.
+- Confirm owner can send/reply if Gmail connection is active.
+- Confirm owner can search that private mailbox.
+
+2. Non-owner access:
+- Log in as another normal user.
+- Confirm Trevor’s private mailbox does not appear in sidebar.
+- Try direct API calls using Trevor’s private mailbox account id.
+- Try list, counts, search, open thread, read attachment.
+- Expected: 403 or empty safe response.
+- Confirm no subject/snippet/body/attachment data leaks.
+
+3. Admin/master_admin access:
+- Log in as admin/master_admin.
+- Confirm admin can see only safe connection metadata if supported.
+- Admin must not see subjects, snippets, bodies, attachments, thread IDs, search results, or counts for private_personal mailbox content.
+- Try direct API calls by mailbox_account_id.
+- Expected: 403 or safe metadata only.
+
+4. All Inboxes:
+- Owner’s All Inboxes may include owner’s private mailbox plus shared/team mailboxes they can access.
+- Non-owner’s All Inboxes must not include Trevor’s private mailbox.
+- Admin’s All Inboxes must not include private_personal mailboxes they do not own.
+
+5. Search:
+- Search as owner: private mailbox results allowed.
+- Search as non-owner/admin: private mailbox results excluded.
+- Direct query by known sender/subject from private mailbox must not leak results.
+
+6. Counts:
+- Private mailbox counts visible only to owner.
+- Non-owner/admin counts exclude private mailbox.
+- Category counts exclude private mailbox for non-owner/admin.
+
+7. Reading pane:
+- Switch between accounts quickly.
+- Reading pane must clear/reload.
+- No private message from one mailbox may remain visible under another mailbox.
+
+8. Attachments:
+- Owner can access own private attachments.
+- Non-owner/admin cannot access private attachments by direct URL/API.
+
+9. CRM/AI/Cortex:
+- Confirm private mailbox content is not included in:
+  - CRM auto-linking visible to others
+  - AI email summaries
+  - global company context
+  - CEO Cockpit
+  - Cortex/shared context
+- If owner links a private email to CRM, confirm it defaults private to owner unless explicitly shared.
+
+10. Marine Related:
+- Marine Related tags/sender rules must be scoped to mailbox_account_id.
+- A Marine tag in Trevor’s private mailbox must not affect another user’s mailbox.
+- Another user must not see Trevor’s private Marine Related messages.
+
+11. Team/shared mailbox:
+- Confirm team_shared mailbox remains accessible only to users with grants.
+- Confirm can_send is enforced.
+- Confirm private_personal changes did not break sales@/support@ behavior.
+
+12. Disconnected private mailbox:
+- Expired/disconnected private mailbox shows reconnect state only to owner/admin metadata view.
+- It must not create sync errors that pollute other users’ mailbox UX.
+
+Report:
+- users tested
+- mailbox ids/types tested
+- endpoints tested
+- pass/fail for each privacy boundary
+- any data leakage found
+- screenshots/curl evidence
+- final production readiness status
+
+Do not add new features during this QA pass.
+Only fix true access-control leaks.
