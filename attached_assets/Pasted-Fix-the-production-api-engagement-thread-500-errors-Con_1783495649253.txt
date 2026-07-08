@@ -1,0 +1,130 @@
+Fix the production /api/engagement/thread 500 errors.
+
+Context:
+The mailbox classification/access-control fix is live and verified. No rollback needed.
+
+During post-deploy verification, production logs showed repeated 500s from:
+
+/api/engagement/thread
+
+This appears to be a pre-existing production schema/query issue in the email tracking pixel / thread engagement query. It was not introduced by the mailbox fix, but it is now the next highest-priority production bug.
+
+Goal:
+Fix /api/engagement/thread so opening email threads no longer causes 500s, without changing unrelated mailbox access-control logic.
+
+Do not refactor unrelated modules.
+Do not touch the verified mailbox classification/access-control fix unless absolutely necessary.
+Do not change email visibility/security behavior.
+
+PHASE 1 — Reproduce and identify root cause
+
+1. Pull the latest production/server logs for /api/engagement/thread.
+2. Capture the full stack trace and failing SQL/query.
+3. Identify:
+   - route handler file
+   - service/helper file
+   - database table(s) queried
+   - missing column/table/index if any
+   - whether dev DB and production DB schemas differ
+   - whether migrations ran but production still lacks a field
+   - whether the query assumes data that may be null/missing
+
+PHASE 2 — Inspect schema and migrations
+
+Search for:
+- engagement
+- thread
+- tracking
+- open tracking
+- click tracking
+- email tracking
+- tracking pixel
+- /api/engagement/thread
+- email_engagement
+- email_tracking
+- thread_id
+- gmail_thread_id
+- message_id
+
+Compare:
+- current Drizzle/schema definitions
+- migrations
+- production database schema
+- query expectations
+
+Identify the exact mismatch.
+
+PHASE 3 — Fix safely
+
+Implement the smallest safe fix.
+
+Possible valid fixes:
+- correct malformed SQL
+- add missing defensive null handling
+- add missing migration
+- update query to match actual production schema
+- backfill missing safe values if required
+- return an empty engagement object instead of 500 when no tracking data exists
+
+Expected behavior:
+- /api/engagement/thread should return 200 for authenticated users
+- if no engagement data exists, return an empty/zero-state payload
+- never 500 just because tracking rows are missing
+- do not leak tracking data across users/mailboxes
+- only return engagement data for threads the current user is authorized to access
+
+PHASE 4 — Security check
+
+Because this is email engagement data, verify:
+- user cannot fetch engagement data for another user’s private mailbox/thread
+- team inbox engagement data is only available to authorized team inbox users
+- unauthenticated requests return 401
+- unauthorized authenticated requests return 403 or safe empty result, depending on existing convention
+- endpoint does not reveal whether another user’s private thread exists
+
+PHASE 5 — Tests
+
+Add or update regression tests.
+
+Suggested test file:
+tests/mail/engagement-thread-api.test.cjs
+
+Tests should cover:
+- authenticated valid thread returns 200
+- missing engagement rows returns 200 with empty/default data
+- malformed/missing thread id returns 400, not 500
+- unauthenticated request returns 401
+- unauthorized private mailbox/thread access is blocked
+- team inbox thread access works only for authorized users
+- production schema/query pattern is pinned so the 500 cannot return
+
+Also run existing mail/security tests:
+- mailbox-classification.test.cjs
+- mailbox-privacy.test.cjs
+- mailbox-privacy-live.test.cjs
+- private-inbox-grouping.test.cjs
+- any engagement/email tracking tests
+
+PHASE 6 — Verification
+
+Run:
+- production build
+- targeted engagement tests
+- mailbox regression tests
+- broader mail/security tests
+
+Then perform live authenticated smoke test:
+- open VoltSafe Mail
+- open an email thread
+- confirm /api/engagement/thread returns 200
+- confirm browser console has no new 500s
+- confirm server logs show no /api/engagement/thread 500s
+
+Return:
+1. Root cause
+2. Files changed
+3. Schema/migration changes, if any
+4. Tests added/updated
+5. Test results
+6. Live verification result
+7. Whether safe to publish
