@@ -1,0 +1,56 @@
+Deploy the latest committed Private Personal Mailbox Isolation hardening to production, then verify it is actually live.
+
+Do not make code changes unless deployment reveals a real production-only issue.
+
+Steps:
+
+1. Confirm latest hardening commit is present locally.
+2. Run build/typecheck/tests needed before deploy:
+   - mailbox privacy tests
+   - Gmail/mailbox switching tests
+   - CRM mail-link/privacy tests
+   - AI/Cortex privacy tests
+   - Marine Related tests
+   - full build/typecheck if available
+
+3. Deploy/publish the latest app to production.
+
+4. After deploy, verify production DB migration ran:
+   - email_accounts has visibility_type column
+   - mailbox_access_grants table exists
+   - existing accounts are classified correctly:
+     - private personal accounts = private_personal
+     - support@/sales@ team inboxes = team_shared or company_managed as intended
+     - company/work mailboxes classified correctly
+
+5. Verify the hardened production code is live:
+   - /api/dashboard/needs-reply-high-engagement uses getAccessibleAccountIds()
+   - CRM timeline email visibility is scoped
+   - /api/crm-emails is access-filtered
+   - CRM AI context excludes private_personal mailboxes
+   - /api/dev/message-img-inspect requires admin and account authorization
+
+6. Rerun production live API smoke checks:
+   - owner can access own private mailbox
+   - non-owner cannot access private mailbox content
+   - admin/master_admin cannot access private mailbox content
+   - admin mutation gating blocks private mailbox backfill/resync if admin is not owner
+   - debug route authorization works
+   - All Inboxes excludes private mailboxes not owned by requester
+   - CRM timelines do not leak private emails
+   - AI/Cortex context does not include private emails
+   - Marine Related remains mailbox/user scoped
+
+7. Check production logs:
+   - no SQL errors
+   - no migration errors
+   - no privacy/access-control errors
+   - no repeated 500s from hardened routes
+
+Report:
+- deploy timestamp
+- production DB schema verification
+- account classification results
+- live API smoke test results
+- production logs summary
+- final production readiness status
