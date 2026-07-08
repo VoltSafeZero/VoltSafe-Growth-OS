@@ -1748,6 +1748,8 @@ export const emailTrackingPixels = pgTable("email_tracking_pixels", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   // Added by tracking system after scoring
   isReplied: boolean("is_replied").default(false).notNull(),
+  // Added via migration 0028 — tracks when is_replied was last set
+  updatedAt: timestamp("updated_at"),
 });
 
 export const emailEngagementEvents = pgTable("email_engagement_events", {

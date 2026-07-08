@@ -605,11 +605,13 @@ export async function getThreadEngagementFull(
   `))).rows as any[];
 
   // ── Replies ──────────────────────────────────────────────────────────────
+  // COALESCE(p.updated_at, p.created_at): updated_at was added in migration
+  // 0028; pre-migration rows only have created_at — fall back gracefully.
   const replyRows = (await db.execute(sql.raw(`
     SELECT
       p.recipient_email,
       p.gmail_message_id,
-      p.updated_at AS replied_at
+      COALESCE(p.updated_at, p.created_at) AS replied_at
     FROM email_tracking_pixels p
     JOIN email_messages m ON m.gmail_message_id = p.gmail_message_id
     WHERE m.gmail_thread_id = '${tEsc}'

@@ -411,7 +411,7 @@ export async function processReplyForThread(gmailThreadId: string): Promise<void
       // Mark as replied and elevate signal to 'replied'
       await db.execute(sql.raw(`
         UPDATE email_tracking_pixels
-        SET is_replied = true, signal_level = 'replied', last_scored_at = NOW()
+        SET is_replied = true, signal_level = 'replied', last_scored_at = NOW(), updated_at = NOW()
         WHERE tracking_id = '${esc(pixel.tracking_id)}'
       `));
 

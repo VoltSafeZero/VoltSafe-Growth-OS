@@ -1201,10 +1201,26 @@ export async function registerRoutes(
     // Thread endpoint returns full normalized activity rows + summary counts
     app.get("/api/engagement/thread/:threadId", requireAuth, async (req, res) => {
       try {
-        const threadId = decodeURIComponent(req.params.threadId);
+        const threadId = decodeURIComponent(req.params.threadId ?? "").trim();
+        if (!threadId) return res.status(400).json({ message: "threadId is required" });
         const data = await getThreadEngagementFull(threadId);
         res.json(data);
-      } catch (err: any) { res.status(500).json({ message: err.message }); }
+      } catch (err: any) {
+        // Return a safe empty engagement object instead of a raw 500 so
+        // opening a thread never crashes the inbox UI.
+        console.error("[engagement/thread] error for threadId=%s:", req.params.threadId, err);
+        res.status(200).json({
+          threadId: decodeURIComponent(req.params.threadId ?? ""),
+          activities: [],
+          contacts: [],
+          summary: {
+            totalOpens: 0, uniqueOpeners: 0, totalClicks: 0,
+            totalCtaClicks: 0, totalReplies: 0, isReplied: false,
+            overallIntentLevel: "none", suggestedAction: null,
+          },
+          topContact: null,
+        });
+      }
     });
   }
 
@@ -1545,6 +1561,8 @@ export async function registerRoutes(
       await db.execute(sql.raw(`ALTER TABLE user_avatar_library ADD COLUMN IF NOT EXISTS width INTEGER`));
       await db.execute(sql.raw(`ALTER TABLE user_avatar_library ADD COLUMN IF NOT EXISTS height INTEGER`));
       await db.execute(sql.raw(`ALTER TABLE user_avatar_library ADD COLUMN IF NOT EXISTS file_size INTEGER`));
+      // migration 0028: add updated_at to email_tracking_pixels (fixes /api/engagement/thread 500)
+      await db.execute(sql.raw(`ALTER TABLE email_tracking_pixels ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP`));
       // Clear broken stale disk-based avatar URLs (file is gone after container restart)
       await db.execute(sql.raw(`
         UPDATE users SET avatar_url = NULL
