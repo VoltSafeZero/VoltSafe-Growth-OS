@@ -32638,7 +32638,7 @@ export function registerConfluenceRoutes(app: Express) {
                (SELECT COUNT(*) FROM backfill_jobs bj WHERE bj.email_account_id = ea.id) AS "backfillCount"
         FROM email_accounts ea
         JOIN users u ON u.id = ea.user_id
-        WHERE ea.is_active = true ${privacyFilter}
+        WHERE ea.is_active = true AND (${privacyFilter})
         ORDER BY ea.is_shared DESC, ea.created_at ASC
       `));
       res.json((rows as any).rows ?? []);

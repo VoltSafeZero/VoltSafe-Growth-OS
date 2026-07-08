@@ -207,6 +207,10 @@ check("Team mailboxes API: non-@voltsafe.com excluded",
   routesSrc.includes("email_address LIKE '%@voltsafe.com') OR ea.user_id"),
   "Team mailboxes endpoint must filter to @voltsafe.com only");
 
+check("Team mailboxes API: SQL WHERE uses AND before privacy filter (no missing AND bug)",
+  routesSrc.includes("is_active = true AND (${privacyFilter})"),
+  "WHERE clause must be 'is_active = true AND (privacyFilter)' — missing AND causes 500");
+
 check("Migration step 1: non-@voltsafe.com is_shared=false enforcement",
   routesSrc.includes("WHERE email_address NOT LIKE '%@voltsafe.com'") &&
   routesSrc.includes("is_shared = false,"),

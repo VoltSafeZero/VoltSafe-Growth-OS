@@ -1,0 +1,61 @@
+Before publishing, perform a final production-readiness verification for the mailbox classification/access-control fix.
+
+Verify the following on the current branch:
+
+1. Build
+- Run the production build.
+- Confirm no TypeScript/build errors.
+
+2. Targeted tests
+Run and report results for:
+- mailbox-classification.test.cjs
+- mailbox-privacy.test.cjs
+- mailbox-privacy-live.test.cjs
+- private-inbox-grouping.test.cjs
+- any Gmail/mailbox/sidebar/account-access tests
+
+3. Regression tests
+Run the broader auth/security/mail-related regression suite.
+If crm-taxonomy.test.cjs fails because of the already-identified live DB count race, clearly mark it as unrelated and confirm it passes on immediate re-run.
+
+4. Live UI verification
+Open Admin → Mailboxes & Signatures and confirm:
+- trevor@voltsafe.com shows as Business / VoltSafe, not Private
+- trevor@hyalos.com shows as Private, not Business Visible
+- burgesstrevor76@gmail.com shows as Private, not Team
+- sales@voltsafe.com shows as Team / Shared only if explicitly configured
+- support@voltsafe.com shows as Team / Shared only if explicitly configured
+- no non-@voltsafe.com address appears as a Team Mailbox
+
+5. VoltSafe Mail sidebar verification
+Open VoltSafe Mail and confirm Trevor sees:
+- trevor@voltsafe.com under his own business/work inboxes
+- trevor@hyalos.com under Private Inboxes
+- burgesstrevor76@gmail.com under Private Inboxes if connected by Trevor
+- only sales@voltsafe.com and support@voltsafe.com under Team Inboxes
+- no alex@voltsafe.com, scott@voltsafe.com, terri@voltsafe.com, or other user personal inboxes under Team Inboxes
+- no @gmail.com under Team Inboxes
+
+6. Backend API verification
+Directly inspect the mailbox/accounts API response for Trevor and confirm:
+- unauthorized personal mailboxes are not returned at all
+- team inboxes are only explicitly shared @voltsafe.com accounts
+- non-@voltsafe.com accounts are never returned as team inboxes
+- user-owned private accounts are only returned to their owner
+- admin overview endpoints remain admin-protected
+
+7. Database cleanup verification
+Confirm whether any stale bad flags remain:
+- trevor@hyalos.com should not be business_visible
+- burgesstrevor76@gmail.com should not be shared/team
+- any non-@voltsafe.com mailbox with shared/team/business-visible flags must be corrected or defensively overridden
+
+8. Security conclusion
+Return:
+- files changed
+- root cause summary
+- tests run
+- test results
+- screenshots or console confirmation if available
+- whether this is safe to publish
+- whether any follow-up migration is needed
