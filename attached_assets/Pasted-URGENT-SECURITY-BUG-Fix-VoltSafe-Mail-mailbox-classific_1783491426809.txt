@@ -1,0 +1,261 @@
+URGENT SECURITY BUG — Fix VoltSafe Mail mailbox classification and team inbox access leak immediately.
+
+Context:
+VoltSafe CMS currently misclassifies mailboxes and exposes inboxes incorrectly.
+
+Screenshots show:
+1. In Admin → Mailboxes & Signatures:
+   - trevor@voltsafe.com is incorrectly labeled Private.
+   - trevor@hyalos.com is incorrectly labeled Business Visible.
+   - burgesstrevor76@gmail.com is incorrectly appearing as a Team Mailbox / shared inbox.
+2. In VoltSafe Mail inbox page:
+   - Every mailbox in the CMS appears under Team Inboxes for my user.
+   - This is a major privacy/security bug.
+   - I should only see team inboxes that are explicitly configured as shared/team inboxes.
+   - Currently only sales@voltsafe.com and support@voltsafe.com should be Team Inboxes.
+   - trevor@hyalos.com correctly appears under Private Inboxes on the Mail page, but is incorrectly labeled in Admin settings.
+
+This must be fixed immediately.
+
+Correct business rules:
+
+A) Domain classification
+- Any mailbox ending in @voltsafe.com is a VoltSafe business mailbox.
+- Any mailbox NOT ending in @voltsafe.com is a private/personal/external mailbox.
+- Examples:
+  - trevor@voltsafe.com = Business / VoltSafe mailbox
+  - alex@voltsafe.com = Business / VoltSafe mailbox
+  - sales@voltsafe.com = Business / VoltSafe mailbox
+  - support@voltsafe.com = Business / VoltSafe mailbox
+  - trevor@hyalos.com = Private mailbox
+  - burgesstrevor76@gmail.com = Private mailbox
+  - any @gmail.com = Private mailbox
+  - any non-@voltsafe.com = Private mailbox
+
+B) Team inbox classification
+A mailbox is a Team Inbox ONLY if:
+- it ends in @voltsafe.com
+AND
+- it is explicitly configured as a shared/team inbox in the database/settings
+AND
+- the current user has permission to access that shared/team inbox
+
+A mailbox must NOT be treated as a Team Inbox simply because:
+- it exists in the CMS
+- it belongs to another user
+- it is visible to admin somewhere
+- it has Gmail connected
+- it has messages
+- it is “business visible”
+- it is attached to a user account
+
+C) User business inbox classification
+A mailbox like trevor@voltsafe.com is:
+- a VoltSafe business mailbox
+- owned by that user
+- not automatically a Team Inbox
+- only visible to its owner and admins with explicit mailbox-admin permission
+- should not appear under Team Inboxes unless explicitly shared as a team inbox
+
+D) Private inbox classification
+A mailbox like trevor@hyalos.com or burgesstrevor76@gmail.com is:
+- Private
+- not Business Visible
+- not Team Inbox
+- not visible to other standard users
+- not shown under Team Inboxes
+- accessible only by the connected owner, unless explicit admin-level mailbox access rules say otherwise
+
+E) Current expected visible mailbox state for Trevor
+In Admin → Mailboxes & Signatures:
+- trevor@voltsafe.com should show as Business / VoltSafe mailbox, NOT Private.
+- trevor@hyalos.com should show as Private, NOT Business Visible.
+- burgesstrevor76@gmail.com should show as Private, NOT Team Mailbox.
+- sales@voltsafe.com should show as Team Inbox / Shared, if explicitly configured.
+- support@voltsafe.com should show as Team Inbox / Shared, if explicitly configured.
+- No other inbox should appear as Team Inbox unless explicitly configured.
+
+In VoltSafe Mail sidebar:
+- My connected business inboxes:
+  - trevor@voltsafe.com, if connected and owned by me
+- My private inboxes:
+  - trevor@hyalos.com
+  - burgesstrevor76@gmail.com, if connected by me
+- Team inboxes:
+  - sales@voltsafe.com
+  - support@voltsafe.com
+- Do NOT show alex@voltsafe.com, scott@voltsafe.com, terri@voltsafe.com, or any other user’s personal VoltSafe inbox under my Team Inboxes unless that specific mailbox was explicitly shared with me.
+- Do NOT show any @gmail.com under Team Inboxes.
+
+Required investigation:
+1. Search backend and frontend for mailbox classification logic:
+   - "Private"
+   - "Business Visible"
+   - "Team Mailbox"
+   - "Team Inboxes"
+   - "shared"
+   - "isShared"
+   - "is_shared"
+   - "emailAddress"
+   - "email_address"
+   - "mailbox"
+   - "gmail"
+   - "accessible accounts"
+   - "getAccessibleAccounts"
+   - any mailbox/account selector used by VoltSafe Mail sidebar
+   - Admin → Mailboxes & Signatures page
+
+2. Find the exact bug causing:
+   - @voltsafe.com addresses to be labeled Private
+   - non-@voltsafe.com addresses to be labeled Business Visible
+   - all CMS mailboxes to appear under Team Inboxes
+   - private @gmail.com accounts to appear as Team Mailboxes
+   - mixed camelCase/snake_case account fields, if present
+
+3. Audit both sides:
+   - Admin mailbox settings page
+   - VoltSafe Mail sidebar/account list
+   - backend mailbox/accounts API
+   - DB query that returns accessible mailboxes
+   - DB schema fields controlling ownership, sharing, and team visibility
+
+Required fix:
+Implement a single authoritative mailbox classification helper used everywhere.
+
+Create or update a shared helper/service that classifies every mailbox consistently:
+
+Inputs:
+- email address
+- owner user id
+- current user id
+- is shared/team flag
+- explicit shared/team mailbox config
+- explicit access grants if present
+- user role/permissions if present
+
+Outputs:
+- isVoltSafeDomain
+- isPrivateMailbox
+- isUserBusinessMailbox
+- isTeamMailbox
+- canCurrentUserAccess
+- mailboxDisplayGroup:
+  - my_business_inboxes
+  - private_inboxes
+  - team_inboxes
+  - admin_visible_only, if needed
+
+Rules:
+- isVoltSafeDomain = lowercase email ends with "@voltsafe.com"
+- isPrivateMailbox = NOT isVoltSafeDomain
+- isTeamMailbox = isVoltSafeDomain AND explicitly shared/team configured AND user has access
+- user-owned @voltsafe.com inbox is business/user inbox, not team inbox by default
+- non-@voltsafe.com can never be team inbox
+- @gmail.com can never be team inbox
+- another user’s @voltsafe.com inbox must not appear in Team Inboxes unless explicitly shared/team configured
+- all comparisons must be case-insensitive and trimmed
+
+Backend enforcement:
+- Fix the API that returns mailboxes for VoltSafe Mail.
+- It must only return mailboxes the current user is allowed to access.
+- It must group them correctly:
+  - my business inboxes
+  - private inboxes
+  - team inboxes
+- Do not rely on frontend filtering to hide unauthorized mailboxes.
+- Do not return other users’ personal inboxes to the frontend unless explicitly authorized.
+- Admin overview endpoints may show all mailboxes only to authorized admins, but must classify them correctly.
+
+Frontend enforcement:
+- Fix Admin → Mailboxes & Signatures labels.
+- Fix VoltSafe Mail sidebar grouping.
+- Fix Team Inboxes count.
+- Fix badges:
+  - Private
+  - Business / VoltSafe
+  - Team / Shared
+  - Owner
+  - You own
+- Do not show "Business Visible" on non-@voltsafe.com addresses.
+- Do not show "Private" on @voltsafe.com addresses.
+
+Data migration / cleanup:
+- Inspect existing mailbox/account records.
+- If burgesstrevor76@gmail.com or any non-@voltsafe.com account is marked as shared/team/business visible, correct the bad flag or add a defensive override so non-@voltsafe.com cannot be treated as team.
+- Do not delete accounts.
+- Do not disconnect accounts.
+- Only correct classification/access flags if necessary.
+- Add a short migration or startup guard if bad historical data exists.
+
+Security tests required:
+Add regression tests covering:
+
+1. Domain classification:
+- trevor@voltsafe.com => business mailbox, not private
+- sales@voltsafe.com => business mailbox
+- support@voltsafe.com => business mailbox
+- trevor@hyalos.com => private mailbox
+- burgesstrevor76@gmail.com => private mailbox
+- uppercase/lowercase mixed domains still classify correctly
+
+2. Team inbox classification:
+- sales@voltsafe.com explicitly shared => team inbox
+- support@voltsafe.com explicitly shared => team inbox
+- trevor@voltsafe.com user-owned but not shared => not team inbox
+- alex@voltsafe.com user-owned but not shared with Trevor => not visible to Trevor under Team Inboxes
+- burgesstrevor76@gmail.com cannot be team inbox even if bad shared flag exists
+- trevor@hyalos.com cannot be business/team inbox
+
+3. API access:
+- Standard user cannot fetch another user’s personal mailbox.
+- User can fetch their own connected private mailbox.
+- User can fetch their own connected @voltsafe.com mailbox.
+- User can fetch explicitly shared team inboxes.
+- User cannot fetch all CMS mailboxes.
+- Admin mailbox overview can list all mailboxes only through admin-protected endpoint.
+
+4. Frontend grouping:
+- VoltSafe Mail sidebar shows only:
+  - user-owned business inboxes
+  - user-owned private inboxes
+  - explicitly accessible team inboxes
+- Team Inboxes does not include random user accounts.
+- Team Inboxes does not include @gmail.com.
+- Private Inboxes contains non-@voltsafe.com user-owned inboxes.
+- @voltsafe.com user-owned inboxes are not labeled Private.
+
+5. Admin labels:
+- trevor@voltsafe.com displays as Business / VoltSafe, not Private.
+- trevor@hyalos.com displays as Private, not Business Visible.
+- burgesstrevor76@gmail.com displays as Private, not Team.
+- sales@voltsafe.com and support@voltsafe.com display as Team / Shared only if explicitly configured.
+
+Add tests in the existing test framework. Suggested names:
+- tests/security/mailbox-classification.test.ts
+- tests/security/mailbox-access-control.test.ts
+- tests/mail/mail-sidebar-grouping.test.ts
+Use existing project conventions if different.
+
+Verification required:
+After implementing, run:
+- TypeScript/build checks
+- existing mail tests
+- new mailbox classification/access tests
+- any auth/security tests
+- smoke test for Admin → Mailboxes & Signatures
+- smoke test for VoltSafe Mail sidebar
+
+Return a final report with:
+1. Root cause found
+2. Files changed
+3. Backend API fixed
+4. Frontend grouping fixed
+5. Database flags/migration changed, if any
+6. New tests added
+7. Full test results
+8. Confirmation that:
+   - trevor@voltsafe.com is no longer Private
+   - trevor@hyalos.com is Private
+   - burgesstrevor76@gmail.com is Private and not Team
+   - only sales@voltsafe.com and support@voltsafe.com appear as Team Inboxes for Trevor unless other inboxes are explicitly shared
+   - other users’ personal inboxes are not visible in Trevor’s Team Inboxes

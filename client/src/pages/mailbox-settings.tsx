@@ -668,7 +668,16 @@ function MailboxCard({ mailbox, health, showBackfill = false }: {
   // by (userId, emailAddress) so re-auth lands on the same row and just refreshes tokens.
   const reconnect = () => { window.location.href = "/api/auth/gmail/connect"; };
 
-  const pm = PRIVACY_LABELS[mailbox.privacyMode] ?? PRIVACY_LABELS.business_visible;
+  // Domain-authoritative label: @voltsafe.com = business; anything else = private account.
+  // This overrides the legacy privacy_mode display which caused "Private" to appear on
+  // company work inboxes and "Business Visible" to appear on personal external inboxes.
+  const isVoltSafeDomain = (mailbox.emailAddress ?? '').toLowerCase().endsWith('@voltsafe.com');
+  const domainLabel = isVoltSafeDomain
+    ? (mailbox.isShared
+        ? { label: "Team Inbox", icon: Users, desc: "Shared team mailbox accessible to multiple users", color: "text-sky-400" }
+        : { label: "VoltSafe Business", icon: Building2, desc: "Company mailbox — only you can access content", color: "text-sky-400" })
+    : { label: "Private Account", icon: Lock, desc: "Personal/external mailbox — only you can access", color: "text-red-400" };
+  const pm = domainLabel;
   const PMIcon = pm.icon;
   const needsReconnect = !!health && (health.status === "red" || health.authStatus !== "active");
 
@@ -946,7 +955,10 @@ export default function MailboxSettingsPage() {
   };
 
   const myPersonal = myMailboxes.filter(m => !m.isShared);
-  const teamShared = teamMailboxes.filter(m => m.isShared);
+  // Safety: non-@voltsafe.com accounts can NEVER be team inboxes — enforce on the frontend too.
+  const teamShared = teamMailboxes.filter(m =>
+    m.isShared && (m.emailAddress ?? '').toLowerCase().endsWith('@voltsafe.com')
+  );
   // Phase 3 visibility filters. "Shared with me" excludes mailboxes I own,
   // "All" shows everything I can see in either group.
   const showMine = filter === "all" || filter === "mine";

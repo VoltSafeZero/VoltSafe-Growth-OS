@@ -5678,11 +5678,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   });
   // Resolve which account is "active" — selected shared account, user's personal one, or
   // (unified mode) fall back to the personal account for compose/send semantics.
+  // Prefer the user's own @voltsafe.com work inbox as the default active account.
+  const findDefaultAccount = (data: typeof accountsQuery.data) =>
+    data?.find((a) => a.isOwner && (a.emailAddress ?? '').toLowerCase().endsWith('@voltsafe.com')) ??
+    data?.find((a) => a.isOwner) ??
+    data?.[0] ?? null;
+
   const connectedAccount = activeAccountId === "all"
-    ? (accountsQuery.data?.find((a) => a.visibilityType === 'company_managed') ?? accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null)
+    ? findDefaultAccount(accountsQuery.data)
     : activeAccountId
       ? (accountsQuery.data?.find((a) => a.id === activeAccountId) ?? accountsQuery.data?.[0] ?? null)
-      : (accountsQuery.data?.find((a) => a.visibilityType === 'company_managed') ?? accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null);
+      : findDefaultAccount(accountsQuery.data);
 
   // Multi-mailbox Phase 1: per-account health (status dots + warnings in the sidebar).
   // 30s refetch matches accountsQuery so they stay visually in sync.
@@ -5902,21 +5908,28 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
   const allAccounts = accountsQuery.data ?? [];
 
-  // WORK INBOX: company-managed accounts — the user's VoltSafe/company email(s)
-  const workAccounts = allAccounts.filter((a) => a.visibilityType === 'company_managed');
+  // Domain helper — authoritative classification rule:
+  // @voltsafe.com = business domain; anything else = private/personal domain.
+  const isVoltSafeDomain = (email: string) =>
+    (email ?? '').toLowerCase().endsWith('@voltsafe.com');
 
-  // TEAM INBOXES: shared accounts this user has access to (not privately owned)
+  // WORK INBOX: accounts owned by this user that end in @voltsafe.com (personal work inboxes)
+  const workAccounts = allAccounts.filter((a) =>
+    a.isOwner && isVoltSafeDomain(a.emailAddress ?? '')
+  );
+
+  // TEAM INBOXES: ONLY explicitly shared (@is_shared=true) @voltsafe.com inboxes NOT owned by this user.
+  // Non-@voltsafe.com accounts can NEVER appear here regardless of any flag.
   const sharedAccounts = allAccounts.filter((a) => {
     if (a.isOwner) return false;
-    if (a.visibilityType === 'private_personal') return false;
-    if (isAdmin) return true;
-    const entry = mailTeamPerms[String(a.id)];
-    return entry?.view === true;
+    if (!a.isShared) return false;
+    if (!isVoltSafeDomain(a.emailAddress ?? '')) return false;
+    return true;
   });
 
-  // PRIVATE INBOXES: private_personal accounts the current user owns (e.g. personal Gmail)
+  // PRIVATE INBOXES: accounts owned by this user that are NOT @voltsafe.com (personal Gmail etc.)
   const privateAccounts = allAccounts.filter((a) =>
-    a.visibilityType === 'private_personal' && a.isOwner
+    a.isOwner && !isVoltSafeDomain(a.emailAddress ?? '')
   );
 
   // Primary account for compose/send and activeAccountId=null routing — prefer work/company account

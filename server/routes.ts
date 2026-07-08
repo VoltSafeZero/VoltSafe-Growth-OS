@@ -13675,12 +13675,16 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       .where(and(eq(emailAccounts.isActive, true), eq(emailAccounts.userId, userId)));
     const ownIds = new Set(ownAccts.map((a) => a.id));
 
-    // Non-owned: private_personal is blocked for ALL non-owners (no admin bypass)
+    // Non-owned: ONLY explicitly shared team inboxes (@voltsafe.com + is_shared=true).
+    // Personal work inboxes of other users (company_managed) are NEVER returned here —
+    // they are private to their owner even from admins in the mail sidebar context.
+    // Admin mailbox overview uses a separate /api/admin/mailboxes endpoint.
     const nonOwnedRows = await db.execute(sql.raw(`
       SELECT * FROM email_accounts
       WHERE is_active = true
         AND user_id != ${userId}
-        AND COALESCE(visibility_type, 'private_personal') != 'private_personal'
+        AND is_shared = true
+        AND email_address LIKE '%@voltsafe.com'
     `));
     const nonOwnedAccts = ((nonOwnedRows as any).rows ?? []) as any[];
     const visibleOther = (isAdmin
@@ -19598,7 +19602,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         const syncEnabled = a.syncEnabled ?? a.sync_enabled ?? false;
         const isActive = a.isActive ?? a.is_active ?? true;
         const isOwner = userId2 === userId && !isShared;
-        const visibilityType = vtMap.get(a.id) ?? (isShared ? 'team_shared' : 'private_personal');
+        // Fallback classification is domain-authoritative:
+        // @voltsafe.com + shared → team_shared; @voltsafe.com → company_managed; else → private_personal
+        const emailLower = (emailAddress as string).toLowerCase();
+        const isVoltSafeFallback = emailLower.endsWith('@voltsafe.com');
+        const visibilityType = vtMap.get(a.id) ?? (
+          isShared && isVoltSafeFallback ? 'team_shared' :
+          isVoltSafeFallback ? 'company_managed' :
+          'private_personal'
+        );
         return {
           ...a,
           emailAddress,
@@ -32613,9 +32625,10 @@ export function registerConfluenceRoutes(app: Express) {
       )) as any).rows;
       const isAdmin = me?.role === "admin" || me?.role === "master_admin";
 
-      const privacyFilter = isAdmin
-        ? "" // admins see everything
-        : "AND (ea.is_shared = true OR ea.privacy_mode = 'business_visible' OR ea.user_id = " + userId + ")";
+      // Team mailboxes = only explicitly shared @voltsafe.com inboxes + user's own accounts.
+      // Non-@voltsafe.com accounts can never be team inboxes regardless of privacy_mode or is_shared.
+      // Admins get the same view as regular users here — admin mailbox overview is /api/admin/mailboxes.
+      const privacyFilter = "(ea.is_shared = true AND ea.email_address LIKE '%@voltsafe.com') OR ea.user_id = " + userId;
 
       const rows = await db.execute(sql.raw(`
         SELECT ea.id, ea.email_address AS "emailAddress", ea.display_name AS "displayName",
@@ -35306,18 +35319,31 @@ export function registerConfluenceRoutes(app: Express) {
   `)).catch(() => {});
 
   // Additive migration: mailbox visibility_type + access grants (private personal mailbox support)
-  // NOTE: UPDATEs catch rows that are NULL (pre-migration) OR still sitting at the default
-  // 'private_personal' but belong to team/company categories. Shared accounts and @voltsafe.com
-  // accounts must never stay as private_personal — that would hide them from the sidebar sections.
+  // Domain enforcement rules (authoritative):
+  //   @voltsafe.com + is_shared=true  → team_shared
+  //   @voltsafe.com + is_shared=false → company_managed
+  //   non-@voltsafe.com               → private_personal, is_shared=false (ALWAYS)
+  // Non-@voltsafe.com can NEVER be is_shared=true or team_shared or business_visible.
   db.execute(sql.raw(`
     ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS visibility_type TEXT DEFAULT 'private_personal';
+    -- STEP 1: Enforce domain rule — non-@voltsafe.com accounts can never be shared/team/business-visible.
+    UPDATE email_accounts
+      SET is_shared = false,
+          visibility_type = 'private_personal',
+          privacy_mode = 'private'
+      WHERE email_address NOT LIKE '%@voltsafe.com'
+        AND (is_shared = true OR visibility_type = 'team_shared'
+             OR privacy_mode IN ('business_visible', 'metadata_only'));
+    -- STEP 2: @voltsafe.com + is_shared=true → team_shared
     UPDATE email_accounts SET visibility_type = 'team_shared'
-      WHERE is_shared = TRUE AND (visibility_type IS NULL OR visibility_type = 'private_personal');
+      WHERE email_address LIKE '%@voltsafe.com'
+        AND is_shared = TRUE
+        AND (visibility_type IS NULL OR visibility_type != 'team_shared');
+    -- STEP 3: @voltsafe.com + is_shared=false → company_managed
     UPDATE email_accounts SET visibility_type = 'company_managed'
-      WHERE is_shared = FALSE AND (visibility_type IS NULL OR visibility_type = 'private_personal')
-        AND (email_address LIKE '%@voltsafe.com' OR email_address LIKE 'sales@%' OR email_address LIKE 'support@%'
-             OR email_address LIKE 'info@%' OR email_address LIKE 'hello@%' OR email_address LIKE 'billing@%'
-             OR email_address LIKE 'ops@%' OR email_address LIKE 'admin@%');
+      WHERE email_address LIKE '%@voltsafe.com'
+        AND is_shared = FALSE
+        AND (visibility_type IS NULL OR visibility_type NOT IN ('company_managed'));
     CREATE TABLE IF NOT EXISTS mailbox_access_grants (
       id SERIAL PRIMARY KEY,
       mailbox_account_id INTEGER NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
