@@ -36168,10 +36168,11 @@ export function registerConfluenceRoutes(app: Express) {
       const messageId = Number(req.params.id);
       if (!messageId) return res.status(400).json({ message: "Invalid message id" });
       const msgRows = await db.execute(sql.raw(
-        `SELECT id, channel_id, object_type, object_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
+        `SELECT id, channel_id, conversation_id, object_type, object_id FROM current_messages WHERE id = ${messageId} AND deleted_at IS NULL LIMIT 1`
       ));
       if (!msgRows.rows.length) return res.status(404).json({ message: "Message not found" });
       const channelId = msgRows.rows[0].channel_id ? Number(msgRows.rows[0].channel_id) : null;
+      const conversationId = msgRows.rows[0].conversation_id ? Number(msgRows.rows[0].conversation_id) : null;
       const pinObjType: string | null = msgRows.rows[0].object_type || null;
       const pinObjId: number | null = msgRows.rows[0].object_id ? Number(msgRows.rows[0].object_id) : null;
 
@@ -36195,6 +36196,17 @@ export function registerConfluenceRoutes(app: Express) {
           VALUES (NULL, '${pinObjType}', ${pinObjId}, ${messageId}, ${userId})
           ON CONFLICT (object_type, message_id) WHERE object_type IS NOT NULL
           DO NOTHING
+        `));
+      } else if (conversationId) {
+        // DM message pin — check membership first
+        const memCheck = await db.execute(sql.raw(
+          `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${conversationId} AND user_id = ${userId} LIMIT 1`
+        ));
+        if (!memCheck.rows.length) return res.status(403).json({ message: "Not a member of this conversation" });
+        await db.execute(sql.raw(`
+          INSERT INTO current_pins (conversation_id, message_id, pinned_by)
+          VALUES (${conversationId}, ${messageId}, ${userId})
+          ON CONFLICT (conversation_id, message_id) WHERE conversation_id IS NOT NULL DO NOTHING
         `));
       } else {
         return res.status(400).json({ message: "Message has no channel or record context" });
@@ -38399,6 +38411,90 @@ export function registerConfluenceRoutes(app: Express) {
         status: cacheGet(`presence:user:${userId}`) ? "online" : "offline",
       }));
       res.json({ users });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Custom Emojis ────────────────────────────────────────────────────────────
+  // GET /api/current/custom-emojis — list all custom emojis
+  app.get("/api/current/custom-emojis", requireAuth, async (_req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(
+        `SELECT id, name, slug, image_url AS "imageUrl", uploaded_by, created_at FROM current_custom_emojis ORDER BY created_at DESC`
+      ));
+      res.json(rows.rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/current/custom-emojis — upload a custom emoji (image stored as data URL in DB)
+  const customEmojiUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+  app.post("/api/current/custom-emojis", requireAuth, customEmojiUpload.single("file"), async (req: any, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const { name } = req.body || {};
+      if (!name?.trim()) return res.status(400).json({ message: "name is required" });
+      if (!req.file) return res.status(400).json({ message: "file is required" });
+      const allowed = ["image/png", "image/gif", "image/webp", "image/jpeg"];
+      if (!allowed.includes(req.file.mimetype)) return res.status(400).json({ message: "Only PNG, GIF, WebP, JPEG allowed" });
+      const slug = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_").slice(0, 40);
+      // Verify slug is unique
+      const existing = await db.execute(sql.raw(`SELECT id FROM current_custom_emojis WHERE slug = '${slug.replace(/'/g, "''")}' LIMIT 1`));
+      if (existing.rows.length) return res.status(409).json({ message: `Slug ':${slug}:' already exists — choose a different name` });
+      const b64 = req.file.buffer.toString("base64");
+      const imageUrl = `data:${req.file.mimetype};base64,${b64}`;
+      const inserted = await db.execute(sql.raw(
+        `INSERT INTO current_custom_emojis (name, slug, image_url, uploaded_by) VALUES ('${name.trim().replace(/'/g, "''")}', '${slug}', '${imageUrl}', ${userId}) RETURNING id, name, slug, image_url AS "imageUrl", created_at`
+      ));
+      res.status(201).json(inserted.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/current/custom-emojis/:id — delete a custom emoji (admin or uploader)
+  app.delete("/api/current/custom-emojis/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const emojiId = Number(req.params.id);
+      if (!emojiId) return res.status(400).json({ message: "Invalid id" });
+      const row = await db.execute(sql.raw(`SELECT uploaded_by FROM current_custom_emojis WHERE id = ${emojiId} LIMIT 1`));
+      if (!row.rows.length) return res.status(404).json({ message: "Custom emoji not found" });
+      const isOwnUpload = Number((row.rows[0] as any).uploaded_by) === userId;
+      const userRow = await db.execute(sql.raw(`SELECT role FROM users WHERE id = ${userId} LIMIT 1`));
+      const isAdminUser = ["admin", "master_admin"].includes(String((userRow.rows[0] as any)?.role ?? ""));
+      if (!isOwnUpload && !isAdminUser) return res.status(403).json({ message: "Only the uploader or an admin can delete custom emojis" });
+      await db.execute(sql.raw(`DELETE FROM current_custom_emojis WHERE id = ${emojiId}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/current/dms/:id/pins — list pinned messages in a DM conversation
+  app.get("/api/current/dms/:id/pins", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const convId = Number(req.params.id);
+      if (!convId) return res.status(400).json({ message: "Invalid conversation id" });
+      const mem = await db.execute(sql.raw(
+        `SELECT 1 FROM current_conversation_members WHERE conversation_id = ${convId} AND user_id = ${userId} LIMIT 1`
+      ));
+      if (!mem.rows.length) return res.status(403).json({ message: "Not a member of this conversation" });
+      const rows = await db.execute(sql.raw(`
+        SELECT cp.id, cp.message_id, cp.pinned_by, cp.created_at,
+          cm.body, cm.user_id AS author_id,
+          u.name AS author_name
+        FROM current_pins cp
+        JOIN current_messages cm ON cm.id = cp.message_id AND cm.deleted_at IS NULL
+        LEFT JOIN users u ON u.id = cm.user_id
+        WHERE cp.conversation_id = ${convId}
+        ORDER BY cp.created_at DESC
+        LIMIT 50
+      `));
+      res.json(rows.rows);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

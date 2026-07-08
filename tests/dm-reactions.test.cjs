@@ -412,10 +412,10 @@ async function main() {
     assert.ok(!block.includes("isConsecutive={isConsecutive}"), "DM MessageRow must NOT use isConsecutive={isConsecutive}");
   });
 
-  await test("src: DM MessageRow sets isAdmin={false}", async () => {
+  await test("src: DM MessageRow passes isAdmin prop (not hardcoded false)", async () => {
     const dmMsgIdx = src.indexOf("dmMessages.map(");
     const block = src.slice(dmMsgIdx, dmMsgIdx + DM_MAP_WINDOW);
-    assert.ok(block.includes("isAdmin={false}"), "DM MessageRow must set isAdmin={false}");
+    assert.ok(block.includes("isAdmin={isAdmin}"), "DM MessageRow must pass isAdmin={isAdmin} so admin actions are available in DMs");
   });
 
   await test("src: DM MessageRow sets isArchived={false} (reactions always available in DMs)", async () => {
@@ -487,8 +487,8 @@ async function main() {
     assert.ok(block.includes("if (isArchived) return null"), "MessageActionBar must guard on isArchived");
   });
 
-  await test("src: PRESET_REACTIONS allowlist defined (used by EmojiPickerPopover)", async () => {
-    assert.ok(src.includes("PRESET_REACTIONS"), "PRESET_REACTIONS must be defined");
+  await test("src: EMOJI_DATA allowlist defined (used by EmojiPickerPopover)", async () => {
+    assert.ok(src.includes("EMOJI_DATA"), "EMOJI_DATA must be defined with full emoji categories");
   });
 
   // ── Source-grep: backend fix pins ─────────────────────────────────────────

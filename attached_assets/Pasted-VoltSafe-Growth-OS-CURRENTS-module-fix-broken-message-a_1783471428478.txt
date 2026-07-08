@@ -1,0 +1,466 @@
+VoltSafe Growth OS — CURRENTS module: fix broken message actions, edit crash, emoji reactions, custom emojis, and GIF support.
+
+Context:
+In the VoltSafe Growth OS Currents module, message hover actions are broken. The Reply and Pin buttons beside messages do not work. Clicking Edit on a comment/message crashes the whole Currents page and shows the generic error boundary:
+
+“Something went wrong. An unexpected error occurred. Please reload and try again.”
+
+Users also need a stronger Slack-style reaction system with more emojis, searchable emoji categories, custom uploaded emojis, and GIF support.
+
+Goal:
+Fix all broken Currents message actions and add a reliable emoji/GIF reaction system.
+
+Scope:
+Currents module only. Do not break Mail, CRM, Today, Work, Pipeline, Calendar, Capital, Marketing, or any other module.
+
+Core rule:
+No dead buttons. Any visible action button must work. If a feature is not implemented yet, hide the button until it is.
+
+Required fixes:
+
+1) Fix Reply button
+
+The reply icon beside each message must open a threaded reply UI for that specific message.
+
+Clicking Reply should:
+- Set the selected parent/root message.
+- Open a reply/thread panel, drawer, or inline thread area.
+- Clearly show the original message being replied to.
+- Allow typing and sending a reply.
+- Persist the reply to the backend.
+- Display reply count or preview under the original message if applicable.
+- Work without a page refresh.
+
+Reply must work in:
+- Channels
+- Direct messages
+- Group DMs
+- Thread replies, if nested replies are supported
+
+Add regression tests proving Reply works from the hover toolbar.
+
+2) Fix Pin button
+
+The pin icon beside each message must pin/unpin the selected message.
+
+Clicking Pin should:
+- Pin the selected message.
+- Persist pinned state.
+- Visibly show pinned state in the UI.
+- Allow clicking again to unpin.
+- Work without a page refresh.
+
+Pinned messages:
+- Add or wire up a “Pinned” view/list if backend support already exists.
+- If no pinned view exists, implement a simple pinned-message section for the current channel/DM.
+
+Pin/unpin must work in:
+- Channels
+- Direct messages
+- Group DMs
+- Thread replies, if supported
+
+Add regression tests proving pin/unpin works from the hover toolbar and persists after refresh.
+
+3) Fix Edit comment/message crash
+
+Critical bug:
+When a user clicks Edit on a Currents comment/message, the whole Currents page crashes and shows the generic error boundary.
+
+This must be fixed at the root cause.
+
+Clicking Edit should:
+- Never crash the page.
+- Open edit mode inline or in the existing message editor UI.
+- Populate the original message text correctly.
+- Allow saving changes.
+- Allow canceling without changing the message.
+- Persist edits after refresh.
+- Show an “edited” marker if the app already supports it, or add a subtle one.
+- Show a non-destructive toast/error if editing fails.
+- Never trigger the global React error boundary.
+
+Edit must work in:
+- Channels
+- Direct messages
+- Group DMs
+- Thread replies
+
+Editing permissions:
+- Users can edit their own messages.
+- Admins can edit according to existing app rules, if already supported.
+- Users must not edit other people’s messages unless permitted.
+
+Defensive handling:
+Add null/undefined guards so the edit flow cannot crash if any of these are missing or stale:
+- Message
+- Message body
+- Author
+- Conversation/channel/DM
+- Thread parent
+- Deleted message
+- Current user
+- Permission object
+- Timestamp/edit metadata
+
+Debugging instructions:
+- Reproduce the crash by going to Currents, hovering a message/comment, clicking Edit, and confirming the current failure.
+- Check browser console stack trace.
+- Check server logs.
+- Fix the real root cause, not just the error boundary.
+- After the fix, verify zero browser console errors and zero server errors during edit.
+
+Add regression tests proving:
+- Edit button opens editor.
+- Save edit works.
+- Cancel edit works.
+- Editing a thread reply works.
+- Invalid/stale message edit returns a graceful error.
+- No React error boundary appears during edit flow.
+
+4) Audit all message hover actions
+
+The message hover toolbar currently includes actions like:
+- React/emoji
+- Reply
+- Edit
+- Bookmark/save
+- Pin
+- Any other visible icons
+
+Audit every icon and ensure each one either:
+- Works correctly, or
+- Is hidden until implemented.
+
+Do not leave fake buttons in the UI. Fake buttons are product potholes.
+
+5) Upgrade emoji reactions
+
+Create a proper emoji reaction picker.
+
+Requirements:
+- Include a full emoji set grouped by category:
+  - Smileys
+  - People
+  - Animals
+  - Food
+  - Activities
+  - Travel
+  - Objects
+  - Symbols
+  - Flags
+- Add search inside the emoji picker.
+- Add recently used emojis.
+- Clicking an emoji adds/removes the user’s reaction to the message.
+- Multiple users reacting with the same emoji should aggregate into one reaction with a count.
+- Hovering/clicking a reaction should show who reacted.
+- Reaction updates should be immediate in the UI.
+- Reactions must persist after refresh.
+
+Emoji reactions must work in:
+- Channels
+- Direct messages
+- Group DMs
+- Thread replies
+
+6) Custom emoji support
+
+Add workspace custom emojis.
+
+Users/admins should be able to upload their own emoji image.
+
+Supported custom emoji formats:
+- PNG
+- JPG/JPEG
+- WEBP
+- GIF
+
+GIF custom emojis must animate where supported.
+
+Custom emoji requirements:
+- Add name/shortcode support, for example:
+  - :voltsafe:
+  - :fireboat:
+  - :wins:
+- Validate shortcode:
+  - Lowercase letters
+  - Numbers
+  - Underscores
+  - Hyphens
+  - No spaces
+  - Must be unique
+- Store uploader.
+- Store created date.
+- Store shortcode.
+- Store file URL/path.
+- Store MIME type.
+- Store dimensions if available.
+- Support delete/disable if the current user has permission.
+- Custom emojis must appear inside the emoji picker under a “Custom” section.
+- Custom emojis must be usable as message reactions.
+
+Permission rule:
+- Any authenticated user can react with built-in emojis.
+- Any authenticated user can use custom emojis.
+- Custom emoji upload/delete should use the app’s existing role/permission system.
+- If role permissions already exist, restrict upload/delete to admin/workspace owner.
+- If no role system exists, allow upload for now but add a central TODO permission helper.
+
+7) GIF support
+
+Add GIF support in Currents.
+
+Required:
+- Users can upload a GIF as a custom emoji.
+- GIF custom emojis render and animate.
+- Users can attach/send GIFs in messages if the existing attachment system supports message media.
+- If there is no external GIF provider configured, do not add a hard dependency on Giphy/Tenor yet.
+
+Build the internal foundation first:
+- GIF upload
+- GIF preview
+- GIF display in messages/reactions
+- Size/type validation
+- Clean provider abstraction so Giphy/Tenor can be plugged in later without rewriting the UI
+
+8) File/media safety
+
+Implement sensible upload validation.
+
+Custom emoji upload:
+- Max file size: 2 MB
+- Allowed formats:
+  - PNG
+  - JPG/JPEG
+  - WEBP
+  - GIF
+- Reject SVG unless there is already a sanitizer.
+- Sanitize filenames.
+- Store files using the app’s existing upload/storage pattern.
+- Never allow executable content.
+
+GIF/message attachment:
+- Use existing app upload limit if one exists.
+- If no limit exists, set max GIF message attachment size to 10 MB.
+- Validate MIME type.
+- Validate extension.
+- Prevent unsafe file execution.
+
+Do not expose private files publicly unless the existing app asset storage intentionally works that way.
+
+9) Backend/API
+
+Add or fix endpoints as needed, following the app’s existing API style, auth middleware, CSRF protection, and error handling.
+
+Likely needed endpoints:
+- POST reaction
+- DELETE reaction
+- POST pin
+- DELETE pin
+- GET pinned messages
+- PATCH/PUT edit message
+- POST custom emoji upload
+- GET custom emojis
+- DELETE or disable custom emoji
+
+All API failures should return clean JSON errors. No frontend crash should result from a normal API error.
+
+10) Database/storage
+
+Add migrations as needed. Use the project’s actual schema conventions. Do not blindly duplicate existing tables if equivalents already exist.
+
+Suggested tables if missing:
+
+currents_message_reactions:
+- id
+- message_id
+- user_id
+- emoji_type: built_in/custom
+- emoji_value or custom_emoji_id
+- created_at
+- unique(message_id, user_id, emoji_value/custom_emoji_id)
+
+currents_pinned_messages:
+- id
+- message_id
+- conversation_id/channel_id/dm_id
+- pinned_by_user_id
+- created_at
+- unique(message_id)
+
+currents_custom_emojis:
+- id
+- shortcode
+- file_url/path
+- mime_type
+- uploaded_by_user_id
+- is_active
+- created_at
+- updated_at
+
+Message edit support if missing:
+- edited_at
+- edited_by_user_id
+- original/previous content storage only if the app already supports audit history
+- Do not add heavy audit history unless the current architecture expects it
+
+11) Frontend UX
+
+Message hover toolbar:
+- Must be clickable.
+- Must not be blocked by overlay, drag area, z-index, pointer-events, or row hover bugs.
+- Buttons need accessible labels.
+- Buttons need tooltips.
+- Buttons should not shift around aggressively while hovering.
+
+Emoji picker:
+- Opens near the reaction button.
+- Stays inside viewport.
+- Has category tabs/sections.
+- Has search.
+- Has recent emojis.
+- Has custom emoji section.
+- Clicking outside closes picker.
+- Escape key closes picker.
+- Upload custom emoji flow should be simple:
+  - Open emoji picker
+  - Custom tab
+  - Upload button
+  - Choose file
+  - Enter shortcode
+  - Save
+
+Edit UI:
+- Clean inline editor or existing composer-style editor.
+- Save and Cancel are obvious.
+- Enter/Shift+Enter behavior should match existing message composer conventions.
+- Failed save should show toast/error and keep the draft text.
+
+Pinned UI:
+- Clear pinned indicator.
+- Easy unpin.
+- Pinned list should not clutter the main message view.
+
+Keep styling consistent with VoltSafe Growth OS.
+
+12) Tests
+
+Add automated tests covering:
+
+Reply:
+- Reply button opens correct thread/reply UI.
+- Reply sends and persists.
+- Reply works in channels.
+- Reply works in DMs/group DMs.
+
+Pin:
+- Pin button pins message.
+- Pin button unpins message.
+- Pinned state survives refresh/re-fetch.
+- Pinned list/indicator renders correctly.
+
+Edit:
+- Edit button opens editor.
+- Save edit works.
+- Cancel edit works.
+- Editing a thread reply works.
+- Invalid/stale message edit returns graceful error.
+- No React error boundary appears during edit flow.
+
+Reactions:
+- Built-in emoji reaction add/remove.
+- Multiple reactions aggregate count.
+- Reaction user list works.
+- Reaction persists after refresh.
+
+Custom emojis:
+- Custom emoji upload validates shortcode.
+- Custom emoji rejects invalid file type.
+- Custom emoji rejects oversized file.
+- Custom emoji appears in picker.
+- Custom emoji can be used as reaction.
+- GIF custom emoji renders.
+
+Dead-action audit:
+- All visible toolbar buttons have working handlers.
+- No visible hover action is inert.
+
+13) Manual QA checklist
+
+After implementation, run and report:
+
+Automated:
+- Full relevant Currents test suite.
+- App build.
+- Typecheck/lint if available.
+- Any affected API tests.
+- Any affected database migration tests.
+
+Browser:
+- Open Currents.
+- Test in #general.
+- Test in one normal channel.
+- Test in one direct message.
+- Test in one group DM.
+- Test a thread reply if thread UI exists.
+- Confirm browser console has zero errors.
+
+Server:
+- Check server logs during:
+  - Reply
+  - Pin
+  - Unpin
+  - Edit
+  - Save edit
+  - Cancel edit
+  - Emoji reaction
+  - Custom emoji upload
+  - GIF upload/render
+- Confirm zero server errors.
+
+14) Acceptance criteria
+
+This is done only when all are true:
+
+- Reply button works.
+- Pin button works.
+- Edit comment/message no longer crashes Currents.
+- Edit, save, and cancel work correctly across channels, DMs, group DMs, and thread replies.
+- No dead hover toolbar buttons remain.
+- Built-in emoji picker is expanded, categorized, and searchable.
+- Recently used emojis work.
+- Reaction add/remove works.
+- Reaction counts aggregate correctly.
+- Custom emojis can be uploaded and used.
+- GIF custom emojis work.
+- Changes persist after refresh.
+- Upload validation prevents unsafe files.
+- Permission rules are respected.
+- No browser console errors.
+- No server errors.
+- No regressions outside Currents.
+
+Important implementation guidance:
+Do this surgically. Reuse the existing Currents architecture, auth, storage, API style, database conventions, and design system. Do not create a parallel mini-Slack if partial Currents support already exists. Fix the broken wiring first, fix the edit crash second, then add the emoji/GIF layer cleanly.
+
+Priority order:
+1. Reproduce and fix the Edit crash.
+2. Fix Reply.
+3. Fix Pin.
+4. Audit/hide all dead toolbar buttons.
+5. Add improved built-in emoji picker.
+6. Add custom emoji upload.
+7. Add GIF support.
+8. Add tests and QA report.
+
+Final report required:
+When complete, provide:
+- Files changed.
+- Root cause of Edit crash.
+- Root cause of Reply/Pin not working.
+- Migrations added, if any.
+- APIs added/changed.
+- Tests added.
+- Test results.
+- Manual QA results.
+- Any known limitations or TODOs.

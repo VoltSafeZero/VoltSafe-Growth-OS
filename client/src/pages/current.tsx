@@ -289,7 +289,26 @@ interface SearchResponse {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const PRESET_REACTIONS = ["👍", "❤️", "🔥", "✅", "😂", "👀"];
+const EMOJI_DATA: { id: string; label: string; icon: string; emojis: string[] }[] = [
+  { id: "smileys", label: "Smileys & Emotions", icon: "😀", emojis: ["😀","😃","😄","😁","😅","😂","🤣","😊","😇","🙂","😉","😌","😍","🥰","😘","😗","😙","😋","😛","😝","😜","🤪","🤨","🧐","🤓","😎","🤩","🥳","😏","😒","😔","😟","😕","🙁","😣","😫","😩","🥺","😢","😭","😤","😠","😡","🤬","🤯","😳","😱","😨","😰","😥","😓","🤗","🤔","🤫","🤥","😶","😐","😑","😬","🙄","😯","😮","😲","🥱","😴","🤤","😵","🤐","🥴","🤢","🤮","🤧","😷","🤒","🤕","🤑","🤠","😈","👿","💩","👻","💀","☠️","👽","🤖"] },
+  { id: "people", label: "People & Hands", icon: "👋", emojis: ["👋","🤚","🖐","✋","🖖","👌","🤌","✌️","🤞","🤟","🤘","🤙","👈","👉","👆","👇","☝️","👍","👎","✊","👊","🤛","🤜","👏","🙌","🫶","👐","🤲","🙏","✍️","💅","💪","🦵","🦶","👂","🦻","👃","👁","👀","👶","🧒","👦","👧","🧑","👱","👨","🧔","👩","🧓","👴","👵","👮","💂","🕵️","👷","🎅","🤶","🦸","🦹","🧙","🧝","🧛","🧟","🧞","🧜","🧚","👼","💃","🕺"] },
+  { id: "nature", label: "Animals & Nature", icon: "🌿", emojis: ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🐔","🐧","🐦","🦆","🦅","🦉","🦇","🐺","🐗","🐴","🦄","🐝","🐛","🦋","🐌","🐞","🐜","🦗","🦂","🐢","🐍","🦎","🐙","🦑","🦐","🦞","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🌸","🌹","🌺","🌻","🌼","🌷","🌱","🌲","🌳","🌴","🌵","🍀","🍁","🍂","🍃","🌊","🔥","⚡","❄️","🌈","⭐","🌙","☀️","⛅","🌧","⛈","🌩","🌨"] },
+  { id: "food", label: "Food & Drink", icon: "🍕", emojis: ["🍎","🍊","🍋","🍇","🍓","🍒","🍑","🥭","🍍","🥝","🍅","🫐","🥑","🍆","🥦","🥕","🌽","🌶","🥒","🧅","🥔","🥐","🍞","🥖","🧀","🥚","🍳","🥞","🧇","🥓","🥩","🍗","🍖","🌭","🍔","🍟","🍕","🌮","🌯","🥙","🍱","🍜","🍝","🍛","🍲","🍣","🍤","🦐","🦑","🍦","🍧","🍨","🍩","🍪","🎂","🍰","🧁","🍫","🍬","🍭","🍮","☕","🍵","🧃","🥤","🧋","🍺","🥂","🍷","🥃","🍸","🍹","🍾"] },
+  { id: "activity", label: "Activities", icon: "⚽", emojis: ["⚽","🏀","🏈","⚾","🎾","🏐","🏉","🎱","🏓","🏸","🥅","🏒","🏑","🥊","🥋","🎽","🛹","🛷","⛸","🎿","🎯","🎲","♟","🎮","🎰","🎭","🎨","🎬","🎤","🎧","🎼","🎹","🥁","🎷","🎺","🎸","🎵","🎶","🏆","🥇","🥈","🥉","🏅","🎖","🎁","🎀","🎊","🎉","🎈","✨","🎇","🎆","🎃","🎄","🎋","🎍","🎑","🎐"] },
+  { id: "travel", label: "Travel & Places", icon: "✈️", emojis: ["🚗","🚕","🚙","🚌","🚎","🏎","🚓","🚑","🚒","🚐","🚚","🚛","🚜","🛵","🏍","🚲","🛴","🚁","⛵","🚤","🛥","🚢","✈️","🛩","🚀","🛸","🏠","🏡","🏢","🏥","🏦","🏨","🏪","🏫","🏬","🏯","🏰","⛪","🕌","🕍","⛩","🏔","🌋","🏕","🏖","🏜","🏝","🌐","🗺","🧭","🌍","🌎","🌏","🗽","🗼","🏟","🏛","🌃","🌆","🌇","🌉","🌌","🌠"] },
+  { id: "objects", label: "Objects", icon: "💡", emojis: ["⌚","📱","💻","⌨️","🖥","🖨","🖱","💽","💾","💿","📺","📷","📸","📹","🎥","📞","☎️","📟","⏰","🕰","⌛","⏳","🔋","🔌","💡","🔦","🕯","🧲","💈","🧰","🔧","🔨","⚒","🛠","⛏","🔩","🔑","🗝","🔐","🔒","🔓","📝","✏️","🖊","📖","📚","📋","📌","📍","📎","📏","📐","✂️","📊","📈","📉","💰","💳","💎","👑","🏺","🎩","💄","💍","💼","🎒","👜","🧳","🛍","🛒"] },
+  { id: "symbols", label: "Symbols & Signs", icon: "❤️", emojis: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❣️","💕","💞","💓","💗","💖","💘","💝","💯","✅","❎","⚠️","🚫","🔴","🟠","🟡","🟢","🔵","🟣","⚫","⚪","♻️","🔔","🔕","💬","💭","🗯","❗","❕","❓","❔","‼️","⁉️","➕","➖","✖️","➗","🔁","🔀","🔃","🔄","▶️","⏸","⏹","⏺","🔝","🆗","🆙","🆒","🆕","🆓","💤","📵","🚳","🚭","🚯"] },
+];
+
+const EMOJI_KEYWORDS: Record<string, string> = {
+  "😀":"happy smile grin","😂":"laugh cry funny lol","😊":"smile happy","😍":"love heart eyes","😎":"cool sunglasses awesome","😭":"cry sad sob","😡":"angry mad furious","🤔":"thinking hmm","😴":"sleep tired","🤯":"mind blown shock","🤮":"sick vomit","😷":"mask sick ill","😈":"devil evil","💩":"poop",
+  "👍":"thumbs up good yes like","👎":"thumbs down no dislike","❤️":"heart love","🔥":"fire hot flame","✅":"check done yes correct","👀":"eyes look see watching","🎉":"party celebrate","🚀":"rocket launch fast","💯":"100 perfect","🙏":"pray thanks please","💪":"strong muscle","👏":"clap applause",
+  "🙌":"raise hands celebrate","🫶":"heart hands love","✌️":"peace victory two","🤞":"fingers crossed luck","🤙":"call me hangloose","👋":"wave hello hi bye",
+  "🎊":"confetti celebrate party","🎈":"balloon party","🏆":"trophy win champion first","⭐":"star","💡":"idea light bulb","💎":"diamond gem jewel","💰":"money cash","🔑":"key","🎯":"target bullseye aim","📈":"chart up growth","📉":"chart down",
+  "⚡":"lightning fast energy bolt","🌊":"wave water ocean","🌈":"rainbow","❄️":"snow cold winter ice","🌹":"rose flower","🌺":"flower bloom","🍀":"lucky clover","🦄":"unicorn magic",
+  "🐶":"dog puppy","🐱":"cat kitten","🎮":"game controller","🍕":"pizza food","🍺":"beer drink","☕":"coffee hot drink","🥂":"cheers toast celebrate","🏠":"home house","🌍":"earth world globe",
+  "🎤":"mic microphone sing","🎸":"guitar music","🎵":"music note","🎶":"music notes","🏅":"medal award","🎁":"gift present","🧠":"brain think","🔮":"crystal ball magic","🗺":"map travel","🧭":"compass navigate",
+};
 
 const AVATAR_PALETTE = [
   "bg-teal-600",
@@ -685,24 +704,53 @@ function EmojiPickerPopover({
   const handleEmoji = onReact ?? onSelect ?? (() => {});
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState("smileys");
+  const [showUpload, setShowUpload] = useState(false);
+  const [uploadName, setUploadName] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+
+  const [recentEmojis, setRecentEmojis] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("vc_recent_emoji") ?? "[]"); }
+    catch { return []; }
+  });
+
+  const { data: customEmojis = [] } = useQuery<{ id: number; name: string; slug: string; imageUrl: string }[]>({
+    queryKey: ["/api/current/custom-emojis"],
+    staleTime: 60_000,
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async ({ name, file }: { name: string; file: File }) => {
+      const fd = new FormData();
+      fd.append("name", name);
+      fd.append("file", file);
+      const r = await fetch("/api/current/custom-emojis", { method: "POST", body: fd, credentials: "include" });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Upload failed"); }
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/custom-emojis"] });
+      setShowUpload(false);
+      setUploadName("");
+      setUploadFile(null);
+    },
+  });
 
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
       if (
-        pickerRef.current &&
-        !pickerRef.current.contains(e.target as Node) &&
-        triggerRef.current &&
-        !triggerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
+        pickerRef.current && !pickerRef.current.contains(e.target as Node) &&
+        triggerRef.current && !triggerRef.current.contains(e.target as Node)
+      ) { setOpen(false); }
     }
-    function onScroll() {
-      setOpen(false);
-    }
+    function onScroll() { setOpen(false); }
     document.addEventListener("mousedown", onDown);
     document.addEventListener("scroll", onScroll, true);
     return () => {
@@ -711,16 +759,46 @@ function EmojiPickerPopover({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (open) { setSearch(""); setShowUpload(false); setTimeout(() => searchRef.current?.focus(), 40); }
+  }, [open]);
+
   function handleToggle() {
     if (!open && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      setCoords({
-        top: rect.bottom + 4,
-        left: Math.max(4, rect.right - 166),
-      });
+      const W = 280, H = 360;
+      const left = Math.max(4, Math.min(rect.right - W, window.innerWidth - W - 4));
+      const top = rect.bottom + 4 + H > window.innerHeight ? rect.top - H - 4 : rect.bottom + 4;
+      setCoords({ top, left });
     }
     setOpen((v) => !v);
   }
+
+  function selectEmoji(emoji: string) {
+    const next = [emoji, ...recentEmojis.filter((e) => e !== emoji)].slice(0, 18);
+    setRecentEmojis(next);
+    try { localStorage.setItem("vc_recent_emoji", JSON.stringify(next)); } catch {}
+    handleEmoji(emoji);
+    setOpen(false);
+  }
+
+  const allCategories = [
+    ...(recentEmojis.length > 0 ? [{ id: "recent", label: "Recently Used", icon: "🕐", emojis: recentEmojis }] : []),
+    ...EMOJI_DATA,
+    ...(customEmojis.length > 0 ? [{ id: "custom", label: "Custom", icon: "✨", emojis: customEmojis.map((c) => `:${c.slug}:`) }] : []),
+  ];
+  const activeCat = allCategories.find((c) => c.id === activeCategory) ?? allCategories[0];
+
+  const searchTrimmed = search.trim().toLowerCase();
+  const searchedEmojis: string[] | null = searchTrimmed
+    ? EMOJI_DATA.flatMap((c) => c.emojis).filter((emoji) => {
+        const kw = (EMOJI_KEYWORDS[emoji] ?? "").toLowerCase();
+        const catLabel = (EMOJI_DATA.find((c) => c.emojis.includes(emoji))?.label ?? "").toLowerCase();
+        return kw.includes(searchTrimmed) || catLabel.includes(searchTrimmed) || emoji === searchTrimmed;
+      })
+    : null;
+
+  const displayEmojis = searchedEmojis ?? activeCat?.emojis ?? [];
 
   return (
     <>
@@ -732,28 +810,157 @@ function EmojiPickerPopover({
       >
         😊
       </button>
-      {open &&
-        createPortal(
-          <div
-            ref={pickerRef}
-            style={{ position: "fixed", top: coords.top, left: coords.left, zIndex: 9999 }}
-            className="flex gap-0.5 p-1 bg-popover border border-border/70 rounded-lg shadow-lg"
-          >
-            {PRESET_REACTIONS.map((emoji) => (
+      {open && createPortal(
+        <div
+          ref={pickerRef}
+          style={{ position: "fixed", top: coords.top, left: coords.left, zIndex: 9999, width: 280 }}
+          className="bg-popover border border-border/70 rounded-xl shadow-xl overflow-hidden flex flex-col"
+        >
+          {/* Search bar */}
+          <div className="px-2 pt-2 pb-1 shrink-0">
+            <div className="flex items-center gap-1.5 bg-muted/40 rounded-lg px-2 py-1.5">
+              <Search className="w-3 h-3 text-muted-foreground/50 shrink-0" />
+              <input
+                ref={searchRef}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search emojis…"
+                className="flex-1 bg-transparent text-[12px] outline-none text-foreground placeholder:text-muted-foreground/40 min-w-0"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="text-muted-foreground/40 hover:text-muted-foreground transition-colors leading-none">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Category tabs */}
+          {!searchTrimmed && (
+            <div className="flex items-center gap-0.5 px-2 pb-0.5 overflow-x-auto shrink-0" style={{ scrollbarWidth: "none" }}>
+              {allCategories.map((cat) => (
+                <button
+                  key={cat.id}
+                  title={cat.label}
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={cn(
+                    "w-7 h-7 flex items-center justify-center rounded-md text-[14px] shrink-0 transition-colors",
+                    activeCategory === cat.id
+                      ? "bg-primary/15 text-primary"
+                      : "hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {cat.icon}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Section label */}
+          <div className="px-2.5 py-0.5 shrink-0">
+            <span className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">
+              {searchTrimmed ? `Results for "${search}"` : (activeCat?.label ?? "")}
+            </span>
+          </div>
+
+          {/* Emoji grid */}
+          <div className="px-1.5 pb-1.5 overflow-y-auto flex-1" style={{ maxHeight: 220 }}>
+            {displayEmojis.length === 0 ? (
+              <div className="py-6 text-center text-[12px] text-muted-foreground/50">No emojis found</div>
+            ) : (
+              <div className="grid grid-cols-8 gap-0.5">
+                {displayEmojis.map((emoji) => {
+                  if (emoji.startsWith(":") && emoji.endsWith(":")) {
+                    const slug = emoji.slice(1, -1);
+                    const custom = customEmojis.find((c) => c.slug === slug);
+                    return custom ? (
+                      <button
+                        key={emoji}
+                        title={`:${slug}:`}
+                        onClick={() => selectEmoji(emoji)}
+                        className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-muted/60 transition-colors overflow-hidden"
+                      >
+                        <img src={custom.imageUrl} alt={slug} className="w-5 h-5 object-contain" />
+                      </button>
+                    ) : null;
+                  }
+                  return (
+                    <button
+                      key={emoji}
+                      title={emoji}
+                      onClick={() => selectEmoji(emoji)}
+                      className="w-8 h-8 flex items-center justify-center text-[16px] rounded-md hover:bg-muted/60 transition-colors leading-none"
+                    >
+                      {emoji}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Custom emoji: upload row */}
+          {!searchTrimmed && activeCategory === "custom" && (
+            <div className="border-t border-border/30 px-2.5 py-1.5 shrink-0">
+              {!showUpload ? (
+                <button
+                  onClick={() => setShowUpload(true)}
+                  className="text-[11px] text-primary/70 hover:text-primary transition-colors flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  Upload custom emoji
+                </button>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <input
+                    value={uploadName}
+                    onChange={(e) => setUploadName(e.target.value)}
+                    placeholder="Name (e.g. voltbolt)"
+                    className="w-full bg-muted/40 rounded-md px-2 py-1 text-[11px] outline-none focus:ring-1 ring-primary/40"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex-1 bg-muted/40 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/60 transition-colors text-left truncate"
+                    >
+                      {uploadFile ? uploadFile.name : "Choose image…"}
+                    </button>
+                    <button
+                      disabled={!uploadName.trim() || !uploadFile || uploadMutation.isPending}
+                      onClick={() => { if (uploadName.trim() && uploadFile) uploadMutation.mutate({ name: uploadName.trim(), file: uploadFile }); }}
+                      className="text-[11px] bg-primary/80 hover:bg-primary text-white rounded-md px-2 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {uploadMutation.isPending ? "…" : "Upload"}
+                    </button>
+                    <button onClick={() => setShowUpload(false)} className="text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <input ref={fileInputRef} type="file" accept="image/png,image/gif,image/webp,image/jpeg" className="hidden"
+                    onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} />
+                  {uploadMutation.isError && (
+                    <span className="text-[10px] text-destructive">{(uploadMutation.error as Error)?.message}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quick-access custom tab trigger when not on custom */}
+          {!searchTrimmed && activeCategory !== "custom" && customEmojis.length === 0 && (
+            <div className="border-t border-border/20 px-2.5 py-1 shrink-0">
               <button
-                key={emoji}
-                onClick={() => {
-                  handleEmoji(emoji);
-                  setOpen(false);
-                }}
-                className="w-7 h-7 flex items-center justify-center text-[15px] rounded-md hover:bg-muted/60 transition-colors"
+                onClick={() => { setActiveCategory("custom"); }}
+                className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors flex items-center gap-1"
               >
-                {emoji}
+                <Plus className="w-3 h-3" />
+                Add custom emojis
               </button>
-            ))}
-          </div>,
-          document.body
-        )}
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
     </>
   );
 }
@@ -1452,6 +1659,7 @@ function ThreadPanel({
   isAdmin,
   isArchived,
   selectedSlug,
+  conversationId,
   onClose,
   onCreateTaskMsg,
   onCreateSummaryTask,
@@ -1461,6 +1669,7 @@ function ThreadPanel({
   isAdmin: boolean;
   isArchived?: boolean;
   selectedSlug: string;
+  conversationId?: number;
   onClose: () => void;
   onCreateTaskMsg?: (msg: Message, threadRootId?: number) => void;
   onCreateSummaryTask?: (item: { task: string; owner: string; due: string | null }) => void;
@@ -1526,10 +1735,14 @@ function ThreadPanel({
     queryClient.invalidateQueries({ queryKey: threadQueryKey });
 
   const invalidateFeed = () => {
-    queryClient.invalidateQueries({
-      queryKey: ["/api/current/channels", selectedSlug, "messages"],
-    });
-    queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
+    if (conversationId) {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms", conversationId, "messages"] });
+    } else {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/current/channels", selectedSlug, "messages"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels"] });
+    }
   };
 
   // Esc to close — uses ref so the effect never re-registers on every render
@@ -4619,6 +4832,22 @@ export default function CurrentPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] }),
   });
 
+  const dmPinMutation = useMutation({
+    mutationFn: (messageId: number) =>
+      apiRequest("POST", `/api/current/messages/${messageId}/pin`),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] }),
+    onError: () => toast({ title: "Could not pin message", variant: "destructive" }),
+  });
+
+  const dmUnpinMutation = useMutation({
+    mutationFn: (messageId: number) =>
+      apiRequest("DELETE", `/api/current/messages/${messageId}/pin`),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["/api/current/dms", selectedDmId, "messages"] }),
+    onError: () => toast({ title: "Could not unpin message", variant: "destructive" }),
+  });
+
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   async function handleSend() {
@@ -5700,7 +5929,8 @@ export default function CurrentPage() {
                     >
                       <MessageRow
                         key={msg.id}
-                        message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: [] }}
+                        message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: msg.structuredItems ?? [] }}
+                        currentUserId={currentUserId}
                         isArchived={false}
                         grouped={false}
                         isAdmin={isAdmin}
@@ -5708,8 +5938,8 @@ export default function CurrentPage() {
                         onToggleReaction={(mid, emoji) => dmReactMutation.mutate({ messageId: mid, emoji })}
                         onEdit={() => setEditingDmMessage(msg)}
                         onDelete={() => dmDeleteMutation.mutate(msg.id)}
-                        onPin={() => {}}
-                        onOpenThread={() => {}}
+                        onPin={() => dmPinMutation.mutate(msg.id)}
+                        onOpenThread={() => setThreadRootId(msg.id)}
                         onMarkStructured={() => {}}
                         onUnmarkStructured={() => {}}
                       />
@@ -5729,10 +5959,9 @@ export default function CurrentPage() {
                     return (
                       <InlineEditRow
                         key={msg.id}
-                        initialValue={msg.body ?? ""}
+                        message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: msg.structuredItems ?? [] }}
                         onSave={(body) => dmEditMutation.mutate({ id: msg.id, body })}
                         onCancel={() => setEditingDmMessage(null)}
-                        isPending={dmEditMutation.isPending}
                       />
                     );
                   }
@@ -5749,17 +5978,17 @@ export default function CurrentPage() {
                       )}
                     <MessageRow
                       key={msg.id}
-                      message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: [] }}
+                      message={{ ...msg, channelId: 0, replyCount: 0, latestReplyAt: null, structuredItems: msg.structuredItems ?? [] }}
                       currentUserId={currentUserId}
                       grouped={isConsecutive}
-                      isAdmin={false}
+                      isAdmin={isAdmin}
                       isArchived={false}
                       pinnedMessageIds={new Set()}
                       onToggleReaction={(mid, emoji) => dmReactMutation.mutate({ messageId: mid, emoji })}
                       onEdit={() => setEditingDmMessage(msg)}
                       onDelete={() => dmDeleteMutation.mutate(msg.id)}
-                      onPin={() => {}}
-                      onOpenThread={() => {}}
+                      onPin={() => dmPinMutation.mutate(msg.id)}
+                      onOpenThread={() => setThreadRootId(msg.id)}
                       onMarkStructured={() => {}}
                       onUnmarkStructured={() => {}}
                     />
@@ -6060,7 +6289,7 @@ export default function CurrentPage() {
                         onToggleReaction={(mid, emoji) => reactMutation.mutate({ messageId: mid, emoji })}
                         onEdit={() => setEditingMessage(msg)}
                         onDelete={() => deleteMutation.mutate(msg.id)}
-                        onPin={() => pinMutation.mutate({ slug: selectedSlug, messageId: msg.id })}
+                        onPin={() => pinMutation.mutate(msg.id)}
                         onOpenThread={() => setThreadRootId(msg.id)}
                         onMarkStructured={() => {}}
                         onUnmarkStructured={() => {}}
@@ -6640,6 +6869,7 @@ export default function CurrentPage() {
           isAdmin={isAdmin}
           isArchived={isArchivedChannel}
           selectedSlug={selectedSlug}
+          conversationId={view === "dm" ? selectedDmId ?? undefined : undefined}
           onClose={() => setThreadRootId(null)}
           onCreateTaskMsg={handleCreateTaskFromMsg}
           onCreateSummaryTask={(item) => setCreateTaskSource({ kind: "summary_action_item", task: item.task, owner: item.owner, due: item.due, summaryContext: `Thread in #${selectedSlug}`, channelSlug: selectedSlug, threadRootId: threadRootId ?? undefined })}
