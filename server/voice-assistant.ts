@@ -14,6 +14,12 @@ import {
   type SafeExecContext,
   type AssistantSource,
 } from "./voice-assistant-safety";
+import {
+  resolveCalendarVisibility,
+  loadConnectionVisibilityMap,
+  accountInfoForEvent,
+  type RequestingUser,
+} from "./services/calendar-visibility";
 
 const audioBodyParser = express.json({ limit: "50mb" });
 
@@ -198,16 +204,39 @@ async function searchTasks(terms: string[]): Promise<string> {
   }).join("\n");
 }
 
-async function searchCalendarEvents(terms: string[]): Promise<string> {
+async function searchCalendarEvents(terms: string[], requestingUser: RequestingUser): Promise<string> {
   const where = buildSearchConditions(terms, ["title", "description", "location", "event_type"]);
   if (!where) return "";
   const results = await db.execute(sql`
-    SELECT title, description, event_type, start_time, end_time, 
+    SELECT id, user_id, connection_id, title, description, event_type, start_time, end_time,
            location, all_day, status
     FROM calendar_events WHERE ${where} LIMIT 10
   `);
   if (results.rows.length === 0) return "";
-  return "CALENDAR EVENTS:\n" + results.rows.map((r: any) => {
+
+  const rows = results.rows as any[];
+  const connectionIds = Array.from(
+    new Set(rows.map((r) => (r.connection_id != null ? Number(r.connection_id) : null)).filter((id): id is number => id != null))
+  );
+  const connectionMap = await loadConnectionVisibilityMap(connectionIds);
+
+  const lines = rows.map((r: any) => {
+    const ownerUserId = Number(r.user_id);
+    const accountInfo = accountInfoForEvent(
+      r.connection_id != null ? Number(r.connection_id) : null,
+      ownerUserId,
+      connectionMap
+    );
+    const visibility = resolveCalendarVisibility(requestingUser, accountInfo, ownerUserId);
+
+    if (!visibility.canViewDetails) {
+      if (!visibility.canViewBusyOnly) return null; // no_permission — omit entirely, don't enumerate
+      const parts = [`Event: Busy`];
+      if (r.start_time) parts.push(`Start: ${new Date(r.start_time).toLocaleString()}`);
+      if (r.end_time) parts.push(`End: ${new Date(r.end_time).toLocaleString()}`);
+      return parts.join(" | ");
+    }
+
     const parts = [`Event: ${r.title}`];
     if (r.event_type) parts.push(`Type: ${r.event_type}`);
     if (r.start_time) parts.push(`Start: ${new Date(r.start_time).toLocaleString()}`);
@@ -215,7 +244,10 @@ async function searchCalendarEvents(terms: string[]): Promise<string> {
     if (r.location) parts.push(`Location: ${r.location}`);
     if (r.status) parts.push(`Status: ${r.status}`);
     return parts.join(" | ");
-  }).join("\n");
+  }).filter((line): line is string => line != null);
+
+  if (lines.length === 0) return "";
+  return "CALENDAR EVENTS:\n" + lines.join("\n");
 }
 
 async function searchEcosystem(terms: string[]): Promise<string> {
@@ -843,7 +875,7 @@ function detectIntent(query: string): {
   return { searchTerms, needsWeb, queryCategories: categories, webQuery };
 }
 
-async function gatherContext(query: string): Promise<string> {
+async function gatherContext(query: string, requestingUser: RequestingUser): Promise<string> {
   const { searchTerms, needsWeb, queryCategories, webQuery } = detectIntent(query);
 
   if (searchTerms.length === 0 && !needsWeb) return "";
@@ -866,7 +898,7 @@ async function gatherContext(query: string): Promise<string> {
     promises.push(searchTasks(searchTerms).catch(() => ""));
   }
   if (queryCategories.includes("calendar")) {
-    promises.push(searchCalendarEvents(searchTerms).catch(() => ""));
+    promises.push(searchCalendarEvents(searchTerms, requestingUser).catch(() => ""));
   }
   if (queryCategories.includes("partnerships")) {
     promises.push(searchPartnerships(searchTerms).catch(() => ""));
@@ -1028,7 +1060,12 @@ export function registerVoiceAssistantRoutes(app: Express): void {
         userMessage: userTranscript,
       };
 
-      const contextData = await gatherContext(userTranscript);
+      const requestingUserRow = await db.execute(sql`SELECT global_role FROM users WHERE id = ${userId}`);
+      const requestingUser: RequestingUser = {
+        id: Number(userId),
+        globalRole: (requestingUserRow.rows[0] as any)?.global_role ?? null,
+      };
+      const contextData = await gatherContext(userTranscript, requestingUser);
       const crmStats = await getCRMStats();
 
       const existingMessages = await chatStorage.getMessagesByConversation(conversationId);
@@ -1193,7 +1230,12 @@ export function registerVoiceAssistantRoutes(app: Express): void {
         userMessage: message,
       };
 
-      const contextData = await gatherContext(message);
+      const requestingUserRow = await db.execute(sql`SELECT global_role FROM users WHERE id = ${userId}`);
+      const requestingUser: RequestingUser = {
+        id: Number(userId),
+        globalRole: (requestingUserRow.rows[0] as any)?.global_role ?? null,
+      };
+      const contextData = await gatherContext(message, requestingUser);
       const crmStats = await getCRMStats();
 
       const existingMessages = await chatStorage.getMessagesByConversation(conversationId);

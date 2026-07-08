@@ -147,6 +147,14 @@ import {
   getCalendarClient,
 } from "./calendar-sync";
 import {
+  resolveCalendarVisibility,
+  sanitizeEventForBusyOnly,
+  loadConnectionVisibilityMap,
+  loadEventConnectionIds,
+  accountInfoForEvent,
+  classifyCalendarConnection,
+} from "./services/calendar-visibility";
+import {
   lookupZoomConnection, disconnectZoom, toPublicZoomConnection, isZoomConfigured,
   buildZoomAuthorizationUrl, exchangeZoomCodeForTokens, fetchZoomUserProfile, upsertZoomConnection,
 } from "./services/zoom-service";
@@ -1303,7 +1311,8 @@ export async function registerRoutes(
       try {
         const id = Number(req.params.accountId);
         if (!id || isNaN(id)) return res.status(400).json({ message: "Invalid account ID" });
-        res.json(await getAccountActivityTimeline(id));
+        const viewerId = Number((req.session as any)?.userId);
+        res.json(await getAccountActivityTimeline(id, viewerId));
       } catch (err: any) { res.status(500).json({ message: err.message }); }
     });
 
@@ -9261,7 +9270,23 @@ export async function registerRoutes(
         ))
         .orderBy(asc(calendarEvents.startTime));
 
-      res.json(events);
+      // Calendar Privacy Visibility Policy — sanitize private/external calendar
+      // events to busy/free only. This runs on top of the calendar_team
+      // permission filter above; admin bypass is NOT allowed to override
+      // private-calendar privacy. connection_id is a raw-SQL additive column
+      // (not in the Drizzle schema), so it must be loaded separately.
+      const eventConnIds = await loadEventConnectionIds(events.map((e: any) => e.id));
+      const connIds = Array.from(new Set(Array.from(eventConnIds.values()).filter((id): id is number => id != null)));
+      const connMap = await loadConnectionVisibilityMap(connIds);
+      const requestingUser = { id: userId, globalRole: requester.globalRole };
+      const sanitized = events.map((ev: any) => {
+        const connectionId = eventConnIds.get(ev.id) ?? null;
+        const accountInfo = accountInfoForEvent(connectionId, ev.userId, connMap);
+        const visibility = resolveCalendarVisibility(requestingUser, accountInfo, ev.userId);
+        return visibility.canViewDetails ? ev : sanitizeEventForBusyOnly(ev);
+      });
+
+      res.json(sanitized);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -9269,8 +9294,30 @@ export async function registerRoutes(
 
   app.get("/api/calendar/events/:id", requireAuth, async (req, res) => {
     const event = await storage.getCalendarEvent(Number(req.params.id));
-    if (!event || event.userId !== req.session.userId) return res.status(404).json({ message: "Event not found" });
-    res.json(event);
+    if (!event) return res.status(404).json({ message: "Event not found" });
+    const userId = req.session.userId!;
+    if (event.userId === userId) return res.json(event);
+
+    const [requester] = await db.select({ globalRole: users.globalRole, permissions: users.permissions })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    if (!requester) return res.status(401).json({ message: "Not authenticated" });
+
+    const adminRoles = ["master_admin", "admin"];
+    const perms = (requester.permissions as Record<string, unknown>) || {};
+    const calendarTeam: number[] = Array.isArray(perms.calendar_team) ? (perms.calendar_team as number[]) : [];
+    const hasExplicitPermission = adminRoles.includes(requester.globalRole ?? "") || calendarTeam.includes(event.userId);
+
+    const eventConnIds = await loadEventConnectionIds([event.id]);
+    const connectionId = eventConnIds.get(event.id) ?? null;
+    const connMap = connectionId != null ? await loadConnectionVisibilityMap([connectionId]) : new Map();
+    const accountInfo = accountInfoForEvent(connectionId, event.userId, connMap);
+    const visibility = resolveCalendarVisibility({ id: userId, globalRole: requester.globalRole }, accountInfo, event.userId);
+
+    if (visibility.reason === "explicit_permission" && !hasExplicitPermission) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    if (visibility.canViewDetails) return res.json(event);
+    return res.json(sanitizeEventForBusyOnly(event));
   });
   app.post("/api/calendar/events", requireAuth, async (req, res) => {
     const body = { ...req.body, userId: req.session.userId };
@@ -10227,11 +10274,53 @@ export async function registerRoutes(
         syncEnabled: calendarConnections.syncEnabled, syncDirection: calendarConnections.syncDirection,
         lastSyncedAt: calendarConnections.lastSyncedAt, syncError: calendarConnections.syncError,
       }).from(calendarConnections);
+
+      // visibility_type is a raw-SQL additive column (mirrors mailbox model);
+      // surfaced here for admin visibility management, never used to bypass
+      // private-calendar privacy anywhere else in the app.
+      const vtRows = allConnections.length
+        ? await db.execute(sql.raw(
+            `SELECT id, COALESCE(visibility_type, 'private_personal') AS vt FROM calendar_connections WHERE id IN (${allConnections.map(c => c.id).join(",")})`
+          ))
+        : { rows: [] as any[] };
+      const vtMap = new Map<number, string>((vtRows as any).rows.map((r: any) => [Number(r.id), r.vt]));
+
       const result = allUsers.map(u => ({
         ...u,
-        connections: allConnections.filter(c => c.userId === u.id),
+        connections: allConnections
+          .filter(c => c.userId === u.id)
+          .map(c => ({ ...c, visibilityType: vtMap.get(c.id) ?? "private_personal" })),
       }));
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/calendar/connections/:id/visibility — admin sets a calendar
+  // connection's visibility_type (private_personal / company_managed /
+  // team_shared / external_calendar). This changes classification only; it
+  // does NOT grant any admin an override of private-calendar privacy — a
+  // private_personal or external_calendar connection remains busy-only to
+  // everyone but its owner no matter who is signed in.
+  app.patch("/api/calendar/connections/:id/visibility", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      const [me] = await db.select({ globalRole: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
+      if (!me || (me.globalRole !== "master_admin" && me.globalRole !== "admin")) {
+        return res.status(403).json({ message: "Admin only" });
+      }
+      const connId = Number(req.params.id);
+      if (!Number.isFinite(connId)) return res.status(400).json({ message: "Invalid connection id" });
+      const VALID_TYPES = ["private_personal", "company_managed", "team_shared", "external_calendar"];
+      const { visibilityType } = req.body;
+      if (!VALID_TYPES.includes(visibilityType)) {
+        return res.status(400).json({ message: "visibilityType must be one of: " + VALID_TYPES.join(", ") });
+      }
+      const [conn] = await db.select({ id: calendarConnections.id }).from(calendarConnections).where(eq(calendarConnections.id, connId)).limit(1);
+      if (!conn) return res.status(404).json({ message: "Connection not found" });
+      await db.execute(sql`UPDATE calendar_connections SET visibility_type = ${visibilityType} WHERE id = ${connId}`);
+      res.json({ id: connId, visibilityType });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -23204,6 +23293,9 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.get("/api/activity-feed", requirePermission("crm", "view"), async (req, res) => {
     try {
+      const feedUserId = Number((req.session as any)?.userId);
+      const feedRole = String((req.session as any)?.globalRole || "");
+      const feedElevated = ["master_admin", "admin", "exec", "executive", "ceo", "cfo"].includes(feedRole);
       const { limit: limitQ, balanced: balancedQ } = req.query as Record<string, string>;
       const lim = Math.min(Number(limitQ) || 50, 100);
       // Default: balanced mode — each arm contributes up to lim*3 rows so every data source
@@ -23239,12 +23331,31 @@ export function registerConfluenceRoutes(app: Express) {
         ) email_arm
         UNION ALL
         SELECT * FROM (
-          SELECT 'meeting' as feed_type, ce.id, ce.title as summary,
+          SELECT 'meeting' as feed_type, ce.id,
+                 CASE
+                   WHEN ce.user_id = ${feedUserId} THEN ce.title
+                   WHEN COALESCE(cc.visibility_type, 'company_managed') IN ('private_personal', 'external_calendar') THEN 'Busy'
+                   ELSE ce.title
+                 END as summary,
                  'Calendar' as actor, ce.created_at,
-                 ce.linked_object_type, ce.linked_object_id,
+                 CASE
+                   WHEN ce.user_id = ${feedUserId} THEN ce.linked_object_type
+                   WHEN COALESCE(cc.visibility_type, 'company_managed') IN ('private_personal', 'external_calendar') THEN NULL
+                   ELSE ce.linked_object_type
+                 END as linked_object_type,
+                 CASE
+                   WHEN ce.user_id = ${feedUserId} THEN ce.linked_object_id
+                   WHEN COALESCE(cc.visibility_type, 'company_managed') IN ('private_personal', 'external_calendar') THEN NULL
+                   ELSE ce.linked_object_id
+                 END as linked_object_id,
                  NULL::text as linked_object_name,
-                 ce.event_type::text as extra
+                 CASE
+                   WHEN ce.user_id = ${feedUserId} THEN ce.event_type::text
+                   WHEN COALESCE(cc.visibility_type, 'company_managed') IN ('private_personal', 'external_calendar') THEN 'busy'
+                   ELSE ce.event_type::text
+                 END as extra
           FROM calendar_events ce
+          LEFT JOIN calendar_connections cc ON cc.id = ce.connection_id
           WHERE ce.created_at IS NOT NULL
           ORDER BY ce.created_at DESC LIMIT ${armLim}
         ) meeting_arm
@@ -35377,6 +35488,35 @@ export function registerConfluenceRoutes(app: Express) {
     CREATE INDEX IF NOT EXISTS idx_mag_mailbox ON mailbox_access_grants(mailbox_account_id);
     CREATE INDEX IF NOT EXISTS idx_mag_user ON mailbox_access_grants(user_id);
   `)).catch((e: any) => console.error("[migration] mailbox visibility error:", e.message));
+
+  // Additive migration: calendar visibility_type (Calendar Privacy Visibility Policy)
+  // Reuses the mailbox visibility_type model:
+  //   @voltsafe.com calendar connections   → company_managed (full details for master_admin/admin/exec; per-permission for others)
+  //   non-@voltsafe.com connected calendars → private_personal (busy/free only for everyone but owner — admin does NOT bypass this)
+  //   provider outside our own OAuth app (e.g. shared/other-org)  → external_calendar (same busy-only treatment as private_personal)
+  // calendar_events.connection_id links an event back to its source connection so visibility can be
+  // resolved without re-deriving it from externalProvider/externalCalendarId string matching.
+  db.execute(sql.raw(`
+    ALTER TABLE calendar_connections ADD COLUMN IF NOT EXISTS visibility_type TEXT;
+    UPDATE calendar_connections
+      SET visibility_type = 'company_managed'
+      WHERE visibility_type IS NULL
+        AND account_email IS NOT NULL
+        AND account_email LIKE '%@voltsafe.com';
+    UPDATE calendar_connections
+      SET visibility_type = 'private_personal'
+      WHERE visibility_type IS NULL;
+
+    ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS connection_id INTEGER;
+    -- Best-effort backfill: match existing synced events to their connection by owner + provider.
+    UPDATE calendar_events ce
+      SET connection_id = cc.id
+      FROM calendar_connections cc
+      WHERE ce.connection_id IS NULL
+        AND ce.external_provider IS NOT NULL
+        AND cc.user_id = ce.user_id
+        AND cc.provider = ce.external_provider;
+  `)).catch((e: any) => console.error("[migration] calendar visibility error:", e.message));
 
   function normalizeChannelSlug(name: string): string {
     return name.toLowerCase().trim()

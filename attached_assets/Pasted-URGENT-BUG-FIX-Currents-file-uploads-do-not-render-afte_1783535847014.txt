@@ -1,0 +1,149 @@
+URGENT BUG FIX — Currents file uploads do not render after upload
+
+Context:
+In VoltSafe CURRENTS, drag-and-drop file upload appears to upload successfully, but the uploaded attachment does not render correctly in the message thread.
+
+Observed in screenshots:
+- A dragged/uploaded screenshot appears only as broken/unstyled text:
+  “Screenshot 2026-07-07 at 8.01.09â€¯PM.png”
+- Users cannot actually see/open the uploaded image/file preview.
+- This makes file sharing in Currents basically useless. Uploading is happening, rendering is not.
+
+Task:
+Fix Currents attachment rendering end-to-end.
+
+Scope:
+- Currents drag-and-drop upload
+- Currents attachment picker/upload button
+- Message compose attachment state
+- Message create/send payload
+- Message attachment persistence
+- Message thread rendering
+- Image/file preview rendering
+- Download/open behavior
+
+Required investigation:
+1. Reproduce by dragging a PNG/JPEG into a Currents DM and channel.
+2. Confirm whether the file is uploaded successfully on the backend.
+3. Inspect the message payload after send.
+4. Inspect how attachments are stored in DB.
+5. Inspect how attachments are fetched with messages.
+6. Inspect the frontend renderer for message attachments.
+7. Find why the attachment becomes plain broken text instead of a visible attachment card/preview.
+8. Check browser console and network tab for:
+   - failed image URLs
+   - 401/403 attachment fetches
+   - bad Content-Type
+   - missing signed URL / file URL
+   - malformed filename encoding
+   - missing attachment array in message response
+   - render crash swallowed by fallback UI
+
+Likely failure areas to check:
+- Upload endpoint returns file metadata but compose state only inserts filename into message body.
+- Message send payload drops attachment IDs.
+- Backend creates attachment records but message list API does not include them.
+- Renderer expects `attachments`, but API returns `files` or another shape.
+- File URL is missing, relative, expired, or auth-blocked.
+- Image preview uses the wrong src.
+- Filename encoding is broken for narrow no-break space / special characters:
+  “8.01.09â€¯PM.png” should render correctly as “8.01.09 PM.png”.
+- Drag-and-drop path and paperclip path may use different upload logic.
+
+Expected behavior:
+1. User drags an image/file into Currents composer.
+2. Composer shows an attachment chip/preview before sending.
+3. User sends message.
+4. Message appears with:
+   - Image preview for image files
+   - File card for non-image files
+   - Correct filename
+   - File size if available
+   - Open/download action
+5. The attachment remains visible after refresh.
+6. Other users in the DM/channel can see/open it if they have access to that Currents conversation.
+
+Rendering requirements:
+For image attachments:
+- Show thumbnail/preview inline below the message text.
+- Clicking opens full image in modal/new tab, following existing app pattern.
+- If preview fails, show a file card fallback, not broken text.
+
+For non-image attachments:
+- Show file card with icon, filename, size, and download/open button.
+
+Security requirements:
+- Attachments must remain auth-gated.
+- Do not expose private files publicly unless the app already uses signed/private URLs safely.
+- Attachment access must verify user is allowed to view that Currents conversation.
+- Do not break Gmail/CRM/file systems outside Currents.
+
+Filename handling:
+- Decode and display filenames safely.
+- Prevent mojibake like `â€¯`.
+- Sanitize dangerous characters for storage/download headers.
+- Preserve user-friendly display name.
+- Handle filenames with spaces, parentheses, unicode, and screenshots from macOS.
+
+Backend requirements:
+- Ensure upload route returns stable metadata:
+  - id
+  - filename/originalName
+  - mimeType
+  - size
+  - url or downloadUrl or content endpoint
+  - thumbnailUrl if supported
+- Ensure message create route accepts attachment IDs.
+- Ensure message fetch/list route includes attachment metadata.
+- Ensure attachment content endpoint returns correct Content-Type and Content-Disposition.
+- Ensure unauthorized users get 403.
+
+Frontend requirements:
+- Composer stores uploaded attachment metadata, not just filename text.
+- Send payload includes attachment IDs/metadata.
+- Message renderer displays attachments from message.attachments.
+- Drag/drop and paperclip upload use the same final attachment model.
+- Add loading/progress/error state for uploads.
+- If upload fails, show visible error and do not silently insert broken text.
+- Do not allow send button to send attachment placeholder text as if it were the file.
+
+Tests:
+Add regression tests covering:
+1. Drag-and-drop image upload stores attachment metadata.
+2. Paperclip image upload stores attachment metadata.
+3. Send message includes attachment IDs.
+4. Message list API returns attachments.
+5. Image attachment renders as preview, not plain text.
+6. Non-image attachment renders as file card.
+7. Attachment remains visible after refresh/refetch.
+8. Filename with spaces/unicode/macOS screenshot format renders correctly.
+9. Broken image URL falls back to file card.
+10. Unauthorized attachment access returns 403.
+11. Authorized DM participant can access attachment.
+12. Authorized channel member can access attachment.
+13. Upload failure shows error and does not create broken message content.
+14. Existing text-only messages still render normally.
+15. Existing messages with no attachments do not crash.
+
+Validation:
+- Run Currents tests.
+- Run full build/typecheck.
+- Restart app.
+- Manually test:
+  a) Drag PNG into a DM
+  b) Send it
+  c) Confirm visible preview appears
+  d) Refresh page
+  e) Confirm preview still appears
+  f) Click preview/open/download
+  g) Repeat in a channel
+  h) Repeat with PDF or non-image file
+
+Acceptance criteria:
+- Uploaded files/images render visibly in Currents messages.
+- No broken filename-only attachment display.
+- No mojibake filename text.
+- Refresh does not lose attachment previews.
+- Other authorized users can see/open attachments.
+- No unrelated Calendar/Capital/Mail modules changed.
+- Report root cause, files changed, and tests passed.

@@ -965,9 +965,10 @@ export async function getChampionsLeaderboard(limit = 20): Promise<ChampionLeade
 
 // ─── Account Activity Timeline ────────────────────────────────────────────────
 
-export async function getAccountActivityTimeline(accountId: number): Promise<ActivityEvent[]> {
+export async function getAccountActivityTimeline(accountId: number, requestingUserId?: number): Promise<ActivityEvent[]> {
   const id = SAFE_INT(accountId);
   if (!id) return [];
+  const viewerId = Number.isFinite(requestingUserId) ? Number(requestingUserId) : -1;
   try {
     const rows = (await db.execute(sql.raw(`
       SELECT * FROM (
@@ -1024,9 +1025,14 @@ export async function getAccountActivityTimeline(accountId: number): Promise<Act
           ce.start_time                                                AS at,
           NULL::text                                                   AS contact_name,
           NULL::text                                                   AS contact_email,
-          ce.title                                                     AS subject,
+          CASE
+            WHEN ce.user_id = ${viewerId} THEN ce.title
+            WHEN COALESCE(cc.visibility_type, 'company_managed') IN ('private_personal', 'external_calendar') THEN 'Busy'
+            ELSE ce.title
+          END                                                          AS subject,
           NULL::text                                                   AS url
         FROM calendar_events ce
+        LEFT JOIN calendar_connections cc ON cc.id = ce.connection_id
         WHERE ce.linked_object_type='account' AND ce.linked_object_id=${id}
           AND ce.status != 'cancelled' AND ce.start_time IS NOT NULL
       ) events

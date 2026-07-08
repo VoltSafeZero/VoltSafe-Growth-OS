@@ -1,0 +1,287 @@
+Implement VoltSafe Calendar privacy rules for work calendars vs private/external calendars.
+
+Goal:
+When users integrate private email/calendar accounts into VoltSafe CMS, their private calendars must not expose meeting details to other users. Other users should only see busy/free blocks for private/external calendars.
+
+At the same time, @voltsafe.com work calendars should remain visible internally according to VoltSafe role policy.
+
+Required calendar visibility policy:
+
+1. Internal @voltsafe.com work calendars
+For calendars connected to @voltsafe.com accounts:
+- Master admin, admins, and execs can view calendar details for any internal @voltsafe.com user.
+- View-only means they can see:
+  - event title
+  - date/time
+  - location
+  - attendees
+  - meeting link if applicable
+  - description/notes if already available through the integrated calendar
+- They cannot edit/delete another user’s events unless explicit calendar management permission exists.
+- Other internal users may view each other’s @voltsafe.com calendars according to existing company calendar visibility rules.
+- If no finer rule exists, default internal @voltsafe.com calendars to visible internally as view-only.
+
+2. Private personal calendars
+For calendars connected through private_personal email accounts, such as:
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+- any non-@voltsafe.com Gmail/Outlook/private mailbox connected by an internal user
+
+All users other than the owner should see only:
+- busy/free status
+- start time
+- end time
+
+They must NOT see:
+- event title
+- description
+- attendees
+- location
+- meeting link
+- notes
+- conference URL
+- attachments
+- organizer details beyond what is required for scheduling
+- any private calendar metadata that reveals content
+
+Display label:
+- “Busy”
+or
+- “Unavailable”
+
+3. External user calendars
+For external calendars or external participants’ calendar availability:
+- show busy/free only
+- no event details
+- no titles
+- no descriptions
+- no attendees
+- no locations
+- no meeting links
+
+4. Owner behavior
+The calendar owner can see full details for their own connected calendars, including:
+- work @voltsafe.com calendar
+- private personal calendars
+- external/private calendars they personally connected
+
+5. Admin behavior
+Admins/master_admins/execs may see full details for @voltsafe.com work calendars.
+Admins/master_admins/execs must NOT see private_personal calendar details unless they are the owner or the owner explicitly shares that private calendar.
+
+This is important:
+Admin privilege does not override private calendar privacy.
+
+Calendar classification:
+Add or reuse calendar/account classification from mailbox visibility:
+- company_managed / work_calendar
+- team_shared
+- private_personal
+- external_calendar
+
+Do not create a duplicate privacy architecture if mailbox visibility_type already exists.
+Calendar privacy should reuse the mailbox/account visibility model wherever possible.
+
+Backend requirements:
+1. Create/reuse a central calendar visibility resolver:
+   resolveCalendarVisibility(requestingUser, calendarAccount, eventOwner)
+
+It should return:
+- canViewDetails
+- canViewBusyOnly
+- canEdit
+- reason
+- visibilityType
+
+2. Enforce privacy server-side.
+Do not rely only on frontend masking.
+
+Every calendar/event endpoint must call the resolver before returning event data:
+- list events
+- daily schedule
+- weekly calendar
+- user calendar view
+- availability lookup
+- meeting scheduler
+- CEO Cockpit calendar widgets
+- Today / My Day calendar widgets
+- Work / Mission Control calendar widgets
+- admin calendar views
+- calendar search
+- event detail endpoint
+- any AI/Cortex/calendar context builder
+
+3. Sanitized busy-only event shape:
+When requester can only see busy/free, return only:
+{
+  id: safe opaque id or null,
+  start: timestamp,
+  end: timestamp,
+  status: "busy",
+  title: "Busy",
+  visibility: "busy_only",
+  calendarOwnerId,
+  calendarOwnerDisplayName if allowed,
+  sourceCalendarType
+}
+
+Do NOT include:
+- original title
+- description
+- location
+- attendees
+- meetingUrl
+- conferenceData
+- attachments
+- organizer email if private
+- raw external event id if it can be used to fetch details
+
+4. Full-detail event shape:
+When requester can view details, return existing full event details.
+
+5. Availability endpoints:
+Availability endpoints should use busy-only by default unless the requester has full-detail permission.
+
+6. AI/Cortex privacy:
+Private/external calendar details must not enter:
+- CEO Cockpit summaries
+- AI daily briefings
+- Cortex/shared company context
+- meeting intelligence
+- CRM/account timelines
+- follow-up suggestions
+- “what am I waiting on” logic for other users
+
+AI may use private calendar busy blocks only for scheduling availability, not content.
+
+7. Calendar sync:
+It is okay to sync private calendar event details server-side for the owner.
+But any read surface for other users must be sanitized to busy/free only.
+
+Frontend requirements:
+1. When viewing another user’s @voltsafe.com calendar:
+- show full details if requester role allows it
+- visually indicate view-only if not editable
+
+2. When viewing another user’s private/external calendar:
+- show blocks labeled “Busy” or “Unavailable”
+- no details panel with private info
+- click should either do nothing or show:
+  “This user is busy during this time.”
+- no attendees, title, notes, meeting link, or location
+
+3. Calendar legends:
+Add clear labels:
+- Work calendar
+- Private calendar — busy only
+- External calendar — busy only
+
+4. Scheduling UI:
+When booking with a user:
+- private/external calendar blocks should block availability
+- details remain hidden
+- work @voltsafe.com details may show according to role policy
+
+5. Search:
+Calendar search must not return private/external event details to non-owners.
+Search results should either omit those events or show “Busy” blocks only.
+
+6. Direct URL protection:
+If someone opens a direct event URL/id for another user’s private event:
+- return 403 or sanitized busy-only response
+- do not leak details
+
+Tests required:
+Add tests for at least these cases:
+
+Users:
+- Trevor: master_admin/exec
+- Alice: internal @voltsafe.com user
+- Bob: normal internal user
+- External participant
+
+Calendars:
+- Trevor @voltsafe.com work calendar
+- Alice @voltsafe.com work calendar
+- Alice private Gmail calendar
+- Bob private Gmail calendar
+- External participant calendar
+
+Test cases:
+
+1. Owner sees full details for own @voltsafe.com calendar.
+2. Owner sees full details for own private calendar.
+3. Master admin/exec sees full details for another internal user’s @voltsafe.com calendar.
+4. Master admin/exec sees only busy/free for another internal user’s private calendar.
+5. Normal internal user sees allowed details for another @voltsafe.com calendar according to company policy.
+6. Normal internal user sees only busy/free for another user’s private calendar.
+7. External user calendar always exposes busy/free only.
+8. Busy-only response does not include title.
+9. Busy-only response does not include description.
+10. Busy-only response does not include location.
+11. Busy-only response does not include attendees.
+12. Busy-only response does not include meeting link/conference URL.
+13. Busy-only response does not include raw external event id if unsafe.
+14. Direct event detail endpoint does not leak private event details.
+15. Calendar search does not leak private event details.
+16. CEO Cockpit does not include another user’s private calendar event details.
+17. AI/Cortex calendar context excludes private event details from other users.
+18. Scheduling availability uses private calendar blocks as unavailable time.
+19. Work calendar view-only does not allow edit/delete by unauthorized users.
+20. Admin privilege does not override private calendar privacy.
+
+Manual validation:
+1. Connect an internal @voltsafe.com work calendar.
+2. Connect a private Gmail calendar.
+3. Create a private event with sensitive title:
+   “Private Medical Appointment”
+4. Log in as another internal user.
+5. Confirm they only see “Busy” for that block.
+6. Confirm they cannot see title, location, notes, attendees, or meeting link.
+7. Log in as admin/master_admin.
+8. Confirm admin still only sees “Busy” for private calendar.
+9. Create a work @voltsafe.com meeting.
+10. Confirm admin/exec can see work meeting details view-only.
+11. Confirm normal internal user sees work calendar according to company policy.
+12. Confirm scheduling blocks private busy time but does not reveal details.
+
+Migration/data requirements:
+1. Inspect existing calendar tables and account/calendar integrations.
+2. Ensure each calendar source is linked to:
+   - owning user
+   - connected mailbox/calendar account
+   - visibility_type
+   - provider
+   - email/calendar address
+3. Classify:
+   - @voltsafe.com calendars as company/work calendars
+   - non-@voltsafe.com owner-connected calendars as private_personal
+   - external calendars as external_calendar / busy_only
+4. Do not reclassify existing private mailboxes incorrectly.
+
+Validation:
+Run:
+- calendar permission tests
+- mailbox privacy tests
+- private inbox grouping tests
+- AI/Cortex privacy tests
+- CEO Cockpit tests
+- scheduling/availability tests
+- full build/typecheck
+
+Do not change:
+- private mailbox email privacy rules
+- Gmail OAuth flow unless calendar integration requires account classification
+- existing work calendar behavior except to enforce view-only/edit permissions
+- event sync logic except to attach classification/owner metadata
+- visual design beyond busy-only privacy labels
+
+Deliverable:
+Report:
+- calendar/account schema used
+- resolver design
+- endpoints updated
+- sanitized busy-only response shape
+- tests added/passing
+- manual validation result
+- any remaining assumptions

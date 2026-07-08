@@ -515,16 +515,31 @@ export async function getCeoCockpitData(
   // ── 5. 1:1 Operating System ─────────────────────────────────────────────────
   let oneOnOneItems: OneOnOneItem[] = [];
   try {
+    // Calendar Privacy Visibility Policy: this cross-user view must never
+    // surface titles/details from a private_personal or external_calendar
+    // connection (admin/exec cannot override private-calendar privacy — see
+    // server/services/calendar-visibility.ts). Native events (connection_id
+    // IS NULL) default to the owner's company_managed work calendar and stay
+    // eligible for this detection.
+    const PRIVACY_JOIN = `
+      LEFT JOIN calendar_connections cc ON cc.id = ce.connection_id
+    `;
+    const PRIVACY_FILTER = `
+      AND COALESCE(cc.visibility_type, 'company_managed') NOT IN ('private_personal', 'external_calendar')
+    `;
+
     // Upcoming calendar events with 1:1 in title
     const upcoming1on1Rows = await db.execute(sql.raw(`
       SELECT ce.id, ce.title, ce.start_time, ce.end_time, ce.user_id, ce.invitees,
         u.name AS user_name
       FROM calendar_events ce
       JOIN users u ON ce.user_id = u.id
+      ${PRIVACY_JOIN}
       WHERE (LOWER(ce.title) LIKE '%1:1%' OR LOWER(ce.title) LIKE '%one-on-one%' OR LOWER(ce.title) LIKE '%1 on 1%')
         AND ce.start_time > NOW()
         AND ce.start_time < NOW() + INTERVAL '14 days'
         AND u.status = 'active'
+        ${PRIVACY_FILTER}
       ORDER BY ce.start_time ASC
       LIMIT 20
     `));
@@ -535,10 +550,12 @@ export async function getCeoCockpitData(
         u.name AS user_name
       FROM calendar_events ce
       JOIN users u ON ce.user_id = u.id
+      ${PRIVACY_JOIN}
       WHERE (LOWER(ce.title) LIKE '%1:1%' OR LOWER(ce.title) LIKE '%one-on-one%' OR LOWER(ce.title) LIKE '%1 on 1%')
         AND ce.start_time < NOW()
         AND ce.start_time > '${thirtyDaysAgo.toISOString()}'
         AND u.status = 'active'
+        ${PRIVACY_FILTER}
       ORDER BY ce.start_time DESC
       LIMIT 20
     `));

@@ -2,7 +2,7 @@
 import { google } from "googleapis";
 import { db } from "./db";
 import { calendarConnections, calendarEvents } from "@shared/schema";
-import { eq, and, isNull, or } from "drizzle-orm";
+import { eq, and, isNull, or, sql } from "drizzle-orm";
 
 // ─── Zoom URL validation ──────────────────────────────────────────────────────
 // A valid Zoom join URL must contain a fully-numeric meeting ID (9-12 digits).
@@ -401,7 +401,7 @@ export async function syncGoogleCalendar(
           }).where(eq(calendarEvents.id, existing.id));
           updated++;
         } else {
-          await db.insert(calendarEvents).values({
+          const [insertedGoogleEvent] = await db.insert(calendarEvents).values({
             userId,
             title: gEvent.summary,
             description: gEvent.description || null,
@@ -419,7 +419,10 @@ export async function syncGoogleCalendar(
             externalId: gEvent.id,
             externalProvider: "google",
             externalCalendarId: calId,
-          });
+          }).returning({ id: calendarEvents.id });
+          if (insertedGoogleEvent) {
+            await db.execute(sql`UPDATE calendar_events SET connection_id = ${connectionId} WHERE id = ${insertedGoogleEvent.id}`).catch(() => {});
+          }
           imported++;
         }
       }
@@ -457,6 +460,7 @@ export async function syncGoogleCalendar(
               externalId: created.data.id, externalProvider: "google",
               externalCalendarId: primaryCalId, updatedAt: new Date(),
             }).where(eq(calendarEvents.id, ev.id));
+            await db.execute(sql`UPDATE calendar_events SET connection_id = ${connectionId} WHERE id = ${ev.id}`).catch(() => {});
             pushed++;
           }
         } catch (e: any) {
@@ -887,7 +891,7 @@ export async function syncCalDav(
                 updated++;
               }
             } else {
-              await db.insert(calendarEvents).values({
+              const [insertedCaldavEvent] = await db.insert(calendarEvents).values({
                 userId,
                 title: ev.summary,
                 description: ev.description || null,
@@ -903,7 +907,10 @@ export async function syncCalDav(
                 externalEtag: remoteEtag || null,
                 externalProvider: conn.provider,
                 externalCalendarId: calendarUrl,
-              });
+              }).returning({ id: calendarEvents.id });
+              if (insertedCaldavEvent) {
+                await db.execute(sql`UPDATE calendar_events SET connection_id = ${connectionId} WHERE id = ${insertedCaldavEvent.id}`).catch(() => {});
+              }
               imported++;
             }
           } catch (e: any) {
@@ -958,6 +965,7 @@ export async function syncCalDav(
             externalCalendarId: calendarUrl,
             updatedAt: new Date(),
           }).where(eq(calendarEvents.id, ev.id));
+          await db.execute(sql`UPDATE calendar_events SET connection_id = ${connectionId} WHERE id = ${ev.id}`).catch(() => {});
           pushed++;
         } else {
           errors.push(`Push "${ev.title}": ${result.error}`);

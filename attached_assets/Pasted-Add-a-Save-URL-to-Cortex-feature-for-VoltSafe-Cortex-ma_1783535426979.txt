@@ -1,0 +1,190 @@
+Add a “Save URL to Cortex” feature for VoltSafe Cortex marine intelligence.
+
+Goal:
+Users need a simple way to paste URLs for important marine-related news, articles, reports, marina updates, association posts, competitor news, funding announcements, regulation updates, or market intelligence so Cortex can save and use them later for emails, campaigns, research, and summaries.
+
+Current gap:
+Cortex can save emails, but there is no obvious place to paste an external URL directly into Cortex.
+
+Required UX:
+Add a clear “Add URL to Cortex” / “Save URL to Cortex” entry point in these places:
+
+1. Cortex / Intelligence area
+- Add button: “Add URL”
+- Opens modal: “Save URL to Cortex”
+
+2. Mail / Cortex workflow
+- In or near the existing “Save Email to Cortex” modal, add an option/button:
+  “Save URL instead”
+
+3. Global Create menu
+- Add option:
+  “Cortex URL”
+
+Modal fields:
+- URL input
+  Placeholder: “Paste marine news, report, article, marina page, or competitor URL…”
+- Title
+  Auto-filled if fetched, editable by user
+- Summary / Notes
+  Auto-filled if possible, editable by user
+- Category dropdown:
+  - Marine Industry Intel
+  - Marina / Port Lead
+  - Competitor Intel
+  - Funding / Grants
+  - Regulation / Compliance
+  - Product / Technology
+  - Customer Signal
+  - Partner / Channel
+  - Other
+- Importance:
+  - Low
+  - Medium
+  - High
+  - Critical
+- Tags input:
+  examples: marina, shore power, boaters, BC, San Diego, grants, NFPA, competitor
+- Optional checkbox:
+  “Use this in future AI emails and campaigns”
+- Save button
+- Cancel button
+
+Backend requirements:
+1. Add API endpoint:
+   POST /api/cortex/url
+
+Request:
+{
+  url,
+  title?,
+  summary?,
+  notes?,
+  category,
+  importance,
+  tags[],
+  useInAiContext
+}
+
+2. Backend should:
+- validate URL
+- fetch page metadata if safe:
+  - title
+  - description
+  - canonical URL
+  - domain
+- store source URL
+- store fetched metadata
+- store user notes
+- store category/importance/tags
+- store created_by user
+- store created_at
+- mark source_type = "url"
+
+3. If fetching fails:
+- still allow saving the URL manually
+- show clean message:
+  “Could not fetch page details, but you can still save the URL.”
+
+4. Avoid unsafe fetches:
+- block localhost/private network URLs
+- block file:// URLs
+- block internal IPs
+- add fetch timeout
+- limit response size
+- only fetch text/html or safe metadata
+- do not execute scripts
+
+Database:
+Create or extend Cortex table to support:
+- id
+- source_type: email | url | note | document
+- source_url
+- canonical_url
+- domain
+- title
+- summary
+- notes
+- category
+- importance
+- tags json/jsonb
+- use_in_ai_context boolean
+- created_by_user_id
+- created_at
+- updated_at
+- original_email_id nullable
+- original_thread_id nullable
+
+If existing Cortex/save-email table exists, reuse it instead of creating duplicate architecture.
+
+Frontend requirements:
+1. Add “Add URL” button in Cortex/intelligence area.
+2. Add “Cortex URL” option in global Create menu if easy.
+3. Add modal with URL input and fields listed above.
+4. Auto-fetch metadata after paste or on “Fetch details.”
+5. Show preview card:
+   - title
+   - domain
+   - description/summary
+   - URL
+6. Save confirmation:
+   “Saved to Cortex”
+7. Existing saved URL should show:
+   “Already in Cortex”
+8. Prevent duplicate URL saves:
+   - same canonical URL by same org/user should update existing record or warn:
+     “This URL is already saved to Cortex.”
+
+Cortex usage:
+Saved URLs should be available to:
+- future AI email generation
+- campaign research
+- marine industry intelligence summaries
+- CRM/company context, if marked useInAiContext=true
+- Cortex search/filter
+
+Privacy/security:
+- Saved private email content remains private.
+- URL saves are company Cortex intel by default unless user marks private.
+- Do not mix private mailbox content into shared Cortex unless explicitly saved/shared by owner.
+- Log who saved the URL.
+
+Tests:
+Add tests proving:
+1. User can open Save URL to Cortex modal.
+2. URL field validates valid URLs.
+3. Invalid URLs are rejected cleanly.
+4. Metadata fetch fills title/description/domain.
+5. Save persists source_type=url.
+6. Duplicate URL shows Already in Cortex / update flow.
+7. Fetch failure still allows manual save.
+8. Private/internal URLs are blocked.
+9. Saved URL appears in Cortex search/list.
+10. Saved URL can be included in AI context only when useInAiContext=true.
+11. Existing Save Email to Cortex still works.
+12. Modal has no horizontal overflow with long URLs/titles.
+
+Manual validation:
+- Paste a marine article URL.
+- Fetch details.
+- Save as Marine Industry Intel, Medium/High.
+- Confirm it appears in Cortex.
+- Confirm duplicate save is detected.
+- Confirm AI context can use it when enabled.
+- Confirm invalid/internal URLs are blocked.
+
+Do not break:
+- Save Email to Cortex
+- private mailbox privacy rules
+- CRM/AI/Cortex privacy hardening
+- existing Cortex data
+- modal layout/wrapping fixes
+
+Deliverable:
+Report:
+- where the URL input was added
+- API endpoint added
+- table/schema used
+- duplicate handling
+- tests added/passing
+- manual validation result
