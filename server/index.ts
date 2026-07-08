@@ -279,7 +279,7 @@ app.use((req, res, next) => {
       migrateCtaOriginalName, migrateDerivedLabelColumns, migrateBlockedSenders,
       migrateRepairCmsInternalEvents, migrateCrmIntelligenceContextSchema,
       migrateTimezoneColumns, migrateCurrentSchema, migrateMeetingNoteAudioSplits,
-      migrateCampaignTrackingSchema, migrateComplianceSchema,
+      migrateCampaignTrackingSchema, migrateComplianceSchema, migrateRepairMojibakeFilenames,
     } = await import("./seed-production");
 
     // Batch 1: core base schemas (sequential — others may depend on these tables)
@@ -324,6 +324,7 @@ app.use((req, res, next) => {
       migrateMeetingNoteAudioSplits(),
       migrateCampaignTrackingSchema(),
       migrateComplianceSchema(),
+      migrateRepairMojibakeFilenames(),
     ]);
     log(`[perf:startup] batch-2 (feature schemas) done +${Date.now() - _migStart}ms`);
 

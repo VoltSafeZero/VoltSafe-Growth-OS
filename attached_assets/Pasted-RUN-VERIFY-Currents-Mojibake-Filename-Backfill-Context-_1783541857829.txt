@@ -1,0 +1,65 @@
+RUN + VERIFY — Currents Mojibake Filename Backfill
+
+Context:
+The one-off backfill script is complete:
+
+scripts/mojibake-filename-backfill.ts
+
+It repairs previously-uploaded Currents attachment filenames that were saved before the upload-time mojibake fix.
+
+Important safety behavior:
+- Defaults to Currents-linked rows only: object_type = 'current_message'
+- Can widen scope with OBJ_TYPE=all only if explicitly needed
+- Repairs both original_name and file_name
+- Only touches filenames with mojibake signature characters in U+0080–U+00FF
+- Does not touch already-correct Unicode filenames like macOS screenshot names containing U+202F
+- Rejects candidate fixes that introduce /, \, or NUL bytes
+- Supports DRY_RUN=1 preview mode
+
+Task:
+1. Publish/deploy the latest app if this script is not yet in production.
+
+2. Run a production dry run first:
+
+DRY_RUN=1 npx tsx scripts/mojibake-filename-backfill.ts
+
+3. Review the output:
+   - number of Currents attachment rows scanned
+   - number of rows needing repair
+   - before/after filename examples
+   - confirm no unsafe candidate fixes were rejected unexpectedly
+   - confirm no already-correct filenames would be changed
+
+4. If the dry run looks safe, run the apply:
+
+npx tsx scripts/mojibake-filename-backfill.ts
+
+5. After apply, run dry run again:
+
+DRY_RUN=1 npx tsx scripts/mojibake-filename-backfill.ts
+
+Expected:
+- second dry run should report 0 rows needing repair
+
+6. Production UI verification:
+   - Open Currents
+   - Find an older attachment that previously showed mojibake
+   - Confirm filename now renders cleanly
+   - Confirm image/file still opens correctly
+   - Confirm no broken preview
+   - Confirm no attachment URL/path broke
+
+7. Production log check:
+   - No SQL errors
+   - No attachment fetch errors
+   - No path separator safety violations unless clearly expected and skipped
+   - No Currents message render errors
+
+8. Report:
+   - dry-run scanned count
+   - dry-run repair count
+   - apply repair count
+   - post-apply dry-run result
+   - any skipped unsafe rows
+   - production UI result
+   - whether rollback/manual DB restore is needed

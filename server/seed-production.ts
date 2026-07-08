@@ -2379,3 +2379,76 @@ export async function migrateComplianceSchema(): Promise<void> {
     console.error("[migration] migrateComplianceSchema error (non-fatal):", err);
   }
 }
+
+/**
+ * One-off repair: fix mojibake filenames in the attachments table.
+ *
+ * Before the upload-time fixMojibakeFilename() guard was added, multer decoded
+ * file.originalname as latin1, so multi-byte UTF-8 sequences (e.g. the macOS
+ * "narrow no-break space" U+202F in screenshot names) were stored byte-by-byte
+ * as their latin1 codepoints (â¯ instead of the single U+202F character).
+ *
+ * Algorithm (matches the TypeScript fixMojibakeFilename helper):
+ *   1. Select only rows whose original_name contains chars in U+0080–U+00FF
+ *      (the latin1-supplement block — the telltale signature of mis-decoded UTF-8).
+ *   2. For each candidate: convert_to(name, 'LATIN1') re-encodes each codepoint
+ *      as its latin1 byte; convert_from(bytes, 'UTF8') re-interprets as UTF-8.
+ *   3. An EXCEPTION block silently skips rows where the bytes are not valid UTF-8
+ *      (i.e. the string was genuinely latin1, not mojibake).
+ *   4. Path-separator guard: reject the fix if it would introduce / or \ that
+ *      were absent in the original.
+ *
+ * Safe to run multiple times (idempotent): on a clean DB the inner loop simply
+ * finds no rows matching the regex and logs "0 filename(s) repaired".
+ */
+export async function migrateRepairMojibakeFilenames(): Promise<void> {
+  try {
+    await db.execute(sql.raw(`
+      DO $$
+      DECLARE
+        r       RECORD;
+        fixed   TEXT;
+        n_fixed INTEGER := 0;
+      BEGIN
+        FOR r IN
+          SELECT id, original_name, file_name
+          FROM   attachments
+          WHERE  original_name ~ '[\\x80-\\xFF]'
+             OR  file_name     ~ '[\\x80-\\xFF]'
+        LOOP
+          -- Repair original_name
+          BEGIN
+            fixed := convert_from(convert_to(r.original_name, 'LATIN1'), 'UTF8');
+            IF fixed IS DISTINCT FROM r.original_name
+               AND (r.original_name LIKE '%/%' OR fixed NOT LIKE '%/%')
+               AND (r.original_name LIKE '%\\%' OR fixed NOT LIKE '%\\%')
+            THEN
+              UPDATE attachments SET original_name = fixed WHERE id = r.id;
+              n_fixed := n_fixed + 1;
+            END IF;
+          EXCEPTION WHEN OTHERS THEN
+            NULL;
+          END;
+
+          -- Repair file_name
+          BEGIN
+            fixed := convert_from(convert_to(r.file_name, 'LATIN1'), 'UTF8');
+            IF fixed IS DISTINCT FROM r.file_name
+               AND (r.file_name LIKE '%/%' OR fixed NOT LIKE '%/%')
+               AND (r.file_name LIKE '%\\%' OR fixed NOT LIKE '%\\%')
+            THEN
+              UPDATE attachments SET file_name = fixed WHERE id = r.id;
+              n_fixed := n_fixed + 1;
+            END IF;
+          EXCEPTION WHEN OTHERS THEN
+            NULL;
+          END;
+        END LOOP;
+        RAISE NOTICE '[mojibake-repair] repaired % attachment filename(s)', n_fixed;
+      END $$;
+    `));
+    console.log("[migration] migrateRepairMojibakeFilenames: complete.");
+  } catch (err) {
+    console.error("[migration] migrateRepairMojibakeFilenames error (non-fatal):", err);
+  }
+}
