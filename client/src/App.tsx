@@ -18,6 +18,7 @@ import { AppSidebar } from "@/components/dashboard/app-sidebar";
 import { Header } from "@/components/dashboard/header";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { GlobalCreateContact } from "@/components/contacts/global-create-contact";
+import { GlobalSaveUrlToCortex } from "@/components/cortex/global-save-url-to-cortex";
 import { isAdvisorRole } from "@/lib/nav-config";
 import { useRecentPagesTracker } from "@/hooks/use-recent-pages";
 import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
@@ -280,6 +281,7 @@ function AppShell({ children, user, onLogout }: { children: React.ReactNode; use
       </div>
       <MobileNav userGlobalRole={user.globalRole || "sales"} />
       <GlobalCreateContact />
+      <GlobalSaveUrlToCortex />
     </SidebarProvider>
   );
 }

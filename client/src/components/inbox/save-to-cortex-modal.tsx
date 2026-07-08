@@ -284,6 +284,21 @@ export function SaveToCortexModal({ open, onOpenChange, email }: SaveToCortexMod
               </DialogDescription>
             </div>
           </div>
+          {!ingested && (
+            <button
+              type="button"
+              className="text-xs text-cyan-400 hover:underline mt-2 self-start"
+              onClick={() => {
+                onOpenChange(false);
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent("open-save-url-to-cortex"));
+                }, 50);
+              }}
+              data-testid="button-save-url-instead"
+            >
+              Save a URL instead →
+            </button>
+          )}
         </DialogHeader>
 
         <div className="px-6 py-4 space-y-5">

@@ -12,7 +12,7 @@ import {
   Loader2, Zap, Plus, PenLine, Link2, Camera,
 } from "lucide-react";
 
-type Tab = "note" | "task" | "contact" | "opportunity" | "meeting-note";
+type Tab = "note" | "task" | "contact" | "opportunity" | "meeting-note" | "cortex-url";
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "note", label: "Note", icon: StickyNote },
@@ -20,6 +20,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "contact", label: "Contact", icon: UserPlus },
   { id: "opportunity", label: "Deal", icon: TrendingUp },
   { id: "meeting-note", label: "Meeting Note", icon: CalendarDays },
+  { id: "cortex-url", label: "Cortex URL", icon: Link2 },
 ];
 
 function NoteForm({ onClose }: { onClose: () => void }) {
@@ -379,7 +380,16 @@ export function QuickCapture() {
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => {
+                      if (tab.id === "cortex-url") {
+                        setOpen(false);
+                        setTimeout(() => {
+                          window.dispatchEvent(new CustomEvent("open-save-url-to-cortex"));
+                        }, 50);
+                        return;
+                      }
+                      setActiveTab(tab.id);
+                    }}
                     className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${activeTab === tab.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"}`}
                     data-testid={`qc-tab-${tab.id}`}
                   >

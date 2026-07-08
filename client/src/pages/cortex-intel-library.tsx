@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Brain, Search, Filter, ExternalLink, Edit2, Trash2, ChevronDown,
-  ChevronUp, AlertTriangle, Tag, Calendar, User, Sparkles, RefreshCw, X,
+  ChevronUp, AlertTriangle, Tag, Calendar, User, Sparkles, RefreshCw, X, Link2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { SaveToCortexModal } from "@/components/inbox/save-to-cortex-modal";
+import { SaveUrlToCortexModal } from "@/components/cortex/save-url-to-cortex-modal";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -33,7 +34,7 @@ const INTEL_TYPES = [
   "Other",
 ] as const;
 
-const IMPORTANCE_LEVELS = ["Low", "Medium", "High", "Board-Level / Strategic"] as const;
+const IMPORTANCE_LEVELS = ["Low", "Medium", "High", "Board-Level / Strategic", "Critical"] as const;
 
 const USE_FOR_OPTIONS = [
   "AI email writing",
@@ -48,6 +49,7 @@ const IMPORTANCE_COLORS: Record<string, string> = {
   "Medium": "bg-blue-500/15 text-blue-400 border-blue-500/20",
   "High": "bg-amber-500/15 text-amber-400 border-amber-500/20",
   "Board-Level / Strategic": "bg-purple-500/15 text-purple-400 border-purple-500/20",
+  "Critical": "bg-purple-500/15 text-purple-400 border-purple-500/20",
 };
 
 function fmtDate(d: string | null | undefined) {
@@ -197,6 +199,7 @@ export default function CortexIntelLibrary() {
   // Selected record for detail / edit
   const [detailRecord, setDetailRecord] = useState<any>(null);
   const [editRecord, setEditRecord] = useState<any>(null);
+  const [addUrlOpen, setAddUrlOpen] = useState(false);
 
   const qParams = new URLSearchParams({
     limit: String(PAGE_SIZE),
@@ -256,6 +259,10 @@ export default function CortexIntelLibrary() {
               <Filter className="w-3 h-3" />
               {showFilters ? "Hide" : "Filters"}
               {hasActiveFilters && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block" />}
+            </Button>
+            <Button size="sm" className="h-7 text-xs gap-1.5 bg-cyan-600 hover:bg-cyan-700"
+              onClick={() => setAddUrlOpen(true)} data-testid="btn-add-url">
+              <Link2 className="w-3 h-3" /> Add URL
             </Button>
           </div>
         </div>
@@ -366,7 +373,7 @@ export default function CortexIntelLibrary() {
                 <div className="flex items-start gap-3">
                   {/* Importance dot */}
                   <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
-                    r.importance === "Board-Level / Strategic" ? "bg-purple-400" :
+                    r.importance === "Board-Level / Strategic" || r.importance === "Critical" ? "bg-purple-400" :
                     r.importance === "High" ? "bg-amber-400" :
                     r.importance === "Medium" ? "bg-blue-400" : "bg-muted-foreground/30"
                   }`} />
@@ -492,6 +499,9 @@ export default function CortexIntelLibrary() {
           }}
         />
       )}
+
+      {/* Add URL modal */}
+      <SaveUrlToCortexModal open={addUrlOpen} onOpenChange={setAddUrlOpen} />
     </div>
   );
 }

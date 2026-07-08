@@ -24,7 +24,7 @@ export async function migrateCortexEmailIntelSchema(): Promise<void> {
   await db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS cortex_email_intel (
       id                  SERIAL PRIMARY KEY,
-      mail_message_id     TEXT NOT NULL,
+      mail_message_id     TEXT,
       thread_id           TEXT,
       subject             TEXT,
       sender_name         TEXT,
@@ -50,11 +50,32 @@ export async function migrateCortexEmailIntelSchema(): Promise<void> {
     )
   `));
 
-  // Partial unique index: prevent active duplicates per message id
+  // Additive columns for the "Save URL to Cortex" feature (source_type = 'url').
+  // mail_message_id is now nullable — url/note/document records don't have one.
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ALTER COLUMN mail_message_id DROP NOT NULL`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'email'`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS canonical_url TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS domain TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS title TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS use_in_ai_context BOOLEAN NOT NULL DEFAULT true`));
+
+  // Existing rows predate source_type — backfill explicitly (default already covers new rows).
+  await db.execute(sql.raw(`UPDATE cortex_email_intel SET source_type = 'email' WHERE source_type IS NULL`));
+
+  // Partial unique index: prevent active duplicates per message id (email source only).
+  // Drop the old blanket index first since it no longer accounts for NULL mail_message_id rows.
+  await db.execute(sql.raw(`DROP INDEX IF EXISTS idx_cortex_intel_message_id_active`));
   await db.execute(sql.raw(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_cortex_intel_message_id_active
     ON cortex_email_intel (mail_message_id)
-    WHERE deleted_at IS NULL
+    WHERE deleted_at IS NULL AND mail_message_id IS NOT NULL
+  `));
+
+  // Partial unique index: prevent active duplicate URL saves per canonical URL.
+  await db.execute(sql.raw(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_cortex_intel_canonical_url_active
+    ON cortex_email_intel (canonical_url)
+    WHERE deleted_at IS NULL AND canonical_url IS NOT NULL
   `));
 
   console.log("[migration] cortex_email_intel schema ready.");
@@ -90,6 +111,79 @@ export const USE_FOR_OPTIONS = [
   "All of the above",
 ] as const;
 
+// Category options for the "Save URL to Cortex" flow. Stored in the same
+// `intel_type` text column as email intel — no schema constraint, so these
+// coexist with INTEL_TYPES without conflict.
+export const URL_INTEL_CATEGORIES = [
+  "Marine Industry Intel",
+  "Marina / Port Lead",
+  "Competitor Intel",
+  "Funding / Grants",
+  "Regulation / Compliance",
+  "Product / Technology",
+  "Customer Signal",
+  "Partner / Channel",
+  "Other",
+] as const;
+
+// Importance options for the "Save URL to Cortex" flow. Stored in the same
+// `importance` text column as email intel.
+export const URL_IMPORTANCE_LEVELS = [
+  "Low",
+  "Medium",
+  "High",
+  "Critical",
+] as const;
+
+export const SOURCE_TYPES = ["email", "url", "note", "document"] as const;
+
+// ── URL helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Canonicalizes a URL for duplicate detection: lowercases scheme/host,
+ * strips the fragment, strips common tracking params, and removes a
+ * trailing slash. Throws if the URL is invalid.
+ */
+export function canonicalizeUrl(rawUrl: string): { canonicalUrl: string; domain: string } {
+  const parsed = new URL(rawUrl);
+  const TRACKING_PARAM_RE = /^(utm_|fbclid|gclid|mc_eid|mc_cid|ref|igshid)/i;
+  const params = new URLSearchParams(parsed.search);
+  for (const key of Array.from(params.keys())) {
+    if (TRACKING_PARAM_RE.test(key)) params.delete(key);
+  }
+  const sortedParams = new URLSearchParams(Array.from(params.entries()).sort(([a], [b]) => a.localeCompare(b)));
+  const query = sortedParams.toString();
+  let pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+  const host = parsed.hostname.toLowerCase();
+  const canonicalUrl = `${parsed.protocol}//${host}${pathname}${query ? `?${query}` : ""}`;
+  const domain = host.replace(/^www\./, "");
+  return { canonicalUrl, domain };
+}
+
+const PRIVATE_HOST_RE =
+  /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.0\.0\.0|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1|fd[0-9a-f]{2}:|fc00:|fe80:)/i;
+
+/**
+ * Validates that a URL is safe to save/fetch: http(s) only, not localhost /
+ * private / link-local / metadata ranges. Returns an error string, or null
+ * if the URL is acceptable.
+ */
+export function validatePublicUrl(rawUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return "Invalid URL";
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return "Only http:// and https:// URLs are allowed";
+  }
+  if (PRIVATE_HOST_RE.test(parsed.hostname.toLowerCase())) {
+    return "Private/internal URLs are not allowed";
+  }
+  return null;
+}
+
 // ── CRUD ───────────────────────────────────────────────────────────────────
 
 export async function checkCortexIntelByMessageId(mailMessageId: string): Promise<any | null> {
@@ -104,11 +198,24 @@ export async function checkCortexIntelByMessageId(mailMessageId: string): Promis
   return (rows as any).rows?.[0] ?? null;
 }
 
+export async function checkCortexIntelByCanonicalUrl(canonicalUrl: string): Promise<any | null> {
+  const rows = await db.execute(sql.raw(`
+    SELECT id, source_type, source_url, canonical_url, domain, title, intel_type, importance,
+           ai_summary, tags, user_notes, use_in_ai_context, created_at, updated_at
+    FROM cortex_email_intel
+    WHERE canonical_url = '${canonicalUrl.replace(/'/g, "''")}'
+      AND deleted_at IS NULL
+    LIMIT 1
+  `));
+  return (rows as any).rows?.[0] ?? null;
+}
+
 export async function getCortexIntelById(id: number): Promise<any | null> {
   const rows = await db.execute(sql.raw(`
     SELECT id, mail_message_id, thread_id, subject, sender_name, sender_email,
            received_at, source_label, intel_type, importance, use_for, tags,
            user_notes, ai_summary, strategic_relevance, extracted_facts, source_url,
+           source_type, canonical_url, domain, title, use_in_ai_context,
            related_contact_id, related_account_id, related_lead_id,
            created_by_user_id, created_at, updated_at
     FROM cortex_email_intel
@@ -129,11 +236,12 @@ export async function listCortexIntelRecords(opts: {
   dateFrom?: string;
   dateTo?: string;
   savedByUserId?: number;
+  sourceType?: string;
 } = {}): Promise<{ records: any[]; total: number }> {
   const {
     limit = 25, offset = 0,
     intelType, importance, search,
-    useFor, tags, senderEmail, dateFrom, dateTo, savedByUserId,
+    useFor, tags, senderEmail, dateFrom, dateTo, savedByUserId, sourceType,
   } = opts;
 
   const conditions: string[] = ["deleted_at IS NULL"];
@@ -143,6 +251,7 @@ export async function listCortexIntelRecords(opts: {
   if (savedByUserId) conditions.push(`created_by_user_id = ${Number(savedByUserId)}`);
   if (dateFrom)      conditions.push(`received_at >= '${dateFrom}'`);
   if (dateTo)        conditions.push(`received_at <= '${dateTo} 23:59:59'`);
+  if (sourceType)    conditions.push(`source_type = '${sourceType.replace(/'/g, "''")}'`);
   if (useFor) {
     const u = useFor.replace(/'/g, "''");
     conditions.push(`(use_for @> ARRAY['${u}']::text[] OR use_for @> ARRAY['All of the above']::text[])`);
@@ -153,7 +262,7 @@ export async function listCortexIntelRecords(opts: {
   }
   if (search) {
     const s = search.replace(/'/g, "''");
-    conditions.push(`(subject ILIKE '%${s}%' OR ai_summary ILIKE '%${s}%' OR sender_name ILIKE '%${s}%' OR source_label ILIKE '%${s}%' OR user_notes ILIKE '%${s}%' OR strategic_relevance ILIKE '%${s}%' OR tags::text ILIKE '%${s}%')`);
+    conditions.push(`(subject ILIKE '%${s}%' OR title ILIKE '%${s}%' OR ai_summary ILIKE '%${s}%' OR sender_name ILIKE '%${s}%' OR source_label ILIKE '%${s}%' OR user_notes ILIKE '%${s}%' OR strategic_relevance ILIKE '%${s}%' OR tags::text ILIKE '%${s}%' OR canonical_url ILIKE '%${s}%')`);
   }
   const where = conditions.join(" AND ");
 
@@ -163,12 +272,14 @@ export async function listCortexIntelRecords(opts: {
              received_at, source_label, intel_type, importance, use_for, tags,
              user_notes, ai_summary, strategic_relevance, source_url,
              related_contact_id, related_account_id, related_lead_id,
-             created_by_user_id, created_at, updated_at
+             created_by_user_id, created_at, updated_at,
+             source_type, canonical_url, domain, title, use_in_ai_context
       FROM cortex_email_intel
       WHERE ${where}
       ORDER BY
         CASE importance
           WHEN 'Board-Level / Strategic' THEN 1
+          WHEN 'Critical' THEN 1
           WHEN 'High' THEN 2
           WHEN 'Medium' THEN 3
           ELSE 4
@@ -186,7 +297,7 @@ export async function listCortexIntelRecords(opts: {
 }
 
 export async function createCortexIntelRecord(data: {
-  mailMessageId: string;
+  mailMessageId?: string;
   threadId?: string;
   subject?: string;
   senderName?: string;
@@ -206,6 +317,11 @@ export async function createCortexIntelRecord(data: {
   relatedAccountId?: number;
   relatedLeadId?: number;
   createdByUserId: number;
+  sourceType?: string;
+  canonicalUrl?: string;
+  domain?: string;
+  title?: string;
+  useInAiContext?: boolean;
 }): Promise<any> {
   const useForArr = `ARRAY[${data.useFor.map(s => `'${s.replace(/'/g, "''")}'`).join(",")}]::text[]`;
   const tagsArr   = `ARRAY[${data.tags.map(s => `'${s.replace(/'/g, "''")}'`).join(",")}]::text[]`;
@@ -215,9 +331,10 @@ export async function createCortexIntelRecord(data: {
       mail_message_id, thread_id, subject, sender_name, sender_email, received_at,
       source_label, intel_type, importance, use_for, tags, user_notes,
       ai_summary, strategic_relevance, extracted_facts, source_url,
-      related_contact_id, related_account_id, related_lead_id, created_by_user_id
+      related_contact_id, related_account_id, related_lead_id, created_by_user_id,
+      source_type, canonical_url, domain, title, use_in_ai_context
     ) VALUES (
-      '${data.mailMessageId.replace(/'/g, "''")}',
+      ${data.mailMessageId ? `'${data.mailMessageId.replace(/'/g, "''")}'` : "NULL"},
       ${data.threadId ? `'${data.threadId.replace(/'/g, "''")}'` : "NULL"},
       ${data.subject ? `'${data.subject.replace(/'/g, "''")}'` : "NULL"},
       ${data.senderName ? `'${data.senderName.replace(/'/g, "''")}'` : "NULL"},
@@ -236,7 +353,12 @@ export async function createCortexIntelRecord(data: {
       ${data.relatedContactId ?? "NULL"},
       ${data.relatedAccountId ?? "NULL"},
       ${data.relatedLeadId ?? "NULL"},
-      ${data.createdByUserId}
+      ${data.createdByUserId},
+      '${(data.sourceType || "email").replace(/'/g, "''")}',
+      ${data.canonicalUrl ? `'${data.canonicalUrl.replace(/'/g, "''")}'` : "NULL"},
+      ${data.domain ? `'${data.domain.replace(/'/g, "''")}'` : "NULL"},
+      ${data.title ? `'${data.title.replace(/'/g, "''")}'` : "NULL"},
+      ${data.useInAiContext === false ? "false" : "true"}
     )
     RETURNING *
   `));
@@ -315,6 +437,10 @@ export async function updateCortexIntelRecord(id: number, data: Partial<{
   relatedContactId: number | null;
   relatedAccountId: number | null;
   relatedLeadId: number | null;
+  title: string;
+  canonicalUrl: string;
+  domain: string;
+  useInAiContext: boolean;
 }>): Promise<any> {
   const setClauses: string[] = ["updated_at = NOW()"];
   if (data.intelType !== undefined) setClauses.push(`intel_type = '${data.intelType.replace(/'/g, "''")}'`);
@@ -335,6 +461,10 @@ export async function updateCortexIntelRecord(id: number, data: Partial<{
   if (data.relatedContactId !== undefined) setClauses.push(`related_contact_id = ${data.relatedContactId ?? "NULL"}`);
   if (data.relatedAccountId !== undefined) setClauses.push(`related_account_id = ${data.relatedAccountId ?? "NULL"}`);
   if (data.relatedLeadId !== undefined) setClauses.push(`related_lead_id = ${data.relatedLeadId ?? "NULL"}`);
+  if (data.title !== undefined) setClauses.push(`title = ${data.title ? `'${data.title.replace(/'/g, "''")}'` : "NULL"}`);
+  if (data.canonicalUrl !== undefined) setClauses.push(`canonical_url = ${data.canonicalUrl ? `'${data.canonicalUrl.replace(/'/g, "''")}'` : "NULL"}`);
+  if (data.domain !== undefined) setClauses.push(`domain = ${data.domain ? `'${data.domain.replace(/'/g, "''")}'` : "NULL"}`);
+  if (data.useInAiContext !== undefined) setClauses.push(`use_in_ai_context = ${data.useInAiContext ? "true" : "false"}`);
 
   const row = await db.execute(sql.raw(`
     UPDATE cortex_email_intel SET ${setClauses.join(", ")}
@@ -478,12 +608,15 @@ export async function getCortexIntelForPrompt(opts: {
     // Fetch a broader pool — we score + filter in JS
     const rows = await db.execute(sql.raw(`
       SELECT subject, sender_name, sender_email, received_at, intel_type, importance,
-             ai_summary, strategic_relevance, tags, extracted_facts, use_for
+             ai_summary, strategic_relevance, tags, extracted_facts, use_for,
+             source_type, title, canonical_url, domain
       FROM cortex_email_intel
       WHERE deleted_at IS NULL
+        AND use_in_ai_context IS NOT FALSE
         AND ai_summary IS NOT NULL AND ai_summary != ''
         AND CASE importance
           WHEN 'Board-Level / Strategic' THEN 1
+          WHEN 'Critical' THEN 1
           WHEN 'High' THEN 2
           WHEN 'Medium' THEN 3
           ELSE 4

@@ -40832,6 +40832,132 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // ── Save URL to Cortex ────────────────────────────────────────────────────
+
+  // POST /api/cortex/url/fetch-metadata — safe OG/HTML metadata fetch for prefill
+  app.post("/api/cortex/url/fetch-metadata", requireAuth, async (req: any, res) => {
+    try {
+      const { url } = req.body || {};
+      if (!url || typeof url !== "string") return res.status(400).json({ error: "url required" });
+      const { validatePublicUrl } = await import("./services/cortex-intel");
+      const validationError = validatePublicUrl(url);
+      if (validationError) return res.status(400).json({ error: validationError });
+      const { fetchLinkPreview } = await import("./services/link-preview");
+      const meta = await fetchLinkPreview(url);
+      if (!meta) return res.json({ ok: true, meta: null });
+      res.json({ ok: true, meta });
+    } catch (err: any) {
+      console.error("[cortex-url] POST /api/cortex/url/fetch-metadata:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/cortex/url/check — duplicate detection by canonical URL
+  app.get("/api/cortex/url/check", requireAuth, async (req: any, res) => {
+    try {
+      const url = req.query.url as string | undefined;
+      if (!url) return res.status(400).json({ error: "url required" });
+      const { canonicalizeUrl, validatePublicUrl, checkCortexIntelByCanonicalUrl } = await import("./services/cortex-intel");
+      const validationError = validatePublicUrl(url);
+      if (validationError) return res.status(400).json({ error: validationError });
+      const { canonicalUrl } = canonicalizeUrl(url);
+      const existing = await checkCortexIntelByCanonicalUrl(canonicalUrl);
+      res.json({ exists: !!existing, record: existing ?? null });
+    } catch (err: any) {
+      console.error("[cortex-url] GET /api/cortex/url/check:", err.message);
+      res.status(400).json({ error: err.message || "Invalid URL" });
+    }
+  });
+
+  // POST /api/cortex/url — create a URL-sourced Cortex intel record
+  app.post("/api/cortex/url", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      const {
+        url, title, summary, notes, category, importance, tags, useInAiContext,
+        relatedContactId, relatedAccountId, relatedLeadId,
+      } = req.body || {};
+
+      if (!url || typeof url !== "string") return res.status(400).json({ error: "url required" });
+      if (!category)   return res.status(400).json({ error: "category required" });
+      if (!importance) return res.status(400).json({ error: "importance required" });
+
+      const {
+        validatePublicUrl, canonicalizeUrl, checkCortexIntelByCanonicalUrl, createCortexIntelRecord,
+      } = await import("./services/cortex-intel");
+
+      const validationError = validatePublicUrl(url);
+      if (validationError) return res.status(400).json({ error: validationError });
+
+      const { canonicalUrl, domain } = canonicalizeUrl(url);
+
+      const existing = await checkCortexIntelByCanonicalUrl(canonicalUrl);
+      if (existing) {
+        return res.status(409).json({ error: "This URL has already been saved to Cortex", record: existing });
+      }
+
+      const record = await createCortexIntelRecord({
+        sourceType: "url",
+        sourceUrl: url,
+        canonicalUrl,
+        domain,
+        title: title || undefined,
+        aiSummary: summary || undefined,
+        userNotes: notes || undefined,
+        intelType: category,
+        importance,
+        useFor: [],
+        tags: Array.isArray(tags) ? tags : [],
+        useInAiContext: useInAiContext !== false,
+        relatedContactId: relatedContactId ? Number(relatedContactId) : undefined,
+        relatedAccountId: relatedAccountId ? Number(relatedAccountId) : undefined,
+        relatedLeadId: relatedLeadId ? Number(relatedLeadId) : undefined,
+        createdByUserId: userId,
+      });
+
+      res.status(201).json({ ok: true, record });
+    } catch (err: any) {
+      console.error("[cortex-url] POST /api/cortex/url:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PUT /api/cortex/url/:id — update an existing URL-sourced record
+  app.put("/api/cortex/url/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const { getCortexIntelById, updateCortexIntelRecord } = await import("./services/cortex-intel");
+      const existing = await getCortexIntelById(id);
+      if (!existing) return res.status(404).json({ error: "Not found" });
+      if (existing.source_type !== "url") return res.status(400).json({ error: "Not a URL record" });
+
+      const {
+        title, summary, notes, category, importance, tags, useInAiContext,
+        relatedContactId, relatedAccountId, relatedLeadId,
+      } = req.body || {};
+
+      const record = await updateCortexIntelRecord(id, {
+        title: title !== undefined ? title : undefined,
+        aiSummary: summary !== undefined ? summary : undefined,
+        userNotes: notes !== undefined ? notes : undefined,
+        intelType: category !== undefined ? category : undefined,
+        importance: importance !== undefined ? importance : undefined,
+        tags: Array.isArray(tags) ? tags : undefined,
+        useInAiContext: useInAiContext !== undefined ? !!useInAiContext : undefined,
+        relatedContactId: relatedContactId !== undefined ? (relatedContactId ? Number(relatedContactId) : null) : undefined,
+        relatedAccountId: relatedAccountId !== undefined ? (relatedAccountId ? Number(relatedAccountId) : null) : undefined,
+        relatedLeadId: relatedLeadId !== undefined ? (relatedLeadId ? Number(relatedLeadId) : null) : undefined,
+      });
+      if (!record) return res.status(404).json({ error: "Record not found" });
+      res.json({ ok: true, record });
+    } catch (err: any) {
+      console.error("[cortex-url] PUT /api/cortex/url/:id:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── GET /api/marketing/drilldown — universal Marketing drilldown ─────────────
   // Supports: contact-level compliance metrics + campaign-level rate metrics + consent source
   app.get("/api/marketing/drilldown", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
