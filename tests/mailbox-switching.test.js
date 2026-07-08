@@ -181,6 +181,25 @@ async function main() {
       else bad("no rows from any account other than team leaked", `${leakage.length} foreign rows`);
     }
 
+    // ── 4b. asAccountId=all MUST show both personal + team messages ──
+    // This is the root cause of the inbox isolation bug: when the personal inbox
+    // accidentally sent asAccountId=all (instead of the specific personal account id),
+    // the backend returned rows from ALL accounts the user owns — including team inboxes.
+    // Fix: the frontend's appendAccountId() now sends the specific personal account id
+    // for the null (personal) state, and only sends "all" for the explicit All Inboxes view.
+    console.log("── asAccountId=all returns BOTH personal and team rows ──");
+    {
+      const msgs = await fetchLocalMessages(call, { asAccountId: "all" });
+      const fixturePersonal = msgs.filter((m) => m.id === `${FIXTURE_TAG}-personal-msg`);
+      const fixtureTeam     = msgs.filter((m) => m.id === `${FIXTURE_TAG}-team-msg`);
+
+      if (fixturePersonal.length === 1) ok("asAccountId=all: personal fixture included (correct for All Inboxes)");
+      else bad("asAccountId=all: personal fixture included", `found ${fixturePersonal.length}`);
+
+      if (fixtureTeam.length === 1) ok("asAccountId=all: team fixture included (confirms bleed vector)");
+      else bad("asAccountId=all: team fixture included", `found ${fixtureTeam.length}`);
+    }
+
     // ── 4. Switching default ↔ team ↔ default returns deterministic, non-overlapping sets ──
     console.log("── Round-trip switch: default → team → default ──");
     {

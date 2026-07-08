@@ -5910,13 +5910,23 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   });
   const personalAccount = (accountsQuery.data ?? []).find((a) => a.isOwner) ?? null;
 
-  // Helper to append asAccountId to URLSearchParams when viewing a shared account
+  // Helper to append asAccountId to URLSearchParams.
+  // ISOLATION FIX: when the personal account is selected (activeAccountId === null),
+  // we must send the personal account's SPECIFIC id — NOT "all" — so the backend
+  // filters by source_account_id = <personal> and does not bleed in emails from
+  // other connected Gmail accounts that share the same owner_user_id.
+  // "all" is only sent when the user explicitly chose All Inboxes ("all" sentinel).
   const appendAccountId = (params: URLSearchParams) => {
-    // null means "All Inboxes" unified view — send asAccountId=all so backend
-    // queries span all accounts (same scope as serverInboxUnreadCount / health).
     if (activeAccountId === null) {
-      params.set("asAccountId", "all");
+      // Personal account selected. Scope to the specific personal account id.
+      // If personalAccount hasn't loaded yet, omit the param — backend defaults
+      // to getUserGmailAccount (lowest-id personal account), which is correct.
+      if (personalAccount) {
+        params.set("asAccountId", String(personalAccount.id));
+      }
     } else {
+      // "all" → asAccountId=all (unified All Inboxes).
+      // number → that specific account id.
       params.set("asAccountId", String(activeAccountId));
     }
   };
@@ -7523,13 +7533,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const _rawServerInboxUnread = useMemo(() => {
     const accounts = accountsHealthQuery.data;
     if (!accounts || accounts.length === 0) return 0;
-    // null = personal/unified (no account filter) and "all" = explicit All Inboxes —
-    // both represent the unified view, so sum every account's unread count.
-    if (activeAccountId === null || activeAccountId === "all") {
+    // "all" = explicit All Inboxes — sum every accessible account.
+    if (activeAccountId === "all") {
       return accounts.reduce((sum, a) => sum + (a.unreadCount ?? 0), 0);
     }
+    // null = personal account selected. Show ONLY that account's unread count so
+    // the badge doesn't inflate with unread from other connected Gmail accounts.
+    if (activeAccountId === null) {
+      const pid = personalAccount?.id;
+      if (pid != null) return accounts.find((a) => a.id === pid)?.unreadCount ?? 0;
+      // personalAccount not loaded yet — fall back to first non-shared account.
+      return accounts.find((a) => !a.isShared)?.unreadCount ?? 0;
+    }
     return accounts.find((a) => a.id === activeAccountId)?.unreadCount ?? 0;
-  }, [accountsHealthQuery.data, activeAccountId]);
+  }, [accountsHealthQuery.data, activeAccountId, personalAccount]);
 
   // ── Atomic count snapshot ─────────────────────────────────────────────────────────────
   // Single source of truth for every visible badge and section-header count.

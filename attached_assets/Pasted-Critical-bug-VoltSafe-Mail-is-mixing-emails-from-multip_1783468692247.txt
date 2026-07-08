@@ -1,0 +1,139 @@
+Critical bug: VoltSafe Mail is mixing emails from multiple connected inbox accounts.
+
+Problem shown in screenshots:
+When trevor@voltsafe.com is selected in the left sidebar, emails from the newly connected personal Gmail account burgesstrevor76@gmail.com are appearing inside the trevor@voltsafe.com inbox.
+
+Example:
+- Selected mailbox/account: trevor@voltsafe.com
+- Visible opened email recipient: burgesstrevor76@gmail.com
+- Personal Gmail senders/emails are showing in the VoltSafe work inbox list.
+
+This is a major mailbox isolation bug.
+
+Required behavior:
+1. Each connected mailbox account must be strictly isolated.
+   - trevor@voltsafe.com inbox should only show emails belonging to trevor@voltsafe.com.
+   - burgesstrevor76@gmail.com inbox should only show emails belonging to burgesstrevor76@gmail.com.
+   - sales@voltsafe.com should only show sales mailbox emails.
+   - support@voltsafe.com should only show support mailbox emails.
+
+2. “All Inboxes” may show combined messages across accounts.
+   - But only when “All Inboxes” is explicitly selected.
+   - If a specific mailbox account is selected, do not show emails from other accounts.
+
+3. Fix every mailbox category/filter to respect selected account:
+   - Inbox
+   - All
+   - People
+   - Marine Related
+   - Updates
+   - Promotions
+   - Social
+   - Forums & Communities
+   - Sent
+   - Pinned
+   - Spam
+   - Drafts
+   - Scheduled
+   - Priority Highlights
+   - Search results, unless global search is explicitly selected
+   - Opened reading pane message
+
+4. Root cause investigation:
+   Find where Gmail messages/threads are queried, cached, grouped, counted, and filtered.
+   Check whether queries are missing account scoping, likely one of:
+   - gmail_account_id
+   - connected_account_id
+   - account_email
+   - mailbox_id
+   - user_email
+   - owner account field
+
+5. Backend requirements:
+   - Every Gmail fetch/list/count/search endpoint must include selected account scope unless All Inboxes is selected.
+   - Do not rely only on frontend filtering.
+   - API responses should include enough account identity metadata to prevent UI bleed.
+   - If selectedAccountId/selectedEmail is missing, default safely:
+     - either active primary account only
+     - or require explicit account selection
+     - do not silently return all accounts.
+
+6. Frontend requirements:
+   - When trevor@voltsafe.com is selected, pass the selected account identifier to every mail API call.
+   - When burgesstrevor76@gmail.com is selected, pass that identifier instead.
+   - When All Inboxes is selected, explicitly pass all-inboxes/global mode.
+   - Reading pane must clear or reload when switching accounts so a message from the previous account does not remain open under the wrong mailbox.
+   - Counts beside each mailbox must be account-specific.
+   - Category counts under the selected mailbox must be account-specific.
+
+7. Marine Related safety:
+   - Marine Related sender rules/tags must also be scoped per connected mailbox account.
+   - A sender tagged Marine Related in trevor@voltsafe.com should not automatically tag/show that sender’s emails in burgesstrevor76@gmail.com unless explicitly tagged there too.
+   - Existing Marine Related feature must not leak across accounts.
+
+8. Reconnect/disconnected account handling:
+   - A disconnected/expired account must not pollute active account data.
+   - A disconnected account may show reconnect-required state only for itself.
+   - Do not let burgesstrevor76@gmail.com sync failures affect trevor@voltsafe.com.
+
+9. Add account isolation tests:
+   Create fixtures with at least two connected accounts:
+   - account A: trevor@voltsafe.com
+   - account B: burgesstrevor76@gmail.com
+
+   Add tests proving:
+   - Selecting account A only returns account A inbox emails.
+   - Selecting account B only returns account B inbox emails.
+   - All Inboxes returns both accounts.
+   - People category is account-scoped.
+   - Updates category is account-scoped.
+   - Marine Related category is account-scoped.
+   - Search is account-scoped unless All Inboxes/global search is selected.
+   - Counts are account-scoped.
+   - Reading pane clears/reloads on account switch.
+   - Priority Highlights are account-scoped.
+   - Disconnected account does not bleed messages or errors into active account.
+
+10. Add regression check:
+   If selected account = trevor@voltsafe.com, no email whose account identity is burgesstrevor76@gmail.com may appear in:
+   - list rows
+   - opened message
+   - category counts
+   - priority highlights
+   - engagement panel
+   - CRM link panel
+
+11. Manual validation:
+   After fixing, boot the app and verify:
+   Case A:
+   - Select trevor@voltsafe.com.
+   - Confirm no burgesstrevor76@gmail.com recipient emails appear.
+   - Confirm Aeroplan/personal Gmail email disappears from trevor@voltsafe.com inbox.
+
+   Case B:
+   - Select burgesstrevor76@gmail.com.
+   - Confirm its personal Gmail emails appear only there.
+
+   Case C:
+   - Select All Inboxes.
+   - Confirm combined mail appears there only.
+
+   Case D:
+   - Switch rapidly between trevor@voltsafe.com and burgesstrevor76@gmail.com.
+   - Confirm reading pane clears/reloads and never shows the wrong account’s email.
+
+12. Do not change:
+   - Gmail OAuth flow except as needed for account scoping
+   - Marine Related design, except to scope it per mailbox account
+   - CRM linking behavior except to prevent cross-account bleed
+   - Existing category labels/visual styling
+
+Deliverable:
+Report:
+- exact root cause
+- backend endpoints fixed
+- frontend calls fixed
+- database/account key used for scoping
+- tests added/updated
+- validation results
+- screenshots or curl evidence proving account isolation
