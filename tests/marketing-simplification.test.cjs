@@ -210,15 +210,28 @@ ok("BranchingRulesPanel is behind advanced tab",
   })(),
   "BranchingRulesPanel must appear after activeTab==='advanced' check");
 
-ok("CampaignAttributionSection is behind advanced tab",
+ok("attribution tab is generated (template literal or literal testid)",
+  detail.includes('"tab-attribution"') || detail.includes("'tab-attribution'") ||
+  detail.includes('tab-${tab}') || detail.includes('"attribution"'),
+  "attribution tab value must appear in tab bar render");
+
+ok("CampaignAttributionSection is behind its own dedicated attribution tab (not advanced)",
   (() => {
-    const advIdx  = detail.indexOf('activeTab === "advanced"');
+    const attrTabIdx = detail.indexOf('activeTab === "attribution"');
     const attrIdx = detail.indexOf("CampaignAttributionSection");
-    // The advanced check must appear before the component usage (not definition)
     const defIdx  = detail.indexOf("function CampaignAttributionSection");
-    return advIdx > -1 && attrIdx > advIdx && attrIdx < defIdx;
+    return attrTabIdx > -1 && attrIdx > attrTabIdx && attrIdx < defIdx;
   })(),
-  "CampaignAttributionSection usage must be behind advanced tab");
+  "CampaignAttributionSection usage must be behind its own activeTab==='attribution' check (Phase 10 UI review moved it off the advanced tab)");
+
+ok("BranchingRulesPanel remains the only panel behind advanced tab (attribution moved out)",
+  (() => {
+    const advIdx = detail.indexOf('activeTab === "advanced"');
+    const defIdx = detail.indexOf("function CampaignAttributionSection");
+    const advancedBlock = defIdx > -1 ? detail.slice(advIdx, defIdx) : detail.slice(advIdx);
+    return advIdx > -1 && !advancedBlock.includes("CampaignAttributionSection");
+  })(),
+  "advanced tab block must no longer render CampaignAttributionSection");
 
 ok("automationMode field on Campaign type",
   detail.includes("automationMode"),
@@ -228,20 +241,16 @@ ok("automation-mode-badge data-testid present",
   detail.includes("automation-mode-badge"),
   "automation mode badge testid required");
 
-// ── 7. Analytics ROI section removed ─────────────────────────────────────────
+// ── 7. Analytics ROI section (Phase 10: re-added as CampaignRoiAttributionSection) ──
 console.log("\nMarketing Analytics cleanup:");
 
-ok("<CampaignROISection /> call is NOT rendered in analytics",
+ok("legacy <CampaignROISection /> call is NOT rendered in analytics",
   !analytics.includes("<CampaignROISection />") && !analytics.includes("<CampaignROISection/>"),
-  "ROI section must not be called in render");
+  "legacy ROI section must not be called in render (superseded by CampaignRoiAttributionSection)");
 
-ok("DollarSign is NOT imported in analytics",
-  !analytics.includes("DollarSign"),
-  "DollarSign icon import must be removed");
-
-ok("Building2 is NOT in analytics imports",
-  !analytics.match(/import\s.*Building2.*from\s+["']lucide-react["']/),
-  "Building2 must be removed from lucide-react import line");
+ok("<CampaignRoiAttributionSection /> IS rendered in analytics (Phase 10)",
+  analytics.includes("<CampaignRoiAttributionSection />") || analytics.includes("<CampaignRoiAttributionSection/>"),
+  "Phase 10 Campaign ROI / Pipeline Attribution section must be rendered in Marketing Analytics");
 
 ok("AutomationMetricsSection is still present in analytics",
   analytics.includes("AutomationMetricsSection"),
