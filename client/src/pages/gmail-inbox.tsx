@@ -5652,7 +5652,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     id: number; userId: number; provider: string; emailAddress: string;
     displayName: string | null; authStatus: string; syncEnabled: boolean;
     lastSyncAt: string | null; syncErrorMessage: string | null; disconnectedAt: string | null;
-    isShared: boolean; isOwner: boolean;
+    isShared: boolean; isOwner: boolean; visibilityType: string;
   };
 
   const statusQuery = useQuery<{ connected: boolean; tokenValid: boolean; apiEnabled: boolean; hasCredentials: boolean }>({
@@ -5679,10 +5679,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // Resolve which account is "active" — selected shared account, user's personal one, or
   // (unified mode) fall back to the personal account for compose/send semantics.
   const connectedAccount = activeAccountId === "all"
-    ? (accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null)
+    ? (accountsQuery.data?.find((a) => a.visibilityType === 'company_managed') ?? accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null)
     : activeAccountId
       ? (accountsQuery.data?.find((a) => a.id === activeAccountId) ?? accountsQuery.data?.[0] ?? null)
-      : (accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null);
+      : (accountsQuery.data?.find((a) => a.visibilityType === 'company_managed') ?? accountsQuery.data?.find((a) => a.isOwner) ?? accountsQuery.data?.[0] ?? null);
 
   // Multi-mailbox Phase 1: per-account health (status dots + warnings in the sidebar).
   // 30s refetch matches accountsQuery so they stay visually in sync.
@@ -5900,15 +5900,31 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     }
   };
 
-  // Shared accounts visible to this user — filtered by mail_team permissions.
-  // Non-admins require an explicit view grant; no grant = no access.
-  const sharedAccounts = (accountsQuery.data ?? []).filter((a) => {
+  const allAccounts = accountsQuery.data ?? [];
+
+  // WORK INBOX: company-managed accounts — the user's VoltSafe/company email(s)
+  const workAccounts = allAccounts.filter((a) => a.visibilityType === 'company_managed');
+
+  // TEAM INBOXES: shared accounts this user has access to (not privately owned)
+  const sharedAccounts = allAccounts.filter((a) => {
     if (a.isOwner) return false;
+    if (a.visibilityType === 'private_personal') return false;
     if (isAdmin) return true;
     const entry = mailTeamPerms[String(a.id)];
     return entry?.view === true;
   });
-  const personalAccount = (accountsQuery.data ?? []).find((a) => a.isOwner) ?? null;
+
+  // PRIVATE INBOXES: private_personal accounts the current user owns (e.g. personal Gmail)
+  const privateAccounts = allAccounts.filter((a) =>
+    a.visibilityType === 'private_personal' && a.isOwner
+  );
+
+  // Primary account for compose/send and activeAccountId=null routing — prefer work/company account
+  const personalAccount = workAccounts[0] ?? allAccounts.find((a) => a.isOwner) ?? null;
+
+  // Whether there are multiple sections (determines if WORK INBOX label should be visible)
+  const hasMultipleSections = sharedAccounts.length > 0 || privateAccounts.length > 0;
+  const totalAccessibleAccounts = workAccounts.length + sharedAccounts.length + privateAccounts.length;
 
   // Helper to append asAccountId to URLSearchParams.
   // ISOLATION FIX: when the personal account is selected (activeAccountId === null),
@@ -8993,14 +9009,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
           <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">
 
-            {/* ── INBOX section label ───────────────────────────────── */}
-            <div className="pb-0.5 pt-1 px-1">
-              <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Inbox</span>
-            </div>
+            {/* ── WORK INBOX section label — only shown when there are multiple inbox groups ── */}
+            {hasMultipleSections ? (
+              <div className="pb-0.5 pt-1 px-1">
+                <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Work Inbox</span>
+              </div>
+            ) : (
+              <div className="pb-0.5 pt-1 px-1">
+                <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Inbox</span>
+              </div>
+            )}
 
             {/* Multi-mailbox Phase 1: "All Inboxes" unified view — only show when user has
                 more than one accessible account, since 1-account users get nothing extra from it. */}
-            {((personalAccount ? 1 : 0) + sharedAccounts.length) > 1 && (
+            {totalAccessibleAccounts > 1 && (
               <button
                 onClick={() => {
                   setActiveAccountId("all");
@@ -9018,7 +9040,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                 </span>
                 <span className="flex-1 text-left text-[12px] font-medium truncate">All Inboxes</span>
                 <span className="text-[10px] text-muted-foreground/60">
-                  {(personalAccount ? 1 : 0) + sharedAccounts.length}
+                  {totalAccessibleAccounts}
                 </span>
               </button>
             )}
@@ -9303,6 +9325,109 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   );
                 })}
               </>
+            )}
+
+            {/* ── PRIVATE INBOXES section ───────────────────────────────────── */}
+            {privateAccounts.length > 0 && (
+              <>
+                <div className={`${densityClasses.sidebarSectionPt} pb-0.5 px-1 flex items-center gap-1.5`}>
+                  <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Private Inboxes</span>
+                  <Lock className="h-2.5 w-2.5 text-muted-foreground/30" />
+                </div>
+                {privateAccounts.map((acct) => {
+                  const isThisActive = activeAccountId === acct.id;
+                  const letter = acct.emailAddress[0].toUpperCase();
+                  return (
+                    <div key={acct.id}>
+                      <div className="group flex items-center gap-0.5">
+                        <button
+                          onClick={() => {
+                            setActiveAccountId(acct.id); setTab("inbox"); setInboxCategory("all"); setSelectedMessageId(null); setSelectedThreadId(null); setCurrentThreadAccountId(null);
+                          }}
+                          data-testid={`btn-account-private-${acct.id}`}
+                          title={`${acct.emailAddress} — Private inbox (only visible to you)`}
+                          className={`flex-1 flex items-center gap-2.5 px-2 ${densityClasses.sidebarRowPy} rounded-md transition-colors ${isThisActive ? "text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                        >
+                          <span className={`relative flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${isThisActive ? "bg-violet-500 text-white" : "bg-violet-900/40 text-violet-300"}`}>
+                            {letter}
+                            {(() => {
+                              const h = healthById.get(acct.id);
+                              if (!h) return null;
+                              const cls = h.status === "green" ? "bg-emerald-500" : h.status === "amber" ? "bg-amber-500" : "bg-red-500";
+                              const tip = h.status === "red" ? (h.syncErrorMessage || "Sync disabled") : h.status === "amber" ? `Watch expires in ${h.watchHoursRemaining ?? "?"}h` : "Healthy";
+                              return <span title={tip} data-testid={`status-dot-private-${acct.id}`} className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-background ${cls}`} />;
+                            })()}
+                          </span>
+                          <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
+                          <Lock className="h-3 w-3 text-muted-foreground/40 flex-shrink-0" title="Private — only you can see this inbox" />
+                          {isThisActive && serverInboxUnreadCount > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleRefreshAccount(acct.id)}
+                          data-testid={`btn-refresh-account-private-${acct.id}`}
+                          title="Check for new mail"
+                          className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all"
+                        >
+                          <RefreshCw className={`h-3 w-3 ${refreshingAccounts.has(acct.id) ? "animate-spin" : ""}`} />
+                        </button>
+                      </div>
+                      {/* Subtabs for this private inbox when active */}
+                      {isThisActive && (
+                        <div className="ml-3 pl-2 border-l border-border/40 space-y-0.5 mt-0.5 mb-1">
+                          <button onClick={() => { setTab("inbox"); setInboxCategory("all"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-inbox-private-${acct.id}`}
+                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "inbox" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            <Inbox className="h-3.5 w-3.5" /><span className="flex-1 text-left">Inbox</span>
+                            {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
+                          </button>
+                          <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-sent-private-${acct.id}`}
+                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            <Send className="h-3.5 w-3.5" /><span className="flex-1 text-left">Sent</span>
+                          </button>
+                          <button onClick={() => { setTab("pinned"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-pinned-private-${acct.id}`}
+                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "pinned" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            <Pin className="h-3.5 w-3.5" /><span className="flex-1 text-left">Pinned</span>
+                          </button>
+                          <button onClick={() => { setTab("spam"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-spam-private-${acct.id}`}
+                            className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "spam" ? "bg-red-500/15 text-red-400" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                            <Ban className="h-3.5 w-3.5" /><span className="flex-1 text-left">Spam</span>
+                          </button>
+                          {canSend && <>
+                            <button onClick={() => { setTab("drafts"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-drafts-private-${acct.id}`}
+                              className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "drafts" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                              <FileText className="h-3.5 w-3.5" /><span className="flex-1 text-left">Drafts</span>
+                            </button>
+                          </>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {/* Connect additional private inbox */}
+                <a
+                  href="/api/auth/gmail/connect"
+                  data-testid="button-connect-private-inbox"
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-dashed border-border/50 hover:border-border transition-colors mt-1"
+                >
+                  <PlusCircle className="h-3.5 w-3.5" />
+                  Add private inbox
+                </a>
+              </>
+            )}
+
+            {/* Connect first private inbox (when none yet) — available to all users */}
+            {privateAccounts.length === 0 && workAccounts.length > 0 && (
+              <div className={`${densityClasses.sidebarSectionPt} px-1`}>
+                <a
+                  href="/api/auth/gmail/connect"
+                  data-testid="button-connect-first-private-inbox"
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30 transition-colors"
+                >
+                  <PlusCircle className="h-3 w-3" />
+                  Add private inbox
+                </a>
+              </div>
             )}
           </nav>
 

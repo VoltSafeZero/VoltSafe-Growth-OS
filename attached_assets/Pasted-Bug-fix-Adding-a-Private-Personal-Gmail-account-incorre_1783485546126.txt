@@ -1,0 +1,179 @@
+Bug fix: Adding a Private Personal Gmail account incorrectly overrides/hides VoltSafe work and team inboxes in VoltSafe Mail sidebar.
+
+Problem:
+I added trevor@hyalos.com, a Gmail account, as a Private account in VoltSafe Mail.
+
+After adding it, the Mail sidebar now shows:
+- trevor@hyalos.com as the main selected account
+- burgesstrevor76@gmail.com under Team Inboxes
+- missing or hidden trevor@voltsafe.com
+- missing or hidden team inboxes sales@voltsafe.com and support@voltsafe.com
+
+This is wrong.
+
+Required behavior:
+Private personal mailboxes must be additive. They must never replace, override, remove, hide, or reclassify existing VoltSafe work/team mailboxes.
+
+Correct sidebar grouping:
+1. WORK INBOX
+   - trevor@voltsafe.com
+
+2. TEAM INBOXES
+   - sales@voltsafe.com
+   - support@voltsafe.com
+   - any other shared/team/company mailbox the user can access
+
+3. PRIVATE INBOXES
+   - trevor@hyalos.com
+   - burgesstrevor76@gmail.com
+   - any other private_personal mailbox owned by the current user
+
+Rules:
+- trevor@voltsafe.com must remain visible as the user’s work/company mailbox.
+- sales@voltsafe.com and support@voltsafe.com must remain visible as team inboxes if the user has access.
+- trevor@hyalos.com must show under PRIVATE INBOXES.
+- burgesstrevor76@gmail.com must show under PRIVATE INBOXES, not Team Inboxes, if it is marked private_personal.
+- Adding a private Gmail must not change the selected/default work mailbox permanently.
+- Adding a private Gmail must not alter visibility_type of existing @voltsafe.com mailboxes.
+- Adding a private Gmail must not alter team/shared access grants.
+
+Backend investigation:
+1. Check email_accounts rows after adding trevor@hyalos.com.
+2. Verify these fields for every connected account:
+   - email_address
+   - owner_user_id / user_id
+   - visibility_type
+   - is_shared
+   - account_type / provider if present
+   - created_at
+   - last_sync_at
+
+3. Confirm expected classification:
+   - trevor@voltsafe.com = company_managed or work/company mailbox
+   - sales@voltsafe.com = team_shared or company_managed
+   - support@voltsafe.com = team_shared or company_managed
+   - trevor@hyalos.com = private_personal
+   - burgesstrevor76@gmail.com = private_personal
+
+4. Fix any bad migration/classification logic that:
+   - treats latest connected Gmail as the only personal account
+   - overwrites the primary/work account
+   - puts private_personal accounts into Team Inboxes
+   - reclassifies @voltsafe.com accounts incorrectly
+   - relies on email domain alone without respecting explicit visibility_type
+
+Frontend requirements:
+1. Update VoltSafe Mail sidebar account grouping.
+
+Render accounts in this order:
+
+A) WORK INBOX
+- current user’s company/work mailbox, especially @voltsafe.com
+- label may be hidden if there is only one work mailbox, but grouping must be logically correct
+
+B) TEAM INBOXES
+- shared/team/company accounts the user can access but does not privately own
+- examples: sales@voltsafe.com, support@voltsafe.com
+
+C) PRIVATE INBOXES
+- only private_personal accounts owned by current user
+- show lock/private indicator
+- examples: trevor@hyalos.com, burgesstrevor76@gmail.com
+
+2. Do not put private_personal accounts under TEAM INBOXES.
+
+3. Do not hide work/team inboxes when private inboxes exist.
+
+4. If no private inboxes exist, hide PRIVATE INBOXES section.
+
+5. If no team inboxes exist, hide TEAM INBOXES section.
+
+6. Account switching:
+- Selecting trevor@voltsafe.com loads only trevor@voltsafe.com.
+- Selecting sales@voltsafe.com loads only sales@voltsafe.com.
+- Selecting support@voltsafe.com loads only support@voltsafe.com.
+- Selecting trevor@hyalos.com loads only trevor@hyalos.com.
+- Selecting burgesstrevor76@gmail.com loads only burgesstrevor76@gmail.com.
+- All Inboxes includes only accounts the user has access to, grouped correctly.
+
+7. Default selected account:
+- On first Mail load, prefer the work/company mailbox trevor@voltsafe.com if available.
+- Do not automatically default to the newest private Gmail account.
+- If the user explicitly selected a private inbox last session, preserving that selection is okay only if all other inboxes still remain visible.
+
+8. Privacy label:
+Private inbox rows should show:
+- lock icon
+- optional helper tooltip: “Private — only you can see this inbox.”
+
+Backend/API requirements:
+1. Account list endpoint must return enough metadata:
+   - id
+   - email_address
+   - display_name
+   - visibility_type
+   - is_shared/team flag
+   - owner_user_id/current user ownership
+   - connection_status
+   - unread count
+   - last_sync_at
+
+2. Do not leak private inboxes owned by other users.
+
+3. Team/shared mailboxes must appear based on grants/access, not ownership alone.
+
+4. Work/company mailbox must not be displaced by private_personal mailboxes.
+
+Tests required:
+Add/update tests proving:
+
+1. Adding private trevor@hyalos.com does not remove trevor@voltsafe.com from sidebar.
+2. Adding private trevor@hyalos.com does not remove sales@voltsafe.com or support@voltsafe.com.
+3. trevor@hyalos.com appears under PRIVATE INBOXES.
+4. burgesstrevor76@gmail.com appears under PRIVATE INBOXES when visibility_type=private_personal.
+5. Private personal accounts do not appear under TEAM INBOXES.
+6. sales@voltsafe.com and support@voltsafe.com appear under TEAM INBOXES.
+7. trevor@voltsafe.com appears under WORK INBOX / primary work mailbox section.
+8. Default selected mailbox remains trevor@voltsafe.com unless user explicitly selected otherwise.
+9. Selecting each mailbox sends the correct asAccountId and does not use asAccountId=all.
+10. All Inboxes explicitly uses asAccountId=all and includes only authorized accounts.
+11. Sidebar grouping survives refresh.
+12. Startup migration does not reclassify private/work/team accounts incorrectly.
+
+Manual validation:
+After fix, boot app and verify sidebar shows:
+
+- All Inboxes
+- WORK INBOX
+  - trevor@voltsafe.com
+- TEAM INBOXES
+  - sales@voltsafe.com
+  - support@voltsafe.com
+- PRIVATE INBOXES
+  - trevor@hyalos.com
+  - burgesstrevor76@gmail.com
+
+Then verify:
+- trevor@voltsafe.com messages appear only when selecting trevor@voltsafe.com.
+- trevor@hyalos.com messages appear only when selecting trevor@hyalos.com.
+- burgesstrevor76@gmail.com messages appear only when selecting burgesstrevor76@gmail.com.
+- sales/support messages appear only in their own inboxes or All Inboxes.
+- No private inbox appears under Team Inboxes.
+- No work/team inbox disappears after refresh.
+
+Do not change:
+- Gmail OAuth flow except classification/default visibility if needed
+- Private mailbox privacy/access-control rules
+- Marine Related design
+- CRM/AI privacy hardening
+- Existing Mail visual style except sidebar grouping labels
+
+Deliverable:
+Report:
+- exact root cause
+- account rows before/after classification
+- frontend grouping fix
+- backend account-list fix if any
+- tests added/updated
+- manual validation result
+- screenshot confirming correct sidebar grouping

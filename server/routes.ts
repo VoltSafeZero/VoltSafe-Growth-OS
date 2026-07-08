@@ -35285,14 +35285,15 @@ export function registerConfluenceRoutes(app: Express) {
   `)).catch(() => {});
 
   // Additive migration: mailbox visibility_type + access grants (private personal mailbox support)
-  // NOTE: UPDATEs use "WHERE visibility_type IS NULL" only — never override a value the user has
-  // explicitly set. The column DEFAULT is 'private_personal', so after the initial migration run
-  // every row has a non-NULL value and these UPDATEs become no-ops on subsequent server restarts.
+  // NOTE: UPDATEs catch rows that are NULL (pre-migration) OR still sitting at the default
+  // 'private_personal' but belong to team/company categories. Shared accounts and @voltsafe.com
+  // accounts must never stay as private_personal — that would hide them from the sidebar sections.
   db.execute(sql.raw(`
-    ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS visibility_type TEXT NOT NULL DEFAULT 'private_personal';
-    UPDATE email_accounts SET visibility_type = 'team_shared' WHERE is_shared = TRUE AND visibility_type IS NULL;
+    ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS visibility_type TEXT DEFAULT 'private_personal';
+    UPDATE email_accounts SET visibility_type = 'team_shared'
+      WHERE is_shared = TRUE AND (visibility_type IS NULL OR visibility_type = 'private_personal');
     UPDATE email_accounts SET visibility_type = 'company_managed'
-      WHERE is_shared = FALSE AND visibility_type IS NULL
+      WHERE is_shared = FALSE AND (visibility_type IS NULL OR visibility_type = 'private_personal')
         AND (email_address LIKE '%@voltsafe.com' OR email_address LIKE 'sales@%' OR email_address LIKE 'support@%'
              OR email_address LIKE 'info@%' OR email_address LIKE 'hello@%' OR email_address LIKE 'billing@%'
              OR email_address LIKE 'ops@%' OR email_address LIKE 'admin@%');

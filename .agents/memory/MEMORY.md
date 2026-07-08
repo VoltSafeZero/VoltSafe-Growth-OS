@@ -59,3 +59,4 @@
 - [CEO Cockpit Phase 13 QA](ceo-cockpit-phase13.md) — Phase 13 audit findings: 2 bugs fixed (silent migration catches + missing copy_only on action draft); 113-check smoke test; release checklist.
 - [Disconnected Gmail Sync Fix](disconnected-gmail-sync.md) — 4-layer guard for expired accounts; runIncrementalForAll must filter authStatus='active' at DB level.
 - [Mailbox Visibility Privacy](mailbox-visibility-privacy.md) — private_personal blocks ALL non-owners including admins; no admin bypass; raw SQL only (not Drizzle schema).
+- [Private Inbox Sidebar Grouping](private-inbox-grouping.md) — three-section sidebar (WORK INBOX/TEAM INBOXES/PRIVATE INBOXES); migration IS NULL bug; workAccounts must prefer company_managed.
