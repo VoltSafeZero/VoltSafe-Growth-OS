@@ -1,3 +1,4 @@
+- [Modal horizontal overflow root cause](modal-horizontal-overflow.md) — overflow-y-auto alone forces overflow-x:auto too; flex children need min-w-0 or long text forces the dialog wider than viewport.
 - [Smart Inbox Flip-Back Fix](smart-inbox-flipback.md) — dropping broad invalidateQueries(["/api/gmail/messages"]) from mark-read .then(); re-patch setQueriesData instead; 15s poll handles eventual consistency.
 - [Block Sender System](block-sender-system.md) — exact-email blocking via blocked_senders table; separate from email_filters (domain-level); broad-domain guard on POST /api/email-filters; mark-spam route; trust-sender deletes from blocked_senders.
 - [Badge vs List Blocked-Sender Mismatch](badge-blocked-sender-mismatch.md) — badge SQL (category-counts + health API unread_count) must exclude blocked_senders; client inboxMainRaw filter hides them but server badge counted them, causing badge=1/list=0.

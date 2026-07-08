@@ -1,0 +1,144 @@
+Global UI bug fix: all popups/modals must keep text/content inside left and right borders. No horizontal scrolling.
+
+Problem shown in screenshots:
+The “Save Email to Cortex” popup has long subject/snippet text overflowing horizontally. Users have to scroll left/right to see content. This should never happen.
+
+Required behavior:
+1. All popups/modals/dialogs/drawers should:
+   - keep all text inside the visible modal width
+   - wrap long text onto multiple lines
+   - never require horizontal scrolling
+   - only allow vertical scrolling when content is too tall
+   - keep buttons, badges, headers, descriptions, cards, and body text within the left/right modal borders
+
+2. Applies globally, including but not limited to:
+   - Save Email to Cortex modal
+   - CRM modals
+   - Mail compose/reply/forward modals
+   - Lead/contact/account modals
+   - Currents modals
+   - Capital modals
+   - Settings dialogs
+   - Any draggable/resizable popup
+   - Any modal with long email subjects, snippets, URLs, company names, file names, or generated AI text
+
+3. Specific fix for Save Email to Cortex:
+   - Long email subject must wrap.
+   - Long email snippet/preview must wrap.
+   - “In Cortex” badge must remain inside the card.
+   - Update/Close buttons must remain inside modal boundaries.
+   - Modal header text must not overflow.
+   - Resizing the modal narrower must not create horizontal scroll.
+   - Expanding/maximizing the modal must not push content outside the body.
+
+Implementation requirements:
+1. Audit shared modal/dialog components first.
+   Look for shared components such as:
+   - Dialog
+   - Modal
+   - Sheet
+   - Drawer
+   - FloatingPanel
+   - ResizableModal
+   - DraggableModal
+   - SaveToCortexModal
+   - Email/Cortex/CRM popup components
+
+2. Add global safe modal CSS/utilities:
+   - max-width: calc(100vw - safe margin)
+   - overflow-x: hidden
+   - overflow-y: auto
+   - min-width: 0 on flex/grid children
+   - max-width: 100% on modal sections/cards
+   - word-break: break-word where needed
+   - overflow-wrap: anywhere for long URLs/subjects
+   - whitespace-normal for titles/snippets/body text
+   - flex-wrap where header/action rows can overflow
+
+3. Fix common flex/grid overflow cause:
+   Anywhere modal content uses flex rows, make sure child text containers have:
+   - min-w-0
+   - flex-1 where appropriate
+   - truncate only where intentional
+   - otherwise whitespace-normal break-words
+
+4. Do not solve this by hiding important text.
+   - Do not blindly truncate long subject/snippet text unless the design explicitly calls for preview truncation.
+   - Prefer wrapping inside the modal.
+   - Users should see the content without horizontal scrolling.
+
+5. Do not create double scrollbars.
+   - The modal body may scroll vertically.
+   - The page behind the modal should remain stable.
+   - Horizontal scrollbar should not appear in the modal or page.
+
+6. Resizable/draggable popup requirements:
+   - Drag handles and resize handles must remain usable.
+   - Top-right X must stay clickable.
+   - Header drag area must not block buttons.
+   - Resizing narrower should wrap content, not overflow.
+   - Minimum modal width should be reasonable, but still robust if narrow.
+
+7. Mobile/narrow viewport behavior:
+   - Modal width should clamp to viewport.
+   - Content wraps.
+   - Buttons wrap or stack cleanly.
+   - No horizontal scrolling.
+
+Tests required:
+Add/update tests proving:
+
+1. Save Email to Cortex modal wraps long email subjects.
+2. Save Email to Cortex modal wraps long snippets/previews.
+3. Save Email to Cortex modal has no horizontal overflow at normal width.
+4. Save Email to Cortex modal has no horizontal overflow when resized narrower.
+5. “In Cortex” badge stays inside the email card.
+6. Update/Close buttons stay inside the modal.
+7. Modal header title/subtitle wrap safely.
+8. Generic/shared modal content applies overflow-x-hidden or equivalent.
+9. Long URLs/file names/company names wrap inside modal cards.
+10. No horizontal scrollbar appears in modal body.
+11. Vertical scrolling still works for tall content.
+12. Existing draggable/resizable behavior still works.
+13. Close button remains clickable.
+14. Existing modal tests still pass.
+
+Manual validation:
+1. Open the exact “Save Email to Cortex” modal from the screenshots.
+2. Use a long email subject:
+   “[accounting@voltsafe.com] Kadey-Krogen files for bankruptcy | West Marine auction cancelled | UK refit firm enters liquidation”
+3. Confirm the subject wraps inside the modal.
+4. Confirm the snippet wraps inside the modal.
+5. Confirm no horizontal scrollbar appears.
+6. Resize the modal narrower.
+7. Confirm content still wraps and stays inside borders.
+8. Maximize/expand the modal.
+9. Confirm layout still works.
+10. Test at least 3 other modals with long text:
+   - CRM modal
+   - Mail compose/reply modal
+   - Currents modal or Capital modal
+11. Confirm no regression to vertical scrolling or close/drag/resize controls.
+
+Validation:
+- Run modal/dialog UI tests.
+- Run Cortex/mail tests.
+- Run build/typecheck.
+- Boot app.
+- Confirm screenshots no longer reproduce horizontal overflow.
+
+Do not change:
+- Cortex save logic
+- email privacy/access-control rules
+- modal business logic
+- CRM/AI/Cortex data behavior
+- existing visual style except overflow/wrapping safety
+
+Deliverable:
+Report:
+- root cause
+- shared modal/CSS fixes made
+- specific Save Email to Cortex fix
+- tests added/updated
+- manual validation result
+- screenshots if available

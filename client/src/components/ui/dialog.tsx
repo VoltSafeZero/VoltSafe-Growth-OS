@@ -133,7 +133,8 @@ const DialogContent = React.forwardRef<
         ref={mergedRef}
         style={posStyle}
         className={cn(
-          "fixed z-[300] grid w-full max-w-lg gap-4 border bg-background shadow-lg duration-200",
+          "fixed z-[300] grid w-full max-w-lg max-w-[calc(100vw-2rem)] gap-4 border bg-background shadow-lg duration-200",
+          "overflow-x-hidden break-words [overflow-wrap:anywhere]",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -146,7 +147,7 @@ const DialogContent = React.forwardRef<
                   ? "left-[50%] top-[50%] data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]"
                   : "",
                 "min-h-[120px] min-w-[280px] max-h-[90dvh]",
-                isResized ? "overflow-hidden" : "overflow-y-auto"
+                "overflow-y-auto"
               ),
           className
         )}

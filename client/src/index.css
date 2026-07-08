@@ -779,6 +779,33 @@
 }
 
 /*
+ * NO HORIZONTAL SCROLLING INSIDE POPUPS — global safety net.
+ * Applies to every Radix Dialog/AlertDialog and Vaul Drawer content region.
+ * Users must only ever scroll vertically inside a modal; long subjects,
+ * snippets, URLs, and generated text must wrap instead of overflowing.
+ * Component-level fixes (dialog.tsx, sheet.tsx, alert-dialog.tsx, drawer.tsx)
+ * set overflow-x-hidden explicitly — these rules are a defense-in-depth
+ * backstop for any modal content we didn't touch directly.
+ */
+[role="dialog"],
+[role="alertdialog"] {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+[role="dialog"] *,
+[role="alertdialog"] * {
+  min-width: 0;
+}
+[role="dialog"] img,
+[role="alertdialog"] img,
+[role="dialog"] pre,
+[role="alertdialog"] pre,
+[role="dialog"] table,
+[role="alertdialog"] table {
+  max-width: 100%;
+}
+
+/*
  * FAB SAFE ZONE — applied to body by pages that open a fixed right panel.
  * Shifts the quick-capture FAB left so it clears the panel.
  * Usage: add class "has-right-panel" to <body> (or a wrapper div) when panel opens.

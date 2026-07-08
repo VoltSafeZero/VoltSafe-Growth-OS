@@ -277,9 +277,9 @@ export function SaveToCortexModal({ open, onOpenChange, email }: SaveToCortexMod
             <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
               <Brain className="h-4 w-4 text-cyan-400" />
             </div>
-            <div>
-              <DialogTitle className="text-base font-semibold">Save Email to Cortex</DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-base font-semibold break-words [overflow-wrap:anywhere]">Save Email to Cortex</DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5 whitespace-normal break-words [overflow-wrap:anywhere]">
                 Flag this email as marine industry intelligence for Cortex to use in future emails, campaigns, and research.
               </DialogDescription>
             </div>
@@ -288,13 +288,13 @@ export function SaveToCortexModal({ open, onOpenChange, email }: SaveToCortexMod
 
         <div className="px-6 py-4 space-y-5">
           {/* Email preview */}
-          <div className="rounded-lg border border-border/40 bg-muted/20 px-4 py-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">
+          <div className="rounded-lg border border-border/40 bg-muted/20 px-4 py-3 min-w-0">
+            <div className="flex items-start justify-between gap-2 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground whitespace-normal break-words [overflow-wrap:anywhere]">
                   {email.subject || "(No subject)"}
                 </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5 whitespace-normal break-words [overflow-wrap:anywhere]">
                   {senderDisplay}{dateDisplay ? ` · ${dateDisplay}` : ""}
                 </p>
               </div>
@@ -306,19 +306,19 @@ export function SaveToCortexModal({ open, onOpenChange, email }: SaveToCortexMod
               )}
             </div>
             {email.snippet && (
-              <p className="text-xs text-muted-foreground/70 mt-2 line-clamp-2">{email.snippet}</p>
+              <p className="text-xs text-muted-foreground/70 mt-2 line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere]">{email.snippet}</p>
             )}
           </div>
 
           {/* Already saved notice */}
           {ingested && !isUpdate && (
-            <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 px-4 py-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-cyan-400 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-cyan-400">Already saved to Cortex</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
+            <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 px-4 py-3 min-w-0">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-start gap-2 min-w-0 flex-1">
+                  <CheckCircle2 className="h-4 w-4 text-cyan-400 flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-cyan-400 whitespace-normal break-words [overflow-wrap:anywhere]">Already saved to Cortex</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 whitespace-normal break-words [overflow-wrap:anywhere]">
                       Saved as <span className="font-medium">{intelType}</span> · <span className={`font-medium`}>{importance}</span>
                     </p>
                   </div>
@@ -326,7 +326,7 @@ export function SaveToCortexModal({ open, onOpenChange, email }: SaveToCortexMod
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-xs border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
+                  className="text-xs border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 flex-shrink-0"
                   onClick={() => setIsUpdate(true)}
                 >
                   Update
