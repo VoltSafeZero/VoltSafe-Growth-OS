@@ -1,0 +1,98 @@
+PUBLISH + VERIFY — Currents Attachment Fix + Cortex URL Save
+
+Context:
+Two completed dev tasks are ready for production verification:
+
+1. Currents attachment rendering fix
+   - Mojibake filename fix
+   - Files-only sends fixed
+   - Image previews render correctly
+   - Broken image fallback added
+   - Upload failure toast added
+   - E2E verified in dev
+
+2. Cortex URL Save feature
+   - DB migration complete
+   - URL metadata fetch/check/save/update backend routes added
+   - Save URL to Cortex modal built
+   - Quick Capture tile added
+   - Entry points wired
+   - cortex-url-save.test.cjs passing
+   - App healthy after restart
+
+Task:
+1. Publish/deploy the latest app.
+2. Verify production boot.
+3. Confirm no startup errors, migration errors, or route-registration errors.
+
+Currents production smoke:
+1. Log into production.
+2. Go to Currents.
+3. Test in a DM:
+   - Drag/drop a PNG screenshot
+   - Send with no text
+   - Confirm image renders inline
+   - Refresh
+   - Confirm image still renders
+   - Click/open/download image
+
+4. Test in a channel:
+   - Repeat same drag/drop/send/refresh/open flow
+
+5. Test non-image:
+   - Upload PDF/doc
+   - Confirm it renders as a file card
+
+6. Confirm:
+   - No mojibake filename like `â€¯`
+   - No broken image icon
+   - No raw filename-only message
+   - No console/server errors
+
+Cortex URL Save production smoke:
+1. Open Quick Capture.
+2. Confirm “Cortex URL” tile appears.
+3. Open Save URL to Cortex modal.
+4. Paste a real URL.
+5. Confirm metadata fetch works:
+   - canonical URL
+   - domain
+   - title if available
+
+6. Save URL to Cortex.
+7. Confirm:
+   - URL saves successfully
+   - Duplicate check works
+   - Saved URL appears in Cortex/intel list if there is a UI surface for it
+   - Editing/updating saved URL works if exposed in UI
+   - Email-sourced Cortex records remain separate from URL-sourced records
+
+API checks:
+1. Verify these routes are auth-gated:
+   - POST /api/cortex/url/fetch-metadata
+   - GET /api/cortex/url/check
+   - POST /api/cortex/url
+   - PUT /api/cortex/url/:id
+
+2. Verify no 500s from:
+   - cortex_email_intel source_type
+   - canonical_url
+   - mail_message_id null handling
+   - URL uniqueness indexes
+
+Regression safety:
+1. Existing email-to-Cortex save still works.
+2. Existing Currents text-only messages still render.
+3. Existing Currents old messages do not crash.
+4. No unrelated Calendar/Capital/Mail regressions.
+
+Report:
+- Deployment status
+- Production boot status
+- Currents DM attachment result
+- Currents channel attachment result
+- Currents non-image result
+- Cortex URL tile/modal result
+- Cortex URL save result
+- Any console/server errors
+- Whether rollback is needed
