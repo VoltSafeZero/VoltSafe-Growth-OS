@@ -1,0 +1,64 @@
+TASK: Add Trello-style “Add a task” footer to every Tasks Hub board column.
+
+Context:
+In VoltSafe Growth OS → Work → Tasks Hub → Board view, each task column should have a footer at the bottom that says “+ Add a task”, similar to Trello’s column footer.
+
+Goal:
+For every visible task column, add a clickable footer at the bottom of the column so users can quickly create a new task directly inside that specific column.
+
+Requirements:
+1. Every column must show a footer at the bottom:
+   - Text: “+ Add a task”
+   - Placement: inside the column, below the task cards
+   - It should remain visually attached to that column, not floating randomly
+   - Match the Trello behavior shown in the reference screenshot
+
+2. Clicking the footer should create a task in that exact column:
+   - If the column represents a status, the new task must inherit that status
+   - If the board is grouped by Due Date, Priority, Label, etc., the new task should inherit the current column grouping value when possible
+   - Example: clicking “Add a task” in BLOCKED creates a task already assigned to BLOCKED
+   - Example: clicking in DONE creates a task already assigned to DONE
+
+3. UX behavior:
+   - On click, open the existing New Task modal/drawer if one already exists
+   - Pre-fill the column/status/group value automatically
+   - Do not create a duplicate task until the user saves
+   - Preserve all existing New Task functionality
+   - Keep the main top-right “+ New Task” button unchanged
+
+4. Styling:
+   - Footer should look lightweight and Trello-like
+   - Use existing design tokens/classes where possible
+   - Hover state: subtle background change
+   - Cursor pointer
+   - Respect light/dark mode
+   - Must not cause horizontal overflow
+   - Must not break drag/drop, column resizing, or ordering
+
+5. Edge cases:
+   - Empty columns must still show the footer
+   - Long columns must show footer after the cards
+   - If the column is scrollable, the footer should be easy to access at the bottom
+   - Archived/completed columns should still support the footer unless the app intentionally blocks creation there
+   - If creation is blocked for a column, show disabled footer text with a tooltip explaining why
+
+6. Tests / validation:
+   - Add regression tests confirming every rendered board column has an Add Task footer
+   - Confirm clicking the footer opens the task creation UI
+   - Confirm the task creation UI receives the correct default column/status/group value
+   - Confirm empty columns still render the footer
+   - Confirm no horizontal page overflow is introduced
+
+7. Do not:
+   - Do not change unrelated task card styling
+   - Do not remove existing buttons
+   - Do not break existing drag/drop behavior
+   - Do not hardcode only the current visible columns; it must work for all task board columns/groups dynamically
+
+Acceptance criteria:
+- Every task column has a Trello-style “+ Add a task” footer.
+- Clicking it starts creating a task in that exact column.
+- Empty columns still have the footer.
+- Existing New Task button still works.
+- Board layout stays clean with no horizontal overflow.
+- Tests pass.

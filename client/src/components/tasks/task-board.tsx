@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   CalendarDays, ListChecks, MessageSquare, Lock, User as UserIcon, Check,
-  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings, GripVertical, Users, Eye, MousePointerClick,
+  Search, Filter, Bookmark, BookmarkPlus, Save, Trash2, X, ChevronDown, Settings, GripVertical, Users, Eye, MousePointerClick, Plus,
 } from "lucide-react";
 import { format, isToday, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -70,12 +70,13 @@ type PermittedUser = { id: number; name: string };
 type Props = {
   view: "my" | "team";
   onOpenTask: (id: number) => void;
+  onAddTask?: (colValue: string) => void;
   viewingUserId?: number | null;
   permittedUsers?: PermittedUser[];
   onViewUser?: (userId: number | null) => void;
 };
 
-export function TaskBoard({ view, onOpenTask, viewingUserId, permittedUsers = [], onViewUser }: Props) {
+export function TaskBoard({ view, onOpenTask, onAddTask, viewingUserId, permittedUsers = [], onViewUser }: Props) {
   const { toast } = useToast();
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
@@ -602,6 +603,17 @@ export function TaskBoard({ view, onOpenTask, viewingUserId, permittedUsers = []
                     ))
                   )}
                 </div>
+                {/* Trello-style add task footer */}
+                <button
+                  onClick={() => onAddTask?.(col.value)}
+                  disabled={isViewOnly}
+                  data-testid={`button-add-task-${col.value}`}
+                  className={`w-full flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground rounded-b-lg transition-colors border-t border-inherit ${isViewOnly ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/60 hover:text-foreground cursor-pointer"}`}
+                  title={isViewOnly ? "You have view-only access to this column" : `Add a task to ${col.label}`}
+                >
+                  <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Add a task</span>
+                </button>
               </div>
             );
           })}

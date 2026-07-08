@@ -642,6 +642,7 @@ export default function TasksHubPage() {
   const [view, setView] = useState<ViewTab>("board");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
+  const [defaultBoardColumn, setDefaultBoardColumn] = useState<string | undefined>(undefined);
   const [viewingUserId, setViewingUserId] = useState<number | null>(null);
   const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
 
@@ -1067,6 +1068,7 @@ export default function TasksHubPage() {
             <TaskBoard
               view="team"
               onOpenTask={(id) => setOpenTaskId(id)}
+              onAddTask={(colValue) => { setDefaultBoardColumn(colValue); setCreatingNew(true); }}
               viewingUserId={viewingUserId}
               permittedUsers={permittedUsers}
               onViewUser={setViewingUserId}
@@ -1206,8 +1208,9 @@ export default function TasksHubPage() {
       <TaskDetailDrawer
         taskId={openTaskId}
         createMode={creatingNew}
-        onCreated={(id) => { setCreatingNew(false); setOpenTaskId(id); }}
-        onOpenChange={(o) => { if (!o) { setOpenTaskId(null); setCreatingNew(false); } }}
+        defaultBoardColumn={defaultBoardColumn}
+        onCreated={(id) => { setCreatingNew(false); setDefaultBoardColumn(undefined); setOpenTaskId(id); }}
+        onOpenChange={(o) => { if (!o) { setOpenTaskId(null); setCreatingNew(false); setDefaultBoardColumn(undefined); } }}
         onTaskChanged={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/tasks/board"] });
           queryClient.invalidateQueries({ queryKey: ["/api/tasks/hub"] });

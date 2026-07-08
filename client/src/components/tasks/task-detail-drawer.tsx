@@ -82,6 +82,8 @@ type Props = {
    *  onCreated is called with the new task id and the drawer transitions to
    *  the full detail view for that task. */
   createMode?: boolean;
+  /** Pre-select a board column when opening in createMode (e.g. from a column footer). */
+  defaultBoardColumn?: string;
   onCreated?: (taskId: number) => void;
   onOpenChange: (open: boolean) => void;
   onTaskChanged?: () => void;
@@ -114,7 +116,7 @@ function fmtDateTime(v?: string | null) {
   try { return format(new Date(v), "MMM d 'at' h:mma"); } catch { return null; }
 }
 
-export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, onTaskChanged }: Props) {
+export function TaskDetailDrawer({ taskId, createMode, defaultBoardColumn, onCreated, onOpenChange, onTaskChanged }: Props) {
   const open = taskId != null || !!createMode;
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -277,6 +279,7 @@ export function TaskDetailDrawer({ taskId, createMode, onCreated, onOpenChange, 
           <NewTaskForm
             onCreated={(id) => { onTaskChanged?.(); onCreated?.(id); }}
             onCancel={() => onOpenChange(false)}
+            defaultBoardColumn={defaultBoardColumn}
           />
         ) : null}
         {dragActive && t && (
@@ -1829,7 +1832,7 @@ function CrmLinkCombobox({
 // All key task fields are shown upfront — the user came to the Task Hub
 // intentionally, so we give them the full creation form, not a quick capture.
 
-function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void; onCancel: () => void }) {
+function NewTaskForm({ onCreated, onCancel, defaultBoardColumn }: { onCreated: (id: number) => void; onCancel: () => void; defaultBoardColumn?: string }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { columns: cols } = useTaskColumns();
@@ -1838,7 +1841,7 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: number) => void;
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState("medium");
-  const [column, setColumn] = useState("backlog");
+  const [column, setColumn] = useState(defaultBoardColumn || "backlog");
   const [ownerUserId, setOwnerUserId] = useState<string>("me");
   const [linkedContact, setLinkedContact] = useState<{ id: number; label: string } | null>(null);
   const [linkedAccount, setLinkedAccount] = useState<{ id: number; label: string } | null>(null);
