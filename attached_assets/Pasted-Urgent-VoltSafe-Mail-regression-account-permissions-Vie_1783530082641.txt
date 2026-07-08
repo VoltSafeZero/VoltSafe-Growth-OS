@@ -1,0 +1,226 @@
+Urgent VoltSafe Mail regression: account permissions, View Only mode, drafts/load errors, and sidebar account grouping.
+
+Production screenshots show:
+
+1. Settings → Mailboxes & Signatures looks mostly correct:
+- trevor@voltsafe.com = VoltSafe Business
+- burgesstrevor76@gmail.com = Private Account
+- trevor@hyalos.com = Private Account
+- sales@voltsafe.com and support@voltsafe.com = Team Mailboxes
+
+2. But VoltSafe Mail view is broken:
+- User is forced into “View Only” mode.
+- Compose/reply actions are disabled/read-only.
+- Gmail reconnect required appears even though trevor@voltsafe.com is active in settings.
+- Inbox load shows:
+  “Could not load emails.”
+  “Unexpected token 'T', "Too many requests" is not valid JSON”
+- “Failed to load more — tap Load more to retry”
+- Drafts error / mailbox load issues.
+- Mail sidebar no longer shows the proper account grouping clearly.
+
+This likely came from recent mailbox visibility / private inbox / role-permission hardening.
+
+Primary goals:
+1. Restore correct owner permissions for mailboxes.
+2. Fix View Only mode incorrectly applying to Trevor’s own active mailboxes.
+3. Fix bad JSON handling when Gmail/backend returns text like “Too many requests”.
+4. Ensure Mail sidebar uses the same account classification as Settings.
+5. Do not weaken private mailbox isolation.
+
+Expected account behavior:
+- trevor@voltsafe.com:
+  - Work/company mailbox
+  - Trevor should have full read/send/manage access unless explicitly revoked.
+  - Should NOT be View Only.
+- trevor@hyalos.com:
+  - Private Account
+  - Trevor should have full read/send/manage access.
+  - Should NOT be View Only for Trevor.
+- burgesstrevor76@gmail.com:
+  - Private Account
+  - Trevor should have full read/send/manage access if connected.
+  - If disconnected/reconnect-required, show reconnect only for that account.
+- sales@voltsafe.com and support@voltsafe.com:
+  - Team mailboxes
+  - Access depends on grants/role.
+  - Trevor/master admin should have appropriate access.
+  - View Only should apply only if the actual permission grant is read-only.
+
+Investigation:
+1. Pull production server logs for:
+   - /api/gmail/accounts
+   - /api/gmail/inbox
+   - /api/gmail/drafts
+   - /api/gmail/messages / threads
+   - /api/gmail/sync-incremental
+   - account access resolver
+   - permission resolver
+   - any “Too many requests” response
+
+2. Pull browser console error from /gmail.
+
+3. Inspect the account list API response used by Mail and compare it to Settings:
+   - id
+   - emailAddress / email_address
+   - visibilityType / visibility_type
+   - isOwner
+   - canRead
+   - canSend
+   - canManage
+   - accessLevel
+   - isShared
+   - connectionStatus
+   - authStatus
+   - unread counts
+
+4. Confirm Mail and Settings are using the same normalized account shape.
+   - If Settings shows accounts correctly but Mail does not, centralize/normalize account classification.
+
+Permission fix:
+1. Find where “View Only” is calculated in Mail.
+2. Fix it so:
+   - owner of private_personal mailbox has canRead=true, canSend=true, canManage=true
+   - owner of company_managed/work mailbox has canRead=true, canSend=true, canManage=true unless policy explicitly says otherwise
+   - team_shared mailbox uses mailbox_access_grants / role permissions
+   - master_admin / authorized admin access is respected for company/team mailboxes
+   - private_personal still blocks non-owner/admin content access
+
+3. Do not infer View Only from:
+   - account being private
+   - account being Gmail
+   - account being newly added
+   - reconnect banner from another account
+   - missing grant row for an owned mailbox
+
+4. Owned mailbox access must not require a mailbox_access_grants row.
+   Ownership itself grants full access to the owner.
+
+Reconnect banner fix:
+1. Reconnect-required banner must be account-specific.
+2. If burgesstrevor76@gmail.com needs reconnect, do not show global read-only state for trevor@voltsafe.com or trevor@hyalos.com.
+3. If selected account is active, do not block it because another account is disconnected.
+4. If All Inboxes includes a disconnected account, skip/flag that account but do not poison active connected accounts.
+
+Too Many Requests / bad JSON fix:
+1. Some endpoint is returning plain text:
+   “Too many requests”
+   and the frontend is trying to parse it as JSON.
+2. Fix frontend API handling:
+   - safely read response text
+   - try JSON parse only when content-type is JSON
+   - for 429/plain text, show clean message:
+     “Gmail rate limit hit. Please wait and retry.”
+   - do not throw raw JSON/parse errors into UI
+3. Fix backend if needed:
+   - all app API endpoints should return JSON, including errors
+   - Gmail/provider 429 should be wrapped as JSON:
+     { message: "Gmail rate limit hit. Please wait and retry.", code: "GMAIL_RATE_LIMIT" }
+4. Load-more should not crash the whole inbox when one page hits rate limit.
+   - keep already loaded messages visible
+   - show retry affordance
+   - do not blank the mailbox
+
+Drafts/load errors:
+1. Audit drafts endpoints and frontend draft fetches.
+2. Ensure selected account scope is passed.
+3. Ensure drafts endpoint respects canRead/canSend correctly.
+4. Ensure errors are JSON-safe and account-specific.
+5. Ensure drafts failure does not force entire Mail page into View Only.
+
+Sidebar/grouping fix:
+Mail sidebar should mirror Settings classification:
+
+Expected Mail sidebar:
+- All Inboxes
+- WORK INBOX
+  - trevor@voltsafe.com
+- TEAM INBOXES
+  - sales@voltsafe.com
+  - support@voltsafe.com
+- PRIVATE INBOXES
+  - trevor@hyalos.com
+  - burgesstrevor76@gmail.com
+
+Rules:
+- Private inboxes never appear under Team Inboxes.
+- Work/team inboxes do not disappear when private accounts exist.
+- Mail and Settings must agree on account labels.
+- Selecting each mailbox must use that account id, not asAccountId=all.
+- All Inboxes uses asAccountId=all only when explicitly selected.
+
+Tests required:
+Add/update tests for:
+
+Permissions:
+1. Owner of private_personal mailbox is not View Only.
+2. Owner of company_managed/work mailbox is not View Only.
+3. Owned mailbox full access does not require grant row.
+4. Non-owner private_personal access remains blocked.
+5. Team mailbox canSend/canManage follows grants.
+6. Reconnect-required private account does not make active work account read-only.
+7. Disconnected account does not poison All Inboxes or active account.
+
+Mail API/error handling:
+8. Plain text “Too many requests” does not cause JSON parse crash.
+9. 429/Gmail rate-limit returns clean user-facing message.
+10. Load-more failure preserves already loaded messages.
+11. Drafts endpoint errors are scoped and JSON-safe.
+12. Drafts failure does not force global View Only.
+
+Sidebar/account grouping:
+13. Settings and Mail use same normalized account shape.
+14. trevor@voltsafe.com appears under WORK INBOX.
+15. sales/support appear under TEAM INBOXES.
+16. trevor@hyalos.com and burgesstrevor76@gmail.com appear under PRIVATE INBOXES.
+17. No account avatar/render crash for email_address vs emailAddress.
+18. Account switching clears reading pane and preserves correct permissions.
+
+Validation:
+1. Run:
+   - private-inbox-grouping
+   - mailbox-privacy-live
+   - mail-permissions
+   - mailbox-switching
+   - gmail-reconnect
+   - any drafts/mail API tests
+   - build/typecheck
+
+2. Boot locally.
+3. Verify Settings → Mailboxes & Signatures still shows:
+   - VoltSafe Business
+   - Private Account
+   - Team Mailboxes
+
+4. Verify /gmail:
+   - no View Only for Trevor’s own active mailboxes
+   - compose/reply enabled where Trevor has send rights
+   - account groups render correctly
+   - inbox loads without JSON parse crash
+   - load-more rate-limit shows clean retry message
+   - drafts errors do not crash/lock the page
+
+5. Deploy.
+6. Verify production /gmail with screenshots.
+7. Check production logs for:
+   - no JSON parse crashes
+   - no mailbox permission false negatives
+   - no global reconnect poisoning
+   - no privacy regressions
+
+Do not change:
+- private_personal owner-only privacy rule
+- admin/non-owner private mailbox blocking
+- CRM/AI/Cortex privacy hardening
+- Marine Related behavior
+- Gmail OAuth flow except account-specific reconnect handling if needed
+
+Deliverable:
+Report:
+- exact root causes
+- account permission resolver fix
+- rate-limit/error handling fix
+- drafts fix
+- sidebar grouping fix
+- tests added/updated
+- production verification result
