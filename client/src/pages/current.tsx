@@ -1783,8 +1783,8 @@ function ThreadPanel({
 
   // Post reply
   const postReplyMutation = useMutation({
-    mutationFn: (body: string) =>
-      apiRequest("POST", `/api/current/messages/${rootMessageId}/thread`, { body })
+    mutationFn: ({ body, hasPendingAttachments }: { body: string; hasPendingAttachments?: boolean }) =>
+      apiRequest("POST", `/api/current/messages/${rootMessageId}/thread`, { body, hasPendingAttachments })
         .then((r) => r.json()),
   });
 
@@ -1846,10 +1846,11 @@ function ThreadPanel({
 
   async function handleReplySend() {
     const trimmed = replyDraft.trim();
-    if (!trimmed || postReplyMutation.isPending || isReplyUploading) return;
+    const hasFiles = replyPendingFiles.length > 0;
+    if ((!trimmed && !hasFiles) || postReplyMutation.isPending || isReplyUploading) return;
     const cmd = threadSlash.selectedCommand;
     try {
-      const newMsg = await postReplyMutation.mutateAsync(trimmed);
+      const newMsg = await postReplyMutation.mutateAsync({ body: trimmed, hasPendingAttachments: hasFiles });
       threadSlash.clearCommand();
       setReplyDraft("");
       replyMention.closeMention();
@@ -2191,7 +2192,7 @@ function ThreadPanel({
               <Button
                 size="sm"
                 onClick={handleReplySend}
-                disabled={!replyDraft.trim() || postReplyMutation.isPending || isReplyUploading}
+                disabled={(!replyDraft.trim() && replyPendingFiles.length === 0) || postReplyMutation.isPending || isReplyUploading}
                 className="shrink-0 h-7 w-7 p-0 rounded-lg transition-all"
                 data-testid="btn-send-reply"
               >
@@ -4618,8 +4619,8 @@ export default function CurrentPage() {
 
   // Post
   const postMutation = useMutation({
-    mutationFn: (body: string) =>
-      apiRequest("POST", `/api/current/channels/${selectedSlug}/messages`, { body })
+    mutationFn: ({ body, hasPendingAttachments }: { body: string; hasPendingAttachments?: boolean }) =>
+      apiRequest("POST", `/api/current/channels/${selectedSlug}/messages`, { body, hasPendingAttachments })
         .then((r) => r.json()),
   });
 
@@ -4858,10 +4859,11 @@ export default function CurrentPage() {
       return;
     }
     const trimmed = draft.trim();
-    if (!trimmed || postMutation.isPending || isMainUploading) return;
+    const hasFiles = mainPendingFiles.length > 0;
+    if ((!trimmed && !hasFiles) || postMutation.isPending || isMainUploading) return;
     const cmd = channelSlash.selectedCommand;
     try {
-      const newMsg = await postMutation.mutateAsync(trimmed);
+      const newMsg = await postMutation.mutateAsync({ body: trimmed, hasPendingAttachments: hasFiles });
       channelSlash.clearCommand();
       setDraft("");
       mainMention.closeMention();

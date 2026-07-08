@@ -338,8 +338,8 @@ function MessageComposer({
 
   function submit() {
     const trimmed = draft.trim();
-    if (!trimmed || disabled) return;
     const files = [...pendingFiles];
+    if ((!trimmed && files.length === 0) || disabled) return;
     onSend(trimmed, files);
     setDraft("");
     setPendingFiles([]);
@@ -396,7 +396,7 @@ function MessageComposer({
         <Button
           size="sm"
           onClick={submit}
-          disabled={!draft.trim() || disabled}
+          disabled={(!draft.trim() && pendingFiles.length === 0) || disabled}
           className="h-[38px] px-3 shrink-0"
           data-testid="record-current-send"
         >
@@ -835,7 +835,7 @@ function ThreadPanel({
 
   const replyMutation = useMutation({
     mutationFn: async ({ body, files }: { body: string; files: File[] }) => {
-      const r = await apiRequest("POST", `/api/current/messages/${rootId}/thread`, { body });
+      const r = await apiRequest("POST", `/api/current/messages/${rootId}/thread`, { body, hasPendingAttachments: files.length > 0 });
       const newMsg = await r.json();
       if (files.length > 0 && newMsg?.id) {
         const result: UploadResult = await uploadCurrentAttachments(newMsg.id, files);
@@ -1328,7 +1328,7 @@ export function RecordCurrentFeed({ objectType, objectId, initialMessageId, init
   // Mutations
   const postMutation = useMutation({
     mutationFn: async ({ body, files }: { body: string; files: File[] }) => {
-      const r = await apiRequest("POST", apiBase + "/messages", { body });
+      const r = await apiRequest("POST", apiBase + "/messages", { body, hasPendingAttachments: files.length > 0 });
       const newMsg = await r.json();
       if (files.length > 0 && newMsg?.id) {
         const result: UploadResult = await uploadCurrentAttachments(newMsg.id, files);

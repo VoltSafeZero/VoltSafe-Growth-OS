@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Download, ExternalLink, File, FileText, FileSpreadsheet, Archive,
   Code2, FileImage, FileVideo, Music, FileCog,
@@ -66,6 +67,15 @@ function ImageAttachmentPreview({
   att: CurrentAttachment;
   singleMode: boolean;
 }) {
+  // Resilience: if the image fails to load (corrupt file, deleted from disk,
+  // unsupported/broken format, etc.), fall back to the generic file card
+  // instead of leaving a broken-image icon or raw filename text in the feed.
+  const [broken, setBroken] = useState(false);
+
+  if (broken) {
+    return <FileAttachmentCard att={att} />;
+  }
+
   return (
     <div
       className="relative group/img rounded-xl overflow-hidden border border-border/30 shadow-sm hover:border-primary/30 hover:shadow-md transition-all shrink-0"
@@ -92,6 +102,8 @@ function ImageAttachmentPreview({
             minHeight: singleMode ? 40 : 40,
             display: "block",
           }}
+          onError={() => setBroken(true)}
+          data-testid={`current-attachment-img-error-${att.id}`}
         />
       </a>
       <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 px-2 py-1.5 bg-gradient-to-t from-black/70 via-black/40 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity">

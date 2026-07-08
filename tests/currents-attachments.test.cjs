@@ -31,6 +31,16 @@ const currentSrc = fs.readFileSync(
   "utf8"
 );
 
+const recordFeedSrc = fs.readFileSync(
+  path.join(__dirname, "../client/src/components/current/record-current-feed.tsx"),
+  "utf8"
+);
+
+const routesSrc = fs.readFileSync(
+  path.join(__dirname, "../server/routes.ts"),
+  "utf8"
+);
+
 // ── 1. CurrentAttachment interface ───────────────────────────────────────────
 
 console.log("\n1. CurrentAttachment interface");
@@ -255,6 +265,148 @@ assert(
 assert(
   "msgsWithFiles pattern for Files tab",
   currentSrc.includes("msgsWithFiles") || currentSrc.includes("filter") && currentSrc.includes("attachments")
+);
+
+// ── 13. Filename mojibake fix (upload-time UTF-8 re-decode) ──────────────────
+
+console.log("\n13. Filename encoding fix (mojibake)");
+assert(
+  "fixMojibakeFilename helper defined in routes.ts",
+  routesSrc.includes("function fixMojibakeFilename")
+);
+assert(
+  "helper re-decodes latin1-mangled bytes back to utf8",
+  routesSrc.includes('Buffer.from(name, "latin1").toString("utf8")')
+);
+assert(
+  "helper guards against corrupting genuinely-invalid input (replacement char check)",
+  routesSrc.includes("\\uFFFD")
+);
+assert(
+  "POST /api/attachments applies the fix to file.originalname before persisting",
+  routesSrc.includes("originalName: fixMojibakeFilename(file.originalname)")
+);
+// Behavioral check: verify the helper actually reverses the exact mojibake
+// pattern from the bug report (macOS screenshot filename with U+202F).
+(function testMojibakeRoundTrip() {
+  console.log("\n13b. Mojibake round-trip (behavioral)");
+  function fixMojibakeFilename(name) {
+    if (!name) return name;
+    try {
+      const reDecoded = Buffer.from(name, "latin1").toString("utf8");
+      if (reDecoded.includes("\uFFFD")) return name;
+      return reDecoded;
+    } catch {
+      return name;
+    }
+  }
+  const original = "Screenshot 2026-07-07 at 8.01.09\u202FPM.png";
+  // Simulate what busboy/multer does: the browser sends UTF-8 bytes for the
+  // filename header, but multer/busboy decodes those bytes as latin1.
+  const mangled = Buffer.from(original, "utf8").toString("latin1");
+  assert(
+    "simulated mangled name matches the bug report's mojibake example",
+    mangled.includes("\u00e2\u0080\u00af"),
+    `got: ${mangled}`
+  );
+  const fixed = fixMojibakeFilename(mangled);
+  assert(
+    "fixMojibakeFilename recovers the original UTF-8 filename",
+    fixed === original,
+    `expected: ${original}, got: ${fixed}`
+  );
+  const ascii = "invoice.pdf";
+  assert(
+    "fixMojibakeFilename is a no-op for pure-ASCII names",
+    fixMojibakeFilename(ascii) === ascii
+  );
+})();
+
+// ── 14. Files-only send support across composers ─────────────────────────────
+
+console.log("\n14. Files-only (no text) send support");
+assert(
+  "channel POST route accepts hasPendingAttachments and allows empty body",
+  routesSrc.includes('if (!body && !hasPendingAttachments) return res.status(400).json({ message: "Message body is required" });')
+);
+assert(
+  "thread reply POST route accepts hasPendingAttachments and allows empty body",
+  routesSrc.includes('if (!body && !hasPendingAttachments) return res.status(400).json({ message: "Reply body is required" });')
+);
+assert(
+  "record message POST route accepts hasPendingAttachments and allows empty body",
+  (routesSrc.match(/if \(!body && !hasPendingAttachments\) return res\.status\(400\)\.json\(\{ message: "Message body is required" \}\);/g) || []).length >= 2
+);
+assert(
+  "DM POST route already supported hasPendingAttachments (baseline, unchanged)",
+  routesSrc.includes("if (!rawBody && !hasPendingAttachments) return res.status(400).json({ message: \"Message body is required\" });")
+);
+assert(
+  "channel composer (handleSend) allows send when files are pending with empty draft",
+  currentSrc.includes("const hasFiles = mainPendingFiles.length > 0;") &&
+  currentSrc.includes("if ((!trimmed && !hasFiles) || postMutation.isPending || isMainUploading) return;")
+);
+assert(
+  "channel postMutation forwards hasPendingAttachments to the server",
+  currentSrc.includes("hasPendingAttachments: hasFiles })")
+);
+assert(
+  "thread reply composer (handleReplySend) allows send when files are pending with empty draft",
+  currentSrc.includes("const hasFiles = replyPendingFiles.length > 0;") &&
+  currentSrc.includes("if ((!trimmed && !hasFiles) || postReplyMutation.isPending || isReplyUploading) return;")
+);
+assert(
+  "reply send button is enabled when files are pending even with empty draft",
+  currentSrc.includes("disabled={(!replyDraft.trim() && replyPendingFiles.length === 0) || postReplyMutation.isPending || isReplyUploading}")
+);
+assert(
+  "record-current MessageComposer allows submit when files are pending with empty draft",
+  recordFeedSrc.includes("if ((!trimmed && files.length === 0) || disabled) return;")
+);
+assert(
+  "record-current send button enabled when files pending with empty draft",
+  recordFeedSrc.includes("disabled={(!draft.trim() && pendingFiles.length === 0) || disabled}")
+);
+assert(
+  "record-current reply mutation forwards hasPendingAttachments",
+  recordFeedSrc.includes("hasPendingAttachments: files.length > 0 })")
+);
+
+// ── 15. Broken-image resilience (fallback to file card) ──────────────────────
+
+console.log("\n15. Broken image render resilience");
+assert(
+  "ImageAttachmentPreview tracks a broken-image state",
+  displaySrc.includes("const [broken, setBroken] = useState(false);")
+);
+assert(
+  "img element has onError handler to flip broken state",
+  displaySrc.includes("onError={() => setBroken(true)}")
+);
+assert(
+  "broken image falls back to FileAttachmentCard, not raw text",
+  displaySrc.includes("if (broken) {") &&
+  displaySrc.includes("return <FileAttachmentCard att={att} />;")
+);
+assert(
+  "useState imported in attachment display module",
+  displaySrc.includes('import { useState } from "react";')
+);
+
+// ── 16. Upload failure surfaces an error (no silent plain-text fallback) ─────
+
+console.log("\n16. Upload failure error surfacing");
+assert(
+  "uploadCurrentAttachments reports failed files by name",
+  displaySrc.includes("failed.push(file.name)")
+);
+assert(
+  "channel send surfaces upload failures via toast",
+  currentSrc.includes('title: "Some files failed to upload"')
+);
+assert(
+  "record-current send surfaces upload failures via toast",
+  recordFeedSrc.includes('title: "Some files failed to upload"')
 );
 
 // ── Summary ───────────────────────────────────────────────────────────────────

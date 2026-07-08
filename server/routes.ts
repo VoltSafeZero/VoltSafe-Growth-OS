@@ -6984,6 +6984,26 @@ export async function registerRoutes(
     res.json(await storage.getAttachments(objectType as string, Number(objectId)));
   });
 
+  // busboy/multer decode multipart `filename=` headers as latin1 by default.
+  // Modern browsers send the raw filename as UTF-8 bytes in that header (no
+  // RFC 2231 filename*= extension for simple multipart/form-data uploads), so
+  // any non-ASCII byte comes through mis-decoded (mojibake), e.g. macOS
+  // screenshot names with U+202F (NARROW NO-BREAK SPACE) become "â€¯". Re-encode
+  // the mis-decoded string back to its original bytes and decode as UTF-8. This
+  // is a no-op for pure-ASCII names and is only applied when the round-trip
+  // produces valid UTF-8 (no replacement characters), so we never mangle a
+  // filename that was genuinely latin1 to begin with.
+  function fixMojibakeFilename(name: string): string {
+    if (!name) return name;
+    try {
+      const reDecoded = Buffer.from(name, "latin1").toString("utf8");
+      if (reDecoded.includes("\uFFFD")) return name;
+      return reDecoded;
+    } catch {
+      return name;
+    }
+  }
+
   app.post("/api/attachments", requireAuth, (req, res, next) => {
     upload.array("file", 20)(req, res, (err) => {
       if (err) {
@@ -7069,7 +7089,7 @@ export async function registerRoutes(
           objectType,
           objectId: Number(objectId),
           fileName: file.filename,
-          originalName: file.originalname,
+          originalName: fixMojibakeFilename(file.originalname),
           mimeType: file.mimetype,
           fileSize: file.size,
           uploadedBy: req.session.userId ?? null,
@@ -35982,7 +36002,8 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = getSessionUserId(req);
       const { slug } = req.params;
       const body = String(req.body?.body || "").trim();
-      if (!body) return res.status(400).json({ message: "Message body is required" });
+      const hasPendingAttachments = req.body?.hasPendingAttachments === true;
+      if (!body && !hasPendingAttachments) return res.status(400).json({ message: "Message body is required" });
       if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
 
       const chanRows = await db.execute(sql.raw(`
@@ -36724,8 +36745,9 @@ export function registerConfluenceRoutes(app: Express) {
       const userId = getSessionUserId(req);
       const rootId = Number(req.params.id);
       const body = String(req.body?.body || "").trim();
+      const hasPendingAttachments = req.body?.hasPendingAttachments === true;
       if (!rootId) return res.status(400).json({ message: "Invalid message id" });
-      if (!body) return res.status(400).json({ message: "Reply body is required" });
+      if (!body && !hasPendingAttachments) return res.status(400).json({ message: "Reply body is required" });
       if (body.length > 10000) return res.status(400).json({ message: "Reply too long" });
 
       const rootRows = await db.execute(sql.raw(`
@@ -37075,7 +37097,8 @@ export function registerConfluenceRoutes(app: Express) {
       if (!ALLOWED_RECORD_TYPES.has(objectType) || !objectId)
         return res.status(400).json({ message: "Invalid record type or id" });
       const body = String(req.body?.body || "").trim();
-      if (!body) return res.status(400).json({ message: "Message body is required" });
+      const hasPendingAttachments = req.body?.hasPendingAttachments === true;
+      if (!body && !hasPendingAttachments) return res.status(400).json({ message: "Message body is required" });
       if (body.length > 10000) return res.status(400).json({ message: "Message too long" });
 
       const escaped = body.replace(/'/g, "''");
