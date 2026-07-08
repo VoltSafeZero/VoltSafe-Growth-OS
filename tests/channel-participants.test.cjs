@@ -20,10 +20,21 @@
  */
 
 "use strict";
-const assert = require("assert");
-const http   = require("http");
-const path   = require("path");
-const fs     = require("fs");
+const assert        = require("assert");
+const http          = require("http");
+const path          = require("path");
+const fs            = require("fs");
+const { execSync }  = require("child_process");
+
+// ── Idempotent viewer seed ────────────────────────────────────────────────────
+// viewer@voltsafe.com must exist with a known password before any login attempt.
+// seed-viewer-user.ts is idempotent: INSERT-or-UPDATE, safe to run every time.
+try {
+  execSync("npx tsx scripts/seed-viewer-user.ts", { stdio: "inherit", timeout: 30_000 });
+} catch (e) {
+  console.error("Failed to seed viewer user:", e.message);
+  process.exit(1);
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

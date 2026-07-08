@@ -5970,16 +5970,24 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   };
 
   // canSend: account must be active AND user must have edit permission for shared inboxes.
-  // In "all" (unified) mode we route compose through the personal account, so permission
-  // logic mirrors the personal-account case (always allowed if active).
+  // IMPORTANT: check `activeAccountId === "all"` BEFORE the authStatus guard.
+  // In unified mode the connectedAccount is the work/personal account. If that one
+  // account happens to be expired, the old order returned false immediately — forcing
+  // the entire unified inbox into View Only even when other active accounts exist.
   const canSend = (() => {
+    // Unified "All Inboxes" mode: can compose/reply if ANY owned active account exists.
+    // We route the compose through whichever owned account is active, so the single
+    // expired-work-account case must not poison all other active private/team accounts.
+    if (activeAccountId === "all") {
+      return (accountsQuery.data ?? []).some((a) => a.isOwner && a.authStatus === "active");
+    }
     if (connectedAccount?.authStatus !== "active") return false;
-    if (activeAccountId === "all") return true;
     // Shared account: check mail_team edit permission
     if (activeAccountId && !connectedAccount?.isOwner) {
       if (isAdmin) return true;
       const entry = mailTeamPerms[String(activeAccountId)];
       if (entry) return entry.edit !== false && entry.view !== false;
+      return false;
     }
     return true;
   })();
@@ -6034,7 +6042,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       // [INBOX-QFN-LOG] Temporary diagnostic — remove after root cause confirmed
       console.log("[INBOX-QFN] request", { activeAccountId, url: `/api/gmail/messages?${params}`, crmFilter, inboxCategory });
       const res = await fetch(`/api/gmail/messages?${params}`, { credentials: "include" });
-      if (!res.ok) throw new Error((await res.json()).message);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        let msg: string;
+        try { msg = (JSON.parse(txt) as any).message ?? txt; }
+        catch { msg = res.status === 429 ? "Gmail rate limit hit. Please wait a moment and retry." : txt || `HTTP ${res.status}`; }
+        throw new Error(msg);
+      }
       const _json = await res.json();
       const _have = (_json.messages ?? []).filter((m: any) => Array.isArray(m.labelIds) && m.labelIds.includes("UNREAD")).length;
       console.log("[INBOX-QFN] response", {

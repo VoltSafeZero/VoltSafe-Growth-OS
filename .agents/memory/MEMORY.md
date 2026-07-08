@@ -61,3 +61,4 @@
 - [Mailbox Visibility Privacy](mailbox-visibility-privacy.md) — private_personal blocks ALL non-owners including admins; no admin bypass; raw SQL only (not Drizzle schema).
 - [Private Inbox Sidebar Grouping](private-inbox-grouping.md) — three-section sidebar (WORK INBOX/TEAM INBOXES/PRIVATE INBOXES); migration IS NULL bug; workAccounts must prefer company_managed.
 - [Engagement Thread 500 Fix](engagement-thread-500.md) — email_tracking_pixels lacked updated_at; replyRows query selected p.updated_at causing "Failed query" 500; fixed with COALESCE + runtime migration.
+- [canSend Unified-Mode Guard Order](cansend-unified-guard.md) — check activeAccountId==="all" BEFORE authStatus guard; expired work account poisons entire unified inbox otherwise.
