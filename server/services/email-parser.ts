@@ -1,5 +1,37 @@
 // Parses raw Gmail message data into a normalized email record
 
+/**
+ * Re-decodes a mojibake filename back to its correct UTF-8 string.
+ * multer/busboy decodes MIME header bytes as latin1; multi-byte UTF-8 sequences
+ * (e.g. U+202F narrow no-break space from macOS screenshot names) therefore
+ * arrive as a string of latin1 codepoints in U+0080–U+00FF.
+ * This function re-encodes those codepoints as latin1 bytes and decodes as UTF-8.
+ * Safe: returns the original unchanged if the round-trip produces U+FFFD
+ * (i.e. the bytes were not valid UTF-8, so they really were latin1).
+ */
+function fixMojibakeFilename(name: string): string {
+  if (!name) return name;
+  // Quick check: if no chars in the latin-1 supplement block, nothing to do.
+  let hasSupplement = false;
+  for (let i = 0; i < name.length; i++) {
+    const cp = name.charCodeAt(i);
+    if (cp >= 0x80 && cp <= 0xFF) { hasSupplement = true; break; }
+  }
+  if (!hasSupplement) return name;
+  try {
+    const reDecoded = Buffer.from(name, "latin1").toString("utf8");
+    if (reDecoded.includes("\uFFFD")) return name;
+    const dangerousIntroduced =
+      (!name.includes("/") && reDecoded.includes("/")) ||
+      (!name.includes("\\") && reDecoded.includes("\\")) ||
+      (!name.includes("\0") && reDecoded.includes("\0"));
+    if (dangerousIntroduced) return name;
+    return reDecoded;
+  } catch {
+    return name;
+  }
+}
+
 const GENERIC_DOMAINS = new Set([
   "gmail.com", "googlemail.com", "outlook.com", "hotmail.com",
   "yahoo.com", "icloud.com", "me.com", "live.com", "msn.com",
@@ -135,7 +167,7 @@ function extractAttachments(payload: any, out: ParsedAttachment[] = []): ParsedA
       payload.mimeType && !payload.mimeType.startsWith("multipart/")) {
     out.push({
       gmailAttachmentId: payload.body?.attachmentId || null,
-      filename: filename || (contentId ? `inline-${contentId}` : "(unnamed)"),
+      filename: fixMojibakeFilename(filename || (contentId ? `inline-${contentId}` : "(unnamed)")),
       mimeType: payload.mimeType || "application/octet-stream",
       sizeBytes: Number(payload.body?.size || 0),
       contentId,
