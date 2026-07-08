@@ -601,17 +601,27 @@ async function getAccessibleAccountIds(
   isAdmin: boolean,
   mailTeamPerms: Record<string, { view: boolean; edit: boolean }> = {},
 ): Promise<number[]> {
-  const [ownAccts, sharedAccts] = await Promise.all([
-    db.select({ id: emailAccounts.id }).from(emailAccounts)
-      .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true))),
-    db.select({ id: emailAccounts.id }).from(emailAccounts)
-      .where(and(eq(emailAccounts.isShared, true), eq(emailAccounts.isActive, true))),
-  ]);
+  // Own accounts: always accessible regardless of visibility_type
+  const ownAccts = await db.select({ id: emailAccounts.id }).from(emailAccounts)
+    .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isActive, true)));
   const ownIds = ownAccts.map((a) => a.id);
-  const sharedIds = isAdmin
-    ? sharedAccts.map((a) => a.id)
-    : sharedAccts.filter((a) => mailTeamPerms[String(a.id)]?.view === true).map((a) => a.id);
-  return [...new Set([...ownIds, ...sharedIds])];
+
+  // Non-owned accounts: private_personal is NEVER accessible by others — no admin bypass.
+  // Only team_shared and company_managed accounts are visible to non-owners.
+  const nonOwnedRows = await db.execute(sql.raw(`
+    SELECT id FROM email_accounts
+    WHERE is_active = true
+      AND user_id != ${userId}
+      AND COALESCE(visibility_type, 'private_personal') != 'private_personal'
+  `));
+  const nonOwnedIds = ((nonOwnedRows as any).rows ?? []).map((r: any) => Number(r.id)) as number[];
+
+  // Admins see all team_shared/company_managed; non-admins need explicit permission
+  const accessibleNonOwned: number[] = isAdmin
+    ? nonOwnedIds
+    : nonOwnedIds.filter((id) => mailTeamPerms[String(id)]?.view === true);
+
+  return [...new Set([...ownIds, ...accessibleNonOwned])];
 }
 
 // Module-level admin guard — available to all route-registration functions.
@@ -13623,18 +13633,24 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     isAdmin = false,
     mailTeamPerms: Record<string, { view: boolean; edit: boolean }> = {},
   ) {
-    const allSharedCondition = and(eq(emailAccounts.isActive, true), eq(emailAccounts.isShared, true));
-    const [ownAccts, sharedAccts] = await Promise.all([
-      db.select().from(emailAccounts)
-        .where(and(eq(emailAccounts.isActive, true), eq(emailAccounts.userId, userId))),
-      db.select().from(emailAccounts).where(allSharedCondition),
-    ]);
+    // Own accounts: always accessible regardless of visibility_type
+    const ownAccts = await db.select().from(emailAccounts)
+      .where(and(eq(emailAccounts.isActive, true), eq(emailAccounts.userId, userId)));
     const ownIds = new Set(ownAccts.map((a) => a.id));
-    const visibleShared = (isAdmin
-      ? sharedAccts
-      : sharedAccts.filter((a) => mailTeamPerms[String(a.id)]?.view === true)
-    ).filter((a) => !ownIds.has(a.id)); // never duplicate an account the user already owns
-    return [...ownAccts, ...visibleShared];
+
+    // Non-owned: private_personal is blocked for ALL non-owners (no admin bypass)
+    const nonOwnedRows = await db.execute(sql.raw(`
+      SELECT * FROM email_accounts
+      WHERE is_active = true
+        AND user_id != ${userId}
+        AND COALESCE(visibility_type, 'private_personal') != 'private_personal'
+    `));
+    const nonOwnedAccts = ((nonOwnedRows as any).rows ?? []) as any[];
+    const visibleOther = (isAdmin
+      ? nonOwnedAccts
+      : nonOwnedAccts.filter((a: any) => mailTeamPerms[String(a.id)]?.view === true)
+    ).filter((a: any) => !ownIds.has(Number(a.id)));
+    return [...ownAccts, ...visibleOther];
   }
 
   // Resolves which account to use for a Gmail API request.
@@ -13675,8 +13691,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         // Owner always has access to their own account
         return { userId: acct.userId, accountId: acct.id, acct };
       }
-      if (!acct.isShared) return null; // Personal account belonging to someone else — deny
-      // Shared account: admins always in; non-admins need explicit view permission
+      // private_personal: no access for non-owners — this INCLUDES admins (no bypass)
+      const vtRowRA = await db.execute(sql.raw(`SELECT COALESCE(visibility_type, 'private_personal') AS vt FROM email_accounts WHERE id = ${asAccountId} LIMIT 1`));
+      const visibilityTypeRA = (vtRowRA as any).rows[0]?.vt ?? 'private_personal';
+      if (visibilityTypeRA === 'private_personal') return null;
+      if (!acct.isShared) return null; // Non-private non-shared account belonging to someone else — deny
+      // team_shared/company_managed: admins always in; non-admins need explicit view permission
       if (!isAdmin && mailTeamPerms[String(acct.id)]?.view !== true) return null;
       return { userId: acct.userId, accountId: acct.id, acct };
     }
@@ -19516,7 +19536,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const userId = (req.session as any).userId;
       const { isAdmin, mailTeamPerms } = await getSessionUserAccess(req.session);
       const accounts = await getAccessibleAccounts(userId, isAdmin, mailTeamPerms);
-      const annotated = accounts.map((a) => ({ ...a, isOwner: a.userId === userId && !a.isShared }));
+      if (accounts.length === 0) return res.json([]);
+      const acctIds = accounts.map((a: any) => a.id);
+      const vtRows = await db.execute(sql.raw(`SELECT id, COALESCE(visibility_type, 'private_personal') AS vt FROM email_accounts WHERE id IN (${acctIds.join(",")})`));
+      const vtMap = new Map(((vtRows as any).rows ?? []).map((r: any) => [Number(r.id), String(r.vt)]));
+      const annotated = accounts.map((a: any) => ({
+        ...a,
+        isOwner: a.userId === userId && !a.isShared,
+        visibilityType: vtMap.get(a.id) ?? (a.isShared ? 'team_shared' : 'private_personal'),
+      }));
       res.json(annotated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -19953,6 +19981,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     const isOwner = acct.userId === userId;
     if (isOwner) return { acct, isOwner: true, isAdmin: false, hasEditGrant: false, userId };
 
+    // private_personal: no access for non-owners — this INCLUDES admins (no bypass)
+    const vtRowEdit = await db.execute(sql.raw(`SELECT COALESCE(visibility_type, 'private_personal') AS vt FROM email_accounts WHERE id = ${accountId} LIMIT 1`));
+    const visibilityTypeEdit = (vtRowEdit as any).rows[0]?.vt ?? 'private_personal';
+    if (visibilityTypeEdit === 'private_personal') {
+      res.status(403).json({ message: "You do not have access to this private mailbox." });
+      return null;
+    }
+
     const role = String((req.session as any).globalRole || "");
     const isAdmin = role === "master_admin" || role === "admin";
     if (isAdmin) return { acct, isOwner: false, isAdmin: true, hasEditGrant: false, userId };
@@ -20321,11 +20357,13 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       return;
     }
 
-    // ── Gmail OAuth callback (personal + shared) ──────────────────────────
+    // ── Gmail OAuth callback (personal + shared + visibility types) ──────
     // Re-check master_admin for shared flows — the initiation route already
     // enforced this, but we verify again at token exchange time to close the
     // window between initiation and callback.
-    const isShared = flowType === "shared";
+    const isShared = flowType === "shared" || flowType === "team_shared" || flowType === "company_managed";
+    const VALID_VT_CB = ["private_personal", "team_shared", "company_managed"];
+    const visibilityTypeCB = VALID_VT_CB.includes(flowType) ? flowType : (isShared ? "team_shared" : "private_personal");
     if (isShared) {
       const [me] = await db.select({ role: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
       if (!me || me.role !== "master_admin") {
@@ -20335,7 +20373,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       }
     }
     try {
-      const { emailAddress, accountId: reconnectedAccountId, isNewAccount } = await exchangeCodeForTokens(code, userId, isShared);
+      const { emailAddress, accountId: reconnectedAccountId, isNewAccount } = await exchangeCodeForTokens(code, userId, isShared, visibilityTypeCB);
       const label = isShared ? "Team inbox" : "personal Gmail account";
       const returnPath = flowType === "personal" ? "/settings/mailbox" : "/gmail";
       res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
@@ -31958,6 +31996,7 @@ export function registerConfluenceRoutes(app: Express) {
       const rows = await db.execute(sql.raw(`
         SELECT id, email_address AS "emailAddress", display_name AS "displayName",
                provider, auth_status AS "authStatus", is_shared AS "isShared",
+               COALESCE(visibility_type, 'private_personal') AS "visibilityType",
                privacy_mode AS "privacyMode", sync_enabled AS "syncEnabled",
                last_sync_at AS "lastSyncAt", sync_error_message AS "syncErrorMessage",
                created_at AS "createdAt"
@@ -31973,18 +32012,49 @@ export function registerConfluenceRoutes(app: Express) {
   app.get("/api/my/mailbox/connect", requireAuth, async (req, res) => {
     try {
       const isShared = req.query.shared === "1";
-      if (isShared) {
+      const rawVt = String(req.query.visibilityType ?? "").trim();
+      const VALID_VT = ["private_personal", "team_shared", "company_managed"];
+      const visibilityType = VALID_VT.includes(rawVt) ? rawVt : (isShared ? "team_shared" : "private_personal");
+      if (visibilityType === "team_shared" || visibilityType === "company_managed") {
         const userId = (req.session as any).userId;
         const [me] = await db.select({ role: users.globalRole }).from(users).where(eq(users.id, userId)).limit(1);
         if (!me || me.role !== "master_admin") {
-          return res.status(403).json({ message: "Only master admins can connect shared team inboxes." });
+          return res.status(403).json({ message: "Only master admins can connect shared or company-managed mailboxes." });
         }
       }
       const { getAuthUrl } = await import("./gmail-oauth");
       const nonce = require("crypto").randomBytes(32).toString("hex");
-      (req.session as any).oauthState = { nonce, type: isShared ? "shared" : "personal" };
+      (req.session as any).oauthState = { nonce, type: visibilityType };
       const url = getAuthUrl(nonce);
       res.json({ url });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // PATCH /api/my/mailbox/:id/visibility — update visibility type
+  app.patch("/api/my/mailbox/:id/visibility", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId as number;
+      const id = Number(req.params.id);
+      const { visibilityType } = req.body;
+      const VALID = ["private_personal", "team_shared", "company_managed"];
+      if (!VALID.includes(visibilityType)) return res.status(400).json({ message: "visibilityType must be: " + VALID.join(", ") });
+      // Only the owner can change their own account's visibility; team_shared/company_managed require admin
+      const [acct] = await db.select({ userId: emailAccounts.userId }).from(emailAccounts).where(eq(emailAccounts.id, id)).limit(1);
+      if (!acct) return res.status(404).json({ message: "Mailbox not found" });
+      const role = String((req.session as any).globalRole || "");
+      const isAdmin = role === "master_admin" || role === "admin";
+      if (acct.userId !== userId && !isAdmin) return res.status(403).json({ message: "Only the mailbox owner can change its visibility." });
+      if ((visibilityType === "team_shared" || visibilityType === "company_managed") && !isAdmin) {
+        return res.status(403).json({ message: "Only admins can change a mailbox to team_shared or company_managed." });
+      }
+      const r = await db.execute(sql.raw(`
+        UPDATE email_accounts
+        SET visibility_type = '${visibilityType}', updated_at = NOW()
+        WHERE id = ${id}
+        RETURNING id, COALESCE(visibility_type, 'private_personal') AS "visibilityType"
+      `));
+      if (!(r as any).rows?.length) return res.status(404).json({ message: "Mailbox not found" });
+      res.json((r as any).rows[0]);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -35142,6 +35212,31 @@ export function registerConfluenceRoutes(app: Express) {
       UNIQUE (channel_id, user_id)
     );
   `)).catch(() => {});
+
+  // Additive migration: mailbox visibility_type + access grants (private personal mailbox support)
+  db.execute(sql.raw(`
+    ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS visibility_type TEXT NOT NULL DEFAULT 'private_personal';
+    UPDATE email_accounts SET visibility_type = 'team_shared' WHERE is_shared = TRUE AND (visibility_type IS NULL OR visibility_type = 'private_personal');
+    UPDATE email_accounts SET visibility_type = 'company_managed'
+      WHERE is_shared = FALSE AND (visibility_type IS NULL OR visibility_type = 'private_personal')
+        AND (email_address LIKE '%@voltsafe.com' OR email_address LIKE 'sales@%' OR email_address LIKE 'support@%'
+             OR email_address LIKE 'info@%' OR email_address LIKE 'hello@%' OR email_address LIKE 'billing@%'
+             OR email_address LIKE 'ops@%' OR email_address LIKE 'admin@%');
+    CREATE TABLE IF NOT EXISTS mailbox_access_grants (
+      id SERIAL PRIMARY KEY,
+      mailbox_account_id INTEGER NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      access_level TEXT NOT NULL DEFAULT 'viewer',
+      can_read BOOLEAN NOT NULL DEFAULT TRUE,
+      can_send BOOLEAN NOT NULL DEFAULT FALSE,
+      can_manage BOOLEAN NOT NULL DEFAULT FALSE,
+      granted_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      CONSTRAINT mailbox_access_grants_unique UNIQUE(mailbox_account_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_mag_mailbox ON mailbox_access_grants(mailbox_account_id);
+    CREATE INDEX IF NOT EXISTS idx_mag_user ON mailbox_access_grants(user_id);
+  `)).catch((e: any) => console.error("[migration] mailbox visibility error:", e.message));
 
   function normalizeChannelSlug(name: string): string {
     return name.toLowerCase().trim()

@@ -1,0 +1,291 @@
+Implement private personal mailbox support in VoltSafe Mail.
+
+Goal:
+Team members must be able to connect their own personal email accounts inside VoltSafe Mail for private sending/receiving, while guaranteeing that no other user, manager, admin, shared team inbox, CRM view, AI feature, or global search can see or access that private mailbox unless the mailbox owner explicitly shares access.
+
+This is a security/privacy feature. Treat it as account-level access control, not just UI filtering.
+
+Core requirement:
+A private personal mailbox is visible and usable only by the user who connected it.
+
+Examples:
+- Trevor connects burgesstrevor76@gmail.com as a private personal mailbox.
+- Only Trevor can see, search, open, send, reply, forward, categorize, tag, or summarize emails from burgesstrevor76@gmail.com.
+- Other users/admins may see only safe connection metadata if needed:
+  - mailbox exists
+  - owner name
+  - provider
+  - connected/disconnected status
+  - last sync timestamp
+- Other users/admins must NOT see:
+  - sender
+  - recipient
+  - subject
+  - snippet
+  - body
+  - attachments
+  - thread list
+  - category counts
+  - CRM links
+  - AI summaries
+  - engagement/open tracking details
+
+Add mailbox visibility types:
+- private_personal
+- team_shared
+- company_managed
+
+If the current schema already has account type, mailbox type, shared account, team inbox, or permission fields, reuse and extend the existing model. Do not invent a duplicate architecture.
+
+Database requirements:
+1. Add or confirm fields on Gmail/mailbox account table:
+   - visibility_type text not null default appropriate value
+   - owner_user_id / connected_by_user_id
+   - organization_id / tenant_id if available
+   - display_name
+   - email_address
+   - provider
+   - connection_status
+   - last_sync_at
+   - created_at
+   - updated_at
+
+2. Add or confirm mailbox access control table for shared/team mailboxes:
+   - mailbox_account_id
+   - user_id
+   - role/access_level: owner, viewer, sender, manager
+   - can_read
+   - can_send
+   - can_manage
+   - created_at
+
+3. Private personal mailbox rule:
+   - owner_user_id is the only user with read/send/manage access.
+   - No implicit admin access to content.
+   - No implicit team access.
+   - No global CRM access.
+
+4. Migration:
+   - Existing personal connected accounts should be classified carefully.
+   - Existing team inboxes like sales@voltsafe.com and support@voltsafe.com should be team_shared/company_managed, not private_personal.
+   - Existing user-owned accounts like burgesstrevor76@gmail.com should become private_personal.
+   - Log/report migration assumptions.
+
+Backend access-control requirements:
+Create/reuse one central mailbox authorization resolver, for example:
+resolveMailboxAccess(userId, mailboxAccountId, requestedMode)
+
+It must answer:
+- canRead
+- canSend
+- canManage
+- isOwner
+- visibilityType
+- allowedAccountIds
+
+Use this resolver everywhere. Do not scatter one-off checks.
+
+Every Gmail/Mail endpoint must enforce mailbox access server-side:
+- list inbox
+- list categories
+- counts
+- search
+- open/read thread
+- read attachments
+- send
+- reply
+- forward
+- drafts
+- archive/delete
+- labels/tags
+- Marine Related
+- Priority Highlights
+- CRM links
+- engagement/open/click tracking
+- AI summarize/generate
+- Cortex/save-to-context
+- exports
+- any background sync read surfaces
+
+Critical:
+Frontend filtering alone is not acceptable. API must refuse unauthorized access.
+
+All Inboxes behavior:
+- “All Inboxes” for a user should include:
+  - that user’s private personal mailboxes
+  - team/shared mailboxes that user has permission to read
+  - company-managed mailboxes that user has permission to read
+- It must NOT include private personal mailboxes owned by other users.
+
+Admin behavior:
+Admins may manage connection status and mailbox access grants for team_shared/company_managed mailboxes.
+Admins may NOT read private_personal mailbox content unless the owner explicitly grants access.
+If the existing app assumes admin can access all Gmail accounts, remove that assumption for private_personal mailboxes.
+
+Frontend requirements:
+1. Add mailbox connection flow option:
+   When connecting a new email account, ask:
+   “How should this mailbox be used?”
+   Options:
+   - Private personal mailbox — only you can see and use it
+   - Shared/team mailbox — visible to selected team members
+   - Company-managed mailbox — managed by company/admin policy
+
+2. Default for non-@voltsafe.com personal domains:
+   - private_personal
+
+3. Default for obvious team addresses:
+   - sales@, support@, info@, hello@, billing@, ops@, admin@ should suggest team_shared
+   - still require confirmation
+
+4. In sidebar:
+   - Private mailboxes should appear under “My Private Mail”
+   - Team/shared mailboxes should appear under “Team Inboxes”
+   - Company mailboxes can appear under “Work Mail” or current account section
+
+5. Show privacy indicator:
+   - For private mailboxes, show a lock icon and label:
+     “Private — only you can see this mailbox.”
+
+6. When switching accounts:
+   - Clear reading pane immediately.
+   - Cancel/refetch active queries with selected mailbox account scope.
+   - Never allow stale email from one account to remain visible under another account.
+
+7. Permission denied UX:
+   If user tries to access a private mailbox they do not own:
+   - show clean 403 message:
+     “You do not have access to this private mailbox.”
+   - do not leak mailbox content.
+
+Send/reply requirements:
+- Sending from private personal mailbox must be allowed only for the owner.
+- Sent mail should remain scoped to that private mailbox.
+- Other users cannot see private sent mail.
+- Shared/team mailbox sending must respect can_send permission.
+
+AI/CRM/Cortex privacy:
+Private personal mailbox content must not be used by:
+- global company AI summaries
+- CEO Cockpit
+- CRM account/contact auto-linking visible to others
+- shared Cortex/company context
+- team reports
+- capital/growth intelligence
+unless the owner explicitly saves/shares a specific email or note.
+
+If a private email is manually linked to CRM by the owner:
+- default it to private link visible only to owner
+- require explicit “Share with team” action before other users can see it
+
+Marine Related:
+Marine Related tags and sender rules must be scoped by mailbox_account_id and owner_user_id.
+A sender tagged in one user’s private mailbox must not affect any other mailbox.
+
+Search:
+- Account-scoped search by default.
+- All Inboxes search should include only accounts the user can read.
+- Global/admin search must exclude private_personal mailboxes not owned by requester.
+
+Background sync:
+- Sync may run server-side for connected private mailboxes.
+- Synced content remains protected by mailbox authorization resolver.
+- Disconnected private mailbox errors should only show to owner/admin metadata view, not other users.
+
+Audit/security logging:
+Add audit logs for:
+- mailbox connected
+- visibility type selected
+- access granted/revoked
+- unauthorized access attempt
+- private mailbox opened by owner
+- send/reply from private mailbox
+Do not log private subject/body/snippet content.
+
+Tests required:
+Create robust account privacy tests with at least:
+Users:
+- Trevor
+- Alice
+- Admin
+
+Mailboxes:
+- Trevor private: burgesstrevor76@gmail.com
+- Alice private: alice.personal@gmail.com
+- Team shared: sales@voltsafe.com
+- Company/work: trevor@voltsafe.com
+
+Tests:
+1. Owner can list own private mailbox.
+2. Owner can open/read own private email.
+3. Owner can send/reply from own private mailbox.
+4. Non-owner cannot list another user’s private mailbox.
+5. Non-owner cannot open/read another user’s private email by ID.
+6. Admin cannot read private_personal content by default.
+7. Admin can see safe metadata only.
+8. All Inboxes excludes private mailboxes owned by others.
+9. Search excludes private mailboxes owned by others.
+10. Counts exclude private mailboxes owned by others.
+11. Reading pane clears on mailbox switch.
+12. Team shared mailbox is visible only to users with access.
+13. Team shared send requires can_send.
+14. Marine Related tags do not cross private mailbox boundaries.
+15. CRM auto-linking does not expose private mailbox content to team.
+16. AI summaries do not include another user’s private mailbox content.
+17. Attachments from private mailboxes are blocked for non-owners.
+18. Unauthorized access returns 403 without leaking content.
+19. Disconnected private mailbox does not affect other users’ mail.
+20. Migration classifies personal Gmail accounts as private_personal and team addresses as team_shared/company_managed.
+
+Validation:
+- Run mail/account isolation tests.
+- Run Gmail integration tests.
+- Run Marine Related tests.
+- Run CRM mail-link tests.
+- Run AI email context tests.
+- Run full typecheck/build.
+
+Manual validation:
+Case A:
+- Trevor connects burgesstrevor76@gmail.com as private personal.
+- Trevor can see/send/read it.
+- It appears under “My Private Mail.”
+- Lock/private label visible.
+
+Case B:
+- Another user logs in.
+- They cannot see burgesstrevor76@gmail.com in sidebar.
+- They cannot search its messages.
+- They cannot open a direct URL/message id from it.
+
+Case C:
+- Admin logs in.
+- Admin can see safe connection metadata only.
+- Admin cannot read subjects/bodies/snippets/attachments.
+
+Case D:
+- All Inboxes for Trevor includes Trevor’s private mailbox and any shared/team inboxes Trevor can read.
+- All Inboxes for another user does not include Trevor’s private mailbox.
+
+Case E:
+- sales@voltsafe.com remains shared/team according to permissions.
+
+Do not break:
+- existing Gmail OAuth flow
+- existing team inboxes
+- account switching
+- Marine Related
+- CRM linking
+- AI email generator
+- tracking/open/click logic
+- current sidebar visual style
+
+Deliverable:
+Report:
+- schema changes
+- access-control resolver design
+- endpoints updated
+- frontend UX added
+- migration assumptions
+- tests added/passing
+- manual validation screenshots/results

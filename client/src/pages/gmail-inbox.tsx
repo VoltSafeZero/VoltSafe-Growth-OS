@@ -9046,6 +9046,9 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       })()}
                     </span>
                     <span className="flex-1 text-left text-[12px] font-medium truncate">{personalAccount.emailAddress}</span>
+                    {(personalAccount as any).visibilityType === 'private_personal' && (
+                      <Lock className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" title="Private mailbox — only visible to you" />
+                    )}
                     {activeAccountId === null && serverInboxUnreadCount > 0 && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
                     )}

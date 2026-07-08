@@ -165,7 +165,8 @@ export function getAuthUrl(state?: string): string {
 export async function exchangeCodeForTokens(
   code: string,
   userId: number,
-  isShared = false
+  isShared = false,
+  visibilityType = 'private_personal'
 ): Promise<{ emailAddress: string; accountId: number | null; isNewAccount: boolean }> {
   const oauth2Client = getOAuth2Client();
   const { tokens } = await oauth2Client.getToken(code);
@@ -238,6 +239,11 @@ export async function exchangeCodeForTokens(
         });
       }
     }
+    // Persist visibility_type (additive column, not in Drizzle schema)
+    if (resultAccountId) {
+      const vt = visibilityType || (isShared ? 'team_shared' : 'private_personal');
+      await db.execute(sql.raw(`UPDATE email_accounts SET visibility_type = '${vt}' WHERE id = ${resultAccountId}`));
+    }
   } else {
     // Personal account: upsert by userId (original behaviour)
     let displayNamePersonal = emailAddress;
@@ -306,6 +312,12 @@ export async function exchangeCodeForTokens(
           emailAddress: emailAddress || null,
         });
       }
+    }
+
+    // Persist visibility_type for personal accounts (additive column)
+    if (resultAccountId) {
+      const vt = visibilityType || 'private_personal';
+      await db.execute(sql.raw(`UPDATE email_accounts SET visibility_type = '${vt}' WHERE id = ${resultAccountId}`)).catch(() => {});
     }
 
     // Legacy compat: also mirror tokens into system_settings under the original

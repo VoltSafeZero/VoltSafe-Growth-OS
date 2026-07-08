@@ -78,6 +78,7 @@ type Mailbox = {
   provider: string;
   authStatus: string;
   isShared: boolean;
+  visibilityType?: string;
   privacyMode: string;
   syncEnabled: boolean;
   lastSyncAt: string | null;
@@ -872,6 +873,8 @@ function HealthLegend() {
 export default function MailboxSettingsPage() {
   const { toast } = useToast();
   const [connecting, setConnecting] = useState(false);
+  const [showVisibilityPicker, setShowVisibilityPicker] = useState(false);
+  const [pendingVisibilityType, setPendingVisibilityType] = useState<"private_personal" | "team_shared" | "company_managed">("private_personal");
   // Phase 3: filter tabs across the visible mailbox surface.
   const [filter, setFilter] = useState<"all" | "mine" | "shared">("all");
 
@@ -922,10 +925,11 @@ export default function MailboxSettingsPage() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const handleConnect = async (shared = false) => {
+  const handleConnect = async (visibilityType: "private_personal" | "team_shared" | "company_managed" = "private_personal") => {
     setConnecting(true);
     try {
-      const res = await apiRequest("GET", `/api/my/mailbox/connect${shared ? "?shared=1" : ""}`);
+      const qs = `?visibilityType=${encodeURIComponent(visibilityType)}${visibilityType !== "private_personal" ? "&shared=1" : ""}`;
+      const res = await apiRequest("GET", `/api/my/mailbox/connect${qs}`);
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
@@ -934,6 +938,11 @@ export default function MailboxSettingsPage() {
       toast({ title: "Error", description: e.message, variant: "destructive" });
       setConnecting(false);
     }
+  };
+
+  const openVisibilityPicker = (defaultType: "private_personal" | "team_shared" | "company_managed" = "private_personal") => {
+    setPendingVisibilityType(defaultType);
+    setShowVisibilityPicker(true);
   };
 
   const myPersonal = myMailboxes.filter(m => !m.isShared);
@@ -1004,7 +1013,7 @@ export default function MailboxSettingsPage() {
           </h2>
           <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5"
             disabled={connecting}
-            onClick={() => handleConnect(false)}
+            onClick={() => openVisibilityPicker("private_personal")}
             data-testid="btn-connect-personal">
             {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
             {myPersonal.length > 0 ? "Connect another Gmail account" : "Connect Gmail"}
@@ -1019,7 +1028,7 @@ export default function MailboxSettingsPage() {
               <SiGmail className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">No personal mailbox connected yet.</p>
               <p className="text-xs text-muted-foreground mt-1">Connect your Gmail to start building relationship intelligence.</p>
-              <Button size="sm" className="mt-4 gap-1.5" onClick={() => handleConnect(false)}
+              <Button size="sm" className="mt-4 gap-1.5" onClick={() => openVisibilityPicker("private_personal")}
                 disabled={connecting} data-testid="btn-connect-personal-empty">
                 <Plus className="h-3.5 w-3.5" /> Connect Gmail Account
               </Button>
@@ -1124,6 +1133,79 @@ export default function MailboxSettingsPage() {
           </Card>
         )}
       </div>
+
+      {/* Visibility picker dialog — shown before triggering OAuth connect */}
+      <Dialog open={showVisibilityPicker} onOpenChange={setShowVisibilityPicker}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-visibility-picker">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="h-4 w-4 text-primary" />
+              How should this mailbox be accessible?
+            </DialogTitle>
+            <DialogDescription>
+              Choose who can see this mailbox in the inbox. You can change this later in mailbox settings.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-1">
+            {([
+              {
+                value: "private_personal" as const,
+                label: "Private — just me",
+                desc: "Only you can see this mailbox. Admins cannot bypass this restriction.",
+                icon: <Lock className="h-4 w-4 text-muted-foreground" />,
+                show: true,
+              },
+              {
+                value: "team_shared" as const,
+                label: "Team Shared",
+                desc: "Any team member with explicit permission can access this inbox.",
+                icon: <Users className="h-4 w-4 text-teal-400" />,
+                show: isAdmin,
+              },
+              {
+                value: "company_managed" as const,
+                label: "Company Managed",
+                desc: "Admins manage this as a company-wide mailbox (e.g. sales@, support@).",
+                icon: <Building2 className="h-4 w-4 text-blue-400" />,
+                show: isAdmin,
+              },
+            ] as const).filter(o => o.show).map(({ value, label, desc, icon }) => (
+              <button
+                key={value}
+                onClick={() => setPendingVisibilityType(value)}
+                data-testid={`visibility-option-${value}`}
+                className={`w-full flex items-start gap-3 p-3 rounded-lg border transition-colors text-left ${
+                  pendingVisibilityType === value
+                    ? "border-primary bg-primary/10"
+                    : "border-border/40 hover:border-border hover:bg-muted/40"
+                }`}
+              >
+                <span className="mt-0.5 flex-shrink-0">{icon}</span>
+                <div>
+                  <div className="text-sm font-medium">{label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{desc}</div>
+                </div>
+                {pendingVisibilityType === value && (
+                  <CheckCircle2 className="h-4 w-4 text-primary ml-auto mt-0.5 flex-shrink-0" />
+                )}
+              </button>
+            ))}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowVisibilityPicker(false)} data-testid="btn-visibility-cancel">
+              Cancel
+            </Button>
+            <Button
+              disabled={connecting}
+              onClick={() => { setShowVisibilityPicker(false); handleConnect(pendingVisibilityType); }}
+              data-testid="btn-visibility-confirm"
+            >
+              {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Connect Gmail
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
