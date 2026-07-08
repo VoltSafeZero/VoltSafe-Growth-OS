@@ -359,6 +359,9 @@ export default function MarketingAnalyticsPage() {
               </div>
             )}
 
+            {/* Campaign ROI / Pipeline Attribution (Phase 10) */}
+            <CampaignRoiAttributionSection />
+
             {/* Automation Metrics */}
             <AutomationMetricsSection />
 
@@ -548,4 +551,243 @@ function RateBar({ value, max, color }: { value: number; max: number; color: str
   );
 }
 
-/* Phase 10 ROI / Attribution section moved to Campaign Detail → Advanced tab */
+// ── Phase 10: Campaign ROI / Pipeline Attribution ────────────────────────────
+
+type AttributionCampaignRow = {
+  campaign_id: number;
+  campaign_name: string;
+  campaign_type: string;
+  status: string;
+  sent_count: number;
+  replied_count: number;
+  total_attribution_events: number;
+  tasks: number;
+  meetings: number;
+  opportunities: number;
+  proposals: number;
+  pipeline_value: number | null;
+  won_revenue: number | null;
+  influenced_accounts: number;
+  top_confidence: "high" | "medium" | "low" | null;
+};
+
+type AttributionPersonaRow = {
+  persona: string;
+  campaigns: number;
+  engaged_accounts: number;
+  opportunities: number;
+  pipeline_value: number | null;
+  won_revenue: number | null;
+};
+
+type AttributionStakeholderRow = {
+  role: string;
+  replies_with_tasks: number;
+  meetings: number;
+  opportunities: number;
+  pipeline_value: number | null;
+};
+
+type AttributionDashboard = {
+  campaigns: AttributionCampaignRow[];
+  personas: AttributionPersonaRow[];
+  stakeholders: AttributionStakeholderRow[];
+};
+
+function money(v: number | string | null | undefined): string {
+  if (v == null) return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `$${n.toLocaleString()}`;
+}
+
+function confidenceBadge(level: string | null) {
+  if (level === "high") return "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+  if (level === "medium") return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+  if (level === "low") return "bg-slate-500/15 text-slate-400 border-slate-500/30";
+  return "bg-muted/30 text-muted-foreground border-border/50";
+}
+
+function CampaignRoiAttributionSection() {
+  const { data, isLoading, isError } = useQuery<AttributionDashboard>({
+    queryKey: ["/api/marketing/attribution"],
+    queryFn: () =>
+      fetch("/api/marketing/attribution")
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status)))),
+    staleTime: 60000,
+  });
+
+  const campaigns = data?.campaigns ?? [];
+  const personas = data?.personas ?? [];
+  const stakeholders = data?.stakeholders ?? [];
+
+  const hasAnyRevenue = campaigns.some(c => c.pipeline_value != null || c.won_revenue != null);
+  const hasAnyEvents = campaigns.some(c => c.total_attribution_events > 0);
+
+  return (
+    <div data-testid="campaign-roi-attribution-section">
+      <h2 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-2">
+        <TrendingUp className="w-4 h-4 text-cyan-400" /> Campaign ROI / Pipeline Attribution
+      </h2>
+      <p className="text-xs text-muted-foreground mb-3">
+        Conservative, rule-based attribution linking campaign activity to CRM pipeline. Columns are labelled
+        <span className="font-medium text-foreground"> Direct</span>,
+        <span className="font-medium text-foreground"> Influenced</span>,
+        <span className="font-medium text-foreground"> Assisted</span>, or
+        <span className="font-medium text-foreground"> Manual</span> based on how confidently the event ties to the campaign.
+        Won revenue is only shown for deals actually marked <span className="font-medium text-foreground">closed-won</span>; influenced pipeline is never counted as won.
+      </p>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+        </div>
+      ) : isError ? (
+        <div className="rounded-xl border border-border/40 bg-muted/20 px-6 py-8 text-center" data-testid="attribution-dashboard-error">
+          <AlertTriangle className="w-6 h-6 text-amber-400 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">Could not load attribution data. Please try refreshing.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {!hasAnyRevenue && (
+            <div className="rounded-lg border border-dashed border-border/40 bg-muted/10 px-4 py-3 text-xs text-muted-foreground text-center" data-testid="attribution-no-revenue-banner">
+              Revenue fields are not yet available. Showing task/opportunity influence only.
+            </div>
+          )}
+
+          {/* Campaign Attribution table */}
+          <div>
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Campaign Attribution</h3>
+            {!hasAnyEvents ? (
+              <div className="rounded-xl border border-dashed border-border/40 bg-muted/10 px-5 py-8 text-center" data-testid="campaign-attribution-table-empty">
+                <TrendingUp className="w-7 h-7 text-muted-foreground/30 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No attribution events recorded yet.</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">
+                  Attribution events appear automatically once campaign replies create tasks, meetings, or opportunities.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border/50 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[900px]" data-testid="campaign-attribution-table">
+                    <thead>
+                      <tr className="border-b border-border/50 bg-muted/30">
+                        {["Campaign", "Sent", "Replies", "Tasks", "Meetings", "Opportunities", "Proposals", "Pipeline Value", "Won Revenue", "Confidence"].map(h => (
+                          <th key={h} className="text-left px-3 py-2.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {campaigns.map((c, i) => (
+                        <tr key={c.campaign_id} className={`border-b border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"}`} data-testid={`campaign-attribution-row-${c.campaign_id}`}>
+                          <td className="px-3 py-2.5">
+                            <Link href={`/marketing/campaigns/${c.campaign_id}`}>
+                              <span className="font-medium text-foreground hover:text-primary transition-colors">{c.campaign_name}</span>
+                            </Link>
+                          </td>
+                          <td className="px-3 py-2.5 font-mono">{Number(c.sent_count ?? 0).toLocaleString()}</td>
+                          <td className="px-3 py-2.5 font-mono">{Number(c.replied_count ?? 0).toLocaleString()}</td>
+                          <td className="px-3 py-2.5 font-mono">{Number(c.tasks ?? 0)}</td>
+                          <td className="px-3 py-2.5 font-mono">{Number(c.meetings ?? 0)}</td>
+                          <td className="px-3 py-2.5 font-mono">
+                            <div className="flex items-center gap-1.5">
+                              {Number(c.opportunities ?? 0)}
+                              {Number(c.opportunities ?? 0) > 1 && (
+                                <span className="text-[9px] px-1 py-0.5 rounded border border-border/50 text-muted-foreground" data-testid={`multi-touch-badge-${c.campaign_id}`}>Multi-touch</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 font-mono">{Number(c.proposals ?? 0)}</td>
+                          <td className="px-3 py-2.5 font-mono text-cyan-400">{money(c.pipeline_value)}</td>
+                          <td className="px-3 py-2.5 font-mono text-emerald-400">{money(c.won_revenue)}</td>
+                          <td className="px-3 py-2.5">
+                            {c.top_confidence ? (
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${confidenceBadge(c.top_confidence)}`}>
+                                {c.top_confidence}
+                              </span>
+                            ) : <span className="text-muted-foreground/40">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Persona Attribution table */}
+          <div>
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Persona Attribution</h3>
+            {personas.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border/40 bg-muted/10 px-5 py-6 text-center text-sm text-muted-foreground" data-testid="persona-attribution-table-empty">
+                No persona-level attribution data yet.
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border/50 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[700px]" data-testid="persona-attribution-table">
+                    <thead>
+                      <tr className="border-b border-border/50 bg-muted/30">
+                        {["Marina Persona", "Campaigns", "Engaged Accounts", "Opportunities", "Pipeline Value", "Won Revenue"].map(h => (
+                          <th key={h} className="text-left px-3 py-2.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {personas.map((p, i) => (
+                        <tr key={p.persona} className={`border-b border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"}`} data-testid={`persona-attribution-row-${i}`}>
+                          <td className="px-3 py-2.5 font-medium text-foreground">{p.persona}</td>
+                          <td className="px-3 py-2.5 font-mono">{Number(p.campaigns ?? 0)}</td>
+                          <td className="px-3 py-2.5 font-mono">{Number(p.engaged_accounts ?? 0)}</td>
+                          <td className="px-3 py-2.5 font-mono">{Number(p.opportunities ?? 0)}</td>
+                          <td className="px-3 py-2.5 font-mono text-cyan-400">{money(p.pipeline_value)}</td>
+                          <td className="px-3 py-2.5 font-mono text-emerald-400">{money(p.won_revenue)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Stakeholder Attribution table */}
+          <div>
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Stakeholder Attribution</h3>
+            {stakeholders.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border/40 bg-muted/10 px-5 py-6 text-center text-sm text-muted-foreground" data-testid="stakeholder-attribution-table-empty">
+                No stakeholder-level attribution data yet.
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border/50 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[600px]" data-testid="stakeholder-attribution-table">
+                    <thead>
+                      <tr className="border-b border-border/50 bg-muted/30">
+                        {["Role", "Replies → Tasks", "Meetings", "Opportunities", "Pipeline Value"].map(h => (
+                          <th key={h} className="text-left px-3 py-2.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stakeholders.map((s, i) => (
+                        <tr key={s.role} className={`border-b border-border/20 ${i % 2 === 0 ? "" : "bg-muted/10"}`} data-testid={`stakeholder-attribution-row-${i}`}>
+                          <td className="px-3 py-2.5 font-medium text-foreground">{s.role}</td>
+                          <td className="px-3 py-2.5 font-mono">{Number(s.replies_with_tasks ?? 0)}</td>
+                          <td className="px-3 py-2.5 font-mono">{Number(s.meetings ?? 0)}</td>
+                          <td className="px-3 py-2.5 font-mono">{Number(s.opportunities ?? 0)}</td>
+                          <td className="px-3 py-2.5 font-mono text-cyan-400">{money(s.pipeline_value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

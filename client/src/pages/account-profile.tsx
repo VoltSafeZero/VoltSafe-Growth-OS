@@ -865,6 +865,7 @@ export default function AccountProfilePage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [currentInitMsg, setCurrentInitMsg] = useState<number | undefined>();
   const [currentInitThread, setCurrentInitThread] = useState<number | undefined>();
+  const [marketingTab, setMarketingTab] = useState<"intelligence" | "attribution">("intelligence");
   const currentSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1434,11 +1435,34 @@ export default function AccountProfilePage() {
       {/* Account Intelligence */}
       <AccountIntelligencePanel accountId={id} />
 
-      {/* Marketing Intelligence */}
-      <MarketingIntelligencePanel accountId={id} />
-
-      {/* Campaign Attribution Timeline (Phase 10) */}
-      <AccountCampaignAttributionPanel accountId={id} />
+      {/* Marketing Intelligence / Marketing Attribution (tabbed) */}
+      <div data-testid="account-marketing-tabs">
+        <div className="flex gap-1 border-b border-border/40 mb-3" data-testid="account-marketing-tab-bar">
+          {([
+            { key: "intelligence", label: "Marketing Intelligence" },
+            { key: "attribution", label: "Marketing Attribution" },
+          ] as const).map(t => (
+            <button
+              key={t.key}
+              onClick={() => setMarketingTab(t.key)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-t-md border-b-2 transition-colors ${
+                marketingTab === t.key
+                  ? "border-primary text-primary bg-primary/5"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+              }`}
+              data-testid={`account-marketing-tab-${t.key}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: marketingTab === "intelligence" ? undefined : "none" }}>
+          <MarketingIntelligencePanel accountId={id} />
+        </div>
+        <div style={{ display: marketingTab === "attribution" ? undefined : "none" }} data-testid="account-marketing-attribution-tab-content">
+          <AccountCampaignAttributionPanel accountId={id} />
+        </div>
+      </div>
 
       {/* Engagement Intelligence */}
       <Card className="border-border/50" data-testid="account-engagement-section">

@@ -222,7 +222,7 @@ export default function CampaignDetailPage() {
   const id = Number((params as any)?.id);
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<"overview" | "audience" | "sequence" | "engagement" | "compliance" | "advanced">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "audience" | "sequence" | "engagement" | "compliance" | "attribution" | "advanced">("overview");
   const [showAddEmail, setShowAddEmail] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -548,7 +548,7 @@ export default function CampaignDetailPage() {
 
         {/* Tab bar */}
         <div className="flex gap-1 flex-wrap border-b border-border/40 pb-0 -mb-2" data-testid="campaign-detail-tabs">
-          {(["overview", "audience", "sequence", "engagement", "compliance", "advanced"] as const).map(tab => (
+          {(["overview", "audience", "sequence", "engagement", "compliance", "attribution", "advanced"] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -1103,11 +1103,17 @@ export default function CampaignDetailPage() {
       {/* ── Accounts Heating Up From This Campaign ───────────────────────────── */}
       {activeTab === "engagement" && <AccountsHeatingUpSection campaignId={id} />}
 
-      {/* ── Advanced: Branching Rules + Pipeline Attribution ─────────────────── */}
+      {/* ── Attribution: Pipeline Attribution ──────────────────────────────────── */}
+      {activeTab === "attribution" && (
+        <div className="space-y-6" data-testid="attribution-tab-content">
+          <CampaignAttributionSection campaignId={id} />
+        </div>
+      )}
+
+      {/* ── Advanced: Branching Rules ──────────────────────────────────────────── */}
       {activeTab === "advanced" && (
         <div className="space-y-6 px-6 py-5" data-testid="advanced-tab-content">
           <BranchingRulesPanel campaignId={id} />
-          <CampaignAttributionSection campaignId={id} />
         </div>
       )}
 
