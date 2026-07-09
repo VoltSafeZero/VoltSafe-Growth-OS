@@ -1,10 +1,16 @@
 ---
-name: Contextual help expansion + per-user toggle
-description: How the richer HelpEntry schema, subnav help icons, and the per-user showHelpIcons preference fit together (Task #78).
+name: Contextual help toggle architecture
+description: Durable rules for building a global, per-user show/hide toggle for contextual help icons and for nesting interactive icons in nav rows.
 ---
 
-- `HelpEntry` (client/src/lib/help-content.ts) grew optional fields (whatToDo, whyItMatters, owner, updateCadence, goodLooksLike, commonMistakes, relatedActions) — all backward compatible, so old entries with just title/shortDescription still render fine.
-- `FieldHelp` is the single gate: it returns `null` when `currentUser.showHelpIcons === false`, so no per-page manual checks are needed. New help surfaces should just render `<FieldHelp helpKey=... />` and trust the gate.
-- Sidebar subnav help icons (`SUBNAV_HELP_KEYS` in app-sidebar.tsx) must be a **sibling** of the item's `<Link>`, never nested inside it — nesting an interactive icon inside an anchor breaks click semantics (the icon click would also navigate). The existing section-level pattern (`SECTION_HELP_KEYS`) already did this correctly; copy that structure, not a naive "icon inside the row" placement.
-- `showHelpIcons` was added as a plain boolean column (not folded into the existing `permissions`/`widgetVisibility` JSONB blobs) — simpler for a single on/off preference, consistent with the project's "additive column via raw SQL migration" convention.
-- **Gotcha:** after adding a raw-SQL migration column in `server/index.ts`, one-off test scripts/workflows that query `users.*` will fail with `column does not exist` until the "Start application" workflow actually restarts and runs the migration. Restart the app workflow before re-running dependent test suites.
+A global "show/hide all help icons" preference should be enforced in one shared rendering component, not checked separately on every page that renders help icons. The component itself returns nothing when the preference is off.
+**Why:** centralizing the check means every future help surface automatically respects the preference with zero extra wiring, and there's no risk of a page forgetting the check.
+**How to apply:** any new "hide this UI element globally per user" feature should look for (or create) a single shared component boundary to gate on, rather than sprinkling conditionals.
+
+An icon/button placed next to a clickable nav row (link) must be a sibling of that link, never nested inside it.
+**Why:** nesting an interactive icon inside an anchor/link breaks click semantics — clicking the icon also triggers the outer navigation.
+**How to apply:** when adding per-row icons (info, actions, badges) to a list of nav links, wrap the link and the icon in a shared flex container instead of putting the icon inside the link.
+
+Additive raw-SQL column migrations that run at server startup only take effect after the server process actually restarts.
+**Why:** one-off scripts/test workflows that query the affected table will fail with "column does not exist" if run against a still-running (pre-migration) process.
+**How to apply:** after adding a new additive column via a startup migration, restart the main app workflow before re-running any dependent test suite or script.
