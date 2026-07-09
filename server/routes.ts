@@ -19739,10 +19739,21 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (isReauthRequired) {
         console.error(`[gmail-send] REAUTH_REQUIRED userId=${userId}: ${err.message}`);
         try {
-          await db.update(emailAccounts)
-            .set({ isActive: false, updatedAt: new Date() })
-            .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)));
-          console.log(`[gmail-send] marked account inactive for userId=${userId}`);
+          // Only deactivate the SPECIFIC mailbox whose OAuth token failed —
+          // scoping this to eq(emailAccounts.userId, userId) previously
+          // deactivated EVERY non-shared mailbox belonging to the user,
+          // so a reauth failure on one private inbox would silently knock
+          // the user's other, perfectly healthy mailboxes offline too
+          // (found via live verification 2026-07-09).
+          const failedAccountId = (resolved as any)?.acct?.id ?? null;
+          if (failedAccountId != null) {
+            await db.update(emailAccounts)
+              .set({ isActive: false, authStatus: "expired", updatedAt: new Date() })
+              .where(and(eq(emailAccounts.id, failedAccountId), eq(emailAccounts.isShared, false)));
+            console.log(`[gmail-send] marked account inactive: accountId=${failedAccountId} (userId=${userId})`);
+          } else {
+            console.warn(`[gmail-send] reauth required but no resolved account id — skipping mark-inactive to avoid deactivating unrelated mailboxes (userId=${userId})`);
+          }
         } catch (markErr: any) {
           console.warn("[gmail-send] mark-inactive non-fatal:", markErr.message);
         }
