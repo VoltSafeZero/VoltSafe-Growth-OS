@@ -1,0 +1,44 @@
+Security/data-minimization audit findings from production DevTools review.
+
+Good:
+- Logged-out /api/session/bootstrap returns only {"authenticated":false}.
+- Logged-in bootstrap/me/profile do not expose passwords, password hashes, raw tokens, OAuth refresh tokens, client secrets, database URLs, or API keys.
+- /api/integrations does not expose raw Google access_token or refresh_token.
+- Local Storage and Session Storage appear empty while logged out.
+
+Issues / improvements:
+1. /api/events is overexposing calendar data to the browser.
+   It currently returns full descriptions, meeting URLs, Zoom/Teams/Meet links, passcodes, dial-in info, attendee lists, external calendar IDs, external IDs, and copied email-thread content.
+   Fix: use a minimized calendar list payload by default:
+   - id
+   - title
+   - startTime
+   - endTime
+   - allDay
+   - calendarName
+   - owner/calendar label
+   - maybe location summary
+   - status/showAs
+   Do not include full description, meetingUrl, attendeeDetails, externalId, externalCalendarId, invitees, passcodes, or copied email content in list responses.
+   Add a separate protected event detail endpoint that returns full details only when the user opens a specific event and is authorized.
+
+2. Verify role-based access for /api/events.
+   Master admin may have broad access, but normal users should only receive their own calendars and explicitly shared calendars.
+   Ensure the backend filters before returning data. Do not rely on frontend hiding.
+
+3. /api/inbox-summary exposes team inbox metadata.
+   Confirm normal users only receive team inboxes they are authorized to view.
+   Master admin can receive broad team data, but regular users should not.
+
+4. /api/notifications includes task/meeting names and linked object IDs.
+   Confirm notifications are strictly scoped to the authenticated user and authorized objects.
+
+5. Review /api/profile and /api/me duplication.
+   Not critical, but avoid returning large dashboard layout/config blobs unless needed.
+
+6. Add regression tests:
+   - logged-out bootstrap returns no private data
+   - normal user cannot receive team inboxes
+   - normal user cannot receive other users’ calendar events
+   - calendar list endpoint does not return description/meetingUrl/passcodes/attendeeDetails/external IDs
+   - no OAuth tokens or encrypted credential blobs are ever returned by integrations/profile/bootstrap/me/events/inbox-summary

@@ -61,6 +61,7 @@
 - [CEO Cockpit Phase 13 QA](ceo-cockpit-phase13.md) — Phase 13 audit findings: 2 bugs fixed (silent migration catches + missing copy_only on action draft); 113-check smoke test; release checklist.
 - [Disconnected Gmail Sync Fix](disconnected-gmail-sync.md) — 4-layer guard for expired accounts; runIncrementalForAll must filter authStatus='active' at DB level.
 - [Mailbox Visibility Privacy](mailbox-visibility-privacy.md) — private_personal blocks ALL non-owners including admins; no admin bypass; raw SQL only (not Drizzle schema).
+- [CSP + Mail-Team Audit Hardening](csp-security-audit-hardening.md) — CSP must differ dev/prod (HMR needs unsafe-inline/eval); verify via live non-/health route; team-aggregation endpoints need per-resource ACL, not just section permission.
 - [Capital CFO Onboarding Seed](capital-cfo-onboarding-seed.md) — capital_seed_log UNIQUE-key idempotency pattern; found scott.carlson@ vs scott@ email allowlist bug; Learn tab restrictedToEmails filtering pattern.
 - [Global CMS Help Icon System](global-help-icon-system.md) — FieldHelp + centralized help-content.ts registry; restrictedToEmails permission scoping; rollout is intentionally partial, just add entries + drop the component.
 - [Calendar Visibility Policy](calendar-visibility-policy.md) — resolveCalendarVisibility() mirrors mailbox model; private types bypass role checks; AI search + cross-user activity feeds + account timelines are common leak spots needing the resolver/CASE-sanitize applied.

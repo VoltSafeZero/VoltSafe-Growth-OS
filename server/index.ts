@@ -48,16 +48,56 @@ app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
 app.get("/healthz", (_req, res) => res.status(200).json({ status: "ok", uptimeMs: Date.now() - PROC_START }));
 
 // ── Security headers (helmet) ────────────────────────────────────────────────
-// CSP intentionally disabled here — the existing app embeds inline scripts via
-// Vite in dev and the email/HTML preview surfaces inject sanitized HTML; tightening
-// CSP requires a coordinated nonce/hash rollout. Other helmet defaults are safe.
+// CSP is enforced in production. The built SPA (Vite production build) does not
+// emit inline <script> tags — only a single external module script — so
+// script-src can stay strict with no 'unsafe-inline'/'unsafe-eval'. Inline
+// <style> attributes (React inline styles, Radix UI, Leaflet, Recharts) are
+// pervasive, so style-src keeps 'unsafe-inline' as a deliberate, narrow
+// exception — it cannot execute script and is the standard pragmatic trade-off
+// for React apps without a full nonce/hash build pipeline.
+//
+// In development, Vite's dev server injects inline scripts/styles and uses a
+// WebSocket for HMR, so CSP is relaxed there to avoid breaking local dev.
+const isProdCsp = process.env.NODE_ENV === "production";
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: isProdCsp
+        ? {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            frameAncestors: ["'self'"],
+            // Google Fonts stylesheet + Leaflet/CARTO map tiles + inline
+            // element styles (React/Radix/Leaflet/Recharts).
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+            // data:/blob: for uploaded attachments, avatars, generated charts;
+            // https: map tiles are same-origin-proxied except CARTO basemap tiles.
+            imgSrc: ["'self'", "data:", "blob:", "https://*.basemaps.cartocdn.com"],
+            connectSrc: ["'self'"],
+            formAction: ["'self'"],
+            upgradeInsecureRequests: [],
+          }
+        : {
+            // Dev: Vite HMR needs inline scripts/styles + a ws:// connection.
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+            imgSrc: ["'self'", "data:", "blob:", "https:"],
+            connectSrc: ["'self'", "ws:", "wss:", "http:", "https:"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            frameAncestors: ["'self'"],
+          },
+    },
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: "same-site" },
     referrerPolicy: { policy: "strict-origin-when-cross-origin" },
-    hsts: process.env.NODE_ENV === "production" ? { maxAge: 31536000, includeSubDomains: true } : false,
+    hsts: isProdCsp ? { maxAge: 31536000, includeSubDomains: true } : false,
   })
 );
 

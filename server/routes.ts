@@ -12611,6 +12611,21 @@ export async function registerRoutes(
       const userId = Number(getSessionUserId(req));
       if (!userId || !Number.isFinite(userId)) return res.status(401).json({ message: "Unauthorized" });
 
+      // Authorization: non-admins may only see team inboxes they've been
+      // explicitly granted mail_team view/edit access to (same ACL used
+      // elsewhere for mailbox access — users.permissions.mail_team[accountId]).
+      // Without this check every crm:view user (i.e. most staff) could see
+      // every other user's mailbox metadata (email address, auth status,
+      // awaiting-reply counts) regardless of grant.
+      const sessionRole = String((req.session as any).globalRole || "");
+      const isInboxAdmin = sessionRole === "master_admin" || sessionRole === "admin";
+      let mailTeamPerms: Record<string, { view?: boolean; edit?: boolean }> = {};
+      if (!isInboxAdmin) {
+        const [u] = await db.select({ permissions: users.permissions })
+          .from(users).where(eq(users.id, userId)).limit(1);
+        mailTeamPerms = ((u?.permissions as any)?.mail_team ?? {}) as Record<string, { view?: boolean; edit?: boolean }>;
+      }
+
       const [teamRes, myRecentRes] = await Promise.all([
         db.execute(sql.raw(`
           SELECT
@@ -12670,6 +12685,7 @@ export async function registerRoutes(
         },
         teamInboxes: teamRows
           .filter(r => r.user_id !== userId || r.is_shared)
+          .filter(r => isInboxAdmin || mailTeamPerms[String(r.account_id)]?.view || mailTeamPerms[String(r.account_id)]?.edit)
           .map(r => ({
             accountId:          r.account_id,
             userId:             r.user_id,
