@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { UniversalDrilldownSheet } from "@/components/shared/universal-drilldown-sheet";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { apiRequest } from "@/lib/queryClient";
@@ -1026,7 +1025,7 @@ export default function TasksHubPage() {
                         my:       "tasks_open",
                       };
                       const metric = metricMap[v];
-                      if (metric) setDrilldown({ metric, title: VIEW_LABELS[v] });
+                      if (metric) setDrilldownConfig({ metric, title: VIEW_LABELS[v] });
                     }}
                     data-testid={`drilldown-count-${v}`}
                   >

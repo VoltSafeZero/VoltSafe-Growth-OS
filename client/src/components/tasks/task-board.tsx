@@ -167,15 +167,17 @@ export function TaskBoard({ view, onOpenTask, onAddTask, viewingUserId, permitte
     refetchInterval: 30000,
   });
 
-  const { data: labels = [] } = useQuery<{ id: number; name: string; color: string }[]>({
+  const { data: labelsRaw } = useQuery<{ id: number; name: string; color: string }[]>({
     queryKey: ["/api/task-labels"],
     queryFn: () => fetch("/api/task-labels", { credentials: "include" }).then(r => r.json()),
   });
+  const labels: { id: number; name: string; color: string }[] = Array.isArray(labelsRaw) ? labelsRaw : [];
 
-  const { data: savedViews = [] } = useQuery<SavedView[]>({
+  const { data: savedViewsRaw } = useQuery<SavedView[]>({
     queryKey: ["/api/task-board-views"],
     queryFn: () => fetch("/api/task-board-views", { credentials: "include" }).then(r => r.json()),
   });
+  const savedViews: SavedView[] = Array.isArray(savedViewsRaw) ? savedViewsRaw : [];
 
   // Apply the default saved view exactly once on initial load.
   // Using a ref so that manual filter changes (which call setActiveViewId(null))
