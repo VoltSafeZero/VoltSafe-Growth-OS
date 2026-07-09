@@ -143,8 +143,8 @@ assert(countSpread(meeting, "buildOpenAIModelParams") === 1,
        "meeting-notes: spread ×1");
 assert(countSpread(voice,   "buildOpenAIModelParams") === 1,
        "ai-voice-profiles: spread ×1");
-assert(countSpread(routes,  "buildOpenAIModelParams") === 3,
-       "routes: spread ×3 (sales-briefing + current-summary + marketing-ai)");
+assert(countSpread(routes,  "buildOpenAIModelParams") === 4,
+       "routes: spread ×4 (sales-briefing + current-summary + marketing-ai + cortex-ask)");
 assert(countSpread(va,      "buildOpenAIModelParams") === 5,
        "voice-assistant: spread ×5 (tool-loop ×2, summary ×2, stream ×1)");
 

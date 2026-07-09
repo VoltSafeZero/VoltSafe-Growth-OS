@@ -164,7 +164,7 @@ check("ask is requireAuth protected",                (function() {
   const block = routes.slice(Math.max(0, start - 50), start + 200);
   return block.includes("requireAuth");
 })());
-check("ask max_tokens set to 600",                   routes.includes("max_tokens: 600"));
+check("ask uses buildOpenAIModelParams tokenLimit 600", routes.includes("tokenLimit: 600") || routes.includes("max_tokens: 600"));
 check("ask slices question to 2000 chars",           routes.includes(".slice(0, 2000)"));
 
 // ── Breathing animation — lockstep brain + button ─────────────────────────────

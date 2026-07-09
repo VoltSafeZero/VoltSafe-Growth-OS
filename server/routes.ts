@@ -41051,8 +41051,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
             content: question.trim().slice(0, 2000),
           },
         ],
-        max_tokens: 600,
-        temperature: 0.4,
+        ...buildOpenAIModelParams("gpt-4o-mini", { tokenLimit: 600, temperature: 0.4 }),
       });
 
       const answer = completion.choices[0]?.message?.content?.trim() ?? "I wasn't able to generate an answer. Please try again.";
