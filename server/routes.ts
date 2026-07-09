@@ -5979,9 +5979,35 @@ export async function registerRoutes(
     body.createdByUserId = userId;
     // Default assignee to creator; allow any authenticated user to assign to any org member
     if (!body.ownerUserId) body.ownerUserId = userId;
+    // Team Tasks: assigning it stamps who/when, and lands it in the
+    // assignee's Backlog column regardless of what the client sent — the
+    // task then stays visible on the Team board via isTeamTask=true no
+    // matter which column it's later moved to.
+    if (body.isTeamTask) {
+      body.assignedByUserId = userId;
+      body.assignedAt = new Date();
+      body.boardColumn = "backlog";
+    }
     const parsed = insertTaskSchema.safeParse(body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
-    res.status(201).json(await storage.createTask(parsed.data));
+    const created = await storage.createTask(parsed.data);
+    try {
+      await db.execute(sql`
+        INSERT INTO task_activity (task_id, user_id, action, from_value, to_value, meta)
+        VALUES (${created.id}, ${userId}, 'created', NULL, ${created.title}, NULL)
+      `);
+      if (parsed.data.isTeamTask && parsed.data.ownerUserId) {
+        const ownerRow: any = await db.execute(sql`SELECT name FROM users WHERE id = ${parsed.data.ownerUserId} LIMIT 1`);
+        const ownerName = ownerRow.rows?.[0]?.name || `User #${parsed.data.ownerUserId}`;
+        await db.execute(sql`
+          INSERT INTO task_activity (task_id, user_id, action, from_value, to_value, meta)
+          VALUES (${created.id}, ${userId}, 'assigned', NULL, ${ownerName}, ${JSON.stringify({ toUserId: parsed.data.ownerUserId })})
+        `);
+      }
+    } catch (e: any) {
+      console.warn("[tasks/create] activity log warning:", e.message);
+    }
+    res.status(201).json(created);
   });
 
   // POST /api/quick-actions/task — create a linked task from the command bar
@@ -6079,12 +6105,10 @@ export async function registerRoutes(
           whereClause = `t.owner_user_id = ${effectiveUserId} AND t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
           break;
         case "team":
-          // When viewing another user's hub, scope to their tasks rather than all-team.
-          if (effectiveUserId !== userId) {
-            whereClause = `t.owner_user_id = ${effectiveUserId} AND t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
-          } else {
-            whereClause = `${isAdminUser ? "" : `t.owner_user_id = ${effectiveUserId} AND `}t.status NOT IN ('done','completed') AND (t.snoozed_until IS NULL OR t.snoozed_until <= NOW())`;
-          }
+          // Team Tasks is a global, flag-scoped view — every user sees the same
+          // set of tasks explicitly flagged is_team_task, regardless of owner
+          // or admin status. It never falls back to "everyone's tasks".
+          whereClause = `t.is_team_task = true AND t.status NOT IN ('done','completed')`;
           break;
         case "today":
           whereClause = `t.status NOT IN ('done','completed') AND t.due_date >= '${todayStart.toISOString()}' AND t.due_date <= '${todayEnd.toISOString()}' AND t.owner_user_id = ${effectiveUserId}`;
@@ -6165,7 +6189,7 @@ export async function registerRoutes(
       const countsRes = await db.execute(sql.raw(`
         SELECT
           COUNT(*) FILTER (WHERE owner_user_id = ${effectiveUserId} AND status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS my_count,
-          COUNT(*) FILTER (WHERE owner_user_id = ${effectiveUserId} AND status NOT IN ('done','completed') AND (snoozed_until IS NULL OR snoozed_until <= NOW()))::int AS team_count,
+          COUNT(*) FILTER (WHERE is_team_task = true AND status NOT IN ('done','completed'))::int AS team_count,
           COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' AND owner_user_id = ${effectiveUserId})::int AS today_count,
           COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date < '${todayStart.toISOString()}' AND owner_user_id = ${effectiveUserId})::int AS overdue_count,
           COUNT(*) FILTER (WHERE status NOT IN ('done','completed') AND due_date > '${todayEnd.toISOString()}' AND due_date <= '${sevenDaysOut.toISOString()}' AND owner_user_id = ${effectiveUserId})::int AS upcoming_count,

@@ -452,6 +452,15 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     .then(() => console.log("[migration] Task recurrence columns ready."))
     .catch(e => console.error("[task-recurrence] migration error:", e.message));
 
+  // ── Team Task flag + assignment audit columns: bootstrap (idempotent) ────
+  // Additive only — defaults to false so existing tasks are never
+  // retroactively flagged as Team Tasks.
+  db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_team_task BOOLEAN NOT NULL DEFAULT false`)
+    .then(() => db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ`))
+    .then(() => db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_by_user_id INTEGER`))
+    .then(() => console.log("[migration] Team Task columns ready."))
+    .catch(e => console.error("[team-task] migration error:", e.message));
+
   // ── Per-user personal columns: bootstrap ─────────────────────────────────
   db.execute(sql`
     CREATE TABLE IF NOT EXISTS user_task_columns (
@@ -516,6 +525,64 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const view = String(req.query.view || "my");
       const admin = isAdmin(req);
 
+      // Team Tasks board is a global, flag-scoped view — every user (admin or
+      // not) sees the exact same set of tasks explicitly flagged is_team_task.
+      // It intentionally ignores viewingUserId / ownership entirely so it
+      // never leaks into (or gets confused with) another user's personal board.
+      if (view === "team") {
+        const rows: any = await db.execute(sql.raw(`
+          SELECT
+            t.id, t.title, t.description, t.status, t.priority,
+            t.due_date AS "dueDate", t.start_date AS "startDate",
+            t.completed_at AS "completedAt", t.completed_by_user_id AS "completedByUserId",
+            t.board_column AS "boardColumn", t.sort_order AS "sortOrder",
+            t.linked_object_type AS "linkedObjectType", t.linked_object_id AS "linkedObjectId",
+            t.account_id AS "accountId", t.owner_user_id AS "ownerUserId",
+            t.created_by_user_id AS "createdByUserId",
+            t.is_team_task AS "isTeamTask", t.assigned_at AS "assignedAt",
+            t.assigned_by_user_id AS "assignedByUserId",
+            ou.name AS "ownerName", cu.name AS "creatorName", ab.name AS "assignedByName",
+            cb.name AS "completedByName", a.name AS "accountName",
+            l.company AS "leadName",
+            t.recurrence_rule AS "recurrenceRule",
+            (SELECT COUNT(*) FROM task_checklist_items i JOIN task_checklists c ON c.id = i.checklist_id WHERE c.task_id = t.id)::int AS "checklistTotal",
+            (SELECT COUNT(*) FROM task_checklist_items i JOIN task_checklists c ON c.id = i.checklist_id WHERE c.task_id = t.id AND i.completed = true)::int AS "checklistDone",
+            (SELECT COUNT(*) FROM comments WHERE object_type='task' AND object_id=t.id)::int AS "commentsCount",
+            (SELECT COUNT(*) FROM task_dependencies d JOIN tasks t2 ON t2.id = d.depends_on_task_id WHERE d.task_id = t.id AND t2.status NOT IN ('done','completed'))::int AS "openDependencies",
+            (SELECT COUNT(*) FROM task_dependencies d WHERE d.task_id = t.id)::int AS "totalDependencies",
+            ARRAY(
+              SELECT json_build_object('id', l.id, 'name', l.name, 'color', l.color)
+              FROM task_label_assignments la JOIN task_labels l ON l.id = la.label_id
+              WHERE la.task_id = t.id
+            ) AS labels
+          FROM tasks t
+          LEFT JOIN users ou ON ou.id = t.owner_user_id
+          LEFT JOIN users cu ON cu.id = t.created_by_user_id
+          LEFT JOIN users ab ON ab.id = t.assigned_by_user_id
+          LEFT JOIN users cb ON cb.id = t.completed_by_user_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          LEFT JOIN leads l ON l.id = t.linked_object_id AND t.linked_object_type = 'lead'
+          WHERE t.archived = false AND t.is_team_task = true
+          ORDER BY t.sort_order ASC, t.due_date ASC NULLS LAST, t.id DESC
+          LIMIT 1000
+        `));
+        const tasks: any[] = (rows as any).rows ?? [];
+        // Team board always uses the shared system columns (not any single
+        // user's personal columns) since it's a cross-user board.
+        const colValues = SYSTEM_COLUMNS.map(c => c.value);
+        const colSet = new Set(colValues);
+        const fallback = "backlog";
+        const grouped: Record<string, any[]> = {};
+        for (const v of colValues) grouped[v] = [];
+        for (const t of tasks) {
+          let col = String(t.boardColumn || fallback);
+          if (!colSet.has(col)) col = fallback;
+          if (col !== "done" && t.openDependencies > 0) col = "blocked";
+          grouped[col].push(t);
+        }
+        return res.json({ columns: colValues, grouped, total: tasks.length });
+      }
+
       // Hub-access delegation: if viewingUserId is provided, verify access before showing that user's board.
       const rawViewingId = req.query.viewingUserId ? Number(req.query.viewingUserId) : null;
       let effectiveUserId = userId;
@@ -527,13 +594,10 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
 
       // Build the WHERE clause filter for this view:
       //   assigned_by_me → tasks I created but assigned to someone else
-      //   team (admin only) → no owner restriction (full team visibility)
-      //   anything else (or team for non-admin) → only tasks assigned to me
+      //   anything else → only tasks assigned to me (or delegated by me)
       let whereFilter = "";
       if (view === "assigned_by_me") {
         whereFilter = `AND t.created_by_user_id = ${effectiveUserId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${effectiveUserId}`;
-      } else if (view === "team" && admin) {
-        whereFilter = ""; // admin sees everyone
       } else {
         // Default: effective user's assigned tasks + tasks they created and delegated to others
         whereFilter = `AND (t.owner_user_id = ${effectiveUserId} OR (t.created_by_user_id = ${effectiveUserId} AND t.owner_user_id IS NOT NULL AND t.owner_user_id != ${effectiveUserId}))`;
@@ -712,11 +776,29 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       setIf("contact_id", "contactId", (v) => (v == null ? null : Number(v)), "linked contact");
       setIf("recurrence_rule", "recurrenceRule", (v) => (v == null ? "none" : String(v)), "recurrence");
       setIf("recurrence_end_date", "recurrenceEndDate", (v) => (v ? new Date(v) : null), "recurrence end date");
+      setIf("is_team_task", "isTeamTask", Boolean, "team task flag");
+
+      // Reassignment of a Team Task: stamp who reassigned it, to/from whom, and
+      // when — plus land the new assignee's copy back in Backlog (single-row
+      // model, so this is a global column reset, matching the spec that a
+      // reassigned Team Task should reappear in the new assignee's Backlog).
+      const isTeamTaskAfter = "isTeamTask" in body ? Boolean(body.isTeamTask) : Boolean(prev.is_team_task);
+      let reassignmentFragments: any[] = [];
+      if ("ownerUserId" in body) {
+        const newOwner = body.ownerUserId == null ? null : Number(body.ownerUserId);
+        const prevOwner = prev.owner_user_id == null ? null : Number(prev.owner_user_id);
+        if (isTeamTaskAfter && newOwner !== prevOwner) {
+          reassignmentFragments.push(sql`assigned_at = NOW()`);
+          reassignmentFragments.push(sql`assigned_by_user_id = ${userId}`);
+          reassignmentFragments.push(sql`board_column = 'backlog'`);
+        }
+      }
 
       if (!fragments.length) return res.json({ success: true, noop: true });
 
       fragments.push(sql`last_updated_by_user_id = ${userId}`);
       fragments.push(sql`updated_at = NOW()`);
+      fragments.push(...reassignmentFragments);
       const setClause = sql.join(fragments, sql`, `);
       await db.execute(sql`UPDATE tasks SET ${setClause} WHERE id = ${id}`);
 
@@ -728,6 +810,11 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         const newOwner = body.ownerUserId == null ? null : Number(body.ownerUserId);
         const prevOwner = (prev as any).owner_user_id == null ? null : Number((prev as any).owner_user_id);
         if (newOwner !== prevOwner) {
+          if (isTeamTaskAfter) {
+            const prevName = prevOwner ? await getActorName(prevOwner) : "Unassigned";
+            const newName = newOwner ? await getActorName(newOwner) : "Unassigned";
+            await logActivity(id, userId, "reassigned", prevName, newName, { fromUserId: prevOwner, toUserId: newOwner });
+          }
           await notifyAssignment(id, prevOwner, newOwner, userId);
         }
       }

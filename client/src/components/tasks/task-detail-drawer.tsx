@@ -1460,6 +1460,9 @@ function humanizeActivity(a: any): string {
     case "checklist_item_unchecked": return `unchecked "${to}"`;
     case "watcher_added": return "added a watcher";
     case "watcher_removed": return "removed a watcher";
+    case "created": return "created this task";
+    case "assigned": return `assigned to ${to || "—"}`;
+    case "reassigned": return `reassigned from ${from || "—"} to ${to || "—"}`;
     default:
       if (action.startsWith("updated_")) {
         const field = action.slice(8).replace(/_/g, " ");
@@ -1847,6 +1850,7 @@ function NewTaskForm({ onCreated, onCancel, defaultBoardColumn }: { onCreated: (
   const [linkedAccount, setLinkedAccount] = useState<{ id: number; label: string } | null>(null);
   const [recurrenceRule, setRecurrenceRule] = useState("none");
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
+  const [isTeamTask, setIsTeamTask] = useState(false);
 
   const { data: me } = useQuery<{ id: number; name: string }>({ queryKey: ["/api/auth/me"] });
   const { data: users = [] } = useQuery<{ id: number; name: string }[]>({ queryKey: ["/api/users"] });
@@ -1863,6 +1867,7 @@ function NewTaskForm({ onCreated, onCancel, defaultBoardColumn }: { onCreated: (
         status: "pending",
         boardColumn: column,
         ownerUserId: resolvedOwner,
+        isTeamTask,
         ...(linkedContact ? { contactId: linkedContact.id } : {}),
         ...(linkedAccount?.kind === "lead"
           ? { linkedObjectType: "lead", linkedObjectId: linkedAccount.id, accountId: null }
@@ -1993,6 +1998,22 @@ function NewTaskForm({ onCreated, onCancel, defaultBoardColumn }: { onCreated: (
               </SelectContent>
             </Select>
           </div>
+        </div>
+
+        {/* Team Task */}
+        <div className="flex items-center gap-2 rounded-md border p-3 bg-muted/20">
+          <Checkbox
+            id="new-task-team-task"
+            checked={isTeamTask}
+            onCheckedChange={(v) => setIsTeamTask(v === true)}
+            data-testid="checkbox-new-task-team-task"
+          />
+          <label htmlFor="new-task-team-task" className="text-sm cursor-pointer select-none">
+            <span className="font-medium">Team Task</span>
+            <span className="block text-xs text-muted-foreground">
+              Visible to everyone on the Team Tasks board, lands in the assignee's Backlog, and stays on the Team board no matter which column it's moved to.
+            </span>
+          </label>
         </div>
 
         {/* CRM Links */}

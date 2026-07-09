@@ -1,0 +1,261 @@
+Copy/paste this into Replit:
+
+Fix the Tasks Hub / Team Tasks / User Board logic and add clear board-view accountability.
+
+Core problem:
+Team Tasks are currently behaving like “everyone’s tasks” or “someone else’s board.” That is wrong.
+
+Team Tasks must only mean tasks explicitly marked with a Team Task flag. Viewing another user’s board must be a separate view, clearly labeled, and every edit must be accountable.
+
+Core rules:
+
+1. Team Tasks are flagged shared tasks only
+    Team Tasks are not the same thing as “someone else’s tasks.”
+
+Update all frontend and backend logic so:
+
+* Team Tasks board only shows tasks where the Team Task flag is true.
+* Team Tasks must never show normal personal tasks.
+* Selecting “Team Tasks” in the Switch Board popup must not mean “show everyone’s tasks.”
+* Selecting a specific teammate/user should show that user’s visible unfinished task board, subject to permissions.
+* Team Tasks should be visible to all users.
+* Individual user tasks belong only in that user’s own Tasks Hub unless explicitly flagged as Team Tasks.
+
+2. Board view identity banner near Tasks Hub title
+    When the user is not viewing their own default board, add a clear visual banner/label near the top of the page, close to the “Tasks Hub” title area.
+
+Required states:
+
+A. My Tasks board:
+Show normal header:
+
+* “Tasks Hub”
+* No warning/banner needed, or subtle “Viewing: My Tasks”
+
+B. Viewing Team Tasks board:
+Show a clear banner near the Tasks Hub title:
+
+* “Viewing: Team Tasks Board”
+* “Shared board. Only tasks flagged as Team Tasks appear here.”
+* “Edits are tracked with user and timestamp.”
+
+C. Viewing another user’s unfinished tasks board:
+Show a clear banner near the Tasks Hub title:
+
+* “Viewing: [User Name]’s Unfinished Tasks”
+* “View-only by default unless you have edit permission.”
+* If current user has edit permission: “You can edit this board. Edits are tracked with user and timestamp.”
+* If current user does not have edit permission: “View only.”
+
+This should be obvious. The user should never have to guess whose board they are looking at. No ghost boards. No mystery meat.
+
+3. Editing permissions for viewed boards
+    Viewing another user’s unfinished tasks:
+
+* Users with permission may actively edit that user’s visible unfinished tasks.
+* Users without permission must be view-only.
+* Every edit must write an accountability/audit event:
+    * who edited,
+    * what changed,
+    * previous value,
+    * new value,
+    * timestamp.
+
+Viewing Team Tasks board:
+
+* Team Tasks can be actively edited by any user who has permission to access/edit Team Tasks.
+* Every edit must write an accountability/audit event:
+    * who edited,
+    * what changed,
+    * previous value,
+    * new value,
+    * timestamp.
+
+4. Team Task creation behavior
+    When a task is created as a Team Task:
+
+* It must be flagged as a Team Task in the database/model.
+* It must appear on the global Team Tasks board for all users.
+* If assigned to one or more users, it must also land in each assigned user’s own Tasks Hub under the Backlog column by default.
+* Once it lands in the assigned user’s Tasks Hub, that assigned user can move it to any column/status they want inside their own board.
+* The task must remain visible on the Team Tasks board regardless of where an assigned user moves it in their own Tasks Hub.
+
+Important:
+If the current data model only has one task row/status, add the smallest safe structure needed to support this distinction. Do not let one user moving a Team Task in their own Tasks Hub accidentally move the canonical Team Tasks board version for everyone unless that is explicitly intended.
+
+5. Team Task metadata and audit trail
+    For any task flagged as a Team Task, clearly display:
+
+* Team Task badge/flag.
+* Who created the Team Task.
+* Timestamp of creation.
+* Who the task is assigned to.
+* Timestamp of assignment.
+* If reassigned:
+    * who reassigned it,
+    * who it was reassigned from,
+    * who it was reassigned to,
+    * timestamp of reassignment.
+* If edited:
+    * who edited it,
+    * what changed,
+    * previous value,
+    * new value,
+    * timestamp.
+
+Compact version can appear on task cards. Full detail must appear in the task detail modal/activity trail.
+
+6. Assignment/reassignment logic
+    When a Team Task is assigned or reassigned:
+
+* Write an audit event.
+* Preserve previous assignment history.
+* Do not overwrite history silently.
+* If reassigned to a new user, ensure the task lands in that new user’s Backlog if they do not already have it in their own Tasks Hub.
+* If removing an assignee, follow existing product conventions for whether that user’s personal copy/state remains archived/completed/removed, but do not silently delete history.
+
+7. Switch Board popup cleanup
+    Update the Switch Board popup labels and logic:
+
+* “My Tasks” = current user’s own tasks, including Team Tasks assigned to them.
+* “Team Tasks” = only tasks explicitly flagged as Team Tasks.
+* Individual people = that person’s visible unfinished task board, subject to permission rules.
+* These are three different concepts and must never be mixed.
+
+When an individual person is selected, the page must clearly show:
+
+* “Viewing: [User Name]’s Unfinished Tasks”
+* edit/view-only permission status
+* accountability tracking message
+
+When Team Tasks is selected, the page must clearly show:
+
+* “Viewing: Team Tasks Board”
+* Team Task-only explanation
+* accountability tracking message
+
+8. Backend/API requirements
+    Audit all Tasks APIs involved in:
+
+* fetching board tasks,
+* fetching team tasks,
+* fetching user tasks,
+* creating tasks,
+* assigning tasks,
+* reassigning tasks,
+* updating task status/column,
+* editing title/description/due date/priority/labels,
+* task audit/activity feed.
+
+Add or fix server-side filters so Team Tasks are enforced by backend logic, not only frontend filtering.
+
+Expected backend distinction:
+
+* GET /tasks/my or equivalent:
+    * returns current user’s own tasks,
+    * includes Team Tasks assigned to them.
+* GET /tasks/team or equivalent:
+    * returns only tasks with Team Task flag true.
+* GET /tasks/user/:id or equivalent:
+    * returns visible unfinished tasks for that selected user,
+    * does not mean Team Tasks.
+
+Use existing route names if different.
+
+9. Frontend requirements
+    Update Tasks Hub UI so:
+
+* Team Tasks board uses only Team Task filtered dataset.
+* My Tasks remains current user’s own task board.
+* User boards remain user-specific unfinished task boards.
+* Board identity banner appears near the Tasks Hub title whenever viewing Team Tasks or another user’s board.
+* Banner clearly states whether the board is editable or view-only.
+* Team Task cards show visible Team Task badge/flag.
+* Team Task cards show creator and assignee.
+* Task detail modal shows full audit trail for creation, assignment, reassignment, and edits.
+* Assigned Team Tasks appear in the assignee’s Backlog column by default.
+
+10. Data migration / backfill
+    If existing tasks need migration:
+
+* Do not mark all existing tasks as Team Tasks.
+* Only preserve existing Team Task flags if they already exist.
+* If there is no reliable existing flag, default existing tasks to non-Team Tasks.
+* Add a safe migration only if needed.
+* Do not break existing personal task boards.
+
+11. Tests
+    Add regression tests covering:
+
+* Team Tasks board excludes personal tasks.
+* Team Tasks board includes only tasks with Team Task flag.
+* My Tasks includes personal tasks plus Team Tasks assigned to the current user.
+* Viewing another user’s board does not show Team Tasks board unless Team Tasks is explicitly selected.
+* Viewing another user’s board clearly displays “Viewing: [User Name]’s Unfinished Tasks.”
+* Viewing Team Tasks clearly displays “Viewing: Team Tasks Board.”
+* User-board banner shows editable/view-only state.
+* Team-board banner shows accountability tracking message.
+* Team Task assigned to a user lands in that user’s Backlog by default.
+* Moving a Team Task in a user’s own board does not incorrectly remove it from Team Tasks.
+* Team Task card/detail shows:
+    * created by,
+    * created timestamp,
+    * assigned to,
+    * assigned timestamp.
+* Reassignment records:
+    * reassigned by,
+    * from user,
+    * to user,
+    * timestamp.
+* Edits record:
+    * edited by,
+    * previous value,
+    * new value,
+    * timestamp.
+* Switch Board popup keeps My Tasks, Team Tasks, and individual users as separate concepts.
+* Existing normal tasks are not accidentally converted into Team Tasks.
+
+12. Verification
+    Run:
+
+node tests/task-floating-menu-overhaul.test.cjs
+npm run test:grep
+
+Also manually verify in browser:
+
+* Open Tasks Hub.
+* Select Board → Team Tasks.
+* Confirm only flagged Team Tasks appear.
+* Confirm top banner says “Viewing: Team Tasks Board.”
+* Confirm banner explains shared board/accountability tracking.
+* Select My Tasks.
+* Confirm personal tasks still appear.
+* Select another user in Switch Board.
+* Confirm top banner says “Viewing: [User Name]’s Unfinished Tasks.”
+* Confirm edit/view-only status is shown.
+* Edit a task where permissions allow it.
+* Confirm edit audit trail shows who edited and when.
+* Create a Team Task assigned to a user.
+* Confirm it appears:
+    * in Team Tasks board for all users,
+    * in assigned user’s Backlog.
+* Reassign it.
+* Confirm reassignment audit details are visible and timestamped.
+
+Final report:
+Report back with:
+
+* Files changed.
+* Data/model changes made.
+* API route/filter changes.
+* Frontend board logic changes.
+* Board identity banner behavior.
+* Edit permission behavior.
+* Audit trail behavior.
+* Migration/backfill behavior.
+* Test pass/fail counts.
+* Browser verification result.
+* Confirmation that personal tasks no longer appear in Team Tasks unless explicitly flagged.
+* Confirmation that viewing another user’s board is clearly identified at the top of the page.
+
+Key point for Replit: Team Tasks = flagged shared work. User board = that person’s unfinished tasks. Both can be edited only with permissions, and every edit needs a name tag and timestamp.

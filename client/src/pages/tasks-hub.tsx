@@ -1076,6 +1076,27 @@ export default function TasksHubPage() {
         </div>
       )}
 
+      {/* Board-identity banner: shown on the Board view so it's always clear
+          whose board is on screen — Team Tasks is a shared, flag-scoped
+          board visible to everyone, distinct from any personal board. */}
+      {!viewingUserId && view === "board" && (
+        <div
+          className={`px-4 md:px-6 py-1.5 flex items-center gap-2 text-xs border-b ${
+            boardScope === "team"
+              ? "bg-violet-500/10 border-violet-500/20 text-violet-400"
+              : "bg-secondary/20 border-border/40 text-muted-foreground"
+          }`}
+          data-testid="banner-board-identity"
+        >
+          {boardScope === "team" ? <Users className="h-3.5 w-3.5 flex-shrink-0" /> : <User2 className="h-3.5 w-3.5 flex-shrink-0" />}
+          <span>
+            {boardScope === "team"
+              ? <>Viewing <strong>Team Tasks</strong> — tasks explicitly flagged for the team, visible to everyone</>
+              : <>Viewing <strong>My Tasks</strong> — your personal board</>}
+          </span>
+        </div>
+      )}
+
       {/* Body — pb-24 on mobile ensures the last task row isn't hidden under the FAB */}
       <div className="flex-1 overflow-y-auto pb-36 lg:pb-24">
         {calendarOpen ? (

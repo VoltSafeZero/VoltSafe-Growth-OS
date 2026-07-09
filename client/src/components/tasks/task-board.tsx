@@ -717,6 +717,15 @@ function BoardCard({ task, onOpen, onDragStart, onDragEnd }: any) {
         <h4 className={`text-sm font-medium leading-snug flex-1 ${isDone ? "line-through" : ""}`} data-testid={`text-title-${task.id}`}>
           {cleanTitle}
         </h4>
+        {task.isTeamTask && (
+          <span
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/25 text-[10px] font-semibold flex-shrink-0"
+            title={task.assignedByName ? `Team task — assigned by ${task.assignedByName}` : "Team task"}
+            data-testid={`badge-team-task-${task.id}`}
+          >
+            <Users className="h-2.5 w-2.5" /> Team
+          </span>
+        )}
       </div>
 
       {(task.accountName || task.linkedObjectType) && (

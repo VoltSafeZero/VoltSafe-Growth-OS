@@ -522,6 +522,9 @@ export const tasks = pgTable("tasks", {
   lastRemindedAt: timestamp("last_reminded_at"),
   reminderCount: integer("reminder_count").default(0),
   escalationLevel: integer("escalation_level").default(0),
+  isTeamTask: boolean("is_team_task").notNull().default(false),
+  assignedAt: timestamp("assigned_at"),
+  assignedByUserId: integer("assigned_by_user_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
