@@ -61,6 +61,7 @@
 - [CEO Cockpit Phase 13 QA](ceo-cockpit-phase13.md) — Phase 13 audit findings: 2 bugs fixed (silent migration catches + missing copy_only on action draft); 113-check smoke test; release checklist.
 - [Disconnected Gmail Sync Fix](disconnected-gmail-sync.md) — 4-layer guard for expired accounts; runIncrementalForAll must filter authStatus='active' at DB level.
 - [Mailbox Visibility Privacy](mailbox-visibility-privacy.md) — private_personal blocks ALL non-owners including admins; no admin bypass; raw SQL only (not Drizzle schema).
+- [Capital CFO Onboarding Seed](capital-cfo-onboarding-seed.md) — capital_seed_log UNIQUE-key idempotency pattern; found scott.carlson@ vs scott@ email allowlist bug; Learn tab restrictedToEmails filtering pattern.
 - [Calendar Visibility Policy](calendar-visibility-policy.md) — resolveCalendarVisibility() mirrors mailbox model; private types bypass role checks; AI search + cross-user activity feeds + account timelines are common leak spots needing the resolver/CASE-sanitize applied.
 - [Private Inbox Sidebar Grouping](private-inbox-grouping.md) — three-section sidebar (WORK INBOX/TEAM INBOXES/PRIVATE INBOXES); migration IS NULL bug; workAccounts must prefer company_managed.
 - [Engagement Thread 500 Fix](engagement-thread-500.md) — email_tracking_pixels lacked updated_at; replyRows query selected p.updated_at causing "Failed query" 500; fixed with COALESCE + runtime migration.

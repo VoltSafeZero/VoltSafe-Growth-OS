@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { SampleBadge, SampleDataBanner, CapitalHelpTip } from "@/components/capital/capital-sample-ui";
 
 const ROUND_TYPES = ["Pre-Seed","Seed","Bridge","Series A","Strategic","Grant","Debt","Other"];
 const ROUND_STATUSES = ["Planning","Open","Soft Circled","Closing","Closed","Paused","Cancelled"];
@@ -87,10 +88,14 @@ export default function CapitalRounds() {
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-background">
+      <div className="px-6 pt-4 shrink-0">
+        <SampleDataBanner />
+      </div>
       <div className="px-6 py-4 border-b border-border/40 shrink-0 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-bold text-foreground flex items-center gap-2">
             <RefreshCcw className="w-5 h-5 text-primary" /> Funding Rounds
+            <CapitalHelpTip copyKey="target_amount" />
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             {rounds.length} round{rounds.length !== 1 ? "s" : ""}{totalTarget > 0 && ` · Active target: ${fmtMoney(totalTarget)}`}

@@ -1,0 +1,210 @@
+PART 12B — CFO Guided Help / Info Buttons
+
+Add small info/help buttons throughout the Capital tab and every Capital subtab so Scott can learn the system without needing Trevor to explain every button like a hostage tutorial.
+
+Requirement:
+Every important button, field, metric, table column, status, filter, card, and action inside Capital must have a small clickable info icon.
+
+Use:
+- Small “i” icon
+- Question mark icon
+- Tooltip icon
+- Or existing app help/tooltip component if one exists
+
+The help button should be visible but not annoying.
+
+When clicked, it should open either:
+1. A tooltip/popover for short explanations, or
+2. A small guided help modal for longer explanations.
+
+Apply this to:
+
+Capital Command Center:
+- Target
+- Minimum close
+- Committed
+- Soft circled
+- Weighted pipeline
+- Remaining
+- Hot investors
+- Likely leads
+- Active investors
+- To min close
+- Lead Investor Tracker
+- This Week to Close
+- Round Risk Flags
+- Reports button
+- Copilot button
+- Round selector dropdown
+- Create button
+- Status labels like Open / Closed / Draft
+- Progress bar
+- Critical risk badges
+
+Investors subtab:
+- Investor name
+- Investor type
+- Stage/status
+- Priority
+- Score
+- Check size
+- Location
+- Owner
+- Last touch
+- Next follow-up
+- Notes
+- Add investor button
+- Edit investor button
+- Filter controls
+- Search
+- Sort
+- Export if present
+
+Rounds & Commitments:
+- Round name
+- Target
+- Minimum close
+- Instrument
+- Valuation cap
+- Discount
+- Close date
+- Committed amount
+- Soft circle amount
+- Investor status
+- Add commitment button
+- Edit commitment button
+- Mark committed action
+- Mark soft circled action
+
+Follow-Ups:
+- Task title
+- Assignee
+- Due date
+- Priority
+- Status
+- Blocked state
+- Add follow-up button
+- Mark done button
+- Reassign button
+- Snooze/reschedule if present
+
+Data Room:
+- Folder name
+- File/card name
+- Upload button
+- Visibility
+- Version
+- Last updated
+- Investor access
+- View activity
+- Replace file
+- Delete/archive if present
+
+Engagement:
+- Activity type
+- Investor activity
+- Deck views
+- Data room opens
+- Last activity
+- Engagement score
+- Timeline filters
+
+Reports:
+- Seed+ Round Snapshot
+- Investor Funnel Report
+- CFO Diligence Checklist
+- Weekly Capital Actions
+- Export/share/download buttons if present
+
+AI Copilot:
+- Prompt cards
+- Ask Copilot button
+- Generated summaries
+- Suggested follow-ups
+- Risk flags
+- Investor recommendations
+
+Learn:
+- Watch button
+- Mark complete button
+- Transcript
+- Ask AI Copilot about this lesson
+- Completion status
+
+Help Content Requirements:
+Each info/help popup should explain:
+- What the field/button means
+- Why it matters
+- How Scott should use it
+- What action to take when the value looks bad
+- Whether the value is demo/sample data or real data
+
+Tone:
+Plain English. CFO-friendly. No engineering jargon.
+
+Example help copy:
+
+Weighted Pipeline:
+“Weighted pipeline estimates how much money is realistically likely to close based on investor stage and probability. A $500k investor at 40% confidence counts as $200k weighted pipeline. Use this to avoid pretending every warm intro is cash in the bank. Spoiler: it is not.”
+
+Soft Circled:
+“Soft circled means an investor has indicated likely interest in a specific amount, but has not legally committed. Treat it as promising, not bankable.”
+
+Committed:
+“Committed means the investor has formally agreed to invest. Only use this for confirmed commitments. Demo commitments should stay clearly labeled as sample data.”
+
+To Min Close:
+“This shows how much more confirmed capital is needed to reach the minimum close. Scott should watch this closely because it tells us whether the round can actually close.”
+
+Hot Investor:
+“A hot investor is highly engaged, high fit, and likely needs immediate follow-up. These are the people to chase first.”
+
+Risk Flags:
+“Risk flags warn that something important is missing, weak, or drifting. Fix these before investor calls so the round does not slowly roll into a ditch wearing a Patagonia vest.”
+
+Follow-Up Due Date:
+“This is the date the next investor action should happen. If it is overdue, either complete it, reschedule it, or admit it fell through the cracks and fix it.”
+
+Data Room Visibility:
+“This controls who can see this file or folder. For CFO onboarding sample data, only Trevor and Scott should have access.”
+
+Instrument:
+“This is the legal investment structure for the round, such as SAFE, priced equity, or convertible note. For the sample Seed+ round, use SAFE.”
+
+Valuation Cap:
+“This is the maximum company valuation used to convert a SAFE into equity later. Scott should verify this matches the approved fundraising terms.”
+
+Discount:
+“This gives SAFE investors a discount when their investment converts into equity. Scott should confirm this matches the round docs.”
+
+Implementation Requirements:
+- Reuse an existing Tooltip, Popover, HelpText, or Modal component if available.
+- Do not create a messy custom tooltip system if the app already has one.
+- Help content should be centralized in one config/object if practical, not scattered everywhere.
+- Add analytics/event logging if the app already tracks UI events:
+  - capital_help_opened
+  - field_key
+  - user_id
+  - timestamp
+- Completion/training state is not required for every help tooltip, but clicking help should not mutate investor data.
+- Tooltips must work on desktop and mobile.
+- Tooltips/popovers must not get clipped by modal/card boundaries.
+- Tooltips must be keyboard accessible.
+- Info icons must have aria-label text.
+- Esc key should close any open help popup.
+- Clicking outside should close any open help popup.
+
+Access Control:
+These Capital help buttons should be visible only to users who can access the Capital module.
+The CFO onboarding-specific help content and sample-data explanations must be visible only to Trevor and Scott.
+
+Testing:
+Add tests proving:
+1. Info buttons render on Capital Command Center metrics.
+2. Info buttons render in each Capital subtab.
+3. Clicking an info button opens the correct explanation.
+4. Esc closes the popup.
+5. Unauthorized users cannot see Trevor/Scott-only onboarding help.
+6. Tooltips do not break the page layout.
+7. Help content is accessible with aria-labels.
+8. Help content does not create, edit, or delete Capital data.

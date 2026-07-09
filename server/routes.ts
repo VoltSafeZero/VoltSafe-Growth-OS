@@ -1467,7 +1467,7 @@ export async function registerRoutes(
     // Capital access: Trevor (user 4) by ID, Scott Carlson (CFO) by email — kept in sync with routes-capital.ts
     const CAPITAL_USER_IDS = new Set([4]);
     const CAPITAL_USER_EMAILS = new Set<string>([
-      "scott.carlson@voltsafe.com",  // CFO — Scott Carlson (kept in sync with routes-capital.ts)
+      "scott@voltsafe.com", "scott.carlson@voltsafe.com",  // CFO — Scott Carlson (kept in sync with routes-capital.ts)
     ]);
     const isCapitalUser = CAPITAL_USER_IDS.has(user.id) ||
       (!!user.email && CAPITAL_USER_EMAILS.has(user.email.toLowerCase()));
@@ -11120,7 +11120,7 @@ export async function registerRoutes(
 
       // ── Capital access (mirrors bootstrap route; kept in sync) ─────────────
       const CAPITAL_USER_IDS = new Set([4]);
-      const CAPITAL_EMAILS   = new Set(["scott.carlson@voltsafe.com"]);
+      const CAPITAL_EMAILS   = new Set(["scott@voltsafe.com", "scott.carlson@voltsafe.com"]);
       const userEmailRow = await db.execute(sql.raw(`SELECT email FROM users WHERE id = ${userId} LIMIT 1`));
       const userEmail    = String((userEmailRow as any).rows?.[0]?.email ?? "").toLowerCase();
       const hasCapital   = CAPITAL_USER_IDS.has(userId) || CAPITAL_EMAILS.has(userEmail);

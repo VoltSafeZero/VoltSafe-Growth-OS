@@ -1,0 +1,491 @@
+Implement a CFO onboarding seed package for VoltSafe Growth OS Capital module.
+
+Context:
+User to onboard:
+- Scott Carlson
+- Email: scott@voltsafe.com
+- Role: CFO
+- Access should be shared only with:
+  1. Trevor Burgess / trevor@voltsafe.com
+  2. Scott Carlson / scott@voltsafe.com
+
+Goal:
+The Capital tab and all Capital subtabs should no longer feel empty for Scott. Auto-create safe test/sample investor data, sample round activity, follow-ups, data-room items, reports, and Learn onboarding content. Everything must be permission locked so only Trevor and Scott can see it.
+
+IMPORTANT:
+- This is sample/test/demo data only.
+- Do not expose this data to other users, admins, managers, or company-wide views unless they are Trevor or Scott.
+- Add clear labels like “Sample”, “Demo”, or “Training” where appropriate.
+- Do not create real outbound emails.
+- Do not create real investor commitments.
+- Do not alter existing real investor data.
+- Use idempotent seeding: running this more than once must not duplicate records.
+
+PART 1 — Permissions / Visibility
+
+Create a Capital workspace access layer if one does not already exist.
+
+Required rule:
+Capital sample onboarding data is visible only when:
+
+user.email IN (
+  'trevor@voltsafe.com',
+  'scott@voltsafe.com'
+)
+
+or equivalent user IDs if the system uses IDs internally.
+
+Apply this permission rule to:
+- Capital Command Center sample data
+- Investors
+- Rounds & Commitments
+- Follow-Ups
+- Data Room
+- Engagement
+- Reports
+- AI Copilot sample prompts
+- Updates & Reviews
+- Learn training videos/cards
+
+Add server-side enforcement, not just frontend hiding.
+
+Add regression tests proving:
+- Trevor can see seeded Capital sample data
+- Scott can see seeded Capital sample data
+- A different VoltSafe user cannot see seeded Capital sample data
+- Non-authenticated users cannot see it
+- Direct API calls are blocked for unauthorized users
+
+PART 2 — Create Scott User / Role Mapping
+
+If Scott already exists, update/ensure:
+- name: Scott Carlson
+- email: scott@voltsafe.com
+- role/title: CFO
+- Capital access: true
+
+If Scott does not exist, create a user shell/account record where appropriate, but do not send an invite unless the app already has a safe invite flow.
+
+PART 3 — Seed Sample Capital Round
+
+Create a sample/private Capital round:
+
+Round name:
+SEED+ — CFO Training Sample
+
+Status:
+Open
+
+Target:
+$5,000,000 USD
+
+Minimum close:
+$1,000,000 USD
+
+Expected close date:
+Use a future date about 90 days from now.
+
+Round type:
+Seed / Seed+
+
+Instrument:
+SAFE
+
+Valuation cap:
+$35,000,000
+
+Discount:
+20%
+
+Notes:
+“This is demo data for Trevor and Scott only. Used to onboard CFO workflows inside VoltSafe Growth OS.”
+
+Round owner(s):
+- Trevor Burgess
+- Scott Carlson
+
+PART 4 — Seed Sample Investors
+
+Create 8–10 test investors with realistic fake/demo profiles.
+
+Use names like:
+
+1. Pacific Current Ventures
+   Type: VC
+   Stage: Seed
+   Location: Vancouver, BC
+   Status: Active
+   Interest level: High
+   Check size range: $250k–$750k
+   Score: 82
+   Priority: High
+   Notes: Strong fit for marine electrification and climate hardware.
+
+2. Blue Harbor Capital
+   Type: Strategic / Family Office
+   Location: Seattle, WA
+   Status: Soft Circled
+   Soft circle amount: $250,000
+   Score: 76
+   Priority: Medium
+   Notes: Interested in marina infrastructure and recurring SaaS revenue.
+
+3. MarinaTech Angels
+   Type: Angel Group
+   Location: San Diego, CA
+   Status: Intro Needed
+   Score: 68
+   Priority: Medium
+   Notes: Good fit because of Port of San Diego pilot.
+
+4. GridEdge Ventures
+   Type: Climate VC
+   Location: San Francisco, CA
+   Status: Reviewing Deck
+   Score: 73
+   Priority: High
+   Notes: Interested in load management, DR, and marina electrification.
+
+5. Northstar Family Office
+   Type: Family Office
+   Location: Calgary, AB
+   Status: Warm Lead
+   Score: 61
+   Priority: Medium
+   Notes: Needs clearer hardware margin story.
+
+6. Harbor Infrastructure Partners
+   Type: Infrastructure Fund
+   Location: Toronto, ON
+   Status: Early Conversation
+   Score: 58
+   Priority: Low
+   Notes: Larger cheque possible later, likely not lead for Seed+.
+
+7. Salish Sea Angels
+   Type: Angel
+   Location: Victoria, BC
+   Status: Committed
+   Committed amount: $100,000
+   Score: 79
+   Priority: High
+   Notes: Demo commitment only. Do not treat as real.
+
+8. OceanGrid Strategic
+   Type: Strategic
+   Location: Miami, FL
+   Status: Data Room Invited
+   Score: 71
+   Priority: Medium
+   Notes: Interested in marina operators and shore power safety.
+
+9. Clean Ports Fund
+   Type: Climate / Infrastructure
+   Location: Los Angeles, CA
+   Status: Passed / Later
+   Score: 42
+   Priority: Low
+   Notes: Wants more deployments before re-engaging.
+
+Make sure these investors populate:
+- Command Center
+- Investors subtab
+- Rounds & Commitments
+- Engagement
+- Reports
+
+PART 5 — Seed Sample Contacts
+
+For each sample investor, create 1–2 fake contacts with clear demo names/emails.
+
+Example:
+- Jordan Demo — Partner — jordan.demo+pacificcurrent@example.com
+- Maya Demo — Principal — maya.demo+blueharbor@example.com
+
+Do not use real emails except Trevor and Scott.
+
+PART 6 — Seed Follow-Ups
+
+Create 10–15 sample follow-up actions.
+
+Examples:
+- Send updated Seed+ deck to Pacific Current Ventures
+- Scott to review SaaS ARR assumptions before Blue Harbor call
+- Trevor to ask for intro to MarinaTech Angels
+- Upload updated financial model to Data Room
+- Confirm SAFE terms in investor FAQ
+- Prepare diligence answer on pedestal gross margins
+- Review BC Hydro demand response upside assumptions
+- Create short memo on Port of San Diego pilot status
+- Follow up with GridEdge Ventures after data room review
+- CFO review of committed vs soft-circled investor totals
+
+Use due dates spread across the next 1–21 days.
+
+Assign some to Trevor and some to Scott.
+
+Statuses:
+- Open
+- In Progress
+- Done
+- Blocked
+
+PART 7 — Seed Data Room
+
+Create sample Data Room folders and files/cards.
+
+Folders:
+1. Pitch Materials
+   - Seed+ Investor Deck — Sample
+   - One-Page Overview — Sample
+   - Product Demo Link — Sample
+
+2. Financials
+   - Seed+ Financial Model — CFO Training Sample
+   - SaaS Revenue Assumptions — Sample
+   - Hardware Margin Bridge — Sample
+
+3. Product & Technology
+   - Shore Power Pedestal Overview — Sample
+   - Smart Connector Architecture — Sample
+   - Software Dashboard Overview — Sample
+
+4. Market & Customers
+   - Marina Market Map — Sample
+   - Port of San Diego Pilot Summary — Sample
+   - Customer Discovery Notes — Sample
+
+5. Legal & Round Docs
+   - SAFE Terms Summary — Sample
+   - Cap Table Snapshot — Sample
+   - Investor FAQ — Sample
+
+These can be placeholder records/cards if real file storage is not available yet.
+
+PART 8 — Seed Engagement Activity
+
+Create realistic sample activity logs:
+
+Examples:
+- Deck viewed by Pacific Current Ventures
+- Data room opened by Blue Harbor Capital
+- Follow-up created for GridEdge Ventures
+- Scott reviewed financial model assumptions
+- Trevor added note to MarinaTech Angels
+- OceanGrid Strategic viewed product overview
+- Salish Sea Angels marked as demo committed
+- Clean Ports Fund marked as passed/later
+
+Include timestamps over the last 14 days.
+
+PART 9 — Seed Reports
+
+Create CFO-useful sample reports/cards:
+
+1. Seed+ Round Snapshot
+   Metrics:
+   - Target: $5.0M
+   - Demo committed: $100k
+   - Demo soft circled: $250k
+   - Weighted pipeline: about $1.2M
+   - Remaining to target: $4.65M
+
+2. Investor Funnel Report
+   Buckets:
+   - Intro Needed
+   - Warm Lead
+   - Reviewing Deck
+   - Data Room Invited
+   - Soft Circled
+   - Committed
+   - Passed / Later
+
+3. CFO Diligence Checklist
+   Sections:
+   - Financial model
+   - SaaS assumptions
+   - Hardware margins
+   - Manufacturing readiness
+   - Round terms
+   - Data room completeness
+
+4. Weekly Capital Actions
+   Show open follow-ups assigned to Trevor and Scott.
+
+PART 10 — Learn Tab Training / Videos
+
+Add a Capital onboarding section inside Learn.
+
+Title:
+Capital Onboarding — Trevor & Scott
+
+Visibility:
+Only Trevor and Scott.
+
+Add 5 simple training lessons with video-style cards. If the app supports real video upload/embed, create placeholder videos using the app’s existing video/lesson model. If real video generation is not supported, create training cards with:
+- title
+- duration
+- script
+- thumbnail placeholder
+- “Watch” button
+- completion state
+- transcript
+
+Lessons:
+
+1. Capital Command Center Overview
+Duration: 3 min
+Purpose:
+Explain the top metrics: target, minimum close, committed, soft circled, weighted pipeline, remaining, hot investors, likely leads, active investors, and risk flags.
+
+Script:
+“Welcome to the Capital Command Center. This is the cockpit for the Seed+ round. The goal is simple: know who is real, who is drifting, what money is credible, and what needs action this week. Green numbers mean momentum. Red flags mean don’t ignore them until Friday afternoon like a raccoon with a calendar.”
+
+2. Investor Pipeline 101
+Duration: 4 min
+Purpose:
+Explain investor stages and how Trevor/Scott should use the Investors tab.
+
+Cover:
+- Intro Needed
+- Warm Lead
+- Reviewing Deck
+- Data Room Invited
+- Soft Circled
+- Committed
+- Passed / Later
+
+3. CFO Workflow: Financial Model + Diligence
+Duration: 5 min
+Purpose:
+Show Scott how to review financial assumptions, SaaS revenue, hardware margins, and investor diligence questions.
+
+Cover:
+- Financial model review
+- Gross margin assumptions
+- SaaS subscription revenue
+- Manufacturing cost sensitivity
+- How to mark diligence items complete
+
+4. Follow-Ups and Weekly Close Rhythm
+Duration: 3 min
+Purpose:
+Explain how Trevor and Scott should manage weekly investor actions.
+
+Cover:
+- Assigning follow-ups
+- Due dates
+- Priority
+- Blocked items
+- Weekly close review
+
+5. Data Room Hygiene
+Duration: 4 min
+Purpose:
+Explain what belongs in the Data Room and how to keep it investor-ready.
+
+Cover:
+- Pitch deck
+- Financial model
+- Legal docs
+- Product docs
+- Market/customer proof
+- Version control
+- Don’t upload mystery files named final_final_REAL_v7.pdf
+
+Each training item should have:
+- Watch button
+- Mark complete button
+- Completion status per user
+- Transcript expandable
+- “Ask AI Copilot about this lesson” action if AI Copilot exists
+
+PART 11 — AI Copilot Starter Prompts
+
+Add sample Capital AI Copilot prompts visible only to Trevor and Scott:
+
+- “Summarize the Seed+ round for Scott.”
+- “Which investors need follow-up this week?”
+- “What are the biggest round risk flags?”
+- “What should Scott review before the next investor call?”
+- “Create a CFO diligence checklist for this round.”
+- “Explain weighted pipeline in plain English.”
+
+PART 12 — UI Requirements
+
+Capital Command Center:
+- Show seeded numbers instead of empty zeros.
+- Keep obvious “Sample / Training Data” labeling.
+- Add a dismissible banner:
+  “CFO onboarding sample data is visible only to Trevor and Scott.”
+
+Investors tab:
+- Show sample investors in table/list.
+
+Rounds & Commitments:
+- Show SEED+ CFO Training Sample round.
+- Show demo commitment and soft-circle amounts.
+
+Follow-Ups:
+- Show assigned actions for Trevor and Scott.
+
+Data Room:
+- Show sample folders/cards.
+
+Engagement:
+- Show sample investor activity.
+
+Reports:
+- Show sample reports.
+
+Learn:
+- Add “Capital Onboarding — Trevor & Scott” section.
+
+PART 13 — Idempotency
+
+Create a seeder function or migration with a unique seed key:
+
+capital_cfo_onboarding_seed_v1
+
+Before creating any sample data, check whether this seed has already run.
+
+If it has run:
+- Do not duplicate investors
+- Do not duplicate contacts
+- Do not duplicate follow-ups
+- Do not duplicate Learn lessons
+- Safe update existing demo records if needed
+
+PART 14 — Testing
+
+Add tests for:
+
+1. Seeder creates expected data once.
+2. Running seeder twice creates no duplicates.
+3. Trevor can access sample Capital data.
+4. Scott can access sample Capital data.
+5. Other users cannot access sample Capital data.
+6. Capital subtabs render without empty-state-only screens.
+7. Learn tab shows Capital onboarding lessons for Trevor and Scott.
+8. Learn tab hides Capital onboarding lessons from other users.
+9. API endpoints enforce access server-side.
+10. Sample data is clearly labeled as demo/training.
+
+PART 15 — Verification
+
+After implementation, run:
+- Existing test suite relevant to Capital, Learn, auth, permissions
+- New tests
+- Typecheck/build if available
+- Start app and verify no console errors
+- Manual browser check as Trevor
+- Manual browser check as Scott if test user login/dev impersonation exists
+- Manual browser check as unauthorized user
+
+Final response should include:
+- Files changed
+- Seeder/migration name
+- How to re-run or reset sample data safely
+- Permission model used
+- Tests added
+- Verification results

@@ -723,6 +723,7 @@ export default function CapitalCommandCenterPage() {
 
   return (
     <div className="p-4 lg:p-6 max-w-7xl mx-auto space-y-6" data-testid="capital-command-center">
+      <SampleDataBanner />
 
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">

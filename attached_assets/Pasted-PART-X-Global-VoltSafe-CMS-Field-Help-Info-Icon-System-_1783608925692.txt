@@ -1,0 +1,421 @@
+PART X — Global VoltSafe CMS Field Help / Info Icon System
+
+Create a universal onboarding help system across VoltSafe CMS.
+
+Goal:
+Every major field, button, metric, card, filter, dropdown, table column, status, and action throughout VoltSafe CMS should have a subtle clickable info icon that explains what it means, why it matters, and how to use it.
+
+This is for onboarding any/all VoltSafe CMS users, not only Scott or Trevor.
+
+Use a simple minimalistic “i” symbol:
+- Small lowercase “i”
+- Circular icon preferred
+- Subtle grey/teal styling
+- Should not clutter the UI
+- Should feel like quiet help, not a Vegas slot machine
+
+When a user clicks the info icon, show a small tooltip/popover/modal that explains:
+1. What this field/button/metric does
+2. Why it matters
+3. How the user should use it
+4. What happens if they click/use/change it
+5. Any permission limits or side effects
+6. Whether the value is real, sample, draft, synced, AI-generated, or system-generated
+
+Apply this globally to all VoltSafe CMS modules, including but not limited to:
+
+- Today
+- Currents
+- Work
+- Pipeline
+- Operations
+- Insights
+- Ecosystem
+- Marketing
+- Capital
+- Feed CORTEX
+- Learn
+- Mail / Inbox if included in this codebase
+- CRM records: Leads, Accounts, Contacts
+- Calendar & Meetings
+- Tasks
+- Reports
+- AI Copilot
+- Settings / Admin areas if present
+
+Implementation Requirements:
+
+1. Create a reusable global component
+
+Create a reusable component such as:
+
+- InfoHelpIcon
+- FieldHelp
+- HelpTooltip
+- HelpPopover
+
+Use the existing design system Tooltip/Popover/Dialog component if one exists.
+
+The component should support:
+
+- helpKey
+- title
+- shortDescription
+- detailedDescription
+- placement
+- permissionScope
+- moduleName
+- ariaLabel
+- optional “Learn more” link
+- optional “Ask AI Copilot” action if AI Copilot exists
+
+Example usage:
+
+<FieldHelp
+  helpKey="capital.weightedPipeline"
+  title="Weighted Pipeline"
+  shortDescription="Estimated realistic capital based on investor probability."
+/>
+
+2. Centralize help copy
+
+Do not scatter help text randomly through dozens of files like confetti after a bad board meeting.
+
+Create a centralized help content registry/config, for example:
+
+client/src/lib/help-content.ts
+
+or whatever path fits the project.
+
+Suggested structure:
+
+const HELP_CONTENT = {
+  "capital.weightedPipeline": {
+    title: "Weighted Pipeline",
+    shortDescription: "Estimated realistic capital based on investor stage and probability.",
+    detailedDescription: "Weighted pipeline estimates how much money is realistically likely to close. For example, a $500k investor at 40% confidence counts as $200k weighted pipeline.",
+    module: "Capital",
+    audience: "all-capital-users"
+  },
+  ...
+}
+
+The global help component should retrieve copy by helpKey.
+
+3. Fallback behavior
+
+If a helpKey is missing:
+- Do not crash
+- Show a safe generic explanation:
+  “Help content for this field has not been added yet.”
+- Log a dev warning in development only
+- Add a test that missing help content does not break the page
+
+4. Progressive rollout
+
+Do not try to perfectly write 1,000 help entries in one giant messy pass.
+
+Implement the system globally, then add first-pass coverage for all obvious visible fields/buttons in the main modules.
+
+Start with:
+
+A. Sidebar/navigation
+Explain each major module:
+- Today
+- Currents
+- Work
+- Pipeline
+- Operations
+- Insights
+- Ecosystem
+- Marketing
+- Capital
+- Feed CORTEX
+- Learn
+
+B. Capital
+Cover every major field/button/subtab.
+
+C. CRM/Pipeline
+Cover:
+- Lead
+- Account
+- Contact
+- Stage
+- Owner
+- Priority
+- Score
+- Source
+- Last touch
+- Next action
+- AI Summary
+- Activity
+- Create
+- Edit
+- Archive/Delete
+- Filters
+- Search
+- Sort
+
+D. Currents
+Cover:
+- Channel
+- Public/private channel
+- Message
+- Reply
+- Pin
+- Reaction
+- Attachment
+- Emoji
+- GIF/custom emoji upload
+- Edit message
+- Delete/archive message if present
+- Mentions
+- Notifications
+
+E. Work / Tasks
+Cover:
+- Task title
+- Status
+- Priority
+- Assignee
+- Due date
+- Column
+- Board
+- Create task
+- Edit task
+- Move task
+- Done/completed
+- Blocked
+
+F. Mail / Inbox if present
+Cover:
+- Inbox
+- Unread
+- Priority
+- Star
+- Snooze
+- Archive
+- Block/trust sender
+- Reply
+- Forward
+- Compose
+- AI generate
+- Tracking opens/clicks
+- Contact/account auto-linking
+
+G. Calendar & Meetings
+Cover:
+- Event
+- Meeting
+- Attendees
+- Start/end time
+- Location
+- Notes
+- Recording
+- Transcript
+- AI summary
+- Follow-up extraction
+
+H. Learn
+Cover:
+- Lesson
+- Watch
+- Mark complete
+- Transcript
+- Module
+- Progress
+- Assigned training
+- Required/optional
+
+I. AI Copilot
+Cover:
+- Prompt
+- Suggested action
+- Generated summary
+- Confidence
+- Source context
+- Apply suggestion
+- Reject suggestion
+
+5. UX behavior
+
+Info icons should:
+- Be tiny and subtle
+- Appear beside labels/headings/buttons, not randomly floating
+- Not shift layout awkwardly
+- Not block normal workflows
+- Not appear inside every row repeatedly if it creates visual clutter
+
+For tables:
+- Put help icons in column headers, not every cell.
+- For repeated cards/lists, put help icons beside section titles or field labels.
+
+For buttons:
+- Place icon beside button label or in nearby header/help area.
+- Avoid making the actual button harder to click.
+
+6. Accessibility
+
+Must include:
+- aria-label for every info icon
+- Keyboard focus support
+- Enter/Space opens tooltip
+- Esc closes tooltip
+- Click outside closes tooltip
+- Tooltip content readable by screen readers
+- Does not trap focus unless using modal mode
+- Works on desktop and mobile
+
+7. Mobile behavior
+
+On mobile:
+- Tap opens the help popover
+- Popover must not be clipped
+- Text must wrap
+- No horizontal scrolling
+- Close button or tap-outside must work
+
+8. Permissions
+
+Help icons should respect module permissions.
+
+Rules:
+- If user cannot access a module, they should not see its help content.
+- If a field/action is permission locked, help text may explain why the user cannot use it.
+- Trevor/Scott-only Capital onboarding sample explanations must remain visible only to Trevor and Scott.
+- General Capital help can be visible to all users who have Capital access.
+
+Server-side rules:
+- If help content is fetched from an API, enforce permissions server-side.
+- Do not rely only on frontend hiding.
+
+9. Analytics / Audit Events
+
+If the app already has analytics or audit event logging, log help opens:
+
+event_name:
+cms_help_opened
+
+Payload:
+- helpKey
+- moduleName
+- userId
+- timestamp
+- route
+- sourceComponent
+
+This will show which areas confuse users most.
+
+Do not log sensitive record contents.
+
+10. AI Copilot integration
+
+If AI Copilot exists, add optional action inside help popover:
+
+“Ask AI Copilot about this”
+
+When clicked:
+- Open Copilot with context:
+  - helpKey
+  - module
+  - current route
+  - current field/button name
+- Do not send private record data unless user has permission to that data.
+
+11. Admin/content editing future-proofing
+
+Design the help registry so it could later be managed by admins without rewriting components.
+
+Do not need to build full admin CMS now, but structure it cleanly.
+
+12. Example help content
+
+Add these sample help entries:
+
+Create button:
+“Creates a new item in this section. Depending on where you are, this may create a lead, task, investor, report, event, or other record. If you are unsure, check the form title before saving. Buttons are sneaky like that.”
+
+Search:
+“Search filters the current page or module. Use it to quickly find records, people, companies, messages, files, or tasks.”
+
+Filter:
+“Filters narrow what you see without deleting anything. If something disappears, clear filters before assuming the system ate it.”
+
+Sort:
+“Sort changes the order of the list. It does not edit the records.”
+
+Owner:
+“The owner is the person responsible for moving this item forward. If no owner is assigned, the item usually becomes digital furniture.”
+
+Priority:
+“Priority shows how urgent or important this item is. High-priority items should be handled first.”
+
+Status:
+“Status shows where this item currently stands. Update it when the real-world situation changes.”
+
+Last Touch:
+“Last touch shows the most recent meaningful interaction. If it is old, the relationship may be cooling off.”
+
+Next Action:
+“Next action is the next concrete step. Good next actions are specific, assigned, and dated.”
+
+AI Summary:
+“AI Summary gives a quick explanation of the record based on available activity and context. Review it before relying on it. AI is helpful, not a sworn witness.”
+
+Archive:
+“Archive removes the item from active views without permanently deleting it.”
+
+Delete:
+“Delete removes the item or moves it to trash, depending on the module. Use carefully. The undo fairy has limited working hours.”
+
+13. Testing
+
+Add tests proving:
+
+- Global InfoHelpIcon renders
+- Help content loads from centralized registry
+- Missing helpKey does not crash
+- Clicking info icon opens help content
+- Esc closes help content
+- Click outside closes help content
+- Info icons are keyboard accessible
+- Info icons have aria-labels
+- Table help icons render in headers, not every row cell
+- Unauthorized users cannot access permission-locked help content
+- General users can access general help content for modules they are allowed to view
+- Trevor and Scott can see CFO onboarding-specific Capital help
+- Other users cannot see Trevor/Scott-only Capital onboarding help
+- Mobile/narrow viewport does not cause horizontal scroll
+- Tooltips/popovers are not clipped inside cards/modals
+- Help opens can be logged without exposing sensitive data
+
+14. Verification
+
+After implementation, run:
+
+- Existing relevant tests
+- New help-system tests
+- Typecheck/build
+- Start app
+- Browser smoke test these routes:
+  - Today
+  - Currents
+  - Pipeline/CRM
+  - Capital
+  - Learn
+  - Work/Tasks
+  - Mail if available
+  - Calendar if available
+- Confirm no console errors
+- Confirm no horizontal scroll or tooltip clipping
+- Confirm unauthorized users do not see restricted help
+
+Final implementation report should include:
+- Files changed
+- Reusable component name
+- Help registry/config path
+- Modules covered in first pass
+- Permission model used
+- Tests added
+- Verification results

@@ -28,6 +28,8 @@ export interface TrainingPlaylist {
   videoIds: string[];
   filePath: string;
   icon: string;
+  /** If set, only these emails can see this playlist (case-insensitive). Omit for everyone. */
+  restrictedToEmails?: string[];
 }
 
 export interface TrainingVideo {
@@ -47,6 +49,8 @@ export interface TrainingVideo {
   finalVideoPath?: string;
   /** onboarding-videos/storyboards/[name].md */
   storyboardPath: string;
+  /** If set, only these emails can see this video (case-insensitive). Omit for everyone. */
+  restrictedToEmails?: string[];
 }
 
 export interface FutureVideo {
@@ -111,6 +115,17 @@ export const TRAINING_PLAYLISTS: TrainingPlaylist[] = [
     videoIds: ["01", "02", "03", "06", "05", "04"],
     filePath: "onboarding-videos/playlists/05-new-employee-playlist.md",
     icon: "👋",
+  },
+  {
+    id: "capital-cfo-onboarding",
+    title: "Capital Module — CFO Onboarding",
+    audience: "CFO & CEO only",
+    description: "A focused walkthrough of the Capital module — investor pipeline, data room, follow-ups, engagement, and reporting — using sample data.",
+    estimatedTime: "~15 min",
+    videoIds: ["cap-01", "cap-02", "cap-03", "cap-04", "cap-05"],
+    filePath: "onboarding-videos/playlists/06-capital-cfo-onboarding-playlist.md",
+    icon: "💰",
+    restrictedToEmails: ["trevor@voltsafe.com", "scott@voltsafe.com"],
   },
 ];
 
@@ -196,6 +211,66 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
     rawVideoPath: "onboarding-videos/outputs/raw/06-account-intelligence-view.webm",
     finalVideoPath: "onboarding-videos/outputs/final/06-account-intelligence-view.mp4",
     storyboardPath: "onboarding-videos/storyboards/06-account-intelligence-view.md",
+  },
+  {
+    id: "cap-01",
+    number: "01",
+    title: "Capital Module Overview",
+    description:
+      "A tour of the Capital command center — round progress, investor pipeline stages, and how sample data maps to the real fundraising workflow.",
+    duration: "~3 min",
+    audiences: ["CFO"],
+    status: "not_recorded",
+    storyboardPath: "onboarding-videos/storyboards/cap-01-capital-overview.md",
+    restrictedToEmails: ["trevor@voltsafe.com", "scott@voltsafe.com"],
+  },
+  {
+    id: "cap-02",
+    number: "02",
+    title: "Investor Pipeline & Commitments",
+    description:
+      "How to move investors through pipeline stages, log soft circles and commitments, and read the round's committed vs. target progress.",
+    duration: "~3 min",
+    audiences: ["CFO"],
+    status: "not_recorded",
+    storyboardPath: "onboarding-videos/storyboards/cap-02-investor-pipeline.md",
+    restrictedToEmails: ["trevor@voltsafe.com", "scott@voltsafe.com"],
+  },
+  {
+    id: "cap-03",
+    number: "03",
+    title: "Data Room & Materials",
+    description:
+      "Organizing diligence materials into folders, marking confidentiality, and sharing a data room with an investor via the investor portal.",
+    duration: "~3 min",
+    audiences: ["CFO"],
+    status: "not_recorded",
+    storyboardPath: "onboarding-videos/storyboards/cap-03-data-room.md",
+    restrictedToEmails: ["trevor@voltsafe.com", "scott@voltsafe.com"],
+  },
+  {
+    id: "cap-04",
+    number: "04",
+    title: "Follow-Ups & Engagement Tracking",
+    description:
+      "Creating and assigning investor follow-ups, and reading the engagement log to see who's warm and who's gone quiet.",
+    duration: "~3 min",
+    audiences: ["CFO"],
+    status: "not_recorded",
+    storyboardPath: "onboarding-videos/storyboards/cap-04-followups-engagement.md",
+    restrictedToEmails: ["trevor@voltsafe.com", "scott@voltsafe.com"],
+  },
+  {
+    id: "cap-05",
+    number: "05",
+    title: "Reports & the AI Copilot",
+    description:
+      "Generating weekly briefs, board updates, and CFO closing reports, plus how to use the Capital AI Copilot for quick investor Q&A.",
+    duration: "~3 min",
+    audiences: ["CFO"],
+    status: "not_recorded",
+    storyboardPath: "onboarding-videos/storyboards/cap-05-reports-copilot.md",
+    restrictedToEmails: ["trevor@voltsafe.com", "scott@voltsafe.com"],
   },
 ];
 

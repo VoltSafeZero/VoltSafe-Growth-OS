@@ -737,9 +737,20 @@ export default function TrainingHubPage() {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [watchingVideoId, setWatchingVideoId] = useState<string | null>(null);
 
-  const { data: user } = useQuery<{ globalRole?: string; name?: string }>({
+  const { data: user } = useQuery<{ globalRole?: string; name?: string; email?: string }>({
     queryKey: ["/api/auth/me"],
   });
+
+  const canSeeRestricted = (emails?: string[]) => {
+    if (!emails || emails.length === 0) return true;
+    const email = user?.email?.toLowerCase();
+    return !!email && emails.some((e) => e.toLowerCase() === email);
+  };
+
+  const visiblePlaylists = useMemo(
+    () => TRAINING_PLAYLISTS.filter((p) => canSeeRestricted(p.restrictedToEmails)),
+    [user?.email],
+  );
 
   const { data: videoStatus } = useQuery<{ existingMp4s: string[] }>({
     queryKey: ["/api/training/video-status"],
@@ -902,7 +913,7 @@ export default function TrainingHubPage() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {TRAINING_PLAYLISTS.map((pl) => (
+                  {visiblePlaylists.map((pl) => (
                     <PlaylistCard
                       key={pl.id}
                       playlist={pl}

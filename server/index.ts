@@ -387,6 +387,12 @@ app.use((req, res, next) => {
       await migrateCapitalSchema();
     } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
+    // Capital CFO onboarding sample data (idempotent — safe on every boot)
+    import("../scripts/capital-cfo-onboarding-seed")
+      .then(({ runCapitalCfoOnboardingSeed }) => runCapitalCfoOnboardingSeed())
+      .then((r) => log(`[capital-seed] ${r.ran ? "seeded CFO onboarding sample data" : `skipped (${r.reason})`}`))
+      .catch((e: any) => log(`[capital-seed] failed: ${e?.message}`));
+
     // CEO Action Queue — Phase 6 tables
     try {
       await _db.execute(_sql.raw(`

@@ -15,7 +15,8 @@ import { recordHighRiskAction, getAuditActor } from "./services/security-audit";
 // Scott Carlson  (CFO) — no account yet; add email below when created.
 export const CAPITAL_ALLOWED_USER_IDS = new Set<number>([4]);
 export const CAPITAL_ALLOWED_EMAILS   = new Set<string>([
-  "scott.carlson@voltsafe.com",  // CFO — Scott Carlson
+  "scott@voltsafe.com",           // CFO — Scott Carlson (real account email)
+  "scott.carlson@voltsafe.com",   // legacy alias kept for backwards-compat
 ]);
 
 export async function isCapitalUser(userId: number): Promise<boolean> {
@@ -545,6 +546,27 @@ export async function migrateCapitalSchema(): Promise<void> {
     `));
     console.log("[migration] Capital Phase 2J: deleted_at columns ready on capital_investors + capital_rounds.");
   } catch (_e2j) { /* idempotent */ }
+
+  // Phase 2K: CFO onboarding sample-data support (is_sample flags + seed log + prompts)
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE capital_investors    ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE capital_contacts     ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE capital_rounds       ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE capital_commitments  ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE capital_materials    ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE capital_activities   ADD COLUMN IF NOT EXISTS is_sample BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE capital_materials    ADD COLUMN IF NOT EXISTS folder_name TEXT;
+
+      CREATE TABLE IF NOT EXISTS capital_seed_log (
+        id         SERIAL PRIMARY KEY,
+        seed_key   TEXT NOT NULL UNIQUE,
+        run_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        notes      TEXT
+      );
+    `));
+    console.log("[migration] Capital Phase 2K: CFO onboarding sample-data columns + seed log ready.");
+  } catch (_e2k) { /* idempotent */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
