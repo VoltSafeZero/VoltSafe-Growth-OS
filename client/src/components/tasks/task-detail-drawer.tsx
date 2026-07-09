@@ -1466,7 +1466,10 @@ function humanizeActivity(a: any): string {
     default:
       if (action.startsWith("updated_")) {
         const field = action.slice(8).replace(/_/g, " ");
-        return `changed ${field}${to ? ` to "${to}"` : ""}`;
+        if (from && to) return `changed ${field} from "${from}" to "${to}"`;
+        if (to) return `changed ${field} to "${to}"`;
+        if (from) return `cleared ${field} (was "${from}")`;
+        return `changed ${field}`;
       }
       return action;
   }

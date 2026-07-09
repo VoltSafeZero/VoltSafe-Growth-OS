@@ -1056,23 +1056,28 @@ export default function TasksHubPage() {
 
       {/* Context banner: shown when viewing another user's tasks */}
       {viewingUserId && viewingUserName && (
-        <div className={`px-4 md:px-6 py-1.5 flex items-center gap-2 text-xs border-b ${
+        <div className={`px-4 md:px-6 py-1.5 flex flex-col gap-0.5 text-xs border-b ${
           isViewOnly
             ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
             : "bg-primary/5 border-primary/10 text-primary"
         }`} data-testid="banner-viewing-user">
-          <Eye className="h-3.5 w-3.5 flex-shrink-0" />
-          <span>
-            Viewing <strong>{viewingUserName}</strong>'s Tasks Hub
-            {isViewOnly && <span className="ml-1 opacity-70">— view only</span>}
+          <div className="flex items-center gap-2">
+            <Eye className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>
+              Viewing: <strong>{viewingUserName}'s Unfinished Tasks</strong>
+              <span className="ml-1 opacity-70">— {isViewOnly ? "view only" : "editable"}</span>
+            </span>
+            <button
+              onClick={() => setViewingUserId(null)}
+              className="ml-auto text-inherit hover:underline opacity-70 hover:opacity-100 transition-opacity"
+              data-testid="button-exit-view"
+            >
+              Exit
+            </button>
+          </div>
+          <span className="opacity-70 pl-5" data-testid="text-accountability-user">
+            Changes here are tracked and attributed to you in {viewingUserName}'s audit trail — this board reflects their accountability, not yours.
           </span>
-          <button
-            onClick={() => setViewingUserId(null)}
-            className="ml-auto text-inherit hover:underline opacity-70 hover:opacity-100 transition-opacity"
-            data-testid="button-exit-view"
-          >
-            Exit
-          </button>
         </div>
       )}
 
@@ -1081,18 +1086,25 @@ export default function TasksHubPage() {
           board visible to everyone, distinct from any personal board. */}
       {!viewingUserId && view === "board" && (
         <div
-          className={`px-4 md:px-6 py-1.5 flex items-center gap-2 text-xs border-b ${
+          className={`px-4 md:px-6 py-1.5 flex flex-col gap-0.5 text-xs border-b ${
             boardScope === "team"
               ? "bg-violet-500/10 border-violet-500/20 text-violet-400"
               : "bg-secondary/20 border-border/40 text-muted-foreground"
           }`}
           data-testid="banner-board-identity"
         >
-          {boardScope === "team" ? <Users className="h-3.5 w-3.5 flex-shrink-0" /> : <User2 className="h-3.5 w-3.5 flex-shrink-0" />}
-          <span>
+          <div className="flex items-center gap-2">
+            {boardScope === "team" ? <Users className="h-3.5 w-3.5 flex-shrink-0" /> : <User2 className="h-3.5 w-3.5 flex-shrink-0" />}
+            <span>
+              {boardScope === "team"
+                ? <>Viewing: <strong>Team Tasks Board</strong></>
+                : <>Viewing: <strong>My Tasks</strong></>}
+            </span>
+          </div>
+          <span className="opacity-70 pl-5" data-testid="text-accountability-board">
             {boardScope === "team"
-              ? <>Viewing <strong>Team Tasks</strong> — tasks explicitly flagged for the team, visible to everyone</>
-              : <>Viewing <strong>My Tasks</strong> — your personal board</>}
+              ? "Shows only tasks explicitly flagged as Team Tasks — never personal tasks. Every create, assignment, reassignment, and edit here is tracked and attributed to you."
+              : "Your personal board — includes tasks assigned to you directly and any Team Tasks assigned to you."}
           </span>
         </div>
       )}

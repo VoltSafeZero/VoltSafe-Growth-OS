@@ -1,0 +1,100 @@
+Continue from the latest checkpoint and finish the Team Tasks / viewed-board accountability work.
+
+Do not start new feature work. First produce a final verification report.
+
+Required checks:
+
+1. Confirm implementation status
+
+Report whether the following are now implemented:
+
+- Team Tasks board only shows tasks explicitly flagged as Team Tasks.
+- Personal tasks no longer appear in Team Tasks unless flagged.
+- My Tasks still shows the current user’s own tasks.
+- My Tasks also includes Team Tasks assigned to that user.
+- Selecting another user shows that user’s unfinished task board, not Team Tasks.
+- Team Tasks board is visible to all users.
+- Team Tasks can be edited by permitted users.
+- Viewing another user’s board clearly shows a banner near Tasks Hub:
+  - “Viewing: [User Name]’s Unfinished Tasks”
+  - editable or view-only state
+  - accountability tracking message
+- Viewing Team Tasks clearly shows a banner near Tasks Hub:
+  - “Viewing: Team Tasks Board”
+  - Team Task-only explanation
+  - accountability tracking message
+
+2. Confirm audit/accountability behavior
+
+Verify and report:
+
+- Team Task creation records:
+  - created by
+  - created timestamp
+- Team Task assignment records:
+  - assigned to
+  - assigned timestamp
+- Team Task reassignment records:
+  - reassigned by
+  - previous assignee
+  - new assignee
+  - reassignment timestamp
+- Edits to Team Tasks or another user’s board record:
+  - edited by
+  - field changed
+  - previous value
+  - new value
+  - timestamp
+
+3. Confirm Team Task assignment behavior
+
+Verify:
+
+- Creating a Team Task assigned to a user places it in that user’s Backlog by default.
+- The Team Task also appears in the global Team Tasks board.
+- Moving the assigned Team Task inside the user’s own board does not remove it from Team Tasks.
+- Reassigning a Team Task places it in the new assignee’s Backlog if needed.
+- Existing personal tasks were not accidentally converted into Team Tasks.
+
+4. Run tests
+
+Run:
+
+node tests/task-floating-menu-overhaul.test.cjs
+npm run test:grep
+
+Also run any new Team Task regression test file added during this implementation.
+
+Report exact pass/fail counts.
+
+5. Browser/manual verification
+
+Use the browser and verify:
+
+- Open Tasks Hub.
+- Select My Tasks.
+- Select Team Tasks.
+- Select another visible user.
+- Confirm the correct banner appears for Team Tasks and user boards.
+- Confirm Team Tasks board excludes personal tasks.
+- Confirm another user’s board is clearly identified.
+- Confirm editing behavior respects permissions.
+- Confirm audit trail is visible in task detail modal or activity feed.
+
+6. Final report format
+
+Return a clean report with:
+
+- Files changed.
+- Data/model changes made.
+- API route/filter changes.
+- Frontend board logic changes.
+- Board identity banner behavior.
+- Edit permission behavior.
+- Audit trail behavior.
+- Migration/backfill behavior.
+- Tests added/updated.
+- Test pass/fail counts.
+- Browser verification result.
+- Any remaining known failures, clearly marked as unrelated.
+- Confirmation that the previously completed floating menu work still passes 28/28.
