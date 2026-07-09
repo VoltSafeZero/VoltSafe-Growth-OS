@@ -159,31 +159,57 @@ export default function MeetingNotesList() {
   const groups = groupNotes(visible, timezone);
 
   return (
-    <div className="flex flex-col gap-4" data-testid="meeting-notes-list">
-      {/* Section header */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-            <Mic className="w-4 h-4 text-primary" />
+    <div className="flex flex-col gap-5" data-testid="meeting-notes-list">
+      {/* Hero action card — Meeting Recorder (primary, high-contrast) */}
+      <div
+        className="relative overflow-hidden rounded-xl border border-primary/30 bg-gradient-to-br from-primary/15 via-primary/5 to-transparent p-4 sm:p-5"
+        data-testid="card-meeting-recorder-hero"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-xl bg-primary/15 flex items-center justify-center shrink-0 ring-1 ring-primary/30">
+              <Mic className="w-5 h-5 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold leading-tight text-foreground" data-testid="heading-meeting-recorder-hero">
+                Meeting Recorder
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Capture, transcribe and follow up on meetings automatically
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-base font-semibold leading-tight" data-testid="heading-meeting-notes-section">
-              Meetings & Recorder
-            </h2>
-            <p className="text-xs text-muted-foreground">Capture, transcribe and follow up on meetings</p>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              onClick={() => toast({ title: "Upload Recording", description: "Recording upload is coming soon." })}
+              data-testid="button-upload-recording"
+            >
+              <Upload className="w-3.5 h-3.5 mr-1.5" />
+              Upload Recording
+            </Button>
+            <Button
+              size="default"
+              onClick={() => createMutation.mutate()}
+              disabled={createMutation.isPending}
+              data-testid="button-new-meeting-note-calendar"
+            >
+              {createMutation.isPending
+                ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                : <Mic className="w-4 h-4 mr-1.5" />}
+              Start Recording
+            </Button>
           </div>
         </div>
-        <Button
-          size="sm"
-          onClick={() => createMutation.mutate()}
-          disabled={createMutation.isPending}
-          data-testid="button-new-meeting-note-calendar"
-        >
-          {createMutation.isPending
-            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-            : <Plus className="w-3.5 h-3.5 mr-1.5" />}
-          New Meeting Note
-        </Button>
+      </div>
+
+      {/* Recording History — secondary section */}
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide" data-testid="heading-meeting-notes-section">
+          Recording History
+        </h3>
       </div>
 
       {/* List */}

@@ -2026,6 +2026,7 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
       )}
 
       <div className={(showOverlayPanel && permittedMembers.length > 0) || (sourcesData && sourcesData.sources.length > 0) || dueTasks.length > 0 || isToday(currentDate) ? "flex gap-4 items-start" : undefined}>
+        <div className="flex-1 min-w-0 flex flex-col gap-4">
         <Card className="border-border/50 flex-1 min-w-0">
           <CardContent className="p-3 sm:p-4">
             <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
@@ -2127,6 +2128,12 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
             )}
           </CardContent>
         </Card>
+
+        {/* ── Meetings & Recorder — integrated directly below the calendar, independent of sidebar height ──────────────── */}
+        <div className="rounded-xl border border-border/50 bg-card p-4 sm:p-6" data-testid="calendar-meeting-notes-section">
+          <MeetingNotesList />
+        </div>
+        </div>
 
         <div className="flex flex-col gap-3">
           {/* Workday Agenda — always shown for today (Phase 1) */}
@@ -2467,11 +2474,6 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
             );
           })()}
         </div>
-      </div>
-
-      {/* ── Meetings & Recorder — integrated below calendar ──────────────── */}
-      <div className="rounded-xl border border-border/50 bg-card p-4 sm:p-6" data-testid="calendar-meeting-notes-section">
-        <MeetingNotesList />
       </div>
 
       {createOpen && (
