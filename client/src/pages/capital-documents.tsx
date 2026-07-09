@@ -5,12 +5,9 @@
 
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  FolderOpen, Plus, Search, FileText, ExternalLink, Eye,
-  Download, AlertTriangle, Share2, ClipboardList,
-  Edit2, Trash2, Archive, Tag, Lock, ShieldAlert,
-  MoreHorizontal, X, Info, Zap, Globe,
+import { FolderOpen, Plus, Search, FileText, ExternalLink, Eye, Download, AlertTriangle, Share2, ClipboardList, Edit2, Trash2, Archive, Tag, Lock, ShieldAlert, MoreHorizontal, X, Zap, Globe,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

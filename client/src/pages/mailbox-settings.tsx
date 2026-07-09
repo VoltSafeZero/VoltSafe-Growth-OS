@@ -13,11 +13,9 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Mail, Shield, RefreshCw, Plus, Trash2, Eye, EyeOff,
-  Building2, AlertTriangle, CheckCircle2, Clock, Loader2,
-  Calendar, Database, Users, Lock, Activity, Info, RotateCcw,
+import { Mail, Shield, RefreshCw, Plus, Trash2, Eye, EyeOff, Building2, AlertTriangle, CheckCircle2, Clock, Loader2, Calendar, Database, Users, Lock, Activity, RotateCcw,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 import { SiGmail } from "react-icons/si";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,

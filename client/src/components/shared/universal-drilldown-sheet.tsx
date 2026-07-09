@@ -8,10 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
-import {
-  Search, ChevronLeft, ChevronRight, ExternalLink, RefreshCw,
-  Info, BarChart3, X,
+import { Search, ChevronLeft, ChevronRight, ExternalLink, RefreshCw, BarChart3, X,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

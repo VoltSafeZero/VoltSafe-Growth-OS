@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Info, X, Sparkles } from "lucide-react";
+import { X, Sparkles,
+} from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,

@@ -1,12 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  Target, TrendingUp, AlertTriangle, CheckCircle2, Clock, Zap, Users,
-  ChevronDown, RefreshCcw, Brain, Mail, ExternalLink, DollarSign,
-  Calendar, Flame, Activity, BarChart3, Shield, Rocket, Minus,
-  Percent, PieChart, FileText, CheckSquare, Square, ChevronRight,
-  Edit2, ClipboardList, Info, Globe, Eye, FileBarChart2, Bot,
+import { Target, TrendingUp, AlertTriangle, CheckCircle2, Clock, Zap, Users, ChevronDown, RefreshCcw, Brain, Mail, ExternalLink, DollarSign, Calendar, Flame, Activity, BarChart3, Shield, Rocket, Minus, Percent, PieChart, FileText, CheckSquare, Square, ChevronRight, Edit2, ClipboardList, Globe, Eye, FileBarChart2, Bot,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";

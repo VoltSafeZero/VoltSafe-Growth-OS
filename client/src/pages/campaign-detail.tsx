@@ -1,13 +1,9 @@
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  Radio, ArrowLeft, Plus, Trash2, Play, Pause, CheckCircle, Edit2,
-  Mail, MousePointerClick, MessageSquare, Calendar, Users, Target,
-  Sparkles, Save, FileText, Clock, UserCheck, AlertTriangle, ChevronDown, ChevronUp,
-  RefreshCw, Filter, Send, Eye, ShieldCheck, Info, Zap, XCircle, Flame, Square,
-  GitBranch, ToggleLeft, ToggleRight, Pencil, Shield, TrendingUp, X, Link2,
+import { Radio, ArrowLeft, Plus, Trash2, Play, Pause, CheckCircle, Edit2, Mail, MousePointerClick, MessageSquare, Calendar, Users, Target, Sparkles, Save, FileText, Clock, UserCheck, AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Filter, Send, Eye, ShieldCheck, Zap, XCircle, Flame, Square, GitBranch, ToggleLeft, ToggleRight, Pencil, Shield, TrendingUp, X, Link2,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";

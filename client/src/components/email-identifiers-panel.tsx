@@ -22,7 +22,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { Globe, Mail, Plus, X, AlertCircle, Info, Loader2 } from "lucide-react";
+import { Globe, Mail, Plus, X, AlertCircle, Loader2,
+} from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

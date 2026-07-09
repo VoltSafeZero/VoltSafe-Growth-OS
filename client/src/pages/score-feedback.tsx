@@ -11,12 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import {
-  Target, TrendingUp, TrendingDown, BarChart3, CheckCircle2, XCircle,
-  AlertTriangle, Info, Lightbulb, History, Crosshair, Brain,
-  RefreshCw, ChevronRight, Minus, ArrowUp, ArrowDown, Activity,
-  ShieldCheck, Gauge, ListOrdered,
+import { Target, TrendingUp, TrendingDown, BarChart3, CheckCircle2, XCircle, AlertTriangle, Lightbulb, History, Crosshair, Brain, RefreshCw, ChevronRight, Minus, ArrowUp, ArrowDown, Activity, ShieldCheck, Gauge, ListOrdered,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const MODEL_OPTIONS = [

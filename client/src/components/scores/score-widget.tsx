@@ -18,10 +18,9 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  TrendingUp, TrendingDown, ChevronRight, MoreHorizontal,
-  CheckSquare, StickyNote, ExternalLink, ShieldOff, Info,
+import { TrendingUp, TrendingDown, ChevronRight, MoreHorizontal, CheckSquare, StickyNote, ExternalLink, ShieldOff,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 

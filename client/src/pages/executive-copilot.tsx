@@ -1,11 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Brain, AlertTriangle, AlertCircle, CheckCircle, Info, RefreshCcw,
-  Loader2, ArrowRight, Target, Inbox, BarChart2, TrendingDown,
-  TrendingUp, Clock, Users, Zap, ChevronRight, X, ListChecks,
-  ShieldAlert, MailOpen, Megaphone,
+import { Brain, AlertTriangle, AlertCircle, CheckCircle, RefreshCcw, Loader2, ArrowRight, Target, Inbox, BarChart2, TrendingDown, TrendingUp, Clock, Users, Zap, ChevronRight, X, ListChecks, ShieldAlert, MailOpen, Megaphone,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";

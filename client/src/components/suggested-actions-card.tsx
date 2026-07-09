@@ -17,20 +17,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  CheckCircle2,
-  X,
-  Clock,
-  Zap,
-  Mail,
-  Phone,
-  StickyNote,
-  Calendar,
-  TrendingUp,
-  CheckSquare,
-  ChevronDown,
-  Info,
+import { CheckCircle2, X, Clock, Zap, Mail, Phone, StickyNote, Calendar, TrendingUp, CheckSquare, ChevronDown,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 import { formatDistanceToNow, addDays, format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 

@@ -12,12 +12,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
-import {
-  TrendingUp, TrendingDown, DollarSign, Target, Users, Hammer, FileText,
-  AlertTriangle, CheckCircle2, Clock, XCircle, Zap, Minus,
-  RefreshCw, Filter, Maximize2, Minimize2, Trophy,
-  Building2, User, Calendar, Info,
+import { TrendingUp, TrendingDown, DollarSign, Target, Users, Hammer, FileText, AlertTriangle, CheckCircle2, Clock, XCircle, Zap, Minus, RefreshCw, Filter, Maximize2, Minimize2, Trophy, Building2, User, Calendar,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

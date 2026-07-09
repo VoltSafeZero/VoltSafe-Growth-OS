@@ -18,11 +18,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import {
-  TrendingUp, TrendingDown, Minus, Lock, AlertTriangle, CheckCircle,
-  Info, Zap, DollarSign, Target, BarChart2, Activity, Layers,
-  ChevronRight, Copy, Plus, RefreshCw, BookOpen
+import { TrendingUp, TrendingDown, Minus, Lock, AlertTriangle, CheckCircle, Zap, DollarSign, Target, BarChart2, Activity, Layers, ChevronRight, Copy, Plus, RefreshCw, BookOpen,
 } from "lucide-react";
+import { InfoIcon as Info } from "@/components/icons/info-icon";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
