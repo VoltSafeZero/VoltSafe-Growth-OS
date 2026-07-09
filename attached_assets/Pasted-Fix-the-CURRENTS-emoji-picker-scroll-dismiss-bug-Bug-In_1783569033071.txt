@@ -1,0 +1,91 @@
+Fix the CURRENTS emoji picker scroll-dismiss bug.
+
+Bug:
+In VoltSafe CURRENTS, when a user opens the emoji picker from the comment/message composer, the emoji panel appears correctly. But when the user tries to scroll down inside the emoji picker to see more emojis, the entire popup closes/disappears.
+
+Expected behavior:
+- Clicking the emoji button opens the emoji picker.
+- Users can scroll vertically inside the emoji picker without closing it.
+- The picker should only close when:
+  - user selects an emoji, if that is the intended behavior
+  - user clicks outside the picker
+  - user presses Escape
+  - user clicks the emoji button again
+- Scrolling inside the emoji picker must never be treated as an outside click.
+- Wheel, touchmove, pointerdown, mousedown, and scroll events inside the picker must not bubble into the outside-click dismissal handler.
+- The page/message list behind the picker should not steal the scroll while the cursor/finger is over the emoji panel.
+
+Likely root cause:
+The outside-click / blur / popover-dismiss logic is too aggressive. It is probably closing on one of:
+- scroll event
+- pointerdown/mousedown inside the popup
+- focus loss from the search input
+- click-away handler that does not include the emoji picker scroll container/ref
+- parent composer blur handler
+- Radix/Popover style `onInteractOutside` treating scrollbar interaction as outside
+- global document listener closing the picker during wheel/touch scroll
+
+Audit these areas:
+- CURRENTS composer component
+- Emoji picker component
+- Comment/reply composer if separate
+- DM composer if separate
+- any shared Popover/Dropdown/EmojiPicker wrapper
+- outside-click hook / useClickAway / useOnClickOutside
+- global document event listeners around emoji picker close behavior
+
+Fix requirements:
+1. Add a stable ref to the full emoji picker container, including the scrollable emoji grid.
+2. Outside-click logic must check:
+   - emojiButtonRef.contains(event.target)
+   - emojiPickerRef.contains(event.target)
+   before closing.
+3. Inside the emoji picker, stop propagation for:
+   - pointerdown
+   - mousedown
+   - click
+   - wheel
+   - touchstart
+   - touchmove
+4. Do not close the picker on blur if the newly focused element is still inside the picker.
+5. If using a Popover component, configure it so internal scroll interaction is not treated as outside interaction.
+6. Keep the search input working.
+7. Keep emoji selection working.
+8. Keep custom emoji upload/add button working.
+9. Ensure the emoji picker has its own scroll container:
+   - max-height set
+   - overflow-y: auto
+   - overscroll-behavior: contain
+10. Prevent the underlying Currents message area from scrolling when the user scrolls inside the emoji picker.
+
+Regression tests:
+Add tests for:
+1. Opening emoji picker from composer.
+2. Picker remains open after wheel/scroll inside emoji grid.
+3. Picker remains open after dragging/touch scrolling inside emoji grid.
+4. Picker remains open when clicking inside search input.
+5. Picker remains open when clicking scrollbar/scroll area.
+6. Picker closes when clicking outside.
+7. Picker closes on Escape.
+8. Selecting emoji inserts emoji into composer.
+9. Same behavior works in:
+   - channel composer
+   - DM composer
+   - thread/reply composer, if separate
+
+Manual verification:
+- Go to /current
+- Open a channel
+- Click emoji icon in composer
+- Scroll down through emoji categories
+- Confirm popup stays open
+- Select an emoji
+- Repeat in DM composer
+- Repeat in thread/reply composer if available
+- Confirm outside click still closes picker
+
+Deliverable:
+- Explain root cause.
+- List changed files.
+- List tests added/updated.
+- Confirm commands run and results.

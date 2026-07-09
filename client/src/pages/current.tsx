@@ -750,7 +750,11 @@ function EmojiPickerPopover({
         triggerRef.current && !triggerRef.current.contains(e.target as Node)
       ) { setOpen(false); }
     }
-    function onScroll() { setOpen(false); }
+    function onScroll(e: Event) {
+      // Only close when scroll happens outside the picker (e.g. message list behind it)
+      if (pickerRef.current && pickerRef.current.contains(e.target as Node)) return;
+      setOpen(false);
+    }
     document.addEventListener("mousedown", onDown);
     document.addEventListener("scroll", onScroll, true);
     return () => {
@@ -864,7 +868,11 @@ function EmojiPickerPopover({
           </div>
 
           {/* Emoji grid */}
-          <div className="px-1.5 pb-1.5 overflow-y-auto flex-1" style={{ maxHeight: 220 }}>
+          <div
+            className="px-1.5 pb-1.5 overflow-y-auto flex-1"
+            style={{ maxHeight: 220, overscrollBehavior: "contain" }}
+            onWheel={(e) => e.stopPropagation()}
+          >
             {displayEmojis.length === 0 ? (
               <div className="py-6 text-center text-[12px] text-muted-foreground/50">No emojis found</div>
             ) : (
