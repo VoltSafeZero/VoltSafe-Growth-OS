@@ -9,12 +9,20 @@ import {
 import { Plane, Anchor, ChevronRight, Sparkles } from "lucide-react";
 import { TravelPlannerDialog } from "./travel-planner-dialog";
 import { MarinasDayPlannerDialog } from "@/components/marinas-day-planner-dialog";
+import { canUseSalesTravelTools } from "@shared/rbac";
 
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   /** Optional starting location handed to the marina day planner. */
   userLocation?: { lat: number; lng: number } | null;
+  /**
+   * Current user's globalRole. "Single-day visits" (marina route planning) is
+   * only offered to master_admin/admin/manager/exec/sales — everyone else
+   * only sees "Multi-day trip". Defaults to "sales" so existing call sites
+   * that haven't been updated yet keep their current behavior.
+   */
+  userGlobalRole?: string;
 }
 
 /**
@@ -32,9 +40,10 @@ interface Props {
  * Both downstream dialogs are mounted internally so the host page only needs
  * to track a single open/close pair.
  */
-export function PlanDayChooserDialog({ open, onOpenChange, userLocation = null }: Props) {
+export function PlanDayChooserDialog({ open, onOpenChange, userLocation = null, userGlobalRole = "sales" }: Props) {
   const [tripOpen, setTripOpen] = useState(false);
   const [marinaOpen, setMarinaOpen] = useState(false);
+  const canPlanSingleDay = canUseSalesTravelTools(userGlobalRole);
 
   const choose = (kind: "trip" | "marina") => {
     onOpenChange(false);
@@ -76,25 +85,27 @@ export function PlanDayChooserDialog({ open, onOpenChange, userLocation = null }
               <ChevronRight className="h-4 w-4 text-muted-foreground mt-1.5 flex-shrink-0" />
             </button>
 
-            <button
-              type="button"
-              onClick={() => choose("marina")}
-              className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/40 p-4 text-left hover-elevate active-elevate-2 transition"
-              data-testid="button-plan-day-single-day"
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary flex-shrink-0">
-                <Anchor className="h-4 w-4" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-sm" data-testid="text-plan-day-single-day-title">
-                  Single-day visits
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Optimise a marina / sales-visit route for a set number of hours today.
-                </p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground mt-1.5 flex-shrink-0" />
-            </button>
+            {canPlanSingleDay && (
+              <button
+                type="button"
+                onClick={() => choose("marina")}
+                className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/40 p-4 text-left hover-elevate active-elevate-2 transition"
+                data-testid="button-plan-day-single-day"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary flex-shrink-0">
+                  <Anchor className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm" data-testid="text-plan-day-single-day-title">
+                    Single-day visits
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Optimise a marina / sales-visit route for a set number of hours today.
+                  </p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground mt-1.5 flex-shrink-0" />
+              </button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { isPrivilegedSalesRole } from "@shared/rbac";
 
 // bcrypt cost factor — 12 strikes a reasonable balance between security and
 // login latency on Replit's compute. Old hashes generated at cost=10 still
@@ -163,6 +164,24 @@ export function requireNotAdvisor(req: Request, res: Response, next: NextFunctio
   const role = String((req.session as any)?.globalRole || "");
   if (role === "advisor") {
     return res.status(403).json({ message: "Advisors do not have access to this resource" });
+  }
+  next();
+}
+
+/**
+ * Sales/travel-intelligence gate — Revenue Simulator, Leads Nearby / My Travel
+ * widgets, and single-day marina-visit route planning. Restricted to
+ * master_admin / admin / manager / exec / sales (shared/rbac.ts is the single
+ * source of truth for this allowlist so client hiding and server enforcement
+ * never drift apart).
+ */
+export function requirePrivilegedSalesRole(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.userId) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+  const role = String((req.session as any).globalRole || "");
+  if (!isPrivilegedSalesRole(role)) {
+    return res.status(403).json({ message: "This feature is not available for your role" });
   }
   next();
 }

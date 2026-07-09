@@ -1,3 +1,5 @@
+import { PRIVILEGED_SALES_ROLES as SALES_TRAVEL_ROLES } from "@shared/rbac";
+
 export type CenterType = "ceo" | "cfo" | "cto" | "cmo" | "sales" | "cs" | "default";
 export type LayoutMode = "expanded" | "compact";
 export type AccessLevel = "none" | "view" | "edit";
@@ -216,15 +218,17 @@ const NEW_WIDGETS: Record<string, WidgetDef> = {
     id: "leads_nearby", label: "Leads Nearby",
     description: "The closest 5 marinas to your current location with quick access to the map and travel-day planner",
     defaultVisible: true, category: "action", isNew: true,
-    // No permKey — every user can see prospect marinas near them. Geolocation
-    // is requested by the widget itself; users without permission are simply
-    // shown a "use my location" prompt.
+    // Sales/travel-intelligence surface — restricted to roles that actually
+    // run sales/field visits. Server also enforces this on /api/leads/nearby.
+    visibility: { allowedGlobalRoles: [...SALES_TRAVEL_ROLES] },
   },
   my_travel: {
     id: "my_travel", label: "My Travel",
     description: "Today's scheduled marina visits and upcoming stops — click Today to open your itinerary and route in the day planner",
     defaultVisible: true, category: "action", isNew: true,
-    // No permKey — every user can see their own travel schedule.
+    // Sales/travel-intelligence surface — restricted to roles that actually
+    // run sales/field visits. Server also enforces this on /api/travel/my-day.
+    visibility: { allowedGlobalRoles: [...SALES_TRAVEL_ROLES] },
   },
   needs_reply_high_engagement: {
     id: "needs_reply_high_engagement", label: "Needs Reply — High Engagement",

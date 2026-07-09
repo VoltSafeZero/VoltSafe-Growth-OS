@@ -57,7 +57,7 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
-import { requireAuth, requirePermission, requireNotAdvisor, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName } from "./auth";
+import { requireAuth, requirePermission, requireNotAdvisor, requirePrivilegedSalesRole, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName } from "./auth";
 import { attachmentSectionFor, exportSectionFor, requireSectionView } from "./voice-assistant-create-guards";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import {
@@ -2183,7 +2183,9 @@ export async function registerRoutes(
   app.use("/api/ecosystem", requireAuth, requirePermission("partnerships", "view"));
   // Revenue, pipeline forecast, and simulation — advisor role blocked (sales/financial data)
   app.use("/api/revenue", requireAuth, requireNotAdvisor);
-  app.use("/api/revenue-sim", requireAuth, requireNotAdvisor);
+  // Revenue Simulator ("Simulators & Feedback") — role audit found this open to
+  // any non-advisor internal role. Tightened to master_admin/admin/manager/exec/sales.
+  app.use("/api/revenue-sim", requireAuth, requirePrivilegedSalesRole);
   app.use("/api/pipeline/insights", requireAuth, requireNotAdvisor);
   app.use("/api/pipeline/forecast", requireAuth, requireNotAdvisor);
   app.use("/api/pipeline/rep-performance", requireAuth, requireNotAdvisor);
@@ -2482,7 +2484,9 @@ export async function registerRoutes(
     }
   }
 
-  app.get("/api/leads/nearby", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+  // "Leads Nearby" widget data — sales/travel-intelligence surface, restricted
+  // to master_admin/admin/manager/exec/sales per the role-visibility audit.
+  app.get("/api/leads/nearby", requireAuth, requirePermission("crm", "view"), requirePrivilegedSalesRole, async (req, res) => {
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
     const radiusKm = Number(req.query.radius) || 100;
@@ -2531,7 +2535,9 @@ export async function registerRoutes(
   // GET /api/travel/my-day — Today + upcoming tasks linked to leads (marina visit planning)
   // Returns tasks owned by the requesting user that are linked to leads and have a due_date
   // within the next 14 days, enriched with lead coordinates and address info.
-  app.get("/api/travel/my-day", requireAuth, async (req, res) => {
+  // "My Travel" widget data — sales/travel-intelligence surface, restricted
+  // to master_admin/admin/manager/exec/sales per the role-visibility audit.
+  app.get("/api/travel/my-day", requireAuth, requirePrivilegedSalesRole, async (req, res) => {
     const userId = getSessionUserId(req);
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());

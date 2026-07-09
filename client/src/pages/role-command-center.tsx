@@ -966,6 +966,7 @@ export default function RoleCommandCenter() {
       <PlanDayChooserDialog
         open={planChooserOpen}
         onOpenChange={setPlanChooserOpen}
+        userGlobalRole={profile?.globalRole}
       />
       <TravelPlannerDialog
         open={travelPlannerOpen}

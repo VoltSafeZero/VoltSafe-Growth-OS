@@ -1,0 +1,95 @@
+Fix Calendar & Meetings layout spacing and make Meeting Recorder prominent.
+
+Context:
+On the Calendar & Meetings page, the "Meetings & Recorder" section appears far below the day calendar with a large empty vertical gap when the daily calendar has few/no events. It should sit immediately below the calendar content and dynamically adjust based on the actual calendar height.
+
+Also, the Meeting Recorder itself does not stand out enough compared to the meeting/recording history list. The recorder action area should be visually prominent and clearly separated above the history.
+
+Required fixes:
+
+A) Calendar → Meetings & Recorder vertical spacing
+- Remove any fixed/min-height behavior that forces the day calendar to consume most of the page height when there are few events.
+- The Meetings & Recorder section should always render immediately below the bottom of the visible calendar block.
+- The layout must dynamically adjust for:
+  - empty day calendar
+  - lightly scheduled day
+  - busy day
+  - month/week/day views
+  - different browser heights
+- Do not leave a large blank area between the calendar grid and Meetings & Recorder.
+- If the calendar needs internal scrolling for very busy days, keep that scroll inside the calendar area instead of pushing Meetings & Recorder miles down the page.
+- The right sidebar with Today’s Agenda, calendars, and tasks should remain aligned and usable.
+
+Implementation guidance:
+- Find the Calendar & Meetings page/component.
+- Look for classes/styles like:
+  - min-h-screen
+  - h-screen
+  - min-h-[...]
+  - h-[...]
+  - flex-1
+  - grow
+  - overflow-hidden
+  - calendar container fixed height
+  - large padding/margin before Meetings & Recorder
+- Replace rigid height with content-aware sizing.
+- Suggested behavior:
+  - Calendar shell uses auto height.
+  - Day grid has a reasonable max-height only when necessary.
+  - Empty/light days collapse closer to actual visible content.
+  - Meetings & Recorder has margin-top around 16–24px, not hundreds of pixels.
+
+B) Meeting Recorder prominence
+The recorder control/action area must stand out strongly above the history.
+
+Create a dedicated "Meeting Recorder" hero/action card at the top of the Meetings & Recorder section.
+
+It should include:
+- Clear title: "Meeting Recorder"
+- Short subtitle: "Record, upload, transcribe, and summarize meetings."
+- Primary CTA button:
+  - "Start Recording" or "New Meeting Note"
+- Secondary CTA if supported:
+  - "Upload Recording"
+- Stronger visual contrast than the history list:
+  - slightly tinted background
+  - stronger border
+  - subtle shadow
+  - larger icon
+  - clear spacing
+- This action card must be visually separate from the recording history.
+
+C) Recording history separation
+- Put previous recordings/history below the recorder card.
+- Add a heading like:
+  - "Recording History"
+- The history list should look secondary, not equal priority to the recorder.
+- Existing meeting rows/status badges should remain intact.
+- Do not remove existing recording history functionality.
+
+D) Responsive behavior
+- On large screens, Calendar + right sidebar should still work.
+- On smaller screens, Meetings & Recorder should still appear directly after the calendar content.
+- Avoid absolute positioning that breaks scrolling.
+- Avoid hardcoded pixel hacks that only work on one screen size.
+
+E) Tests / regression checks
+Add tests or DOM/CSS regression checks proving:
+1. Meetings & Recorder is rendered directly after the calendar container in page structure.
+2. There is no large fixed spacer between calendar and recorder.
+3. Empty day calendar does not create excessive vertical blank space.
+4. Busy day calendar remains usable without pushing recorder unnecessarily far down.
+5. Meeting Recorder action card exists above Recording History.
+6. Recorder CTA is visually and structurally distinct from history rows.
+
+F) Verification
+After implementation:
+- Open Calendar & Meetings as Trevor/admin.
+- Confirm on the current day view:
+  - Meetings & Recorder appears immediately below the calendar block.
+  - No huge blank gap.
+  - Recorder card stands out clearly above history.
+- Test empty/light day and busy day if mock data exists.
+- Test Month, Week, and Day views.
+- Confirm no console errors.
+- Run relevant tests and report changed files.

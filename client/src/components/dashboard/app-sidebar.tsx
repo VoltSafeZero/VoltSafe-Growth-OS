@@ -91,6 +91,7 @@ export function AppSidebar({
     if (isAdvisor && item.advisorHidden) return false;
     if (isAdmin) return true;
     if (item.adminOnly) return false;
+    if (item.allowedGlobalRoles?.length && !item.allowedGlobalRoles.includes(userGlobalRole)) return false;
     if (!item.permKey) return true;
     return (perms[item.permKey] as AccessLevel) !== "none";
   }

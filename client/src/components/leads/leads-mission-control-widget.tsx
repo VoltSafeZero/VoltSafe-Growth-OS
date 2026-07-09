@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -76,14 +77,25 @@ interface Props {
    * handler to integrate with selection-mode planning.
    */
   onPlanDay?: (loc: { lat: number; lng: number } | null) => void;
+  /** Current user's globalRole, used to gate "Single-day visits" in the
+   *  self-contained chooser dialog (see below). */
+  userGlobalRole?: string;
 }
 
 /**
  * Compact "nearby leads" widget for Mission Control / role-command-center.
  * Shows the closest 5 marinas and quick actions to open the full map view or kick off the day planner.
  */
-export function LeadsMissionControlWidget({ onPlanDay }: Props = {}) {
+export function LeadsMissionControlWidget({ onPlanDay, userGlobalRole }: Props = {}) {
   const [, navigate] = useLocation();
+  // When mounted standalone in the draggable grid (no explicit role passed
+  // down), fall back to fetching the signed-in user's profile so the
+  // "Single-day visits" gate in PlanDayChooserDialog still works correctly.
+  const profileQuery = useQuery<{ globalRole?: string }>({
+    queryKey: ["/api/users/me/profile"],
+    enabled: userGlobalRole === undefined,
+  });
+  const resolvedGlobalRole = userGlobalRole ?? profileQuery.data?.globalRole;
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(() => getSavedLocation());
   const [locating, setLocating] = useState(false);
   const [leads, setLeads] = useState<NearbyLead[]>([]);
@@ -266,6 +278,7 @@ export function LeadsMissionControlWidget({ onPlanDay }: Props = {}) {
         open={internalPlannerOpen}
         onOpenChange={setInternalPlannerOpen}
         userLocation={internalPlannerLoc}
+        userGlobalRole={resolvedGlobalRole}
       />
     )}
     </>

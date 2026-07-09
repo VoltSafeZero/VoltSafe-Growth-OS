@@ -34,7 +34,9 @@ export function MobileNav({ userGlobalRole = "sales" }: { userGlobalRole?: strin
     .map((group) => ({
       ...group,
       items: group.items.filter((item: any) =>
-        (!item.adminOnly || isAdmin) && !(isAdvisor && item.advisorHidden)
+        (!item.adminOnly || isAdmin) &&
+        !(isAdvisor && item.advisorHidden) &&
+        (isAdmin || !item.allowedGlobalRoles?.length || item.allowedGlobalRoles.includes(userGlobalRole))
       ),
     }))
     .filter((group) => group.items.length > 0);

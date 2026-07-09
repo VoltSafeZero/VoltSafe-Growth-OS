@@ -20,6 +20,7 @@ import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { GlobalCreateContact } from "@/components/contacts/global-create-contact";
 import { GlobalSaveUrlToCortex } from "@/components/cortex/global-save-url-to-cortex";
 import { isAdvisorRole } from "@/lib/nav-config";
+import { canAccessRevenueSimulator } from "@shared/rbac";
 import { useRecentPagesTracker } from "@/hooks/use-recent-pages";
 import { UpcomingMeetingBanner } from "@/components/dashboard/upcoming-meeting-banner";
 import { DemoModeBanner } from "@/lib/demo-mode";
@@ -337,6 +338,14 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
     return wrap(isAdvisor ? <AccessDenied /> : children);
   }
 
+  // Revenue Simulator ("Simulators & Feedback") — role audit found this
+  // reachable by any non-advisor role via direct URL. Restricted to
+  // master_admin/admin/manager/exec/sales; server enforces the same
+  // allowlist on /api/revenue-sim/*.
+  function simulatorBlock(children: React.ReactNode) {
+    return wrap(canAccessRevenueSimulator(role) ? children : <AccessDenied />);
+  }
+
   return (
     <Switch>
       <Route path="/">{() => wrap(<RoleCommandCenter />)}</Route>
@@ -424,7 +433,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
 
       <Route path="/board-pack">{() => wrap(<BoardPackPage />)}</Route>
       <Route path="/revenue">{() => advisorBlock(<RevenuePage />)}</Route>
-      <Route path="/revenue-sim">{() => advisorBlock(<RevenueSimPage />)}</Route>
+      <Route path="/revenue-sim">{() => simulatorBlock(<RevenueSimPage />)}</Route>
       <Route path="/revenue-ops">{() => advisorBlock(<RevenueOpsPage />)}</Route>
       <Route path="/winter">{() => wrap(<WinterHubPage />)}</Route>
       <Route path="/executive-copilot">{() => wrap(<ExecutiveCopilotPage />)}</Route>
@@ -517,7 +526,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/operations/knowledge-documents">{() => wrap(<OpsKnowledgeDocsPage />)}</Route>
       <Route path="/insights/revenue-intelligence">{() => guard("crm", isAdvisor ? <AccessDenied /> : <InsightsRevIntelPage />)}</Route>
       <Route path="/insights/cortex">{() => wrap(<InsightsCortexPage />)}</Route>
-      <Route path="/insights/simulators-feedback">{() => advisorBlock(<InsightsSimulatorsPage />)}</Route>
+      <Route path="/insights/simulators-feedback">{() => simulatorBlock(<InsightsSimulatorsPage />)}</Route>
       <Route path="/ecosystem/partners">{() => wrap(<EcoPartnersPage />)}</Route>
       <Route path="/ecosystem/channels">{() => wrap(<EcoChannelsPage />)}</Route>
       <Route path="/ecosystem/events-media">{() => wrap(<EcoEventsMediaPage />)}</Route>

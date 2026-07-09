@@ -16,6 +16,7 @@ import {
 // as a delivery, but Layers on the wide-screen pipeline view). Use `mobileIcon`
 // for that override; otherwise the single `icon` is used on both surfaces.
 import type { UserPermissions } from "@/App";
+import { PRIVILEGED_SALES_ROLES } from "@shared/rbac";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Single source of truth for navigation. Both the desktop sidebar
@@ -59,6 +60,8 @@ export type NavItem = {
   badge?: string;
   showOn?: Platform[];
   advisorHidden?: boolean;
+  /** Restrict this item to a specific globalRole allowlist (admins always bypass). */
+  allowedGlobalRoles?: string[];
 };
 
 export type NavSection = {
@@ -189,7 +192,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "attribution",          label: "Attribution",                                                route: "/analytics/source-attribution",  icon: TrendingUp,permKey: "crm", advisorHidden: true },
       { id: "rel-intelligence",     label: "Relationship Intelligence",                                  route: "/intelligence/rel-intelligence", icon: BarChart3 },
       { id: "cortex",               label: "Cortex",                                                     route: "/executive-copilot",             icon: Brain }, // "copilot" alias; "cortex-intel-library" at /cortex/intel
-      { id: "simulators-feedback",  label: { desktop: "Simulators & Feedback", mobile: "Simulators" },  route: "/revenue-sim",                   icon: FlaskRound, advisorHidden: true },
+      { id: "simulators-feedback",  label: { desktop: "Simulators & Feedback", mobile: "Simulators" },  route: "/revenue-sim",                   icon: FlaskRound, advisorHidden: true, allowedGlobalRoles: PRIVILEGED_SALES_ROLES },
       // ⌘K accessible: route: "/revenue" (Revenue Hub), route: "/revenue-ops" (Revenue Ops), route: "/scores/feedback" (Score Feedback)
     ],
   },
@@ -338,6 +341,7 @@ export type DesktopNavItem = {
   badge?: string;
   permKey?: PermKey;
   advisorHidden?: boolean;
+  allowedGlobalRoles?: string[];
 };
 
 export type DesktopNavSection = {
@@ -374,6 +378,7 @@ export function getDesktopSections(): DesktopNavSection[] {
               badge: item.badge,
               permKey: item.permKey,
               advisorHidden: item.advisorHidden,
+              allowedGlobalRoles: item.allowedGlobalRoles,
             })),
       adminOnly: s.adminOnly,
       capitalOnly: s.capitalOnly,
@@ -396,6 +401,7 @@ export type MobileNavItem = {
   icon: React.ElementType;
   adminOnly?: boolean;
   advisorHidden?: boolean;
+  allowedGlobalRoles?: string[];
 };
 
 export type MobileNavGroup = {
@@ -418,6 +424,7 @@ export function getMobileNavGroups(): MobileNavGroup[] {
           icon: item.mobileIcon ?? item.icon,
           adminOnly: item.adminOnly,
           advisorHidden: item.advisorHidden,
+          allowedGlobalRoles: item.allowedGlobalRoles,
         })),
     }))
     .filter((g) => g.items.length > 0);
