@@ -1,0 +1,81 @@
+Fix VoltSafe CURRENTS message sending for attachment-only, emoji-only, and empty-text rich messages.
+
+Context:
+In the CURRENTS module, users can attach a file to a comment/message, but if they do not also type text, clicking Send either errors, does nothing, or renders incorrectly. Same issue can happen with emoji-only messages or reaction-style sends. This is wrong. Slack-style behavior should allow:
+- file-only message
+- emoji-only message
+- GIF-only message
+- attachment + emoji with no typed text
+- attachment + empty/whitespace text
+- normal text message
+- text + attachment
+
+Expected behavior:
+1. The Send button should be enabled when there is at least one valid message payload:
+   - non-whitespace text
+   - one or more attachments
+   - one or more emojis / GIFs / custom emojis
+2. The Send button should only be disabled when there is truly nothing to send.
+3. The frontend must not require `body`, `text`, `content`, or `message` to be non-empty when attachments/emojis exist.
+4. The backend/API must accept messages where text content is empty/null/blank as long as attachments or emoji content exist.
+5. Rendering must display attachment-only messages cleanly in the message thread.
+6. No `undefined`, `null`, blank bubble, or broken placeholder should appear.
+7. Attachment-only messages should still show:
+   - sender
+   - timestamp
+   - file card / preview
+   - download/open actions if supported
+8. Emoji-only messages should render as a real message, not error or disappear.
+9. The message composer should reset correctly after sending:
+   - clear text input
+   - clear selected attachments
+   - clear selected emojis/GIFs
+   - keep focus in composer
+10. This must work in:
+   - channels
+   - direct messages
+   - threads/replies/comments if CURRENTS has threaded replies
+
+Important implementation requirements:
+- Audit the CURRENTS frontend send handler, composer validation, API payload construction, optimistic rendering, and message renderer.
+- Audit the backend route/schema/validation/storage for CURRENTS messages.
+- Find any checks like:
+  - `if (!message.trim()) return`
+  - `body: z.string().min(1)`
+  - `content required`
+  - `text NOT NULL`
+  - render assumes `message.text.length`
+- Replace with payload-aware validation:
+  - valid if `trimmedText.length > 0 || attachments.length > 0 || emojis.length > 0 || gifs.length > 0`
+- Normalize empty text to `""` or `null` consistently, but do not reject the message.
+- Ensure database constraints allow text/content to be nullable or empty when attachments exist.
+- If the DB currently requires non-empty text, add a safe migration or store empty string while validating payload at the app layer.
+- Do not break existing text messages.
+
+Add regression tests:
+1. Channel file-only message sends successfully.
+2. DM file-only message sends successfully.
+3. Reply/thread file-only message sends successfully, if replies exist.
+4. Emoji-only message sends successfully.
+5. GIF-only/custom emoji message sends successfully, if supported.
+6. Whitespace text + attachment sends successfully.
+7. Empty composer with no attachment/emoji stays disabled and does not call API.
+8. Backend rejects truly empty payload.
+9. Renderer displays attachment-only message without crash.
+10. Optimistic UI displays file-only message immediately and reconciles after API success.
+
+Run verification:
+- Run the relevant CURRENTS tests.
+- Run full regression tests for messaging/comments if available.
+- Start the app and manually verify:
+  - attach a file with no text, click Send
+  - send emoji only
+  - send attachment + emoji
+  - send normal text
+  - confirm all render correctly after refresh
+
+Deliverable:
+- Explain root cause.
+- List changed files.
+- List tests added/updated.
+- Confirm exact commands run and results.
