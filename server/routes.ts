@@ -40988,8 +40988,8 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       const rows = await db.execute(sql.raw(`
         SELECT
           c.id, c.source_url, c.canonical_url, c.domain, c.title,
-          c.intel_type, c.importance, c.ai_summary, c.created_at,
-          c.created_by_user_id, c.use_in_ai_context,
+          c.intel_type, c.importance, c.ai_summary, c.user_notes,
+          c.tags, c.created_at, c.created_by_user_id, c.use_in_ai_context,
           u.name AS created_by_name, u.email AS created_by_email
         FROM cortex_email_intel c
         LEFT JOIN users u ON u.id = c.created_by_user_id

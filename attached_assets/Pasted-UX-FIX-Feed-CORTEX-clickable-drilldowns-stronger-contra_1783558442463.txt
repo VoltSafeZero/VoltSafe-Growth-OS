@@ -1,0 +1,312 @@
+UX FIX — Feed CORTEX clickable drilldowns + stronger contrast + learned-summary cards
+
+Context:
+The new Feed CORTEX page works, but the UX needs improvement.
+
+Current issues from screenshot:
+1. Most items look static even though they should be interactive.
+2. Users need clickable drill-downs on everything meaningful.
+3. The page is too low-contrast / washed out.
+4. Important areas do not stand out enough.
+5. The “What Cortex learned today” card is not useful enough. It shows a URL/domain, but it should also be clickable and show an ultra-brief summary of what Cortex learned from that source.
+
+Task:
+Improve Feed CORTEX so it feels clickable, useful, and visually obvious.
+
+Scope:
+Route:
+- /feed-cortex
+
+Do not remove or break:
+- Existing Cortex URL save backend
+- Existing Insights → Cortex Intel Library
+- Existing Quick Capture → Cortex URL
+- Existing Save Email to Cortex → Save URL instead
+- Existing permission model
+
+Main goals:
+1. Make all important objects clickable.
+2. Add drill-down views/modals/drawers.
+3. Improve contrast and visual hierarchy.
+4. Make “What Cortex learned today” show actual quick learning summaries.
+5. Make the page easier to understand at a glance.
+
+Clickable drill-down requirements:
+
+1. Brain visual
+Make the giant Cortex brain clickable.
+
+On click:
+- Open a “Cortex Status” modal/drawer.
+- Show:
+  - total URLs ingested
+  - URLs ingested today
+  - most recent ingestion
+  - number marked “use in AI context”
+  - top domains/categories if available
+  - simple status message like “Cortex is hungry / Cortex learned today / Cortex is idle”
+- If some data is unavailable, show safe fallback values, not blank/null.
+
+2. “What Cortex learned today” cards
+Each learned-today card must be clickable.
+
+The card itself should show:
+- Title/domain
+- Ultra-brief point-form summary of what Cortex learned
+- Maximum 3 bullets
+- Each bullet should be short, ideally under 12 words
+- If no AI/generated summary exists, show a structured fallback from metadata:
+  - source title
+  - domain
+  - category
+  - why it may be useful
+- Do not leave it as just “linkedin.com” with no learning value.
+
+Example card format:
+Title: RAD raises $5.9M
+Domain: tradeonlytoday.com
+Learned:
+- Marine tech funding remains active
+- Investors backing marina/electrification-adjacent tools
+- Useful for market timing and capital narrative
+
+On click:
+- Open URL detail modal/drawer.
+- Show:
+  - title
+  - canonical URL
+  - domain
+  - pasted by user
+  - created timestamp
+  - category
+  - importance
+  - tags if available
+  - use_in_ai_context status
+  - summary/notes if available
+  - learned-summary bullets
+  - open external URL button
+  - open in Cortex Intel Library button if possible
+
+3. Ingestion History rows
+Every ingestion history row must be clickable.
+
+On click:
+- Open the same URL detail modal/drawer.
+- Row should have hover state and cursor pointer.
+- Add a visible affordance:
+  - chevron
+  - “View”
+  - external/open icon
+  - or subtle “Click to inspect” text
+
+4. Domain/title text
+Clickable behavior:
+- Clicking the card/row opens internal detail.
+- Clicking an external-link icon opens the original URL in a new tab.
+- Do not make the entire card navigate away from the app by accident.
+
+5. “Cortex Intel Library” link
+Ensure the existing bottom link is visibly clickable and routes correctly.
+
+6. Ask Cortex response
+If Ask Cortex returns a response:
+- Source links/cards in the answer should be clickable.
+- If Q&A is placeholder-only right now, make that clear and add an obvious disabled/coming-soon state.
+- Do not pretend AI answered if no real endpoint exists.
+
+“What Cortex learned today” summary behavior:
+
+1. The section should feel rewarding.
+It should answer:
+“What did Cortex actually learn today?”
+
+2. Show today’s ingested URLs with summaries:
+- Most recent first
+- Each card clickable
+- Each card includes 1–3 ultra-brief bullets
+- Each card shows who fed Cortex and when
+- Each card shows domain/category/importance/AI context status
+
+3. If backend already stores summary/notes:
+Use that to generate bullets.
+
+4. If backend does not store summary yet:
+Create a safe fallback function on frontend or backend that derives bullets from:
+- title
+- domain
+- category
+- tags
+- description/meta description if available
+
+Do not hallucinate specific facts that were not fetched/stored.
+
+5. If metadata is too thin:
+Show:
+- “Source captured for Cortex context”
+- “Awaiting deeper summary”
+- “Available for future AI context”
+
+6. If no URLs learned today:
+Show a strong empty state:
+“Cortex has not learned anything new today yet. Feed it a useful URL.”
+
+Contrast / visual hierarchy fixes:
+
+1. Overall page contrast
+Increase contrast across the page:
+- Body text should be darker in light mode.
+- Secondary text should not be pale grey-on-white.
+- Cards should have stronger borders/shadows.
+- Important headings should be more legible.
+- Interactive controls should have stronger hover/focus states.
+
+2. Feed input card
+Make the URL input card more prominent:
+- Larger card
+- Stronger border/shadow
+- More contrast around input
+- Feed button should stand out more
+- Add helper text that is readable, not tiny/faint
+
+3. Section headers
+Make these easier to see:
+- “What Cortex learned today”
+- “Ingestion History”
+- “Ask Cortex”
+
+Use:
+- stronger font weight
+- better spacing
+- clearer icons
+- count badges with stronger contrast
+
+4. Cards
+Improve learned/history cards:
+- Stronger border
+- Slightly darker background or tinted panel
+- Hover elevation
+- Cursor pointer
+- Clear title/domain hierarchy
+- Visible metadata row:
+  - importance
+  - AI context
+  - user
+  - timestamp
+- Add clickable affordance:
+  - “View details”
+  - chevron
+  - hover glow
+  - focus ring
+
+5. Empty/error states
+Add readable empty/error states:
+- No links today
+- No ingestion history yet
+- Failed to load history
+- Duplicate URL
+- Invalid URL
+- Save failed
+
+Do not show faint tiny text that users miss.
+
+6. Dark mode
+Check dark mode contrast too:
+- No black-on-dark
+- No washed-out teal on grey
+- Cards still readable
+- Inputs/buttons still obvious
+
+Functional requirements:
+1. Clicking brain opens Cortex status modal/drawer.
+2. Clicking a learned-today card opens URL detail modal/drawer.
+3. Clicking a history row opens URL detail modal/drawer.
+4. Clicking external URL icon opens source URL in new tab.
+5. Learned-today cards display ultra-brief point-form learning summaries.
+6. Detail modal/drawer can close cleanly.
+7. Keyboard accessible:
+   - Enter/Space opens clickable cards
+   - Esc closes modal/drawer
+   - Focus ring visible
+8. No full-page crash if detail data is missing.
+9. No raw JSON displayed.
+10. No duplicate records created by clicking cards.
+
+Implementation guidance:
+- Reuse existing modal/drawer components if available.
+- Prefer one shared UrlIntelDetailDialog/Drawer component for learned-today + history.
+- Keep data source unified with existing Feed Cortex history response.
+- If needed, extend the history API response safely to include summary, notes, description, tags, and createdBy display info.
+- Do not add one API query per card unless necessary.
+- Keep permission checks intact.
+- Do not expose private/restricted Cortex data to users without permission.
+
+Suggested UI copy:
+
+Brain status modal:
+- Title: “VoltSafe Cortex Status”
+- Subtitle: “The company brain is learning from every approved source.”
+- Stats:
+  - “URLs learned”
+  - “Learned today”
+  - “In AI context”
+  - “Top domain”
+
+URL detail modal:
+- Title fallback: domain or canonical URL
+- Section: “What Cortex learned”
+- Show 1–5 bullets if available
+- Actions:
+  - “Open Source”
+  - “View in Cortex Intel”
+  - “Close”
+
+Ask Cortex placeholder if no real endpoint:
+- “Cortex Q&A is warming up. URL ingestion is active, but answer generation is not enabled yet.”
+
+Tests:
+Add/update regression tests covering:
+1. Feed CORTEX route renders.
+2. Brain visual has button/click handler and opens status modal.
+3. Learned-today cards are clickable.
+4. Learned-today cards show point-form summary bullets.
+5. Ingestion history rows are clickable.
+6. URL detail modal renders title/domain/user/timestamp.
+7. URL detail modal renders learned-summary bullets.
+8. External URL icon opens source URL safely.
+9. Cortex Intel Library link exists and routes correctly.
+10. Invalid/missing URL detail data does not crash.
+11. Contrast classes/styles are stronger than previous pale-only design.
+12. Hover/focus/cursor affordances exist on clickable cards.
+13. Ask Cortex section clearly shows placeholder/response state.
+14. Dark mode classes exist for cards/text/buttons.
+15. No existing Cortex URL save tests regress.
+
+Validation:
+- Run Feed Cortex tests.
+- Run Cortex URL tests.
+- Run full build/typecheck if available.
+- Restart app.
+- Manually open /feed-cortex.
+- Click:
+  - brain visual
+  - learned-today card
+  - ingestion-history row
+  - external URL icon
+  - Cortex Intel Library link
+- Confirm learned-today card shows ultra-brief bullets.
+- Confirm modals/drawers work.
+- Confirm contrast is visibly stronger in light mode.
+- Check dark mode quickly.
+- Confirm no browser console errors.
+- Confirm no server errors.
+
+Acceptance criteria:
+- Everything important on Feed CORTEX feels clickable.
+- Brain opens status drilldown.
+- Learned/history cards open URL detail drilldown.
+- “What Cortex learned today” cards show useful ultra-brief point-form summaries.
+- External URL icon opens original source safely.
+- Page has stronger contrast and clearer visual hierarchy.
+- Users can immediately understand where to paste URLs, what Cortex learned, and what they can inspect.
+- No unrelated modules changed.
+- Report files changed and tests passed.

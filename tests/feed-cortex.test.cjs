@@ -167,6 +167,91 @@ check("ask is requireAuth protected",                (function() {
 check("ask max_tokens set to 600",                   routes.includes("max_tokens: 600"));
 check("ask slices question to 2000 chars",           routes.includes(".slice(0, 2000)"));
 
+// ── Breathing animation — lockstep brain + button ─────────────────────────────
+
+check("ANIM_CSS constant defined",                   page.includes("ANIM_CSS"));
+check("cortex-breathe keyframe defined",             page.includes("cortex-breathe"));
+check("cortex-btn-glow keyframe defined",            page.includes("cortex-btn-glow"));
+check("brain wrapper uses cortex-breathe-svg class", page.includes("cortex-breathe-svg"));
+check("button wrapper uses cortex-breathe-btn class",page.includes("cortex-breathe-btn"));
+check("brain and button share same 4s duration",     (function() {
+  const a = page.match(/cortex-breathe\s+4s/g) || [];
+  const b = page.match(/cortex-btn-glow\s+4s/g) || [];
+  return a.length >= 1 && b.length >= 1;
+})());
+check("reduced-motion media query disables animations", page.includes("prefers-reduced-motion: reduce"));
+check("reduced-motion targets cortex-breathe-svg",   page.includes("prefers-reduced-motion") && page.includes("cortex-breathe-svg"));
+check("reduced-motion targets cortex-breathe-btn",   page.includes("prefers-reduced-motion") && page.includes("cortex-breathe-btn"));
+check("no layout shift: animation uses opacity/filter not scale/translate",
+  page.includes("cortex-breathe") && !page.match(/cortex-breathe[^}]*scale|cortex-breathe[^}]*translate/));
+check("digesting class speeds up animation while loading", page.includes("cortex-digesting"));
+check("digesting state wired to ingestMutation.isPending",
+  page.includes("cortex-digesting") && page.includes("isPending"));
+check("animation works in light and dark: no hard-coded dark bg on animated wrapper",
+  !page.match(/cortex-breathe-svg[^"]*bg-slate|cortex-breathe-btn[^"]*bg-slate/));
+
+// ── Clickable brain → Cortex Status modal ─────────────────────────────────────
+
+check("brain visual is a button element",            page.includes('data-testid="button-brain-status"'));
+check("brain button has aria-label",                 page.includes('aria-label="View Cortex status"'));
+check("brain button opens status modal",             page.includes("setStatusOpen(true)") || page.includes("setStatusOpen"));
+check("CortexStatusDialog component defined",        page.includes("function CortexStatusDialog"));
+check("CortexStatusDialog has data-testid",          page.includes('data-testid="dialog-cortex-status"'));
+check("status dialog shows total URLs stat",         page.includes("URLs learned") || page.includes("history.length"));
+check("status dialog shows today count stat",        page.includes("Learned today") || page.includes("todayRecords.length"));
+check("status dialog shows AI context count",        page.includes("In AI context") || page.includes("use_in_ai_context"));
+check("status dialog has cortexStatusMessage helper",page.includes("function cortexStatusMessage") || page.includes("cortexStatusMessage"));
+check("status dialog shows top domains",             page.includes("Top domains") || page.includes("topDomains") || page.includes("domainFreq"));
+
+// ── Clickable today cards + history rows → URL detail modal ──────────────────
+
+check("UrlDetailDialog component defined",           page.includes("function UrlDetailDialog"));
+check("UrlDetailDialog has data-testid",             page.includes('data-testid="dialog-url-detail"'));
+check("URL detail modal shows learned bullets",      page.includes("What Cortex learned") || page.includes("deriveBullets"));
+check("URL detail modal shows creator name",         page.includes("created_by_name") && page.includes("Saved by"));
+check("URL detail modal shows timestamp",            page.includes("Saved at") || page.includes("format(new Date"));
+check("URL detail modal shows AI context status",    page.includes("use_in_ai_context") && page.includes("AI context"));
+check("URL detail modal has Open Source action",     page.includes("Open Source"));
+check("URL detail modal has View in Cortex Intel action", page.includes("View in Cortex Intel"));
+check("today cards are clickable (button/onClick)", (function() {
+  const idx = page.indexOf("card-cortex-today-");
+  const block = page.slice(Math.max(0, idx - 200), idx + 100);
+  return block.includes("button") || block.includes("onClick");
+})());
+check("today cards open selectedRecord on click",    page.includes("setSelectedRecord(r)"));
+check("today card external link does not navigate app", page.includes("e.stopPropagation()"));
+check("history rows are clickable buttons",         (function() {
+  const idx = page.indexOf("row-cortex-history-");
+  const block = page.slice(Math.max(0, idx - 200), idx + 100);
+  return block.includes("button") || block.includes("onClick");
+})());
+check("history rows have cursor-pointer affordance", page.includes("cursor-pointer"));
+check("history rows show ChevronRight affordance",   page.includes("ChevronRight"));
+
+// ── Point-form summaries ──────────────────────────────────────────────────────
+
+check("deriveBullets function defined",              page.includes("function deriveBullets"));
+check("deriveBullets uses ai_summary",               page.includes("ai_summary") && page.includes("deriveBullets"));
+check("deriveBullets has metadata fallback",         page.includes("Captured for Cortex AI context") || page.includes("metadata fallback") || page.includes("intel_type"));
+check("bullets rendered per today card",             page.includes("bullets-today-") || page.includes("bullets.map"));
+check("bullets capped at 3",                         page.includes("slice(0, 3)"));
+
+// ── Contrast / visual hierarchy ───────────────────────────────────────────────
+
+check("section headings use font-bold",              page.includes("font-bold"));
+check("today empty state has strong copy",           page.includes("Cortex hasn") || page.includes("hasn't learned") || page.includes("hasn\\'t learned"));
+check("history empty state shows helpful copy",      page.includes("Paste a URL above") || page.includes("start building"));
+check("today cards have hover border effect",        page.includes("hover:border-teal"));
+check("history rows have hover border/bg effect",    page.includes("hover:border-teal") || page.includes("hover:bg-accent"));
+check("dialog imports from ui/dialog",               page.includes('@/components/ui/dialog'));
+
+// ── Backend: history includes notes + tags ────────────────────────────────────
+
+check("history SELECT includes user_notes",          routes.includes("c.user_notes"));
+check("history SELECT includes tags",                routes.includes("c.tags"));
+check("HistoryRecord type has user_notes field",     page.includes("user_notes"));
+check("HistoryRecord type has tags field",           page.includes("tags:") || page.includes("tags |"));
+
 // ── Result ────────────────────────────────────────────────────────────────────
 
 console.log(`\nFeed CORTEX tests: ${passed} passed, ${failed} failed\n`);
