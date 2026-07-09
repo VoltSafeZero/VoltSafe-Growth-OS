@@ -1,0 +1,152 @@
+Fix the VoltSafe CMS Training Hub video publishing issue.
+
+Current problem:
+In Learn → Training, the first 6 training videos are recorded, converted, hosted, and viewable. But the Capital Module — CFO Onboarding playlist is showing every video as:
+
+- Not Recorded
+- Not Published Yet
+
+This is wrong. These videos should be recorded/generated, automatically converted, hosted, and made viewable for Scott Carlson and Trevor, just like the first 6 videos.
+
+Also, the numbering is wrong:
+After video 06, the Capital videos restart at 01.
+They should continue globally as 07, 08, 09, 10, 11 instead of restarting at 01.
+
+Required fixes:
+
+1. Capital training videos must be generated/recorded
+
+For the Capital Module — CFO Onboarding playlist, generate/record the missing videos:
+
+07. Capital Module Overview
+08. Investor Pipeline & Commitments
+09. Data Room & Materials
+10. Follow-Ups & Engagement Tracking
+11. Reports & the AI Copilot
+
+These should not remain placeholder metadata only.
+
+2. Auto-convert videos after generation
+
+After the Capital training videos are generated/recorded:
+
+- Convert them to the same hosted/watchable format as the first 6 videos.
+- Ensure MP4 output exists.
+- Ensure hosted URL exists.
+- Ensure script status is correct.
+- Ensure the Training Hub marks them as Hosted / Published.
+- Ensure the “Watch” or equivalent button is enabled.
+
+Use the same conversion/publishing pipeline already used for the first 6 videos.
+
+Check the existing docs/scripts referenced in the UI:
+
+- onboarding-videos/HOSTING.md
+- npm run training:convert
+- any recording scripts used for the first 6 videos
+- any hosted asset manifest or training video manifest
+
+3. Make videos viewable for Scott Carlson and Trevor
+
+The Capital Module — CFO Onboarding playlist is intended for CFO & CEO only.
+
+Ensure it is visible and watchable for:
+
+- Trevor
+- Scott Carlson
+
+Confirm role/access logic allows both CEO and CFO access.
+
+Do not expose CFO-only Capital training to regular users unless the existing access model intentionally allows it.
+
+4. Fix global numbering
+
+Training video numbering should be global across the full Training Hub, not restart inside the Capital playlist.
+
+Current incorrect behavior:
+- First section has 01–06
+- Capital section restarts at 01–05
+
+Required behavior:
+- First videos remain 01–06
+- Capital videos become 07–11
+
+Update:
+
+- Training Hub checklist
+- Playlist cards
+- Playlist detail page
+- Any video library table
+- Any script/manifest numbering
+- Any hosted filename references if numbering is used there
+
+Expected final list:
+
+01. Dashboard Overview
+02. Leads, Accounts & Contacts
+03. Marina Lead Pipeline
+04. VoltSafe Mail Overview
+05. AI Email Generator
+06. Account Intelligence View
+07. Capital Module Overview
+08. Investor Pipeline & Commitments
+09. Data Room & Materials
+10. Follow-Ups & Engagement Tracking
+11. Reports & the AI Copilot
+
+5. Fix checklist counts
+
+The Publishing Checklist should update correctly:
+
+- Total: 11
+- Hosted: 11 once Capital videos are generated/converted/hosted
+- Edited/Raw counts should reflect actual pipeline state
+- Not Started should become 0 once all videos are available
+- Stale should be accurate
+
+Do not leave Capital videos marked as Not Recorded if scripts/assets exist or can be generated.
+
+6. Add regression tests
+
+Add tests covering:
+
+- Capital playlist videos are not placeholder-only.
+- Capital playlist videos have hosted/watchable URLs.
+- CFO/CEO users can access Capital training videos.
+- Regular users cannot access CFO-only playlist if access restrictions apply.
+- Video numbering continues from 07–11 and does not restart at 01.
+- Publishing checklist counts correctly include all 11 videos.
+- “Not Published Yet” button does not show for videos that have hosted URLs.
+
+7. Browser verification
+
+Manually verify in browser:
+
+- Open Learn → Training.
+- Confirm Publishing Checklist shows all 11 videos correctly.
+- Open Capital Module — CFO Onboarding.
+- Confirm videos show as 07–11.
+- Confirm all 5 Capital videos are recorded/hosted/viewable.
+- Confirm Trevor can watch them.
+- Confirm Scott Carlson can watch them.
+- Confirm no console errors.
+- Confirm no broken video URLs.
+- Confirm Video Library tab also shows correct numbering and status.
+
+8. Final report
+
+Report back with:
+
+- Why the Capital videos were not recorded/viewable.
+- Files changed.
+- Scripts run.
+- Conversion/publishing output.
+- Hosted URLs or manifest entries created.
+- Access logic for Trevor and Scott.
+- Numbering fix details.
+- Checklist count fix details.
+- Tests added/updated.
+- Test pass/fail counts.
+- Browser verification result.
+
+Do not just update labels. The videos must actually be generated, converted, hosted, and watchable.

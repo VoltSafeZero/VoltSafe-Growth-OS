@@ -1,0 +1,141 @@
+URGENT: Capital Command Center still crashes with global error boundary after multiple claimed fixes. Stop doing broad/static guesses. Fix the live crash now with real runtime evidence.
+
+Current visible failure:
+URL: /capital/command-center
+Screen shows: “Something went wrong — An unexpected error occurred. Please reload and try again.”
+This is the 4th attempted fix. Treat this as a production blocker.
+
+Do not start role/admin work or any unrelated feature work. Do not touch Tasks. Focus only on making Capital Command Center load.
+
+Required approach:
+
+1. Reproduce the actual crash in browser
+
+- Log in as Trevor using the existing local/test credentials already used in tests.
+- Navigate to /capital/command-center.
+- Open browser console.
+- Capture the exact runtime error stack trace.
+- Capture any failed network requests.
+- Capture the exact component/file/line causing the crash.
+
+Do not proceed based only on grep/static guesses. I need the real stack trace.
+
+2. Add temporary crash instrumentation if needed
+
+If the console stack is not clear, temporarily add targeted logging/error boundaries around Capital Command Center sections to identify the exact crashing widget.
+
+Wrap each major section/widget in a local safe render wrapper temporarily or permanently:
+
+- Portal Intel
+- Engagement Intel
+- Valuation/Lead sections
+- Investor Activity
+- Follow-up sections
+- Data room/materials sections
+- Any cards using array `.map`, `.length`, `.filter`, `.reduce`, `.toFixed`, date formatting, or nested object access
+
+Goal:
+One bad widget must never crash the whole Capital Command Center again.
+
+3. Fix the real runtime crash
+
+Known suspected issue from prior investigation:
+Frontend `capital-command-center.tsx` may expect an `engagement_intel` shape with fields like:
+
+- total_investors
+- highly_engaged_count
+- priority_actions
+- hot_with_stale_followup
+
+But backend `computeCommandCenterEngagement()` may return:
+
+- top_engaged
+- stale_high_value
+- portal_non_openers
+- recent_activity_feed
+- materials_driving_engagement
+- engagement_risk_flags
+
+Confirm with the real API response, then fix correctly.
+
+Required fix:
+- Align frontend types/rendering to the actual backend response OR normalize the backend response to the frontend contract.
+- Do not leave dead sections that silently never render.
+- Do not assume arrays exist.
+- Default missing arrays to `[]`.
+- Default missing objects to safe fallbacks.
+- Guard all date/number formatting.
+- Guard all `.map`, `.length`, `.filter`, `.reduce`, `.toFixed`, and nested property access.
+- If data is missing, show an empty-state card instead of crashing.
+
+4. Add page-level resilience
+
+Capital Command Center must not use one giant failure point.
+
+Add a reusable component-level safe wrapper if one does not exist:
+
+- `CapitalSectionBoundary`
+- or `SafeSection`
+- or equivalent
+
+Behavior:
+- If a section crashes, show a small inline fallback card:
+  “This section could not load.”
+- Log the section name and error to console.
+- Keep the rest of the page alive.
+
+The global “Something went wrong” page should not appear because one widget had bad data.
+
+5. Add regression tests
+
+Add or update tests covering:
+
+- Capital Command Center renders with backend-shaped `engagement_intel`.
+- Capital Command Center renders when `engagement_intel` is missing.
+- Capital Command Center renders when engagement arrays are missing/null.
+- Capital Command Center renders when portal/valuation/lead data is missing/null.
+- No section uses unsafe `.map`, `.length`, `.filter`, `.reduce`, `.toFixed`, or nested property access without defaults/guards.
+- Section-level error boundary prevents whole-page crash.
+
+Use the project’s existing source-grep / logic-test convention.
+
+6. Verify in browser
+
+After the fix:
+
+- Restart the app.
+- Log in as Trevor.
+- Open /capital/command-center.
+- Confirm the page loads.
+- Confirm no global “Something went wrong” page.
+- Confirm browser console has no uncaught runtime errors.
+- Confirm failed/403 API calls are handled gracefully if any exist.
+- Confirm visible empty states appear where data is missing.
+
+7. Run tests
+
+Run:
+
+node tests/capital-hardening.test.cjs
+npm run test:grep
+
+If test:grep still fails because of the unrelated `tests/help-system.test.cjs` FieldHelp icon assertion, clearly separate that as unrelated. Do not let it hide the Capital result.
+
+8. Final report required
+
+Report back with:
+
+- Exact runtime error stack trace found.
+- Exact root cause.
+- Files changed.
+- Whether the issue was frontend data-shape mismatch, backend response mismatch, permissions/API failure, or another runtime crash.
+- What guards/boundaries were added.
+- What regression tests were added/updated.
+- Result of `node tests/capital-hardening.test.cjs`.
+- Result of `npm run test:grep`.
+- Browser verification result.
+- Confirmation that /capital/command-center now loads successfully as Trevor.
+- Any remaining unrelated failures clearly separated.
+
+Important:
+This is a production blocker. Do not return “likely fixed.” Do not return only static analysis. The final answer must include live browser verification that Capital Command Center loads.

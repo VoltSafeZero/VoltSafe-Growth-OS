@@ -14,6 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { fmtMoney } from "@/pages/capital-investors";
+import { SampleDataBanner, CapitalHelpTip, SampleBadge } from "@/components/capital/capital-sample-ui";
+import { CapitalSectionBoundary } from "@/components/capital/capital-section-boundary";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -879,6 +881,7 @@ export default function CapitalCommandCenterPage() {
           <div className="grid lg:grid-cols-2 gap-5">
 
             {/* Lead investors */}
+            <CapitalSectionBoundary label="Lead Investor Tracker">
             <section>
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" data-testid="section-lead-investors">
                 <Flame className="w-4 h-4 text-amber-400" /> Lead Investor Tracker
@@ -930,8 +933,10 @@ export default function CapitalCommandCenterPage() {
                 </div>
               )}
             </section>
+            </CapitalSectionBoundary>
 
             {/* This week actions */}
+            <CapitalSectionBoundary label="This Week to Close">
             <section>
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" data-testid="section-this-week-actions">
                 <Zap className="w-4 h-4 text-primary" /> This Week to Close
@@ -969,10 +974,12 @@ export default function CapitalCommandCenterPage() {
                 </div>
               )}
             </section>
+            </CapitalSectionBoundary>
           </div>
 
           {/* ── Risk flags ── */}
           {flags.length > 0 && (
+            <CapitalSectionBoundary label="Round Risk Flags">
             <section>
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" data-testid="section-risk-flags">
                 <Shield className="w-4 h-4 text-red-400" /> Round Risk Flags
@@ -987,6 +994,7 @@ export default function CapitalCommandCenterPage() {
                 ))}
               </div>
             </section>
+            </CapitalSectionBoundary>
           )}
           {flags.length === 0 && !ccLoading && (
             <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3" data-testid="no-risk-flags">
@@ -998,6 +1006,7 @@ export default function CapitalCommandCenterPage() {
           <div className="grid lg:grid-cols-2 gap-5">
 
             {/* Runway */}
+            <CapitalSectionBoundary label="Runway Impact">
             <section>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold flex items-center gap-2" data-testid="section-runway">
@@ -1044,8 +1053,10 @@ export default function CapitalCommandCenterPage() {
                 </div>
               )}
             </section>
+            </CapitalSectionBoundary>
 
             {/* Scenarios */}
+            <CapitalSectionBoundary label="Scenario Planning">
             <section>
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" data-testid="section-scenarios">
                 <Rocket className="w-4 h-4 text-primary" /> Scenario Planning
@@ -1082,9 +1093,9 @@ export default function CapitalCommandCenterPage() {
                             <span className="text-emerald-400">Target met ✓</span>
                           )}
                         </div>
-                        {ds.dilution_warnings?.length > 0 && (
+                        {(ds.dilution_warnings ?? []).length > 0 && (
                           <div className="flex flex-wrap gap-1">
-                            {ds.dilution_warnings.map((w, i) => (
+                            {(ds.dilution_warnings ?? []).map((w, i) => (
                               <span key={i} className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded px-1.5 py-0.5 flex items-center gap-1">
                                 <Info className="w-2.5 h-2.5" />{w}
                               </span>
@@ -1097,9 +1108,11 @@ export default function CapitalCommandCenterPage() {
                 </div>
               )}
             </section>
+            </CapitalSectionBoundary>
           </div>
 
           {/* ── Valuation & Dilution ── */}
+          <CapitalSectionBoundary label="Valuation & Dilution">
           <section data-testid="section-valuation">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold flex items-center gap-2">
@@ -1208,8 +1221,10 @@ export default function CapitalCommandCenterPage() {
               </div>
             )}
           </section>
+          </CapitalSectionBoundary>
 
           {/* ── Investor Allocation Planner ── */}
+          <CapitalSectionBoundary label="Investor Allocation Planner">
           <section data-testid="section-allocation-planner">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold flex items-center gap-2">
@@ -1295,15 +1310,17 @@ export default function CapitalCommandCenterPage() {
               </div>
             )}
           </section>
+          </CapitalSectionBoundary>
 
           {/* ── Close Plan Tracker ── */}
+          <CapitalSectionBoundary label="Close Plan Tracker">
           <section data-testid="section-close-plan">
             <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
               <FileText className="w-4 h-4 text-emerald-400" /> Close Plan Tracker
             </h2>
-            {closePlan && closePlan.alerts.length > 0 && (
+            {closePlan && (closePlan.alerts ?? []).length > 0 && (
               <div className="space-y-1.5 mb-3">
-                {closePlan.alerts.map((alert, i) => (
+                {(closePlan.alerts ?? []).map((alert, i) => (
                   <div key={i} className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <span>{alert}</span>
@@ -1334,11 +1351,11 @@ export default function CapitalCommandCenterPage() {
                           {g.pct_of_min_close != null && <p>{g.pct_of_min_close}% of min close</p>}
                         </div>
                         <div className="space-y-0.5">
-                          {g.investors.slice(0, 3).map(inv => (
+                          {(g.investors ?? []).slice(0, 3).map(inv => (
                             <p key={inv.investor_id} className="text-[10px] text-muted-foreground truncate">{inv.investor_name}</p>
                           ))}
-                          {g.investors.length > 3 && (
-                            <p className="text-[9px] text-muted-foreground/60">+{g.investors.length - 3} more</p>
+                          {(g.investors ?? []).length > 3 && (
+                            <p className="text-[9px] text-muted-foreground/60">+{(g.investors ?? []).length - 3} more</p>
                           )}
                         </div>
                       </>
@@ -1347,8 +1364,10 @@ export default function CapitalCommandCenterPage() {
                 ))}
             </div>
           </section>
+          </CapitalSectionBoundary>
 
           {/* ── Close Checklist ── */}
+          <CapitalSectionBoundary label="Round Close Checklist">
           <section data-testid="section-close-checklist">
             <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
               <CheckSquare className="w-4 h-4 text-primary" /> Round Close Checklist
@@ -1382,9 +1401,11 @@ export default function CapitalCommandCenterPage() {
               </p>
             )}
           </section>
+          </CapitalSectionBoundary>
 
           {/* ── Investor Portal Intelligence (Phase 2H) ── */}
           {ccData?.portal_intel && (
+            <CapitalSectionBoundary label="Investor Portal Intelligence">
             <section data-testid="section-portal-intel">
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
                 <Globe className="w-4 h-4 text-cyan-400" /> Investor Portal Intelligence
@@ -1477,10 +1498,12 @@ export default function CapitalCommandCenterPage() {
                 )}
               </div>
             </section>
+            </CapitalSectionBoundary>
           )}
 
           {/* ── Engagement Intelligence ── */}
-          {ccData?.engagement_intel && ccData.engagement_intel.total_investors > 0 && (
+          {ccData?.engagement_intel && (ccData.engagement_intel.total_investors ?? 0) > 0 && (
+            <CapitalSectionBoundary label="Investor Engagement">
             <section data-testid="section-engagement-intel">
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
                 <Activity className="w-4 h-4 text-primary" /> Investor Engagement
@@ -1494,10 +1517,10 @@ export default function CapitalCommandCenterPage() {
                 {/* Tier stats */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { label: "Hot",      value: ccData.engagement_intel.highly_engaged_count, color: "text-rose-400",    testId: "eng-stat-hot" },
-                    { label: "Engaged",  value: ccData.engagement_intel.engaged_count,         color: "text-emerald-400", testId: "eng-stat-engaged" },
-                    { label: "Stale",    value: ccData.engagement_intel.stale_count,            color: "text-amber-400",   testId: "eng-stat-stale" },
-                    { label: "Cold",     value: ccData.engagement_intel.cold_count,             color: "text-slate-400",   testId: "eng-stat-cold" },
+                    { label: "Hot",      value: ccData.engagement_intel.highly_engaged_count ?? 0, color: "text-rose-400",    testId: "eng-stat-hot" },
+                    { label: "Engaged",  value: ccData.engagement_intel.engaged_count ?? 0,         color: "text-emerald-400", testId: "eng-stat-engaged" },
+                    { label: "Stale",    value: ccData.engagement_intel.stale_count ?? 0,            color: "text-amber-400",   testId: "eng-stat-stale" },
+                    { label: "Cold",     value: ccData.engagement_intel.cold_count ?? 0,             color: "text-slate-400",   testId: "eng-stat-cold" },
                   ].map(s => (
                     <div key={s.label} className="bg-card border border-border rounded-xl p-3 text-center" data-testid={s.testId}>
                       <p className={`text-lg font-semibold ${s.color}`}>{s.value}</p>
@@ -1508,12 +1531,12 @@ export default function CapitalCommandCenterPage() {
 
                 {/* 7-day activity */}
                 <div className="bg-card border border-border rounded-xl px-4 py-3 flex flex-wrap gap-4 text-xs" data-testid="eng-7d-summary">
-                  <span className="flex items-center gap-1"><Eye className="w-3 h-3 text-cyan-400" /><strong>{ccData.engagement_intel.portal_opens_7d}</strong> portal opens (7d)</span>
-                  <span className="flex items-center gap-1"><Activity className="w-3 h-3 text-primary" /><strong>{ccData.engagement_intel.material_views_7d}</strong> material views (7d)</span>
-                  {ccData.engagement_intel.hot_with_stale_followup > 0 && (
+                  <span className="flex items-center gap-1"><Eye className="w-3 h-3 text-cyan-400" /><strong>{ccData.engagement_intel.portal_opens_7d ?? 0}</strong> portal opens (7d)</span>
+                  <span className="flex items-center gap-1"><Activity className="w-3 h-3 text-primary" /><strong>{ccData.engagement_intel.material_views_7d ?? 0}</strong> material views (7d)</span>
+                  {(ccData.engagement_intel.hot_with_stale_followup ?? 0) > 0 && (
                     <span className="flex items-center gap-1 text-amber-400"><AlertTriangle className="w-3 h-3" /><strong>{ccData.engagement_intel.hot_with_stale_followup}</strong> hot investors with stale follow-up</span>
                   )}
-                  {ccData.engagement_intel.no_engagement_after_portal > 0 && (
+                  {(ccData.engagement_intel.no_engagement_after_portal ?? 0) > 0 && (
                     <span className="flex items-center gap-1 text-rose-400"><AlertTriangle className="w-3 h-3" /><strong>{ccData.engagement_intel.no_engagement_after_portal}</strong> portal opened but no follow-up</span>
                   )}
                 </div>
@@ -1537,11 +1560,11 @@ export default function CapitalCommandCenterPage() {
                 )}
 
                 {/* Priority actions */}
-                {ccData.engagement_intel.priority_actions.length > 0 && (
+                {(ccData.engagement_intel.priority_actions ?? []).length > 0 && (
                   <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="eng-priority-actions">
                     <p className="text-[10px] font-medium text-muted-foreground px-4 pt-3 pb-1">Priority Actions</p>
                     <div className="divide-y divide-border">
-                      {ccData.engagement_intel.priority_actions.slice(0, 4).map((a: any) => (
+                      {(ccData.engagement_intel.priority_actions ?? []).slice(0, 4).map((a: any) => (
                         <div key={a.investor_id} className="px-4 py-2 flex items-center gap-2 text-xs" data-testid={`eng-action-${a.investor_id}`}>
                           <span className={`shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${a.urgency === "critical" ? "bg-rose-500/20 text-rose-400" : a.urgency === "high" ? "bg-amber-500/20 text-amber-400" : "bg-slate-500/20 text-muted-foreground"}`}>
                             {a.urgency}
@@ -1555,15 +1578,15 @@ export default function CapitalCommandCenterPage() {
                 )}
 
                 {/* Top engaged investors */}
-                {ccData.engagement_intel.top_engaged.length > 0 && (
+                {(ccData.engagement_intel.top_engaged ?? []).length > 0 && (
                   <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="top-engaged">
                     <p className="text-[10px] font-medium text-muted-foreground px-4 pt-3 pb-1">Top Engaged</p>
                     <div className="divide-y divide-border">
-                      {ccData.engagement_intel.top_engaged.slice(0, 4).map((inv: any, i: number) => (
+                      {(ccData.engagement_intel.top_engaged ?? []).slice(0, 4).map((inv: any, i: number) => (
                         <div key={inv.investor_id} className="px-4 py-2 flex items-center gap-2 text-xs" data-testid={`eng-top-${inv.investor_id}`}>
                           <span className="text-[10px] text-muted-foreground w-4 shrink-0">{i + 1}.</span>
                           <span className="flex-1 font-medium truncate">{inv.investor_name}</span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${inv.tier === "highly_engaged" ? "bg-rose-500/20 text-rose-400" : inv.tier === "engaged" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>{inv.tier.replace("_", " ")}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${inv.tier === "highly_engaged" ? "bg-rose-500/20 text-rose-400" : inv.tier === "engaged" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>{(inv.tier ?? "").replace("_", " ")}</span>
                           <span className="text-muted-foreground shrink-0 w-7 text-right">{inv.score}</span>
                         </div>
                       ))}
@@ -1572,16 +1595,18 @@ export default function CapitalCommandCenterPage() {
                 )}
               </div>
             </section>
+            </CapitalSectionBoundary>
           )}
 
           {/* ── Recent activity ── */}
-          {ccData?.recent_activity && ccData.recent_activity.length > 0 && (
+          {ccData?.recent_activity && (ccData.recent_activity ?? []).length > 0 && (
+            <CapitalSectionBoundary label="Recent Round Activity">
             <section>
               <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" data-testid="section-recent-activity">
                 <Activity className="w-4 h-4 text-muted-foreground" /> Recent Round Activity
               </h2>
               <div className="bg-card border border-border rounded-xl divide-y divide-border" data-testid="recent-activity-list">
-                {ccData.recent_activity.slice(0, 6).map((a: any) => (
+                {(ccData.recent_activity ?? []).slice(0, 6).map((a: any) => (
                   <div key={a.id} className="px-4 py-2.5 flex items-start gap-3">
                     <Activity className="w-3 h-3 text-muted-foreground mt-0.5 shrink-0" />
                     <div className="min-w-0 flex-1">
@@ -1594,6 +1619,7 @@ export default function CapitalCommandCenterPage() {
                 ))}
               </div>
             </section>
+            </CapitalSectionBoundary>
           )}
         </>
       )}
