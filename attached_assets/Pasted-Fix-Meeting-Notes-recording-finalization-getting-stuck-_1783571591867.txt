@@ -1,0 +1,99 @@
+Fix Meeting Notes recording finalization getting stuck in “Flushing final chunk...” / “Stopping...” after the meeting has already completed.
+
+Bug:
+In Meeting Notes, after stopping a voice recording, the meeting successfully processes and shows:
+- status: Completed
+- summary generated
+- decisions generated
+- action items ready
+- follow-up ready
+- toast says meeting processed
+
+But the Capture card on the right remains stuck showing:
+- “Flushing final chunk...”
+- disabled red “Stopping...” button
+- spinner keeps running forever
+
+This is a UI state bug. The recording/processing is complete, but the capture panel still thinks it is stopping.
+
+Expected behavior:
+Once recording finalization and processing are complete:
+1. Capture card should stop showing “Flushing final chunk...”
+2. “Stopping...” button should disappear or reset to normal idle state.
+3. Spinner should stop.
+4. The UI should show a clean completed/success state, such as:
+   - “Recording complete”
+   - “Processed”
+   - “Ready”
+5. If the meeting status is Completed, the Capture card must not remain in any active/stopping/flushing state.
+6. Refreshing the page should also show the correct completed state.
+7. No duplicate stop/finalize calls should continue running in the background.
+
+Likely root cause:
+There are separate states for meeting processing and recording capture finalization. The meeting status gets updated to completed, but the local recorder state is not cleared.
+
+Audit:
+- Meeting Notes detail page
+- Capture card component
+- recorder stop/finalize handler
+- audio chunk flushing logic
+- polling/refetch logic for meeting status
+- any state variables like:
+  - isRecording
+  - isStopping
+  - isFinalizing
+  - isFlushing
+  - captureStatus
+  - processingStatus
+  - recorderState
+  - uploadInProgress
+  - stopMutation.isPending
+- backend stop/finalize endpoint if it returns a status that frontend ignores
+
+Fix requirements:
+1. When stop/finalize succeeds, always clear local capture states:
+   - isStopping = false
+   - isFlushing = false
+   - isRecording = false
+   - isFinalizing = false
+2. When meeting status becomes completed, force-clear all active capture states.
+3. Add a defensive derived state:
+   - if meeting.status === "completed", the Capture card cannot render “Stopping...” or “Flushing final chunk...”
+4. Ensure polling/refetch after stop updates the meeting detail state.
+5. Ensure the stop button cannot remain disabled forever.
+6. If final chunk upload fails, show a real error and a retry option instead of infinite spinner.
+7. Add timeout protection around final chunk flushing so it cannot hang forever silently.
+8. Make sure completed recordings remain completed after page refresh.
+
+Important UI rule:
+Meeting status is the source of truth. If the meeting is Completed, the capture panel must render completed/idle state, not active stopping state.
+
+Regression tests:
+Add tests for:
+1. Stop recording sets flushing/stopping state initially.
+2. Successful stop/finalize clears flushing/stopping state.
+3. Meeting status changing to Completed clears capture busy state.
+4. Completed meeting never renders “Flushing final chunk...”
+5. Completed meeting never renders “Stopping...”
+6. Capture card shows completed/ready state after processing.
+7. Refresh/loading a completed meeting does not show active capture state.
+8. Failed final chunk upload shows an error instead of infinite spinner.
+9. Stop/finalize timeout clears spinner and shows retry/error.
+10. No duplicate stop/finalize calls are fired after completion.
+
+Manual verification:
+- Start a meeting recording.
+- Stop recording.
+- Confirm temporary “Flushing final chunk...” appears only while actually finalizing.
+- Wait for processing to complete.
+- Confirm the Capture card switches to completed/ready state.
+- Confirm no spinner remains.
+- Refresh the page.
+- Confirm it still shows completed/ready state.
+- Confirm Quick Actions remain usable.
+
+Deliverable:
+- Explain root cause.
+- List changed files.
+- List tests added/updated.
+- Confirm commands run and results.

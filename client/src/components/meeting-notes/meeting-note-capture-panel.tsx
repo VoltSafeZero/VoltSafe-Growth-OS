@@ -156,7 +156,7 @@ export function MeetingNoteCapturePanel({
   const { toast } = useToast();
   const [consent, setConsent] = useState(note.consentNoted);
 
-  const isDone = ["done", "cancelled", "error"].includes(note.status);
+  const isDone = ["done", "completed", "failed", "cancelled", "error"].includes(note.status);
   const isProcessing = note.status === "processing";
 
   const {
@@ -173,8 +173,9 @@ export function MeetingNoteCapturePanel({
   } = useMeetingRecorder();
 
   const isActivelyRecording = recorderState === "recording";
+  // Guard: once the meeting is done/completed, never treat recorder state as "stopping"
   const isStopping =
-    recorderState === "stopping" || recorderState === "stopped";
+    !isDone && (recorderState === "stopping" || recorderState === "stopped");
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
