@@ -73,3 +73,4 @@
 - [canSend Unified-Mode Guard Order](cansend-unified-guard.md) — check activeAccountId==="all" BEFORE authStatus guard; expired work account poisons entire unified inbox otherwise.
 - [Multipart Filename Mojibake & Composer Drift](currents-attachment-mojibake.md) — multer decodes filenames as latin1 (fix by re-decoding at persist time); multi-surface composers can silently drift in supported capabilities; Playwright needs setInputFiles on hidden input, not click+native-dialog.
 - [CURRENTS DM NULL body bug](currents-dm-null-body.md) — DM POST route must never insert SQL NULL for body; current_messages.body is TEXT NOT NULL; use '' for attachment-only.
+- [Training Hub video numbering/hosting](training-hub-capital-videos.md) — number field drives global order (no restart per playlist); hosted status is derived from file-on-disk; route is /training not /training-hub; use system Chromium via launchBrowser().
