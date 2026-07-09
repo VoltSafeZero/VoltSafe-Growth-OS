@@ -1,0 +1,205 @@
+Fix VoltSafe Mail unread count totals across Work Inbox, Team Inboxes, and Private Inboxes.
+
+Bug / requirement:
+In VoltSafe Mail sidebar, each inbox category header and each individual email account must show unread email counts.
+
+Current screenshot shows:
+- WORK INBOX has "All Inboxes 5"
+- Individual accounts/folders do not consistently show unread counts
+- TEAM INBOXES and PRIVATE INBOXES category headers do not show total unread counts
+- Private inbox accounts like trevor@hyalos.com and burgesstrevor76@gmail.com should show their own unread totals
+- Team inboxes like support@voltsafe.com and sales@voltsafe.com should show their own unread totals
+
+Required behavior:
+A) Category unread totals
+Show unread count directly to the right of each category header/row:
+
+1. WORK INBOX
+- Show total unread count across all work inbox accounts owned/available to the current user.
+- This should include all relevant work inbox accounts/folders under that category.
+- If count is 0, either hide the badge or show 0 consistently based on existing UI pattern. Prefer hide when zero unless product already shows 0 elsewhere.
+
+2. TEAM INBOXES
+- Show total unread count across all team/shared inboxes visible to the current user.
+- Example: support@voltsafe.com unread + sales@voltsafe.com unread = TEAM INBOXES total.
+
+3. PRIVATE INBOXES
+- Show total unread count across all private inboxes connected by/visible to the current user.
+- Example: trevor@hyalos.com unread + burgesstrevor76@gmail.com unread = PRIVATE INBOXES total.
+
+B) Individual account unread totals
+Each individual email account row must show its own unread count directly to the right of the email address:
+
+- trevor@voltsafe.com → unread count for that account only
+- support@voltsafe.com → unread count for that team inbox only
+- sales@voltsafe.com → unread count for that team inbox only
+- trevor@hyalos.com → unread count for that private inbox only
+- burgesstrevor76@gmail.com → unread count for that private inbox only
+
+C) All Inboxes unread total
+- "All Inboxes" should show the total unread count across all visible email accounts for the current user.
+- It should equal:
+  WORK INBOX total + TEAM INBOXES total + PRIVATE INBOXES total
+- Do not double count the same mailbox if it appears in more than one category.
+
+D) Folder-level unread counts
+For each expanded email account:
+- Inbox should show unread count for that account's Inbox only.
+- Drafts should keep draft count, not unread count.
+- Spam can show spam unread count if available.
+- Sent, Scheduled, Pinned, CRM Review should only show counts if that is already part of the product logic.
+- Do not mix Draft count into unread totals.
+
+E) Source of truth
+Use server-side unread counts as the source of truth.
+
+Do not calculate unread counts only from the currently loaded message list, because the loaded list may be paginated or filtered.
+
+Expected backend behavior:
+- Counts should come from Gmail label metadata, database sync metadata, or existing mailbox count endpoints.
+- If needed, add/extend an endpoint that returns counts grouped by mailbox/account:
+  {
+    allUnread: number,
+    workUnread: number,
+    teamUnread: number,
+    privateUnread: number,
+    accounts: {
+      [emailAddress]: {
+        unread: number,
+        inboxUnread: number,
+        draftCount: number,
+        spamUnread?: number,
+        pinnedCount?: number,
+        crmReviewCount?: number
+      }
+    }
+  }
+
+F) Default for all users
+This must be the default behavior for every VoltSafe Mail user:
+- admins
+- managers
+- sales
+- support
+- standard users
+- users with only one inbox
+- users with multiple work/team/private inboxes
+- users with no private inboxes
+- users with disconnected inboxes
+
+G) Permissions / visibility
+Only count inboxes the current user is allowed to see.
+
+Examples:
+- A user who cannot see sales@voltsafe.com should not have sales@voltsafe.com included in their TEAM INBOXES total.
+- Private inboxes are private and should only be counted for the owning user unless explicitly delegated.
+- Admin/master_admin may see all relevant visible/shared inbox totals according to existing permissions.
+- Do not leak unread counts for restricted mailboxes.
+
+H) UI requirements
+- Counts should appear directly to the right of:
+  - All Inboxes
+  - WORK INBOX / work account rows as applicable
+  - TEAM INBOXES
+  - each team inbox account
+  - PRIVATE INBOXES
+  - each private inbox account
+- Use the existing small count badge style.
+- Keep alignment clean.
+- Long email addresses should truncate cleanly without pushing the count offscreen.
+- Count badges should not overlap lock icons, status dots, expand chevrons, or folder icons.
+- In dark mode, badges must remain readable.
+- In light mode, badges must remain readable.
+
+I) Refresh behavior
+Unread counts should update when:
+- User opens VoltSafe Mail
+- User changes mailbox/account
+- User marks an email read/unread
+- User archives/deletes/moves mail
+- Mail sync completes
+- User reconnects or disconnects an inbox
+- User switches between All Inboxes / account inbox / folders
+
+Avoid stale counts. If optimistic updates are used, reconcile with server counts after sync.
+
+J) Implementation steps
+1. Find VoltSafe Mail sidebar component.
+   Likely areas:
+   - mail sidebar
+   - inbox sidebar
+   - mailbox switcher
+   - account list
+   - team inbox list
+   - private inbox list
+2. Find current unread count source used by "All Inboxes 5".
+3. Extend that same count system to:
+   - category totals
+   - individual account totals
+4. Normalize mailboxes into categories:
+   - work
+   - team
+   - private
+5. Calculate totals from visible accounts only.
+6. Add safe fallback defaults:
+   - missing count = 0
+   - missing account = skipped
+   - disconnected account = show disconnected state, do not crash
+7. Ensure unread totals exclude drafts and sent mail.
+
+K) Regression tests
+Add tests for:
+
+1. All Inboxes total
+- equals sum of all visible account unread counts
+- does not double count accounts
+
+2. Work Inbox category
+- shows total unread for work accounts
+- individual work account row shows its own unread count
+
+3. Team Inboxes category
+- shows total unread across visible team inboxes
+- each team inbox row shows its own unread count
+
+4. Private Inboxes category
+- shows total unread across visible private inboxes
+- each private inbox row shows its own unread count
+
+5. Permissions
+- restricted team inbox counts are not included for users without access
+- private inbox counts are not leaked to other users
+
+6. Folder counts
+- Inbox unread count is unread only
+- Drafts count remains draft count
+- Drafts are not included in unread totals
+
+7. UI
+- counts render beside headers/accounts
+- long email address truncation does not hide count badge
+- dark mode count badges remain visible
+
+8. State updates
+- marking read/unread updates account total, category total, and All Inboxes total
+- mailbox sync refresh updates totals
+
+L) Verification
+After implementation:
+- Log in as Trevor/admin.
+- Open VoltSafe Mail.
+- Confirm:
+  - All Inboxes shows total unread across all visible accounts.
+  - WORK INBOX/work account rows show counts.
+  - TEAM INBOXES header shows total unread.
+  - support@voltsafe.com and sales@voltsafe.com show their individual unread counts.
+  - PRIVATE INBOXES header shows total unread.
+  - trevor@hyalos.com and burgesstrevor76@gmail.com show their individual unread counts.
+- Mark one email read/unread and confirm all affected totals update.
+- Confirm no console errors.
+- Run relevant mail/sidebar/count tests.
+- Report:
+  - files changed
+  - source of truth for unread counts
+  - exact formula used for All Inboxes, Work, Team, and Private totals
+  - tests run and pass/fail count

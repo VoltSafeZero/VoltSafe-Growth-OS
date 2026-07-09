@@ -5939,6 +5939,21 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const hasMultipleSections = sharedAccounts.length > 0 || privateAccounts.length > 0;
   const totalAccessibleAccounts = workAccounts.length + sharedAccounts.length + privateAccounts.length;
 
+  // ── Sidebar unread totals ────────────────────────────────────────────────
+  // Source of truth: /api/gmail/accounts/health (healthById), which is already
+  // scoped server-side to only the accounts the current user is permitted to
+  // see (owned + explicitly shared). Category totals and "All Inboxes" are
+  // derived by summing over the SAME already-permission-filtered arrays
+  // (workAccounts/sharedAccounts/privateAccounts), so no mailbox is double
+  // counted (each account belongs to exactly one category) and nothing
+  // restricted ever leaks in. Falls back to 0 for any account not yet present
+  // in the health snapshot (e.g. right after a new connection).
+  const unreadOfAccount = (acct: { id: number }) => healthById.get(acct.id)?.unreadCount ?? 0;
+  const workUnreadTotal = workAccounts.reduce((sum, a) => sum + unreadOfAccount(a), 0);
+  const teamUnreadTotal = sharedAccounts.reduce((sum, a) => sum + unreadOfAccount(a), 0);
+  const privateUnreadTotal = privateAccounts.reduce((sum, a) => sum + unreadOfAccount(a), 0);
+  const allInboxesUnreadTotal = workUnreadTotal + teamUnreadTotal + privateUnreadTotal;
+
   // Helper to append asAccountId to URLSearchParams.
   // ISOLATION FIX: when the personal account is selected (activeAccountId === null),
   // we must send the personal account's SPECIFIC id — NOT "all" — so the backend
@@ -9038,12 +9053,18 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
             {/* ── WORK INBOX section label — only shown when there are multiple inbox groups ── */}
             {hasMultipleSections ? (
-              <div className="pb-0.5 pt-1 px-1">
+              <div className="pb-0.5 pt-1 px-1 flex items-center justify-between">
                 <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Work Inbox</span>
+                {workUnreadTotal > 0 && (
+                  <span data-testid="badge-unread-work-inbox" className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{workUnreadTotal}</span>
+                )}
               </div>
             ) : (
-              <div className="pb-0.5 pt-1 px-1">
+              <div className="pb-0.5 pt-1 px-1 flex items-center justify-between">
                 <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Inbox</span>
+                {workUnreadTotal > 0 && (
+                  <span data-testid="badge-unread-work-inbox" className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{workUnreadTotal}</span>
+                )}
               </div>
             )}
 
@@ -9066,8 +9087,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   <Inbox className="h-3.5 w-3.5" />
                 </span>
                 <span className="flex-1 text-left text-[12px] font-medium truncate">All Inboxes</span>
-                <span className="text-[10px] text-muted-foreground/60">
-                  {totalAccessibleAccounts}
+                <span data-testid="badge-unread-all-inboxes" className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">
+                  {allInboxesUnreadTotal}
                 </span>
               </button>
             )}
@@ -9098,9 +9119,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     {(personalAccount as any).visibilityType === 'private_personal' && (
                       <Lock className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" title="Private mailbox — only visible to you" />
                     )}
-                    {activeAccountId === null && serverInboxUnreadCount > 0 && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
-                    )}
+                    {(() => {
+                      const badgeCount = activeAccountId === null ? serverInboxUnreadCount : unreadOfAccount(personalAccount);
+                      if (badgeCount <= 0) return null;
+                      return (
+                        <span data-testid={`badge-unread-account-${personalAccount.id}`} className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${activeAccountId === null ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{badgeCount}</span>
+                      );
+                    })()}
                   </button>
                   <button
                     onClick={() => handleRefreshAccount(personalAccount.id)}
@@ -9218,8 +9243,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {/* ── TEAM INBOXES section ──────────────────────────────────── */}
             {sharedAccounts.length > 0 && (
               <>
-                <div className={`${densityClasses.sidebarSectionPt} pb-0.5 px-1`}>
+                <div className={`${densityClasses.sidebarSectionPt} pb-0.5 px-1 flex items-center justify-between`}>
                   <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Team Inboxes</span>
+                  {teamUnreadTotal > 0 && (
+                    <span data-testid="badge-unread-team-inboxes" className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{teamUnreadTotal}</span>
+                  )}
                 </div>
                 {sharedAccounts.map((acct) => {
                   const isThisActive = activeAccountId === acct.id;
@@ -9246,9 +9274,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             })()}
                           </span>
                           <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
-                          {isThisActive && serverInboxUnreadCount > 0 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
-                          )}
+                          {(() => {
+                            const badgeCount = isThisActive ? serverInboxUnreadCount : unreadOfAccount(acct);
+                            if (badgeCount <= 0) return null;
+                            return (
+                              <span data-testid={`badge-unread-account-${acct.id}`} className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${isThisActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{badgeCount}</span>
+                            );
+                          })()}
                         </button>
                         {isAdmin && (
                           <button
@@ -9357,9 +9389,14 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             {/* ── PRIVATE INBOXES section ───────────────────────────────────── */}
             {privateAccounts.length > 0 && (
               <>
-                <div className={`${densityClasses.sidebarSectionPt} pb-0.5 px-1 flex items-center gap-1.5`}>
-                  <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Private Inboxes</span>
-                  <Lock className="h-2.5 w-2.5 text-muted-foreground/30" />
+                <div className={`${densityClasses.sidebarSectionPt} pb-0.5 px-1 flex items-center justify-between`}>
+                  <div className="flex items-center gap-1.5">
+                    <span style={{ fontSize: "10px", letterSpacing: "0.08em" }} className="font-semibold uppercase text-muted-foreground/40">Private Inboxes</span>
+                    <Lock className="h-2.5 w-2.5 text-muted-foreground/30" />
+                  </div>
+                  {privateUnreadTotal > 0 && (
+                    <span data-testid="badge-unread-private-inboxes" className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-muted text-muted-foreground">{privateUnreadTotal}</span>
+                  )}
                 </div>
                 {privateAccounts.map((acct) => {
                   const isThisActive = activeAccountId === acct.id;
@@ -9387,9 +9424,13 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           </span>
                           <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
                           <Lock className="h-3 w-3 text-muted-foreground/40 flex-shrink-0" title="Private — only you can see this inbox" />
-                          {isThisActive && serverInboxUnreadCount > 0 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
-                          )}
+                          {(() => {
+                            const badgeCount = isThisActive ? serverInboxUnreadCount : unreadOfAccount(acct);
+                            if (badgeCount <= 0) return null;
+                            return (
+                              <span data-testid={`badge-unread-account-${acct.id}`} className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${isThisActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{badgeCount}</span>
+                            );
+                          })()}
                         </button>
                         <button
                           onClick={() => handleRefreshAccount(acct.id)}
