@@ -1,0 +1,236 @@
+Fix VoltSafe Mail bugs for Private Email Inboxes.
+
+Current bugs shown in screenshots:
+
+1. Private Email Inboxes do not have their own email signatures.
+Example:
+- trevor@hyalos.com is added as a private inbox.
+- Signature editor currently shows/editing signature for Trevor Burgess <trevor@voltsafe.com>.
+- Private inboxes need their own signature records, editable by the user who added/owns that private inbox.
+
+2. Sending/replying from a Private Email Inbox fails when CC or BCC is present.
+Error shown:
+“Send failed — saved as draft”
+“Invalid Cc header. Your message was saved. Open Drafts to retry.”
+
+This happened while replying/reply-all from trevor@hyalos.com with CC/BCC recipients.
+
+Goal:
+Private inboxes must behave like first-class sending identities:
+- Their own signatures.
+- Their own default signature selection.
+- Correct reply/reply-all/send behavior.
+- Valid To/Cc/Bcc headers.
+- Draft fallback should not be caused by malformed CC/BCC formatting.
+
+Do not start unrelated work.
+
+Part A — Private inbox signatures
+
+1. Data model / storage audit
+Find how signatures are currently stored and associated:
+- user ID only?
+- mailbox/account ID?
+- sender email?
+- Gmail account only?
+- company-managed inbox only?
+
+Fix so signatures can be tied to each sending identity/mailbox, including private inboxes.
+
+Expected behavior:
+- trevor@voltsafe.com can have its own signature.
+- trevor@hyalos.com can have its own separate signature.
+- burgesstrevor76@gmail.com can have its own separate signature.
+- support@voltsafe.com and sales@voltsafe.com can have team/company signatures if the existing model supports that.
+- Editing one inbox signature must not overwrite another inbox signature.
+
+2. Signature editor UI
+Update the signature editor so when the user is working from a private inbox, it clearly says:
+
+“Editing signature for: [Private Email Address]”
+
+Example:
+“Editing signature for: Trevor Burgess <trevor@hyalos.com>”
+
+Not:
+“Editing signature for: Trevor Burgess <trevor@voltsafe.com>”
+
+Add or fix a selector if needed so users can choose which inbox/sending identity signature they are editing.
+
+3. Compose/reply signature insertion
+When composing, replying, or forwarding from a private inbox:
+
+- Insert that private inbox’s signature.
+- Do not insert the company/default VoltSafe signature unless that private inbox has no custom signature and the fallback rules intentionally allow it.
+- If no signature exists for that private inbox, allow the user to create one.
+- Do not silently use trevor@voltsafe.com’s signature for trevor@hyalos.com.
+
+4. Permissions
+Private inbox signature rules:
+
+- The user who added/owns the private inbox can create/edit/delete that inbox’s signature.
+- Other users should not be able to edit a private inbox signature unless they have explicit admin/master permission.
+- Team inbox signatures should follow existing team inbox permissions.
+
+Part B — Fix Invalid Cc header / Bcc header sending failure
+
+1. Reproduce
+Reproduce by:
+- Log in as Trevor.
+- Open VoltSafe Mail.
+- Select private inbox trevor@hyalos.com.
+- Open an email with CC recipients.
+- Click Reply All.
+- Try to send with CC and/or BCC present.
+- Capture exact outbound payload and error.
+
+2. Root cause investigation
+Audit all code paths that build recipients for:
+- compose send
+- reply
+- reply all
+- forward
+- draft save
+- send saved draft
+- private inbox SMTP/send provider
+- Gmail provider if shared code is used
+
+Search for:
+- Cc
+- Bcc
+- cc
+- bcc
+- replyAll
+- reply-all
+- recipients
+- headers
+- InternetAddress
+- sendMail
+- raw MIME
+- nodemailer
+- Gmail API raw message
+- SMTP headers
+
+Likely issue:
+CC/BCC are being serialized incorrectly for private inbox send, such as:
+- passing an array where a string is expected,
+- including empty strings,
+- including display names with malformed brackets/quotes,
+- including duplicate separators,
+- including undefined/null,
+- using newline characters in header values,
+- mixing objects and strings,
+- failing to sanitize parsed Reply-All recipients.
+
+3. Required CC/BCC normalization
+Create or fix a shared recipient normalization helper.
+
+It must:
+- Accept strings, arrays, and recipient objects if existing UI uses them.
+- Trim whitespace.
+- Remove empty/null/undefined recipients.
+- Validate email shape.
+- Preserve valid display names safely.
+- Escape or strip invalid header characters.
+- Deduplicate recipients.
+- Remove the sender’s own email from Reply All recipients.
+- Remove duplicate recipients across To/Cc/Bcc where appropriate.
+- Return headers in the format required by the actual sending library/API.
+- Never generate invalid `Cc` or `Bcc` headers.
+- Omit Cc/Bcc headers entirely when empty.
+
+Important:
+Do not “fix” by dropping CC/BCC recipients silently. If a recipient is invalid, show a useful validation error before sending.
+
+4. Reply All behavior
+Reply All from private inbox must:
+- Send from the selected private inbox.
+- Reply to the original sender.
+- Include valid original CC recipients.
+- Exclude the selected sending identity/private inbox email from recipients.
+- Preserve the thread if threading is supported.
+- Preserve attachments/quoted body according to existing behavior.
+- Save draft only if actual send fails, not because of malformed headers generated by our app.
+
+5. Error handling
+Improve the error message.
+
+Current:
+“Invalid Cc header.”
+
+Better:
+If malformed recipient:
+“Could not send because one CC recipient is invalid: [recipient]. Please edit the CC field and try again.”
+
+If internal formatting bug:
+Log detailed server-side diagnostics, but show:
+“Could not send because the CC/BCC recipient list could not be formatted. The message was saved as a draft.”
+
+Part C — Tests
+
+Add regression tests covering:
+
+Private inbox signatures:
+- Private inbox can have its own signature.
+- Editing private inbox signature does not overwrite company inbox signature.
+- Compose from private inbox inserts private signature.
+- Reply from private inbox inserts private signature.
+- Signature editor shows the selected private inbox email.
+- User cannot edit another user’s private inbox signature without permission.
+
+CC/BCC send bug:
+- Send from private inbox with CC succeeds.
+- Send from private inbox with BCC succeeds.
+- Reply All from private inbox with CC succeeds.
+- Empty CC/BCC are omitted, not sent as invalid headers.
+- Array/object recipient formats normalize correctly.
+- Duplicate recipients are deduped.
+- Sender’s own private email is removed from Reply All recipients.
+- Invalid CC recipient is caught before sending with a clear validation error.
+- Draft save fallback works only after real send failure.
+
+Run existing mail tests too:
+- mailbox switching tests
+- private inbox tests
+- signature tests
+- compose/reply/send tests
+- any Gmail/private SMTP send tests
+
+Part D — Browser/manual verification
+
+Manually verify:
+
+1. Signature behavior
+- Open VoltSafe Mail.
+- Select trevor@voltsafe.com.
+- Open signature editor.
+- Confirm it edits trevor@voltsafe.com signature.
+- Select trevor@hyalos.com private inbox.
+- Open signature editor.
+- Confirm it edits trevor@hyalos.com signature.
+- Create/save a unique private signature.
+- Compose from trevor@hyalos.com.
+- Confirm the private signature appears.
+- Compose from trevor@voltsafe.com.
+- Confirm the VoltSafe signature is separate and unchanged.
+
+2. Send behavior
+- From trevor@hyalos.com, send a new email with CC.
+- From trevor@hyalos.com, send a new email with BCC.
+- From trevor@hyalos.com, Reply All to a message that has CC recipients.
+- Confirm no “Invalid Cc header” error.
+- Confirm sent message shows correct To/Cc/Bcc recipients.
+- Confirm draft fallback does not trigger unless there is a real provider failure.
+
+Final report required:
+- Exact root cause of private inbox signature bug.
+- Exact root cause of Invalid Cc header bug.
+- Files changed.
+- Data/model changes.
+- Recipient normalization behavior.
+- Signature selection/fallback behavior.
+- Tests added/updated.
+- Test pass/fail counts.
+- Browser verification result.
+- Confirmation that trevor@hyalos.com can send/reply-all with CC/BCC successfully.
+- Confirmation that trevor@hyalos.com has its own editable signature separate from trevor@voltsafe.com.

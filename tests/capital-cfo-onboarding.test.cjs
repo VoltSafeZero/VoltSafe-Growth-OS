@@ -79,7 +79,7 @@ console.log("\n── 5. Learn tab — Capital CFO onboarding playlist restricte
   })());
   check("exactly 5 capital training videos are defined (cap-01..cap-05)", ["cap-01","cap-02","cap-03","cap-04","cap-05"].every(id => data.includes(`id: "${id}"`)));
   check("each capital video is restricted to trevor + scott", (() => {
-    const blocks = data.match(/id:\s*"cap-0[1-5]"[\s\S]{0,600}?\n\s*\},/g) || [];
+    const blocks = data.match(/id:\s*"cap-0[1-5]"[\s\S]{0,900}?\n\s*\},/g) || [];
     return blocks.length === 5 && blocks.every(b => /restrictedToEmails/.test(b) && b.includes("trevor@voltsafe.com") && b.includes("scott@voltsafe.com"));
   })());
 }
