@@ -63,6 +63,7 @@ export const users = pgTable("users", {
   dashboardLayouts: jsonb("dashboard_layouts").default({}),
   defaultCommandCenter: text("default_command_center"),
   calendarBookingUrl: text("calendar_booking_url"),
+  showHelpIcons: boolean("show_help_icons").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastLogin: timestamp("last_login"),
 });

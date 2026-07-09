@@ -481,6 +481,12 @@ app.use((req, res, next) => {
       log("[migration] meeting_notes.one_on_one_sections column ready.");
     } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
+    // Contextual help system: per-user "Show Help Icons" preference
+    try {
+      await _db.execute(_sql.raw(`ALTER TABLE users ADD COLUMN IF NOT EXISTS show_help_icons BOOLEAN NOT NULL DEFAULT true`));
+      log("[migration] users.show_help_icons column ready.");
+    } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
+
     // CEO Execution Intelligence (Phase 8): review/dismiss tracking table
     try {
       await _db.execute(_sql.raw(`

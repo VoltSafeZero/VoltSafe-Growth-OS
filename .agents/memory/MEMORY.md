@@ -1,3 +1,4 @@
+- [Contextual help expansion + per-user toggle](help-icons-toggle-system.md) — FieldHelp central gate for showHelpIcons pref; subnav help icon must be sibling of Link, not nested; restart app after raw-SQL migration before running dependent tests.
 - [Kanban column flex stretch causes footer gap](flex-row-column-stretch.md) — flex row default align-items:stretch forces columns to equal height; add items-start, not mt-auto/justify-between.
 - [Modal horizontal overflow root cause](modal-horizontal-overflow.md) — overflow-y-auto alone forces overflow-x:auto too; flex children need min-w-0 or long text forces the dialog wider than viewport.
 - [Save URL to Cortex](save-url-to-cortex.md) — extended cortex_email_intel with source_type/canonical_url instead of a new table; always re-check service-layer constant names before hand-copying UI selects from a sibling modal.

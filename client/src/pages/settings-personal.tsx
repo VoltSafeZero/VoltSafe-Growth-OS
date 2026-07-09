@@ -1,7 +1,33 @@
 import { Link } from "wouter";
-import { Settings, PenSquare, Mic, BellRing, ArrowRight } from "lucide-react";
+import { Settings, PenSquare, Mic, BellRing, ArrowRight, HelpCircle } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/hooks/use-toast";
 
 export default function PersonalSettingsPage() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: currentUser } = useQuery<{ showHelpIcons?: boolean }>({
+    queryKey: ["/api/auth/me"],
+  });
+
+  const showHelpIcons = currentUser?.showHelpIcons ?? true;
+
+  const toggleHelpIcons = useMutation({
+    mutationFn: async (next: boolean) => {
+      const res = await apiRequest("PATCH", "/api/users/me/layout", { showHelpIcons: next });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: () => {
+      toast({ title: "Could not update help icon preference", variant: "destructive" });
+    },
+  });
+
   return (
     <div className="flex flex-col gap-6 p-6 max-w-3xl mx-auto" data-testid="personal-settings-hub">
       <div>
@@ -83,6 +109,27 @@ export default function PersonalSettingsPage() {
             </div>
           </div>
         </Link>
+      </div>
+
+      {/* Help icons toggle */}
+      <div className="rounded-xl border border-border/50 bg-card p-5 flex items-center justify-between gap-4" data-testid="personal-settings-help-icons">
+        <div className="flex items-start gap-3">
+          <div className="p-2 rounded-lg bg-primary/10">
+            <HelpCircle className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Show Help Icons</h2>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-snug max-w-md">
+              Show the small info icons next to tabs, sections, and fields throughout the app with tips and context.
+            </p>
+          </div>
+        </div>
+        <Switch
+          data-testid="switch-show-help-icons"
+          checked={showHelpIcons}
+          onCheckedChange={(checked) => toggleHelpIcons.mutate(checked)}
+          disabled={toggleHelpIcons.isPending}
+        />
       </div>
 
       {/* Quick links section */}

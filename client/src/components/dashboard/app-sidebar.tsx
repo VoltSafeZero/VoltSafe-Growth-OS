@@ -38,6 +38,18 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
   mail_team: {}, calendar_team: [],
 };
 
+const SUBNAV_HELP_KEYS: Record<string, string> = {
+  "capital-command-center": "nav.capital.commandCenter",
+  "capital-investors": "nav.capital.investors",
+  "capital-rounds": "nav.capital.rounds",
+  "capital-follow-ups": "nav.capital.followUps",
+  "capital-data-room": "nav.capital.dataRoom",
+  "capital-engagement": "nav.capital.engagement",
+  "capital-reports": "nav.capital.reports",
+  "capital-copilot": "nav.capital.copilot",
+  "capital-updates": "nav.capital.updates",
+};
+
 const SECTION_HELP_KEYS: Record<string, string> = {
   today: "nav.today",
   currents: "nav.currents",
@@ -224,31 +236,39 @@ export function AppSidebar({
                         : location === item.url || (item.url !== "/" && location.startsWith(item.url));
                       const ItemIcon = item.icon;
                       return (
-                        <Link
-                          key={`${section.id}-${item.url}-${item.title}`}
-                          href={item.url}
-                          data-testid={`nav-${item.title.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
-                          className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-all ${
-                            isItemActive
-                              ? "bg-primary/10 text-primary font-medium"
-                              : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-                          }`}
-                        >
-                          <ItemIcon className={`w-3.5 h-3.5 shrink-0 ${isItemActive ? "text-primary" : ""}`} />
-                          <span className="flex-1">{item.title}</span>
-                          {item.id === "current" && currentNavBadge ? (
-                            <span
-                              data-testid="nav-currents-unread-badge"
-                              className="text-[10px] font-bold text-primary-foreground bg-primary min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full shrink-0"
-                            >
-                              {currentNavBadge}
-                            </span>
-                          ) : item.badge ? (
-                            <span className="text-[10px] font-semibold text-muted-foreground/60 bg-secondary/60 px-1.5 py-0.5 rounded-full">
-                              {item.badge}
-                            </span>
-                          ) : null}
-                        </Link>
+                        <div key={`${section.id}-${item.url}-${item.title}`} className="flex items-center gap-0.5">
+                          <Link
+                            href={item.url}
+                            data-testid={`nav-${item.title.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+                            className={`flex-1 min-w-0 flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-all ${
+                              isItemActive
+                                ? "bg-primary/10 text-primary font-medium"
+                                : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                            }`}
+                          >
+                            <ItemIcon className={`w-3.5 h-3.5 shrink-0 ${isItemActive ? "text-primary" : ""}`} />
+                            <span className="flex-1">{item.title}</span>
+                            {item.id === "current" && currentNavBadge ? (
+                              <span
+                                data-testid="nav-currents-unread-badge"
+                                className="text-[10px] font-bold text-primary-foreground bg-primary min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full shrink-0"
+                              >
+                                {currentNavBadge}
+                              </span>
+                            ) : item.badge ? (
+                              <span className="text-[10px] font-semibold text-muted-foreground/60 bg-secondary/60 px-1.5 py-0.5 rounded-full">
+                                {item.badge}
+                              </span>
+                            ) : null}
+                          </Link>
+                          {SUBNAV_HELP_KEYS[item.id] && (
+                            <FieldHelp
+                              helpKey={SUBNAV_HELP_KEYS[item.id]}
+                              placement="right"
+                              className="shrink-0"
+                            />
+                          )}
+                        </div>
                       );
                     })}
                   </div>

@@ -1488,6 +1488,7 @@ export async function registerRoutes(
       userType: user.userType,
       preferredLayout: user.preferredLayout ?? "expanded",
       widgetVisibility: user.widgetVisibility ?? {},
+      showHelpIcons: user.showHelpIcons ?? true,
       defaultCommandCenter: user.defaultCommandCenter,
       calendarBookingUrl: user.calendarBookingUrl ?? null,
       detectedTimezone: (req.session as any).detectedTimezone ?? null,
@@ -1841,7 +1842,7 @@ export async function registerRoutes(
   // PATCH /api/users/me/layout — persist layout preferences
   app.patch("/api/users/me/layout", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId as number;
-    const { preferredLayout, widgetVisibility, defaultCommandCenter, widgetOrder, dashboardLayouts, weather } = req.body;
+    const { preferredLayout, widgetVisibility, defaultCommandCenter, widgetOrder, dashboardLayouts, weather, showHelpIcons } = req.body;
 
     const VALID_LAYOUTS = ["expanded", "compact"];
     const VALID_CENTERS = ["ceo", "cfo", "cto", "cmo", "sales", "cs", "default", null];
@@ -1851,6 +1852,9 @@ export async function registerRoutes(
     }
     if (defaultCommandCenter !== undefined && !VALID_CENTERS.includes(defaultCommandCenter)) {
       return res.status(400).json({ message: `defaultCommandCenter must be one of: ${VALID_CENTERS.filter(Boolean).join(", ")}` });
+    }
+    if (showHelpIcons !== undefined && typeof showHelpIcons !== "boolean") {
+      return res.status(400).json({ message: "showHelpIcons must be a boolean" });
     }
     if (widgetVisibility !== undefined && (typeof widgetVisibility !== "object" || Array.isArray(widgetVisibility))) {
       return res.status(400).json({ message: "widgetVisibility must be an object" });
@@ -1881,6 +1885,7 @@ export async function registerRoutes(
     if (preferredLayout !== undefined) update.preferredLayout = preferredLayout;
     if (widgetVisibility !== undefined) update.widgetVisibility = widgetVisibility;
     if (defaultCommandCenter !== undefined) update.defaultCommandCenter = defaultCommandCenter;
+    if (showHelpIcons !== undefined) update.showHelpIcons = showHelpIcons;
     // Persist widgetOrder inside widgetVisibility as __order key
     if (widgetOrder !== undefined) {
       const [existing] = await db.select({ wv: users.widgetVisibility }).from(users).where(eq(users.id, userId)).limit(1);
@@ -1907,6 +1912,7 @@ export async function registerRoutes(
       dashboardLayouts: users.dashboardLayouts,
       defaultCommandCenter: users.defaultCommandCenter,
       permissions: users.permissions,
+      showHelpIcons: users.showHelpIcons,
     });
     res.json(updated);
   });

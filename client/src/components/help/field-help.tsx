@@ -9,6 +9,7 @@ interface CurrentUserLite {
   id?: number;
   email?: string;
   permissions?: Record<string, string>;
+  showHelpIcons?: boolean;
 }
 
 export type HelpPlacement = "top" | "right" | "bottom" | "left";
@@ -92,6 +93,10 @@ export function FieldHelp({
     [entry, helpKey, moduleName]
   );
 
+  // Per-user "Show Help Icons" preference — defaults to true (opt-out, not opt-in)
+  // so existing users keep seeing help icons unless they explicitly turn them off.
+  if (currentUser && currentUser.showHelpIcons === false) return null;
+
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
@@ -113,7 +118,7 @@ export function FieldHelp({
       <PopoverContent
         side={placement}
         data-testid={`help-popover-${helpKey}`}
-        className="w-72 text-sm max-w-[calc(100vw-2rem)]"
+        className="w-80 text-sm max-w-[calc(100vw-2rem)] max-h-[70vh] overflow-y-auto"
         onEscapeKeyDown={() => setOpen(false)}
       >
         <div className="space-y-1.5">
@@ -131,6 +136,56 @@ export function FieldHelp({
               {entry.valueNature === "system-generated" && "System-generated"}
             </p>
           )}
+
+          {entry.whyItMatters && (
+            <div className="pt-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground/70">Why it matters</p>
+              <p className="text-muted-foreground text-xs leading-relaxed">{entry.whyItMatters}</p>
+            </div>
+          )}
+
+          {entry.whatToDo && entry.whatToDo.length > 0 && (
+            <div className="pt-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground/70">What to do</p>
+              <ul className="list-disc list-inside text-muted-foreground text-xs leading-relaxed space-y-0.5">
+                {entry.whatToDo.map((item, i) => <li key={i}>{item}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {entry.goodLooksLike && entry.goodLooksLike.length > 0 && (
+            <div className="pt-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground/70">Good looks like</p>
+              <ul className="list-disc list-inside text-muted-foreground text-xs leading-relaxed space-y-0.5">
+                {entry.goodLooksLike.map((item, i) => <li key={i}>{item}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {entry.commonMistakes && entry.commonMistakes.length > 0 && (
+            <div className="pt-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground/70">Common mistakes</p>
+              <ul className="list-disc list-inside text-muted-foreground text-xs leading-relaxed space-y-0.5">
+                {entry.commonMistakes.map((item, i) => <li key={i}>{item}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {entry.relatedActions && entry.relatedActions.length > 0 && (
+            <div className="pt-1 flex flex-wrap gap-x-3 gap-y-1">
+              {entry.relatedActions.map((action, i) => (
+                <a key={i} href={action.url} className="text-xs text-primary hover:underline">{action.label} →</a>
+              ))}
+            </div>
+          )}
+
+          {(entry.owner || entry.updateCadence) && (
+            <div className="pt-1 flex flex-col gap-0.5 text-[10px] text-muted-foreground/80">
+              {entry.owner && <span><span className="font-medium">Owner:</span> {entry.owner}</span>}
+              {entry.updateCadence && <span><span className="font-medium">Update cadence:</span> {entry.updateCadence}</span>}
+            </div>
+          )}
+
           <p className="text-[10px] text-muted-foreground/60 pt-1">{resolvedModule}</p>
         </div>
       </PopoverContent>

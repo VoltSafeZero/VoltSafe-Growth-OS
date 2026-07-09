@@ -24,6 +24,20 @@ export interface HelpEntry {
   learnMoreUrl?: string;
   /** Marks the underlying value as sample/draft/synced/AI-generated/etc. */
   valueNature?: "real" | "sample" | "draft" | "synced" | "ai-generated" | "system-generated";
+  /** Concrete steps a user can take right now (rendered as a bullet list). */
+  whatToDo?: string[];
+  /** Why this field/section matters — the business reason behind it. */
+  whyItMatters?: string;
+  /** Who is responsible for keeping this accurate/up to date, e.g. "Deal owner". */
+  owner?: string;
+  /** How often this should be reviewed/updated, e.g. "Weekly" or "Real-time (synced)". */
+  updateCadence?: string;
+  /** Short examples of a healthy/well-maintained state. */
+  goodLooksLike?: string[];
+  /** Common mistakes or pitfalls to avoid. */
+  commonMistakes?: string[];
+  /** Related actions the user can jump to, shown as label/link pairs. */
+  relatedActions?: { label: string; url: string }[];
 }
 
 export const HELP_CONTENT: Record<string, HelpEntry> = {
@@ -81,6 +95,99 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
     shortDescription: "Fundraising workspace — investor pipeline, data room, follow-ups, and board reporting.",
     module: "Capital",
     audience: "capital-users",
+    whyItMatters: "Runway and board reporting live here — it's the single source of truth for round progress.",
+    owner: "CEO / CFO",
+  },
+
+  // ── Capital subtabs (sidebar) ──────────────────────────────────────────
+  "nav.capital.commandCenter": {
+    title: "Command Center",
+    shortDescription: "One-page fundraising snapshot — round progress, engagement, and what needs attention today.",
+    detailedDescription: "Pulls together committed vs. target, hot investors, overdue follow-ups, and data-room activity into a single view.",
+    module: "Capital",
+    audience: "capital-users",
+    whatToDo: ["Check overdue follow-ups first", "Review hot/warm investors before your next call"],
+    whyItMatters: "This is the fastest way to answer 'where do we stand on the round?' without digging through tabs.",
+    owner: "CEO / CFO",
+    updateCadence: "Real-time (synced from investor and round data)",
+  },
+  "nav.capital.investors": {
+    title: "Investors",
+    shortDescription: "The full investor pipeline — status, check size, warmth, and last touchpoint for every investor.",
+    module: "Capital",
+    audience: "capital-users",
+    whatToDo: ["Log every investor call or email as an activity", "Keep status current so Command Center stays accurate"],
+    whyItMatters: "Command Center and the weekly brief are only as accurate as the data kept here.",
+    owner: "CEO / CFO",
+    updateCadence: "Update after every investor interaction",
+    commonMistakes: ["Leaving stale statuses after a call — this makes engagement and heat scoring wrong."],
+  },
+  "nav.capital.rounds": {
+    title: "Rounds",
+    shortDescription: "Fundraising round details — target amount, committed amount, close date, and terms.",
+    module: "Capital",
+    audience: "capital-users",
+    whyItMatters: "Target and committed amounts here drive the gap-to-close math shown everywhere else in Capital.",
+    owner: "CFO",
+    updateCadence: "Whenever a commitment changes",
+  },
+  "nav.capital.followUps": {
+    title: "Follow-Ups",
+    shortDescription: "Action items and reminders tied to specific investors — never let a warm conversation go cold.",
+    module: "Capital",
+    audience: "capital-users",
+    whatToDo: ["Clear overdue items or push the due date with a reason"],
+    whyItMatters: "Overdue follow-ups are the #1 cause of deals going quiet.",
+    owner: "CEO / CFO",
+    updateCadence: "Daily",
+  },
+  "nav.capital.dataRoom": {
+    title: "Data Room",
+    shortDescription: "Diligence materials organized by folder — financials, legal, product — shared securely with investors.",
+    module: "Capital",
+    audience: "capital-users",
+    whatToDo: ["Mark sensitive files Confidential before sharing a portal link"],
+    whyItMatters: "Investors judge rigor partly by how organized and current the data room is.",
+    owner: "CFO",
+    updateCadence: "Whenever financials or key docs are refreshed",
+  },
+  "nav.capital.engagement": {
+    title: "Engagement",
+    shortDescription: "Tracks investor activity — deck views, data room opens, email opens/replies — to surface who's actually warm.",
+    module: "Capital",
+    audience: "capital-users",
+    whyItMatters: "Warmth signals here should drive who you call next, not just gut feel.",
+    owner: "CEO / CFO",
+    updateCadence: "Real-time (synced)",
+    valueNature: "system-generated",
+  },
+  "nav.capital.reports": {
+    title: "Reports",
+    shortDescription: "Board updates, weekly briefs, and CFO closing reports generated from live Capital data.",
+    module: "Capital",
+    audience: "capital-users",
+    whyItMatters: "These are the documents that actually go in front of your board and investors — accuracy matters.",
+    owner: "CFO",
+    updateCadence: "Weekly, or before a board meeting",
+    valueNature: "system-generated",
+  },
+  "nav.capital.copilot": {
+    title: "Capital Copilot",
+    shortDescription: "AI assistant scoped to fundraising — ask about round status, draft investor updates, or get next-step suggestions.",
+    module: "Capital",
+    audience: "capital-users",
+    whyItMatters: "Saves time drafting investor communications, but always review before sending.",
+    owner: "CEO / CFO",
+    valueNature: "ai-generated",
+  },
+  "nav.capital.updates": {
+    title: "Updates",
+    shortDescription: "Investor update history — what was sent, when, and to whom.",
+    module: "Capital",
+    audience: "capital-users",
+    whyItMatters: "A consistent update cadence is one of the strongest predictors of investor trust and follow-on interest.",
+    owner: "CEO / CFO",
+    updateCadence: "Monthly or per your investor communication rhythm",
   },
   "nav.feedCortex": {
     title: "Feed / CORTEX",
