@@ -101,9 +101,14 @@ ok("POST /api/signatures: scoped to session userId only",
   selfPostIdx !== -1 &&
   !routesSrc.slice(selfPostIdx, selfPostIdx + 400).includes("req.body.userId") &&
   !routesSrc.slice(selfPostIdx, selfPostIdx + 400).includes("req.query.userId"));
-ok("PUT /api/signatures/:id: scoped to session userId (double WHERE clause)",
+// Per-mailbox signatures (see signature-per-mailbox.test.cjs): ownership is
+// now owner-or-admin per mailbox via assertSignatureAccountAccess, with a
+// strict per-user fallback for legacy (emailAccountId === null) rows —
+// not a single global `userId` WHERE clause anymore.
+ok("PUT /api/signatures/:id: scoped via assertSignatureAccountAccess (mailbox) or strict per-user fallback (legacy)",
   selfPutIdx !== -1 &&
-  routesSrc.slice(selfPutIdx, selfPutIdx + 2000).includes("eq(emailSignatures.userId, userId)"));
+  routesSrc.slice(selfPutIdx, selfPutIdx + 2000).includes("assertSignatureAccountAccess") &&
+  routesSrc.slice(selfPutIdx, selfPutIdx + 2000).includes("existing.userId !== userId && !isAdmin"));
 
 // ── 6. Backend — image URL rewriting in GET /api/admin/users/:userId/signature
 console.log("\n── 6. Backend — image URL rewriting ──");
@@ -200,7 +205,7 @@ ok("admin PUT uses sanitizeSignatureHtml (same as self-service PUT)",
   routesSrc.slice(selfPutIdx, selfPutIdx + 3000).includes("sanitizeSignatureHtml"));
 ok("admin PUT: CTA asset guard same as self-service",
   putBlock.includes("is_archived = FALSE") &&
-  routesSrc.slice(selfPutIdx, selfPutIdx + 1500).includes("is_archived = FALSE"));
+  routesSrc.slice(selfPutIdx, selfPutIdx + 2200).includes("is_archived = FALSE"));
 ok("wrapHtmlWithCta in sig-settings still uses width:200px",
   sigPage.includes("width:200px") && sigPage.includes("max-width:200px"));
 ok("buildSignatureHtml used by admin UI via exported function",

@@ -1,7 +1,10 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -399,11 +402,18 @@ export function SignatureDialog({
   onClose,
   existing,
   adminTargetUser,
+  accountId,
+  accountEmail,
 }: {
   open: boolean;
   onClose: () => void;
   existing?: EmailSignature | null;
   adminTargetUser?: { id: number; name: string; email: string };
+  /** The mailbox this signature belongs to (per-mailbox signatures — a
+   *  Private Email Inbox gets its own set, never silently reuses the
+   *  primary work mailbox's). Omitted only for the legacy admin-target path. */
+  accountId?: number | null;
+  accountEmail?: string;
 }) {
   const { toast } = useToast();
   const [name, setName] = useState(() => existing?.name ?? "");
@@ -458,6 +468,7 @@ export function SignatureDialog({
         ctaDestUrl: ctaConfig.destUrl || null,
         ctaAltText: ctaConfig.altText || null,
         ctaWidthPx: ctaConfig.widthPx ? Number(ctaConfig.widthPx) : null,
+        accountId: accountId ?? undefined,
       };
       // Admin path: upsert via master-admin-only endpoint
       if (adminTargetUser) {
@@ -500,7 +511,9 @@ export function SignatureDialog({
           <DialogDescription>
             {adminTargetUser
               ? `Editing signature for: ${adminTargetUser.name} <${adminTargetUser.email}>`
-              : existing ? "Update your email signature." : "Create a new email signature to use in your outgoing emails."}
+              : accountEmail
+                ? `Editing signature for: ${accountEmail}`
+                : existing ? "Update your email signature." : "Create a new email signature to use in your outgoing emails."}
           </DialogDescription>
         </DialogHeader>
 
@@ -1170,15 +1183,51 @@ function CtaAssetLibraryTab() {
   );
 }
 
+type SigMailboxAccount = {
+  id: number; emailAddress: string; displayName: string | null;
+  isOwner: boolean; isShared: boolean; visibilityType: string;
+};
+
 export default function SignatureSettingsPage() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const search = useSearch();
   const [pageTab, setPageTab] = useState<"signatures" | "assets">("signatures");
   const [editSig, setEditSig] = useState<EmailSignature | null | undefined>(undefined);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
+  // Per-mailbox signatures: each connected mailbox (work, or a Private Email
+  // Inbox like trevor@hyalos.com) can have its own signature set instead of
+  // silently inheriting the primary work mailbox's signatures.
+  const accountsQuery = useQuery<SigMailboxAccount[]>({ queryKey: ["/api/gmail/accounts"] });
+  const accounts = accountsQuery.data ?? [];
+
+  const initialAccountId = (() => {
+    const fromQuery = new URLSearchParams(search).get("accountId");
+    return fromQuery ? Number(fromQuery) : null;
+  })();
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(initialAccountId);
+
+  // Once accounts load, default to the query-string account (if valid) or
+  // the user's primary owned mailbox — never silently land on the wrong one.
+  useEffect(() => {
+    if (selectedAccountId != null) return;
+    if (accounts.length === 0) return;
+    const fallback = accounts.find(a => a.id === initialAccountId) ?? accounts.find(a => a.isOwner) ?? accounts[0];
+    if (fallback) setSelectedAccountId(fallback.id);
+  }, [accounts, selectedAccountId, initialAccountId]);
+
+  const selectedAccount = accounts.find(a => a.id === selectedAccountId) ?? null;
+
   const { data: signatures = [], isLoading } = useQuery<EmailSignature[]>({
-    queryKey: ["/api/signatures"],
+    queryKey: ["/api/signatures", selectedAccountId],
+    queryFn: async () => {
+      const qs = selectedAccountId ? `?accountId=${selectedAccountId}` : "";
+      const res = await apiRequest("GET", `/api/signatures${qs}`);
+      if (!res.ok) throw new Error("Failed to load signatures");
+      return res.json();
+    },
+    enabled: selectedAccountId != null,
   });
 
   const deleteMutation = useMutation({
@@ -1214,6 +1263,7 @@ export default function SignatureSettingsPage() {
         htmlContent: sig.htmlContent,
         plainTextContent: sig.plainTextContent,
         isDefault: false,
+        accountId: selectedAccountId,
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any).message || "Failed"); }
       return res.json();
@@ -1248,11 +1298,42 @@ export default function SignatureSettingsPage() {
             onClick={() => setEditSig(null)}
             className="bg-primary text-primary-foreground gap-1.5"
             data-testid="button-new-signature"
+            disabled={selectedAccountId == null}
           >
             <Plus className="h-4 w-4" /> New Signature
           </Button>
         )}
       </div>
+
+      {/* Mailbox selector — signatures belong to a single mailbox; Private
+          Email Inboxes (e.g. trevor@hyalos.com) get their own set instead of
+          inheriting the primary work mailbox's signatures. */}
+      {pageTab === "signatures" && accounts.length > 0 && (
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground shrink-0">Mailbox</Label>
+          <Select
+            value={selectedAccountId != null ? String(selectedAccountId) : undefined}
+            onValueChange={v => setSelectedAccountId(Number(v))}
+          >
+            <SelectTrigger className="h-8 text-sm w-72" data-testid="select-sig-mailbox">
+              <SelectValue placeholder="Select mailbox" />
+            </SelectTrigger>
+            <SelectContent>
+              {accounts.map(a => (
+                <SelectItem key={a.id} value={String(a.id)} data-testid={`option-sig-mailbox-${a.id}`}>
+                  {a.displayName ? `${a.displayName} <${a.emailAddress}>` : a.emailAddress}
+                  {a.visibilityType === "private_personal" ? " (Private)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedAccount && (
+            <p className="text-xs text-muted-foreground/60" data-testid="text-sig-editing-for">
+              Editing signature for: {selectedAccount.emailAddress}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Page-level tab switcher */}
       <div className="flex gap-1 border-b border-border/40 pb-0">
@@ -1373,12 +1454,14 @@ export default function SignatureSettingsPage() {
       )}
 
       {/* Create / Edit dialog — editSig===undefined means closed, null means new, object means edit */}
-      {editSig !== undefined && (
+      {editSig !== undefined && selectedAccountId != null && (
         <SignatureDialog
           key={editSig?.id ?? "new"}
           open
           onClose={() => setEditSig(undefined)}
           existing={editSig ?? undefined}
+          accountId={selectedAccountId}
+          accountEmail={selectedAccount?.emailAddress ?? undefined}
         />
       )}
 

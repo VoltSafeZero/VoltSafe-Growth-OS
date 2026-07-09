@@ -66,13 +66,21 @@ check(
   "Route destructures bcc from req.body",
   /const\s*\{[^}]*\bbcc\b[^}]*\}\s*=\s*req\.body/.test(routesSrc),
 );
+// Route now normalizes cc/bcc (trim/dedupe/validate/strip-sender, shared
+// with the send-route gate) before persisting a draft, rather than passing
+// the raw req.body values straight through — see shared/recipients.ts.
 check(
-  "Route passes cc to saveDraft",
-  /saveDraft\([^)]*cc[^)]*\)/.test(routesSrc),
+  "Route passes a normalized cc value to saveDraft",
+  /saveDraft\([^)]*draftCleanCc[^)]*\)/.test(routesSrc),
 );
 check(
-  "Route passes bcc to saveDraft",
-  /saveDraft\([^)]*bcc[^)]*\)/.test(routesSrc),
+  "Route passes a normalized bcc value to saveDraft",
+  /saveDraft\([^)]*draftCleanBcc[^)]*\)/.test(routesSrc),
+);
+check(
+  "Route cc/bcc normalization uses the shared normalizeRecipients helper",
+  /const draftCcNorm\s*=\s*normalizeRecipients/.test(routesSrc) &&
+  /const draftBccNorm\s*=\s*normalizeRecipients/.test(routesSrc),
 );
 
 // ── client/src/pages/gmail-inbox.tsx ────────────────────────────────────────

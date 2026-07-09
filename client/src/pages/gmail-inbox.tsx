@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { buildEmailHtml, htmlToCleanHtml, isBodyEmpty, stripEmailWrapper, plainTextToHtml, sanitizeSignatureHtmlClientSide, normalizeSignatureHtmlClientSide, emergencyStripDangerousHtml, signatureToTextFallback } from "@/lib/email-format";
+import { normalizeRecipientListString } from "@shared/recipients";
 import { CtaEngagementBanner, ThreadEngagementWidget } from "@/components/engagement/EngagementWidget";
 import { buildLinkPreviewCardHtml, buildLinkPreviewLoadingHtml } from "@/lib/link-preview-card";
 import { createPortal } from "react-dom";
@@ -527,7 +528,18 @@ function ComposeDialog({
     // CTA asset columns (new format — stored separately, injected at render/send time)
     ctaImageUrl: string | null; ctaDestUrl: string | null; ctaAltText: string | null; ctaWidthPx: number | null;
   };
-  const { data: signaturesData = [] } = useQuery<EmailSig[]>({ queryKey: ["/api/signatures"] });
+  // Per-mailbox signatures: scope to the mailbox this compose/reply is
+  // happening from (asAccountId) so a Private Email Inbox never silently
+  // inherits the primary work mailbox's signature set.
+  const { data: signaturesData = [] } = useQuery<EmailSig[]>({
+    queryKey: ["/api/signatures", asAccountId ?? null],
+    queryFn: async () => {
+      const qs = asAccountId ? `?accountId=${asAccountId}` : "";
+      const res = await apiRequest("GET", `/api/signatures${qs}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
   // undefined = auto-pick default; null = user chose "No signature"; number = specific sig id
   const [selectedSigId, setSelectedSigId] = useState<number | null | undefined>(undefined);
   const defaultSig = signaturesData.find(s => s.isDefault) ?? signaturesData[0];
@@ -8472,12 +8484,17 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // ── Reply All ─────────────────────────────────────────────────────────────
   const handleReplyAll = async (msg: ThreadMessage) => {
     const ownEmail = currentUserEmail.toLowerCase();
-    const allRecipients = [msg.to, msg.cc]
-      .filter(Boolean)
-      .join(", ")
-      .split(/,\s*/)
-      .map((e) => e.trim())
-      .filter((e) => e && parseSenderEmail(e).toLowerCase() !== ownEmail);
+    // IMPORTANT: do not split "To, Cc" on a naive comma — display names can
+    // contain commas themselves (e.g. `"Doe, Jane" <jane@x.com>`), which a
+    // naive split() breaks into malformed fragments with unbalanced angle
+    // brackets. Those fragments end up in the Cc header and Gmail's API
+    // rejects the send with "Invalid Cc header". normalizeRecipientListString
+    // extracts real @-addresses instead of splitting on ",", so it is safe
+    // regardless of display-name formatting.
+    const allRecipients = normalizeRecipientListString(
+      [msg.to, msg.cc].filter(Boolean).join(", "),
+      { excludeEmail: ownEmail },
+    ).addresses;
     const dateStr = msg.date || (msg.internalDate ? new Date(Number(msg.internalDate)).toLocaleString() : "");
     let quotedHtml = msg.body || "";
     let bodySource = msg.isHtml ? "body_html" : (msg.body ? "body_text_truncated" : "empty");

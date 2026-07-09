@@ -133,13 +133,17 @@ async function main() {
     inbox.includes("selectedSigId"));
   check("C3 activeSignatureHtml computed",
     inbox.includes("activeSignatureHtml"));
-  check("C4 sendMutation uses activeSignatureHtml (not hardcoded)",
-    /sendMutation[\s\S]{0,500}activeSignatureHtml/.test(inbox) ||
-    inbox.includes("const appendHtml = activeSignatureHtml"));
+  // Signature HTML is no longer appended client-side into the body — only
+  // selectedSignatureId (effectiveSigId) is sent, and the backend loads +
+  // normalizes + appends the real signature server-side (keeps full HTML
+  // signature content out of the browser POST body for WAF-safety).
+  check("C4 sendMutation sends selectedSignatureId (server-side signature assembly)",
+    /sendMutation[\s\S]{0,2000}selectedSignatureId:\s*effectiveSigId/.test(inbox) ||
+    inbox.includes("selectedSignatureId: effectiveSigId ?? null"));
   check("C5 draftMutation uses activeSignatureHtml",
     inbox.includes("buildEmailHtml(body, activeSignatureHtml)"));
-  check("C6 scheduleMutation uses activeSignatureHtml",
-    inbox.includes("const scheduleAppendHtml = activeSignatureHtml"));
+  check("C6 scheduleMutation sends selectedSignatureId (server-side signature assembly)",
+    /scheduleMutation[\s\S]{0,2000}selectedSignatureId:\s*effectiveSigId/.test(inbox));
   check("C7 activeSignatureHtml driven by DB only (no hardcoded fallback)",
     !inbox.includes("EMAIL_SIGNATURE_HTML") &&
     inbox.includes("effectiveSigId === null"));

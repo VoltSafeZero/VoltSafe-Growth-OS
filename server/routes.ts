@@ -3,6 +3,7 @@ import type { Server } from "http";
 import sharp from "sharp";
 
 import { cacheFor, cacheInvalidate, cacheGet, cacheSet } from "./cache";
+import { normalizeRecipients, normalizeRecipientListString } from "@shared/recipients";
 import { pick } from "./utils";
 import { normalizeSource, buildNormalizeCaseExpr, BUCKET_LABELS, SOURCE_BUCKETS } from "./source-attribution";
 import {
@@ -17398,7 +17399,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const { to, subject, body, threadId, draftId, cc, bcc } = req.body;
       if (!body) return res.status(400).json({ message: "body is required" });
       const cleanDraftBody = normalizeOutboundHtml(body);
-      const draft = await saveDraft(resolved.userId, to || "", subject || "", cleanDraftBody, threadId, draftId, resolved.accountId, cc || undefined, bcc || undefined);
+      // Same normalization used on send: drafts must never persist a raw,
+      // naively-split cc/bcc string — that corrupted value gets reloaded
+      // verbatim into the reply-all header the next time this draft is sent.
+      const draftSenderEmail = String((resolved as any)?.acct?.emailAddress || "").toLowerCase() || null;
+      const draftCcNorm  = normalizeRecipients([cc], { excludeEmail: draftSenderEmail });
+      const draftBccNorm = normalizeRecipients([bcc], { excludeEmail: draftSenderEmail });
+      const draftCleanCc  = draftCcNorm.addresses.length  > 0 ? draftCcNorm.addresses.join(", ")  : undefined;
+      const draftCleanBcc = draftBccNorm.addresses.length > 0 ? draftBccNorm.addresses.join(", ") : undefined;
+      const draft = await saveDraft(resolved.userId, to || "", subject || "", cleanDraftBody, threadId, draftId, resolved.accountId, draftCleanCc, draftCleanBcc);
       res.json(draft);
     } catch (err: any) {
       res.status(503).json({ message: "Failed to save draft", error: err.message });
@@ -19373,13 +19382,36 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
       const trackingEnabled = enableTracking !== false; // default: true
 
+      // ── CC/BCC normalization gate ────────────────────────────────────────
+      // Root cause of "Send failed — saved as draft: Invalid Cc header": raw
+      // cc/bcc strings from the client could contain malformed fragments
+      // (e.g. from a naive comma-split on a display name that itself
+      // contained a comma) or could still include the sender's own address
+      // (Reply-All from a private inbox). Gmail's API rejects the whole send
+      // if the resulting Cc/Bcc header is malformed. We now validate BEFORE
+      // building the MIME message: normalize (trim/dedupe/lowercase/strip
+      // sender), and if anything doesn't parse as a real address, fail fast
+      // with a clear 400 instead of letting a corrupt header reach Gmail.
+      const senderEmail = String((resolved as any)?.acct?.emailAddress || "").toLowerCase() || null;
+      const ccNorm  = normalizeRecipients([cc], { excludeEmail: senderEmail });
+      const bccNorm = normalizeRecipients([bcc], { excludeEmail: senderEmail });
+      if (ccNorm.invalid.length > 0 || bccNorm.invalid.length > 0) {
+        return res.status(400).json({
+          message: `Invalid recipient address${(ccNorm.invalid.length + bccNorm.invalid.length) > 1 ? "es" : ""}: ${[...ccNorm.invalid, ...bccNorm.invalid].join(", ")}`,
+          invalidCc: ccNorm.invalid,
+          invalidBcc: bccNorm.invalid,
+        });
+      }
+      const cleanCc  = ccNorm.addresses.length  > 0 ? ccNorm.addresses.join(", ")  : undefined;
+      const cleanBcc = bccNorm.addresses.length > 0 ? bccNorm.addresses.join(", ") : undefined;
+
       // Parse recipient lists into normalized address arrays.
       // Multi-recipient sends MUST fan out to N envelopes — Gmail can only
       // embed one tracking pixel URL per body, so per-recipient attribution
       // is physically impossible from a single SendMail call.
       const toList  = parseAddressList(to);
-      const ccList  = parseAddressList(cc);
-      const bccList = parseAddressList(bcc);
+      const ccList  = ccNorm.addresses;
+      const bccList = bccNorm.addresses;
       type Recipient = { email: string; kind: "to" | "cc" | "bcc" };
       // Cross-field dedupe: if an address appears in multiple fields (to+cc,
       // cc+bcc, etc.) we must NOT send/track it twice — keep only the
@@ -19511,7 +19543,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         const result = await sendEmail(
           resolved.userId, to, subject || "", _cidBody,
           threadId, mimeAttachments, resolved.accountId,
-          cc || undefined, bcc || undefined, icalContent || undefined,
+          cleanCc, cleanBcc, icalContent || undefined,
           _sigInlineImages
         );
         console.log("[gmail-send] sendEmail returned", { messageId: result?.id, threadId: result?.threadId });
@@ -34395,12 +34427,54 @@ export function registerConfluenceRoutes(app: Express) {
   // awaited before registerRoutes() runs — no race condition.
   // sanitizeSignatureHtml() lives in server/services/signature-sanitizer.ts.
 
+  // Resolve permission + ownership for a signature's target mailbox.
+  // Editing rules (per threat model Elevation-of-Privilege guidance): only the
+  // mailbox owner or an admin/master_admin may create/edit/delete a signature
+  // scoped to that mailbox. accountId === null/undefined means the legacy,
+  // account-agnostic signature pool — always owned by the requesting user.
+  async function assertSignatureAccountAccess(
+    userId: number, accountId: number | null | undefined, isAdmin: boolean,
+  ): Promise<{ ok: true; acct: any | null } | { ok: false; status: number; message: string }> {
+    if (accountId == null) return { ok: true, acct: null };
+    const [acct] = await db.select().from(emailAccounts).where(eq(emailAccounts.id, accountId)).limit(1);
+    if (!acct) return { ok: false, status: 404, message: "Mailbox not found" };
+    if (acct.userId !== userId && !isAdmin) {
+      return { ok: false, status: 403, message: "You do not have permission to manage this mailbox's signature" };
+    }
+    return { ok: true, acct };
+  }
+
   app.get("/api/signatures", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
-      const rows = await db.select().from(emailSignatures)
-        .where(eq(emailSignatures.userId, userId))
-        .orderBy(desc(emailSignatures.isDefault), asc(emailSignatures.createdAt));
+      const { isAdmin } = await getSessionUserAccess(req.session);
+      const rawAccountId = req.query.accountId as string | undefined;
+      const accountId = rawAccountId ? Number(rawAccountId) : null;
+      if (accountId != null) {
+        const access = await assertSignatureAccountAccess(userId, accountId, isAdmin);
+        if (!access.ok) return res.status(access.status).json({ message: access.message });
+      }
+      // When scoped to a specific mailbox: return that mailbox's own signatures.
+      // If the mailbox has none yet, fall back to the requesting user's legacy
+      // (account-agnostic) signatures so existing users aren't left with nothing —
+      // but the fallback is returned as-is (never silently rewritten/owned by the
+      // mailbox) so saving/editing always creates a NEW signature scoped to this
+      // mailbox rather than mutating another mailbox's data.
+      let rows: any[];
+      if (accountId != null) {
+        rows = await db.select().from(emailSignatures)
+          .where(eq(emailSignatures.emailAccountId, accountId))
+          .orderBy(desc(emailSignatures.isDefault), asc(emailSignatures.createdAt));
+        if (rows.length === 0) {
+          rows = await db.select().from(emailSignatures)
+            .where(and(eq(emailSignatures.userId, userId), sql`${emailSignatures.emailAccountId} IS NULL`))
+            .orderBy(desc(emailSignatures.isDefault), asc(emailSignatures.createdAt));
+        }
+      } else {
+        rows = await db.select().from(emailSignatures)
+          .where(eq(emailSignatures.userId, userId))
+          .orderBy(desc(emailSignatures.isDefault), asc(emailSignatures.createdAt));
+      }
       // Attach CTAs so the compose dialog can preview the signature with embedded CTA images.
       const ctaRows = ((await db.execute(sql.raw(`
         SELECT id, signature_id, name, type, destination_url, image_url, alt_text, width_px, tracking_enabled
@@ -34441,10 +34515,14 @@ export function registerConfluenceRoutes(app: Express) {
   app.post("/api/signatures", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
+      const { isAdmin } = await getSessionUserAccess(req.session);
       const { name, htmlContent, plainTextContent, isDefault, ctaImageUrl, ctaDestUrl, ctaAltText, ctaWidthPx } = req.body;
+      const accountId = req.body.accountId != null ? Number(req.body.accountId) : null;
       if (!name?.trim() || !htmlContent?.trim()) {
         return res.status(400).json({ message: "name and htmlContent are required" });
       }
+      const access = await assertSignatureAccountAccess(userId, accountId, isAdmin);
+      if (!access.ok) return res.status(access.status).json({ message: access.message });
       // Guard: reject saves that reference archived or byte-less CTA assets.
       if (ctaImageUrl) {
         const _ctaFn = String(ctaImageUrl).match(/\/assets\/cta\/([^/?#\s]+)$/)?.[1];
@@ -34465,16 +34543,21 @@ export function registerConfluenceRoutes(app: Express) {
       }
       const _normalizedHtmlCreate = normalizeSignatureHtml(htmlContent);
       const cleanHtml = sanitizeSignatureHtml(_normalizedHtmlCreate);
-      // Auto-set as default if explicitly requested OR if this is the user's first signature
+      // Default flag scope: per-mailbox when accountId is set, per-user for legacy rows.
+      // This is what lets each private inbox have its own independent default signature.
+      const scopeFilter = accountId != null
+        ? eq(emailSignatures.emailAccountId, accountId)
+        : and(eq(emailSignatures.userId, userId), sql`${emailSignatures.emailAccountId} IS NULL`);
       const [countResult] = await db.select({ n: sql<number>`count(*)::int` }).from(emailSignatures)
-        .where(eq(emailSignatures.userId, userId));
+        .where(scopeFilter);
       const isFirstSig = Number(countResult?.n ?? 0) === 0;
       const shouldBeDefault = !!isDefault || isFirstSig;
       if (shouldBeDefault) {
-        await db.update(emailSignatures).set({ isDefault: false }).where(eq(emailSignatures.userId, userId));
+        await db.update(emailSignatures).set({ isDefault: false }).where(scopeFilter);
       }
       const [row] = await db.insert(emailSignatures).values({
-        userId,
+        userId: (access as any).acct?.userId ?? userId,
+        emailAccountId: accountId,
         name: name.trim(),
         htmlContent: cleanHtml,
         plainTextContent: plainTextContent ?? null,
@@ -34491,11 +34574,19 @@ export function registerConfluenceRoutes(app: Express) {
   app.get("/api/signatures/:id", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
+      const { isAdmin } = await getSessionUserAccess(req.session);
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
-      const [row] = await db.select().from(emailSignatures)
-        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
+      const [row] = await db.select().from(emailSignatures).where(eq(emailSignatures.id, id));
       if (!row) return res.status(404).json({ message: "Not found" });
+      const access = await assertSignatureAccountAccess(userId, (row as any).emailAccountId ?? null, isAdmin);
+      if (!access.ok) {
+        // Legacy row without emailAccountId: fall back to strict per-user ownership.
+        if ((row as any).emailAccountId == null && row.userId !== userId && !isAdmin) {
+          return res.status(403).json({ message: "You do not have permission to view this signature" });
+        }
+        if ((row as any).emailAccountId != null) return res.status(access.status).json({ message: access.message });
+      }
       res.json(row);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
@@ -34503,11 +34594,21 @@ export function registerConfluenceRoutes(app: Express) {
   app.put("/api/signatures/:id", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
+      const { isAdmin } = await getSessionUserAccess(req.session);
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
       const { name, htmlContent, plainTextContent, isDefault, ctaImageUrl, ctaDestUrl, ctaAltText, ctaWidthPx } = req.body;
       if (!name?.trim() || !htmlContent?.trim()) {
         return res.status(400).json({ message: "name and htmlContent are required" });
+      }
+      const [existing] = await db.select().from(emailSignatures).where(eq(emailSignatures.id, id));
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      const accountId = (existing as any).emailAccountId ?? null;
+      if (accountId != null) {
+        const access = await assertSignatureAccountAccess(userId, accountId, isAdmin);
+        if (!access.ok) return res.status(access.status).json({ message: access.message });
+      } else if (existing.userId !== userId && !isAdmin) {
+        return res.status(403).json({ message: "You do not have permission to edit this signature" });
       }
       // Guard: reject saves that reference archived or byte-less CTA assets.
       if (ctaImageUrl) {
@@ -34523,17 +34624,17 @@ export function registerConfluenceRoutes(app: Express) {
           }
         }
       }
-      const [existing] = await db.select().from(emailSignatures)
-        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
-      if (!existing) return res.status(404).json({ message: "Not found" });
       const _updateDocTags = detectDocumentTags(htmlContent);
       if (_updateDocTags.any) {
         console.log(`[sig-normalize] UPDATE id=${id} "${name}": stripping document wrapper tags`, _updateDocTags);
       }
       const _normalizedHtmlUpdate = normalizeSignatureHtml(htmlContent);
       const cleanHtml = sanitizeSignatureHtml(_normalizedHtmlUpdate);
+      const scopeFilter = accountId != null
+        ? eq(emailSignatures.emailAccountId, accountId)
+        : and(eq(emailSignatures.userId, existing.userId), sql`${emailSignatures.emailAccountId} IS NULL`);
       if (isDefault) {
-        await db.update(emailSignatures).set({ isDefault: false }).where(eq(emailSignatures.userId, userId));
+        await db.update(emailSignatures).set({ isDefault: false }).where(scopeFilter);
       }
       const [updated] = await db.update(emailSignatures).set({
         name: name.trim(),
@@ -34545,7 +34646,7 @@ export function registerConfluenceRoutes(app: Express) {
         ctaAltText: ctaAltText || null,
         ctaWidthPx: ctaWidthPx ? Number(ctaWidthPx) : null,
         updatedAt: new Date(),
-      }).where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId))).returning();
+      }).where(eq(emailSignatures.id, id)).returning();
       res.json(updated);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
@@ -34553,16 +34654,26 @@ export function registerConfluenceRoutes(app: Express) {
   app.delete("/api/signatures/:id", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
+      const { isAdmin } = await getSessionUserAccess(req.session);
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
-      const [existing] = await db.select().from(emailSignatures)
-        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
+      const [existing] = await db.select().from(emailSignatures).where(eq(emailSignatures.id, id));
       if (!existing) return res.status(404).json({ message: "Not found" });
-      await db.delete(emailSignatures).where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
-      // If the deleted signature was the default, promote the next oldest to default
+      const accountId = (existing as any).emailAccountId ?? null;
+      if (accountId != null) {
+        const access = await assertSignatureAccountAccess(userId, accountId, isAdmin);
+        if (!access.ok) return res.status(access.status).json({ message: access.message });
+      } else if (existing.userId !== userId && !isAdmin) {
+        return res.status(403).json({ message: "You do not have permission to delete this signature" });
+      }
+      await db.delete(emailSignatures).where(eq(emailSignatures.id, id));
+      // If the deleted signature was the default, promote the next oldest (same scope) to default
       if (existing.isDefault) {
+        const scopeFilter = accountId != null
+          ? eq(emailSignatures.emailAccountId, accountId)
+          : and(eq(emailSignatures.userId, existing.userId), sql`${emailSignatures.emailAccountId} IS NULL`);
         const [next] = await db.select().from(emailSignatures)
-          .where(eq(emailSignatures.userId, userId))
+          .where(scopeFilter)
           .orderBy(asc(emailSignatures.createdAt))
           .limit(1);
         if (next) {
@@ -34578,14 +34689,24 @@ export function registerConfluenceRoutes(app: Express) {
   app.patch("/api/signatures/:id/set-default", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
+      const { isAdmin } = await getSessionUserAccess(req.session);
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
-      const [existing] = await db.select().from(emailSignatures)
-        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId)));
+      const [existing] = await db.select().from(emailSignatures).where(eq(emailSignatures.id, id));
       if (!existing) return res.status(404).json({ message: "Not found" });
-      await db.update(emailSignatures).set({ isDefault: false }).where(eq(emailSignatures.userId, userId));
+      const accountId = (existing as any).emailAccountId ?? null;
+      if (accountId != null) {
+        const access = await assertSignatureAccountAccess(userId, accountId, isAdmin);
+        if (!access.ok) return res.status(access.status).json({ message: access.message });
+      } else if (existing.userId !== userId && !isAdmin) {
+        return res.status(403).json({ message: "You do not have permission to edit this signature" });
+      }
+      const scopeFilter = accountId != null
+        ? eq(emailSignatures.emailAccountId, accountId)
+        : and(eq(emailSignatures.userId, existing.userId), sql`${emailSignatures.emailAccountId} IS NULL`);
+      await db.update(emailSignatures).set({ isDefault: false }).where(scopeFilter);
       const [updated] = await db.update(emailSignatures).set({ isDefault: true, updatedAt: new Date() })
-        .where(and(eq(emailSignatures.id, id), eq(emailSignatures.userId, userId))).returning();
+        .where(eq(emailSignatures.id, id)).returning();
       res.json(updated);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
@@ -35587,6 +35708,15 @@ export function registerConfluenceRoutes(app: Express) {
     CREATE INDEX IF NOT EXISTS idx_mag_mailbox ON mailbox_access_grants(mailbox_account_id);
     CREATE INDEX IF NOT EXISTS idx_mag_user ON mailbox_access_grants(user_id);
   `)).catch((e: any) => console.error("[migration] mailbox visibility error:", e.message));
+
+  // Additive migration: per-account email signatures (private inbox support).
+  // email_account_id is nullable so pre-existing user-level signatures keep working
+  // unscoped (treated as fallback/legacy). New signatures created from a specific
+  // mailbox are scoped to that email_accounts row.
+  db.execute(sql.raw(`
+    ALTER TABLE email_signatures ADD COLUMN IF NOT EXISTS email_account_id INTEGER REFERENCES email_accounts(id) ON DELETE CASCADE;
+    CREATE INDEX IF NOT EXISTS idx_email_signatures_account ON email_signatures(email_account_id);
+  `)).catch((e: any) => console.error("[migration] email_signatures.email_account_id error:", e.message));
 
   // Additive migration: calendar visibility_type (Calendar Privacy Visibility Policy)
   // Reuses the mailbox visibility_type model:

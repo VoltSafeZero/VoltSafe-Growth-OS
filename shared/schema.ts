@@ -2816,6 +2816,9 @@ export type InsertTradeshowEvent = z.infer<typeof insertTradeshowEventSchema>;
 export const emailSignatures = pgTable("email_signatures", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
+  // Nullable: NULL means "legacy/account-agnostic signature" (pre-migration rows).
+  // Non-null scopes a signature to a single email_accounts row (private inbox support).
+  emailAccountId: integer("email_account_id"),
   name: text("name").notNull(),
   htmlContent: text("html_content").notNull(),
   plainTextContent: text("plain_text_content"),
