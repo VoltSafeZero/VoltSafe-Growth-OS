@@ -487,6 +487,12 @@ app.use((req, res, next) => {
       log("[migration] users.show_help_icons column ready.");
     } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
+    // Tasks Hub floating menu: per-user customizable tab preference
+    try {
+      await _db.execute(_sql.raw(`ALTER TABLE users ADD COLUMN IF NOT EXISTS task_floating_menu_tabs JSONB NOT NULL DEFAULT '["urgentOverdue","recentlyCompleted","board","calendar"]'::jsonb`));
+      log("[migration] users.task_floating_menu_tabs column ready.");
+    } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
+
     // CEO Execution Intelligence (Phase 8): review/dismiss tracking table
     try {
       await _db.execute(_sql.raw(`

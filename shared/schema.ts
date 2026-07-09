@@ -64,6 +64,7 @@ export const users = pgTable("users", {
   defaultCommandCenter: text("default_command_center"),
   calendarBookingUrl: text("calendar_booking_url"),
   showHelpIcons: boolean("show_help_icons").default(true).notNull(),
+  taskFloatingMenuTabs: jsonb("task_floating_menu_tabs").default(["urgentOverdue", "recentlyCompleted", "board", "calendar"]),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastLogin: timestamp("last_login"),
 });

@@ -610,7 +610,11 @@ export function TaskBoard({ view, onOpenTask, onAddTask, viewingUserId, permitte
                   onClick={() => onAddTask?.(col.value)}
                   disabled={isViewOnly}
                   data-testid={`button-add-task-${col.value}`}
-                  className={`flex-shrink-0 w-full flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground rounded-b-lg transition-colors border-t border-inherit ${isViewOnly ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/60 hover:text-foreground cursor-pointer"}`}
+                  className={`flex-shrink-0 w-full flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-b-lg transition-colors border-t-2 ${
+                    isViewOnly
+                      ? "opacity-40 cursor-not-allowed text-muted-foreground border-inherit"
+                      : "text-foreground/80 border-border dark:border-border hover:bg-primary/10 hover:text-primary hover:border-primary/50 cursor-pointer"
+                  }`}
                   title={isViewOnly ? "You have view-only access to this column" : `Add a task to ${col.label}`}
                 >
                   <Plus className="h-3.5 w-3.5 flex-shrink-0" />

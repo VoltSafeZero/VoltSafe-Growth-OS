@@ -1,0 +1,314 @@
+Update Tasks Hub "+ Add a task" footer styling and rebuild the floating bottom task menu behavior.
+
+Context:
+The new Tasks Hub column footer spacing and floating bottom menu are working, but:
+1. "+ Add a task" footer is too subtle.
+2. Floating menu is too subtle.
+3. Floating menu tabs need to be changed from:
+   - Inbox
+   - Planner
+   - Board
+   - Switch boards
+
+New default floating menu tabs should be:
+1. Urgent / Overdue
+2. Recently Completed
+3. Board
+4. Calendar
+
+Also, users should eventually be able to customize which tabs appear via settings, but this can be added as a safe preference model now if full UI is not already available.
+
+PART A — Make "+ Add a task" stand out more
+
+Current issue:
+The "+ Add a task" footer is visible but too light. It looks like faint helper text instead of a clear action.
+
+Required:
+- Make "+ Add a task" text bold or semibold.
+- Make its border more visible.
+- Increase visual contrast slightly.
+- Keep it clean and not obnoxious.
+- Apply consistently to every task column.
+- Hover state should be clearer.
+- Must work in light and dark mode.
+
+Suggested styling:
+- font-medium or font-semibold
+- stronger border color using theme tokens
+- subtle background hover
+- slightly stronger icon/text color
+- keep compact height
+
+Do not reintroduce the old spacing bug. The footer must still sit directly below the last card.
+
+PART B — Make floating menu stand out more
+
+Current issue:
+The floating task menu works, but it is too faint/small.
+
+Required:
+- Make floating menu container more visually prominent.
+- Make active tab bold.
+- Make inactive tabs readable.
+- Strengthen border/shadow.
+- Increase padding slightly if needed.
+- Keep bottom-center fixed placement.
+- Must work in light/dark mode.
+- Do not cover task cards awkwardly.
+
+Suggested:
+- active tab: font-semibold / font-bold
+- floating pill: stronger border, shadow, backdrop
+- icons slightly stronger
+- active state clearly filled or highlighted
+
+PART C — Replace floating menu tabs
+
+Replace default menu items with:
+
+1. Urgent / Overdue
+- This replaces Inbox.
+- Label can be "Urgent" or "Urgent / Overdue" depending space.
+- Purpose: show most urgent and overdue tasks.
+- On click:
+  - Filter/switch current Tasks Hub view to overdue + urgent/high priority tasks if existing filters support it.
+  - If no exact urgent concept exists yet, filter to Overdue and Due Today.
+  - Must not crash.
+  - Show a clear active state when selected.
+
+2. Recently Completed
+- This replaces Planner.
+- On click:
+  - Show tasks completed recently.
+  - Use existing Completed tab/filter if available.
+  - Prefer last 7 or 14 days if there is an existing date filter.
+  - If not available, route/switch to Completed view safely.
+  - Must not crash.
+
+3. Board
+- Keep Board as central default active tab.
+- But clicking Board should now open a popup/dropdown selector instead of only being a no-op.
+- Popup should let the user choose which board to view:
+  - My Tasks
+  - Team Tasks
+  - Any visible teammate boards the current user has permission to view
+- Examples:
+  - Team Tasks
+  - Trevor Burgess
+  - Scott Carlson
+  - Terri Breker
+  - Sanad Aridah
+  - Watson Sales
+  - Watson Support
+  - Advisor Test
+  only if visible/allowed by permissions.
+- Current selected board should be highlighted.
+- Selecting a board should update the board owner/scope filter.
+- Must respect permissions. Do not expose users or task boards the current user is not allowed to view.
+
+4. Calendar
+- This replaces Switch boards.
+- On click:
+  - Show the user's tasks in a calendar format.
+  - If a Tasks Calendar view already exists, route to it.
+  - If not, implement a basic task calendar view or modal using existing task data:
+    - Month/week-style calendar is ideal.
+    - At minimum: calendar layout grouped by due date.
+    - Show task titles on due dates.
+    - Clicking a task opens the existing task detail flow.
+  - Must not crash.
+- Calendar should show tasks for the currently selected board/scope if that concept exists.
+
+PART D — User controllability via settings
+
+Add a user-level preference for floating task menu tabs.
+
+Goal:
+Every user should have default tabs:
+- Urgent / Overdue
+- Recently Completed
+- Board
+- Calendar
+
+But users should be able to customize later via settings.
+
+If full UI can be added now:
+Add Settings → Tasks or Settings → Preferences section:
+Title:
+Task Floating Menu
+
+Description:
+Choose which shortcuts appear in the bottom Tasks Hub menu.
+
+Controls:
+- Pick up to 4 tabs
+- Reorder tabs if easy
+- Available options:
+  - Urgent / Overdue
+  - Recently Completed
+  - Board
+  - Calendar
+  - My Tasks
+  - Team Tasks
+  - Delegated
+  - Due Today
+  - Suggestions
+  - Archived
+
+If full UI is too much for this pass:
+- Add the preference schema/backend/client defaults now.
+- Keep the default four tabs.
+- Add a TODO-safe placeholder only if needed.
+- Do not add broken settings controls.
+
+Preference storage:
+- Use existing user preferences JSON/object if available.
+- Suggested key:
+  taskFloatingMenuTabs: ["urgentOverdue", "recentlyCompleted", "board", "calendar"]
+- Default to the above array for all existing/new users.
+
+Security:
+- Users can update their own taskFloatingMenuTabs.
+- Do not allow users to add tabs that reveal unauthorized task scopes.
+- If a selected tab becomes unauthorized, hide/fallback safely.
+
+PART E — Board selector popup details
+
+Board popup should:
+- Open when clicking Board.
+- Be positioned above the floating menu.
+- Close on outside click / Escape.
+- Show:
+  - My Tasks
+  - Team Tasks
+  - visible users/team members
+- Search/filter inside popup if many users exist.
+- Clearly indicate selected board.
+- Respect permissions:
+  - Standard user may only see their own board unless delegated/team visibility is allowed.
+  - Managers/admins/executives may see team boards according to existing permissions.
+  - Sales users may see relevant sales/team boards if allowed.
+- Do not leak private tasks from restricted users.
+
+PART F — Calendar task view details
+
+Calendar view should:
+- Be reachable from floating menu Calendar tab.
+- Show tasks by due date.
+- Include overdue tasks clearly.
+- Include completed tasks if relevant, but visually secondary.
+- Use existing task card/detail modal when clicking a task.
+- Respect currently selected scope:
+  - My Tasks
+  - Team Tasks
+  - selected teammate board
+- Respect permissions.
+- Empty days should be clean.
+- If no tasks, show a useful empty state.
+
+PART G — Implementation notes
+
+Find current component:
+- client/src/components/tasks/task-floating-nav.tsx
+- client/src/pages/tasks-hub.tsx
+- client/src/components/tasks/task-board.tsx
+
+Likely updates:
+1. task-board.tsx
+- strengthen Add task footer styles
+
+2. task-floating-nav.tsx
+- update labels/icons/actions
+- stronger styling
+- add Board selector popup
+- add Calendar action
+
+3. tasks-hub.tsx
+- maintain selected task scope/board owner
+- support urgent/recently completed/calendar modes
+- pass visible users/permissions to floating nav
+- integrate with existing filters where possible
+
+4. preferences/settings files
+- add taskFloatingMenuTabs preference if existing settings infrastructure supports it
+
+PART H — Tests / regression
+
+Add/update tests for:
+
+1. Add task footer styling
+- Footer text uses font-medium/semibold/bold.
+- Footer border is present and stronger.
+- Footer remains immediately below last task.
+- No mt-auto/flex-stretch regression.
+
+2. Floating menu labels
+- Contains Urgent / Overdue.
+- Contains Recently Completed.
+- Contains Board.
+- Contains Calendar.
+- Does not contain old default Inbox.
+- Does not contain old default Planner.
+- Does not contain old default Switch boards.
+
+3. Floating menu styling
+- Active tab is bold/prominent.
+- Container has fixed bottom-center placement.
+- Container has visible border/shadow.
+- Works in light/dark mode.
+
+4. Urgent / Overdue behavior
+- Click applies overdue/urgent filter or safe equivalent.
+- No crash.
+
+5. Recently Completed behavior
+- Click shows completed/recently completed tasks.
+- No crash.
+
+6. Board selector
+- Clicking Board opens popup.
+- Popup shows My Tasks and Team Tasks.
+- Popup shows only visible/allowed users.
+- Selecting a board updates selected scope.
+- Popup closes on outside click/Escape.
+
+7. Calendar behavior
+- Clicking Calendar opens/routes to task calendar.
+- Calendar shows tasks grouped by due date.
+- Clicking task opens existing task detail.
+- No crash on empty data.
+
+8. User preference
+- Missing preference defaults to ["urgentOverdue", "recentlyCompleted", "board", "calendar"].
+- User can save their own preference if settings UI/API added.
+- Unauthorized tabs/scopes are filtered out.
+
+PART I — Verification
+
+After implementation:
+- Open Tasks Hub.
+- Confirm "+ Add a task" is bolder and border is more visible.
+- Confirm no blank space returns under task cards.
+- Confirm floating menu is more prominent.
+- Confirm tabs are:
+  - Urgent / Overdue
+  - Recently Completed
+  - Board
+  - Calendar
+- Click Urgent / Overdue and confirm urgent/overdue tasks display.
+- Click Recently Completed and confirm completed tasks display.
+- Click Board and confirm selector popup opens.
+- Select My Tasks / Team Tasks / visible teammate and confirm board updates.
+- Click Calendar and confirm task calendar view opens.
+- Confirm no console errors.
+- Confirm permissions are respected.
+- Run relevant tests and report pass/fail count.
+
+Report:
+- Exact files changed
+- How Add Task styling was strengthened
+- Floating menu final default tabs
+- Board selector behavior
+- Calendar behavior
+- Whether settings customization was fully implemented or schema/default only
+- Tests run and pass/fail count

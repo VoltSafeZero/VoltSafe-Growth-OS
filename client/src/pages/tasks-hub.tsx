@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { apiRequest } from "@/lib/queryClient";
@@ -24,9 +24,10 @@ import {
 } from "lucide-react";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { TaskBoard } from "@/components/tasks/task-board";
-import { TaskFloatingNav } from "@/components/tasks/task-floating-nav";
+import { TaskFloatingNav, type FloatingTabKey } from "@/components/tasks/task-floating-nav";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { Calendar } from "@/components/ui/calendar";
+import { ChevronLeft, ChevronRight, CalendarDays as CalendarDaysIcon } from "lucide-react";
 
 type HubTask = {
   id: number;
@@ -645,6 +646,8 @@ export default function TasksHubPage() {
   const [defaultBoardColumn, setDefaultBoardColumn] = useState<string | undefined>(undefined);
   const [viewingUserId, setViewingUserId] = useState<number | null>(null);
   const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
+  const [boardScope, setBoardScope] = useState<"my" | "team" | "user">("my");
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   // Allow any list-row component to request the drawer via a window event
   useEffect(() => {
@@ -689,6 +692,18 @@ export default function TasksHubPage() {
     },
     refetchInterval: 30_000,
     enabled: view !== "board" && view !== "suggestions" && view !== "archived",
+  });
+
+  const calendarView = boardScope === "team" ? "team" : "my";
+  const { data: calendarData, isLoading: calendarLoading } = useQuery<HubResponse>({
+    queryKey: ["/api/tasks/hub", "calendar", calendarView, viewingUserId],
+    queryFn: () => {
+      const params = new URLSearchParams({ view: calendarView, groupBy: "due_date" });
+      if (viewingUserId) params.set("viewingUserId", String(viewingUserId));
+      return fetch(`/api/tasks/hub?${params}`, { credentials: "include" }).then(r => r.json());
+    },
+    enabled: calendarOpen,
+    staleTime: 30_000,
   });
 
   const { data: usersData = [] } = useQuery<{ id: number; name: string }[]>({
@@ -1063,15 +1078,21 @@ export default function TasksHubPage() {
 
       {/* Body — pb-24 on mobile ensures the last task row isn't hidden under the FAB */}
       <div className="flex-1 overflow-y-auto pb-36 lg:pb-24">
-        {view === "board" ? (
+        {calendarOpen ? (
+          <TaskCalendarView
+            tasks={calendarData?.tasks ?? []}
+            isLoading={calendarLoading}
+            onOpenTask={(id) => setOpenTaskId(id)}
+          />
+        ) : view === "board" ? (
           <div className="p-4 md:p-6">
             <TaskBoard
-              view="team"
+              view={boardScope === "team" ? "team" : "my"}
               onOpenTask={(id) => setOpenTaskId(id)}
               onAddTask={(colValue) => { setDefaultBoardColumn(colValue); setCreatingNew(true); }}
               viewingUserId={viewingUserId}
               permittedUsers={permittedUsers}
-              onViewUser={setViewingUserId}
+              onViewUser={(id) => { setViewingUserId(id); setBoardScope(id ? "user" : "my"); }}
             />
           </div>
         ) : view === "archived" ? (
@@ -1223,7 +1244,132 @@ export default function TasksHubPage() {
         endpoint="/api/work/drilldown"
       />
 
-      <TaskFloatingNav />
+      <TaskFloatingNav
+        activeKey={
+          calendarOpen ? "calendar" :
+          view === "overdue" ? "urgentOverdue" :
+          view === "completed" ? "recentlyCompleted" :
+          (view as FloatingTabKey)
+        }
+        onSelect={(key) => {
+          if (key === "calendar") { setCalendarOpen(true); return; }
+          setCalendarOpen(false);
+          if (key === "urgentOverdue") setView("overdue");
+          else if (key === "recentlyCompleted") setView("completed");
+          else setView(key as ViewTab);
+        }}
+        viewingUserId={viewingUserId}
+        viewingUserName={viewingUserName}
+        permittedUsers={permittedUsers}
+        boardScope={boardScope}
+        onSelectBoard={(userId, scope) => {
+          setCalendarOpen(false);
+          setBoardScope(scope);
+          setViewingUserId(userId);
+          setView("board");
+        }}
+      />
+    </div>
+  );
+}
+
+function TaskCalendarView({ tasks, isLoading, onOpenTask }: { tasks: HubTask[]; isLoading: boolean; onOpenTask: (id: number) => void }) {
+  const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
+
+  const byDay = useMemo(() => {
+    const map = new Map<string, HubTask[]>();
+    for (const t of tasks) {
+      if (!t.dueDate) continue;
+      const key = new Date(t.dueDate).toDateString();
+      const arr = map.get(key) ?? [];
+      arr.push(t);
+      map.set(key, arr);
+    }
+    return map;
+  }, [tasks]);
+
+  const monthLabel = cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const firstDayOfMonth = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const startOffset = firstDayOfMonth.getDay();
+  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  const today = new Date();
+
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(cursor.getFullYear(), cursor.getMonth(), d));
+
+  return (
+    <div className="p-4 md:p-6 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <CalendarDaysIcon className="h-4 w-4 text-primary" />
+          <h2 className="text-sm font-semibold" data-testid="calendar-month-label">{monthLabel}</h2>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" className="h-7 w-7" data-testid="button-calendar-prev"
+            onClick={() => setCursor(c => { const n = new Date(c); n.setMonth(n.getMonth() - 1); return n; })}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs" data-testid="button-calendar-today"
+            onClick={() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); setCursor(d); }}>
+            Today
+          </Button>
+          <Button variant="outline" size="icon" className="h-7 w-7" data-testid="button-calendar-next"
+            onClick={() => setCursor(c => { const n = new Date(c); n.setMonth(n.getMonth() + 1); return n; })}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-7 gap-1.5">
+          {[...Array(35)].map((_, i) => <Skeleton key={i} className="h-24 rounded-md" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-7 gap-1.5">
+          {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => (
+            <div key={d} className="text-center text-[11px] font-semibold text-muted-foreground pb-1">{d}</div>
+          ))}
+          {cells.map((date, i) => {
+            if (!date) return <div key={`empty-${i}`} className="rounded-md border border-transparent min-h-[6rem]" />;
+            const key = date.toDateString();
+            const dayTasks = byDay.get(key) ?? [];
+            const isToday = date.toDateString() === today.toDateString();
+            const isPast = date < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            return (
+              <div
+                key={key}
+                className={`rounded-md border p-1.5 min-h-[6rem] flex flex-col gap-1 ${isToday ? "border-primary ring-1 ring-primary/40" : "border-border/50"}`}
+                data-testid={`calendar-day-${date.toISOString().slice(0,10)}`}
+              >
+                <span className={`text-[11px] ${isToday ? "font-bold text-primary" : "text-muted-foreground"}`}>{date.getDate()}</span>
+                <div className="flex-1 overflow-y-auto space-y-0.5">
+                  {dayTasks.slice(0, 3).map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => onOpenTask(t.id)}
+                      className={`w-full text-left text-[10px] px-1 py-0.5 rounded truncate transition-colors ${
+                        t.status === "done" || t.status === "completed"
+                          ? "bg-muted text-muted-foreground line-through"
+                          : isPast
+                            ? "bg-red-500/15 text-red-400 hover:bg-red-500/25"
+                            : "bg-primary/10 text-primary hover:bg-primary/20"
+                      }`}
+                      data-testid={`calendar-task-${t.id}`}
+                      title={t.title}
+                    >
+                      {t.title}
+                    </button>
+                  ))}
+                  {dayTasks.length > 3 && (
+                    <span className="text-[10px] text-muted-foreground pl-1">+{dayTasks.length - 3} more</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

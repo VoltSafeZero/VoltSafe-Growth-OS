@@ -1489,6 +1489,9 @@ export async function registerRoutes(
       preferredLayout: user.preferredLayout ?? "expanded",
       widgetVisibility: user.widgetVisibility ?? {},
       showHelpIcons: user.showHelpIcons ?? true,
+      taskFloatingMenuTabs: Array.isArray(user.taskFloatingMenuTabs) && user.taskFloatingMenuTabs.length > 0
+        ? user.taskFloatingMenuTabs
+        : ["urgentOverdue", "recentlyCompleted", "board", "calendar"],
       defaultCommandCenter: user.defaultCommandCenter,
       calendarBookingUrl: user.calendarBookingUrl ?? null,
       detectedTimezone: (req.session as any).detectedTimezone ?? null,
@@ -1842,10 +1845,14 @@ export async function registerRoutes(
   // PATCH /api/users/me/layout — persist layout preferences
   app.patch("/api/users/me/layout", requireAuth, async (req, res) => {
     const userId = (req.session as any).userId as number;
-    const { preferredLayout, widgetVisibility, defaultCommandCenter, widgetOrder, dashboardLayouts, weather, showHelpIcons } = req.body;
+    const { preferredLayout, widgetVisibility, defaultCommandCenter, widgetOrder, dashboardLayouts, weather, showHelpIcons, taskFloatingMenuTabs } = req.body;
 
     const VALID_LAYOUTS = ["expanded", "compact"];
     const VALID_CENTERS = ["ceo", "cfo", "cto", "cmo", "sales", "cs", "default", null];
+    const VALID_FLOATING_TABS = [
+      "urgentOverdue", "recentlyCompleted", "board", "calendar",
+      "my", "team", "assigned_by_me", "today", "suggestions", "archived",
+    ];
 
     if (preferredLayout !== undefined && !VALID_LAYOUTS.includes(preferredLayout)) {
       return res.status(400).json({ message: `preferredLayout must be one of: ${VALID_LAYOUTS.join(", ")}` });
@@ -1855,6 +1862,14 @@ export async function registerRoutes(
     }
     if (showHelpIcons !== undefined && typeof showHelpIcons !== "boolean") {
       return res.status(400).json({ message: "showHelpIcons must be a boolean" });
+    }
+    if (taskFloatingMenuTabs !== undefined) {
+      if (!Array.isArray(taskFloatingMenuTabs) || taskFloatingMenuTabs.length === 0 || taskFloatingMenuTabs.length > 4) {
+        return res.status(400).json({ message: "taskFloatingMenuTabs must be an array of 1-4 tabs" });
+      }
+      if (!taskFloatingMenuTabs.every((t: any) => typeof t === "string" && VALID_FLOATING_TABS.includes(t))) {
+        return res.status(400).json({ message: `taskFloatingMenuTabs must only contain: ${VALID_FLOATING_TABS.join(", ")}` });
+      }
     }
     if (widgetVisibility !== undefined && (typeof widgetVisibility !== "object" || Array.isArray(widgetVisibility))) {
       return res.status(400).json({ message: "widgetVisibility must be an object" });
@@ -1886,6 +1901,7 @@ export async function registerRoutes(
     if (widgetVisibility !== undefined) update.widgetVisibility = widgetVisibility;
     if (defaultCommandCenter !== undefined) update.defaultCommandCenter = defaultCommandCenter;
     if (showHelpIcons !== undefined) update.showHelpIcons = showHelpIcons;
+    if (taskFloatingMenuTabs !== undefined) update.taskFloatingMenuTabs = taskFloatingMenuTabs;
     // Persist widgetOrder inside widgetVisibility as __order key
     if (widgetOrder !== undefined) {
       const [existing] = await db.select({ wv: users.widgetVisibility }).from(users).where(eq(users.id, userId)).limit(1);
@@ -1913,6 +1929,7 @@ export async function registerRoutes(
       defaultCommandCenter: users.defaultCommandCenter,
       permissions: users.permissions,
       showHelpIcons: users.showHelpIcons,
+      taskFloatingMenuTabs: users.taskFloatingMenuTabs,
     });
     res.json(updated);
   });
