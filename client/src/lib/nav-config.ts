@@ -114,9 +114,9 @@ export const NAV_CONFIG: NavSection[] = [
     ],
   },
 
-  // ── WORK (5 items) ─────────────────────────────────────────────────────────
+  // ── WORK (6 items) ─────────────────────────────────────────────────────────
   // Removed from sidebar (still accessible via direct URL / ⌘K):
-  //   Work Calendar (/work/team-calendar), Meeting Notes (/meeting-notes),
+  //   Work Calendar (/work/team-calendar),
   //   Activity Feed (/activity), Travel (/my-travel), Personal Settings hub (/settings/personal)
   // Email Signatures + AI Voice Profiles moved to Settings section.
   {
@@ -128,6 +128,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "inbox",           label: "Inbox & Mail",       route: "/gmail",                  icon: Mail },
       { id: "tasks",           label: "Tasks",              route: "/execution/tasks",        icon: CheckSquare },
       { id: "calendar",        label: "Calendar & Meetings",route: "/execution/calendar",     icon: CalendarClock, permKey: "calendar" },
+      { id: "meeting-notes",   label: "Meeting Recorder",   route: "/meeting-notes",          icon: Mic },
       { id: "daily-exec",      label: "Daily Execution",    route: "/execution/daily",        icon: CalendarDays },
       // nav-drift phase 4B: { label: "Digest Settings", route: "/alerts-digest" } — accessible via ⌘K
     ],

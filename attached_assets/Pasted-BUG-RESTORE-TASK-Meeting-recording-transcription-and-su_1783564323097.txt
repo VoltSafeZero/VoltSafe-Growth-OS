@@ -1,0 +1,100 @@
+BUG / RESTORE TASK: Meeting recording, transcription, and summarization module is missing from VoltSafe CMS.
+
+Background:
+VoltSafe CMS previously had a module that allowed users to record meetings, transcribe them, and summarize the meeting notes. It is now missing from the UI after recent changes.
+
+Goal:
+Find where the meeting recorder/transcription/summarization feature went, determine whether it was removed, hidden, renamed, broken by routing, or blocked by role/permission logic, then restore it cleanly.
+
+User-facing expected behavior:
+Users should be able to access a meeting recording module inside VoltSafe CMS, preferably under:
+
+Work → Calendar & Meetings
+
+or another clearly named location such as:
+
+Work → Meetings
+Work → Meeting Recorder
+Work → Meeting Notes
+Work → Transcripts
+
+Required audit:
+1. Search the codebase for all meeting-recording-related code:
+   - recorder
+   - recording
+   - meeting notes
+   - meetings
+   - transcript
+   - transcription
+   - summarize
+   - summary
+   - audio
+   - media
+   - speech
+   - whisper
+   - OpenAI transcription
+   - meeting recorder
+   - meeting summaries
+
+2. Check frontend routes:
+   - Verify whether the route still exists
+   - Verify whether the component still exists
+   - Verify whether the page is still registered in the router
+   - Verify whether the nav/sidebar link was removed or hidden
+
+3. Check backend/API routes:
+   - Look for APIs that upload audio
+   - Look for APIs that create transcripts
+   - Look for APIs that summarize meeting text
+   - Look for APIs that store meeting notes
+   - Confirm they still work and are not returning 404/500
+
+4. Check permissions/role gating:
+   - Compare trevor@voltsafe.com versus test/advisor accounts
+   - Make sure CEO/admin users can see the module
+   - Make sure the feature is not hidden behind the wrong role, stale feature flag, or account type
+   - Do not accidentally expose private recordings to unauthorized users
+
+5. Check navigation:
+   - Restore a visible nav entry if missing
+   - Best location: Work → Calendar & Meetings
+   - Label should be clear, such as “Meeting Recorder” or “Meeting Notes”
+   - Do not create duplicate confusing nav entries
+
+6. Check data persistence:
+   - Existing recordings/transcripts/summaries should still be visible if they exist
+   - Do not delete or migrate data without explicit confirmation
+   - If old tables/records exist, reconnect the UI to them
+
+7. Restore core functionality:
+   - Start recording / upload recording
+   - Stop recording
+   - Save recording metadata
+   - Transcribe audio
+   - Summarize transcript
+   - Show meeting summary
+   - Show action items / decisions if that existed previously
+   - Allow viewing old meeting notes/transcripts
+
+8. UX requirements:
+   - Page should not be blank
+   - Loading/error states must be clear
+   - If browser microphone permission is needed, show a clear prompt
+   - If transcription service/API key is missing, show a useful admin-facing error instead of silently hiding the module
+
+9. Regression tests:
+   - Route exists and loads
+   - Sidebar/nav link appears for authorized users
+   - Unauthorized users do not see private recordings
+   - API route for transcription exists
+   - API route for summarization exists
+   - Existing meeting records render
+   - Missing API key produces a visible error state, not a blank page
+   - No console errors on page load
+
+Acceptance criteria:
+- trevor@voltsafe.com can clearly access the meeting recording/transcription/summarization module again.
+- The module is visible in the sidebar or Calendar & Meetings area.
+- Existing meeting notes/transcripts are not lost.
+- Recording/transcription/summarization flow works or shows a clear actionable error.
+- No unrelated navigation or permissions regressions.
