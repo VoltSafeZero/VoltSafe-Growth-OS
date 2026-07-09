@@ -153,6 +153,7 @@ import {
   loadEventConnectionIds,
   accountInfoForEvent,
   classifyCalendarConnection,
+  toEventListItem,
 } from "./services/calendar-visibility";
 import {
   lookupZoomConnection, disconnectZoom, toPublicZoomConnection, isZoomConfigured,
@@ -9248,7 +9249,11 @@ export async function registerRoutes(
       }
 
       const events = await storage.getCalendarEvents(userId, start, end);
-      res.json(events);
+      // Default list response is minimized — description/meetingUrl/invitees/
+      // attendeeDetails/external*/bookingLinkRecipientId never leave the server
+      // here, even for the requester's own events. Full detail is only served
+      // via the authorized GET /api/calendar/events/:id endpoint.
+      res.json(events.map((ev: any) => toEventListItem(ev)));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -9307,7 +9312,11 @@ export async function registerRoutes(
         return visibility.canViewDetails ? ev : sanitizeEventForBusyOnly(ev);
       });
 
-      res.json(sanitized);
+      // Team list view is still a LIST endpoint — minimize to the same safe
+      // shape as /api/calendar/events. Full detail (description/meetingUrl/
+      // invitees/attendeeDetails/etc.) is only ever returned by the
+      // authorized GET /api/calendar/events/:id endpoint.
+      res.json(sanitized.map((ev: any) => toEventListItem(ev)));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

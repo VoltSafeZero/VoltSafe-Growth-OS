@@ -145,6 +145,45 @@ export function sanitizeEventForBusyOnly<T extends Record<string, any>>(event: T
 }
 
 /**
+ * Minimizes a calendar event down to only the fields needed to render a
+ * calendar/list UI. Used for the DEFAULT list endpoints
+ * (`/api/calendar/events`, `/api/calendar/events/team`) — full detail
+ * (description, meetingUrl, invitees, attendeeDetails, external* IDs,
+ * booking-link traceback, etc.) is only ever returned by the single-event
+ * detail endpoint (`GET /api/calendar/events/:id`) after an authorization
+ * check. This applies even to events the requester owns — the list view
+ * simply never carries the sensitive fields over the wire.
+ */
+export function toEventListItem<T extends Record<string, any>>(event: T): Record<string, any> {
+  return {
+    id: event.id,
+    userId: event.userId,
+    title: event.isBusyOnly ? "Busy" : event.title,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    allDay: event.allDay ?? false,
+    eventType: event.isBusyOnly ? "busy" : event.eventType,
+    status: event.status,
+    showAs: event.showAs ?? null,
+    color: event.isBusyOnly ? null : (event.color ?? null),
+    calendarName: event.isBusyOnly ? null : (event.calendarName ?? null),
+    locationSummary: event.isBusyOnly ? null : summarizeLocation(event.location),
+    isBusyOnly: event.isBusyOnly ?? false,
+  };
+}
+
+/**
+ * Location fields can carry meeting links/passcodes/dial-in numbers
+ * ("Join Zoom: https://zoom.us/j/123... Passcode: 4821"). The list view may
+ * show a short label but must never leak URLs, phone numbers, or codes.
+ */
+function summarizeLocation(location: string | null | undefined): string | null {
+  if (!location) return null;
+  if (/https?:\/\/|passcode|dial-in|dial in|meeting id/i.test(location)) return null;
+  return location.length > 60 ? location.slice(0, 60) + "…" : location;
+}
+
+/**
  * Looks up the visibility_type + owner for the calendar connection(s) tied to
  * a batch of userIds, keyed by connection id, for use when resolving many
  * events at once (e.g. team calendar views). Falls back gracefully if the

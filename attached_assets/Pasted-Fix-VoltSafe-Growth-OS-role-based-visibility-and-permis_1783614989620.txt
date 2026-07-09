@@ -1,0 +1,194 @@
+Fix VoltSafe Growth OS role-based visibility and permissions for Simulators, Travel Planning, and Widgets.
+
+Context:
+Screenshots show user "Advisor Test" can see:
+1. Insights → Simulators & Feedback
+2. Revenue Simulator / pipeline scenario data
+3. Plan My Travel Day with both "Multi-day trip" and "Single-day visits"
+4. Widget Settings showing widgets like Leads Nearby and My Travel
+
+This is incorrect and may expose sensitive executive/sales pipeline data.
+
+Required behavior:
+
+A) Simulators & Feedback / Revenue Simulator permissions
+- "Simulators & Feedback" must only be visible and accessible to:
+  - globalRole: master_admin, admin
+  - managers
+  - exec users
+  - sales users
+- All other users must not see the sidebar item.
+- Direct route access must be blocked.
+- Backend/API access must also be blocked. Do not rely only on front-end hiding.
+- If unauthorized user hits the route directly, show a clean "Not authorized" / redirect state, not the simulator.
+- Revenue simulator data, CRM baseline, forecast vs actuals, save scenario, run simulation, and any underlying API endpoints must enforce the same permission.
+
+B) Plan My Travel Day permissions
+- Plan My Travel Day may remain visible where appropriate, but available options must be role-filtered.
+- Only execs, admins, managers, and sales users may see:
+  - "Single-day visits"
+  - marina/sales-visit route optimization
+  - Leads Nearby travel planning
+- All other users should only see:
+  - "Multi-day trip"
+- For unauthorized users, hide "Single-day visits" completely. Do not show it disabled.
+- Backend/API actions for single-day marina sales visits must also reject unauthorized users.
+
+C) Widget visibility / widget settings
+Fix Widget Settings so widgets are filtered by role before display.
+
+These widgets should only be available to execs, admins, managers, and sales:
+- Leads Nearby
+- My Travel
+- Travel Calendar, if tied to sales/lead trips
+- Inbox Priority Radar, if it exposes sales/customer priority scoring
+- Any widget that exposes lead/customer/opportunity/pipeline/travel/sales intelligence
+
+These widgets must not be shown as selectable options to users outside eligible roles.
+
+D) Clarification on wording
+The screenshots currently show Leads Nearby and My Travel under "New Widgets".
+These should be visible only to exec/admin/manager/sales.
+For all other roles, remove them from:
+- Dashboard
+- Widget Settings
+- Widget picker
+- Reset Visible Widgets defaults
+- Any persisted visible widget state if the role is no longer eligible
+
+E) Add role-specific widgets
+Create a role-aware widget registry that supports:
+- allowedRoles
+- allowedDepartments
+- allowedGlobalRoles
+- requiresPermission
+- defaultVisibleByRole
+- featureFlag optional
+
+Add or stub general role-specific widget groups:
+
+Exec / Admin / Manager:
+- Forecast Gap
+- Key Accounts
+- Revenue Ops
+- Board Pack
+- Team Inbox Overview
+- Certification Blockers
+- Recent Wins
+
+Sales / Business Development:
+- Leads Nearby
+- My Travel
+- Travel Calendar
+- Follow-ups Due
+- Open Opportunities
+- Proposal Pipeline
+- Dormant Leads
+
+Support / Customer Success:
+- Open Customer Issues
+- SLA Watch
+- Renewal Risk
+- Customer Follow-ups
+- Onboarding Status
+
+Operations:
+- Deployment Queue
+- Inventory Watch
+- Supplier Tasks
+- Field Service Schedule
+- Blockers
+
+Engineering / Product:
+- Bug Queue
+- Release Readiness
+- QA Blockers
+- Feature Requests
+- System Health
+
+Finance:
+- Cash Pulse
+- AR / Collections
+- Burn Watch
+- Budget Variance
+- Purchase Approvals
+
+General users:
+- My Tasks
+- My Calendar
+- My Inbox
+- Announcements
+- Learn / Training
+- Company Updates
+
+F) Implementation requirements
+1. Find current nav/sidebar config for Insights → Simulators & Feedback.
+2. Add a single shared permission helper, for example:
+   - canAccessRevenueSimulator(user)
+   - canUseSalesTravelPlanning(user)
+   - canSeeWidget(user, widget)
+3. Use this helper in:
+   - Sidebar/nav rendering
+   - Route guards
+   - API route handlers
+   - Widget settings list
+   - Dashboard widget rendering
+   - Reset/default widget logic
+4. Do not duplicate role checks randomly across components.
+5. If existing user object has department/jobTitle/userType/globalRole, normalize role detection carefully.
+6. Treat master_admin/admin as all-access.
+7. Treat managers and execs as privileged for simulator/travel/sales widgets.
+8. Treat sales/business development as allowed for sales travel and lead widgets.
+9. Treat Advisor Test as non-privileged unless its actual role/globalRole says otherwise.
+10. If Advisor Test is accidentally seeded as master_admin/admin, fix seed/test user data so Advisor Test reflects the intended restricted advisor role.
+
+G) Security requirements
+- This must be enforced server-side.
+- Front-end hiding alone is unacceptable.
+- Unauthorized API calls should return 403.
+- Add tests proving restricted users cannot access the simulator APIs or sales travel APIs directly.
+
+H) Tests to add
+Add regression tests for:
+
+1. Restricted user:
+- does not see Simulators & Feedback sidebar item
+- cannot access simulator route
+- cannot call simulator API
+- only sees Multi-day trip in Plan My Travel Day
+- does not see Single-day visits
+- does not see Leads Nearby or My Travel in widget settings
+- cannot force-enable restricted widgets through saved preferences
+
+2. Sales user:
+- sees Single-day visits
+- sees Leads Nearby / My Travel
+- can access sales travel planner
+- can access relevant lead/travel widgets
+
+3. Exec/admin/manager:
+- sees Simulators & Feedback
+- can access Revenue Simulator
+- sees exec/sales widgets where appropriate
+
+4. General user:
+- sees only general widgets
+- no pipeline/revenue/lead/travel-sensitive widgets
+
+I) Visual/UI cleanup
+- Widget Settings should not show empty or irrelevant Role-Specific tabs.
+- If a role has no special widgets, show a clean message like:
+  "No role-specific widgets available for this role."
+- Keep New Widgets count accurate after role filtering.
+- Reset Visible Widgets must only reset to widgets the current user is allowed to see.
+
+J) Verification
+After implementation:
+- Log in as Advisor Test and confirm:
+  - Simulators & Feedback is gone unless Advisor Test is intentionally privileged
+  - Revenue Simulator cannot be reached by URL
+  - Plan My Travel Day only shows Multi-day trip
+  - Widget Settings does not show Leads Nearby or My Travel unless Advisor Test is sales/exec/admin/manager
+- Log in as sales/admin and confirm the restricted tools still appear.
+- Run all existing tests plus the new RBAC/widget tests.
+- Report exactly which files changed and which permissions now control each area.

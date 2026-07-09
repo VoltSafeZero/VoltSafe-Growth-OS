@@ -1,0 +1,117 @@
+Production security/data-minimization cleanup for VoltSafe Growth OS.
+
+Context:
+I manually inspected production in Chrome DevTools while logged out and logged in.
+
+Good findings already confirmed:
+- Logged-out /api/session/bootstrap returns only {"authenticated":false}.
+- Logged-in bootstrap/me/profile do not expose passwords, password hashes, OAuth access tokens, OAuth refresh tokens, client secrets, database URLs, OpenAI keys, or raw credential blobs.
+- /api/integrations does not expose raw Google access_token or refresh_token.
+- Local Storage only appears to contain UI preferences.
+- Session Storage is empty.
+- Auth cookie connect.sid is HttpOnly, Secure, and SameSite=Lax.
+- No obvious .js.map source maps were visible in Network → JS.
+
+Main issue to fix:
+The calendar events API appears to over-return sensitive event data to the browser when events are present.
+
+Observed issue:
+The /api/events response can include full event descriptions, meeting URLs, Zoom/Teams/Google Meet links, meeting passcodes, dial-in numbers, attendee email lists, attendeeDetails, external calendar IDs, external IDs, copied email-thread content, personal reminders, payroll/payment reminders, and other users’ calendar events.
+
+Fix required:
+1. Split calendar event payloads into list vs detail.
+
+Default /api/events list response should return only minimal fields needed to render calendar/list UI:
+- id
+- title
+- startTime
+- endTime
+- allDay
+- eventType
+- status
+- showAs
+- color
+- calendarName or safe calendar label
+- owner/user display label if required
+- maybe location summary only, if necessary
+
+Do NOT return these fields in default list responses:
+- description
+- meetingUrl
+- full location if it contains links/passcodes
+- invitees
+- attendeeDetails
+- externalId
+- externalEtag
+- externalProvider if not needed
+- externalCalendarId
+- bookingLinkRecipientId
+- Zoom/Teams/Meet passcodes
+- dial-in numbers
+- copied email-thread bodies
+
+2. Add or verify a separate protected endpoint for full event detail, for example:
+GET /api/events/:id
+
+That detail endpoint may return full description, attendees, meeting link, etc., but only if:
+- the authenticated user owns the event/calendar, OR
+- the user has explicit calendar_team permission for that calendar/user, OR
+- the user is master_admin.
+
+3. Enforce backend authorization before returning any calendar event data.
+Do not rely on frontend hiding.
+
+Rules:
+- Normal users should only receive their own events and explicitly shared/authorized calendars.
+- Team/admin users should only receive calendars allowed by their permissions.
+- master_admin may receive broader access, but still avoid over-returning full detail in list endpoints.
+
+4. Review /api/inbox-summary data scoping.
+It currently returns team inbox metadata for master_admin, which is acceptable.
+Confirm lower-permission users only receive their own inbox and explicitly authorized shared/team inboxes.
+Do not return team inbox metadata to unauthorized normal users.
+
+5. Review /api/notifications data scoping.
+Confirm notifications are scoped to the authenticated user and authorized linked objects only.
+Do not return other users’ task/meeting notifications to normal users.
+
+6. Confirm production security headers.
+I saw good headers:
+- X-Content-Type-Options: nosniff
+- X-Frame-Options: SAMEORIGIN
+- Strict-Transport-Security
+- Referrer-Policy
+- Cross-Origin-Opener-Policy
+- Cross-Origin-Resource-Policy
+
+Please also verify whether Content-Security-Policy is present in production.
+If missing, add a strict CSP appropriate for the app:
+- default-src 'self'
+- script-src 'self'
+- object-src 'none'
+- base-uri 'self'
+- frame-ancestors 'self'
+- connect-src only required domains
+- img-src/style-src only required domains
+
+7. Add regression tests.
+
+Required tests:
+- Logged-out /api/session/bootstrap returns no private data.
+- /api/integrations never returns access_token, refresh_token, client_secret, oauth_secret, private_key, encrypted token blobs, or credential fields.
+- /api/events list response does not include description, meetingUrl, invitees, attendeeDetails, externalId, externalCalendarId, passcodes, dial-in data, or copied email body content.
+- Normal user cannot receive another user’s calendar events.
+- Normal user cannot receive unauthorized team inbox metadata.
+- Normal user cannot receive another user’s notifications.
+- Auth/session cookie remains HttpOnly, Secure, SameSite=Lax or Strict in production.
+- Production source maps are not publicly served.
+
+8. After fixes, provide a concise verification report:
+- Files changed
+- Endpoints changed
+- Tests added
+- Before/after example of /api/events list payload
+- Confirmation no OAuth tokens/secrets are returned
+- Confirmation normal-user access is properly scoped
+- Confirmation master_admin still works
+- Confirmation production build passes

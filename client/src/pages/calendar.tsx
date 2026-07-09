@@ -4959,7 +4959,7 @@ function MeetingNoteAction({ event }: { event: CalendarEvent }) {
 // ─── Event Detail Dialog (tabbed) ────────────────────────────────────────────
 
 function EventDetailDialog({
-  event,
+  event: eventListItem,
   onClose,
   onUpdate,
   onDelete,
@@ -4977,6 +4977,21 @@ function EventDetailDialog({
   initialTab?: string;
   onOutcomeSaved?: (eventId: number) => void;
 }) {
+  // The calendar list endpoints only return a minimized event shape
+  // (no description/meetingUrl/invitees/attendeeDetails/external* fields —
+  // those are sensitive and gated behind an authorization check). Opening
+  // the detail dialog fetches the full, authorized record; until it loads we
+  // render with the minimized fields we already have so the dialog opens
+  // instantly.
+  const { data: fullEvent } = useQuery<CalendarEvent>({
+    queryKey: ["/api/calendar/events", eventListItem.id, "detail"],
+    queryFn: async () => {
+      const res = await fetch(`/api/calendar/events/${eventListItem.id}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load event detail");
+      return res.json();
+    },
+  });
+  const event: CalendarEvent = { ...eventListItem, ...(fullEvent ?? {}) };
   const [editing, setEditing] = useState(false);
   const [showFollowUpForm, setShowFollowUpForm] = useState(false);
   const [followUpTitle, setFollowUpTitle] = useState(() => `Follow up: ${event.title}`);
