@@ -171,45 +171,49 @@ export function AppSidebar({
 
             return (
               <div key={section.id}>
-                <button
-                  onClick={() => handleSectionClick(section)}
-                  data-testid={`nav-section-${section.id}`}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-sm font-medium group ${
-                    isSectionActive
-                      ? isCurrentsSection
-                        ? "bg-cyan-500/10 text-cyan-400"
-                        : "bg-primary/10 text-primary"
-                      : isCurrentsSection
-                        ? "text-cyan-400/65 hover:bg-cyan-500/8 hover:text-cyan-300"
-                        : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                  }`}
-                >
-                  <SectionIcon className={`w-4 h-4 shrink-0 transition-colors ${
-                    isSectionActive
-                      ? isCurrentsSection ? "text-cyan-400" : "text-primary"
-                      : isCurrentsSection ? "text-cyan-400/70 group-hover:text-cyan-300" : "group-hover:text-foreground"
-                  }`} />
-                  <span className={`flex-1 text-left flex items-center gap-1 ${isCurrentsSection ? "tracking-widest text-[11.5px] font-bold" : ""}`}>
-                    {section.label}
-                    {SECTION_HELP_KEYS[section.id] && (
-                      <span onClick={(e) => e.stopPropagation()}>
-                        <FieldHelp helpKey={SECTION_HELP_KEYS[section.id]} placement="right" />
-                      </span>
-                    )}
-                  </span>
-                  {/* CURRENTS unread badge — shown on the section button when top-level */}
-                  {isCurrentsSection && currentNavBadge ? (
-                    <span
-                      data-testid="nav-currents-unread-badge"
-                      className="text-[10px] font-bold text-white bg-cyan-500 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full shrink-0 shadow-sm shadow-cyan-500/30"
-                    >
-                      {currentNavBadge}
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => handleSectionClick(section)}
+                    data-testid={`nav-section-${section.id}`}
+                    className={`flex-1 min-w-0 flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-sm font-medium group ${
+                      isSectionActive
+                        ? isCurrentsSection
+                          ? "bg-cyan-500/10 text-cyan-400"
+                          : "bg-primary/10 text-primary"
+                        : isCurrentsSection
+                          ? "text-cyan-400/65 hover:bg-cyan-500/8 hover:text-cyan-300"
+                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                    }`}
+                  >
+                    <SectionIcon className={`w-4 h-4 shrink-0 transition-colors ${
+                      isSectionActive
+                        ? isCurrentsSection ? "text-cyan-400" : "text-primary"
+                        : isCurrentsSection ? "text-cyan-400/70 group-hover:text-cyan-300" : "group-hover:text-foreground"
+                    }`} />
+                    <span className={`flex-1 text-left ${isCurrentsSection ? "tracking-widest text-[11.5px] font-bold" : ""} ${SECTION_HELP_KEYS[section.id] ? "pr-4" : ""}`}>
+                      {section.label}
                     </span>
-                  ) : null}
-                  {section.items && section.items.length > 0 && !section.url && (
-                    <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isSectionOpen ? "rotate-90 text-primary" : "text-muted-foreground/50"}`} />
+                    {/* CURRENTS unread badge — shown on the section button when top-level */}
+                    {isCurrentsSection && currentNavBadge ? (
+                      <span
+                        data-testid="nav-currents-unread-badge"
+                        className="text-[10px] font-bold text-white bg-cyan-500 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full shrink-0 shadow-sm shadow-cyan-500/30"
+                      >
+                        {currentNavBadge}
+                      </span>
+                    ) : null}
+                    {section.items && section.items.length > 0 && !section.url && (
+                      <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isSectionOpen ? "rotate-90 text-primary" : "text-muted-foreground/50"}`} />
+                    )}
+                  </button>
+                  {SECTION_HELP_KEYS[section.id] && (
+                    <FieldHelp
+                      helpKey={SECTION_HELP_KEYS[section.id]}
+                      placement="right"
+                      className="shrink-0"
+                    />
                   )}
-                </button>
+                </div>
 
                 {section.items && isSectionOpen && (
                   <div className="ml-3 mt-0.5 mb-1 pl-3 border-l border-border/40 flex flex-col gap-0.5">

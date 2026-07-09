@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { Info } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -103,11 +102,11 @@ export function FieldHelp({
             if (e.key === "Escape") setOpen(false);
           }}
           className={cn(
-            "inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-muted-foreground/30 text-muted-foreground/60 hover:text-primary hover:border-primary/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 transition-colors shrink-0 align-middle",
+            "inline-flex h-3.5 w-3.5 items-center justify-center text-muted-foreground/60 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 rounded-sm transition-colors shrink-0 align-middle font-serif italic text-[11px] leading-none select-none",
             className
           )}
         >
-          <Info className="h-2.5 w-2.5" />
+          i
         </button>
       </PopoverTrigger>
       <PopoverContent

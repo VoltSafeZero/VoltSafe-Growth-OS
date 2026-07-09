@@ -46,7 +46,8 @@ check("FieldHelp uses the centralized registry via getHelpContent", /getHelpCont
 check("FieldHelp shows value-nature badges (sample/AI-generated/etc.)", /entry\.valueNature/.test(fieldHelpSrc));
 check("FieldHelp logs cms_help_opened analytics event", /cms_help_opened/.test(fieldHelpSrc));
 check("FieldHelp popover width is bounded to avoid mobile horizontal scroll/clipping", /max-w-\[calc\(100vw/.test(fieldHelpSrc));
-check("FieldHelp is a small subtle icon (not a large button)", /h-3\.5 w-3\.5/.test(fieldHelpSrc) && /Info className="h-2\.5 w-2\.5"/.test(fieldHelpSrc));
+check("FieldHelp is a small subtle icon (not a large button)", /h-3\.5 w-3\.5/.test(fieldHelpSrc));
+check("FieldHelp renders a plain \"i\" glyph with no circle/bubble around it", />\s*i\s*<\/button>/.test(fieldHelpSrc) && !/rounded-full/.test(fieldHelpSrc) && !/from "lucide-react"/.test(fieldHelpSrc));
 
 // ── 2/3. Centralized registry + fallback behavior ──────────────────────────
 const registrySrc = read("client/src/lib/help-content.ts");
@@ -89,10 +90,10 @@ check("Sidebar defines a section->helpKey map covering all first-pass modules", 
 ].forEach((id) => {
   check(`Sidebar help map includes section "${id}"`, sidebarSrc.includes(`${id === "feed-cortex" ? '"feed-cortex"' : id + ":"}`));
 });
-check("Sidebar renders FieldHelp next to the section label", /<FieldHelp helpKey=\{SECTION_HELP_KEYS\[section\.id\]\}/.test(sidebarSrc));
+check("Sidebar renders FieldHelp next to the section label", /<FieldHelp\s*\n\s*helpKey=\{SECTION_HELP_KEYS\[section\.id\]\}/.test(sidebarSrc));
 check(
-  "Sidebar stops click propagation so the help icon doesn't also trigger section navigation",
-  /onClick=\{\(e\) => e\.stopPropagation\(\)\}/.test(sidebarSrc)
+  "Sidebar renders the help icon as a sibling of the section button, not nested inside it (avoids invalid button-in-button DOM nesting)",
+  /<\/button>\s*\{SECTION_HELP_KEYS\[section\.id\] && \(\s*\n\s*<FieldHelp/.test(sidebarSrc)
 );
 
 // ── 6. Required example help content entries from the spec ─────────────────
