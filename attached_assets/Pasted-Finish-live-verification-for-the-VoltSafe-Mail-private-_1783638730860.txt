@@ -1,0 +1,113 @@
+Finish live verification for the VoltSafe Mail private inbox signature + CC/BCC send fix.
+
+Do not start new work. Do not make broad changes unless live verification exposes a real bug.
+
+Context:
+The implementation claims to have fixed:
+1. Private inbox signatures are now scoped per sending identity/account.
+2. CC/BCC normalization was fixed for private inbox send/reply/reply-all.
+3. Regression tests pass.
+4. Full test:grep only has the known unrelated FieldHelp glyph failure.
+
+But live verification was not completed against the actual private inboxes where the bug occurred:
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+The final report said these were not seeded in the dev database, but they are visible in the live UI as private inboxes. This must be verified in the actual running app/session, not dismissed because seed data is incomplete.
+
+Required live verification:
+
+1. Verify private inbox signatures
+
+In the running app:
+
+- Log in as Trevor.
+- Open VoltSafe Mail.
+- Select trevor@voltsafe.com.
+- Open signature settings/editor.
+- Confirm it says it is editing the signature for trevor@voltsafe.com.
+- Confirm the VoltSafe signature is present and unchanged.
+
+Then:
+
+- Select private inbox trevor@hyalos.com.
+- Open signature settings/editor.
+- Confirm it says:
+  “Editing signature for: trevor@hyalos.com”
+  or equivalent.
+- Confirm it does not incorrectly show/edit trevor@voltsafe.com.
+- Create or save a unique test signature for trevor@hyalos.com.
+- Compose from trevor@hyalos.com.
+- Confirm the trevor@hyalos.com signature appears.
+- Compose from trevor@voltsafe.com again.
+- Confirm the VoltSafe signature is separate and unchanged.
+
+Then repeat the identity-scope check for:
+- burgesstrevor76@gmail.com
+
+2. Verify CC/BCC sending from private inbox
+
+Using trevor@hyalos.com as the sender:
+
+- Send a new test email with a valid CC recipient.
+- Send a new test email with a valid BCC recipient.
+- Send a new test email with both CC and BCC.
+- Confirm no “Invalid Cc header” error.
+- Confirm the message is not incorrectly saved as draft.
+- Confirm sent mail shows the correct To/Cc/Bcc recipients.
+
+3. Verify Reply All from private inbox
+
+Using trevor@hyalos.com:
+
+- Open an email thread that includes CC recipients.
+- Click Reply All.
+- Confirm recipients are normalized correctly:
+  - original sender included,
+  - valid CC recipients included,
+  - trevor@hyalos.com removed from recipients,
+  - no duplicate recipients,
+  - no empty/null/undefined recipients.
+- Send the reply.
+- Confirm no “Invalid Cc header” error.
+- Confirm it sends successfully or, if the provider rejects the send, the server logs show a real provider failure, not malformed app-generated headers.
+
+4. Verify draft fallback
+
+If a send fails:
+
+- Confirm the draft is saved.
+- Confirm the draft preserves valid To/Cc/Bcc fields.
+- Confirm retrying the draft does not reintroduce the Invalid Cc header bug.
+
+5. Run tests again
+
+Run:
+
+node tests/private-inbox-signatures.test.cjs
+node tests/private-inbox-recipient-normalization.test.cjs
+node tests/task-floating-menu-overhaul.test.cjs
+npm run test:grep
+
+If file names differ, run the actual new signature/CC-BCC regression test files that were added.
+
+Clearly separate the known unrelated failure:
+- tests/help-system.test.cjs FieldHelp glyph styling
+
+6. Final report required
+
+Report back with:
+
+- Exact private inboxes verified.
+- Whether trevor@hyalos.com has its own signature separate from trevor@voltsafe.com.
+- Whether burgesstrevor76@gmail.com has its own signature separate from trevor@voltsafe.com.
+- Whether sending from trevor@hyalos.com with CC works.
+- Whether sending from trevor@hyalos.com with BCC works.
+- Whether Reply All from trevor@hyalos.com with CC works.
+- Whether draft fallback preserves valid CC/BCC.
+- Any server logs from failed sends.
+- Files changed, if any additional fix was needed.
+- Final test pass/fail counts.
+- Confirmation that the remaining FieldHelp failure is unrelated.
+
+Do not return “not seeded” as the final answer if the accounts are visible in the live UI. The bug is about the actual connected private inboxes, so verify the actual connected private inboxes.

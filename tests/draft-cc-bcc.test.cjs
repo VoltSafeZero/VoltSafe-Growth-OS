@@ -78,9 +78,9 @@ check(
   /saveDraft\([^)]*draftCleanBcc[^)]*\)/.test(routesSrc),
 );
 check(
-  "Route cc/bcc normalization uses the shared normalizeRecipients helper",
-  /const draftCcNorm\s*=\s*normalizeRecipients/.test(routesSrc) &&
-  /const draftBccNorm\s*=\s*normalizeRecipients/.test(routesSrc),
+  "Route cc/bcc normalization uses the shared normalizeRecipientListString helper (not normalizeRecipients([cc]), which silently drops multi-recipient entries)",
+  /const draftCcNorm\s*=\s*normalizeRecipientListString/.test(routesSrc) &&
+  /const draftBccNorm\s*=\s*normalizeRecipientListString/.test(routesSrc),
 );
 
 // ── client/src/pages/gmail-inbox.tsx ────────────────────────────────────────

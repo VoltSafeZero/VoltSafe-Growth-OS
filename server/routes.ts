@@ -17403,8 +17403,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // naively-split cc/bcc string — that corrupted value gets reloaded
       // verbatim into the reply-all header the next time this draft is sent.
       const draftSenderEmail = String((resolved as any)?.acct?.emailAddress || "").toLowerCase() || null;
-      const draftCcNorm  = normalizeRecipients([cc], { excludeEmail: draftSenderEmail });
-      const draftBccNorm = normalizeRecipients([bcc], { excludeEmail: draftSenderEmail });
+      const draftCcNorm  = normalizeRecipientListString(cc, { excludeEmail: draftSenderEmail });
+      const draftBccNorm = normalizeRecipientListString(bcc, { excludeEmail: draftSenderEmail });
       const draftCleanCc  = draftCcNorm.addresses.length  > 0 ? draftCcNorm.addresses.join(", ")  : undefined;
       const draftCleanBcc = draftBccNorm.addresses.length > 0 ? draftBccNorm.addresses.join(", ") : undefined;
       const draft = await saveDraft(resolved.userId, to || "", subject || "", cleanDraftBody, threadId, draftId, resolved.accountId, draftCleanCc, draftCleanBcc);
@@ -19393,8 +19393,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // sender), and if anything doesn't parse as a real address, fail fast
       // with a clear 400 instead of letting a corrupt header reach Gmail.
       const senderEmail = String((resolved as any)?.acct?.emailAddress || "").toLowerCase() || null;
-      const ccNorm  = normalizeRecipients([cc], { excludeEmail: senderEmail });
-      const bccNorm = normalizeRecipients([bcc], { excludeEmail: senderEmail });
+      const ccNorm  = normalizeRecipientListString(cc, { excludeEmail: senderEmail });
+      const bccNorm = normalizeRecipientListString(bcc, { excludeEmail: senderEmail });
       if (ccNorm.invalid.length > 0 || bccNorm.invalid.length > 0) {
         return res.status(400).json({
           message: `Invalid recipient address${(ccNorm.invalid.length + bccNorm.invalid.length) > 1 ? "es" : ""}: ${[...ccNorm.invalid, ...bccNorm.invalid].join(", ")}`,

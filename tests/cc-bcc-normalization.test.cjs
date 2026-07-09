@@ -58,7 +58,7 @@ ok("routes.ts imports the shared normalization helper",
   routesSrc.includes('import { normalizeRecipients, normalizeRecipientListString } from "@shared/recipients"'));
 const gateIdx = routesSrc.indexOf("CC/BCC normalization gate");
 ok("send route has a CC/BCC normalization gate", gateIdx !== -1);
-const gateBody = routesSrc.slice(gateIdx, gateIdx + 1500);
+const gateBody = routesSrc.slice(gateIdx, gateIdx + 2200);
 ok("gate strips the sender's own address (reply-all from private inbox)",
   gateBody.includes("excludeEmail: senderEmail"));
 ok("gate returns 400 with invalidCc/invalidBcc instead of silently dropping bad entries",
@@ -76,6 +76,56 @@ const draftRouteBody = routesSrc.slice(draftRouteIdx, draftRouteIdx + 1800);
 ok("POST /api/gmail/drafts normalizes cc/bcc before calling saveDraft",
   draftRouteBody.includes("draftCcNorm") && draftRouteBody.includes("draftCleanCc") &&
   draftRouteBody.includes("saveDraft(") && !/saveDraft\([^)]*cc \|\| undefined, bcc \|\| undefined/.test(draftRouteBody));
+
+// Regression: the gate must call normalizeRecipientListString(cc, ...) on the
+// raw string directly, NOT normalizeRecipients([cc], ...). Wrapping the raw
+// (possibly multi-address, comma-joined) cc/bcc string in a single-element
+// array causes normalizeRecipients to treat the whole string as ONE entry —
+// it extracts only the first bracketed address and silently drops every
+// other recipient in the field (found via live verification 2026-07-09).
+ok("send-route CC gate uses normalizeRecipientListString(cc, ...) not normalizeRecipients([cc], ...)",
+  gateBody.includes("normalizeRecipientListString(cc,") &&
+  gateBody.includes("normalizeRecipientListString(bcc,") &&
+  !/normalizeRecipients\(\[cc\]/.test(gateBody) &&
+  !/normalizeRecipients\(\[bcc\]/.test(gateBody));
+ok("draft-save CC gate uses normalizeRecipientListString(cc, ...) not normalizeRecipients([cc], ...)",
+  draftRouteBody.includes("normalizeRecipientListString(cc,") &&
+  draftRouteBody.includes("normalizeRecipientListString(bcc,") &&
+  !/normalizeRecipients\(\[cc\]/.test(draftRouteBody) &&
+  !/normalizeRecipients\(\[bcc\]/.test(draftRouteBody));
+
+// Behavioral proof of the fix: a multi-recipient cc string with a comma-
+// bearing display name must keep ALL valid addresses, not just the first.
+function normalizeRecipientsInline(rawEntries, opts = {}) {
+  const exclude = opts.excludeEmail ? opts.excludeEmail.trim().toLowerCase() : null;
+  const seen = new Set(); const addresses = []; const invalid = [];
+  const BASIC_EMAIL_RE = /^[\w!#$%&'*+\-/=?^_`{|}~.]+@[\w-]+(?:\.[\w-]+)+$/;
+  for (const raw of rawEntries) {
+    if (raw == null) continue;
+    const trimmed = String(raw).trim();
+    if (!trimmed) continue;
+    const bracketMatch = trimmed.match(/<([^<>"\s]+@[^<>"\s]+)>/);
+    const candidate = (bracketMatch ? bracketMatch[1] : trimmed).trim().toLowerCase();
+    if (!BASIC_EMAIL_RE.test(candidate)) { invalid.push(trimmed); continue; }
+    if (exclude && candidate === exclude) continue;
+    if (seen.has(candidate)) continue;
+    seen.add(candidate); addresses.push(candidate);
+  }
+  return { addresses, invalid };
+}
+function normalizeRecipientListStringInline(input, opts = {}) {
+  return normalizeRecipientsInline(extractEmailAddresses(input), opts);
+}
+const multiCc = '"Doe, Jane" <jane@example.com>, bob@example.com, trevor@hyalos.com';
+const wrongWay = normalizeRecipientsInline([multiCc], { excludeEmail: "trevor@hyalos.com" });
+const rightWay = normalizeRecipientListStringInline(multiCc, { excludeEmail: "trevor@hyalos.com" });
+ok("passing the raw multi-address string as a single array entry silently drops recipients (documents the bug)",
+  wrongWay.addresses.length === 1 && wrongWay.invalid.length === 0);
+ok("normalizeRecipientListString on the same raw string keeps every valid address and strips the sender",
+  rightWay.addresses.length === 2 &&
+  rightWay.addresses.includes("jane@example.com") &&
+  rightWay.addresses.includes("bob@example.com") &&
+  !rightWay.addresses.includes("trevor@hyalos.com"));
 
 // ── 4. Client integration — reply-all uses the shared helper, not a naive split ──
 console.log("\n── 4. Client reply-all integration ──");
