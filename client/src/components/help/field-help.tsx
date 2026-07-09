@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getHelpContent, type HelpEntry } from "@/lib/help-content";
+import { InfoIcon } from "@/components/icons/info-icon";
 
 interface CurrentUserLite {
   id?: number;
@@ -102,11 +103,11 @@ export function FieldHelp({
             if (e.key === "Escape") setOpen(false);
           }}
           className={cn(
-            "inline-flex h-3.5 w-3.5 items-center justify-center text-muted-foreground/60 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 rounded-sm transition-colors shrink-0 align-middle font-serif italic text-[11px] leading-none select-none",
+            "inline-flex h-3.5 w-3.5 items-center justify-center text-muted-foreground/60 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 rounded-sm transition-colors shrink-0 align-middle select-none",
             className
           )}
         >
-          i
+          <InfoIcon size={14} className="pointer-events-none" />
         </button>
       </PopoverTrigger>
       <PopoverContent

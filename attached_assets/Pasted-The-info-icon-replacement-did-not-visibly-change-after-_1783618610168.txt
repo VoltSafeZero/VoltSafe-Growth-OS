@@ -1,0 +1,111 @@
+The info icon replacement did not visibly change after republish.
+
+Screenshots show the sidebar still has tiny "/ i" style marks to the right of nav items like Today, Currents, Work, Pipeline, Operations, Insights, Ecosystem, Marketing, Capital, Feed CORTEX, Learn, Settings, Admin.
+
+Important:
+The previous change updated lucide Info icons in 14 files, but this sidebar indicator is clearly still not using that updated InfoIcon component. Find the actual source of the small sidebar "/ i" marks and replace/remove/fix that implementation.
+
+Required outcome:
+- Every small info/help indicator in the sidebar should use the new custom info icon style from the provided reference image.
+- It must work in light mode and dark mode.
+- It must not render as a slash.
+- It must not render as plain italic text.
+- It must not render as the old Lucide Info icon.
+- It must not be hidden halfway off the right edge of the sidebar.
+- It must be properly aligned beside the label, with consistent spacing.
+
+Investigate specifically:
+1. Sidebar/nav component rendering.
+2. NavConfig / nav item metadata.
+3. Any Help, Tooltip, Info, Hint, Permission, Explain, or Debug indicator components used by sidebar rows.
+4. CSS pseudo-elements:
+   - ::before
+   - ::after
+   - content: "i"
+   - content: "/"
+   - content: attr(...)
+5. Any code rendering a literal:
+   - i
+   - /
+   - ⓘ
+   - ℹ
+6. Any class names like:
+   - info
+   - help
+   - tooltip
+   - nav-help
+   - sidebar-help
+   - permission-info
+   - role-info
+   - menu-info
+   - feature-info
+   - help-icon
+   - InfoIcon
+
+Likely bug:
+The previous codemod changed imports/usages of lucide-react Info, but the sidebar is using a different implementation or CSS-generated indicator. Fix the actual sidebar indicator source, not just lucide Info usages.
+
+Implementation requirements:
+A) Create one shared component if it does not already exist:
+- components/ui/info-icon.tsx or equivalent
+- Name it something like InfoIcon or AppInfoIcon
+- It should render the new custom "i" icon consistently.
+- Support size/className/title/aria-label props.
+- Use currentColor or theme-safe colors.
+- Use dark/light mode styling.
+- Do not depend on screenshot image assets unless necessary; SVG/component is preferred.
+
+B) Replace sidebar indicators with this shared component:
+- Sidebar parent nav items
+- Sidebar child nav items
+- Collapsed and expanded sidebar states
+- Any admin section nav indicators
+- Any tooltip/help icons beside nav labels
+
+C) Fix alignment:
+- Icon should sit inside the nav row, not clipped on the far right.
+- Parent rows with chevrons should not overlap the info icon.
+- Child rows should align cleanly.
+- Use flex layout:
+  label area grows, icon area fixed, chevron area fixed.
+- Prevent overflow clipping.
+
+D) Remove or update old CSS:
+- Remove pseudo-element generated "i" or "/" indicators if found.
+- Remove old styles causing slash-like display.
+- Remove stale unused Info imports after replacement.
+
+E) Cache/build verification:
+- Restart dev server.
+- Hard refresh browser or verify with a fresh incognito/session.
+- Confirm production build includes the change.
+- Confirm published app URL has new JS bundle loaded, not stale cache.
+- If service worker/PWA cache exists, clear or version-bump it.
+
+F) Tests/regression:
+Add a regression test that specifically checks the sidebar implementation, not just lucide Info imports.
+
+Test should verify:
+1. Sidebar nav rows use the shared InfoIcon/AppInfoIcon component.
+2. No sidebar file contains CSS content: "i" or content: "/" for nav info indicators.
+3. No sidebar nav row renders a literal "/" indicator.
+4. No sidebar nav row imports lucide-react Info directly.
+5. Expanded sidebar screenshot/DOM check confirms info icons render with the expected component/test id.
+6. Light and dark modes both render the icon.
+
+G) Visual verification:
+After implementation, take screenshots of:
+- Expanded sidebar in light mode
+- Expanded sidebar in dark mode
+- A parent nav item with chevron
+- A child nav item
+- Admin nav row
+
+Expected result:
+The tiny old slash/i marks in screenshot 2 are gone and replaced by the new custom info icon style everywhere in the sidebar.
+
+Report:
+- Exact root cause
+- Exact files changed
+- Whether the old indicators came from CSS, literal text, or a different component
+- Confirmation that published app shows the new icon after hard refresh
