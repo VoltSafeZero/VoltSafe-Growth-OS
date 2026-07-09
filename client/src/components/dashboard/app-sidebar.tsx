@@ -5,6 +5,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import voltSafeVIcon from "@assets/Screenshot_2026-04-15_at_7.26.57_PM_1776306420926.png";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
+import { FieldHelp } from "@/components/help/field-help";
 import type { UserPermissions } from "@/App";
 import {
   getDesktopSections,
@@ -35,6 +36,19 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
   communications: "edit", team_workload: "edit", knowledge: "edit",
   support: "edit", quoting: "edit", calendar: "edit",
   mail_team: {}, calendar_team: [],
+};
+
+const SECTION_HELP_KEYS: Record<string, string> = {
+  today: "nav.today",
+  currents: "nav.currents",
+  work: "nav.work",
+  pipeline: "nav.pipeline",
+  operations: "nav.operations",
+  insights: "nav.insights",
+  marketing: "nav.marketing",
+  capital: "nav.capital",
+  "feed-cortex": "nav.feedCortex",
+  learn: "nav.learn",
 };
 
 export function AppSidebar({
@@ -175,8 +189,13 @@ export function AppSidebar({
                       ? isCurrentsSection ? "text-cyan-400" : "text-primary"
                       : isCurrentsSection ? "text-cyan-400/70 group-hover:text-cyan-300" : "group-hover:text-foreground"
                   }`} />
-                  <span className={`flex-1 text-left ${isCurrentsSection ? "tracking-widest text-[11.5px] font-bold" : ""}`}>
+                  <span className={`flex-1 text-left flex items-center gap-1 ${isCurrentsSection ? "tracking-widest text-[11.5px] font-bold" : ""}`}>
                     {section.label}
+                    {SECTION_HELP_KEYS[section.id] && (
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <FieldHelp helpKey={SECTION_HELP_KEYS[section.id]} placement="right" />
+                      </span>
+                    )}
                   </span>
                   {/* CURRENTS unread badge — shown on the section button when top-level */}
                   {isCurrentsSection && currentNavBadge ? (
