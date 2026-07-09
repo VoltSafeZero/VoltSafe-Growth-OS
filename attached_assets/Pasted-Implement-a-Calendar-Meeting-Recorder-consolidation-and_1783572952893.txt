@@ -1,0 +1,228 @@
+Implement a Calendar + Meeting Recorder consolidation and add a Daily Execution “My Daily Download” voice journal feature.
+
+Context:
+VoltSafe Growth OS currently has:
+1. Calendar & Meetings tab
+2. Separate Meeting Recorder tab
+3. Daily Execution tab
+
+Goal:
+A) Remove Meeting Recorder as a separate sidebar destination and integrate it directly into Calendar & Meetings.
+B) Add a new “My Daily Download” recorder/summary module inside Daily Execution.
+
+PART 1 — Calendar & Meetings integration
+
+Current problem:
+The Meeting Recorder page is its own tab. I want it merged into Calendar & Meetings so users see their calendar first, then meetings/recordings directly below it.
+
+Implementation requirements:
+1. In the left sidebar:
+   - Remove or hide the separate “Meeting Recorder” item under Work.
+   - Keep “Calendar & Meetings” as the single destination for:
+     - calendar
+     - meetings
+     - meeting notes
+     - recorder/transcription history
+
+2. On the Calendar & Meetings page:
+   - Keep the existing calendar layout at the top.
+   - Directly below the calendar, add a “Meetings & Recorder” section.
+   - This section should reuse the current Meeting Recorder list UI and functionality as much as possible.
+   - It should include:
+     - “New Meeting Note” / “New Recording” button
+     - meeting note list grouped by date/month as currently shown
+     - statuses: Scheduled, Recording, Completed, Failed
+     - source labels like Zoom / Meet / Ad-hoc
+     - duration / relative time metadata
+   - The section should feel native to the Calendar page, not like a separate iframe or bolted-on widget.
+
+3. Interaction requirements:
+   - Clicking an existing meeting note opens the same detail modal/drawer/page currently used by Meeting Recorder.
+   - Starting a new meeting note works exactly as it does today.
+   - Recording, saving, transcription, completion, failure states, retry flows, and summaries must keep working.
+   - Any existing APIs used by Meeting Recorder should be reused. Do not duplicate backend logic unless absolutely necessary.
+
+4. Layout requirements:
+   - Calendar remains the primary top module.
+   - Meetings & Recorder sits below the calendar.
+   - On large screens, keep the current right sidebar widgets for Today’s Agenda / Daily Rollup / My Calendars.
+   - The Meetings & Recorder section should align with the main calendar content width.
+   - Do not break month/week/day calendar views.
+   - Do not break calendar sync, new event creation, event click/open, or calendar filters.
+
+5. Backward compatibility:
+   - If there is an existing route for Meeting Recorder, leave a redirect to Calendar & Meetings or render the integrated Calendar page with the Meetings section scrolled into view.
+   - Do not create dead routes.
+   - Do not break saved links/bookmarks.
+
+PART 2 — Daily Execution: “My Daily Download”
+
+Add a new Daily Execution module called:
+
+“My Daily Download”
+
+Purpose:
+A daily voice-recorded work journal where a user can quickly record what they did today. The system should transcribe it and generate a short point-form summary that teammates can view.
+
+Placement:
+- Inside the Daily Execution tab/page.
+- Put it near the top of the page, preferably after the main daily execution header/summary but before lower-priority task lists.
+- It should feel like a daily ritual/check-in card.
+
+UI requirements:
+1. Card title:
+   - “My Daily Download”
+2. Subtitle:
+   - “Record what you did today. VoltSafe will turn it into a short team-readable summary.”
+3. Primary actions:
+   - Start Recording
+   - Stop Recording
+   - Save Daily Download
+   - Re-record
+4. States:
+   - Empty / not recorded today
+   - Recording
+   - Processing/transcribing
+   - Draft summary ready
+   - Saved/published
+   - Failed with retry
+5. Show:
+   - recording duration
+   - today’s date
+   - owner/user
+   - transcript toggle or expandable transcript
+   - generated “Coles Notes” / bullet summary
+   - visibility indicator, e.g. “Visible to team” or “Private draft”
+6. Add a small history list:
+   - latest daily downloads
+   - date
+   - user
+   - bullet summary preview
+   - status
+
+Functionality:
+1. Users can record audio from the browser.
+2. Audio is uploaded using the same recorder/transcription infrastructure as Meeting Recorder if available.
+3. Generate:
+   - full transcript
+   - concise bullet summary
+   - optional “blockers / wins / follow-ups” sections if easy to add
+4. Other team members should be able to view the saved summary.
+5. Raw transcript can be visible behind an expand/collapse toggle.
+6. Do not expose raw audio broadly unless existing permissions already support it.
+
+Data model:
+Create or reuse a table/model for daily downloads.
+Minimum fields:
+- id
+- user_id
+- user_name/display_name
+- date
+- title
+- audio_url or audio_attachment reference if applicable
+- transcript
+- summary_bullets
+- wins
+- blockers
+- follow_ups
+- visibility
+- status: draft / processing / completed / failed
+- created_at
+- updated_at
+
+API requirements:
+Add endpoints if not already available:
+- GET /api/daily-downloads?date=YYYY-MM-DD
+- GET /api/daily-downloads/recent
+- POST /api/daily-downloads/start or upload
+- POST /api/daily-downloads
+- PATCH /api/daily-downloads/:id
+- POST /api/daily-downloads/:id/process or summarize
+- DELETE /api/daily-downloads/:id if deletes are supported elsewhere
+
+Permission requirements:
+- User can create/edit their own daily download.
+- Team can view completed team-visible summaries.
+- Admins can view/manage all.
+- Respect existing role/auth patterns.
+
+AI summary requirements:
+Generate concise team-readable output:
+- 3–7 bullets
+- plain language
+- no fluff
+- extract:
+  - completed work
+  - decisions made
+  - blockers
+  - follow-ups
+  - people/accounts mentioned where relevant
+- Do not invent facts not in the transcript.
+- If transcript is weak or unclear, say so and create a conservative summary.
+
+PART 3 — Remove duplication and dead UI
+
+1. Do not maintain two separate Meeting Recorder UIs long-term.
+2. Extract reusable components if needed:
+   - RecorderButton / VoiceRecorder
+   - MeetingNotesList
+   - RecordingStatusBadge
+   - TranscriptSummaryPanel
+3. Reuse these components for:
+   - Calendar & Meetings integrated meeting recorder
+   - Daily Execution My Daily Download
+
+PART 4 — Tests and validation
+
+Add/extend tests to verify:
+
+Sidebar/navigation:
+- Meeting Recorder no longer appears as a separate active Work nav item.
+- Calendar & Meetings still appears.
+- Old Meeting Recorder route redirects or renders safely.
+
+Calendar page:
+- Calendar loads.
+- Calendar view controls still work: Month / Week / Day.
+- New Event still works.
+- Sync button still works.
+- Meetings & Recorder section renders below calendar.
+- New Meeting Note button works.
+- Existing meeting note rows open correctly.
+- Recording statuses render correctly.
+
+Daily Execution:
+- My Daily Download card renders.
+- Start/stop recording buttons work.
+- Processing state renders.
+- Saved summary renders.
+- Failed state renders with retry.
+- Recent daily download history renders.
+- Team-visible summaries are readable by permitted users.
+
+Backend/API:
+- Daily download CRUD endpoints work.
+- Auth/permissions enforced.
+- Empty state works when no daily download exists.
+- One daily download per user per day is handled cleanly, either by updating existing entry or allowing multiple with clear UI.
+
+Regression checks:
+- No blank screens.
+- No console errors.
+- No broken imports.
+- No undefined component references.
+- No duplicate sidebar selected states.
+- No horizontal overflow.
+- Existing Meeting Recorder functionality still works after being embedded.
+- Existing Calendar functionality still works.
+
+Deliverables:
+1. Implement the UI and backend changes.
+2. Add regression tests.
+3. Run the relevant test suite.
+4. Run build/typecheck if available.
+5. Provide a final summary with:
+   - files changed
+   - tests added
+   - validation results
+   - any known limitations

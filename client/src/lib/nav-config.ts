@@ -128,7 +128,6 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "inbox",           label: "Inbox & Mail",       route: "/gmail",                  icon: Mail },
       { id: "tasks",           label: "Tasks",              route: "/execution/tasks",        icon: CheckSquare },
       { id: "calendar",        label: "Calendar & Meetings",route: "/execution/calendar",     icon: CalendarClock, permKey: "calendar" },
-      { id: "meeting-notes",   label: "Meeting Recorder",   route: "/meeting-notes",          icon: Mic },
       { id: "daily-exec",      label: "Daily Execution",    route: "/execution/daily",        icon: CalendarDays },
       // nav-drift phase 4B: { label: "Digest Settings", route: "/alerts-digest" } — accessible via ⌘K
     ],
@@ -448,7 +447,7 @@ export const PAGE_NAV_INDEX: PageNavEntry[] = [
   { name: "Daily Execution",   url: "/execution/daily",         section: "Work" },
   { name: "Calendar & Meetings",url: "/execution/calendar",     section: "Work", aliases: ["Calendar"] },
   { name: "Work Calendar",     url: "/work/team-calendar",      section: "Work", aliases: ["Team Calendar"] },
-  { name: "Meeting Notes",     url: "/meeting-notes",           section: "Work" },
+  { name: "Meeting Notes",     url: "/execution/calendar",      section: "Work", aliases: ["Meeting Recorder", "Recorder"] },
   { name: "Activity Feed",     url: "/activity",                section: "Work", aliases: ["Activity"] },
   { name: "Travel",            url: "/my-travel",               section: "Work", aliases: ["My Travel"] },
   { name: "Personal Settings", url: "/settings/personal",       section: "Work" },

@@ -183,6 +183,7 @@ import {
 } from "./services/meeting-notes-service";
 import { populateParticipantsFromEmails, getUserEmail } from "./services/participant-matcher";
 import { validateAudioChunk, storeChunk } from "./services/meeting-notes-audio";
+import { processDailyDownload, storeDailyChunk } from "./services/daily-downloads-service";
 import { transcribeMeetingNote } from "./services/meeting-notes-transcription";
 import { processWithAI } from "./services/meeting-notes-ai";
 import { buildOpenAIModelParams } from "./services/openai-compat";
@@ -41812,6 +41813,202 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     } catch (err: any) {
       console.error("[drilldown-export] GET /api/marketing/drilldown/export:", err.message);
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Daily Downloads ─────────────────────────────────────────────────────────
+
+  // GET /api/daily-downloads/today — current user's today entry
+  app.get("/api/daily-downloads/today", requireAuth, async (req: any, res) => {
+    const user = req.user as any;
+    try {
+      const result = await db.execute(sql.raw(
+        `SELECT dd.*, u.name as user_name
+         FROM daily_downloads dd
+         JOIN users u ON u.id = dd.user_id
+         WHERE dd.user_id = ${Number(user.id)} AND dd.date = CURRENT_DATE
+         ORDER BY dd.created_at DESC LIMIT 1`
+      ));
+      const rows = (result as any).rows ?? (result as any);
+      if (!Array.isArray(rows) || !rows.length) return res.json(null);
+      return res.json(rows[0]);
+    } catch (err: any) {
+      console.error("[daily-downloads] GET /today:", err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/daily-downloads/recent — recent team-visible completed downloads (last 14 days)
+  app.get("/api/daily-downloads/recent", requireAuth, async (req: any, res) => {
+    try {
+      const result = await db.execute(sql.raw(
+        `SELECT dd.*, u.name as user_name
+         FROM daily_downloads dd
+         JOIN users u ON u.id = dd.user_id
+         WHERE dd.date >= CURRENT_DATE - INTERVAL '14 days'
+           AND dd.visibility = 'team'
+           AND dd.status = 'completed'
+         ORDER BY dd.date DESC, dd.created_at DESC
+         LIMIT 20`
+      ));
+      const rows = (result as any).rows ?? (result as any);
+      return res.json(Array.isArray(rows) ? rows : []);
+    } catch (err: any) {
+      console.error("[daily-downloads] GET /recent:", err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/daily-downloads — create a new entry for today
+  app.post("/api/daily-downloads", requireAuth, async (req: any, res) => {
+    const user = req.user as any;
+    const visibility = req.body?.visibility === "private" ? "private" : "team";
+    const title = req.body?.title ? String(req.body.title).replace(/'/g, "''").slice(0, 200) : null;
+    try {
+      const result = await db.execute(sql.raw(
+        `INSERT INTO daily_downloads (user_id, date, title, visibility, status)
+         VALUES (${Number(user.id)}, CURRENT_DATE, ${title ? `'${title}'` : "NULL"}, '${visibility}', 'draft')
+         RETURNING *`
+      ));
+      const rows = (result as any).rows ?? (result as any);
+      return res.json(Array.isArray(rows) ? rows[0] : rows);
+    } catch (err: any) {
+      console.error("[daily-downloads] POST:", err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/daily-downloads/:id
+  app.get("/api/daily-downloads/:id", requireAuth, async (req: any, res) => {
+    const user = req.user as any;
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid id" });
+    try {
+      const result = await db.execute(sql.raw(
+        `SELECT dd.*, u.name as user_name
+         FROM daily_downloads dd
+         JOIN users u ON u.id = dd.user_id
+         WHERE dd.id = ${id}
+           AND (dd.user_id = ${Number(user.id)} OR (dd.visibility = 'team' AND dd.status = 'completed'))`
+      ));
+      const rows = (result as any).rows ?? (result as any);
+      if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ message: "Not found" });
+      return res.json(rows[0]);
+    } catch (err: any) {
+      console.error("[daily-downloads] GET /:id:", err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/daily-downloads/:id
+  app.patch("/api/daily-downloads/:id", requireAuth, async (req: any, res) => {
+    const user = req.user as any;
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid id" });
+    const sets: string[] = [];
+    if (req.body?.title !== undefined) sets.push(`title = '${String(req.body.title).replace(/'/g, "''").slice(0, 200)}'`);
+    if (req.body?.visibility === "private" || req.body?.visibility === "team") sets.push(`visibility = '${req.body.visibility}'`);
+    if (!sets.length) return res.status(400).json({ message: "No fields to update" });
+    sets.push("updated_at = NOW()");
+    try {
+      const result = await db.execute(sql.raw(
+        `UPDATE daily_downloads SET ${sets.join(", ")}
+         WHERE id = ${id} AND user_id = ${Number(user.id)}
+         RETURNING *`
+      ));
+      const rows = (result as any).rows ?? (result as any);
+      if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ message: "Not found or not authorized" });
+      return res.json(rows[0]);
+    } catch (err: any) {
+      console.error("[daily-downloads] PATCH /:id:", err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/daily-downloads/:id
+  app.delete("/api/daily-downloads/:id", requireAuth, async (req: any, res) => {
+    const user = req.user as any;
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid id" });
+    try {
+      const result = await db.execute(sql.raw(
+        `DELETE FROM daily_downloads WHERE id = ${id} AND user_id = ${Number(user.id)} RETURNING id`
+      ));
+      const rows = (result as any).rows ?? (result as any);
+      if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ message: "Not found or not authorized" });
+      return res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[daily-downloads] DELETE /:id:", err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/daily-downloads/:id/start — mark as recording (from draft or failed)
+  app.post("/api/daily-downloads/:id/start", requireAuth, async (req: any, res) => {
+    const user = req.user as any;
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid id" });
+    try {
+      const result = await db.execute(sql.raw(
+        `UPDATE daily_downloads SET status = 'recording', chunk_count = 0, updated_at = NOW()
+         WHERE id = ${id} AND user_id = ${Number(user.id)} AND status IN ('draft', 'failed', 'completed')
+         RETURNING *`
+      ));
+      const rows = (result as any).rows ?? (result as any);
+      if (!Array.isArray(rows) || !rows.length) return res.status(409).json({ message: "Cannot start recording in current state" });
+      return res.json(rows[0]);
+    } catch (err: any) {
+      console.error("[daily-downloads] /start:", err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/daily-downloads/:id/audio-chunk — receive audio binary chunk
+  app.post("/api/daily-downloads/:id/audio-chunk", requireAuth, async (req: any, res) => {
+    const user = req.user as any;
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid id" });
+    const ct = String(req.headers["content-type"] ?? "");
+    if (!ct.startsWith("audio/")) return res.status(415).json({ message: "Content-Type must be audio/*" });
+    try {
+      const check = await db.execute(sql.raw(
+        `SELECT status FROM daily_downloads WHERE id = ${id} AND user_id = ${Number(user.id)}`
+      ));
+      const checkRows = (check as any).rows ?? (check as any);
+      if (!Array.isArray(checkRows) || !checkRows.length) return res.status(404).json({ message: "Not found" });
+      if (checkRows[0].status !== "recording") return res.status(409).json({ message: `Not recording (status: ${checkRows[0].status})` });
+
+      const { bytes } = await storeDailyChunk(id, req);
+      if (bytes > 0) {
+        await db.execute(sql.raw(
+          `UPDATE daily_downloads SET chunk_count = chunk_count + 1, updated_at = NOW() WHERE id = ${id}`
+        ));
+      }
+      return res.json({ ok: true, bytes });
+    } catch (err: any) {
+      console.error("[daily-downloads] audio-chunk:", err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/daily-downloads/:id/stop — stop recording and trigger AI processing
+  app.post("/api/daily-downloads/:id/stop", requireAuth, async (req: any, res) => {
+    const user = req.user as any;
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid id" });
+    try {
+      const result = await db.execute(sql.raw(
+        `UPDATE daily_downloads SET status = 'processing', updated_at = NOW()
+         WHERE id = ${id} AND user_id = ${Number(user.id)} AND status = 'recording'
+         RETURNING *`
+      ));
+      const rows = (result as any).rows ?? (result as any);
+      if (!Array.isArray(rows) || !rows.length) return res.status(409).json({ message: "Not in recording state" });
+      processDailyDownload(id).catch(err => console.error("[daily-downloads] async process error:", err.message));
+      return res.json(rows[0]);
+    } catch (err: any) {
+      console.error("[daily-downloads] /stop:", err.message);
+      return res.status(500).json({ message: err.message });
     }
   });
 

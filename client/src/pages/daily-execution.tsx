@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { UniversalDrilldownSheet, type UniversalDrilldownConfig } from "@/components/shared/universal-drilldown-sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -14,6 +14,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, Bell, Users, Sparkles,
   Search, RefreshCw, ChevronRight, Building2, Zap, SlidersHorizontal,
   TrendingUp, Calendar, MoreHorizontal, CircleCheck, X,
+  Mic, Square, Download, Loader2, ChevronDown, Globe, Lock,
 } from "lucide-react";
 
 interface ExecutionTask {
@@ -256,6 +257,352 @@ function Section({
   );
 }
 
+type DailyDownload = {
+  id: number;
+  user_id: number;
+  user_name: string;
+  date: string;
+  title: string | null;
+  status: string;
+  visibility: string;
+  transcript: string | null;
+  summary_bullets: string[] | null;
+  wins: string[] | null;
+  blockers: string[] | null;
+  follow_ups: string[] | null;
+  duration_seconds: number | null;
+  chunk_count: number;
+  created_at: string;
+};
+
+type DlUiState = "idle" | "requesting" | "recording" | "processing" | "done" | "failed";
+
+function MyDailyDownload() {
+  const { toast } = useToast();
+  const [uiState, setUiState] = useState<DlUiState>("idle");
+  const [elapsed, setElapsed] = useState(0);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const mrRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const { data: today, refetch: refetchToday } = useQuery<DailyDownload | null>({
+    queryKey: ["/api/daily-downloads/today"],
+    staleTime: 30_000,
+    refetchInterval: uiState === "processing" ? 4000 : false,
+  });
+
+  const { data: recent = [] } = useQuery<DailyDownload[]>({
+    queryKey: ["/api/daily-downloads/recent"],
+    staleTime: 120_000,
+  });
+
+  useEffect(() => {
+    if (!today) return;
+    if (today.status === "completed" && uiState !== "done") {
+      setUiState("done");
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-downloads/recent"] });
+    } else if (today.status === "failed" && uiState !== "failed") {
+      setUiState("failed");
+    }
+  }, [today?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const createMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/daily-downloads", { visibility: "team" }),
+    onSuccess: async (res) => {
+      const dl: DailyDownload = await res.json();
+      await apiRequest("POST", `/api/daily-downloads/${dl.id}/start`);
+      setActiveId(dl.id);
+      await beginRecording(dl.id);
+      refetchToday();
+    },
+    onError: () => toast({ title: "Failed to create daily download", variant: "destructive" }),
+  });
+
+  async function beginRecording(dlId: number) {
+    setUiState("requesting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const mr = new MediaRecorder(stream, { mimeType });
+      mrRef.current = mr;
+      setElapsed(0);
+      timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+
+      mr.ondataavailable = async (e) => {
+        if (e.data.size > 0) {
+          try {
+            await fetch(`/api/daily-downloads/${dlId}/audio-chunk`, {
+              method: "POST",
+              headers: { "Content-Type": "audio/webm" },
+              body: e.data,
+            });
+          } catch { /* non-fatal */ }
+        }
+      };
+
+      mr.onstop = async () => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        streamRef.current?.getTracks().forEach(t => t.stop());
+        setUiState("processing");
+        try {
+          await apiRequest("POST", `/api/daily-downloads/${dlId}/stop`);
+        } catch {
+          setUiState("failed");
+        }
+        refetchToday();
+      };
+
+      mr.start(1500);
+      setUiState("recording");
+    } catch {
+      setUiState("idle");
+      toast({ title: "Microphone access required", description: "Allow mic access to record your daily download.", variant: "destructive" });
+    }
+  }
+
+  function handleStart() {
+    if (today && today.status === "completed") {
+      createMutation.mutate();
+      return;
+    }
+    if (today && (today.status === "draft" || today.status === "failed")) {
+      setActiveId(today.id);
+      apiRequest("POST", `/api/daily-downloads/${today.id}/start`)
+        .then(() => beginRecording(today.id))
+        .catch(() => toast({ title: "Could not start recording", variant: "destructive" }));
+      return;
+    }
+    createMutation.mutate();
+  }
+
+  function handleStop() {
+    if (mrRef.current && mrRef.current.state === "recording") {
+      mrRef.current.stop();
+    }
+  }
+
+  const dl = today;
+  const serverStatus = dl?.status ?? "";
+  const showProcessing = uiState === "processing" || serverStatus === "processing";
+  const showDone = (uiState === "done" || serverStatus === "completed") && !!dl && !showProcessing;
+  const showFailed = (uiState === "failed" || serverStatus === "failed") && !showProcessing;
+  const showRecording = uiState === "recording";
+  const showIdle = !showProcessing && !showDone && !showFailed && !showRecording && uiState !== "requesting";
+  const todayLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+
+  return (
+    <div className="rounded-xl border bg-card overflow-hidden" data-testid="my-daily-download-card">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/50">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+            <Download className="w-3.5 h-3.5 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold">My Daily Download</h3>
+            <p className="text-[11px] text-muted-foreground">
+              Record what you did today. VoltSafe turns it into a short team-readable summary.
+            </p>
+          </div>
+        </div>
+        {showDone && dl && (
+          <Badge variant="outline" className={`text-[10px] shrink-0 ${dl.visibility === "team" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-muted text-muted-foreground"}`}>
+            {dl.visibility === "team"
+              ? <><Globe className="w-2.5 h-2.5 mr-1" />Visible to team</>
+              : <><Lock className="w-2.5 h-2.5 mr-1" />Private</>}
+          </Badge>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="px-4 py-4 space-y-4">
+        {/* IDLE */}
+        {showIdle && (
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <p className="text-sm text-muted-foreground flex-1">
+              <span className="font-medium text-foreground">{todayLabel} — </span>
+              No recording yet. Speak for 30–120 seconds about what you accomplished today.
+            </p>
+            <Button
+              size="sm"
+              onClick={handleStart}
+              disabled={createMutation.isPending}
+              data-testid="button-start-daily-download"
+              className="shrink-0"
+            >
+              {createMutation.isPending
+                ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                : <Mic className="w-3.5 h-3.5 mr-1.5" />}
+              Start Recording
+            </Button>
+          </div>
+        )}
+
+        {/* REQUESTING MIC */}
+        {uiState === "requesting" && (
+          <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Requesting microphone access…</span>
+          </div>
+        )}
+
+        {/* RECORDING */}
+        {showRecording && (
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <div className="flex items-center gap-2 flex-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+              <span className="text-sm font-medium text-red-500">Recording</span>
+              <span className="text-sm font-mono text-muted-foreground">
+                {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}
+              </span>
+              <span className="text-xs text-muted-foreground hidden sm:inline">Speak about what you did today.</span>
+            </div>
+            <Button size="sm" variant="destructive" onClick={handleStop} data-testid="button-stop-daily-download" className="shrink-0">
+              <Square className="w-3 h-3 mr-1.5 fill-current" />
+              Stop Recording
+            </Button>
+          </div>
+        )}
+
+        {/* PROCESSING */}
+        {showProcessing && (
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <Loader2 className="w-7 h-7 text-primary animate-spin" />
+            <p className="text-sm font-medium">Generating your summary…</p>
+            <p className="text-xs text-muted-foreground">Transcribing and extracting insights. Usually 30–90 seconds.</p>
+          </div>
+        )}
+
+        {/* FAILED */}
+        {showFailed && (
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <div className="flex items-center gap-2 flex-1 text-sm">
+              <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+              <span className="text-muted-foreground">Processing failed — please try recording again.</span>
+            </div>
+            <Button size="sm" variant="outline" onClick={handleStart} data-testid="button-retry-daily-download" className="shrink-0">
+              <Mic className="w-3.5 h-3.5 mr-1.5" />
+              Try Again
+            </Button>
+          </div>
+        )}
+
+        {/* DONE — show bullets + wins/blockers/follow-ups + transcript */}
+        {showDone && dl && (
+          <>
+            {dl.summary_bullets && dl.summary_bullets.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Today's Summary</p>
+                <ul className="space-y-1.5">
+                  {dl.summary_bullets.map((b, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className="text-primary mt-0.5 shrink-0">•</span>
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {((dl.wins?.length ?? 0) + (dl.blockers?.length ?? 0) + (dl.follow_ups?.length ?? 0)) > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {(dl.wins?.length ?? 0) > 0 && (
+                  <div className="rounded-lg bg-emerald-500/8 border border-emerald-500/20 px-3 py-2">
+                    <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide mb-1.5">Wins</p>
+                    {dl.wins!.map((w, i) => <p key={i} className="text-xs leading-snug">{w}</p>)}
+                  </div>
+                )}
+                {(dl.blockers?.length ?? 0) > 0 && (
+                  <div className="rounded-lg bg-red-500/8 border border-red-500/20 px-3 py-2">
+                    <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-1.5">Blockers</p>
+                    {dl.blockers!.map((b, i) => <p key={i} className="text-xs leading-snug">{b}</p>)}
+                  </div>
+                )}
+                {(dl.follow_ups?.length ?? 0) > 0 && (
+                  <div className="rounded-lg bg-blue-500/8 border border-blue-500/20 px-3 py-2">
+                    <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mb-1.5">Follow-ups</p>
+                    {dl.follow_ups!.map((f, i) => <p key={i} className="text-xs leading-snug">{f}</p>)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {dl.transcript && (
+              <div>
+                <button
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setShowTranscript(s => !s)}
+                  data-testid="button-toggle-transcript-daily"
+                >
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showTranscript ? "rotate-180" : ""}`} />
+                  {showTranscript ? "Hide" : "Show"} full transcript
+                </button>
+                {showTranscript && (
+                  <div className="mt-2 rounded-lg bg-muted/30 border border-border/50 px-3 py-2.5 max-h-40 overflow-y-auto">
+                    <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">{dl.transcript}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleStart} data-testid="button-re-record-daily">
+                <Mic className="w-3 h-3 mr-1" />
+                Re-record today
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Team Downloads section */}
+      {recent.length > 0 && (
+        <div className="border-t border-border/50">
+          <button
+            className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setShowHistory(s => !s)}
+            data-testid="button-toggle-team-downloads"
+          >
+            <Users className="w-3.5 h-3.5" />
+            Team Downloads ({recent.length})
+            <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${showHistory ? "rotate-180" : ""}`} />
+          </button>
+          {showHistory && (
+            <div className="flex flex-col divide-y divide-border/30">
+              {recent.map(r => (
+                <div key={r.id} className="flex items-start gap-3 px-4 py-3" data-testid={`team-download-${r.id}`}>
+                  <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0 mt-0.5">
+                    {(r.user_name || "?")[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">{r.user_name}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(r.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                      </span>
+                    </div>
+                    {r.summary_bullets && r.summary_bullets.length > 0 && (
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                        {r.summary_bullets[0]}{r.summary_bullets.length > 1 ? ` +${r.summary_bullets.length - 1} more` : ""}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DailyExecutionPage() {
   const { toast } = useToast();
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -420,6 +767,9 @@ export default function DailyExecutionPage() {
           ))}
         </div>
       )}
+
+      {/* My Daily Download */}
+      <MyDailyDownload />
 
       {/* Filters */}
       <div className="flex items-center gap-2 flex-wrap">

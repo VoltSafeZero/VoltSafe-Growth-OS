@@ -108,6 +108,7 @@ import {
 } from "date-fns";
 import type { CalendarEvent } from "@shared/schema";
 import { Checkbox } from "@/components/ui/checkbox";
+import MeetingNotesList from "@/components/meeting-notes/meeting-notes-list";
 
 type ViewMode = "month" | "week" | "day";
 
@@ -2466,6 +2467,11 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
             );
           })()}
         </div>
+      </div>
+
+      {/* ── Meetings & Recorder — integrated below calendar ──────────────── */}
+      <div className="rounded-xl border border-border/50 bg-card p-4 sm:p-6" data-testid="calendar-meeting-notes-section">
+        <MeetingNotesList />
       </div>
 
       {createOpen && (
