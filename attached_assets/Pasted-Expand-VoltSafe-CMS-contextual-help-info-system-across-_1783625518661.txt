@@ -1,0 +1,434 @@
+Expand VoltSafe CMS contextual help/info system across main tabs, subtabs, and fields.
+
+Context:
+The app now has info/help icons for main sidebar tabs, which is good. But screenshot shows:
+- Main tabs have help icons.
+- Subtabs like Capital → Command Center, Investors, Rounds & Commitments, Follow-Ups, Data Room, Engagement, Reports, AI Copilot, Updates & Reviews do NOT consistently have help/info icons.
+- Actual fields/cards inside those subtabs do NOT have contextual help.
+- Existing help copy is too vague. Example: Capital says "Fundraising workspace — investor pipeline, data room, follow-ups, and board reporting." That explains what it is, but not what the user should do, how to use it, or why it matters.
+
+Required outcome:
+Create a deeper, role-aware contextual help system that guides users at 3 levels:
+
+1. Main tabs
+2. Subtabs / child navigation items
+3. Actual page fields, cards, forms, metrics, buttons, and workflows
+
+The help should answer:
+- What is this?
+- What should I do here?
+- Why does it matter?
+- How often should I update it?
+- Who owns it?
+- What good looks like
+- Common mistakes to avoid
+- Related next action
+
+PART A — Add help icons to subtabs
+
+Every sidebar subtab should support a help icon using the existing FieldHelp / InfoIcon system.
+
+Apply to all child nav items, including but not limited to:
+
+Capital:
+- Command Center
+- Investors
+- Rounds & Commitments
+- Follow-Ups
+- Data Room
+- Engagement
+- Reports
+- AI Copilot
+- Updates & Reviews
+
+Work:
+- Mission Control
+- Inbox & Mail
+- Tasks
+- Calendar & Meetings
+- Daily Execution
+
+Pipeline:
+- Leads
+- Accounts
+- Contacts
+- Opportunities / Deals if present
+- Activity / CRM Review if present
+
+Operations:
+- relevant child tabs
+
+Insights:
+- Relationship Intelligence
+- Cortex
+- Simulators & Feedback
+
+Admin:
+- Users & Roles
+- Integrations
+- Mailboxes & Signatures
+- System Settings
+- Automations
+- Task Hub Access
+- Role Manager
+- Search
+- User Signatures
+
+Any other sidebar child nav items should be covered too.
+
+Implementation:
+- Extend SECTION_HELP_KEYS or equivalent to support child nav keys, not only parent/main nav sections.
+- Add stable help keys for every subtab.
+- Make sure parent chevrons and subtab info icons do not overlap.
+- Info icons should be visible but subtle.
+- Tooltips/popovers should open on click or hover according to existing FieldHelp behavior.
+- Must work in light and dark mode.
+
+PART B — Improve help content quality
+
+Replace vague one-liners with useful guidance.
+
+Each help entry should support richer structure:
+
+Suggested schema:
+{
+  title: string,
+  summary: string,
+  whatToDo: string[],
+  whyItMatters: string,
+  owner: string,
+  updateCadence: string,
+  goodLooksLike: string[],
+  commonMistakes: string[],
+  relatedActions: string[]
+}
+
+If current FieldHelp only supports title/body/category, extend it cleanly.
+
+Example for Capital:
+Title: Capital
+Summary: Manage VoltSafe fundraising, investor relationships, round progress, data-room assets, and board/investor updates.
+What to do:
+- Keep every investor assigned to a stage.
+- Log follow-ups after every investor interaction.
+- Keep round targets, committed capital, and probability-weighted pipeline current.
+- Upload current pitch deck, financial model, diligence files, and monthly updates.
+Why it matters:
+- This prevents investor conversations from slipping, keeps the raise forecast real, and gives leadership one source of truth for capital strategy.
+Owner:
+- CEO / CFO
+Update cadence:
+- Weekly during active fundraising; immediately after investor conversations.
+Good looks like:
+- Every active investor has a next step and owner.
+- No stale follow-ups older than 7 days.
+- Data room has current docs.
+- Round progress matches actual commitments.
+Common mistakes:
+- Leaving investors in generic stages.
+- Not recording soft commitments.
+- Letting old decks/models remain live.
+Related actions:
+- Add investor
+- Create follow-up
+- Upload data-room file
+- Generate investor update
+
+Example for Capital → Rounds & Commitments:
+Title: Rounds & Commitments
+Summary: Track each financing round, target amount, committed capital, investor status, close probability, and key dates.
+What to do:
+- Create one active round for the current raise.
+- Add target amount, valuation assumptions, close timeline, and round owner.
+- Link investors and commitments to the correct round.
+- Update soft circled, verbally committed, signed, and wired amounts separately.
+Why it matters:
+- Leadership needs to know the real fundraising gap, not the happy spreadsheet version.
+Owner:
+- CEO / CFO
+Update cadence:
+- After every investor update; minimum weekly during raise.
+Good looks like:
+- Target, committed, soft circled, and remaining gap are clear.
+- Every commitment has an investor, amount, stage, owner, and close date.
+Common mistakes:
+- Mixing soft interest with signed commitments.
+- Counting the same investor twice.
+- Forgetting to update close probability.
+Related actions:
+- Add round
+- Add commitment
+- Review investor follow-ups
+- Generate board update
+
+PART C — Add page-level help headers
+
+Each major page/subtab should have a visible page-level info/help icon near the page title.
+
+Examples:
+- Funding Rounds title should have an info icon beside it.
+- Investors page title should have an info icon.
+- Command Center title should have an info icon.
+- User Management title should have an info icon.
+- Tasks Hub title should have an info icon.
+- Calendar title should have an info icon.
+- Revenue Simulator title should have an info icon.
+
+This page-level help should explain:
+- Purpose of the page
+- What user should do first
+- What data drives the page
+- How to keep it accurate
+
+PART D — Add field/card/button-level help
+
+Add info/help icons beside important fields and metrics.
+
+Capital examples:
+- Active target
+- Round target
+- Pre-money valuation
+- Committed amount
+- Soft circled amount
+- Probability / confidence
+- Investor stage
+- Next follow-up date
+- Data room status
+- Investor engagement score
+- Last touched
+- Update sent
+- AI Copilot output
+- Board update status
+
+CRM/Pipeline examples:
+- Lead status
+- Account type
+- Segment
+- Opportunity stage
+- Deal value
+- Forecast category
+- Close date
+- Last activity
+- Next step
+- Owner
+- CRM Review
+
+Tasks examples:
+- Due date
+- Group by due date
+- Delegated
+- Team tasks
+- Overdue
+- Suggestions
+- Archived
+
+Calendar/Meetings examples:
+- Open focus window
+- Follow-up due
+- Meeting recorder
+- Daily rollup
+- People calendars
+
+Admin/User Management examples:
+- Role
+- Admin Access
+- Department
+- User Type
+- Task Hub Access
+- Mailbox access
+- Role Manager
+- Integrations
+- Automations
+
+Mail examples:
+- Work Inbox
+- Team Inboxes
+- Private Inboxes
+- CRM Review
+- Pinned
+- Scheduled
+- Shared mailbox
+- Private mailbox
+- Unread count
+
+Implementation:
+- Add a reusable FieldHelp component beside labels.
+- Avoid visual clutter: use compact icons, but make them available where users need guidance.
+- For dense tables, show help in header cells rather than every row.
+- For repeated cards, show help in the section header, not every card.
+
+PART E — Role-aware help copy
+
+Help should adapt slightly based on user role where useful.
+
+Examples:
+Executive:
+- Explain how the page affects strategy, cash, revenue, investors, and decision-making.
+
+Sales:
+- Explain what actions drive pipeline, follow-ups, and customer movement.
+
+Engineering:
+- Explain what is needed for delivery, blockers, certification, releases, and QA.
+
+Admin:
+- Explain system impact and permissions risk.
+
+Advisor:
+- Explain what they can view, comment on, or contribute without exposing admin/sensitive controls.
+
+Do not overcomplicate this in v1. Start with default help copy, then optionally add role-specific notes where obvious.
+
+PART F — Help content registry
+
+Create a central registry for help content.
+
+Do not scatter random tooltip strings across components.
+
+Suggested files:
+- client/src/lib/help/help-content.ts
+- client/src/lib/help/help-keys.ts
+- client/src/components/help/field-help.tsx
+
+The registry should include:
+- mainNav help keys
+- subNav help keys
+- page help keys
+- field help keys
+
+Example key naming:
+- nav.capital
+- nav.capital.commandCenter
+- nav.capital.roundsCommitments
+- page.capital.roundsCommitments
+- field.capital.roundTarget
+- field.capital.preMoneyValuation
+- field.user.role
+- field.user.adminAccess
+- field.mail.privateInboxes
+
+PART G — UI behavior
+
+Popover should be readable and useful:
+- Wider than the current tiny tooltip if needed.
+- Support headings and bullets.
+- Do not run off-screen.
+- Scroll internally if long.
+- Close on outside click and Escape.
+- Remain accessible by keyboard.
+- Use aria-label / aria-describedby.
+- Light/dark mode support.
+- Avoid covering the exact field the user is trying to understand where possible.
+
+PART H — Specific Capital help content to add first
+
+Add full help for all Capital subtabs:
+
+1. Capital → Command Center
+Purpose:
+Executive fundraising overview.
+What to do:
+Review raise health, investor pipeline, urgent follow-ups, current round progress, and next investor actions.
+Why:
+Keeps CEO/CFO aligned on runway, raise momentum, and capital risk.
+
+2. Capital → Investors
+Purpose:
+Track every investor relationship.
+What to do:
+Add investors, assign stage, owner, check size, thesis fit, last touch, and next step.
+Why:
+Prevents warm investor conversations from dying in inbox purgatory.
+
+3. Capital → Rounds & Commitments
+Purpose:
+Track financing rounds and money status.
+What to do:
+Separate target, soft circled, committed, signed, and wired amounts.
+Why:
+Fundraising math needs truth, not vibes.
+
+4. Capital → Follow-Ups
+Purpose:
+Keep investor follow-ups from slipping.
+What to do:
+Log next steps, due dates, owner, and follow-up status.
+Why:
+Most raises are lost in the follow-up gap.
+
+5. Capital → Data Room
+Purpose:
+Manage diligence files.
+What to do:
+Keep pitch deck, financial model, cap table, product docs, legal docs, and investor updates current.
+Why:
+A stale data room quietly kills momentum.
+
+6. Capital → Engagement
+Purpose:
+Measure investor attention.
+What to do:
+Track opens, clicks, replies, meetings, and high-intent signals.
+Why:
+Engagement shows who is actually leaning in.
+
+7. Capital → Reports
+Purpose:
+Create board/investor-ready capital reports.
+What to do:
+Review pipeline, commitments, risks, and next asks.
+Why:
+Good reporting makes decisions faster.
+
+8. Capital → AI Copilot
+Purpose:
+Use AI to summarize investor activity and suggest next actions.
+What to do:
+Review AI suggestions, verify facts, then draft updates or follow-ups.
+Why:
+AI should accelerate fundraising, not hallucinate your cap table.
+
+9. Capital → Updates & Reviews
+Purpose:
+Manage investor/board updates and review cycles.
+What to do:
+Prepare updates, track review status, and send only approved versions.
+Why:
+Consistent updates build investor trust.
+
+PART I — Tests / regression
+
+Add tests for:
+
+1. Sidebar main tabs still show help icons.
+2. Sidebar subtabs now show help icons when help keys exist.
+3. Capital subtabs all have help keys.
+4. FieldHelp no longer relies on literal italic "i".
+5. Help registry has no empty title/summary for required keys.
+6. Page-level help renders beside key page titles.
+7. Field-level help renders beside important fields.
+8. Popover supports structured content.
+9. Light/dark mode styling remains readable.
+10. Unknown help key fails gracefully without crashing.
+
+PART J — Verification
+
+After implementation:
+- Open Capital in sidebar.
+- Confirm every Capital subtab has an info icon.
+- Click Capital main info icon and confirm richer guidance appears.
+- Click Rounds & Commitments subtab info icon and confirm specific actionable guidance appears.
+- Open Rounds & Commitments page and confirm title/fields have help icons.
+- Confirm popovers are readable and not clipped.
+- Confirm no console errors.
+- Confirm light/dark mode.
+- Run new and existing help/sidebar tests.
+
+Report:
+- Exact files changed
+- Help schema added/updated
+- Number of help keys added
+- Which sections now have subtab help
+- Which pages now have page-level help
+- Which fields now have field-level help
+- Tests run and pass/fail count

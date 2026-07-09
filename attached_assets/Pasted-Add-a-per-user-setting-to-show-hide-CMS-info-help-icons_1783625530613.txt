@@ -1,0 +1,217 @@
+Add a per-user setting to show/hide CMS info/help icons globally.
+
+Context:
+We are expanding contextual help/info icons across VoltSafe CMS main tabs, subtabs, pages, fields, and workflows. That is useful for onboarding and training, but once users understand the system, too many info icons can become annoying.
+
+Required outcome:
+Every CMS user must be able to control whether they see contextual info/help icons throughout the CMS.
+
+Add a user-level setting:
+- Setting name: Show Help Icons
+- Default: On / true
+- Scope: per user
+- Applies across the entire CMS
+- Available to all users, regardless of role
+- User can turn it on/off from their own settings
+- Admins should not need to configure it for them
+
+A) Settings UI
+
+Add this setting to the user’s settings/preferences area.
+
+Suggested location:
+Settings → Preferences or Settings → Appearance / Experience
+
+Label:
+Show Help Icons
+
+Description:
+Show contextual info icons beside navigation items, pages, fields, and workflows.
+
+Control:
+Toggle switch:
+- On: show help/info icons throughout CMS
+- Off: hide help/info icons throughout CMS
+
+Default:
+- On for existing and new users
+
+B) Behavior
+
+When Show Help Icons = On:
+- Main sidebar help icons appear
+- Subtab help icons appear
+- Page-level help icons appear
+- Field/card/button help icons appear
+- Help popovers work normally
+
+When Show Help Icons = Off:
+- Hide all contextual help/info icons across the CMS
+- Do not render clickable empty spaces where icons used to be
+- Layout should close the gap cleanly
+- No tooltip/popover should trigger from hidden icons
+- Main functionality must be unchanged
+
+Important:
+This should only hide instructional/help icons.
+Do NOT hide:
+- alert icons
+- warning icons
+- status icons
+- unread badges
+- task icons
+- feature icons
+- required-field indicators
+- validation/error icons
+- security/lock icons
+- notification icons
+- actual navigation/module icons
+
+C) Implementation requirements
+
+1. Add user preference field
+Use existing user preference/settings storage if available.
+
+Suggested field:
+- showHelpIcons: boolean
+
+If there is an existing preferences JSON/object, add it there.
+If not, add a safe user preference model/migration.
+
+Default:
+- true
+
+2. Expose setting through API
+Update relevant user preferences endpoint so users can:
+- read showHelpIcons
+- update showHelpIcons for themselves
+
+Security:
+- Any authenticated user can update their own showHelpIcons value.
+- Users cannot update other users’ settings unless existing admin preference editing allows it.
+- This setting is not sensitive but still should respect ownership.
+
+3. Add client preference hook/context
+Create or extend existing current-user/preferences context.
+
+Need a simple helper:
+- useShowHelpIcons()
+or
+- useUserPreferences().showHelpIcons
+
+4. Update FieldHelp globally
+This must be centralized.
+
+Do not add random checks in every page manually if avoidable.
+
+Best approach:
+- Update FieldHelp component so it returns null when showHelpIcons is false.
+- Since all main/subtab/page/field help should use FieldHelp, this one change should hide nearly all help icons.
+- If there are other help components, route them through the same preference or shared helper.
+
+5. Sidebar behavior
+When help icons are hidden:
+- Sidebar rows should align cleanly.
+- Parent chevrons should remain aligned.
+- No blank right-side icon gap should remain unless needed for chevron alignment.
+- Existing nav icons remain visible.
+
+6. Page/field behavior
+When help icons are hidden:
+- Labels and titles should not have awkward spacing.
+- Forms should not shift badly.
+- Dense tables should remain aligned.
+- Do not remove label text.
+
+D) User Settings page copy
+
+Add a short explanation:
+
+Title:
+Help Icons
+
+Body:
+Turn off contextual help icons once you’re comfortable using VoltSafe CMS. You can turn them back on anytime.
+
+Toggle:
+Show Help Icons
+
+E) Persistence / default migration
+
+For existing users:
+- showHelpIcons should default to true if missing.
+- Do not require a migration that manually updates every user unless that is the existing pattern.
+- Backend/client should treat undefined as true.
+
+For new users:
+- create default preferences with showHelpIcons: true.
+
+F) Tests / regression
+
+Add tests for:
+
+1. Default behavior
+- Existing user with missing preference sees help icons.
+- New user defaults to showHelpIcons = true.
+
+2. Settings UI
+- Settings page renders Show Help Icons toggle.
+- Toggle reads current preference.
+- Toggle saves updated value.
+- Toggle persists after refresh/reload.
+
+3. Global hiding
+When showHelpIcons = false:
+- Main sidebar help icons are hidden.
+- Subtab help icons are hidden.
+- Page-level help icons are hidden.
+- Field-level help icons are hidden.
+- FieldHelp returns null or equivalent.
+- No help popover is triggerable.
+
+4. Global showing
+When showHelpIcons = true:
+- Help icons render normally.
+- Popovers still work.
+
+5. Layout
+- Sidebar layout remains clean with help icons hidden.
+- Field labels do not leave awkward blank spaces.
+- Parent chevrons still work.
+
+6. Safety
+- Warning/status/error/security icons are not hidden.
+- Notification badges and unread counts remain visible.
+- Navigation/module icons remain visible.
+
+7. Permissions
+- Standard user can update their own showHelpIcons preference.
+- User cannot update another user’s preference unless explicitly allowed by existing admin permissions.
+
+G) Verification
+
+After implementation:
+- Log in as Trevor.
+- Go to Settings.
+- Confirm Show Help Icons toggle exists and is ON by default.
+- Open sidebar and confirm help icons visible.
+- Turn Show Help Icons OFF.
+- Confirm:
+  - sidebar info icons disappear
+  - subtab info icons disappear
+  - page/field help icons disappear
+  - warning/status/notification icons remain
+  - layout still looks clean
+- Refresh page.
+- Confirm setting persists.
+- Turn back ON.
+- Confirm icons return.
+- Repeat quickly as a non-admin test user.
+- Run relevant tests.
+
+Report:
+- Files changed
+- Where preference is stored
+- API endpoint updated/created
+- Default behavior for existing users
+- Tests run and pass/fail count

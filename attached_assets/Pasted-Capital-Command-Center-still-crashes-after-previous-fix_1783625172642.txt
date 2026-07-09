@@ -1,0 +1,138 @@
+Capital → Command Center still crashes after previous fix.
+
+Current state:
+- Logged in as Trevor Burgess / admin.
+- Sidebar loads.
+- Capital expands.
+- Command Center is selected.
+- Main content still shows global error boundary:
+  "Something went wrong. An unexpected error occurred. Please reload and try again."
+
+This means the previous fix did not resolve the actual runtime exception.
+
+DO NOT guess this time.
+First capture the exact error stack trace from the browser console and the route/component stack, then fix that exact exception.
+
+Required investigation:
+
+1. Reproduce the crash directly
+- Open Capital → Command Center.
+- Also open the route directly by URL.
+- Capture browser console error.
+- Capture React error boundary stack/component name.
+- Capture network tab failures for any Capital API calls.
+
+2. Add temporary diagnostic logging if needed
+- Log which Capital Command Center component is rendering.
+- Log API response shapes before render.
+- Log any undefined/null props being passed into child components.
+- Remove noisy temporary logs before final.
+
+3. Find the exact source
+Search all Capital Command Center files and child components for unsafe render code:
+- .map(
+- .filter(
+- .reduce(
+- Object.keys(
+- Object.values(
+- Object.entries(
+- array destructuring
+- nested property access without optional chaining
+- date formatting on null/undefined
+- number formatting on null/undefined
+- chart components receiving undefined data
+- badge/status helpers receiving undefined values
+
+Likely affected areas:
+- client/src/pages/capital*
+- client/src/components/capital*
+- Capital command center route in App.tsx
+- nav route target for Capital → Command Center
+- capital API hooks
+- chart/metrics/card components used only by Command Center
+
+4. Check if route/component import is wrong
+Verify:
+- Sidebar Command Center route points to an existing route.
+- App/router has that exact route.
+- The route renders the correct component.
+- No stale import or renamed component remains.
+- No lazy import is failing.
+
+5. Check API response shape
+If the component expects arrays but API returns an object/error/null, normalize it.
+If API returns 401/403/500, handle it cleanly.
+If no data exists, show an empty state.
+
+Required fix:
+
+A) Command Center must never crash from missing/empty Capital data
+- Arrays default to [].
+- Objects default to {}.
+- Numbers default to 0.
+- Strings default to "—".
+- Dates default to null-safe display.
+- Charts receive [] instead of undefined.
+- Metrics cards receive safe values.
+- Lists render empty states.
+
+B) API errors must render inline
+Instead of the global error boundary, show:
+Title: "Capital Command Center"
+Message: "Capital data could not be loaded."
+Button: "Retry"
+Also log the real error in console/server logs.
+
+C) Empty state
+If there is no capital data yet, show:
+Title: "Capital Command Center"
+Message: "No capital activity is available yet."
+Do not crash.
+
+D) Route safety
+If any sub-widget crashes, isolate it.
+One bad card/widget must not take down the whole Command Center page.
+Use local guards or safe boundaries if existing patterns support it.
+
+E) Permission safety
+Trevor/master_admin/admin must be allowed.
+Unauthorized users should see a clean Not Authorized state, not this crash.
+
+Tests to add/update:
+
+1. Direct route render test
+- Capital Command Center route renders without throwing.
+
+2. Empty data test
+- Mock empty/null API response.
+- Page renders empty state, not global error boundary.
+
+3. API error test
+- Mock failed Capital API response.
+- Page renders inline error card, not global error boundary.
+
+4. Shape mismatch test
+- Mock API response where arrays are missing or replaced by error object.
+- Page still renders safely.
+
+5. Child component test
+- Any charts/lists/cards used by Command Center accept empty arrays/default values.
+
+6. Sidebar route test
+- Capital → Command Center nav path matches an actual registered route.
+
+Verification:
+- Restart app.
+- Log in as Trevor.
+- Click Capital → Command Center.
+- Confirm page loads.
+- Confirm no global "Something went wrong."
+- Confirm browser console has no uncaught exceptions.
+- Confirm network requests either succeed or fail gracefully.
+- Run relevant tests.
+- Report:
+  - exact console error/stack trace found
+  - exact root cause
+  - files changed
+  - tests added
+  - pass/fail count
