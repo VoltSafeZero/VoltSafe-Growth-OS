@@ -83,7 +83,7 @@ console.log("\n[1] nav-config.ts — section labels and item counts");
 
   // Work removed items NOT in nav (no route entry in items array)
   assert(!contains(src, 'id: "work-calendar"'),    "Work Calendar removed from sidebar items");
-  assert(!contains(src, 'id: "meeting-notes"'),    "Meeting Notes removed from sidebar items");
+  assert(contains(src, 'id: "meeting-notes"'),     "Meeting Recorder present in sidebar items");
   assert(!contains(src, 'id: "activity"'),          "Activity Feed removed from sidebar items");
   assert(!contains(src, 'id: "my-travel"'),         "Travel removed from sidebar items");
   assert(!contains(src, 'id: "personal-settings"'), "Personal Settings hub removed from sidebar");

@@ -140,17 +140,17 @@ has(
   /const rawBody = String[\s\S]{0,200}const hasPendingAttachments = req\.body\?\.hasPendingAttachments/
 );
 
-// ── 7. Backend: null body stored as NULL not empty string ─────────────────────
+// ── 7. Backend: empty body stored as '' not NULL (body TEXT NOT NULL constraint) ─
 console.log("\n7. Backend: NULL body storage");
 has(
-  "bodyFragment uses NULL when rawBody is empty",
+  "DM POST uses escapedBody (empty string) instead of SQL NULL",
   routesSrc,
-  /bodyFragment.*rawBody.*NULL|rawBody.*bodyFragment.*NULL/
+  /const escapedBody = rawBody\.replace/
 );
 has(
-  "INSERT uses bodyFragment variable",
+  "INSERT uses single-quoted escapedBody, never raw NULL",
   routesSrc,
-  /VALUES \(\$\{convId\}, \$\{userId\}, \$\{bodyFragment\}\)/
+  /VALUES \(\$\{convId\}, \$\{userId\}, '\$\{escapedBody\}'\)/
 );
 
 // ── 8. Backend: notification preview handles null body ────────────────────────
