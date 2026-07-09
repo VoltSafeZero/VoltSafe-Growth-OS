@@ -409,6 +409,36 @@ assert(
   recordFeedSrc.includes('title: "Some files failed to upload"')
 );
 
+// ── 17. DM attachment-only — body NOT NULL constraint fix ─────────────────────
+// The DM POST route previously used bodyFragment = "NULL" for empty body,
+// which violated the body TEXT NOT NULL DB constraint. It must now always
+// insert '' (empty string) so attachment-only DMs don't error out.
+
+console.log("\n17. DM body NOT NULL — no NULL insert on attachment-only");
+assert(
+  "DM POST route uses escaped empty string, never SQL NULL for body",
+  // Must NOT contain the old NULL path for body in the DM insert
+  !routesSrc.includes("? `'${rawBody.replace(/'/g, \"''\")}'\` : \"NULL\";")
+);
+assert(
+  "DM POST route uses escapedBody variable for insert",
+  routesSrc.includes("const escapedBody = rawBody.replace(/'/g, \"''\");")
+);
+assert(
+  "DM POST INSERT uses single-quoted escaped body (never raw NULL)",
+  (() => {
+    // The insert must use '${escapedBody}' pattern, not ${bodyFragment}
+    const dmInsertBlock = routesSrc.match(
+      /INSERT INTO current_messages \(conversation_id, user_id, body\)[\s\S]{0,200}RETURNING/
+    )?.[0] ?? "";
+    return dmInsertBlock.includes("escapedBody") && !dmInsertBlock.includes("bodyFragment");
+  })()
+);
+assert(
+  "DM POST validation still allows attachment-only (hasPendingAttachments guard present)",
+  routesSrc.includes("!rawBody && !hasPendingAttachments")
+);
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 console.log(`\n${"─".repeat(50)}`);

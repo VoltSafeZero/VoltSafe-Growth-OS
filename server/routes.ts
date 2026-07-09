@@ -38304,10 +38304,10 @@ export function registerConfluenceRoutes(app: Express) {
       ));
       if (!memberCheck.rows.length)
         return res.status(403).json({ message: "Not a member of this conversation" });
-      const bodyFragment = rawBody ? `'${rawBody.replace(/'/g, "''")}'` : "NULL";
+      const escapedBody = rawBody.replace(/'/g, "''");
       const ins = await db.execute(sql.raw(`
         INSERT INTO current_messages (conversation_id, user_id, body)
-        VALUES (${convId}, ${userId}, ${bodyFragment})
+        VALUES (${convId}, ${userId}, '${escapedBody}')
         RETURNING id, conversation_id, user_id, body, is_edited, created_at
       `));
       const msg = ins.rows[0];
