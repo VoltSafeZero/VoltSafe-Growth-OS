@@ -1,0 +1,394 @@
+Expand and clean up VoltSafe CMS user roles, admin privileges, and permissions model.
+
+Context:
+In Admin → Users & Roles, the current Role dropdown includes:
+- Master Admin
+- Admin
+- Manager
+- Engineer
+- Sales
+- Customer Success
+- Analyst
+- Advisor
+- Read Only
+- Brand & Creative Director
+
+This is wrong for the long-term VoltSafe CMS permission model.
+
+Required changes:
+
+A) Separate “Admin Access” from “Role”
+Admin and Master Admin should NOT be normal user roles.
+
+They should become a separate admin/superuser permission field controlled only by authorized admins.
+
+New structure should be:
+
+1. Role
+This describes the person’s company function:
+- Executive
+- Manager
+- Sales
+- Customer Success
+- Software Engineer
+- Hardware Engineer
+- Finance & Accounting
+- Marketing & Communications
+- Brand & Creative Director
+- Operations
+- Analyst
+- Advisor
+- Read Only
+
+2. Admin Access / System Access Level
+This describes system power:
+- None
+- Admin
+- Master Admin
+
+Important:
+- A user can be Executive with Admin Access = None.
+- A user can be Executive with Admin Access = Admin.
+- A user can be Executive with Admin Access = Master Admin.
+- Admin/Master Admin should grant system-level permissions, not replace the user’s real business role.
+
+B) Add Executive role
+Add “Executive” to the Role list.
+
+Use this for VoltSafe executive team:
+- Trevor Burgess — CEO
+- Scott Carlson — CFO
+- Terri Breker — CMO
+- Sanad Aridah — CTO
+
+Executive role should have access to executive/business-level areas including:
+- Mission Control
+- Revenue Ops
+- Capital
+- Board Pack
+- Forecasting
+- Company dashboards
+- Team inbox overview where permitted
+- Simulators & Feedback
+- Relationship Intelligence
+- Cortex / Executive Copilot
+- High-level reporting
+- Strategic planning widgets
+
+Executive role should NOT automatically mean Master Admin.
+System admin access must still come from the separate Admin Access field.
+
+C) Replace Engineer role
+Remove/retire the generic “Engineer” role.
+
+Replace it with:
+- Software Engineer
+- Hardware Engineer
+
+Permission expectations:
+
+Software Engineer:
+- Product/software modules
+- System health
+- Bug queue
+- Release readiness
+- QA blockers
+- Feature requests
+- Engineering tasks
+- Limited operational/customer context only as needed
+- No default access to sensitive finance/capital/revenue simulator areas unless separately granted
+
+Hardware Engineer:
+- Hardware/product modules
+- Certification blockers
+- Testing/validation
+- Supplier/manufacturing tasks where relevant
+- Deployment/field issues where relevant
+- Engineering tasks
+- Limited operational/customer context only as needed
+- No default access to sensitive finance/capital/revenue simulator areas unless separately granted
+
+D) Finance & Accounting role
+Add or formalize “Finance & Accounting” as a role.
+
+Use this for Scott if needed, but Scott should likely be:
+- Role: Executive
+- Department: Finance & Accounting
+- Job Title: CFO
+- Admin Access: Admin or None, depending on what Trevor chooses
+
+Finance & Accounting role should access:
+- Finance widgets
+- Cash Pulse
+- AR / Collections
+- Burn Watch
+- Budget Variance
+- Purchase approvals
+- Capital/reporting if explicitly allowed by permissions
+
+E) Marketing & Communications role
+Add or formalize “Marketing & Communications” as a role.
+
+Use for marketing/comms employees who are not executives.
+
+Marketing & Communications should access:
+- Marketing
+- Campaigns
+- Brand assets
+- Content/tasks
+- CRM context needed for campaigns
+- No default access to admin/system/security settings
+
+Terri should likely be:
+- Role: Executive
+- Department: Marketing & Communications
+- Job Title: CMO
+- Admin Access: Admin or None, depending on Trevor’s choice
+
+F) CTO handling
+Sanad should likely be:
+- Role: Executive
+- Department: Engineering
+- Job Title: CTO
+- Admin Access: Admin or None, depending on Trevor’s choice
+
+Do not force CTO into Software Engineer or Hardware Engineer. CTO is Executive.
+
+G) CEO handling
+Trevor should likely be:
+- Role: Executive
+- Department: ALL or Executive
+- Job Title: Founder | CEO
+- Admin Access: Master Admin
+
+H) Data model changes
+Find current user schema fields. Current screenshot/profile suggests fields like:
+- globalRole
+- department
+- jobTitle
+- userType
+- role
+
+Refactor carefully.
+
+Recommended model:
+- role: business role, enum/string
+- adminAccess: none | admin | master_admin
+- department: existing department value
+- jobTitle: free text
+- userType: internal | external or existing values
+
+If the existing backend currently uses globalRole for admin permissions:
+- Keep globalRole for backward compatibility if needed.
+- Add a migration/path so:
+  - globalRole = master_admin becomes adminAccess = master_admin
+  - globalRole = admin becomes adminAccess = admin
+  - all others become adminAccess = none
+- Do not keep Admin/Master Admin in the role dropdown.
+- Permission checks should use adminAccess for admin/system powers.
+- Business-feature checks should use role + department + explicit permissions.
+
+I) UI changes in Admin → Users & Roles
+Update the user detail panel:
+
+Current:
+- Role dropdown includes Admin and Master Admin.
+
+Required:
+1. Role dropdown should only include business roles:
+   - Executive
+   - Manager
+   - Sales
+   - Customer Success
+   - Software Engineer
+   - Hardware Engineer
+   - Finance & Accounting
+   - Marketing & Communications
+   - Brand & Creative Director
+   - Operations
+   - Analyst
+   - Advisor
+   - Read Only
+
+2. Add a separate field:
+   Label: Admin Access
+   Options:
+   - None
+   - Admin
+   - Master Admin
+
+3. Only Master Admin users can assign or remove Master Admin.
+4. Only Admin/Master Admin users can assign Admin.
+5. A user should not be able to remove their own Master Admin access if they are the last Master Admin.
+6. Show badges separately:
+   - Role badge: Executive, Sales, Software Engineer, etc.
+   - Admin badge: Admin or Master Admin only if applicable.
+7. In the user list, do not show “Admin” as if it is the user’s job role.
+   Example:
+   - Scott Carlson should show Executive + Admin Access badge if applicable, not just Admin.
+
+J) Permission helper updates
+Create or update a central permission helper. Do not scatter role strings everywhere.
+
+Add helpers like:
+- isMasterAdmin(user)
+- isAdmin(user)
+- hasAdminAccess(user)
+- getBusinessRole(user)
+- isExecutive(user)
+- isSales(user)
+- isSoftwareEngineer(user)
+- isHardwareEngineer(user)
+- canAccessCapital(user)
+- canAccessRevenueSimulator(user)
+- canManageUsers(user)
+- canAssignAdminAccess(currentUser, targetAccess)
+- canAccessEngineeringModules(user)
+- canAccessHardwareModules(user)
+
+Rules:
+- Master Admin has full access.
+- Admin has broad system access but may still have a business role.
+- Executive gets executive/business visibility.
+- Manager gets team/operational visibility.
+- Sales gets CRM/lead/travel/sales tools.
+- Software Engineer and Hardware Engineer get engineering/product visibility.
+- Read Only should not mutate data.
+
+K) Role migration / existing users
+Update seed/default users carefully.
+
+Suggested mappings:
+- Trevor Burgess:
+  - role: Executive
+  - department: ALL or Executive
+  - jobTitle: Founder | CEO
+  - adminAccess: master_admin
+
+- Scott Carlson:
+  - role: Executive
+  - department: Finance & Accounting
+  - jobTitle: CFO
+  - adminAccess: admin or none depending existing privilege intent
+  - Do not leave role as Admin
+
+- Terri Breker:
+  - role: Executive
+  - department: Marketing & Communications
+  - jobTitle: CMO
+  - adminAccess: admin or none depending existing privilege intent
+  - Do not leave role as Admin
+
+- Sanad Aridah:
+  - role: Executive
+  - department: Engineering
+  - jobTitle: CTO
+  - adminAccess: admin or none depending existing privilege intent
+  - Do not leave role as Admin
+
+- Any generic Engineer users:
+  - migrate to Software Engineer by default unless there is evidence they are hardware-focused.
+  - If uncertain, leave migration note and pick Software Engineer as default fallback.
+
+- Watson Sales:
+  - role: Sales
+  - adminAccess: none
+
+- Watson Support:
+  - role: Customer Success or Support if that role exists
+  - adminAccess: none
+
+- Advisor Test:
+  - role: Advisor
+  - adminAccess: none
+
+L) Backend/API security
+Update all relevant backend checks.
+
+Important:
+- User management APIs must use adminAccess, not business role.
+- Capital/revenue/executive tools can use role Executive plus adminAccess where appropriate.
+- Sales tools should use Sales/Executive/Manager/Admin Access depending on the feature.
+- Engineering tools should recognize Software Engineer and Hardware Engineer separately.
+- No endpoint should assume role === "admin" anymore.
+
+Search for and update usages of:
+- role === "admin"
+- role === "master_admin"
+- globalRole === "admin"
+- globalRole === "master_admin"
+- role === "engineer"
+- role === "Engineer"
+- Admin in role dropdown lists
+- Master Admin in role dropdown lists
+
+M) Tests / regression
+Add tests for:
+
+1. Role dropdown
+- Contains Executive
+- Contains Software Engineer
+- Contains Hardware Engineer
+- Does not contain Admin
+- Does not contain Master Admin
+- Does not contain generic Engineer
+
+2. Admin Access field
+- Contains None, Admin, Master Admin
+- Renders separately from Role
+- Saves separately from Role
+
+3. User badges
+- Executive users display Executive badge
+- Admin/Master Admin badge displays separately if assigned
+- Scott/Terri/Sanad are not shown as role Admin just because they have admin access
+
+4. Permissions
+- Master Admin has full system access
+- Admin can manage users, subject to Master Admin restrictions
+- Executive can access executive/business areas
+- Executive without adminAccess cannot manage system admin settings unless explicitly allowed
+- Software Engineer can access software engineering areas
+- Hardware Engineer can access hardware/product/certification areas
+- Read Only cannot mutate data
+- Advisor cannot access exec/sales/admin-sensitive tools by default
+
+5. Migration
+- Existing globalRole master_admin/admin maps to adminAccess correctly
+- Existing Admin/Master Admin role values are migrated out of business role
+- Existing Engineer role migrates to Software Engineer unless specified
+
+6. API security
+- User update endpoint rejects unauthorized adminAccess changes
+- Last Master Admin cannot remove their own Master Admin access
+- Restricted users cannot assign themselves Admin/Master Admin
+
+N) Visual verification
+After implementation:
+- Open Admin → Users & Roles.
+- Select Scott Carlson.
+- Confirm:
+  - Role can be Executive.
+  - Admin Access is separate.
+  - Admin/Master Admin are no longer in Role dropdown.
+  - Engineer is gone.
+  - Software Engineer and Hardware Engineer exist.
+- Select Trevor.
+- Confirm:
+  - Role: Executive
+  - Admin Access: Master Admin
+- Select Advisor Test.
+- Confirm:
+  - Role: Advisor
+  - Admin Access: None
+- Confirm sidebars/features still respect access correctly.
+
+O) Reporting
+After completion, report:
+- Exact files changed
+- Database/schema changes
+- Migration behavior
+- Final role list
+- Final admin access list
+- Updated permissions helper functions
+- Tests run and pass/fail count
