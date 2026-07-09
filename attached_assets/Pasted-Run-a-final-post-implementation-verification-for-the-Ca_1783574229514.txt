@@ -1,0 +1,62 @@
+Run a final post-implementation verification for the Calendar + Meeting Recorder integration and Daily Execution “My Daily Download” feature.
+
+Verify all of the following:
+
+1. Navigation
+- Meeting Recorder no longer appears as a separate sidebar item.
+- Calendar & Meetings remains visible and selected correctly.
+- Any old /meeting-notes or Meeting Recorder route safely redirects or renders the integrated Calendar & Meetings page.
+- No duplicate selected sidebar states.
+
+2. Calendar & Meetings
+- Calendar page loads without blank screen.
+- Month / Week / Day controls still work.
+- Sync button still works.
+- New Event button still works.
+- Calendar filters still render.
+- Meetings & Recorder section appears directly below the calendar.
+- Existing meeting notes render correctly.
+- Status badges render correctly: Scheduled, Recording, Completed, Failed.
+- New Meeting Note / recording flow still works.
+- Clicking a meeting note opens the expected detail view/modal/drawer.
+
+3. Daily Execution
+- My Daily Download card appears near the top of Daily Execution.
+- Empty state renders when no entry exists for today.
+- Start Recording and Stop Recording buttons work.
+- Processing/transcribing state renders.
+- Draft summary state renders.
+- Saved/published state renders.
+- Failed state renders with retry.
+- Recent daily downloads history renders.
+- Transcript expand/collapse works.
+- Team-visible summaries are visible to permitted users only.
+
+4. Backend/API
+- Daily download table exists.
+- Daily download routes are registered.
+- GET /api/daily-downloads?date=YYYY-MM-DD works.
+- GET /api/daily-downloads/recent works.
+- POST daily download creation/upload works.
+- PATCH daily download update works.
+- Summary/process route works or fails gracefully if AI/transcription is unavailable.
+- Auth/permission checks are enforced.
+- One daily download per user per day is handled cleanly.
+
+5. Regression
+- Run npm run build or equivalent.
+- Run relevant test suites.
+- Run grep/nav tests again.
+- Confirm no TypeScript errors.
+- Confirm no console errors.
+- Confirm no server boot errors.
+- Confirm no broken imports or undefined components.
+- Confirm no horizontal overflow on Calendar or Daily Execution.
+
+Return a final report with:
+- files changed
+- database changes/migrations
+- tests updated
+- validation results
+- any known limitations
+- whether this is safe to publish
