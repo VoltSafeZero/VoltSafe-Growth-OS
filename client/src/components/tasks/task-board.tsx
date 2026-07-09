@@ -521,7 +521,7 @@ export function TaskBoard({ view, onOpenTask, onAddTask, viewingUserId, permitte
 
       {/* Board */}
       {isLoading ? (
-        <div className="flex gap-3 overflow-x-auto pb-4">
+        <div className="flex items-start gap-3 overflow-x-auto pb-4">
           {displayColumns.map(c => (
             <div key={c.value} className="w-72 flex-shrink-0 space-y-2">
               <Skeleton className="h-8 w-full" />
@@ -531,7 +531,7 @@ export function TaskBoard({ view, onOpenTask, onAddTask, viewingUserId, permitte
           ))}
         </div>
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-4" data-testid="board-container">
+        <div className="flex items-start gap-3 overflow-x-auto pb-4" data-testid="board-container">
           {displayColumns.map(col => {
             const cards: any[] = filteredGrouped[col.value] || [];
             const isColOver = dragOverCol === col.value && draggingColValue !== null && draggingColValue !== col.value;

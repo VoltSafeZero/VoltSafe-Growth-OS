@@ -1,0 +1,173 @@
+Fix VoltSafe CMS Tasks Hub column footer spacing and add a Slack-style floating task navigation menu.
+
+Context:
+Screenshot 1 shows the Tasks Hub board columns have huge empty vertical space between the last task card and the "+ Add a task" footer. This is wrong.
+
+Expected behavior:
+Each column's "+ Add a task" footer should sit immediately below the last visible task in that column, with zero large spacer/gap, similar to Slack/Trello behavior shown in screenshots 2 and 3.
+
+Also add a Slack-style floating menu at the bottom center of the browser for quick task views/actions.
+
+PART A — Fix "+ Add a task" footer spacing
+
+Current bug:
+- Each task column stretches vertically to the full viewport/page height.
+- The "+ Add a task" footer is pinned to the bottom of the tall column.
+- This creates a massive blank area when a column has only a few tasks.
+
+Required behavior:
+- The "+ Add a task" footer should be directly below the bottom-most task card in each column.
+- No extra vertical space between the last task and the footer.
+- Footer should move naturally based on task count.
+- Short columns should be short.
+- Tall columns with many tasks should scroll internally or extend naturally depending on existing board behavior.
+- Do not pin the footer to the bottom of the viewport or column.
+- Do not use flex-grow / mt-auto / justify-between behavior that separates the footer from the cards.
+
+Implementation guidance:
+1. Find the Tasks Hub board component.
+   Likely files:
+   - client/src/pages/tasks*
+   - client/src/components/tasks*
+   - task-board.tsx
+   - tasks-hub.tsx
+   - kanban-board.tsx
+
+2. Inspect each column layout.
+   Look for classes/styles like:
+   - h-full
+   - min-h-screen
+   - flex-1
+   - grow
+   - justify-between
+   - mt-auto
+   - absolute bottom-0
+   - sticky bottom-0
+   - min-h-[...]
+   - h-[calc(...)]
+   - overflow-hidden
+
+3. Fix column structure:
+   Recommended structure:
+   - Board: horizontal scroll container
+   - Column: content-height card stack, not full-height stretch
+   - Column header: fixed at top of column
+   - Task list: normal vertical stack with gap
+   - Add task footer: normal block directly after task list
+
+4. If long columns need scrolling:
+   - Apply max-height only to the task list area if necessary.
+   - Footer should remain directly after the visible task list, not miles below.
+   - Avoid creating a giant blank flex area.
+
+5. Preserve existing functionality:
+   - drag/drop if present
+   - grouping by due date
+   - board tabs/filters
+   - task cards
+   - add task action
+   - horizontal scrolling
+   - existing column colors/borders
+
+Visual requirement:
+- The footer should appear like:
+  [Task card]
+  [Task card]
+  [+ Add a task]
+- Not:
+  [Task card]
+  [Task card]
+  
+  
+  
+  
+  
+  
+  [+ Add a task]
+
+PART B — Add Slack-style floating bottom-center task menu
+
+Add a floating bottom-center menu similar to Slack’s board footer menu shown in screenshots 2 and 3.
+
+Required location:
+- Fixed at bottom center of viewport.
+- Above page bottom by around 16–24px.
+- Should float above the board content.
+- Should not block task cards excessively.
+- Should remain visible while horizontally scrolling the board.
+
+Suggested menu items:
+1. Inbox
+2. Planner
+3. Board
+4. Switch boards
+
+Behavior:
+- "Board" should be active when user is on the current board view.
+- "Inbox" should route to task inbox / queue if that route exists.
+- "Planner" should route to task planner/calendar if that route exists.
+- "Switch boards" should open a board switcher menu/modal/dropdown if one exists.
+- If a route or feature does not exist yet, stub it safely with a non-crashing disabled state or toast like "Coming soon" — do not create dead buttons.
+
+Design:
+- Dark translucent rounded pill container, similar to Slack.
+- Buttons inside with icons + labels.
+- Active item highlighted.
+- Must work in light mode and dark mode.
+- Use existing icon library/components.
+- Keep it compact.
+- Add z-index high enough to stay above board content, but below modals/popovers.
+
+Responsive:
+- On desktop: show full labels.
+- On smaller screens: icons can remain and labels can shrink/hide if needed.
+- Do not cover the "+ Add a task" footer.
+- Board content should have enough bottom padding so the floating menu does not hide the last row.
+
+PART C — Tests / regression checks
+
+Add tests for:
+
+1. Column footer placement
+- "+ Add a task" is rendered immediately after the task list/cards in each column.
+- No column footer uses mt-auto, absolute bottom, sticky bottom, or justify-between spacing.
+- Short columns do not create a large blank spacer before the footer.
+- Columns with different task counts each place footer after their own last task.
+
+2. Layout safety
+- Board remains horizontally scrollable.
+- Column headers still render.
+- Existing task cards still render.
+- Drag/drop/task actions are not broken.
+
+3. Floating menu
+- Bottom-center task nav renders on Tasks Hub board.
+- Contains Inbox, Planner, Board, Switch boards.
+- Board item is active on board view.
+- Buttons are clickable or safely disabled with explicit coming-soon behavior.
+- Menu does not render inside individual columns.
+- Menu is fixed to viewport, not inside the horizontal scroll content.
+
+4. Dark/light mode
+- Floating menu remains readable in both themes.
+
+PART D — Verification
+
+After implementation:
+- Open Tasks Hub board.
+- Confirm every column’s "+ Add a task" footer is directly below the last card.
+- Confirm no giant blank vertical spaces.
+- Confirm columns with few cards collapse correctly.
+- Confirm columns with many cards remain usable.
+- Confirm floating bottom-center menu appears.
+- Click each floating menu item and confirm no crashes.
+- Confirm board horizontal scrolling still works.
+- Confirm no console errors.
+- Run relevant task/board tests and new regression tests.
+
+Report back:
+- Root cause of the footer spacing bug.
+- Exact files changed.
+- Whether footer was caused by flex-grow, mt-auto, fixed height, sticky bottom, or another layout rule.
+- Floating menu behavior implemented for each button.
+- Tests run and pass/fail count.

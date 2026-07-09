@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { TaskBoard } from "@/components/tasks/task-board";
+import { TaskFloatingNav } from "@/components/tasks/task-floating-nav";
 import { TaskDetailDrawer } from "@/components/tasks/task-detail-drawer";
 import { Calendar } from "@/components/ui/calendar";
 
@@ -1221,6 +1222,8 @@ export default function TasksHubPage() {
         onClose={() => setDrilldownConfig(null)}
         endpoint="/api/work/drilldown"
       />
+
+      <TaskFloatingNav />
     </div>
   );
 }
