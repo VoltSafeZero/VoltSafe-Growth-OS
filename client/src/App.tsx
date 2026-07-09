@@ -331,7 +331,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
   }
 
   function capitalGuard(children: React.ReactNode) {
-    return wrap((perms.capital === "edit") ? children : <AccessDenied />);
+    return wrap((isAdmin(role) || perms.capital === "edit") ? children : <AccessDenied />);
   }
 
   function advisorBlock(children: React.ReactNode) {

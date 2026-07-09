@@ -679,7 +679,7 @@ export default function CapitalCommandCenterPage() {
 
   const activeRoundId = selectedRoundId ?? (rounds.find(r => r.status === "Open")?.id ?? rounds[0]?.id ?? null);
 
-  const { data: ccData, isLoading: ccLoading, error: ccError } = useQuery<CommandCenterData>({
+  const { data: ccData, isLoading: ccLoading, error: ccError, refetch: refetchCc, isFetching: ccFetching } = useQuery<CommandCenterData>({
     queryKey: ["/api/capital/rounds", activeRoundId, "command-center"],
     queryFn: () => fetch(`/api/capital/rounds/${activeRoundId}/command-center`, { credentials: "include" }).then(r => {
       if (!r.ok) throw new Error("Failed");
@@ -688,6 +688,7 @@ export default function CapitalCommandCenterPage() {
     enabled: !!activeRoundId,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   const round            = ccData?.round;
@@ -783,7 +784,43 @@ export default function CapitalCommandCenterPage() {
       </div>
 
       {ccLoading && <div className="text-xs text-muted-foreground py-8 text-center">Loading command center…</div>}
-      {ccError && <div className="text-xs text-red-400 py-4 text-center" data-testid="cc-error">Failed to load command center data.</div>}
+
+      {!ccLoading && ccError && (
+        <div
+          className="flex flex-col items-center justify-center gap-3 py-10 text-center bg-card border border-border rounded-xl"
+          data-testid="cc-error"
+        >
+          <AlertTriangle className="w-8 h-8 text-red-400 opacity-70" />
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-red-400">Failed to load command center data</p>
+            <p className="text-xs text-muted-foreground">Something went wrong fetching this round's data. You can try again.</p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs gap-1.5"
+            data-testid="btn-retry-command-center"
+            disabled={ccFetching}
+            onClick={() => refetchCc()}
+          >
+            <RefreshCcw className={`w-3.5 h-3.5 ${ccFetching ? "animate-spin" : ""}`} />
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {!ccLoading && !ccError && ccData && !round && (
+        <div
+          className="flex flex-col items-center justify-center gap-3 py-10 text-center bg-card border border-border rounded-xl text-muted-foreground"
+          data-testid="cc-empty-round"
+        >
+          <Target className="w-8 h-8 opacity-40" />
+          <div className="space-y-1">
+            <p className="text-sm font-medium">No data for this round yet</p>
+            <p className="text-xs">Add pipeline, valuation, or allocation details to populate this command center.</p>
+          </div>
+        </div>
+      )}
 
       {round && summary && (
         <>
@@ -881,9 +918,9 @@ export default function CapitalCommandCenterPage() {
                           {lead.next_step_date && ` · ${fmtDateShort(lead.next_step_date)}`}
                         </p>
                       )}
-                      {lead.risk_flags.length > 0 && (
+                      {(lead.risk_flags ?? []).length > 0 && (
                         <div className="flex flex-wrap gap-1">
-                          {lead.risk_flags.map(rf => (
+                          {(lead.risk_flags ?? []).map(rf => (
                             <span key={rf} className="text-[9px] bg-red-500/10 text-red-400 border border-red-500/20 rounded px-1.5 py-0.5">{rf}</span>
                           ))}
                         </div>
@@ -1159,9 +1196,9 @@ export default function CapitalCommandCenterPage() {
                     </div>
                   )}
                 </div>
-                {valuation.warnings.length > 0 && (
+                {(valuation.warnings ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
-                    {valuation.warnings.map((w, i) => (
+                    {(valuation.warnings ?? []).map((w, i) => (
                       <span key={i} className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg px-2 py-1 flex items-center gap-1">
                         <Info className="w-2.5 h-2.5 shrink-0" />{w}
                       </span>
@@ -1368,13 +1405,13 @@ export default function CapitalCommandCenterPage() {
               </div>
 
               {/* Diligence investors without portal */}
-              {ccData.portal_intel.diligence_investors_not_in_portal.length > 0 && (
+              {(ccData.portal_intel.diligence_investors_not_in_portal ?? []).length > 0 && (
                 <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 mb-3" data-testid="portal-diligence-gap">
                   <p className="text-xs font-medium text-amber-400 mb-2 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" /> Diligence investors without portal
                   </p>
                   <div className="space-y-1">
-                    {ccData.portal_intel.diligence_investors_not_in_portal.map((inv: any) => (
+                    {(ccData.portal_intel.diligence_investors_not_in_portal ?? []).map((inv: any) => (
                       <div key={inv.id} className="flex items-center justify-between text-xs" data-testid={`portal-gap-inv-${inv.id}`}>
                         <span className="font-medium">{inv.name}</span>
                         <span className="text-[10px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded">{inv.stage}</span>
@@ -1386,13 +1423,13 @@ export default function CapitalCommandCenterPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Expiring soon */}
-                {ccData.portal_intel.portals_expiring_soon.length > 0 && (
+                {(ccData.portal_intel.portals_expiring_soon ?? []).length > 0 && (
                   <div className="bg-card border border-border rounded-xl p-3" data-testid="portal-expiring-list">
                     <p className="text-xs font-medium mb-2 flex items-center gap-1.5">
                       <Clock className="w-3 h-3 text-amber-400" /> Expiring Soon
                     </p>
                     <div className="space-y-1.5">
-                      {ccData.portal_intel.portals_expiring_soon.map((p: any) => (
+                      {(ccData.portal_intel.portals_expiring_soon ?? []).map((p: any) => (
                         <div key={p.id} className="flex items-center justify-between text-xs" data-testid={`portal-expiring-${p.id}`}>
                           <span className="truncate max-w-[120px]">{p.investor_name}</span>
                           <span className="text-amber-400 text-[10px] shrink-0 ml-2">{p.days_left}d left</span>
@@ -1403,13 +1440,13 @@ export default function CapitalCommandCenterPage() {
                 )}
 
                 {/* Never opened */}
-                {ccData.portal_intel.portals_never_opened.length > 0 && (
+                {(ccData.portal_intel.portals_never_opened ?? []).length > 0 && (
                   <div className="bg-card border border-border rounded-xl p-3" data-testid="portal-never-opened-list">
                     <p className="text-xs font-medium mb-2 flex items-center gap-1.5">
                       <Eye className="w-3 h-3 text-muted-foreground" /> Never Opened
                     </p>
                     <div className="space-y-1.5">
-                      {ccData.portal_intel.portals_never_opened.map((p: any) => (
+                      {(ccData.portal_intel.portals_never_opened ?? []).map((p: any) => (
                         <div key={p.id} className="flex items-center justify-between text-xs" data-testid={`portal-never-opened-${p.id}`}>
                           <span className="truncate max-w-[120px]">{p.investor_name}</span>
                           <span className="text-muted-foreground text-[10px] shrink-0 ml-2">{p.days_old}d ago</span>
@@ -1420,13 +1457,13 @@ export default function CapitalCommandCenterPage() {
                 )}
 
                 {/* Most viewed materials */}
-                {ccData.portal_intel.most_viewed_materials.length > 0 && (
+                {(ccData.portal_intel.most_viewed_materials ?? []).length > 0 && (
                   <div className="bg-card border border-border rounded-xl p-3 sm:col-span-2" data-testid="portal-top-materials">
                     <p className="text-xs font-medium mb-2 flex items-center gap-1.5">
                       <FileText className="w-3 h-3 text-primary" /> Most Viewed Documents (7d)
                     </p>
                     <div className="space-y-1.5">
-                      {ccData.portal_intel.most_viewed_materials.map((m: any, i: number) => (
+                      {(ccData.portal_intel.most_viewed_materials ?? []).map((m: any, i: number) => (
                         <div key={m.material_id} className="flex items-center gap-2 text-xs" data-testid={`portal-top-mat-${m.material_id}`}>
                           <span className="text-[10px] text-muted-foreground w-4 shrink-0">{i + 1}.</span>
                           <span className="flex-1 truncate">{m.title}</span>

@@ -328,6 +328,85 @@ ok("weighted pipeline falls back to investor stage when no commitment",
   has(service, "Fall back to investor stage"));
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log("\n── 15. Crash-hardening regression (defensive normalization) ────────────");
+// ─────────────────────────────────────────────────────────────────────────────
+
+// (A) Defensive data normalization — no unguarded .map/.filter/.reduce/.length
+// on API-derived data that could be undefined.
+ok("valuation.warnings.length is optional-chained or defaulted",
+  !has(page, /(?<!\?\?[^)]{0,3})valuation\.warnings\.length/) &&
+  has(page, "valuation.warnings ?? []"));
+
+ok("valuation.warnings.map is optional-chained or defaulted",
+  !/[^(]valuation\.warnings\.map\(/.test(page.replace(/\(valuation\.warnings \?\? \[\]\)/g, "")));
+
+ok("portal_intel.diligence_investors_not_in_portal defaulted before .length/.map",
+  has(page, "(ccData.portal_intel.diligence_investors_not_in_portal ?? [])"));
+
+ok("portal_intel.portals_expiring_soon defaulted before .length/.map",
+  has(page, "(ccData.portal_intel.portals_expiring_soon ?? [])"));
+
+ok("portal_intel.portals_never_opened defaulted before .length/.map",
+  has(page, "(ccData.portal_intel.portals_never_opened ?? [])"));
+
+ok("portal_intel.most_viewed_materials defaulted before .length/.map",
+  has(page, "(ccData.portal_intel.most_viewed_materials ?? [])"));
+
+ok("lead.risk_flags defaulted before .length/.map",
+  has(page, "(lead.risk_flags ?? [])"));
+
+ok("allocationPlan defaults to [] from query data",
+  has(page, "const allocationPlan   = ccData?.allocation_plan ?? [];"));
+
+ok("all top-level ccData-derived arrays default to []",
+  has(page, "const leads            = ccData?.lead_candidates ?? [];") &&
+  has(page, "const actions          = ccData?.this_week_actions ?? [];") &&
+  has(page, "const flags            = ccData?.risk_flags ?? [];") &&
+  has(page, "const scenarios        = ccData?.scenarios ?? [];") &&
+  has(page, "const dilutionScenarios = ccData?.dilution_scenarios ?? [];") &&
+  has(page, "const closeChecklist   = ccData?.close_checklist ?? [];"));
+
+// (B) Inline error card with Retry instead of crashing
+ok("inline error card rendered on API failure (data-testid=cc-error)",
+  has(page, 'data-testid="cc-error"'));
+
+ok("error card shows a Retry button wired to refetch",
+  has(page, 'data-testid="btn-retry-command-center"') && has(page, "refetchCc()"));
+
+ok("query uses bounded retry (not infinite) so error state is reachable",
+  has(page, "retry: 1,"));
+
+ok("error state renders only when not loading (no flash race)",
+  has(page, "{!ccLoading && ccError &&"));
+
+// (C) Clean empty state when no capital data exists
+ok("empty state for no funding rounds has title/message",
+  has(page, 'data-testid="empty-no-rounds"') &&
+  has(page, "No funding rounds found"));
+
+ok("empty state for a round with no command-center data yet",
+  has(page, 'data-testid="cc-empty-round"') &&
+  has(page, "No data for this round yet"));
+
+ok("round-content section only renders when round & summary are present (no premature access)",
+  has(page, "{round && summary && ("));
+
+// (D) Permission handling — admin/master_admin must access; unauthorized users get clean state
+ok("capitalGuard grants access to admin/master_admin regardless of capital permission",
+  has(appTsx, "function capitalGuard(children: React.ReactNode) {") &&
+  has(appTsx, "(isAdmin(role) || perms.capital === \"edit\")"));
+
+ok("isAdmin() recognizes both admin and master_admin roles",
+  has(appTsx, '["master_admin", "admin"].includes(role)'));
+
+ok("unauthorized (non-admin, capital!=edit) users get AccessDenied, not a crash",
+  has(appTsx, "isAdmin(role) || perms.capital === \"edit\") ? children : <AccessDenied />"));
+
+ok("AccessDenied renders a clean state (no stack trace / raw error)",
+  has(appTsx, "function AccessDenied()") &&
+  has(appTsx, "Access Restricted"));
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(60)}`);
 console.log(`Total: ${passed + failed}  Passed: ${passed}  Failed: ${failed}`);
 if (failed === 0) console.log("\n✓ All Capital Command Center checks passed");

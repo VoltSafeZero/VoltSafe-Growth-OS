@@ -1,0 +1,101 @@
+Fix Capital → Command Center crash.
+
+Bug:
+When clicking Capital → Command Center, the page crashes and shows:
+"Something went wrong. An unexpected error occurred. Please reload and try again."
+
+Screenshot confirms:
+- Sidebar loads
+- Capital section expands
+- Command Center is selected
+- Main route crashes inside the page/error boundary
+
+Required outcome:
+- Capital → Command Center must load normally for Trevor/admin.
+- It must not crash the whole app.
+- If data is missing, empty, or an API returns an error, show a clean empty state instead of crashing.
+- Keep the Capital sidebar navigation intact.
+
+Investigation steps:
+1. Find the route/component used by Capital → Command Center.
+   Likely areas:
+   - client/src/App.tsx routes
+   - client/src/components/navigation/app-sidebar.tsx
+   - client/src/config/nav-config.ts
+   - client/src/pages/capital/*
+   - client/src/pages/capital-command-center*
+   - client/src/components/capital/*
+2. Reproduce by opening the route directly.
+3. Check browser console error and server logs.
+4. Identify the exact exception causing the error boundary.
+
+Likely root causes to check:
+- Undefined/null data being mapped:
+  - something.map(...)
+  - something.filter(...)
+  - something.reduce(...)
+  - Object.keys(undefined)
+- API returning an error object instead of an array.
+- Capital metrics endpoint returning null/empty response.
+- Missing import or renamed component.
+- Route points to a component that no longer exists.
+- Component expects investor/round/report data that is not seeded.
+- Permission helper returns undefined and component does not guard it.
+- Recent InfoIcon / FieldHelp change accidentally broke import paths or shared icon usage inside Capital Command Center.
+
+Implementation requirements:
+A) Add defensive data handling
+- Every Capital Command Center API response must be normalized before render.
+- Arrays default to [].
+- Objects default to {}.
+- Numbers default to 0.
+- Strings default to "" or "—".
+- Do not render nested properties without optional chaining or safe defaults.
+
+B) API error handling
+- If an API call fails, do not crash.
+- Show an inline error card:
+  "Capital Command Center data could not be loaded."
+  Include a Retry button if existing patterns support it.
+- Log the error clearly in console/server logs for debugging.
+
+C) Empty state
+If no capital data exists, show a useful empty state:
+- Title: "Capital Command Center"
+- Message: "No capital activity is available yet."
+- CTA if appropriate:
+  - "Add investor"
+  - "Create round"
+  - "Upload update"
+Only include CTAs that already exist or are safe to route to.
+
+D) Permission handling
+- Trevor/master_admin/admin should be able to access this page.
+- Unauthorized users should get a clean not-authorized state, not a crash.
+- Do not hide the crash behind broad permissions.
+
+E) Tests / regression
+Add tests proving:
+1. Capital → Command Center route renders without crashing.
+2. Empty API/data state renders cleanly.
+3. Failed API response renders an inline error state, not the app error boundary.
+4. Sidebar Capital → Command Center nav item points to a valid route.
+5. Component does not call .map/.filter/.reduce on undefined API data.
+6. Admin/master_admin can access the page.
+7. Restricted users get a clean unauthorized state if applicable.
+
+F) Verification
+After fixing:
+- Restart the app.
+- Log in as Trevor/admin.
+- Click Capital → Command Center.
+- Confirm the page loads.
+- Confirm no "Something went wrong" error boundary.
+- Confirm no browser console errors.
+- Confirm Capital child nav items still work.
+- Run relevant tests plus the new regression test.
+- Report:
+  - exact root cause
+  - files changed
+  - route path fixed/verified
+  - tests run and pass/fail count
