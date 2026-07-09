@@ -500,6 +500,33 @@ app.use((req, res, next) => {
       log("[migration] ceo_forecast_notes table ready.");
     } catch (_e: any) { log(`[migration] skipped (already applied): ${_e?.code ?? _e?.message}`); }
 
+    // Daily Downloads (voice journal per user per day)
+    try {
+      await _db.execute(_sql.raw(`
+        CREATE TABLE IF NOT EXISTS daily_downloads (
+          id               SERIAL PRIMARY KEY,
+          user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          date             DATE NOT NULL,
+          title            TEXT,
+          status           TEXT NOT NULL DEFAULT 'draft',
+          visibility       TEXT NOT NULL DEFAULT 'team',
+          transcript       TEXT,
+          summary_bullets  TEXT[],
+          wins             TEXT[],
+          blockers         TEXT[],
+          follow_ups       TEXT[],
+          duration_seconds INTEGER,
+          chunk_count      INTEGER NOT NULL DEFAULT 0,
+          created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_daily_downloads_user_date ON daily_downloads(user_id, date DESC)`));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_daily_downloads_date ON daily_downloads(date DESC)`));
+      await _db.execute(_sql.raw(`CREATE INDEX IF NOT EXISTS idx_daily_downloads_status ON daily_downloads(status)`));
+      log("[migration] daily_downloads table ready.");
+    } catch (_e: any) { log(`[migration] daily_downloads skipped (already applied): ${_e?.code ?? _e?.message}`); }
+
     // Derived label backfill: fire-and-forget (idempotent, safe to run concurrently)
     migrateDerivedLabelColumns().catch(err =>
       console.error("[startup] derived label backfill background error:", err)
