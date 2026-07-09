@@ -1,0 +1,73 @@
+FINAL VERIFY + PUBLISH — Feed CORTEX UX + Tasks User Crash Fix
+
+Context:
+Two fixes are ready:
+
+1. Feed CORTEX UX improvements:
+- Clickable Cortex brain status drilldown
+- Clickable learned-today cards
+- Clickable ingestion history rows
+- Stronger contrast and hierarchy
+- Learned-today ultra-brief summaries
+- Brain and Feed button breathing/pulsing in lockstep
+- OpenAI model params compatibility fixed
+- Feed Cortex tests passing
+
+2. Tasks tab crash fix:
+- Advisor/Jonathan-style users were crashing because restricted API responses returned objects instead of arrays
+- task-board now guards labels and savedViews as arrays
+- duplicate UniversalDrilldownSheet import removed
+- setDrilldown typo fixed to setDrilldownConfig
+
+Task:
+1. Run relevant tests:
+   - Feed Cortex tests
+   - Cortex URL tests
+   - OpenAI compatibility tests
+   - Tasks tests if available
+   - Full build/typecheck if available
+
+2. Restart app and verify no server/Vite errors.
+
+3. Manual QA — Feed CORTEX:
+   - Open /feed-cortex
+   - Confirm brain pulses
+   - Confirm Feed button pulses in lockstep
+   - Click brain → Cortex Status opens
+   - Click learned-today card → URL detail opens
+   - Click history row → URL detail opens
+   - Confirm summaries show as ultra-brief bullets
+   - Confirm contrast is visibly stronger
+   - Confirm dark mode remains readable
+
+4. Manual QA — Tasks:
+   - Log in / simulate Advisor Test
+   - Open Tasks
+   - Confirm no “Something went wrong”
+   - Confirm restricted labels/views do not crash the page
+   - Log in / simulate Jonathan L.
+   - Open Tasks
+   - Confirm no crash
+   - Confirm normal users with access still see labels/views correctly
+
+5. Check logs:
+   - No labels.map is not a function
+   - No savedViews.map is not a function
+   - No duplicate import/chunk errors
+   - No setDrilldown is not defined
+   - No OpenAI compatibility errors
+
+6. Publish/deploy if all green.
+
+7. Post-publish smoke:
+   - Production /feed-cortex works
+   - Production Tasks works for Advisor Test/Jonathan-style users
+   - No browser console errors
+   - No server errors
+
+Report:
+- Tests run and pass counts
+- Files changed
+- Manual QA result
+- Production status
+- Whether rollback is needed
