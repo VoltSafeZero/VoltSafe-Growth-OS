@@ -542,7 +542,7 @@ export function TaskBoard({ view, onOpenTask, onAddTask, viewingUserId, permitte
             return (
               <div
                 key={col.value}
-                className={`w-72 flex-shrink-0 flex flex-col rounded-lg border-2 ${columnBorderClass(col.color)} bg-muted/40 transition-all ${isTaskOver && !isViewOnly ? "bg-muted/80 ring-2 ring-primary" : ""} ${isColOver ? "ring-2 ring-primary/60 scale-[1.01]" : ""} ${draggingColValue === col.value ? "opacity-50" : ""}`}
+                className={`w-72 flex-shrink-0 flex flex-col rounded-lg border-2 max-h-[calc(100vh-220px)] ${columnBorderClass(col.color)} bg-muted/40 transition-all ${isTaskOver && !isViewOnly ? "bg-muted/80 ring-2 ring-primary" : ""} ${isColOver ? "ring-2 ring-primary/60 scale-[1.01]" : ""} ${draggingColValue === col.value ? "opacity-50" : ""}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOverCol(col.value); }}
                 onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
                 onDrop={() => {
@@ -588,7 +588,7 @@ export function TaskBoard({ view, onOpenTask, onAddTask, viewingUserId, permitte
                     )}
                   </button>
                 </div>
-                <div className={`flex-1 p-2 space-y-2 max-h-[calc(100vh-340px)] overflow-y-auto ${isViewOnly ? "opacity-80" : ""}`}>
+                <div className={`flex-1 p-2 space-y-2 overflow-y-auto min-h-0 ${isViewOnly ? "opacity-80" : ""}`}>
                   {cards.length === 0 ? (
                     <div className="text-xs text-muted-foreground italic text-center py-6">
                       {filterCount > 0 ? "No matches" : isViewOnly ? "View only" : "Drop tasks here"}
@@ -610,7 +610,7 @@ export function TaskBoard({ view, onOpenTask, onAddTask, viewingUserId, permitte
                   onClick={() => onAddTask?.(col.value)}
                   disabled={isViewOnly}
                   data-testid={`button-add-task-${col.value}`}
-                  className={`w-full flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground rounded-b-lg transition-colors border-t border-inherit ${isViewOnly ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/60 hover:text-foreground cursor-pointer"}`}
+                  className={`flex-shrink-0 w-full flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground rounded-b-lg transition-colors border-t border-inherit ${isViewOnly ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/60 hover:text-foreground cursor-pointer"}`}
                   title={isViewOnly ? "You have view-only access to this column" : `Add a task to ${col.label}`}
                 >
                   <Plus className="h-3.5 w-3.5 flex-shrink-0" />

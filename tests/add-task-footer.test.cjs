@@ -254,6 +254,39 @@ section("X — cross-cutting: drag-drop + board container not broken");
     HUB.includes("onOpenTask={(id) => setOpenTaskId(id)}"));
 })();
 
+// ─── Y: column layout — pinned footer for tall columns ───────────────────────
+section("Y — column layout: footer pinned for populated columns (Trevor fix)");
+
+(function y1_column_max_h() {
+  // Column container must carry a viewport-relative max-height so the column
+  // is capped at the viewport, not allowed to grow to full page height.
+  ok("Y1: column container has max-h-[calc(100vh-220px)]",
+    BOARD.includes("max-h-[calc(100vh-220px)]"));
+})();
+
+(function y2_card_list_min_h_0() {
+  // min-h-0 is required on flex-1 children for overflow-y-auto to activate
+  // inside a flex-col container (without it, default min-height:auto prevents scroll).
+  ok("Y2: card list has min-h-0 (enables overflow scroll inside flex-col)",
+    BOARD.includes("min-h-0"));
+})();
+
+(function y3_no_max_h_on_card_list() {
+  // The height cap must live on the column container, NOT on the card list.
+  // Having max-h on the card list while the column is unconstrained was the
+  // root cause of the "footer invisible for Trevor, visible for empty board" bug.
+  const cardListMatch = BOARD.match(/flex-1[^"]*overflow-y-auto[^"<]{0,120}/)?.[0] ?? "";
+  ok("Y3: card list does NOT carry a max-h (cap lives on column, not card list)",
+    !cardListMatch.includes("max-h-[calc(100vh-"));
+})();
+
+(function y4_footer_flex_shrink_0() {
+  // flex-shrink-0 ensures the footer can never be squeezed to zero height
+  // even in a fully-packed flex-col column.
+  ok("Y4: footer button has flex-shrink-0 (stays pinned, never hidden)",
+    BOARD.includes("flex-shrink-0 w-full flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground rounded-b-lg"));
+})();
+
 // ─── L: live HTTP ─────────────────────────────────────────────────────────────
 section("L — live HTTP (requires server at localhost:5000)");
 

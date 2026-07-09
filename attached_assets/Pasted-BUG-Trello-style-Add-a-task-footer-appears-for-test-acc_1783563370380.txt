@@ -1,0 +1,74 @@
+BUG: Trello-style “+ Add a task” footer appears for test account but not for trevor@voltsafe.com when columns contain many tasks.
+
+Observed:
+- Test account / Advisor Test: footer appears correctly at the bottom of each Tasks Hub board column.
+- trevor@voltsafe.com: footer does NOT appear in normal populated board columns after republish.
+- Same route: /execution/tasks
+- This means the feature exists, but the rendering/scroll/layout behavior fails for users with many real tasks or saved board state.
+
+Likely cause:
+The footer is being rendered after the card list, but populated columns have overflow/height behavior that pushes the footer below the visible column area or outside the scroll container. Empty/short columns show it, tall columns hide it. Classic “works on my empty board” gremlin.
+
+Fix requirement:
+Make the “+ Add a task” footer visible and usable for EVERY column for EVERY user, including columns with many tasks.
+
+Implementation requirements:
+1. Inspect task-board.tsx column layout:
+   - Identify the column wrapper
+   - Identify the scrollable card list/body
+   - Identify where the Add Task footer was added
+
+2. Restructure each board column so it has this layout:
+   - Column container: flex flex-col
+   - Column header: fixed at top
+   - Card list/body: flex-1 overflow-y-auto
+   - Add task footer: shrink-0 at bottom of the column
+
+3. The footer must NOT be inside a scroll area where it disappears below many cards unless the whole intended behavior is to scroll to it.
+   Preferred behavior:
+   - Footer stays pinned at the bottom of the visible column, Trello-style
+   - Task cards scroll above it when the column is tall
+   - Empty columns still show Drop zone + Add task footer
+
+4. Footer styling:
+   - Text: “+ Add a task”
+   - Subtle hover background
+   - Full column width
+   - Cursor pointer
+   - Light/dark mode safe
+   - No horizontal overflow
+   - Does not overlap task cards
+
+5. Preserve behavior:
+   - Clicking footer opens the existing New Task drawer/modal
+   - New task inherits that exact column/group/status
+   - Top-right “+ New Task” still works
+   - Drag/drop still works
+   - Saved views and custom column order still work
+   - Manage columns still works
+
+6. User-specific saved state:
+   - Check whether trevor@voltsafe.com has saved board view / saved column layout / custom ordering that bypasses the new footer rendering path.
+   - Ensure all column render paths use the same shared TaskColumn component/footer.
+   - Do not only fix the default/test-account board state.
+
+7. Add regression coverage:
+   - Board with empty columns shows footer
+   - Board with many tasks in a column still shows footer
+   - Footer is visible without needing to scroll to the absolute bottom of a huge task list
+   - Footer click passes correct column/group default into task creation
+   - Saved/custom board views still render the footer
+   - No horizontal overflow
+
+8. Manual verification:
+   - Login as test account: footer visible
+   - Login as trevor@voltsafe.com: footer visible in Backlog, Blocked, Delegated, Today’s Tasks, Done, ASAP, and any custom columns
+   - Add one test task from a populated column and confirm it lands in that column
+   - Drag/drop still works afterward
+
+Acceptance criteria:
+- trevor@voltsafe.com sees “+ Add a task” at the bottom of every visible column, even populated columns.
+- Test account still works.
+- Footer remains visible in tall columns.
+- Creating a task from the footer preloads the correct column/status/group.
+- No regressions to drag/drop, saved views, or column management.
