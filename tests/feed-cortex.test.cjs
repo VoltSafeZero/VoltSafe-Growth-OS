@@ -46,6 +46,8 @@ const routes  = read("server/routes.ts");
 
 check("page exports default FeedCortexPage",        page.includes("export default function FeedCortexPage"));
 check("page has CortexBrainVisual component",        page.includes("function CortexBrainVisual"));
+check("CortexBrainVisual used in JSX (not misnamed)", page.includes("<CortexBrainVisual"));
+check("no stale CortexBrainSvg reference",           !page.includes("CortexBrainSvg"));
 check("brain SVG viewBox 400x400",                   page.includes('viewBox="0 0 400 400"'));
 check("brain has @keyframes ring-breathe-1",         page.includes("ring-breathe-1"));
 check("brain has @keyframes orb-pulse",              page.includes("orb-pulse"));

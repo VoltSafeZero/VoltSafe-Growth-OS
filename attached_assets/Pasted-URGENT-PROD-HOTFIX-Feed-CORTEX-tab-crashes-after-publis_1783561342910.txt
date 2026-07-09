@@ -1,0 +1,149 @@
+URGENT PROD HOTFIX — Feed CORTEX tab crashes after publish
+
+Context:
+The newly published Feed CORTEX page is crashing in production.
+
+Observed:
+Route:
+- /feed-cortex
+
+Production UI shows generic error boundary:
+- “Something went wrong”
+- “An unexpected error occurred. Please reload and try again.”
+
+User/session shown in screenshot:
+- Advisor Test
+
+This means the route loads, but the React page crashes during render or initial data handling.
+
+Task:
+Find and fix the production crash immediately.
+
+Likely cause:
+The Feed CORTEX page was built/tested mostly structurally, but a lower-permission user like Advisor Test is likely receiving a 401/403/non-array/null response from one of the Feed Cortex API calls, and the frontend is treating it like a normal array/object.
+
+This may be the same class of bug as the Tasks crash:
+- backend returns `{ message: "..." }`
+- frontend assumes array
+- `.map()` / `.filter()` / `.length` / property access throws
+- error boundary catches it
+
+Required investigation:
+1. Reproduce locally as Advisor Test or equivalent restricted user.
+2. Open /feed-cortex.
+3. Check browser console for exact React error.
+4. Check network responses for Feed Cortex endpoints:
+   - history
+   - cortex status
+   - today learned
+   - ask cortex
+   - any URL intel query
+5. Check server logs for 401/403/500.
+6. Identify the exact render-time crash.
+
+Fix requirements:
+1. Feed CORTEX must not crash for any authenticated user.
+2. All API responses must be shape-guarded before render.
+3. Any array usage must be protected:
+   - Array.isArray(data) ? data : []
+4. Any object usage must be protected:
+   - data && typeof data === "object" ? data : safeDefault
+5. Optional fields must be guarded:
+   - title
+   - domain
+   - canonical_url
+   - category
+   - importance
+   - created_by
+   - created_at
+   - tags
+   - summary
+   - learned bullets
+6. If an endpoint returns 401/403:
+   - show a controlled inline permission/empty state
+   - do NOT crash the whole page
+7. If an endpoint returns 500:
+   - show controlled inline error state
+   - do NOT crash the whole page
+8. If no history is available:
+   - show empty state:
+     “Cortex has not learned anything new yet.”
+9. If Advisor Test lacks permission to see Cortex history:
+   - page should still render the brain/feed UI
+   - history panel should show permission-safe message
+   - Ask Cortex should show disabled/permission-safe state if needed
+
+Specific areas to audit:
+- FeedCortexPage component
+- useQuery calls in Feed Cortex
+- history/today learned mapping
+- Cortex status calculations
+- learned-summary bullet generation
+- dialog/detail modal data assumptions
+- Ask Cortex response rendering
+- any code using:
+  - `.map(`
+  - `.filter(`
+  - `.reduce(`
+  - `.sort(`
+  - `.length`
+  - `Object.keys`
+  - nested optional field access without `?.`
+
+Backend/API requirements:
+- Feed Cortex endpoints should return safe default shapes where appropriate:
+  - history: []
+  - today: []
+  - status: { totalUrls: 0, learnedToday: 0, inAiContext: 0, topDomain: null }
+- Auth-gated routes should still return proper 401/403, but frontend must handle it safely.
+- Do not weaken permissions just to make the page load.
+- If Advisor Test should be allowed to feed Cortex, confirm POST route allows it.
+- If Advisor Test should not see some history, filter it rather than crashing.
+
+Frontend requirements:
+- Wrap queryFns with r.ok checks.
+- Do not let failed fetch JSON become “valid” render data.
+- Convert failed queries into controlled error/empty states.
+- Use safe fallback arrays/objects.
+- Brain visual should always render for authenticated users.
+- Feed URL input should render unless user lacks feed permission.
+- Page should never fall into global error boundary from bad data.
+
+Tests:
+Add regression tests covering:
+1. /feed-cortex renders for admin.
+2. /feed-cortex renders for advisor/restricted user.
+3. Failed history API does not crash page.
+4. 403 history API does not crash page.
+5. History object response is safely treated as empty array.
+6. Today learned object response is safely treated as empty array.
+7. Cortex status missing fields uses safe defaults.
+8. Learned-summary generation handles missing title/domain/tags.
+9. Detail modal handles missing fields.
+10. Ask Cortex failed response shows controlled error.
+11. No `.map()` call runs on non-array data.
+12. Route does not hit global error boundary.
+
+Validation:
+1. Run Feed Cortex tests.
+2. Run Cortex URL tests.
+3. Run full build/typecheck if available.
+4. Restart app.
+5. Manually test:
+   - /feed-cortex as Advisor Test
+   - /feed-cortex as admin/CEO
+6. Confirm:
+   - no “Something went wrong”
+   - no browser console errors
+   - no server errors
+   - page renders even if history/status/ask endpoint fails
+7. Publish hotfix.
+8. Verify production /feed-cortex as Advisor Test.
+
+Acceptance criteria:
+- Production /feed-cortex loads for Advisor Test.
+- No generic error boundary.
+- Brain/feed UI renders.
+- History/today/ask sections degrade gracefully if permission/data is missing.
+- No unrelated modules changed.
+- Report exact root cause, files changed, tests passed, and production verification result.

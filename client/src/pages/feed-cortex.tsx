@@ -585,7 +585,7 @@ export default function FeedCortexPage() {
           className="cortex-breathe-svg relative rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 cursor-pointer group"
           title="Click to view Cortex status"
         >
-          <CortexBrainSvg />
+          <CortexBrainVisual />
           {/* Hover overlay hint */}
           <div className="absolute inset-0 flex items-end justify-center pb-3 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
             <span className="text-[10px] font-mono text-teal-300 tracking-wider bg-black/40 rounded px-2 py-0.5">
