@@ -197,8 +197,8 @@ contains(routes, "} catch { /* audit write failure must never surface to caller"
 // ─────────────────────────────────────────────────────────────────────────────
 contains(appTsx, "function capitalGuard",
   "capitalGuard function defined in App.tsx");
-contains(appTsx, `(perms.capital === "edit") ? children : <AccessDenied />`,
-  "capitalGuard checks perms.capital === edit");
+contains(appTsx, `(isAdmin(role) || perms.capital === "edit") ? children : <AccessDenied />`,
+  "capitalGuard checks perms.capital === edit (with admin bypass; backend requireCapitalAccess allowlist independently gates every /api/capital/* route regardless of this frontend check)");
 
 // All Capital pages go through capitalGuard
 const capitalRoutes = [

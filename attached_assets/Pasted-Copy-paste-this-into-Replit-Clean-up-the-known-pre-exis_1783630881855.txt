@@ -1,0 +1,94 @@
+Copy/paste this into Replit:
+
+Clean up the known pre-existing test:grep failure so unrelated completed work is no longer blocked by stale validation.
+
+Context:
+The Tasks floating menu overhaul is complete and published. Do not modify or regress it unless the failing test directly requires it.
+
+Already verified:
+
+* tests/task-floating-menu-overhaul.test.cjs passes 28/28.
+* users.task_floating_menu_tabs migration is confirmed.
+* App is running cleanly.
+* The remaining validation blocker is a known unrelated/pre-existing test:grep failure, previously identified as a capitalGuard assertion mismatch.
+
+Goal:
+Find and fix the stale capitalGuard test failure so the full validation suite can pass again.
+
+Steps:
+
+1. Reproduce the exact failure
+
+Run:
+
+npm run test:grep
+
+Capture and report:
+
+* Failing test file
+* Exact failing assertion
+* Expected value
+* Actual value
+* Whether it is stale test logic or broken application logic
+
+2. Investigate the Capital guard logic
+
+Search the codebase for:
+
+rg "capitalGuard|canAccessCapital|Capital|capital|exec|executive|role|globalRole" server shared client tests
+
+Confirm the intended behavior:
+
+* Capital access must be based on the current permission model.
+* Do not accidentally grant Capital access to regular users.
+* Do not confuse business role with admin access.
+* If old role names like exec still exist, preserve backward compatibility while supporting executive.
+* Admin access and business role should remain logically separate.
+
+3. Apply the smallest safe fix
+
+Choose the correct fix:
+
+Option A — stale test:
+If the assertion is outdated and the app behavior is correct, update the test expectation.
+
+Option B — broken app logic:
+If the test is correct and app permission logic is wrong, fix the permission helper or route guard.
+
+Option C — unavoidable known unrelated failure:
+Only if neither can be safely fixed in this pass, explicitly skip the stale assertion with a clear reason explaining:
+
+* why it is unrelated,
+* what task tracks it,
+* and why it should not block unrelated validation.
+
+Do not use a vague skip. No mystery meat.
+
+4. Protect the completed Tasks work
+
+After fixing the capitalGuard issue, rerun:
+
+node tests/task-floating-menu-overhaul.test.cjs
+npm run test:grep
+
+Also verify:
+
+* Tasks floating menu tabs still exist.
+* taskFloatingMenuTabs endpoint/persistence behavior was not changed.
+* Settings UI still exposes task floating menu tab customization.
+* No Tasks UI files were modified unless directly necessary.
+
+5. Final report required
+
+Report back with:
+
+* Exact failing file/assertion found.
+* Root cause.
+* Files changed.
+* Whether this was stale test logic or real app logic.
+* Final result of tests/task-floating-menu-overhaul.test.cjs.
+* Final result of npm run test:grep.
+* Confirmation that the completed Tasks floating menu work remains intact.
+* Any remaining known failures, clearly marked as unrelated.
+
+This is the right cleanup move. Fix the validator now so it stops body-checking every unrelated feature at the finish line.
