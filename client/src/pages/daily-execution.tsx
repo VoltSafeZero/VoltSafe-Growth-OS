@@ -288,11 +288,16 @@ function MyDailyDownload() {
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const { data: today, refetch: refetchToday } = useQuery<DailyDownload | null>({
-    queryKey: ["/api/daily-downloads/today"],
+  // Fetch ALL of today's entries (most recent first) — supports multiple recordings per day
+  const { data: todayAll = [], refetch: refetchTodayAll } = useQuery<DailyDownload[]>({
+    queryKey: ["/api/daily-downloads/today/all"],
     staleTime: 30_000,
     refetchInterval: uiState === "processing" ? 4000 : false,
   });
+
+  // Active entry = most recent; previous completed entries shown below
+  const today = todayAll[0] ?? null;
+  const previousEntries = todayAll.filter(e => e.id !== today?.id && e.status === "completed");
 
   const { data: recent = [] } = useQuery<DailyDownload[]>({
     queryKey: ["/api/daily-downloads/recent"],
@@ -316,7 +321,7 @@ function MyDailyDownload() {
       await apiRequest("POST", `/api/daily-downloads/${dl.id}/start`);
       setActiveId(dl.id);
       await beginRecording(dl.id);
-      refetchToday();
+      refetchTodayAll();
     },
     onError: () => toast({ title: "Failed to create daily download", variant: "destructive" }),
   });
@@ -355,7 +360,7 @@ function MyDailyDownload() {
         } catch {
           setUiState("failed");
         }
-        refetchToday();
+        refetchTodayAll();
       };
 
       mr.start(1500);
@@ -367,10 +372,12 @@ function MyDailyDownload() {
   }
 
   function handleStart() {
+    // Always create a fresh entry when adding another recording
     if (today && today.status === "completed") {
       createMutation.mutate();
       return;
     }
+    // Resume an existing draft/failed entry
     if (today && (today.status === "draft" || today.status === "failed")) {
       setActiveId(today.id);
       apiRequest("POST", `/api/daily-downloads/${today.id}/start`)
@@ -427,7 +434,9 @@ function MyDailyDownload() {
           <div className="flex flex-col sm:flex-row items-center gap-3">
             <p className="text-sm text-muted-foreground flex-1">
               <span className="font-medium text-foreground">{todayLabel} — </span>
-              No recording yet. Speak for 30–120 seconds about what you accomplished today.
+              {previousEntries.length > 0
+                ? "Add another recording for today. Speak for as long or short as you like."
+                : "No recording yet. Just hit record — speak for as long or short as you like."}
             </p>
             <Button
               size="sm"
@@ -475,7 +484,7 @@ function MyDailyDownload() {
           <div className="flex flex-col items-center gap-2 py-4 text-center">
             <Loader2 className="w-7 h-7 text-primary animate-spin" />
             <p className="text-sm font-medium">Generating your summary…</p>
-            <p className="text-xs text-muted-foreground">Transcribing and extracting insights. Usually 30–90 seconds.</p>
+            <p className="text-xs text-muted-foreground">Transcribing and extracting insights.</p>
           </div>
         )}
 
@@ -551,12 +560,46 @@ function MyDailyDownload() {
               </div>
             )}
 
-            <div>
-              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleStart} data-testid="button-re-record-daily">
-                <Mic className="w-3 h-3 mr-1" />
-                Re-record today
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleStart} disabled={createMutation.isPending} data-testid="button-re-record-daily">
+                {createMutation.isPending
+                  ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  : <Mic className="w-3 h-3 mr-1" />}
+                Add Recording
               </Button>
             </div>
+
+            {/* Earlier entries from today */}
+            {previousEntries.length > 0 && (
+              <div className="rounded-lg border border-border/40 bg-muted/20 overflow-hidden">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground px-3 pt-2.5 pb-1.5">
+                  Earlier today ({previousEntries.length})
+                </p>
+                <div className="divide-y divide-border/30">
+                  {previousEntries.map((e, idx) => (
+                    <div key={e.id} className="px-3 py-2" data-testid={`earlier-download-${e.id}`}>
+                      <p className="text-[10px] text-muted-foreground mb-1">
+                        {new Date(e.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        {e.duration_seconds ? ` · ${Math.floor(e.duration_seconds / 60)}m ${e.duration_seconds % 60}s` : ""}
+                      </p>
+                      {e.summary_bullets && e.summary_bullets.length > 0 && (
+                        <ul className="space-y-0.5">
+                          {e.summary_bullets.slice(0, 2).map((b, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                              <span className="text-primary mt-0.5 shrink-0">•</span>
+                              <span className="line-clamp-1">{b}</span>
+                            </li>
+                          ))}
+                          {e.summary_bullets.length > 2 && (
+                            <li className="text-[10px] text-muted-foreground pl-3">+{e.summary_bullets.length - 2} more</li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

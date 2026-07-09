@@ -41838,6 +41838,25 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // GET /api/daily-downloads/today/all — ALL of today's entries for current user
+  app.get("/api/daily-downloads/today/all", requireAuth, async (req: any, res) => {
+    const user = req.user as any;
+    try {
+      const result = await db.execute(sql.raw(
+        `SELECT dd.*, u.name as user_name
+         FROM daily_downloads dd
+         JOIN users u ON u.id = dd.user_id
+         WHERE dd.user_id = ${Number(user.id)} AND dd.date = CURRENT_DATE
+         ORDER BY dd.created_at DESC`
+      ));
+      const rows = (result as any).rows ?? (result as any);
+      return res.json(Array.isArray(rows) ? rows : []);
+    } catch (err: any) {
+      console.error("[daily-downloads] GET /today/all:", err.message);
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
   // GET /api/daily-downloads/recent — recent team-visible completed downloads (last 14 days)
   app.get("/api/daily-downloads/recent", requireAuth, async (req: any, res) => {
     try {
