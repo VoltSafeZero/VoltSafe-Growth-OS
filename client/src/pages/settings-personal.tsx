@@ -1,19 +1,28 @@
 import { Link } from "wouter";
-import { Settings, PenSquare, Mic, BellRing, ArrowRight, HelpCircle } from "lucide-react";
+import { Settings, PenSquare, Mic, BellRing, ArrowRight, HelpCircle, ListChecks, Check } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { DEFAULT_FLOATING_TABS, FLOATING_TAB_META, type FloatingTabKey } from "@/components/tasks/task-floating-nav";
+
+const FLOATING_TAB_OPTIONS: FloatingTabKey[] = [
+  "urgentOverdue", "recentlyCompleted", "board", "calendar",
+  "my", "team", "assigned_by_me", "today", "suggestions", "archived",
+];
 
 export default function PersonalSettingsPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: currentUser } = useQuery<{ showHelpIcons?: boolean }>({
+  const { data: currentUser } = useQuery<{ showHelpIcons?: boolean; taskFloatingMenuTabs?: FloatingTabKey[] }>({
     queryKey: ["/api/auth/me"],
   });
 
   const showHelpIcons = currentUser?.showHelpIcons ?? true;
+  const floatingTabs = currentUser?.taskFloatingMenuTabs && currentUser.taskFloatingMenuTabs.length > 0
+    ? currentUser.taskFloatingMenuTabs
+    : DEFAULT_FLOATING_TABS;
 
   const toggleHelpIcons = useMutation({
     mutationFn: async (next: boolean) => {
@@ -27,6 +36,38 @@ export default function PersonalSettingsPage() {
       toast({ title: "Could not update help icon preference", variant: "destructive" });
     },
   });
+
+  const updateFloatingTabs = useMutation({
+    mutationFn: async (next: FloatingTabKey[]) => {
+      const res = await apiRequest("PATCH", "/api/users/me/layout", { taskFloatingMenuTabs: next });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: () => {
+      toast({ title: "Could not update floating task menu", variant: "destructive" });
+    },
+  });
+
+  const toggleFloatingTab = (key: FloatingTabKey) => {
+    const isSelected = floatingTabs.includes(key);
+    let next: FloatingTabKey[];
+    if (isSelected) {
+      if (floatingTabs.length <= 1) {
+        toast({ title: "Keep at least one tab in the floating menu", variant: "destructive" });
+        return;
+      }
+      next = floatingTabs.filter(t => t !== key);
+    } else {
+      if (floatingTabs.length >= 4) {
+        toast({ title: "You can pin up to 4 tabs at once", variant: "destructive" });
+        return;
+      }
+      next = [...floatingTabs, key];
+    }
+    updateFloatingTabs.mutate(next);
+  };
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-3xl mx-auto" data-testid="personal-settings-hub">
@@ -130,6 +171,44 @@ export default function PersonalSettingsPage() {
           onCheckedChange={(checked) => toggleHelpIcons.mutate(checked)}
           disabled={toggleHelpIcons.isPending}
         />
+      </div>
+
+      {/* Floating task menu tabs */}
+      <div className="rounded-xl border border-border/50 bg-card p-5 flex flex-col gap-3" data-testid="personal-settings-floating-tabs">
+        <div className="flex items-start gap-3">
+          <div className="p-2 rounded-lg bg-primary/10">
+            <ListChecks className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Task Floating Menu</h2>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-snug max-w-md">
+              Choose up to 4 tabs to pin to the floating menu at the bottom of Tasks Hub.
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pl-11">
+          {FLOATING_TAB_OPTIONS.map((key) => {
+            const meta = FLOATING_TAB_META[key];
+            const selected = floatingTabs.includes(key);
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleFloatingTab(key)}
+                disabled={updateFloatingTabs.isPending}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs text-left transition-colors ${
+                  selected
+                    ? "border-primary/50 bg-primary/10 text-primary font-semibold"
+                    : "border-border/50 text-muted-foreground hover:bg-muted/50"
+                }`}
+                data-testid={`switch-floating-tab-${key}`}
+              >
+                <span className="flex-1">{meta.label}</span>
+                {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Quick links section */}
