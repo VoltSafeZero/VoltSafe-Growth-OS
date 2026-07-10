@@ -1,0 +1,33 @@
+Bug: Feed CORTEX ingestion works, but Ask CORTEX returns “No answer returned.”
+
+Evidence:
+- Feed CORTEX page shows successfully ingested items under “What Cortex Learned Today” and “Ingestion History”.
+- Screenshot shows youtube.com, nmma.org, and linkedin.com records are present.
+- When asking “What did you learn today?”, the Ask CORTEX panel displays: “No answer returned.”
+- This means ingestion/history display works, but question answering/retrieval/generation is broken or returning an unexpected response shape.
+
+Please debug and fix the full Ask CORTEX flow.
+
+Required checks:
+1. Find the frontend component for Feed CORTEX / Ask CORTEX.
+2. Find the API route called when clicking “Ask Cortex”.
+3. Log/inspect the actual API response returned for the question “What did you learn today?”
+4. Confirm the frontend is reading the correct response field.
+   - If backend returns `answer`, UI must read `answer`.
+   - If backend returns `response`, `text`, `message`, or `result`, either normalize backend or update frontend.
+5. Confirm the backend does not silently swallow errors and return an empty success response.
+6. Confirm Ask Cortex retrieval includes recently ingested Feed CORTEX records.
+7. Confirm “today” logic uses the correct timezone and does not exclude records due to UTC/local date mismatch.
+8. Confirm ingested records are indexed/searchable immediately after ingestion, or add fallback retrieval from recent ingestion history if embeddings/indexing are unavailable.
+9. If the LLM/generator fails, return a clear error message instead of “No answer returned.”
+10. Add a regression test:
+   - Seed at least one Feed CORTEX ingested record from today.
+   - Ask: “What did you learn today?”
+   - Assert the API returns a non-empty answer referencing the ingested item.
+   - Assert the frontend renders that answer instead of “No answer returned.”
+
+Expected behavior:
+When there are ingested items today and the user asks “What did you learn today?”, Cortex should return a useful summary, for example:
+“Today I learned from 3 ingested sources: youtube.com, nmma.org, and linkedin.com. These were captured into Cortex context as web resources…”
+
+Do not just hide the fallback message. Fix the underlying API/retrieval/response mapping so Ask Cortex reliably returns useful answers.
