@@ -515,10 +515,21 @@ export default function FeedCortexPage() {
 
   // ── Ask Cortex mutation ──
   const askMutation = useMutation({
-    mutationFn: async (q: string) => apiRequest("POST", "/api/cortex/ask", { question: q }),
-    onSuccess: (data: any) => setAnswer(data?.answer ?? "No answer returned."),
+    mutationFn: async (q: string) => {
+      const res = await apiRequest("POST", "/api/cortex/ask", { question: q });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data?.answer) {
+        setAnswer(data.answer);
+      } else {
+        setAnswer(data?.error ?? "Cortex didn't return an answer. Please try again.");
+      }
+    },
     onError: (err: any) => {
-      toast({ title: "Ask failed", description: err?.message ?? "Could not reach Cortex.", variant: "destructive" });
+      const msg = err?.message ?? "Could not reach Cortex.";
+      setAnswer(`Something went wrong: ${msg}`);
+      toast({ title: "Ask failed", description: msg, variant: "destructive" });
     },
   });
 

@@ -96,6 +96,25 @@ check("page shows loading state while asking",       page.includes("Cortex is th
 check("page shows 'Cortex says' label",              page.includes("Cortex says"));
 check("page clears answer on new question",          page.includes("setAnswer(null)"));
 
+// ── Regression: askMutation must parse the Response body before reading .answer ──
+// apiRequest() resolves to a raw fetch Response, not parsed JSON. Reading
+// `.answer` directly off that Response is always undefined, so the UI silently
+// fell back to "No answer returned." even when the backend answered correctly.
+(function () {
+  const start = page.indexOf("const askMutation = useMutation({");
+  const end   = page.indexOf("function handleIngest", start);
+  const block = start >= 0 && end >= 0 ? page.slice(start, end) : "";
+  check("askMutation block found", block.length > 0);
+  check("askMutation calls apiRequest for /api/cortex/ask", block.includes('apiRequest("POST", "/api/cortex/ask"'));
+  check("askMutation parses the Response via .json() before use", /\.json\s*\(\s*\)/.test(block));
+  check("askMutation does not read .answer directly off apiRequest() return value",
+    !/apiRequest\([^)]*\)\s*\.\s*then/.test(block) &&
+    !/return\s+apiRequest\([^;]*\/api\/cortex\/ask[^;]*\)\s*;/.test(block));
+  check("askMutation onSuccess reads data?.answer",     block.includes("data?.answer") || block.includes("data.answer"));
+  check("askMutation onSuccess has a non-generic fallback for missing/blocked answers",
+    block.includes("data?.error") || block.includes("data.error"));
+})();
+
 // ── Page: misc UI ─────────────────────────────────────────────────────────────
 
 check("page links to cortex/intel library",          page.includes("/cortex/intel"));
