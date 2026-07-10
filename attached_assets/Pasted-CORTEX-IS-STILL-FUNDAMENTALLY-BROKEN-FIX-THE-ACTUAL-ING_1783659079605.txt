@@ -1,0 +1,468 @@
+CORTEX IS STILL FUNDAMENTALLY BROKEN. FIX THE ACTUAL INGESTION + RETRIEVAL PIPELINE, NOT THE WORDING OF THE RESPONSE.
+
+Observed failure:
+A user pasted important URLs so Cortex could learn their specific content. When asked:
+
+“What did you learn today from what you were fed? Did you not ingest the specific linked content from the ingested url's?”
+
+Cortex answered that it learned from “various web resources” but “does not have access to the specific content of those linked URLs.”
+
+That response proves Cortex is only remembering URL names, categories, domains, or metadata. It is not reliably fetching, extracting, storing, indexing, retrieving, and citing the actual content.
+
+This is now the fifth attempted fix. Do not apply another cosmetic patch.
+
+PRIMARY REQUIREMENT
+
+Every URL submitted to Cortex must move through a verifiable ingestion pipeline:
+
+URL submitted
+→ URL normalized and validated
+→ source fetched
+→ meaningful content extracted
+→ video/audio transcribed where applicable
+→ content chunked
+→ chunks embedded/indexed
+→ source record persisted
+→ ingestion status shown
+→ retrieval tested
+→ Cortex answers using the stored source content
+
+Cortex must never claim it learned from a source unless usable source content was actually stored and indexed.
+
+1. INVESTIGATE THE CURRENT PIPELINE FIRST
+
+Trace the full code path for:
+
+- URL submission
+- ingestion job creation
+- webpage fetching
+- YouTube handling
+- LinkedIn handling
+- PDF/document handling
+- transcript extraction
+- content cleaning
+- database persistence
+- chunk creation
+- embedding/index creation
+- retrieval
+- answer generation
+- “what did you learn today?” queries
+
+Identify exactly where the current system stops.
+
+Determine whether it currently stores only:
+
+- URL
+- page title
+- domain
+- category
+- summary
+- metadata
+- ingestion event
+
+instead of the actual extracted text and retrievable chunks.
+
+Report the root cause before making the fix, but continue immediately with the implementation.
+
+2. CREATE A REAL SOURCE INGESTION DATA MODEL
+
+Each submitted source must persist at least:
+
+- source ID
+- original URL
+- normalized URL
+- source type
+- domain
+- title
+- author, when available
+- publication date, when available
+- submitted by
+- submitted timestamp
+- fetch timestamp
+- raw extracted text
+- cleaned extracted text
+- transcript, when applicable
+- generated summary
+- extracted topics
+- chunk count
+- indexed chunk count
+- content character count
+- content hash
+- ingestion status
+- ingestion stage
+- failure reason
+- retry count
+- last retry timestamp
+- retrieval-ready boolean
+- access/permission scope
+
+Use explicit statuses such as:
+
+- queued
+- fetching
+- extracting
+- transcribing
+- cleaning
+- chunking
+- indexing
+- verifying
+- ready
+- partial
+- failed
+- blocked
+- unsupported
+
+Do not mark a source “ready” merely because the URL record was saved.
+
+A source may only become “ready” when:
+
+- meaningful content was extracted
+- at least one usable chunk was stored
+- the chunk is present in the retrieval index
+- a verification query can retrieve that source
+
+3. FIX SOURCE FETCHING AND EXTRACTION
+
+Implement source-specific extraction.
+
+Normal webpages:
+- follow redirects safely
+- extract article/body content
+- remove navigation, cookie banners, footers, advertisements, and repeated boilerplate
+- preserve headings, lists, captions, dates, and meaningful context
+- reject pages where only a title or tiny amount of text was extracted
+
+YouTube:
+- resolve the video ID
+- retrieve captions/transcript when available
+- store transcript text and timestamps where possible
+- if captions are unavailable, mark the source partial or failed with a clear reason
+- never pretend the video was learned from when only its title or description was captured
+
+PDFs:
+- download and extract selectable text
+- preserve page references
+- use the project’s supported document extraction method
+- mark scanned/unreadable PDFs clearly instead of silently succeeding
+
+LinkedIn and other restricted sites:
+- attempt only lawful, supported retrieval methods
+- if the page blocks extraction or requires authentication, mark it blocked or partial
+- show the user exactly what was and was not captured
+- do not claim the post/article was ingested if only Open Graph metadata was available
+
+Redirected URLs:
+- retain both original and final resolved URL
+- deduplicate using canonical URL and content hash
+
+Minimum usable-content threshold:
+A source must not become retrieval-ready if it contains only a page title, description, domain name, or a few metadata fields.
+
+4. ADD BACKGROUND JOB RELIABILITY
+
+Ingestion must not depend on the browser request staying open.
+
+Implement or repair:
+
+- durable queued ingestion jobs
+- retry with bounded exponential backoff
+- timeout handling
+- idempotency
+- duplicate prevention
+- job recovery after app restart
+- stage-by-stage error recording
+- structured logs with source ID and job ID
+
+Do not create duplicate chunks or duplicate sources during retries.
+
+5. FIX CHUNKING AND INDEXING
+
+Store the actual extracted content in retrievable chunks.
+
+Each chunk must include:
+
+- chunk ID
+- source ID
+- chunk text
+- sequence/order
+- heading or section
+- page number or timestamp when applicable
+- token/character count
+- embedding/index status
+- content hash
+- source permissions
+
+Chunking must preserve semantic sections and useful context. Do not split into fragments so small that meaning is destroyed.
+
+All chunks must inherit the source’s access permissions.
+
+6. FIX RETRIEVAL
+
+The current response strongly suggests the answer generator is not retrieving stored content.
+
+For each Cortex question:
+
+- determine whether the question requires the user’s ingested knowledge
+- search the stored chunks
+- apply the current user’s permission scope
+- rank relevant chunks
+- pass the best grounded excerpts into the answer model
+- require source IDs in the generated answer payload
+- return citations linked to the ingested source record
+
+For questions such as:
+
+- “What did you learn today?”
+- “What did I feed you today?”
+- “Summarize today’s sources.”
+- “What did you learn from the NMMA link?”
+- “What was in the YouTube video I added?”
+- “What did the LinkedIn article say?”
+
+Cortex must search ingestion records by submission date and retrieve the actual stored content from those records.
+
+“What did you learn today?” must be based on sources successfully ingested during the user’s current local calendar day, not generic web knowledge.
+
+7. ELIMINATE HALLUCINATED INGESTION
+
+Add strict grounding rules:
+
+- Cortex cannot say “I learned from X” unless X is retrieval-ready.
+- Cortex cannot summarize a source unless retrieved chunks from that source are present in the prompt.
+- Cortex cannot list a domain merely because a URL was submitted.
+- Cortex cannot imply a blocked or failed URL was ingested.
+- Cortex must distinguish:
+  - submitted
+  - fetched
+  - partially extracted
+  - fully indexed
+  - failed
+  - blocked
+
+When nothing usable was retrieved, say plainly:
+
+“I found the URL submission, but its content was not successfully extracted and indexed. Status: blocked/failed. Reason: [specific reason].”
+
+Do not give the generic “I do not have access to specific linked content” answer when the product’s purpose is to ingest linked content.
+
+8. IMPROVE THE “ASK CORTEX” RESPONSE FORMAT
+
+For “What did you learn today?”, return:
+
+CORTEX LEARNED TODAY
+
+Successfully ingested:
+1. [Source title]
+   - Source type/domain
+   - Key things learned
+   - Ingestion time
+   - Citation/open-source link
+
+2. [Source title]
+   - Key things learned
+
+Could not fully ingest:
+1. [Source title or URL]
+   - Status
+   - Exact failure reason
+   - Retry action
+
+End with a clear count:
+
+- 4 sources submitted
+- 3 fully indexed
+- 1 blocked
+- 127 retrievable chunks created
+
+Do not include generic filler such as “feel free to ask.”
+
+9. ADD INGESTION VISIBILITY TO THE UI
+
+For every submitted source, show:
+
+- title/domain
+- source type
+- submission time
+- current ingestion stage
+- status badge
+- extracted character count
+- chunk count
+- retrieval-ready status
+- failure reason
+- Retry button
+- View extracted content
+- Test retrieval
+- Delete/re-ingest
+
+Include an ingestion activity page or panel where an admin can see recent jobs and failures.
+
+“View extracted content” must show the actual text Cortex stored.
+
+“Test retrieval” must run a small source-specific query and show which chunks were returned.
+
+10. ADD A SOURCE-DETAIL DEBUG VIEW FOR MASTER ADMIN
+
+For each source, expose:
+
+- original URL
+- resolved URL
+- HTTP/fetch result
+- extraction method
+- extracted text preview
+- transcript preview
+- database content length
+- stored chunks
+- indexed chunks
+- retrieval test results
+- ingestion logs
+- failure stack or sanitized error reason
+
+This will stop us from repeatedly guessing whether ingestion worked.
+
+11. HANDLE EXISTING BROKEN SOURCES
+
+Create a repair/backfill operation for previously submitted URLs.
+
+For existing source records:
+
+- identify records with missing text
+- identify records with zero chunks
+- identify records whose status incorrectly says successful
+- identify metadata-only records
+- re-run them through the corrected pipeline
+- update their true status
+- do not silently leave old fake-success records in place
+
+Provide a master-admin action:
+
+“Reprocess all incomplete Cortex sources”
+
+It must be safe and idempotent.
+
+12. REQUIRED DATABASE AND API RULES
+
+The answer API must return structured grounding data such as:
+
+{
+  "answer": "...",
+  "sources": [
+    {
+      "sourceId": "...",
+      "title": "...",
+      "url": "...",
+      "status": "ready",
+      "chunkIds": ["..."]
+    }
+  ],
+  "retrieval": {
+    "candidateCount": 0,
+    "returnedCount": 0
+  }
+}
+
+The UI must display the cited sources.
+
+If the answer claims knowledge from a source but `sources` is empty, treat that as an application error and replace the answer with a truthful retrieval failure message.
+
+13. REQUIRED TESTS
+
+Add real tests, not source-grep theatre.
+
+Unit tests:
+- URL normalization
+- content extraction
+- metadata-only rejection
+- transcript handling
+- chunk creation
+- duplicate prevention
+- status transitions
+- access filtering
+- grounding enforcement
+
+Integration tests:
+- submit an HTML fixture URL
+- confirm extracted body is saved
+- confirm chunks are created
+- confirm chunks are indexed
+- ask a question whose answer exists only inside that fixture
+- confirm Cortex returns the correct answer
+- confirm source citation is attached
+
+YouTube fixture test:
+- ingest a known transcript fixture
+- ask about a specific statement from the transcript
+- confirm the answer comes from transcript content
+
+Failed-source test:
+- simulate blocked extraction
+- confirm status is blocked/failed
+- confirm Cortex does not say it learned the source
+- confirm exact failure reason is displayed
+
+“What did you learn today?” test:
+- create three sources today:
+  - one successful
+  - one blocked
+  - one queued
+- confirm Cortex reports each with the correct status
+- confirm it summarizes only the successful source
+
+Permission test:
+- ingest a private source as User A
+- confirm User B cannot retrieve it
+- confirm master admin behaviour follows the existing permission rules
+
+Restart test:
+- queue an ingestion job
+- restart the app
+- confirm the job resumes without duplicate records or chunks
+
+14. LIVE BROWSER VERIFICATION
+
+After implementation:
+
+- submit a normal public article URL
+- wait for ready status
+- open “View extracted content”
+- prove meaningful article text is present
+- run “Test retrieval”
+- prove chunks are returned
+- ask Cortex a specific question whose answer appears only in the article
+- confirm it answers correctly and cites that article
+
+Then test:
+
+“What did you learn today from what you were fed?”
+
+Confirm the response names the actual sources and summarizes specific facts taken from the stored content.
+
+Also test one YouTube URL and one blocked/restricted URL. Confirm Cortex accurately distinguishes successful ingestion from failed extraction.
+
+15. DO NOT DECLARE THIS COMPLETE UNTIL ALL OF THE FOLLOWING ARE TRUE
+
+- Actual source text is stored.
+- Actual source text is chunked.
+- Chunks are indexed.
+- Retrieval returns those chunks.
+- Cortex answers source-specific questions.
+- Responses contain source citations.
+- “What did you learn today?” reads today’s ingestion records.
+- Failed URLs are clearly shown as failed.
+- Metadata-only URLs are not called learned.
+- Previous incomplete sources can be reprocessed.
+- Tests pass.
+- Live browser verification passes.
+- The exact failure shown in the attached screenshot can no longer occur.
+
+Provide a completion report containing:
+
+1. Root cause
+2. Files changed
+3. Database changes
+4. Old broken behaviour
+5. New behaviour
+6. Backfill results
+7. Test results
+8. Live browser evidence
+9. One example of the exact final Cortex response to:
+   “What did you learn today from what you were fed?”

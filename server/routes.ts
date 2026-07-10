@@ -41477,9 +41477,90 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
         createdByUserId: userId,
       });
 
+      // Mark as queued and kick off real content extraction (fetch → extract →
+      // chunk → index). Fire-and-forget: the client polls /url/history or
+      // /url/:id/status for progress; the save request itself must not block
+      // on a slow external fetch.
+      const { queueIngestion } = await import("./services/cortex-ingestion");
+      queueIngestion(record.id, url);
+      (record as any).ingestion_status = "queued";
+
       res.status(201).json({ ok: true, record });
     } catch (err: any) {
       console.error("[cortex-url] POST /api/cortex/url:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/cortex/url/:id/retry — re-run ingestion for a single source
+  app.post("/api/cortex/url/:id/retry", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const { getCortexIntelById } = await import("./services/cortex-intel");
+      const existing = await getCortexIntelById(id);
+      if (!existing || existing.source_type !== "url") return res.status(404).json({ error: "Not found" });
+
+      await db.execute(sql.raw(`UPDATE cortex_email_intel SET retry_count = retry_count + 1, last_retry_at = NOW() WHERE id = ${id}`));
+      const { queueIngestion } = await import("./services/cortex-ingestion");
+      queueIngestion(id, existing.source_url);
+      res.json({ ok: true, status: "queued" });
+    } catch (err: any) {
+      console.error("[cortex-url] POST /api/cortex/url/:id/retry:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/cortex/url/:id/content — view the actual extracted content (proof of real ingestion)
+  app.get("/api/cortex/url/:id/content", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT id, source_url, title, ingestion_status, ingestion_stage, failure_reason,
+               extraction_method, content_char_count, chunk_count, indexed_chunk_count,
+               retrieval_ready, extracted_text, retry_count, fetch_completed_at
+        FROM cortex_email_intel WHERE id = ${id} AND deleted_at IS NULL
+      `));
+      const record = (rows as any).rows?.[0];
+      if (!record) return res.status(404).json({ error: "Not found" });
+      const chunkRows = await db.execute(sql.raw(`
+        SELECT id, seq, chunk_text, char_count FROM cortex_source_chunks
+        WHERE source_id = ${id} ORDER BY seq ASC
+      `));
+      res.json({ record, chunks: (chunkRows as any).rows ?? [] });
+    } catch (err: any) {
+      console.error("[cortex-url] GET /api/cortex/url/:id/content:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/cortex/url/:id/test-retrieval — run a sample query against this source's chunks only
+  app.post("/api/cortex/url/:id/test-retrieval", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { query } = req.body || {};
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      if (!query || typeof query !== "string" || query.trim().length < 2) {
+        return res.status(400).json({ error: "query required" });
+      }
+      const { retrieveChunksForQuery } = await import("./services/cortex-ingestion");
+      const chunks = await retrieveChunksForQuery(query.trim(), { sourceIds: [id], limit: 5 });
+      res.json({ ok: true, matches: chunks });
+    } catch (err: any) {
+      console.error("[cortex-url] POST /api/cortex/url/:id/test-retrieval:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/cortex/url/reprocess-incomplete — admin backfill for legacy/failed/partial sources
+  app.post("/api/cortex/url/reprocess-incomplete", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const { reprocessIncompleteSources } = await import("./services/cortex-ingestion");
+      const result = await reprocessIncompleteSources();
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[cortex-url] POST /api/cortex/url/reprocess-incomplete:", err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -41528,6 +41609,8 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
           c.id, c.source_url, c.canonical_url, c.domain, c.title,
           c.intel_type, c.importance, c.ai_summary, c.user_notes,
           c.tags, c.created_at, c.created_by_user_id, c.use_in_ai_context,
+          c.ingestion_status, c.ingestion_stage, c.failure_reason, c.retry_count,
+          c.retrieval_ready, c.extraction_method, c.content_char_count, c.chunk_count,
           u.name AS created_by_name, u.email AS created_by_email
         FROM cortex_email_intel c
         LEFT JOIN users u ON u.id = c.created_by_user_id
@@ -41558,7 +41641,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
       // hard-empty result just because of a date/timezone mismatch.
       const todayRows = asksAboutToday
         ? await db.execute(sql.raw(`
-            SELECT title, canonical_url, domain, ai_summary, intel_type, importance, created_at
+            SELECT id, title, canonical_url, domain, ai_summary, intel_type, importance, created_at, retrieval_ready
             FROM cortex_email_intel
             WHERE deleted_at IS NULL AND source_type = 'url' AND use_in_ai_context = true
               AND created_at >= CURRENT_DATE
@@ -41571,7 +41654,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
 
       if (records.length === 0) {
         const rows = await db.execute(sql.raw(`
-          SELECT title, canonical_url, domain, ai_summary, intel_type, importance, created_at
+          SELECT id, title, canonical_url, domain, ai_summary, intel_type, importance, created_at, retrieval_ready
           FROM cortex_email_intel
           WHERE deleted_at IS NULL AND source_type = 'url' AND use_in_ai_context = true
           ORDER BY created_at DESC
@@ -41585,18 +41668,45 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
         // Zero records anywhere in the knowledge base — return a controlled,
         // app-specific empty state. Never call the LLM with empty context and
         // let it fall back to a generic base-model answer.
-        const msg = asksAboutToday
+        const answer = asksAboutToday
           ? "I could not find any Feed CORTEX items from today in the searchable index. Feed me a URL to get started."
           : "I don't have any ingested knowledge yet. Feed me some URLs first and I'll be able to answer questions based on what I learn!";
-        return res.json({ answer: msg });
+        return res.json({ answer });
       }
 
-      const contextText = records.map((r: any) => {
-        const parts: string[] = [`Source: ${r.domain ?? r.canonical_url}`];
-        if (r.title)      parts.push(`Title: ${r.title}`);
+      const { retrieveChunksForQuery } = await import("./services/cortex-ingestion");
+
+      // Real retrieval: full-text search over actual extracted content chunks
+      // (not just title/summary), scoped to the candidate records above and to
+      // sources that finished ingestion successfully (retrieval_ready = true).
+      // Sources that only have a title/summary (legacy, partial, failed,
+      // blocked) are NEVER used to ground an answer with fabricated "content".
+      const readyRecordIds = records.filter((r: any) => r.retrieval_ready).map((r: any) => r.id);
+      const notReadyCount = records.length - readyRecordIds.length;
+      const chunkMatches = readyRecordIds.length > 0
+        ? await retrieveChunksForQuery(q, { limit: 10, sourceIds: readyRecordIds })
+        : [];
+
+      // Build the grounding block: prefer REAL extracted chunk text where we
+      // have a keyword match; fall back to the title/summary record for any
+      // candidate item so "what did you learn today" style questions still
+      // work even when no chunk matched the literal wording of the question.
+      const chunksBySource = new Map<number, any[]>();
+      for (const c of chunkMatches) {
+        if (!chunksBySource.has(c.source_id)) chunksBySource.set(c.source_id, []);
+        chunksBySource.get(c.source_id)!.push(c);
+      }
+      const contextText = records.map((r: any, i: number) => {
+        const chunks = chunksBySource.get(r.id);
+        const header = `[${i + 1}] Source: ${r.title ?? r.domain ?? r.canonical_url} (${r.domain ?? r.canonical_url})\nIngested: ${r.created_at}`;
+        if (chunks && chunks.length > 0) {
+          const excerpts = chunks.map((c: any) => c.chunk_text).join("\n...\n");
+          return `${header}\nExcerpt (real extracted content):\n${excerpts}`;
+        }
+        const parts: string[] = [header];
         if (r.intel_type) parts.push(`Category: ${r.intel_type}`);
         if (r.ai_summary) parts.push(`Summary: ${r.ai_summary}`);
-        if (r.created_at) parts.push(`Ingested: ${r.created_at}`);
+        if (!r.retrieval_ready) parts.push(`(Note: content extraction did not complete for this item — this is only a summary, not full text.)`);
         return parts.join("\n");
       }).join("\n\n---\n\n");
 
@@ -41612,10 +41722,11 @@ The items listed below under LEARNED ITEMS have been ingested into your memory. 
 
 Rules:
 - When asked what you learned, learned today, or learned recently, answer directly by summarizing the LEARNED ITEMS below and naming their sources/domains/titles.
+- Every claim in your answer must be traceable to one of the numbered LEARNED ITEMS. Cite the item number(s) inline like [1] when you use it.
 - Never say you cannot learn, don't acquire information in real-time, or reference a training-data cutoff date (e.g. "October 2023") — that framing is FORBIDDEN here, because the LEARNED ITEMS below are your grounding for this answer.
 - Do not fabricate facts beyond what's in the LEARNED ITEMS.
 - If a question cannot be answered from the LEARNED ITEMS, say so plainly instead of guessing or falling back to general knowledge.
-- Be helpful, concise, and professional. Respond in plain text without markdown formatting.
+- Be helpful, concise, and professional. Respond in plain text without markdown formatting, but keep the [n] citation markers.
 
 LEARNED ITEMS:
 
@@ -41648,7 +41759,16 @@ ${contextText}`;
         answer = "I have ingested knowledge available, but couldn't ground an answer to that question from it. Try rephrasing, or ask about one of the specific items you've fed me.";
       }
 
-      res.json({ answer });
+      // Citation payload: which real sources backed this answer, for UI display.
+      const sources = records.map((r: any) => ({
+        sourceId: r.id,
+        title: r.title,
+        url: r.canonical_url,
+        domain: r.domain,
+        usedRealContent: chunksBySource.has(r.id),
+      }));
+
+      res.json({ answer, sources, notReadyCount });
     } catch (err: any) {
       console.error("[cortex-ask] POST /api/cortex/ask:", err.message);
       res.status(500).json({ error: "Failed to get an answer. Please try again." });

@@ -405,6 +405,12 @@ app.use((req, res, next) => {
     ]);
     log(`[perf:startup] batch-4 (branching + attribution + CTA assets) done +${Date.now() - _migStart}ms`);
 
+    // Recover any Cortex URL ingestions that were mid-pipeline when the app last
+    // restarted, so ingestion is never silently abandoned. Fire-and-forget.
+    import("./services/cortex-ingestion")
+      .then(({ recoverStuckIngestions }) => recoverStuckIngestions())
+      .catch((e) => console.error("[cortex-ingestion] recovery scan failed:", e.message));
+
     // Batch 5: depends on Batch 4 CTA
     await Promise.all([migrateCtaFileData(), migrateCtaOriginalName()]);
 

@@ -78,6 +78,76 @@ export async function migrateCortexEmailIntelSchema(): Promise<void> {
     WHERE deleted_at IS NULL AND canonical_url IS NOT NULL
   `));
 
+  // ── Real ingestion pipeline columns (additive) ──────────────────────────
+  // These replace the old "metadata-only save = success" behavior with a
+  // verifiable pipeline: queued -> fetching -> extracting -> transcribing ->
+  // cleaning -> chunking -> indexing -> ready|partial|failed|blocked|unsupported.
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS ingestion_status TEXT NOT NULL DEFAULT 'ready'`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS ingestion_stage TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS failure_reason TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS last_retry_at TIMESTAMPTZ`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS fetch_completed_at TIMESTAMPTZ`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS retrieval_ready BOOLEAN NOT NULL DEFAULT false`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS extracted_text TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS transcript TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS extraction_method TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS content_char_count INTEGER NOT NULL DEFAULT 0`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS content_hash TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS chunk_count INTEGER NOT NULL DEFAULT 0`));
+  await db.execute(sql.raw(`ALTER TABLE cortex_email_intel ADD COLUMN IF NOT EXISTS indexed_chunk_count INTEGER NOT NULL DEFAULT 0`));
+
+  // Existing rows predate the pipeline. They only ever held metadata/summary,
+  // never real extracted content — mark them explicitly as legacy/partial so
+  // they are NOT silently treated as retrieval-ready, and are surfaced for
+  // the "Reprocess incomplete Cortex sources" backfill action.
+  await db.execute(sql.raw(`
+    UPDATE cortex_email_intel
+    SET ingestion_status = 'partial',
+        ingestion_stage = 'legacy_metadata_only',
+        failure_reason = 'Ingested before the real-content pipeline existed; only metadata/summary was captured.',
+        retrieval_ready = false
+    WHERE source_type = 'url' AND ingestion_status = 'ready' AND extracted_text IS NULL
+  `));
+
+  // Non-url source types (email/note/document) keep their existing "ready" grounding behavior.
+  await db.execute(sql.raw(`
+    UPDATE cortex_email_intel
+    SET ingestion_status = 'ready', retrieval_ready = true
+    WHERE source_type != 'url' AND ingestion_status = 'ready'
+  `));
+
+  await db.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS cortex_source_chunks (
+      id           SERIAL PRIMARY KEY,
+      source_id    INTEGER NOT NULL REFERENCES cortex_email_intel(id) ON DELETE CASCADE,
+      chunk_text   TEXT NOT NULL,
+      seq          INTEGER NOT NULL,
+      heading      TEXT,
+      char_count   INTEGER NOT NULL DEFAULT 0,
+      content_hash TEXT,
+      indexed      BOOLEAN NOT NULL DEFAULT true,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `));
+  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_cortex_source_chunks_source_id ON cortex_source_chunks (source_id)`));
+  await db.execute(sql.raw(`
+    CREATE INDEX IF NOT EXISTS idx_cortex_source_chunks_text_search
+    ON cortex_source_chunks USING GIN (to_tsvector('english', chunk_text))
+  `));
+
+  await db.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS cortex_ingestion_log (
+      id          SERIAL PRIMARY KEY,
+      source_id   INTEGER NOT NULL REFERENCES cortex_email_intel(id) ON DELETE CASCADE,
+      stage       TEXT NOT NULL,
+      status      TEXT NOT NULL,
+      detail      TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `));
+  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_cortex_ingestion_log_source_id ON cortex_ingestion_log (source_id)`));
+
   console.log("[migration] cortex_email_intel schema ready.");
 }
 

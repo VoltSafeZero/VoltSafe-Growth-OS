@@ -185,6 +185,11 @@ function CortexBrainVisual() {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type IngestionStatus =
+  | "queued" | "fetching" | "extracting" | "transcribing" | "cleaning"
+  | "chunking" | "indexing" | "verifying"
+  | "ready" | "partial" | "failed" | "blocked" | "unsupported";
+
 type HistoryRecord = {
   id: number;
   source_url: string;
@@ -200,7 +205,70 @@ type HistoryRecord = {
   created_by_name: string | null;
   created_by_email: string | null;
   use_in_ai_context: boolean;
+  ingestion_status?: IngestionStatus;
+  ingestion_stage?: string | null;
+  failure_reason?: string | null;
+  retry_count?: number;
+  retrieval_ready?: boolean;
+  extraction_method?: string | null;
+  content_char_count?: number;
+  chunk_count?: number;
 };
+
+const IN_PROGRESS_STATUSES = new Set(["queued", "fetching", "extracting", "transcribing", "cleaning", "chunking", "indexing", "verifying"]);
+
+// ─── Ingestion status badge ───────────────────────────────────────────────────
+
+function IngestionStatusBadge({ record }: { record: HistoryRecord }) {
+  const status = record.ingestion_status ?? "ready";
+  if (IN_PROGRESS_STATUSES.has(status)) {
+    return (
+      <span className="flex items-center gap-1 text-[10px] font-medium text-teal-600 dark:text-teal-400" data-testid={`badge-ingestion-status-${record.id}`}>
+        <Loader2 className="w-3 h-3 animate-spin" />
+        {status === "queued" ? "Queued" : "Extracting content…"}
+      </span>
+    );
+  }
+  if (status === "ready") {
+    return (
+      <span className="flex items-center gap-1 text-[10px] font-medium text-teal-600 dark:text-teal-400" data-testid={`badge-ingestion-status-${record.id}`}>
+        <CheckCircle2 className="w-3 h-3" />
+        Content ready{record.chunk_count ? ` (${record.chunk_count} chunks)` : ""}
+      </span>
+    );
+  }
+  if (status === "partial") {
+    return (
+      <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400" data-testid={`badge-ingestion-status-${record.id}`}>
+        <AlertCircle className="w-3 h-3" />
+        Partial — not enough content to answer questions
+      </span>
+    );
+  }
+  if (status === "blocked") {
+    return (
+      <span className="flex items-center gap-1 text-[10px] font-medium text-orange-600 dark:text-orange-400" data-testid={`badge-ingestion-status-${record.id}`}>
+        <AlertCircle className="w-3 h-3" />
+        Blocked — site prevents extraction
+      </span>
+    );
+  }
+  if (status === "unsupported") {
+    return (
+      <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground" data-testid={`badge-ingestion-status-${record.id}`}>
+        <AlertCircle className="w-3 h-3" />
+        Unsupported content type
+      </span>
+    );
+  }
+  // failed
+  return (
+    <span className="flex items-center gap-1 text-[10px] font-medium text-destructive" data-testid={`badge-ingestion-status-${record.id}`}>
+      <AlertCircle className="w-3 h-3" />
+      Extraction failed
+    </span>
+  );
+}
 
 // ─── Derive point-form bullets from a record ─────────────────────────────────
 
@@ -352,8 +420,51 @@ function UrlDetailDialog({
   record: HistoryRecord | null;
   onClose: () => void;
 }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [contentOpen, setContentOpen] = useState(false);
+  const [testQuery, setTestQuery] = useState("");
+  const [testResults, setTestResults] = useState<any[] | null>(null);
+
+  const contentQuery = useQuery({
+    queryKey: ["/api/cortex/url", record?.id, "content"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/cortex/url/${record!.id}/content`);
+      return res.json();
+    },
+    enabled: contentOpen && !!record,
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/cortex/url/${record!.id}/retry`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Re-extraction queued", description: "Cortex is re-fetching this source now." });
+      queryClient.invalidateQueries({ queryKey: ["/api/cortex/url/history"] });
+    },
+    onError: (e: any) => {
+      toast({ title: "Retry failed", description: e?.message ?? "Could not queue retry", variant: "destructive" });
+    },
+  });
+
+  const testRetrievalMutation = useMutation({
+    mutationFn: async (q: string) => {
+      const res = await apiRequest("POST", `/api/cortex/url/${record!.id}/test-retrieval`, { query: q });
+      return res.json();
+    },
+    onSuccess: (data) => setTestResults(data.matches ?? []),
+    onError: (e: any) => {
+      toast({ title: "Test retrieval failed", description: e?.message ?? "Could not run query", variant: "destructive" });
+    },
+  });
+
   if (!record) return null;
   const bullets = deriveBullets(record);
+  const status = record.ingestion_status ?? "ready";
+  const canRetry = ["failed", "partial", "unsupported"].includes(status);
+  const hasFailureReason = !!record.failure_reason;
 
   return (
     <Dialog open={!!record} onOpenChange={onClose}>
@@ -387,6 +498,47 @@ function UrlDetailDialog({
               <p className="mt-2 text-xs text-muted-foreground border-l-2 border-teal-400/40 pl-2">
                 Note: {record.user_notes}
               </p>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* Ingestion status */}
+          <div>
+            <p className="text-xs font-semibold text-teal-600 dark:text-teal-400 uppercase tracking-wide mb-2">
+              Content extraction
+            </p>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <IngestionStatusBadge record={record} />
+              {canRetry && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 h-7 text-xs"
+                  disabled={retryMutation.isPending}
+                  onClick={() => retryMutation.mutate()}
+                  data-testid={`button-retry-ingestion-${record.id}`}
+                >
+                  {retryMutation.isPending
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Zap className="w-3.5 h-3.5" />}
+                  Retry extraction
+                </Button>
+              )}
+            </div>
+            {hasFailureReason && (status === "failed" || status === "partial" || status === "blocked" || status === "unsupported") && (
+              <p className="mt-1.5 text-xs text-muted-foreground border-l-2 border-destructive/40 pl-2">
+                {record.failure_reason}
+              </p>
+            )}
+            {record.extraction_method && (
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
+                Method: {record.extraction_method}
+                {typeof record.content_char_count === "number" && ` · ${record.content_char_count.toLocaleString()} characters extracted`}
+              </p>
+            )}
+            {(record.retry_count ?? 0) > 0 && (
+              <p className="mt-1 text-[10px] text-muted-foreground">Retried {record.retry_count}x</p>
             )}
           </div>
 
@@ -455,9 +607,102 @@ function UrlDetailDialog({
               <Brain className="w-3.5 h-3.5" />
               View in Cortex Intel
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setContentOpen(true)}
+              data-testid={`button-view-extracted-content-${record.id}`}
+            >
+              <Info className="w-3.5 h-3.5" />
+              View extracted content
+            </Button>
           </div>
+
+          {record.retrieval_ready && (
+            <>
+              <Separator />
+              <div>
+                <p className="text-xs font-semibold text-teal-600 dark:text-teal-400 uppercase tracking-wide mb-2">
+                  Test retrieval
+                </p>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Run a query against this source's indexed chunks to verify Cortex can actually find the content it would cite.
+                </p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={testQuery}
+                    onChange={(e) => setTestQuery(e.target.value)}
+                    placeholder="e.g. pricing, deployment timeline…"
+                    className="h-8 text-xs"
+                    data-testid={`input-test-retrieval-${record.id}`}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 flex-shrink-0"
+                    disabled={!testQuery.trim() || testRetrievalMutation.isPending}
+                    onClick={() => testRetrievalMutation.mutate(testQuery.trim())}
+                    data-testid={`button-run-test-retrieval-${record.id}`}
+                  >
+                    {testRetrievalMutation.isPending
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Sparkles className="w-3.5 h-3.5" />}
+                    Test
+                  </Button>
+                </div>
+                {testResults !== null && (
+                  <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
+                    {testResults.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic">No matching chunks found for this query.</p>
+                    ) : (
+                      testResults.map((m: any, i: number) => (
+                        <div key={i} className="text-xs bg-muted/50 rounded p-2" data-testid={`text-test-retrieval-result-${i}`}>
+                          {m.snippet ?? m.text}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </DialogContent>
+
+      {/* Extracted content dialog */}
+      <Dialog open={contentOpen} onOpenChange={setContentOpen}>
+        <DialogContent className="max-w-2xl" data-testid="dialog-extracted-content">
+          <DialogHeader>
+            <DialogTitle>Extracted content</DialogTitle>
+            <DialogDescription className="font-mono text-xs">{record.domain ?? record.canonical_url}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto text-sm">
+            {contentQuery.isLoading && (
+              <p className="text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading extracted content…</p>
+            )}
+            {contentQuery.isError && (
+              <p className="text-destructive text-xs">Failed to load extracted content.</p>
+            )}
+            {contentQuery.data?.record && !contentQuery.data.record.extracted_text && (
+              <p className="text-muted-foreground italic text-xs">No content has been extracted for this source yet.</p>
+            )}
+            {contentQuery.data?.record?.extracted_text && (
+              <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed" data-testid="text-extracted-content-body">
+                {contentQuery.data.record.extracted_text}
+              </pre>
+            )}
+            {contentQuery.data?.record?.transcript && (
+              <>
+                <Separator className="my-3" />
+                <p className="text-xs font-semibold text-teal-600 dark:text-teal-400 uppercase tracking-wide mb-2">Transcript</p>
+                <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed" data-testid="text-extracted-content-transcript">
+                  {contentQuery.data.record.transcript}
+                </pre>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
@@ -471,6 +716,8 @@ export default function FeedCortexPage() {
   const [url, setUrl] = useState("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
+  const [answerSources, setAnswerSources] = useState<any[]>([]);
+  const [answerNotReadyCount, setAnswerNotReadyCount] = useState(0);
   const [statusOpen, setStatusOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<HistoryRecord | null>(null);
 
@@ -522,13 +769,19 @@ export default function FeedCortexPage() {
     onSuccess: (data: any) => {
       if (data?.answer) {
         setAnswer(data.answer);
+        setAnswerSources(Array.isArray(data.sources) ? data.sources : []);
+        setAnswerNotReadyCount(typeof data.notReadyCount === "number" ? data.notReadyCount : 0);
       } else {
         setAnswer(data?.error ?? "Cortex didn't return an answer. Please try again.");
+        setAnswerSources([]);
+        setAnswerNotReadyCount(0);
       }
     },
     onError: (err: any) => {
       const msg = err?.message ?? "Could not reach Cortex.";
       setAnswer(`Something went wrong: ${msg}`);
+      setAnswerSources([]);
+      setAnswerNotReadyCount(0);
       toast({ title: "Ask failed", description: msg, variant: "destructive" });
     },
   });
@@ -808,6 +1061,7 @@ export default function FeedCortexPage() {
                       </p>
                       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                         <ImportanceBadge importance={r.importance} />
+                        <IngestionStatusBadge record={r} />
                         <span className="text-[10px] text-muted-foreground">
                           {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
                         </span>
@@ -884,6 +1138,34 @@ export default function FeedCortexPage() {
                     <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
                       {answer}
                     </p>
+                    {answerSources.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-teal-300/50 dark:border-teal-800/50">
+                        <p className="text-[10px] font-semibold text-teal-700 dark:text-teal-300 uppercase tracking-wider mb-1.5">
+                          Sources
+                        </p>
+                        <ul className="space-y-1" data-testid="list-cortex-answer-sources">
+                          {answerSources.map((s: any, i: number) => (
+                            <li key={i} className="text-xs flex items-start gap-1.5">
+                              <span className="text-teal-600 dark:text-teal-400 font-mono flex-shrink-0">[{s.index ?? i + 1}]</span>
+                              <a
+                                href={s.url ?? s.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-teal-700 dark:text-teal-300 hover:underline truncate"
+                              >
+                                {s.title ?? s.domain ?? s.url ?? "Source"}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {answerNotReadyCount > 0 && (
+                      <p className="mt-2 text-[10px] text-muted-foreground flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {answerNotReadyCount} saved source{answerNotReadyCount === 1 ? "" : "s"} not yet extracted — excluded from this answer.
+                      </p>
+                    )}
                   </div>
                 )}
 
