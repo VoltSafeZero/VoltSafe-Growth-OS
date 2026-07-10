@@ -1,0 +1,57 @@
+Stop and permanently fix the recurring completion validation failure.
+
+Context:
+We have repeatedly seen the same unrelated validation failure:
+- tests/help-system.test.cjs
+- FieldHelp glyph / info icon test
+- Failure appears during completion validation even when the current task is unrelated.
+- This has already polluted multiple unrelated task completions.
+
+Required action:
+Find the exact failing FieldHelp/help-system validation and permanently resolve it now.
+
+Scope:
+This is NOT part of the Cortex fix.
+This is a cleanup/blocker task to remove the recurring validation failure so future task completion checks are trustworthy.
+
+Steps:
+1) Run the specific failing test:
+   npm run test:grep -- tests/help-system.test.cjs
+
+   If that command is not supported, run the closest direct equivalent for:
+   tests/help-system.test.cjs
+
+2) Identify the exact assertion failing around FieldHelp / info glyph.
+
+3) Inspect the current intended UI behavior:
+   - The info/help icon should render as a plain lowercase “i”
+   - It should NOT have a circle, bubble, or comment-outline wrapper
+   - This was already requested visually in prior UI fixes
+
+4) Fix the test or component so the test matches the intended product behavior.
+
+Important:
+- If the product behavior is already correct and only the test is stale, update the test.
+- If the component still renders the wrong icon wrapper, fix the component.
+- Do not hide, skip, delete, or weaken the test unless the assertion is truly obsolete.
+- Do not make broad unrelated changes.
+
+5) Run targeted verification:
+   - tests/help-system.test.cjs passes
+   - Any FieldHelp-specific tests pass
+   - Confirm no files unrelated to FieldHelp/help-system were changed
+
+6) Run the broader validation again:
+   npm run test:grep
+
+Expected final state:
+- The recurring FieldHelp glyph failure is gone.
+- Future unrelated task completions are no longer blocked by this known stale failure.
+- Report exactly which file was fixed and why.
+
+Final response should say:
+- Root cause of the recurring validation failure
+- Whether the stale test or component was fixed
+- Targeted test result
+- Full test:grep result
+- Confirmation that this blocker is permanently removed

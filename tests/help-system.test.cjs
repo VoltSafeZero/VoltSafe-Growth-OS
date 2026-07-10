@@ -47,7 +47,14 @@ check("FieldHelp shows value-nature badges (sample/AI-generated/etc.)", /entry\.
 check("FieldHelp logs cms_help_opened analytics event", /cms_help_opened/.test(fieldHelpSrc));
 check("FieldHelp popover width is bounded to avoid mobile horizontal scroll/clipping", /max-w-\[calc\(100vw/.test(fieldHelpSrc));
 check("FieldHelp is a small subtle icon (not a large button)", /h-3\.5 w-3\.5/.test(fieldHelpSrc));
-check("FieldHelp renders a plain \"i\" glyph with no circle/bubble around it", />\s*i\s*<\/button>/.test(fieldHelpSrc) && !/rounded-full/.test(fieldHelpSrc) && !/from "lucide-react"/.test(fieldHelpSrc));
+// Note: the icon was intentionally redesigned from a plain "i" glyph to a shared
+// circle-i SVG (client/src/components/icons/info-icon.tsx) across later commits
+// ("Update info icon component across multiple application modules", "Update
+// sidebar indicators to use consistent info icon"). This assertion is updated to
+// match that current, deliberate design instead of the earlier plain-glyph one.
+const infoIconSrc = read("client/src/components/icons/info-icon.tsx");
+check("FieldHelp renders the shared InfoIcon (circle-i) component, not raw lucide-react", /<InfoIcon\b/.test(fieldHelpSrc) && !/from "lucide-react"/.test(fieldHelpSrc));
+check("Shared InfoIcon is a self-contained inline SVG (not a raster asset)", /<svg/.test(infoIconSrc) && /<circle/.test(infoIconSrc));
 
 // ── 2/3. Centralized registry + fallback behavior ──────────────────────────
 const registrySrc = read("client/src/lib/help-content.ts");
