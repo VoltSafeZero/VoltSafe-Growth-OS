@@ -1518,6 +1518,29 @@ export const insertProjectMilestoneSchema = createInsertSchema(projectMilestones
 export type ProjectMilestone = typeof projectMilestones.$inferSelect;
 export type InsertProjectMilestone = z.infer<typeof insertProjectMilestoneSchema>;
 
+// ── Project Members (Sharing / Assignment / Roles) ─────────────────────────────
+export const projectMembers = pgTable("project_members", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull(),
+  userId: integer("user_id").notNull(),
+  role: text("role").notNull().default("viewer"), // owner|co_owner|editor|contributor|viewer
+  addedByUserId: integer("added_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type ProjectMember = typeof projectMembers.$inferSelect;
+
+export const projectActivity = pgTable("project_activity", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull(),
+  actorUserId: integer("actor_user_id"),
+  actionType: text("action_type").notNull(),
+  targetUserId: integer("target_user_id"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type ProjectActivityRow = typeof projectActivity.$inferSelect;
+
 export const notes = pgTable("notes", {
   id: serial("id").primaryKey(),
   linkedObjectType: text("linked_object_type").notNull(),

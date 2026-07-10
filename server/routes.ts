@@ -22646,13 +22646,82 @@ export function registerConfluenceRoutes(app: Express) {
     return sets;
   }
 
+  // ── Project Members / Sharing / Assignment — helpers ──────────────────────────
+  const PROJECT_ROLE_RANK: Record<string, number> = { viewer: 1, contributor: 2, editor: 3, co_owner: 4, owner: 5 };
+  const VALID_PROJECT_ROLES = new Set(Object.keys(PROJECT_ROLE_RANK));
+
+  async function getProjectRole(projectId: number, userId: number): Promise<string | null> {
+    const rows: any = await db.execute(sql.raw(`SELECT role FROM project_members WHERE project_id = ${projectId} AND user_id = ${userId} LIMIT 1`));
+    const r = (rows.rows ?? rows)[0];
+    return r ? r.role : null;
+  }
+
+  function requireProjectRole(minRole: string) {
+    return async (req: any, res: any, next: any) => {
+      try {
+        const userId = req.session?.userId;
+        const globalRole = String(req.session?.globalRole || "");
+        if (globalRole === "master_admin" || globalRole === "admin") return next();
+        const projectId = parseInt(req.params.id);
+        if (!projectId || isNaN(projectId)) return res.status(404).json({ message: "Not found" });
+        const myRole = await getProjectRole(projectId, userId);
+        if (!myRole || PROJECT_ROLE_RANK[myRole] < PROJECT_ROLE_RANK[minRole]) {
+          return res.status(403).json({ message: "You do not have sufficient access to this project" });
+        }
+        req.projectRole = myRole;
+        next();
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    };
+  }
+
+  async function logProjectActivity(projectId: number, actorUserId: number | null, actionType: string, targetUserId: number | null, metadata?: Record<string, any>) {
+    try {
+      const meta = metadata ? `'${JSON.stringify(metadata).replace(/'/g, "''")}'` : "NULL";
+      await db.execute(sql.raw(`
+        INSERT INTO project_activity (project_id, actor_user_id, action_type, target_user_id, metadata)
+        VALUES (${projectId}, ${actorUserId ?? "NULL"}, '${actionType}', ${targetUserId ?? "NULL"}, ${meta})
+      `));
+    } catch (e) { /* non-fatal */ }
+  }
+
+  async function notifyProjectUser(userId: number, type: string, title: string, body: string, projectId: number, dedupeSuffix: string) {
+    try {
+      const escTitle = title.replace(/'/g, "''");
+      const escBody = body.replace(/'/g, "''");
+      const dedupeKey = `project_${type}:${projectId}:${userId}:${dedupeSuffix}`.replace(/'/g, "''");
+      await db.execute(sql.raw(`
+        INSERT INTO notifications (user_id, type, title, body, severity, linked_object_type, linked_object_id, action_url, is_read, dedupe_key)
+        SELECT ${userId}, '${type}', '${escTitle}', '${escBody}', 'medium', 'project', ${projectId}, '/projects?open=${projectId}', FALSE, '${dedupeKey}'
+        WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE dedupe_key = '${dedupeKey}')
+      `));
+    } catch (e) { /* non-fatal */ }
+  }
+
+  async function getProjectMembersList(projectId: number) {
+    const rows: any = await db.execute(sql.raw(`
+      SELECT pm.user_id AS "userId", pm.role, pm.created_at AS "createdAt",
+        u.name, u.email, u.avatar_url AS "avatarUrl"
+      FROM project_members pm
+      JOIN users u ON u.id = pm.user_id
+      WHERE pm.project_id = ${projectId}
+      ORDER BY CASE pm.role WHEN 'owner' THEN 1 WHEN 'co_owner' THEN 2 WHEN 'editor' THEN 3 WHEN 'contributor' THEN 4 ELSE 5 END, u.name ASC
+    `));
+    return rows.rows ?? rows;
+  }
+
   app.get("/api/projects", requirePermission("projects", "view"), async (req, res) => {
     try {
-      const { type, status, accountId, certFilter } = req.query as Record<string, string>;
+      const { type, status, accountId, certFilter, mine } = req.query as Record<string, string>;
+      const userId = (req.session as any).userId;
       const wheres: string[] = [];
       if (type) wheres.push(`p.type = '${type.replace(/'/g, "''")}'`);
       if (status) wheres.push(`p.status = '${status.replace(/'/g, "''")}'`);
       if (accountId) wheres.push(`p.account_id = ${parseInt(accountId)}`);
+      if (mine === "owned") wheres.push(`EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = ${Number(userId)} AND pm.role = 'owner')`);
+      else if (mine === "assigned") wheres.push(`EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = ${Number(userId)} AND pm.role IN ('owner','co_owner'))`);
+      else if (mine === "shared") wheres.push(`EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = ${Number(userId)} AND pm.role IN ('editor','contributor','viewer'))`);
       // Cert-specific quick filters (Phase 2)
       if (certFilter) {
         wheres.push(`p.type = 'certification'`);
@@ -22765,7 +22834,13 @@ export function registerConfluenceRoutes(app: Express) {
       `));
       const p = ((rows as any).rows ?? [])[0];
       if (!p) return res.status(404).json({ message: "Not found" });
-      res.json(p);
+      const userId = (req.session as any).userId;
+      const globalRole = String((req.session as any).globalRole || "");
+      const myRole = (globalRole === "master_admin" || globalRole === "admin")
+        ? "owner"
+        : await getProjectRole(id, userId);
+      const members = await getProjectMembersList(id);
+      res.json({ ...p, myRole: myRole ?? null, members });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -22773,11 +22848,21 @@ export function registerConfluenceRoutes(app: Express) {
 
   app.post("/api/projects", requirePermission("projects", "edit"), async (req, res) => {
     try {
-      const p = await storage.createProject(req.body);
+      const userId = (req.session as any).userId;
+      const p = await storage.createProject({ ...req.body, ownerUserId: req.body.ownerUserId ?? userId });
       // Auto-scaffold certification record + milestones for certification type
       if (req.body.type === "certification") {
         await db.execute(sql.raw(`INSERT INTO project_certifications (project_id, created_at, updated_at) VALUES (${p.id}, NOW(), NOW()) ON CONFLICT (project_id) DO NOTHING`));
         await createCertMilestones(p.id);
+      }
+      const ownerId = req.body.ownerUserId ?? userId;
+      if (ownerId) {
+        await db.execute(sql.raw(`
+          INSERT INTO project_members (project_id, user_id, role, added_by_user_id)
+          VALUES (${p.id}, ${Number(ownerId)}, 'owner', ${userId ?? "NULL"})
+          ON CONFLICT (project_id, user_id) DO UPDATE SET role = 'owner'
+        `));
+        await logProjectActivity(p.id, userId, "project_created", Number(ownerId));
       }
       res.status(201).json(p);
     } catch (err: any) {
@@ -22785,7 +22870,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.put("/api/projects/:id", requirePermission("projects", "edit"), async (req, res) => {
+  app.put("/api/projects/:id", requirePermission("projects", "edit"), requireProjectRole("editor"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
@@ -22805,7 +22890,7 @@ export function registerConfluenceRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/projects/:id", requirePermission("projects", "edit"), async (req, res) => {
+  app.delete("/api/projects/:id", requirePermission("projects", "edit"), requireProjectRole("owner"), async (req, res) => {
     try {
       const ok = await storage.deleteProject(Number(req.params.id));
       if (!ok) return res.status(404).json({ message: "Not found" });
@@ -22813,6 +22898,220 @@ export function registerConfluenceRoutes(app: Express) {
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
+  });
+
+  // ── Members / Assignment / Sharing ────────────────────────────────────────────
+
+  // GET /api/projects/:id/members — list current members
+  app.get("/api/projects/:id/members", requirePermission("projects", "view"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      res.json(await getProjectMembersList(id));
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // POST /api/projects/:id/members — Add People (owner/co-owner only)
+  app.post("/api/projects/:id/members", requirePermission("projects", "edit"), requireProjectRole("co_owner"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const actorId = (req.session as any).userId;
+      const { users: addUsers, message, notify } = req.body as { users: { userId: number; role: string }[]; message?: string; notify?: boolean };
+      if (!Array.isArray(addUsers) || addUsers.length === 0) return res.status(400).json({ message: "users[] is required" });
+      const added: any[] = [];
+      for (const u of addUsers) {
+        const targetUserId = Number(u.userId);
+        const role = String(u.role || "viewer");
+        if (!targetUserId || !VALID_PROJECT_ROLES.has(role) || role === "owner") continue;
+        await db.execute(sql.raw(`
+          INSERT INTO project_members (project_id, user_id, role, added_by_user_id)
+          VALUES (${id}, ${targetUserId}, '${role}', ${actorId ?? "NULL"})
+          ON CONFLICT (project_id, user_id) DO UPDATE SET role = '${role}', updated_at = NOW()
+        `));
+        await logProjectActivity(id, actorId, "member_added", targetUserId, { role });
+        if (notify) {
+          await notifyProjectUser(targetUserId, "project_shared", "Added to a project",
+            `${message ? message + " — " : ""}You were added as ${role.replace("_", "-")} on a project.`, id, "add");
+        }
+        added.push({ userId: targetUserId, role });
+      }
+      res.status(201).json({ added });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // PATCH /api/projects/:id/members/:userId — change role / transfer ownership
+  app.patch("/api/projects/:id/members/:userId", requirePermission("projects", "edit"), requireProjectRole("co_owner"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const targetUserId = parseInt(req.params.userId);
+      if (isNaN(id) || isNaN(targetUserId)) return res.status(400).json({ message: "Invalid id" });
+      const actorId = (req.session as any).userId;
+      const globalRole = String((req.session as any).globalRole || "");
+      const { role } = req.body as { role: string };
+      if (!VALID_PROJECT_ROLES.has(role)) return res.status(400).json({ message: "Invalid role" });
+
+      if (role === "owner") {
+        // Only the current owner (or a global admin) may transfer ownership.
+        const myRole = (req as any).projectRole;
+        if (globalRole !== "master_admin" && globalRole !== "admin" && myRole !== "owner") {
+          return res.status(403).json({ message: "Only the current owner can transfer ownership" });
+        }
+        const prevOwnerRow: any = await db.execute(sql.raw(`SELECT user_id FROM project_members WHERE project_id = ${id} AND role = 'owner' LIMIT 1`));
+        const prevOwnerId = (prevOwnerRow.rows ?? prevOwnerRow)[0]?.user_id;
+        await db.execute(sql.raw(`
+          INSERT INTO project_members (project_id, user_id, role, added_by_user_id)
+          VALUES (${id}, ${targetUserId}, 'owner', ${actorId ?? "NULL"})
+          ON CONFLICT (project_id, user_id) DO UPDATE SET role = 'owner', updated_at = NOW()
+        `));
+        if (prevOwnerId && Number(prevOwnerId) !== targetUserId) {
+          await db.execute(sql.raw(`UPDATE project_members SET role = 'co_owner', updated_at = NOW() WHERE project_id = ${id} AND user_id = ${Number(prevOwnerId)}`));
+          await notifyProjectUser(Number(prevOwnerId), "project_role_change", "Ownership transferred",
+            "You are now a co-owner on a project you previously owned.", id, "owner-demote");
+        }
+        await db.execute(sql.raw(`UPDATE projects SET owner_user_id = ${targetUserId}, updated_at = NOW() WHERE id = ${id}`));
+        await logProjectActivity(id, actorId, "ownership_transferred", targetUserId);
+        await notifyProjectUser(targetUserId, "project_role_change", "You are now the project owner",
+          "Ownership of a project was transferred to you.", id, "owner-promote");
+        return res.json({ ok: true, role: "owner" });
+      }
+
+      await db.execute(sql.raw(`UPDATE project_members SET role = '${role}', updated_at = NOW() WHERE project_id = ${id} AND user_id = ${targetUserId}`));
+      await logProjectActivity(id, actorId, "member_role_changed", targetUserId, { role });
+      await notifyProjectUser(targetUserId, "project_role_change", "Your project role changed",
+        `Your access on a project was changed to ${role.replace("_", "-")}.`, id, `role-${role}`);
+      res.json({ ok: true, role });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // DELETE /api/projects/:id/members/:userId — remove access
+  app.delete("/api/projects/:id/members/:userId", requirePermission("projects", "edit"), requireProjectRole("co_owner"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const targetUserId = parseInt(req.params.userId);
+      if (isNaN(id) || isNaN(targetUserId)) return res.status(400).json({ message: "Invalid id" });
+      const actorId = (req.session as any).userId;
+      const targetRole = await getProjectRole(id, targetUserId);
+      if (targetRole === "owner") return res.status(400).json({ message: "Cannot remove the project owner. Transfer ownership first." });
+      const r = await db.execute(sql.raw(`DELETE FROM project_members WHERE project_id = ${id} AND user_id = ${targetUserId} RETURNING id`));
+      if (!((r as any).rows ?? r).length) return res.status(404).json({ message: "Member not found" });
+      await logProjectActivity(id, actorId, "member_removed", targetUserId);
+      await notifyProjectUser(targetUserId, "project_removed", "Removed from a project",
+        "Your access to a project was removed.", id, "removed");
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // POST /api/projects/:id/assign — assign owner/co-owner (+ optional due date)
+  app.post("/api/projects/:id/assign", requirePermission("projects", "edit"), requireProjectRole("co_owner"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const actorId = (req.session as any).userId;
+      const globalRole = String((req.session as any).globalRole || "");
+      const { ownerId, coOwnerId, dueDate, message, notify } = req.body as {
+        ownerId?: number; coOwnerId?: number; dueDate?: string; message?: string; notify?: boolean;
+      };
+
+      if (ownerId) {
+        const myRole = (req as any).projectRole;
+        if (globalRole !== "master_admin" && globalRole !== "admin" && myRole !== "owner") {
+          return res.status(403).json({ message: "Only the current owner can reassign ownership" });
+        }
+        const prevOwnerRow: any = await db.execute(sql.raw(`SELECT user_id FROM project_members WHERE project_id = ${id} AND role = 'owner' LIMIT 1`));
+        const prevOwnerId = (prevOwnerRow.rows ?? prevOwnerRow)[0]?.user_id;
+        await db.execute(sql.raw(`
+          INSERT INTO project_members (project_id, user_id, role, added_by_user_id)
+          VALUES (${id}, ${Number(ownerId)}, 'owner', ${actorId ?? "NULL"})
+          ON CONFLICT (project_id, user_id) DO UPDATE SET role = 'owner', updated_at = NOW()
+        `));
+        if (prevOwnerId && Number(prevOwnerId) !== Number(ownerId)) {
+          await db.execute(sql.raw(`UPDATE project_members SET role = 'co_owner', updated_at = NOW() WHERE project_id = ${id} AND user_id = ${Number(prevOwnerId)}`));
+        }
+        await db.execute(sql.raw(`UPDATE projects SET owner_user_id = ${Number(ownerId)}, updated_at = NOW() WHERE id = ${id}`));
+        await logProjectActivity(id, actorId, "ownership_transferred", Number(ownerId), { message });
+        if (notify !== false) {
+          await notifyProjectUser(Number(ownerId), "project_assigned", "You were assigned as project owner",
+            message || "You are now the owner of this project.", id, "assign-owner");
+        }
+      }
+
+      if (coOwnerId) {
+        await db.execute(sql.raw(`
+          INSERT INTO project_members (project_id, user_id, role, added_by_user_id)
+          VALUES (${id}, ${Number(coOwnerId)}, 'co_owner', ${actorId ?? "NULL"})
+          ON CONFLICT (project_id, user_id) DO UPDATE SET role = 'co_owner', updated_at = NOW()
+        `));
+        await logProjectActivity(id, actorId, "member_added", Number(coOwnerId), { role: "co_owner" });
+        if (notify !== false) {
+          await notifyProjectUser(Number(coOwnerId), "project_assigned", "You were assigned as co-owner",
+            message || "You are now a co-owner of this project.", id, "assign-coowner");
+        }
+      }
+
+      if (dueDate) {
+        await db.execute(sql.raw(`UPDATE projects SET end_date = '${String(dueDate).replace(/'/g, "''")}', updated_at = NOW() WHERE id = ${id}`));
+      }
+
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // POST /api/projects/:id/share — Share dialog: grant access + secure internal link + notify
+  app.post("/api/projects/:id/share", requirePermission("projects", "edit"), requireProjectRole("editor"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const actorId = (req.session as any).userId;
+      const { userIds, role, message, notify } = req.body as { userIds: number[]; role: string; message?: string; notify?: boolean };
+      if (!Array.isArray(userIds) || userIds.length === 0) return res.status(400).json({ message: "userIds[] is required" });
+      const grantRole = VALID_PROJECT_ROLES.has(role) && role !== "owner" ? role : "viewer";
+      const shared: number[] = [];
+      for (const uid of userIds) {
+        const targetUserId = Number(uid);
+        if (!targetUserId) continue;
+        const existingRole = await getProjectRole(id, targetUserId);
+        // Sharing only grants/raises access — never silently downgrades an existing higher role.
+        if (existingRole && PROJECT_ROLE_RANK[existingRole] >= PROJECT_ROLE_RANK[grantRole]) {
+          shared.push(targetUserId);
+          continue;
+        }
+        await db.execute(sql.raw(`
+          INSERT INTO project_members (project_id, user_id, role, added_by_user_id)
+          VALUES (${id}, ${targetUserId}, '${grantRole}', ${actorId ?? "NULL"})
+          ON CONFLICT (project_id, user_id) DO UPDATE SET role = '${grantRole}', updated_at = NOW()
+        `));
+        await logProjectActivity(id, actorId, "project_shared", targetUserId, { role: grantRole });
+        if (notify !== false) {
+          await notifyProjectUser(targetUserId, "project_shared", "A project was shared with you",
+            message || `You now have ${grantRole.replace("_", "-")} access to a project.`, id, "share");
+        }
+        shared.push(targetUserId);
+      }
+      const proto = req.headers["x-forwarded-proto"] || req.protocol;
+      const host = req.headers["x-forwarded-host"] || req.get("host");
+      const link = `${proto}://${host}/projects?open=${id}`;
+      res.status(201).json({ shared, link });
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
+  });
+
+  // GET /api/projects/:id/activity — audit trail of membership/assignment/sharing changes
+  app.get("/api/projects/:id/activity", requirePermission("projects", "view"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const rows: any = await db.execute(sql.raw(`
+        SELECT pa.id, pa.action_type AS "actionType", pa.metadata, pa.created_at AS "createdAt",
+          au.name AS "actorName", tu.name AS "targetName"
+        FROM project_activity pa
+        LEFT JOIN users au ON au.id = pa.actor_user_id
+        LEFT JOIN users tu ON tu.id = pa.target_user_id
+        WHERE pa.project_id = ${id}
+        ORDER BY pa.created_at DESC
+        LIMIT 100
+      `));
+      res.json(rows.rows ?? rows);
+    } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
   // ── Timeline event helper ─────────────────────────────────────────────────────

@@ -766,6 +766,59 @@ export async function migrateProjectCertificationSchema(): Promise<void> {
   }
 }
 
+export async function migrateProjectMembersSchema(): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS project_members (
+        id serial PRIMARY KEY,
+        project_id integer NOT NULL,
+        user_id integer NOT NULL,
+        role text NOT NULL DEFAULT 'viewer',
+        added_by_user_id integer,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now(),
+        UNIQUE(project_id, user_id)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pmem_project ON project_members(project_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pmem_user ON project_members(user_id)`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS project_activity (
+        id serial PRIMARY KEY,
+        project_id integer NOT NULL,
+        actor_user_id integer,
+        action_type text NOT NULL,
+        target_user_id integer,
+        metadata text,
+        created_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pact_project ON project_activity(project_id, created_at DESC)`);
+
+    // Backward-compat: ensure every existing project has an owner, then mirror
+    // that owner into project_members so pre-existing projects keep working
+    // once per-project membership becomes meaningful.
+    const orphanRows: any = await db.execute(sql`SELECT id FROM projects WHERE owner_user_id IS NULL`);
+    const orphanIds = (orphanRows.rows ?? orphanRows).map((r: any) => r.id);
+    if (orphanIds.length) {
+      const fallbackOwnerRows: any = await db.execute(sql`SELECT id FROM users WHERE global_role IN ('master_admin','admin') ORDER BY id ASC LIMIT 1`);
+      const fallbackId = (fallbackOwnerRows.rows ?? fallbackOwnerRows)[0]?.id;
+      if (fallbackId) {
+        await db.execute(sql.raw(`UPDATE projects SET owner_user_id = ${Number(fallbackId)} WHERE owner_user_id IS NULL`));
+      }
+    }
+    await db.execute(sql`
+      INSERT INTO project_members (project_id, user_id, role)
+      SELECT id, owner_user_id, 'owner' FROM projects WHERE owner_user_id IS NOT NULL
+      ON CONFLICT (project_id, user_id) DO UPDATE SET role = 'owner'
+    `);
+    console.log("[migration] Project members/activity schema migration complete.");
+  } catch (err) {
+    console.error("[migration] Project members schema migration error (non-fatal):", err);
+  }
+}
+
 export async function migrateProjectOversightSchema(): Promise<void> {
   try {
     // Phase 3 — attachments

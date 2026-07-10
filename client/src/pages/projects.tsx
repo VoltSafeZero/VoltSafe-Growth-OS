@@ -18,6 +18,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { NotesPanel } from "@/components/notes-panel";
 import { useToast } from "@/hooks/use-toast";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, Layers, Anchor, Handshake, Landmark, FlaskConical,
   CalendarDays, Megaphone, Star, Pencil, Trash2, DollarSign,
@@ -26,8 +29,18 @@ import {
   TrendingUp, XCircle, TriangleAlert, RefreshCw, FileText,
   FlaskRound, Users, BarChart3, Link2, Upload, Download, X,
   Activity, Paperclip, Settings, Table2, PlusCircle, Trash,
-  Maximize2, Minimize2,
+  Maximize2, Minimize2, UserPlus, Share2, Copy,
 } from "lucide-react";
+
+// ── Sharing / Membership Types ──────────────────────────────────────────────────
+type ProjectMemberRow = { userId: number; role: string; name: string; email: string; avatarUrl?: string | null };
+type OrgUser = { id: number; name: string; email: string };
+const PROJECT_ROLE_LABELS: Record<string, string> = {
+  owner: "Owner", co_owner: "Co-owner", editor: "Editor", contributor: "Contributor", viewer: "Viewer",
+};
+function initials(name: string) {
+  return (name || "?").split(" ").map(p => p[0]).join("").slice(0, 2).toUpperCase();
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Project = {
@@ -1631,12 +1644,302 @@ function ProjectEditDialog({ project, onClose }: { project: Project; onClose: ()
 }
 
 // ── Project Detail Dialog ──────────────────────────────────────────────────────
+// ── People & Access — avatar stack, add/assign/share popovers, panel ──────────
+
+function useOrgUsers() {
+  return useQuery<OrgUser[]>({ queryKey: ["/api/users"] });
+}
+
+function AvatarStack({ members, max = 4 }: { members: ProjectMemberRow[]; max?: number }) {
+  const shown = members.slice(0, max);
+  const extra = members.length - shown.length;
+  if (members.length === 0) return null;
+  return (
+    <div className="flex items-center -space-x-2" data-testid="avatar-stack-members">
+      {shown.map(m => (
+        <Avatar key={m.userId} className="h-6 w-6 border-2 border-background" title={`${m.name} · ${PROJECT_ROLE_LABELS[m.role] ?? m.role}`}>
+          {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.name} />}
+          <AvatarFallback className="text-[9px]">{initials(m.name)}</AvatarFallback>
+        </Avatar>
+      ))}
+      {extra > 0 && (
+        <div className="h-6 w-6 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[9px] font-medium text-muted-foreground" data-testid="avatar-stack-overflow">
+          +{extra}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddPeoplePopover({ projectId, existingIds }: { projectId: number; existingIds: number[] }) {
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<Record<number, string>>({});
+  const { data: users } = useOrgUsers();
+  const { toast } = useToast();
+  const candidates = (users || []).filter(u => !existingIds.includes(u.id));
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const usersPayload = Object.entries(picked).map(([userId, role]) => ({ userId: Number(userId), role }));
+      return apiRequest("POST", `/api/projects/${projectId}/members`, { users: usersPayload, notify: true });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", String(projectId), "activity"] });
+      toast({ title: "People added" });
+      setPicked({});
+      setOpen(false);
+    },
+    onError: (e: any) => toast({ title: "Failed to add people", description: e?.message, variant: "destructive" }),
+  });
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" data-testid="button-add-people">
+          <UserPlus className="h-3.5 w-3.5" /> Add People
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-3" align="end">
+        <div className="text-xs font-medium mb-2">Add people to this project</div>
+        <div className="max-h-60 overflow-y-auto space-y-1.5">
+          {candidates.length === 0 && <p className="text-xs text-muted-foreground">No more users to add.</p>}
+          {candidates.map(u => (
+            <div key={u.id} className="flex items-center justify-between gap-2" data-testid={`row-add-person-${u.id}`}>
+              <label className="flex items-center gap-2 min-w-0 cursor-pointer">
+                <Checkbox
+                  checked={!!picked[u.id]}
+                  onCheckedChange={(c) => setPicked(prev => {
+                    const next = { ...prev };
+                    if (c) next[u.id] = next[u.id] || "viewer"; else delete next[u.id];
+                    return next;
+                  })}
+                  data-testid={`checkbox-add-person-${u.id}`}
+                />
+                <span className="text-xs truncate">{u.name}</span>
+              </label>
+              {picked[u.id] && (
+                <Select value={picked[u.id]} onValueChange={(v) => setPicked(prev => ({ ...prev, [u.id]: v }))}>
+                  <SelectTrigger className="h-6 w-24 text-[10px]" data-testid={`select-role-${u.id}`}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="viewer">Viewer</SelectItem>
+                    <SelectItem value="contributor">Contributor</SelectItem>
+                    <SelectItem value="editor">Editor</SelectItem>
+                    <SelectItem value="co_owner">Co-owner</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ))}
+        </div>
+        <Button size="sm" className="w-full mt-3 h-7 text-xs" disabled={Object.keys(picked).length === 0 || mutation.isPending}
+          onClick={() => mutation.mutate()} data-testid="button-confirm-add-people">
+          {mutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add"}
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function AssignPopover({ projectId }: { projectId: number }) {
+  const [open, setOpen] = useState(false);
+  const [ownerId, setOwnerId] = useState<string>("");
+  const [coOwnerId, setCoOwnerId] = useState<string>("");
+  const [dueDate, setDueDate] = useState<string>("");
+  const { data: users } = useOrgUsers();
+  const { toast } = useToast();
+
+  const mutation = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/projects/${projectId}/assign`, {
+      ownerId: ownerId ? Number(ownerId) : undefined,
+      coOwnerId: coOwnerId ? Number(coOwnerId) : undefined,
+      dueDate: dueDate || undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({ title: "Assignment updated" });
+      setOpen(false);
+    },
+    onError: (e: any) => toast({ title: "Failed to assign", description: e?.message, variant: "destructive" }),
+  });
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" data-testid="button-assign">
+          <Users className="h-3.5 w-3.5" /> Assign
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-3 space-y-2.5" align="end">
+        <div>
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Owner</Label>
+          <Select value={ownerId} onValueChange={setOwnerId}>
+            <SelectTrigger className="h-7 text-xs mt-1" data-testid="select-assign-owner"><SelectValue placeholder="Keep current" /></SelectTrigger>
+            <SelectContent>{(users || []).map(u => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Co-owner</Label>
+          <Select value={coOwnerId} onValueChange={setCoOwnerId}>
+            <SelectTrigger className="h-7 text-xs mt-1" data-testid="select-assign-coowner"><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectContent>{(users || []).map(u => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Due Date</Label>
+          <Input type="date" className="h-7 text-xs mt-1" value={dueDate} onChange={(e) => setDueDate(e.target.value)} data-testid="input-assign-due-date" />
+        </div>
+        <Button size="sm" className="w-full h-7 text-xs" disabled={mutation.isPending || (!ownerId && !coOwnerId && !dueDate)}
+          onClick={() => mutation.mutate()} data-testid="button-confirm-assign">
+          {mutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save Assignment"}
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function SharePopover({ projectId, existingIds }: { projectId: number; existingIds: number[] }) {
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [role, setRole] = useState("viewer");
+  const [link, setLink] = useState<string | null>(null);
+  const { data: users } = useOrgUsers();
+  const { toast } = useToast();
+  const candidates = users || [];
+
+  const mutation = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/projects/${projectId}/share`, { userIds: picked, role, notify: true }),
+    onSuccess: async (res: any) => {
+      const data = typeof res?.json === "function" ? await res.json() : res;
+      setLink(data?.link || null);
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      toast({ title: "Project shared" });
+    },
+    onError: (e: any) => toast({ title: "Failed to share", description: e?.message, variant: "destructive" }),
+  });
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setPicked([]); setLink(null); } }}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" data-testid="button-share">
+          <Share2 className="h-3.5 w-3.5" /> Share
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-3 space-y-2.5" align="end">
+        <div className="text-xs font-medium">Share this project</div>
+        <div className="max-h-40 overflow-y-auto space-y-1.5">
+          {candidates.map(u => (
+            <label key={u.id} className="flex items-center gap-2 cursor-pointer" data-testid={`row-share-person-${u.id}`}>
+              <Checkbox checked={picked.includes(u.id)}
+                onCheckedChange={(c) => setPicked(prev => c ? [...prev, u.id] : prev.filter(id => id !== u.id))}
+                data-testid={`checkbox-share-person-${u.id}`} />
+              <span className="text-xs truncate">{u.name}</span>
+            </label>
+          ))}
+        </div>
+        <Select value={role} onValueChange={setRole}>
+          <SelectTrigger className="h-7 text-xs" data-testid="select-share-role"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="viewer">Viewer</SelectItem>
+            <SelectItem value="contributor">Contributor</SelectItem>
+            <SelectItem value="editor">Editor</SelectItem>
+          </SelectContent>
+        </Select>
+        {link && (
+          <div className="flex items-center gap-1.5 bg-muted/50 rounded px-2 py-1.5">
+            <span className="text-[10px] truncate flex-1" data-testid="text-share-link">{link}</span>
+            <Button variant="ghost" size="sm" className="h-5 w-5 p-0 shrink-0" onClick={() => { navigator.clipboard.writeText(link); toast({ title: "Link copied" }); }} data-testid="button-copy-share-link">
+              <Copy className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+        <Button size="sm" className="w-full h-7 text-xs" disabled={picked.length === 0 || mutation.isPending}
+          onClick={() => mutation.mutate()} data-testid="button-confirm-share">
+          {mutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Share"}
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PeopleAccessPanel({ projectId, members, myRole }: { projectId: number; members: ProjectMemberRow[]; myRole: string | null }) {
+  const { toast } = useToast();
+  const canManage = myRole === "owner" || myRole === "co_owner";
+
+  const roleMutation = useMutation({
+    mutationFn: async ({ userId, role }: { userId: number; role: string }) =>
+      apiRequest("PATCH", `/api/projects/${projectId}/members/${userId}`, { role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      toast({ title: "Role updated" });
+    },
+    onError: (e: any) => toast({ title: "Failed to update role", description: e?.message, variant: "destructive" }),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: async (userId: number) => apiRequest("DELETE", `/api/projects/${projectId}/members/${userId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      toast({ title: "Access removed" });
+    },
+    onError: (e: any) => toast({ title: "Failed to remove access", description: e?.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="space-y-2" data-testid="panel-people-access">
+      {members.map(m => (
+        <div key={m.userId} className="flex items-center justify-between gap-2 py-1.5" data-testid={`row-member-${m.userId}`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <Avatar className="h-7 w-7">
+              {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.name} />}
+              <AvatarFallback className="text-[10px]">{initials(m.name)}</AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <p className="text-xs font-medium truncate">{m.name}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{m.email}</p>
+            </div>
+          </div>
+          {canManage && m.role !== "owner" ? (
+            <div className="flex items-center gap-1 shrink-0">
+              <Select value={m.role} onValueChange={(v) => roleMutation.mutate({ userId: m.userId, role: v })}>
+                <SelectTrigger className="h-6 w-24 text-[10px]" data-testid={`select-member-role-${m.userId}`}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                  <SelectItem value="contributor">Contributor</SelectItem>
+                  <SelectItem value="editor">Editor</SelectItem>
+                  <SelectItem value="co_owner">Co-owner</SelectItem>
+                  {myRole === "owner" && <SelectItem value="owner">Owner (transfer)</SelectItem>}
+                </SelectContent>
+              </Select>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive" onClick={() => removeMutation.mutate(m.userId)} data-testid={`button-remove-member-${m.userId}`}>
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          ) : (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">{PROJECT_ROLE_LABELS[m.role] ?? m.role}</Badge>
+          )}
+        </div>
+      ))}
+      {members.length === 0 && <p className="text-xs text-muted-foreground">No one has been added to this project yet.</p>}
+    </div>
+  );
+}
+
 function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project; onClose: () => void; onDelete: () => void }) {
   const [editOpen, setEditOpen] = useState(false);
   const [tab, setTab] = useState(project.type === "certification" ? "certification" : "overview");
   const typeConfig = getTypeConfig(project.type);
   const Icon = typeConfig.icon;
   const isCert = project.type === "certification";
+
+  const { data: fullProject } = useQuery<Project & { myRole?: string | null; members?: ProjectMemberRow[] }>({
+    queryKey: ["/api/projects", project.id],
+    queryFn: () => fetch(`/api/projects/${project.id}`, { credentials: "include" }).then(r => r.json()),
+  });
+  const members = fullProject?.members ?? [];
+  const myRole = fullProject?.myRole ?? null;
+  const existingIds = members.map(m => m.userId);
 
   const { data: cert } = useQuery<CertRecord | null>({
     queryKey: ["/api/projects", project.id, "certification"],
@@ -1702,13 +2005,19 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <AvatarStack members={members} />
+                {(myRole === "owner" || myRole === "co_owner") && <AddPeoplePopover projectId={project.id} existingIds={existingIds} />}
+                {(myRole === "owner" || myRole === "co_owner") && <AssignPopover projectId={project.id} />}
+                {(myRole === "owner" || myRole === "co_owner" || myRole === "editor") && <SharePopover projectId={project.id} existingIds={existingIds} />}
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditOpen(true)} data-testid="button-edit-project">
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={onDelete} data-testid="button-delete-project">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                {myRole === "owner" && (
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={onDelete} data-testid="button-delete-project">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -1780,6 +2089,11 @@ function ProjectDetailDialog({ project, onClose, onDelete }: { project: Project;
                         <p className="text-sm">{project.phase}</p>
                       </div>
                     )}
+                    <Separator />
+                    <div>
+                      <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide mb-2">People & Access</div>
+                      <PeopleAccessPanel projectId={project.id} members={members} myRole={myRole} />
+                    </div>
                   </TabsContent>
 
                   {isCert && (
@@ -1836,13 +2150,14 @@ export default function ProjectsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [certFilter, setCertFilter] = useState("");  // Phase 2
+  const [mineFilter, setMineFilter] = useState<"" | "owned" | "assigned" | "shared">("");
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<Project | null>(null);
   const [drilldownConfig, setDrilldownConfig] = useState<UniversalDrilldownConfig | null>(null);
   const { toast } = useToast();
 
   const { data: projectsData, isLoading } = useQuery<Project[]>({
-    queryKey: ["/api/projects", { type: typeFilter, status: statusFilter, certFilter }],
+    queryKey: ["/api/projects", { type: typeFilter, status: statusFilter, certFilter, mine: mineFilter }],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (certFilter && certFilter !== "all_cert") {
@@ -1852,6 +2167,7 @@ export default function ProjectsPage() {
         if (certFilter === "all_cert") params.set("type", "certification");
       }
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (mineFilter) params.set("mine", mineFilter);
       return fetch(`/api/projects?${params}`, { credentials: "include" }).then(r => r.json());
     },
   });
@@ -1900,6 +2216,19 @@ export default function ProjectsPage() {
           <button onClick={() => { setTypeFilter("all"); setCertFilter(""); }} className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === "all" && !certFilter ? "bg-primary/20 text-primary border-primary/30" : "border-border/50 text-muted-foreground hover:border-border"}`} data-testid="filter-type-all">
             All Types ({allProjects.length})
           </button>
+          <span className="w-px h-4 bg-border/50 self-center mx-0.5" />
+          {[
+            { key: "", label: "All Projects" },
+            { key: "owned", label: "Owned by Me" },
+            { key: "assigned", label: "Assigned to Me" },
+            { key: "shared", label: "Shared with Me" },
+          ].map(f => (
+            <button key={f.key || "all"} onClick={() => setMineFilter(f.key as any)}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${mineFilter === f.key ? "bg-primary/20 text-primary border-primary/30" : "border-border/50 text-muted-foreground hover:border-border"}`}
+              data-testid={`filter-mine-${f.key || "all"}`}>
+              {f.label}
+            </button>
+          ))}
           {PROJECT_TYPES.map(t => (
             <button key={t.key} onClick={() => { setCertFilter(""); setTypeFilter(t.key === typeFilter ? "all" : t.key); }}
               className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${typeFilter === t.key && !certFilter ? `${t.bg} ${t.color} ${t.border}` : "border-border/50 text-muted-foreground hover:border-border"}`}
