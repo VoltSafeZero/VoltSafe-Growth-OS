@@ -1,0 +1,104 @@
+Ask CORTEX is still broken. The previous frontend response-parsing fix was incomplete.
+
+Current observed bug:
+In Feed CORTEX > Ask CORTEX, I asked:
+
+"What did you learn today?"
+
+The response was:
+
+"I don't learn or acquire new information in real-time. My knowledge is based on the information I was trained on, which is current only up to October 2023..."
+
+This is wrong.
+
+Expected behavior:
+Ask CORTEX must answer based on Feed CORTEX ingested items stored in our app, especially today's ingested URLs/items. It should not return generic base-model boilerplate about not learning in real time.
+
+Important distinction:
+The previous fix solved frontend parsing of the API Response body.
+This new failure proves the API is now returning text, but the RAG/retrieval path is not being used correctly, or the prompt/context passed to the model is empty.
+
+Investigate and fix the real Ask CORTEX retrieval pipeline.
+
+Likely root causes to check:
+1) Ask Cortex endpoint is calling the LLM without retrieved context.
+2) Retrieval query returns zero records for "today" due to date/timezone mismatch.
+3) Feed ingestion saves records, but Ask Cortex searches a different table/source.
+4) Ingested feed items are visible in UI but not indexed/embedded/searchable.
+5) Backend response fallback is using a generic LLM answer when retrieval is empty.
+6) Prompt does not force the model to answer from Cortex memory/context.
+7) The Ask Cortex route may still be using an old/general chat endpoint instead of Feed Cortex RAG.
+8) Today's ingested records may have intel_type/source/status values that the retrieval filter excludes.
+9) Response contract may be fixed, but backend answer generation is not grounded.
+
+Required behavior:
+When the user asks "What did you learn today?", Cortex should:
+- Search today's ingested Feed CORTEX items.
+- Retrieve learned URLs/items/content.
+- Summarize what was learned.
+- Mention the relevant sources/domains/items.
+- Never answer with generic "I don't learn in real time" boilerplate if Feed CORTEX has ingested items.
+
+Add a backend guard:
+If retrieval returns zero results, return a useful app-specific message like:
+"I could not find any Feed CORTEX items from today in the searchable index."
+Do NOT call the generic LLM with empty context and let it hallucinate a base-model limitation response.
+
+Debug steps:
+1) Locate the Ask Cortex endpoint used by client/src/pages/feed-cortex.tsx.
+2) Log/inspect:
+   - incoming question
+   - user/org scope
+   - date filter used for "today"
+   - number of retrieved records
+   - retrieved record IDs/domains/titles
+   - prompt/context sent to the model
+   - raw model response
+3) Confirm that visible ingested items from:
+   - youtube.com
+   - nmma.org
+   - linkedin.com
+   are actually retrievable by Ask Cortex.
+4) Check timezone handling. Use the user's/app org timezone if available; otherwise avoid over-filtering by date. For "today", query a safe window such as local start-of-day through now, or last 24 hours.
+5) If embeddings/indexing are required, confirm ingestion completes indexing before items are considered learned.
+6) If indexing is async, Ask Cortex should either:
+   - search raw ingested rows as fallback, or
+   - clearly say indexing is still pending.
+
+Implementation requirements:
+- Fix the actual retrieval/grounding path, not just the UI.
+- Ensure Ask Cortex uses Feed CORTEX ingested content as context.
+- Prevent generic ChatGPT/base-model fallback answers when Cortex context is missing.
+- Add tests that fail on the current bad response.
+
+Regression tests:
+Add/extend tests to verify:
+
+1) When Feed CORTEX has today's ingested items and the user asks "What did you learn today?", the endpoint returns a grounded summary from those items.
+
+2) The answer includes/reflects ingested item data, such as source domain/title/summary.
+
+3) The endpoint does not return generic phrases like:
+   - "I don't learn or acquire new information in real-time"
+   - "My knowledge is based on the information I was trained on"
+   - "current only up to"
+   - "October 2023"
+
+4) If retrieval returns zero records, the endpoint returns a controlled Cortex-specific empty-state message instead of calling the generic LLM blindly.
+
+5) Frontend still correctly parses and displays the returned answer.
+
+Manual verification:
+1) Open Feed CORTEX.
+2) Confirm today's ingested feed items are visible.
+3) Ask: "What did you learn today?"
+4) Confirm the answer summarizes actual ingested items from today.
+5) Confirm it does NOT say it cannot learn in real time.
+6) Ask a follow-up about one visible ingested item/domain and confirm the answer is grounded.
+
+Final report must include:
+- Root cause
+- Files changed
+- Whether issue was retrieval, indexing, date filter, prompt construction, fallback behavior, or response contract
+- Targeted test results
+- Browser verification result with actual returned Cortex answer

@@ -46,8 +46,12 @@ console.log("── Sidebar section labels ──");
 check("WORK INBOX section label present",   /Work Inbox/.test(src));
 check("TEAM INBOXES section label present", /Team Inboxes/.test(src));
 check("PRIVATE INBOXES section label present", /Private Inboxes/.test(src));
+// Anchored on the ternary usage site ("{hasMultipleSections ? (") rather than
+// the first textual occurrence of the identifier, since the variable
+// declaration and its JSX usage can legitimately be thousands of characters
+// apart in this file — a proximity-only regex is fragile to that drift.
 check("WORK INBOX shown only when hasMultipleSections",
-  /hasMultipleSections[\s\S]{0,200}Work Inbox/.test(src));
+  /\{hasMultipleSections\s*\?[\s\S]{0,400}Work Inbox[\s\S]{0,400}\)\s*:\s*\(/.test(src));
 
 console.log("── PRIVATE INBOXES section guarded by privateAccounts.length ──");
 check("Private Inboxes section guarded by privateAccounts.length > 0",
@@ -68,8 +72,12 @@ check("totalAccessibleAccounts = work + team + private",
   /totalAccessibleAccounts\s*=\s*workAccounts\.length.*sharedAccounts\.length.*privateAccounts\.length/.test(src));
 check("All Inboxes button gated on totalAccessibleAccounts > 1",
   /totalAccessibleAccounts > 1/.test(src));
-check("All Inboxes badge displays totalAccessibleAccounts",
-  /\{totalAccessibleAccounts\}/.test(src));
+// The "All Inboxes" row intentionally shows an unread-count badge
+// ({allInboxesUnreadTotal}), not the raw account count — totalAccessibleAccounts
+// is only used to gate visibility (checked above via "> 1"). Asserting a literal
+// {totalAccessibleAccounts} render was never accurate to the intended UX.
+check("All Inboxes row renders an unread-count badge (not the raw account count)",
+  /data-testid="btn-account-all"[\s\S]{0,1000}data-testid="badge-unread-all-inboxes"[\s\S]{0,250}\{allInboxesUnreadTotal\}/.test(src));
 
 console.log("── Migration SQL ──");
 // Domain-authoritative migration: team_shared uses != 'team_shared' guard (not = 'private_personal')
