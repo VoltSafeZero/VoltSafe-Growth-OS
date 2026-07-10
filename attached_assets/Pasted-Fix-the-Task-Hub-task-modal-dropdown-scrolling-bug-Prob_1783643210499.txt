@@ -1,0 +1,61 @@
+Fix the Task Hub task modal dropdown scrolling bug.
+
+Problem:
+In the task detail modal, the Assignee dropdown and Shared users dropdown open correctly, but users cannot scroll down inside the dropdown list to select people lower in the list. This happens for:
+1) Assignee selector
+2) Shared / participant selector
+
+Observed UI:
+- Assignee dropdown shows users like Advisor Test, Alexandra Ruiz, George Al-Haddad, etc.
+- Shared dropdown shows current shared users and add-participant list.
+- The dropdown/list appears visually, but mouse wheel / trackpad scrolling does not work or is blocked by the modal/page scroll handling.
+
+Required fix:
+1) Make the dropdown menus internally scrollable.
+2) Ensure mouse wheel / trackpad scroll events inside the dropdown are not swallowed by the modal overlay, dialog body, or parent scroll lock.
+3) Set a sensible max height on each dropdown menu, for example:
+   - max-h-[280px] or max-height: 280px
+   - overflow-y-auto
+   - overscroll-contain
+4) Ensure the dropdown can scroll even when it is rendered inside the task modal.
+5) Do not close the dropdown when the user scrolls inside it.
+6) Do not allow the background/modal body to steal the scroll while the pointer is over the dropdown.
+7) Keep keyboard accessibility working: arrow keys, Enter, Escape, and tab focus should still behave correctly.
+8) Apply the same fix pattern to both Assignee and Shared participant dropdowns, preferably through a shared dropdown/list component if one exists.
+
+Implementation hints:
+- Search for the Task Hub task detail modal component.
+- Search for labels/buttons:
+  - "Assignee"
+  - "Shared"
+  - "Shared with"
+  - "Add participant"
+  - "Unassign"
+- Look for dropdown/popover/listbox components inside the task detail modal.
+- Add/refactor scroll container classes:
+  max-h-[280px] overflow-y-auto overscroll-contain
+- If there is an outside-click / scroll-to-close listener, update it so it ignores scroll events originating inside the dropdown ref.
+- If Radix/shadcn popover/select/command components are used, ensure the scrollable area is on the actual list/content element, not only the wrapper.
+
+Regression tests:
+Add tests that verify:
+1) Assignee dropdown content has a max height and vertical overflow enabled.
+2) Shared participant dropdown content has a max height and vertical overflow enabled.
+3) Scrolling inside either dropdown does not trigger modal close / dropdown close logic.
+4) Dropdown remains open when a wheel event originates from inside the dropdown list.
+5) Existing assign/unassign/share/unshare behavior still works.
+
+Manual browser verification:
+1) Open Task Hub.
+2) Open an existing task detail modal.
+3) Click Assignee.
+4) Use mouse wheel/trackpad inside the dropdown and confirm the user list scrolls.
+5) Select a user near the bottom of the list.
+6) Reopen the task modal.
+7) Click Shared.
+8) Use mouse wheel/trackpad inside the participant list and confirm it scrolls.
+9) Add and remove a shared user.
+10) Confirm no background/page scrolling weirdness happens while scrolling inside the dropdown.
+
+Do not change unrelated Task Hub layout or permissions logic.
+Only fix dropdown scroll behavior and add regression coverage.

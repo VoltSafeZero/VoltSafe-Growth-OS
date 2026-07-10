@@ -9,9 +9,17 @@ const PopoverTrigger = PopoverPrimitive.Trigger
 
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "center", sideOffset = 4, ...props }, ref) => (
-  <PopoverPrimitive.Portal>
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
+    // Optional portal target. When the Popover is opened from inside a Radix
+    // Dialog/Sheet, that dialog's scroll-lock only allows wheel/touch
+    // scrolling for descendants of its own content node (or explicit
+    // "shards"). Popovers portal to <body> by default, which lands outside
+    // that boundary and silently blocks scrolling inside the popover.
+    // Passing a container that lives inside the dialog's content fixes it.
+    container?: HTMLElement | null;
+  }
+>(({ className, align = "center", sideOffset = 4, container, ...props }, ref) => (
+  <PopoverPrimitive.Portal container={container ?? undefined}>
     <PopoverPrimitive.Content
       ref={ref}
       align={align}

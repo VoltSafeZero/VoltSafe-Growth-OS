@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useTaskColumns } from "@/hooks/use-task-columns";
@@ -115,6 +115,16 @@ function fmtDateTime(v?: string | null) {
   if (!v) return null;
   try { return format(new Date(v), "MMM d 'at' h:mma"); } catch { return null; }
 }
+
+// ── Popover portal container ─────────────────────────────────────────────────
+// The drawer is a Radix Sheet (Dialog). Its scroll-lock only allows wheel /
+// touch scrolling for descendants of the Sheet's own content node. Popovers
+// (Assignee, Shared, Labels, etc.) portal to <body> by default, which lands
+// outside that boundary and the scroll-lock silently swallows wheel events
+// over them — the list renders but never scrolls. Portalling those popovers
+// into a node inside the Sheet's content fixes it. See PopoverContent's
+// `container` prop in @/components/ui/popover.
+const DrawerPopoverContainerContext = createContext<HTMLElement | null>(null);
 
 export function TaskDetailDrawer({ taskId, createMode, defaultBoardColumn, onCreated, onOpenChange, onTaskChanged }: Props) {
   const open = taskId != null || !!createMode;
@@ -262,6 +272,10 @@ export function TaskDetailDrawer({ taskId, createMode, defaultBoardColumn, onCre
     setDragActive(false);
   }, [taskId, open]);
 
+  // Portal target for popovers rendered inside this drawer — see
+  // DrawerPopoverContainerContext above for why this is necessary.
+  const [popoverContainer, setPopoverContainer] = useState<HTMLDivElement | null>(null);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -273,7 +287,8 @@ export function TaskDetailDrawer({ taskId, createMode, defaultBoardColumn, onCre
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <div className="relative min-h-full">
+        <div className="relative min-h-full" ref={setPopoverContainer}>
+        <DrawerPopoverContainerContext.Provider value={popoverContainer}>
         {/* ── Create-mode form (shown when no taskId exists yet) ─────────── */}
         {createMode && taskId == null ? (
           <NewTaskForm
@@ -662,6 +677,7 @@ export function TaskDetailDrawer({ taskId, createMode, defaultBoardColumn, onCre
             </div>
           </>
         ))}
+        </DrawerPopoverContainerContext.Provider>
         </div>
       </SheetContent>
     </Sheet>
@@ -780,6 +796,7 @@ function CompletionNotes({ taskId, initial, onSaved }: { taskId: number; initial
 
 function ActionPopover({ icon, label, children, testId, active }: { icon: React.ReactNode; label: string; children: (close: () => void) => React.ReactNode; testId?: string; active?: boolean }) {
   const [open, setOpen] = useState(false);
+  const popoverContainer = useContext(DrawerPopoverContainerContext);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -792,7 +809,7 @@ function ActionPopover({ icon, label, children, testId, active }: { icon: React.
           {icon} {label}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-3">
+      <PopoverContent align="start" className="w-72 p-3" container={popoverContainer}>
         {children(() => setOpen(false))}
       </PopoverContent>
     </Popover>
@@ -996,7 +1013,10 @@ function AssigneeButton({ task, users, onChanged }: any) {
   return (
     <ActionPopover icon={<User className="h-3.5 w-3.5" />} label="Assignee" testId="button-action-assignee">
       {(close) => (
-        <div className="space-y-1 max-h-72 overflow-y-auto">
+        <div
+          className="space-y-1 max-h-[280px] overflow-y-auto overscroll-contain"
+          data-testid="list-assignee-options"
+        >
           <button
             className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
             onClick={async () => { await apiRequest("PATCH", `/api/tasks/${task.id}`, { ownerUserId: null }); onChanged(); close(); }}
@@ -1050,7 +1070,10 @@ function ParticipantsButton({ task, watchers, users, onChanged }: any) {
           {available.length > 0 && (
             <div>
               <div className="text-xs font-semibold text-muted-foreground mb-1.5">Add participant</div>
-              <div className="space-y-1 max-h-52 overflow-y-auto">
+              <div
+                className="space-y-1 max-h-[280px] overflow-y-auto overscroll-contain"
+                data-testid="list-participant-options"
+              >
                 {available.map((u: any) => (
                   <button
                     key={u.id}
