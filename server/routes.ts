@@ -41232,17 +41232,45 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
         return res.status(400).json({ error: "question required" });
       }
 
-      const rows = await db.execute(sql.raw(`
-        SELECT title, canonical_url, domain, ai_summary, intel_type, importance
-        FROM cortex_email_intel
-        WHERE deleted_at IS NULL AND source_type = 'url' AND use_in_ai_context = true
-        ORDER BY created_at DESC
-        LIMIT 20
-      `));
-      const records = (rows as any).rows ?? [];
+      const q = question.trim();
+      const asksAboutToday = /\btoday\b|\bthis (morning|afternoon|session)\b|\bjust (learn|ingest|feed)/i.test(q);
+
+      // "Today" window: local calendar day through now. Falls back to the
+      // normal top-20-by-recency query if nothing matches — never returns a
+      // hard-empty result just because of a date/timezone mismatch.
+      const todayRows = asksAboutToday
+        ? await db.execute(sql.raw(`
+            SELECT title, canonical_url, domain, ai_summary, intel_type, importance, created_at
+            FROM cortex_email_intel
+            WHERE deleted_at IS NULL AND source_type = 'url' AND use_in_ai_context = true
+              AND created_at >= CURRENT_DATE
+            ORDER BY created_at DESC
+            LIMIT 20
+          `))
+        : null;
+      let records = (todayRows as any)?.rows ?? [];
+      let scopedToToday = asksAboutToday && records.length > 0;
 
       if (records.length === 0) {
-        return res.json({ answer: "I don't have any ingested knowledge yet. Feed me some URLs first and I'll be able to answer questions based on what I learn!" });
+        const rows = await db.execute(sql.raw(`
+          SELECT title, canonical_url, domain, ai_summary, intel_type, importance, created_at
+          FROM cortex_email_intel
+          WHERE deleted_at IS NULL AND source_type = 'url' AND use_in_ai_context = true
+          ORDER BY created_at DESC
+          LIMIT 20
+        `));
+        records = (rows as any).rows ?? [];
+        scopedToToday = false;
+      }
+
+      if (records.length === 0) {
+        // Zero records anywhere in the knowledge base — return a controlled,
+        // app-specific empty state. Never call the LLM with empty context and
+        // let it fall back to a generic base-model answer.
+        const msg = asksAboutToday
+          ? "I could not find any Feed CORTEX items from today in the searchable index. Feed me a URL to get started."
+          : "I don't have any ingested knowledge yet. Feed me some URLs first and I'll be able to answer questions based on what I learn!";
+        return res.json({ answer: msg });
       }
 
       const contextText = records.map((r: any) => {
@@ -41250,6 +41278,7 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
         if (r.title)      parts.push(`Title: ${r.title}`);
         if (r.intel_type) parts.push(`Category: ${r.intel_type}`);
         if (r.ai_summary) parts.push(`Summary: ${r.ai_summary}`);
+        if (r.created_at) parts.push(`Ingested: ${r.created_at}`);
         return parts.join("\n");
       }).join("\n\n---\n\n");
 
@@ -41259,22 +41288,48 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
+      const systemPrompt = `You are VoltSafe Cortex, an internal AI assistant for VoltSafe — a company building EV charging solutions for marinas and marine environments.
+
+The items listed below under LEARNED ITEMS have been ingested into your memory. Treat them as things you personally learned and researched${scopedToToday ? " today" : ""} — they ARE your knowledge base for this conversation, not external documents.
+
+Rules:
+- When asked what you learned, learned today, or learned recently, answer directly by summarizing the LEARNED ITEMS below and naming their sources/domains/titles.
+- Never say you cannot learn, don't acquire information in real-time, or reference a training-data cutoff date (e.g. "October 2023") — that framing is FORBIDDEN here, because the LEARNED ITEMS below are your grounding for this answer.
+- Do not fabricate facts beyond what's in the LEARNED ITEMS.
+- If a question cannot be answered from the LEARNED ITEMS, say so plainly instead of guessing or falling back to general knowledge.
+- Be helpful, concise, and professional. Respond in plain text without markdown formatting.
+
+LEARNED ITEMS:
+
+${contextText}`;
+
       const completion = await oai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content: `You are VoltSafe Cortex, an internal AI assistant for VoltSafe — a company building EV charging solutions for marinas and marine environments. Answer questions based ONLY on the knowledge that has been ingested into your knowledge base. If you don't have relevant information, say so clearly and briefly. Do not fabricate facts. Be helpful, concise, and professional. Respond in plain text without markdown formatting.\n\nYour current knowledge base:\n\n${contextText}`,
-          },
-          {
-            role: "user",
-            content: question.trim().slice(0, 2000),
-          },
+          { role: "system", content: systemPrompt },
+          { role: "user", content: q.slice(0, 2000) },
         ],
         ...buildOpenAIModelParams("gpt-4o-mini", { tokenLimit: 600, temperature: 0.4 }),
       });
 
-      const answer = completion.choices[0]?.message?.content?.trim() ?? "I wasn't able to generate an answer. Please try again.";
+      let answer = completion.choices[0]?.message?.content?.trim() ?? "I wasn't able to generate an answer. Please try again.";
+
+      // Hard guard: if the model still slips into generic base-model
+      // boilerplate despite the grounded prompt, don't ship it — return a
+      // controlled Cortex-specific message instead.
+      const BOILERPLATE_PATTERNS = [
+        /don'?t learn or acquire new information in real.?time/i,
+        /my knowledge is based on (the )?information i was trained on/i,
+        /current(ly)? only up to/i,
+        /training data(\s|,)/i,
+        /\boctober 2023\b/i,
+        /as an ai language model/i,
+      ];
+      if (BOILERPLATE_PATTERNS.some((re) => re.test(answer))) {
+        console.error("[cortex-ask] model returned generic boilerplate despite grounded context; suppressing", { question: q, recordCount: records.length });
+        answer = "I have ingested knowledge available, but couldn't ground an answer to that question from it. Try rephrasing, or ask about one of the specific items you've fed me.";
+      }
+
       res.json({ answer });
     } catch (err: any) {
       console.error("[cortex-ask] POST /api/cortex/ask:", err.message);

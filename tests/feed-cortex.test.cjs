@@ -188,6 +188,42 @@ check("ask is requireAuth protected",                (function() {
 check("ask uses buildOpenAIModelParams tokenLimit 600", routes.includes("tokenLimit: 600") || routes.includes("max_tokens: 600"));
 check("ask slices question to 2000 chars",           routes.includes(".slice(0, 2000)"));
 
+// ── Backend: ask route grounding fix (generic boilerplate bug) ───────────────
+check("ask detects 'today' phrasing in the question", routes.includes("asksAboutToday"));
+check("ask has a today-scoped retrieval query",       routes.includes("created_at >= CURRENT_DATE"));
+check("ask falls back to top-20 when today window is empty", (function() {
+  const idx = routes.indexOf("asksAboutToday");
+  const block = routes.slice(idx, idx + 3000);
+  return block.includes("records.length === 0") && block.includes("ORDER BY created_at DESC");
+})());
+check("ask system prompt frames context as the model's own learned items",
+  routes.includes("LEARNED ITEMS") && routes.includes("personally learned"));
+check("ask system prompt forbids training-cutoff framing",
+  routes.includes("FORBIDDEN"));
+check("ask has post-generation boilerplate guard",    routes.includes("BOILERPLATE_PATTERNS"));
+check("boilerplate guard matches 'real-time' disclaimer", (function() {
+  const idx = routes.indexOf("BOILERPLATE_PATTERNS");
+  const block = routes.slice(idx, idx + 800);
+  return /real.\?time/i.test(block) || block.includes("real.?time");
+})());
+check("boilerplate guard matches training-cutoff phrasing",
+  routes.includes("current(ly)? only up to"));
+check("boilerplate guard matches 'october 2023' example date",
+  routes.includes("october 2023"));
+check("boilerplate guard suppresses answer instead of throwing", (function() {
+  const idx = routes.indexOf("BOILERPLATE_PATTERNS");
+  const block = routes.slice(idx, idx + 1200);
+  return block.includes("answer =") && !block.includes("throw new Error");
+})());
+check("ask never calls the LLM before the empty-records early return", (function() {
+  const idx = routes.indexOf('"/api/cortex/ask"');
+  const emptyIdx = routes.indexOf("I could not find any Feed CORTEX items from today", idx);
+  const openaiIdx = routes.indexOf("new OpenAI({", idx);
+  return emptyIdx !== -1 && openaiIdx !== -1 && emptyIdx < openaiIdx;
+})());
+check("ask returns app-specific empty state for 'today' with zero records",
+  routes.includes("I could not find any Feed CORTEX items from today in the searchable index"));
+
 // ── Breathing animation — lockstep brain + button ─────────────────────────────
 
 check("ANIM_CSS constant defined",                   page.includes("ANIM_CSS"));
