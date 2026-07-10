@@ -118,6 +118,7 @@ const PRIORITY_DOT: Record<string, string> = {
 
 const GROUP_ORDER: Record<string, number> = {
   Overdue: 0, Today: 1, Tomorrow: 2, "This week": 3, Later: 4, "No due date": 5,
+  "Team Tasks": 0, "Due Today": 0, "Upcoming": 0, "Completed": 0, "Delegated": 0,
   high: 0, medium: 1, low: 2,
 };
 
@@ -383,8 +384,32 @@ function TaskRow({
   );
 }
 
+// Views whose entire task list shares a single fixed meaning (as opposed to "My Tasks",
+// which mixes due dates and benefits from date-bucketed sub-headers like Overdue/Today/Later).
+// For these views the section header must always reflect the active tab/filter itself —
+// never a per-task due-date bucket — so selecting "Completed" can never render "OVERDUE".
+const FIXED_VIEW_GROUP_LABEL: Partial<Record<ViewTab, string>> = {
+  team: VIEW_LABELS.team,
+  today: VIEW_LABELS.today,
+  overdue: VIEW_LABELS.overdue,
+  upcoming: VIEW_LABELS.upcoming,
+  completed: VIEW_LABELS.completed,
+  assigned_by_me: VIEW_LABELS.assigned_by_me,
+};
+
+const GROUP_HEADER_STYLES: Record<string, { icon: React.ElementType; className: string }> = {
+  [VIEW_LABELS.overdue]: { icon: AlertTriangle, className: "text-red-400" },
+  [VIEW_LABELS.completed]: { icon: CheckCircle2, className: "text-emerald-400" },
+  [VIEW_LABELS.today]: { icon: CalendarDays, className: "text-blue-400" },
+  [VIEW_LABELS.upcoming]: { icon: Clock, className: "text-muted-foreground" },
+  [VIEW_LABELS.team]: { icon: Users, className: "text-muted-foreground" },
+  [VIEW_LABELS.assigned_by_me]: { icon: ArrowRight, className: "text-muted-foreground" },
+  Overdue: { icon: AlertTriangle, className: "text-red-400" },
+};
+
 function GroupSection({
   label,
+  view,
   tasks,
   users,
   defaultOpen,
@@ -398,6 +423,7 @@ function GroupSection({
   readOnly,
 }: {
   label: string;
+  view?: ViewTab;
   tasks: HubTask[];
   users: { id: number; name: string }[];
   defaultOpen?: boolean;
@@ -411,18 +437,24 @@ function GroupSection({
   readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? true);
-  const isOverdueGroup = label === "Overdue";
+  // The displayed label is derived directly from the active tab/filter for fixed-purpose
+  // views (Completed, Overdue, Due Today, Upcoming, Team Tasks, Delegated) — never from the
+  // date-bucket key a task happens to fall into. Only "My Tasks" (and other free-mix views)
+  // keep the raw date-bucket label (e.g. "Overdue", "Today", "This week") as sub-headers.
+  const displayLabel = (view && FIXED_VIEW_GROUP_LABEL[view]) || label;
+  const style = GROUP_HEADER_STYLES[displayLabel];
+  const isOverdueGroup = !style && displayLabel === "Overdue";
 
   return (
     <div className="mb-1">
       <button
         onClick={() => setOpen(v => !v)}
-        className={`flex items-center gap-2 w-full px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors hover:bg-secondary/20 ${isOverdueGroup ? "text-red-400" : "text-muted-foreground"}`}
-        data-testid={`group-header-${label.toLowerCase().replace(/\s+/g, "-")}`}
+        className={`flex items-center gap-2 w-full px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-colors hover:bg-secondary/20 ${style ? style.className : isOverdueGroup ? "text-red-400" : "text-muted-foreground"}`}
+        data-testid={`group-header-${displayLabel.toLowerCase().replace(/\s+/g, "-")}`}
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        {isOverdueGroup && <AlertTriangle className="h-3 w-3" />}
-        {label}
+        {style ? <style.icon className="h-3 w-3" /> : isOverdueGroup && <AlertTriangle className="h-3 w-3" />}
+        {displayLabel}
         <span className="ml-auto font-normal normal-case tracking-normal opacity-60">{tasks.length}</span>
       </button>
       {open && (
@@ -1234,6 +1266,7 @@ export default function TasksHubPage() {
                 <GroupSection
                   key={key}
                   label={key}
+                  view={view}
                   tasks={groupTasks}
                   users={usersData}
                   defaultOpen={idx < 4}

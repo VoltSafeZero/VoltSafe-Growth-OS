@@ -23,7 +23,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 async function login(email, password) {
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "http://localhost:5000" },
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(`Login failed for ${email}: ${res.status}`);
@@ -36,7 +36,11 @@ async function login(email, password) {
 async function api(method, path, body, cookie) {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) },
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "http://localhost:5000",
+      ...(cookie ? { Cookie: cookie } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   return res;
@@ -291,6 +295,58 @@ async function run() {
     (overdueBody.total <= body.counts.overdue_count + 2)
       ? ok(`Overdue count consistent: ${overdueBody.total} vs ${body.counts.overdue_count}`)
       : fail("Overdue count mismatch", `view=${overdueBody.total}, count=${body.counts.overdue_count}`);
+  }
+
+  // ── T13: Completed view group header regression ───────────────────────────
+  // Bug: selecting the Completed tab rendered a stale "Overdue" section header
+  // (because tasks that were overdue before being marked done fell into the
+  // due-date "Overdue" bucket). The fix forces single-purpose tabs to use a
+  // group key matching the tab itself.
+  console.log("\nT13: Completed view group header regression");
+  {
+    const res = await api("GET", "/api/tasks/hub?view=completed&groupBy=due_date", null, trevorCookie);
+    expect("GET /api/tasks/hub?view=completed → 200", res.status, 200);
+    const body = await res.json();
+    const groupKeys = Object.keys(body.groups || {});
+
+    if (body.total === 0) {
+      ok("Completed view has no tasks — group-key check skipped");
+    } else {
+      (!groupKeys.includes("Overdue"))
+        ? ok("Completed view never groups tasks under 'Overdue'")
+        : fail("Completed view still contains an 'Overdue' group key", JSON.stringify(groupKeys));
+
+      groupKeys.every(k => k === "Completed")
+        ? ok(`Completed view groups exclusively under 'Completed' (${groupKeys.join(", ")})`)
+        : fail("Completed view has non-'Completed' group keys", JSON.stringify(groupKeys));
+
+      body.tasks.every(t => t.status === "done" || t.status === "completed")
+        ? ok("Completed view only contains done/completed tasks")
+        : fail("Completed view contains a non-completed task");
+    }
+  }
+
+  // ── T14: Other single-purpose views also use fixed group labels ───────────
+  console.log("\nT14: Fixed group labels for single-purpose views");
+  {
+    const fixedViews = [
+      ["today", "Due Today"],
+      ["upcoming", "Upcoming"],
+      ["team", "Team Tasks"],
+      ["assigned_by_me", "Delegated"],
+    ];
+    for (const [view, expectedLabel] of fixedViews) {
+      const res = await api("GET", `/api/tasks/hub?view=${view}&groupBy=due_date`, null, trevorCookie);
+      const body = await res.json();
+      const groupKeys = Object.keys(body.groups || {});
+      if (body.total === 0) {
+        ok(`${view} view has no tasks — group-key check skipped`);
+      } else {
+        groupKeys.every(k => k === expectedLabel)
+          ? ok(`${view} view groups exclusively under '${expectedLabel}'`)
+          : fail(`${view} view has unexpected group keys`, JSON.stringify(groupKeys));
+      }
+    }
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────

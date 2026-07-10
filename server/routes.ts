@@ -6153,6 +6153,17 @@ export async function registerRoutes(
       `));
       const taskRows: any[] = (taskRes as any).rows ?? [];
 
+      // Single-purpose tabs get one fixed group-header label matching the tab itself,
+      // instead of a per-task due-date bucket (see FIXED_GROUP_VIEW_LABELS usage below).
+      const FIXED_GROUP_VIEW_LABELS: Record<string, string> = {
+        team: "Team Tasks",
+        today: "Due Today",
+        overdue: "Overdue",
+        upcoming: "Upcoming",
+        completed: "Completed",
+        assigned_by_me: "Delegated",
+      };
+
       // Build groups
       const groups: Record<string, any[]> = {};
       const addToGroup = (key: string, task: any) => {
@@ -6168,8 +6179,16 @@ export async function registerRoutes(
           key = t.ownerName || "Unassigned";
         } else if (groupBy === "linked_record") {
           key = t.accountName ? `${t.accountName}` : (t.linkedObjectType ? `${t.linkedObjectType} #${t.linkedObjectId}` : "No linked record");
+        } else if (FIXED_GROUP_VIEW_LABELS[view]) {
+          // Single-purpose tabs (Completed, Overdue, Due Today, Upcoming, Team Tasks,
+          // Delegated) always show ONE section header matching the active tab/filter —
+          // never a per-task due-date bucket. Without this, a task that was overdue
+          // before being completed would render under a stale "Overdue" header even
+          // while viewing the Completed tab.
+          key = FIXED_GROUP_VIEW_LABELS[view];
         } else {
-          // default: due_date
+          // default: due_date (used for "My Tasks", which mixes many due dates and
+          // benefits from date-bucketed sub-headers)
           if (!t.dueDate) { key = "No due date"; }
           else {
             const d = new Date(t.dueDate);
