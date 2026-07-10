@@ -1,0 +1,325 @@
+Right now, based on the screenshots, you cannot clearly share or assign a project from the project detail view. There is no visible owner, participants, share button, watcher list, or assignment control.
+
+That is a product gap.
+
+The clean solution is to add a Project People control to every project.
+
+Recommended behaviour
+
+At the top-right of the project, beside the edit and delete icons, add:
+
+* Share
+* Assign
+* Small participant avatars
+
+Share
+
+“Share” brings the project to another user’s attention and gives them access.
+
+The popup should let you:
+
+* Search VoltSafe users
+* Add multiple users
+* Choose their access level:
+    * Viewer — can read
+    * Contributor — can add notes, files and updates
+    * Editor — can modify the project
+    * Project Admin — can manage members and settings
+* Add an optional message
+* Send an in-app notification and optional email
+* Copy a secure internal project link
+
+Sharing should not automatically make someone responsible for the project.
+
+Assign
+
+“Assign” establishes responsibility.
+
+A project should support:
+
+* One Project Owner
+* Optional Co-owner
+* Multiple Contributors
+* Optional Followers/Watchers
+
+When assigned, the user should receive:
+
+* An in-app notification
+* A task/inbox item
+* An email notification, depending on their preferences
+* The project appearing under My Projects
+
+The owner should be shown visibly near the title:
+
+Owner: Trevor Burgess
+Contributors: Scott Carlson, Sanad Aridah
+
+Also add @mentions
+
+Inside project notes and comments, typing:
+
+@Scott Carlson
+
+should:
+
+* Notify Scott
+* Link Scott directly to the note
+* Add the project to Scott’s “Mentioned” activity feed
+* Not automatically assign him unless explicitly selected
+
+That gives you three different actions:
+
+Action	Meaning
+Mention	“Look at this specific note”
+Share	“You can access and collaborate on this project”
+Assign	“You are responsible for this project”
+
+Do not combine all three into one fuzzy button. That is how responsibility disappears into the corporate Bermuda Triangle.
+
+Suggested project header
+
+Digital Legal Signatures – VoltSafe Marine
+Research   Planning
+Owner: Trevor Burgess
+Shared with: Scott Carlson, CFO, Legal
+[ + Add people ]   [ Assign ]   [ Share ]   [ Follow ]
+
+Copy and paste this into Replit
+
+Implement complete project sharing, assignment, membership, mentions, and notification functionality in the VoltSafe CMS Projects module.
+CURRENT PROBLEM
+On the project detail screen, there is currently no clear way to:
+- Share a project with another CMS user
+- Assign ownership or responsibility
+- Add collaborators
+- Follow/watch a project
+- Mention another user in a note
+- See who currently owns or has access to the project
+- Bring a project to another user’s attention
+The existing project detail header currently only shows basic edit/delete controls. Add proper people and collaboration controls without breaking existing project data, notes, permissions, or layouts.
+REQUIRED PROJECT ROLES
+Every project must support:
+1. Project Owner
+   - Exactly one primary owner
+   - Full project management rights
+   - Can assign a new owner
+   - Can manage project members
+2. Co-owner
+   - Optional
+   - Same working access as owner, except ownership transfer and destructive admin actions may remain restricted
+3. Editor
+   - Can edit project details, notes, files, status, dates, and project content
+4. Contributor
+   - Can view the project and add notes, comments, files, updates, and activity
+5. Viewer
+   - Read-only access
+6. Follower / Watcher
+   - Receives project notifications
+   - Following does not automatically grant edit rights
+   - Must still have at least view permission
+PROJECT HEADER UI
+In the top-right area of every project detail drawer/page, add:
+- A visible owner display
+- Participant avatar stack
+- “Add people” button
+- “Assign” button
+- “Share” button
+- “Follow” / “Unfollow” button
+Example:
+Owner: Trevor Burgess
+Shared with: [avatar] [avatar] [avatar] +3
+[Add people] [Assign] [Share] [Follow]
+Use the existing VoltSafe CMS user picker, avatar, popover, drawer, role, permission, and notification design patterns wherever available.
+ADD PEOPLE POPOVER
+Clicking “Add people” must open a searchable user picker containing only CMS users the current user is permitted to see.
+For each selected user, allow choosing:
+- Co-owner
+- Editor
+- Contributor
+- Viewer
+- Follower
+Allow adding multiple users in one action.
+Include:
+- Search by name, email, department, and job title
+- Current access level
+- Existing members clearly marked
+- Optional message field
+- “Notify users” checkbox, enabled by default
+- Save and Cancel buttons
+ASSIGN FUNCTIONALITY
+Clicking “Assign” must open a focused assignment popover.
+Allow:
+- Selecting one primary Project Owner
+- Optionally selecting one Co-owner
+- Adding an assignment message
+- Setting or updating a project due date if applicable
+- Choosing whether to notify the assigned user
+When a project is assigned:
+- Create an in-app notification
+- Add an item to the assignee’s relevant inbox/activity feed
+- Send an email only if their notification preferences allow it
+- Add the project to their “My Projects” view
+- Record the assignment in the project activity history
+Do not treat “shared with” as the same thing as “assigned to.”
+SHARE FUNCTIONALITY
+Clicking “Share” must open a share dialog with:
+- Internal VoltSafe user picker
+- Access role selection
+- Optional personal message
+- Copy secure internal project link
+- Notification checkbox
+- Current members and access roles
+Sharing a project grants access but does not make the recipient responsible for the project.
+Only authenticated CMS users with explicit project permission may open the internal project link.
+Do not expose a public unauthenticated project URL.
+MENTIONS
+Add @mention support inside project notes and comments.
+Typing “@” must open a searchable permitted-user menu.
+When a user is mentioned:
+- Store the mention as structured mention data, not only plain text
+- Notify the mentioned user
+- Link the notification directly to the exact project note/comment
+- Add the mention to the user’s Mentioned activity feed if one exists
+- Do not automatically assign or share the whole project unless the user lacks access
+If a mentioned user does not currently have access, show the author a clear prompt:
+“Scott Carlson does not currently have access to this project. Grant Viewer access and mention?”
+Never silently expose project content.
+MY PROJECTS FILTERS
+Add or confirm the following filters in Projects:
+- All Projects
+- Owned by Me
+- Assigned to Me
+- Shared with Me
+- Following
+- Mentioned
+- Created by Me
+- Recently Updated
+- Completed
+PROJECT MEMBERS PANEL
+Add a “People & Access” section in the project Overview tab showing:
+- Owner
+- Co-owner
+- Editors
+- Contributors
+- Viewers
+- Followers
+- Who added each user
+- Date access was granted
+- Last project activity where practical
+Authorized users must be able to change or remove access from this panel.
+PERMISSIONS
+Use server-side authorization for every project read and write route.
+Do not rely on hidden UI controls for security.
+Required rules:
+- Master admins retain authorized administrative access
+- Project owner can manage members
+- Co-owner access follows the defined restrictions
+- Editors cannot grant themselves or others higher permissions unless explicitly authorized
+- Contributors cannot edit core project settings
+- Viewers cannot mutate project data
+- Followers cannot view a project unless they also have at least Viewer access
+- Removed users must immediately lose project access
+- A user may not remove the final Project Owner
+- Ownership transfer must be explicit and logged
+DATA MODEL
+Inspect the existing schema first and reuse suitable structures where possible.
+Create or extend normalized tables such as:
+project_members
+- id
+- project_id
+- user_id
+- role
+- added_by_user_id
+- created_at
+- updated_at
+project_followers
+- id
+- project_id
+- user_id
+- created_at
+project_mentions
+- id
+- project_id
+- note_id or comment_id
+- mentioned_user_id
+- mentioned_by_user_id
+- created_at
+- read_at
+project_activity
+- id
+- project_id
+- actor_user_id
+- action_type
+- target_user_id
+- metadata
+- created_at
+Use foreign keys, uniqueness constraints, indexes, and safe cascade behaviour.
+Prevent duplicate project membership rows.
+BACKWARD COMPATIBILITY
+Existing projects must remain accessible.
+For projects with no explicit owner:
+- Assign the project creator as owner when reliable
+- Otherwise assign a safe authorized admin and record the migration
+- Do not leave projects permanently ownerless
+Do not destroy or overwrite existing project records, notes, files, tags, or statuses.
+NOTIFICATIONS
+Generate notifications for:
+- Project shared
+- Project assigned
+- Ownership transferred
+- Role changed
+- User mentioned
+- User removed
+- Due date changed
+- Important project update when the user follows the project
+Notifications must link directly to the project and, for mentions, the exact note/comment.
+Avoid duplicate notifications from the same action.
+ACTIVITY HISTORY
+Record clear audit entries such as:
+- Trevor shared the project with Scott as Contributor
+- Trevor assigned Scott as Project Owner
+- Scott followed the project
+- Sanad mentioned Scott in a note
+- Trevor changed Scott from Viewer to Editor
+- Trevor removed Alex from the project
+TESTING
+Add regression tests covering:
+1. Owner can add a viewer
+2. Owner can assign a new owner
+3. Final owner cannot be removed
+4. Viewer cannot edit the project
+5. Contributor can add a note but cannot manage access
+6. Editor can edit project details within allowed scope
+7. Removed user immediately loses API access
+8. Share does not automatically assign ownership
+9. Mention notification links to the correct note
+10. Mentioning a user without access requires explicit access grant
+11. Duplicate members are prevented
+12. Existing projects receive valid ownership during migration
+13. Unauthorized direct API calls return 403
+14. My Projects filters return the correct projects
+15. Notifications are not duplicated
+16. Mobile and desktop popovers remain usable and scroll correctly
+VERIFICATION
+After implementation:
+- Run the relevant project, permission, notification, and migration tests
+- Run the broader regression suite
+- Verify in the browser using at least:
+  - Master admin
+  - Project owner
+  - Contributor
+  - Viewer
+  - User with no project access
+- Confirm there are no console errors
+- Confirm direct unauthorized URLs and API requests are blocked
+- Confirm existing projects, notes, and files remain intact
+- Provide a concise report of:
+  - Files changed
+  - Schema changes
+  - Permission rules
+  - Tests added and results
+  - Browser verification
+  - Any remaining limitations
+Do not mark this complete after adding cosmetic buttons only. It is complete only when project membership, assignment, authorization, notifications, mentions, activity history, filters, and browser verification all work end-to-end.
+
+The key design rule is simple: sharing controls visibility, assigning controls responsibility, and mentioning controls attention.
