@@ -78,3 +78,4 @@
 - [Per-mailbox signatures](per-mailbox-signatures.md) — nullable emailAccountId + single assert*AccountAccess helper pattern; client query must key by active mailbox id.
 - [CC/BCC normalization helper](cc-bcc-normalization-helper.md) — root cause of "Invalid Cc header" was naive comma-split on display names; route To/Cc/Bcc through shared/recipients.ts everywhere.
 - [Training Hub video numbering/hosting](training-hub-capital-videos.md) — number field drives global order (no restart per playlist); hosted status is derived from file-on-disk; route is /training not /training-hub; use system Chromium via launchBrowser().
+- [Calendar source-checkbox visibility](calendar-source-visibility.md) — toEventListItem stripped externalCalendarId; client filter always saw undefined → show-all bypass.

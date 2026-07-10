@@ -167,6 +167,12 @@ export function toEventListItem<T extends Record<string, any>>(event: T): Record
     showAs: event.showAs ?? null,
     color: event.isBusyOnly ? null : (event.color ?? null),
     calendarName: event.isBusyOnly ? null : (event.calendarName ?? null),
+    // externalCalendarId is the Google Calendar source ID (e.g. "trevor@voltsafe.com")
+    // and MUST be included so the client-side source-checkbox filter can work.
+    // Without it, every event looks like an "app-created" event and bypasses all
+    // calendar-source filtering — causing every delegated/subscribed calendar to
+    // bleed through regardless of which checkboxes are checked.
+    externalCalendarId: event.isBusyOnly ? null : (event.externalCalendarId ?? null),
     locationSummary: event.isBusyOnly ? null : summarizeLocation(event.location),
     isBusyOnly: event.isBusyOnly ?? false,
   };

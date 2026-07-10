@@ -9301,8 +9301,13 @@ export async function registerRoutes(
       // Auto-sync: if the user has an active Google connection that has never synced,
       // trigger an inline sync so the first page-load shows real events.
       // Subsequent loads read from DB directly (fast).
+      // Also fetch selectedCalendarIds for server-side source filtering (see below).
       const [googleConn] = await db
-        .select({ id: calendarConnections.id, lastSyncedAt: calendarConnections.lastSyncedAt })
+        .select({
+          id: calendarConnections.id,
+          lastSyncedAt: calendarConnections.lastSyncedAt,
+          selectedCalendarIds: calendarConnections.selectedCalendarIds,
+        })
         .from(calendarConnections)
         .where(and(
           eq(calendarConnections.userId, userId),
@@ -9321,12 +9326,29 @@ export async function registerRoutes(
         }
       }
 
+      // Server-side source filter — defense-in-depth alongside the client-side
+      // checkbox filter. If the user has saved a selectedCalendarIds list, only
+      // return events whose externalCalendarId is in that list (or events with no
+      // externalCalendarId, which are app-created and always visible).
+      // null selectedCalendarIds means "never configured" → return everything.
+      // Empty array means "all unchecked" → return only app-created events.
+      const selectedCalIds: string[] | null = Array.isArray(googleConn?.selectedCalendarIds)
+        ? (googleConn.selectedCalendarIds as string[])
+        : null;
+
       const events = await storage.getCalendarEvents(userId, start, end);
+
+      const filtered = selectedCalIds === null
+        ? events
+        : events.filter((ev: any) => !ev.externalCalendarId || selectedCalIds.includes(ev.externalCalendarId));
+
       // Default list response is minimized — description/meetingUrl/invitees/
       // attendeeDetails/external*/bookingLinkRecipientId never leave the server
       // here, even for the requester's own events. Full detail is only served
       // via the authorized GET /api/calendar/events/:id endpoint.
-      res.json(events.map((ev: any) => toEventListItem(ev)));
+      // NOTE: externalCalendarId IS included (see toEventListItem) so the
+      // client-side source-checkbox filter can work correctly.
+      res.json(filtered.map((ev: any) => toEventListItem(ev)));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

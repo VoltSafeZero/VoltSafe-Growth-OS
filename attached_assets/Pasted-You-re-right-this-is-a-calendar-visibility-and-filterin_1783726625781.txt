@@ -1,0 +1,171 @@
+You’re right — this is a calendar visibility and filtering bug.
+
+The screenshots show events from calendars owned by Scott, Sanad, Terri, and others even though their calendar checkboxes are not selected. The calendar is effectively loading everyone’s events first and treating the checkboxes like decoration. Very festive. Completely wrong.
+
+Copy and paste this into Replit:
+
+⸻
+
+Fix Calendar Event Visibility and Ownership Filtering
+
+There is a systemic bug in the Calendar & Meetings module.
+
+Current incorrect behaviour
+
+The main calendar displays events from other VoltSafe users even when their calendars are not selected in the right-hand calendar panel.
+
+Examples visible in the screenshots:
+
+* An event sourced from scott@voltsafe.com
+* An event sourced from sanad@voltsafe.com
+* Other events where Trevor is not the owner, organizer, or attendee
+* These events appear even though the relevant person-calendar checkboxes are unchecked
+
+The calendar currently appears to fetch or render all accessible team events by default instead of strictly respecting the selected calendar sources.
+
+Required behaviour
+
+By default, a user should only see:
+
+1. Events from their own personal calendar or calendars.
+2. Events where they are an actual attendee or organizer.
+3. Events from shared/company calendars that are explicitly enabled.
+4. Events from another person’s calendar only after that specific person-calendar checkbox is selected.
+
+If another user’s calendar checkbox is unchecked, events belonging only to that user must not appear.
+
+Important ownership rules
+
+Do not determine ownership using only the event title, event creator name, cached source, or broad permission access.
+
+For each event, distinguish between:
+
+* Calendar owner
+* Event organizer
+* Event creator
+* Event attendees
+* Authenticated CMS user
+* Selected calendar source
+
+An event should be visible when at least one of these is true:
+
+eventBelongsToAuthenticatedUsersOwnCalendar
+|| authenticatedUserIsOrganizer
+|| authenticatedUserIsAttendee
+|| sourceCalendarIsExplicitlySelected
+|| enabledCompanyCalendarContainsEvent
+
+An event must not be shown merely because:
+
+authenticatedUserCanAccessTheOtherUsersCalendar
+
+Access permission is not the same thing as calendar selection.
+
+Selection state requirements
+
+The calendar-source checkbox state must be the single source of truth for visible overlay calendars.
+
+Implement or verify:
+
+* Unchecked person calendar = no events from that calendar
+* Checked person calendar = events appear
+* Unchecking it again = events disappear immediately
+* Refreshing the page preserves the authenticated user’s saved selections
+* A newly added person calendar starts unchecked unless the user explicitly enables it
+* No hidden default such as showAllCalendars = true
+* No fallback that renders all fetched events when the selected-calendar list is empty
+* Do not confuse calendar discovery with calendar visibility
+
+Fetching and rendering
+
+Ideally, filter both server-side and client-side:
+
+1. The API should only request or return events from permitted and selected sources where practical.
+2. The frontend must still apply a final visibility filter before rendering.
+3. Prevent stale cached events from remaining visible after a calendar is unchecked.
+4. Make query/cache keys include the selected calendar IDs.
+5. Invalidate or update the calendar event cache whenever a source checkbox changes.
+
+Check for bugs involving:
+
+* Missing calendarId filtering
+* Empty selected-calendar arrays interpreted as “all”
+* undefined selection state interpreted as “all”
+* Team calendar permissions being treated as active overlays
+* Events merged from all connected Google accounts
+* Events returned by a shared /api/calendar/events endpoint without source restrictions
+* Cached events from previously selected calendars
+* Mismatched user email casing or aliases
+* Duplicate calendar entries such as repeated sales@voltsafe.com
+
+Special case: attendance
+
+If Trevor is genuinely listed as an attendee on another person’s event, it is valid for that event to appear on Trevor’s calendar.
+
+However, the event detail must clearly indicate why it is visible, such as:
+
+You are an attendee
+
+If Trevor is not an attendee, organizer, owner, or member of an enabled shared calendar, it must remain hidden until that person’s calendar is checked.
+
+Event detail accuracy
+
+Opening an event must not relabel unrelated events as Trevor’s meetings.
+
+Ensure the event-detail drawer correctly displays:
+
+* Actual source calendar
+* Actual organizer
+* Actual attendees
+* Whether the authenticated user is attending
+* Whether the event is being shown through a selected overlay calendar
+
+Do not show meeting-related actions for ordinary reminders unless appropriate.
+
+For example, a five-minute credit-card payment reminder should not automatically be classified as:
+
+meeting
+scheduled
+
+unless it is actually a meeting.
+
+Required regression tests
+
+Add tests covering at least:
+
+1. Own event appears by default.
+2. Event where authenticated user is an attendee appears.
+3. Another user’s private event does not appear when their checkbox is unchecked.
+4. Checking another user’s calendar causes their event to appear.
+5. Unchecking it removes the event immediately.
+6. Empty selection does not mean “show all.”
+7. Refresh preserves source selections.
+8. Company calendar events appear only when that company calendar is enabled.
+9. Permission to view another user does not automatically make their calendar visible.
+10. Cached events do not remain after a source is disabled.
+11. Duplicate calendar identities do not cause hidden events to reappear.
+12. Event-detail source and attendee information matches the underlying event.
+
+Verification
+
+Test while logged in as Trevor.
+
+Initial state:
+
+* Trevor’s calendar enabled
+* Other personal calendars unchecked
+* Only Trevor’s own events and events where Trevor is an attendee should appear
+
+Then:
+
+1. Check Sanad’s calendar.
+2. Confirm Sanad-only events appear.
+3. Uncheck Sanad’s calendar.
+4. Confirm they disappear immediately.
+5. Repeat with Scott and Terri.
+6. Refresh and confirm the selected state remains correct.
+7. Inspect the network response and rendered events to verify hidden calendars are not leaking into the visible calendar.
+
+Do not mark this complete based only on unit tests. Verify it in the live browser using multiple real users and real calendar sources.
+
+⸻
