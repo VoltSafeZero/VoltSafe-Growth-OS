@@ -1,0 +1,243 @@
+This is meaningful progress, but it is not yet 100% resolved.
+
+What appears fixed at code level:
+
+* cc_emails is now included in local fallback search.
+* FTS/indexing now includes CC recipients.
+* Old rows with NULL all_participants are being backfilled.
+* Archived mail was previously skipped by the normal backfill because it used only in:inbox OR in:sent.
+* Search consistency tests pass.
+* 193 checks passed with zero failures.
+
+What is still missing:
+
+* No Gmail-provider count versus local database count.
+* No proof that the known Scott emails now appear.
+* No authenticated VoltSafe Mail screenshot.
+* No audit of every connected mailbox.
+* No proof archived historical mail was actually backfilled in production data.
+* No proof the UI, API, local database, and Gmail now return matching totals.
+* No confirmation that pagination returns results beyond the first page.
+* No list of mailboxes that require OAuth reconnection.
+* No production reconciliation result.
+
+In plain English: the holes in the bucket may have been patched, but nobody has filled the bucket and checked whether it still leaks.
+
+Copy and paste this next:
+
+⸻
+
+The code-level fixes and tests are encouraging, but this task is not complete yet. The original requirement was 100% mailbox completeness across every connected VoltSafe Mail account.
+
+Do not make additional speculative architecture changes yet. Move into live data reconciliation and proof.
+
+1. Provide the exact implementation report
+
+First provide:
+
+* Commit hash
+* Exact files changed
+* Exact migrations added
+* Exact database indexes added
+* Exact startup jobs added
+* Exact admin routes added
+* Exact search queries changed
+* Exact tests added
+* git status --short
+
+Also explain whether the archived-mail sync query was changed from:
+
+in:inbox OR in:sent
+
+to a complete mailbox scope such as:
+
+in:anywhere
+
+or an equivalent safe Gmail API strategy.
+
+Be explicit. Do not imply archived mail is fixed unless the production reconciliation path actually imports it.
+
+2. Run a live reconciliation for trevor@voltsafe.com
+
+Run the new mailbox integrity audit and reconciliation against the actual connected Trevor mailbox.
+
+For privacy, report only counts, provider IDs, dates, and subject names already supplied in this task. Do not print message bodies.
+
+Report before and after:
+
+* Gmail provider total messages
+* Gmail provider total threads
+* Local total messages
+* Local total threads
+* Missing provider message IDs
+* Missing local thread records
+* Records with null all_participants
+* Records with missing cc_emails
+* Search-index records requiring rebuild
+* Oldest Gmail message date
+* Oldest local message date
+* Newest Gmail message date
+* Newest local message date
+* Reconciliation rows inserted
+* Rows updated
+* Duplicate rows merged or rejected
+* Search documents rebuilt
+* Final unresolved mismatch count
+
+The final unresolved mismatch count must be zero, or you must report the exact blocker.
+
+3. Prove the Scott search against Gmail
+
+For mailbox:
+
+trevor@voltsafe.com
+
+and search address:
+
+scott@voltsafe.com
+
+run these equivalent provider queries:
+
+from:scott@voltsafe.com
+to:scott@voltsafe.com
+cc:scott@voltsafe.com
+{from:scott@voltsafe.com to:scott@voltsafe.com cc:scott@voltsafe.com}
+in:anywhere scott@voltsafe.com
+
+For every query, provide:
+
+* Gmail matching message count
+* Gmail matching thread count
+* Local database matching message count
+* Local database matching thread count
+* VoltSafe search API message count
+* VoltSafe search API thread count
+* UI rendered conversation count
+* Difference between each stage
+
+Do not compare only against Spark. Gmail is the source of truth.
+
+4. Verify the known missing conversations
+
+Confirm whether these specific known examples now appear in VoltSafe Mail search:
+
+* Marina Pipeline + a few inputs
+* VoltSafe / ETL Path – Commercial Alignment and Next Steps
+* Safety certification progress
+* VoltSafe Investment
+
+Also verify at least one thread where:
+
+* Scott appears only in CC
+* Scott appears only in To
+* Scott appears in an older message but not the newest message
+* The message is archived
+* The message is sent mail
+* The result exists beyond page one
+
+For each one, report:
+
+* Gmail message/thread exists: yes or no
+* Local database record exists: yes or no
+* Search API returns it: yes or no
+* UI renders it: yes or no
+
+5. Verify authenticated UI behaviour
+
+Use an authenticated VoltSafe Mail session with a valid Gmail OAuth connection.
+
+Capture proof showing:
+
+* Search query entered
+* Search scope set to all mail history
+* Correct total message count
+* Correct total conversation count
+* Known missing examples visible
+* Pagination or load-more working
+* Archived result visible
+* Sent result visible
+* Older-thread participant result visible
+
+Do not claim UI verification using source-grep tests. This must be a live authenticated browser verification.
+
+6. Audit every connected mailbox
+
+Run the mailbox integrity audit for every active connected VoltSafe Mail account.
+
+For each mailbox, report:
+
+* Account email
+* OAuth status
+* Last successful sync
+* Last reconciliation
+* Provider message count
+* Local message count
+* Provider thread count
+* Local thread count
+* Null participant rows
+* Missing-index rows
+* Final status
+* Whether OAuth reconnect is required
+* Whether unresolved mismatches remain
+
+Do not expose email contents.
+
+Every account must end in one of these honest states:
+
+* Healthy and reconciled
+* OAuth reconnect required
+* Reconciliation failed
+* Provider access unavailable
+
+Do not label an account healthy if the provider/local counts have not been compared.
+
+7. Confirm recurrence prevention
+
+Demonstrate:
+
+* New Gmail messages are indexed incrementally.
+* CC-only messages are searchable.
+* Archived mail remains searchable after incremental sync.
+* Expired Gmail history IDs trigger reconciliation.
+* Lost push notifications are recovered by periodic consistency checks.
+* Search-index failure is retried.
+* Mailbox/account boundaries prevent cross-user leakage.
+* Reconciliation is idempotent.
+* Running reconciliation twice creates zero duplicates.
+
+8. Run final tests
+
+Run:
+
+* The new mailbox completeness test suite
+* Existing mail search tests
+* Mail read-state styling tests
+* Calendar visibility tests
+* Full npm run test:grep
+
+Report:
+
+* Exact command
+* Passed count
+* Failed count
+* Exit code
+
+Definition of done
+
+Do not call this fully resolved until:
+
+* Trevor’s Gmail counts match local counts.
+* Trevor’s Gmail counts match search API counts.
+* The known Scott conversations appear.
+* Authenticated UI verification succeeds.
+* Archived and sent messages are proven searchable.
+* Results beyond page one are proven searchable.
+* Every connected mailbox has been audited.
+* All reconciliable mailboxes have zero unresolved mismatches.
+* OAuth-expired accounts are clearly identified for reconnection.
+* Full tests pass.
+* Working tree is clean.
+
+If Gmail OAuth prevents verification, stop and report exactly which account requires reconnection. Do not substitute tests for live mailbox proof.
+
+⸻
