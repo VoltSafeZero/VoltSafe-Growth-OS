@@ -1,0 +1,343 @@
+SYSTEMIC FIX REQUIRED — CORTEX KNOWLEDGE, LEARN/HELP REBUILD, AND SNIPPETS ACCESS
+
+This is not a one-page wording correction. Audit and permanently fix the production knowledge synchronization, navigation accuracy, permissions, and Snippets access across VoltSafe Growth OS.
+
+CURRENT PRODUCTION FAILURE
+
+Cortex was asked:
+
+“How do I add more canned email responses?”
+
+It answered with outdated or potentially fabricated navigation instructions:
+
+- Go to Communications or /execution/communications
+- Look for Email Templates
+- Settings > Snippets
+
+However, the Communications navigation tab appears to no longer exist, and I cannot locate or access Snippets.
+
+The CEO, executives, and managers must be able to access and manage snippets/canned email responses.
+
+The Help Center screenshot also shows:
+
+- “Production was republished today”
+- “Auto-refresh scheduled tonight”
+- “Last revised: Jul 9, 2026, 11:58 PM”
+
+This indicates the Learn/Help knowledge may not actually be rebuilding from the latest production application, despite the intended production-publish trigger.
+
+CORE REQUIREMENTS
+
+1. FIND THE REAL CURRENT SNIPPETS IMPLEMENTATION
+
+Audit the full codebase and production routes for:
+
+- Snippets
+- Canned responses
+- Email templates
+- Saved replies
+- Reusable email content
+- Composer insert-template controls
+- Related API routes, database tables, permissions, feature flags and navigation entries
+
+Determine and report:
+
+- Whether Snippets currently exist
+- Their actual frontend route
+- Their actual API routes
+- Their database table/model
+- Which roles can view, create, edit, delete and use them
+- Whether the feature exists but is orphaned from navigation
+- Whether Cortex’s instructions reference deleted or renamed modules
+- Whether /execution/communications still exists, redirects, 404s or is dead code
+
+Do not assume Cortex’s answer is correct. Verify against the currently published production application and current source code.
+
+2. RESTORE CLEAR SNIPPETS ACCESS
+
+Create one clear, permanent location for reusable email content.
+
+Preferred location:
+
+Marketing or Settings
+→ Email Tools
+→ Snippets & Templates
+
+Use whichever parent location best matches the current product information architecture, but there must be exactly one canonical management route.
+
+Requirements:
+
+- Add a visible navigation entry
+- Add direct access from the email composer
+- Support creating, viewing, editing, duplicating, archiving and deleting snippets/templates
+- Support title, optional subject, body, category, owner, sharing scope and timestamps
+- Support placeholders using the actual supported merge-field syntax
+- Clearly distinguish:
+  - Snippet: short reusable body content
+  - Template: reusable complete email with subject and body
+- Add search, category filter and ownership/shared filters
+- Add “Insert snippet” and “Insert template” controls in all relevant email composers
+- Prevent duplicate or competing implementations
+
+3. FIX ROLE ACCESS
+
+At minimum, the following roles must be able to access the Snippets & Templates library:
+
+- CEO
+- Admin
+- Executive
+- Manager
+
+Permission expectations:
+
+CEO/Admin:
+- Full view/create/edit/delete/share access across the organization
+
+Executive:
+- View and use all shared organizational snippets/templates
+- Create and manage their own
+- Edit shared content only if granted appropriate permission
+
+Manager:
+- View and use organizational and team-shared content
+- Create and manage their own and team-shared content where permitted
+
+Standard users:
+- Use shared content
+- Manage their own content
+- No unauthorized editing of other users’ private content
+
+Verify permissions at both frontend and API levels. Do not rely only on hidden buttons.
+
+4. PERMANENTLY FIX CORTEX NAVIGATION HALLUCINATIONS
+
+Cortex must never recommend a route, tab, subtab, button or feature based only on stale documentation or remembered application structure.
+
+Before giving “how to navigate” instructions, Cortex must validate against a machine-readable current production capability/navigation registry containing:
+
+- Current route
+- Current visible label
+- Parent navigation section
+- Required permission
+- Feature flag state
+- Whether the route is active, redirected, hidden or retired
+- Available actions on the page
+- Last verified production version
+
+Cortex must:
+
+- Use only currently active production routes
+- Never recommend removed pages
+- Never say “if available in your org” when the current user’s permissions and feature availability can be checked directly
+- Personalize instructions to the current logged-in user’s role and permissions
+- Provide the exact current navigation path
+- Fall back honestly when no verified feature exists
+- Never fabricate URLs
+
+Example required response behavior:
+
+“Go to Marketing → Email Tools → Snippets & Templates.”
+
+Not:
+
+“Go to Communications, or maybe Settings > Snippets, if available.”
+
+5. REBUILD THE LEARN, TRAINING AND HELP SYSTEM FROM CURRENT PRODUCTION
+
+Audit the entire rebuild system covering:
+
+- Learn
+- Training
+- Help
+- Quick Start
+- Operations Manual
+- Training Handbook
+- FAQ & Glossary
+- Cortex production application knowledge
+- Navigation instructions
+- Role-based instructions
+- Feature descriptions
+- Screens, tabs, subtabs, actions and workflows
+
+The intended rule is:
+
+When a new production version is successfully published, that publish event must trigger a complete rebuild of all application knowledge and Learn/Help documentation.
+
+The existing midnight process may remain as a backup reconciliation job, but it must not be the primary trigger.
+
+Required production workflow:
+
+A. Successful production publish occurs
+B. A unique production version/deployment ID is recorded
+C. The system compares it with the last knowledge-build version
+D. If different, enqueue a complete knowledge rebuild
+E. Crawl or derive the current production route/capability registry
+F. Rebuild Cortex application knowledge
+G. Rebuild all Learn/Training/Help content
+H. Validate all referenced routes and permissions
+I. Publish the rebuilt knowledge atomically
+J. Record success/failure, timestamps, version IDs and validation results
+
+6. MIDNIGHT RECONCILIATION
+
+Keep a daily reconciliation process at 12:00 AM America/Vancouver.
+
+It must:
+
+- Check the current successful production deployment ID
+- Compare it to the last successfully indexed deployment ID
+- Rebuild only when versions differ, unless a forced rebuild is requested
+- Detect incomplete or failed previous rebuilds
+- Retry safely
+- Never mark content current unless the full rebuild and validation succeeded
+
+No fake “scheduled tonight” status should appear unless a real queued job exists.
+
+7. REBUILD STATUS AND ADMIN CONTROLS
+
+Add an admin-visible Knowledge Rebuild Status panel showing:
+
+- Current production deployment/version ID
+- Last detected production publish
+- Last rebuild started
+- Last rebuild completed
+- Deployment version currently indexed
+- Current status:
+  - Current
+  - Queued
+  - Rebuilding
+  - Validation failed
+  - Failed
+  - Stale
+- Number of routes indexed
+- Number of help articles rebuilt
+- Number of FAQs rebuilt
+- Number of training sections rebuilt
+- Number of invalid or stale route references found
+- Last error
+- Retry count
+
+Add controls:
+
+- Rebuild now
+- Validate only
+- View stale references
+- View rebuild logs
+
+Only authorized admins/CEO should have destructive or forced rebuild controls.
+
+8. REMOVE STALE CONTENT
+
+Search all current Cortex knowledge and Learn/Help content for references to:
+
+- Communications
+- /execution/communications
+- Settings > Snippets
+- Deleted or renamed navigation labels
+- Retired routes
+- Missing tabs
+- Old role names
+- Old feature locations
+
+Replace them with verified current production instructions.
+
+Do not merely patch the single answer shown above. Eliminate the stale source that generated it.
+
+9. VALIDATION GATE
+
+A knowledge rebuild must fail validation if any generated navigation instruction references:
+
+- A route that returns 404
+- A retired route
+- A hidden route unavailable to the intended audience
+- A navigation label that does not exist
+- A button or tab that is not rendered
+- A permission the user does not possess
+- A feature disabled by its current feature flag
+
+Do not publish partially validated Help content as “current.”
+
+10. REGRESSION TESTS
+
+Add automated tests covering at minimum:
+
+A. Snippets access
+- CEO can access
+- Admin can access
+- Executive can access
+- Manager can access
+- Standard user permissions behave correctly
+- Unauthorized API writes are blocked
+- Navigation link renders for authorized users
+- Composer can insert a snippet
+- Composer can insert a template
+
+B. Navigation truth
+- Cortex cannot recommend an inactive route
+- Cortex uses the current route registry
+- Removed Communications navigation is not recommended
+- Role-specific navigation is correct
+
+C. Publish-triggered rebuild
+- New production deployment triggers rebuild
+- Same deployment does not duplicate rebuild unnecessarily
+- Failed rebuild remains stale and visible
+- Successful rebuild records the exact deployment ID
+- Midnight reconciliation detects missed rebuilds
+- Timezone is America/Vancouver
+
+D. Documentation validation
+- All generated internal routes resolve
+- All named tabs exist
+- All named actions exist
+- No stale route references remain
+
+11. LIVE PRODUCTION VERIFICATION
+
+After implementing:
+
+- Publish the corrected version
+- Verify the deployment ID
+- Confirm the publish event triggered a knowledge rebuild
+- Confirm the indexed deployment ID matches production
+- Confirm the Help Center “Last revised” timestamp updates only after successful completion
+- Confirm the status changes to Current
+- Log in as CEO, Executive and Manager test users
+- Confirm each can locate and use Snippets & Templates
+- Ask Cortex exactly:
+  “How do I add more canned email responses?”
+- Confirm its answer gives the verified current path and no reference to Communications or another retired route
+- Follow the instructions manually in production and prove every step works
+
+12. REQUIRED FINAL REPORT
+
+Do not stop at “implemented.”
+
+Provide:
+
+- Root cause of the stale Cortex answer
+- Root cause of the missed or delayed knowledge rebuild
+- Real previous location/state of Snippets
+- Final canonical Snippets & Templates location
+- Role permission matrix
+- Files changed
+- Database changes
+- Routes added, removed or redirected
+- Publish trigger implementation
+- Midnight reconciliation implementation
+- Validation rules
+- Tests added and exact results
+- Production deployment ID
+- Production knowledge-build ID
+- Proof that both IDs match
+- Screenshot or browser verification of the working Snippets page
+- Exact final Cortex answer to the canned-response question
+
+IMPORTANT LOCKS
+
+- Do not restore the old Communications module merely to make stale documentation correct.
+- Update Cortex and documentation to reflect the actual current application.
+- Do not hard-code a fake refreshed timestamp.
+- Do not claim a rebuild happened unless the resulting production deployment ID was successfully indexed and validated.
+- Do not leave Snippets accessible only through a hidden direct URL.
+- Do not solve this with only a prompt wording patch.
