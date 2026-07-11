@@ -1,0 +1,601 @@
+Copy and paste this into Replit:
+
+⸻
+
+CRITICAL: Fully resolve VoltSafe Mail missing-email and incomplete-search defect across every connected mailbox
+
+VoltSafe Mail must never silently omit valid emails that exist in a user’s connected mailbox.
+
+We have already confirmed a serious discrepancy:
+
+* Mailbox: trevor@voltsafe.com
+* Search: scott@voltsafe.com
+* Spark Mail showed many valid results that VoltSafe Mail did not show
+* The same Gmail account was being viewed in both systems
+* Some missing results included threads where Scott appeared as sender, recipient, CC participant, or in an earlier message within the thread
+
+This is not a cosmetic bug. It is a mailbox integrity and trust defect.
+
+The fix must apply systemically to every connected email account used by every VoltSafe Mail user, not only Trevor’s mailbox and not only the Scott search example.
+
+Do not declare this complete until the system proves that:
+
+1. VoltSafe Mail has the complete authorized mailbox data.
+2. Search finds every valid matching email.
+3. Threads are searchable by every message and participant inside them.
+4. Pagination, synchronization, categorization, and folder scope do not silently hide results.
+5. Every connected mailbox is reconciled and verified.
+
+⸻
+
+1. Establish the exact root cause before changing code
+
+Trace the full path:
+
+Email provider
+→ OAuth permissions
+→ Gmail API fetch
+→ initial historical sync
+→ incremental sync/history processing
+→ local message storage
+→ local thread storage
+→ search index
+→ API search query
+→ pagination
+→ UI grouping
+→ rendered results
+
+Determine exactly where results are being lost.
+
+Audit all likely failure modes:
+
+* Initial sync only imports recent messages
+* Archived emails are not imported
+* Sent emails are not imported
+* Spam or Trash incorrectly leak into or out of global search
+* Gmail history ID expired and caused a synchronization gap
+* Incremental sync missed messages
+* Pagination stops before all provider pages are fetched
+* Search filters only the currently loaded UI page
+* Search applies filtering after pagination
+* Hard-coded result limits truncate matches
+* Search checks only the latest message in a thread
+* Search checks only the thread summary row
+* Search checks only from
+* Search ignores to
+* Search ignores cc
+* Search ignores bcc when available
+* Search ignores reply-to
+* Search ignores participants from older messages in the thread
+* Email normalization fails for names and angle-bracket formatting
+* Uppercase/lowercase variations fail
+* Plus-addressing or aliases fail
+* Duplicate-thread collapse removes valid results
+* Gmail message IDs or thread IDs are mapped incorrectly
+* Category filters remain active during global search
+* “All inboxes” means only visible inbox rows instead of complete mail history
+* Search uses stale denormalized thread participants
+* Deleted local records are not restored during reconciliation
+* Multi-account mailbox boundaries are mixed or incorrectly filtered
+* Background jobs stop after partial completion
+* Sync failures are swallowed without alerting the user
+* Provider rate limits leave accounts partially synchronized
+* Search index writes fail after the message itself is stored
+* Search results are filtered by the wrong mailbox owner or account ID
+
+Do not guess. Produce evidence for the actual root cause.
+
+⸻
+
+2. Create a mailbox-integrity audit tool
+
+Build an admin-only mailbox integrity audit that can be run for any connected account.
+
+For each mailbox, show:
+
+* Connected account owner
+* Email address
+* Provider
+* OAuth connection status
+* Granted scopes
+* Last successful full reconciliation
+* Last successful incremental sync
+* Current provider history ID
+* Oldest locally stored message
+* Newest locally stored message
+* Total provider messages
+* Total local messages
+* Total provider threads
+* Total local threads
+* Number of archived messages
+* Number of sent messages
+* Number of inbox messages
+* Number of draft messages
+* Number of records missing bodies
+* Number of records missing headers
+* Number of records missing thread IDs
+* Number of orphaned messages
+* Number of local duplicates
+* Number of failed search-index writes
+* Number of sync errors
+* Number of unresolved provider/local mismatches
+
+Include a clear status:
+
+* Healthy
+* Reconciliation required
+* Sync incomplete
+* Search index incomplete
+* OAuth reconnect required
+* Failed
+
+Do not expose private message bodies in the audit screen or logs.
+
+⸻
+
+3. Implement a complete reconciliation process
+
+Create a safe, idempotent reconciliation process for every connected mailbox.
+
+It must:
+
+1. Fetch the complete authorized mailbox history from the provider.
+2. Follow every pagination token until complete.
+3. Compare provider message IDs against local message IDs.
+4. Insert missing messages.
+5. Repair incomplete message metadata.
+6. Repair incorrect thread associations.
+7. Remove or merge local duplicates safely.
+8. Rebuild thread participant metadata.
+9. Rebuild the search index.
+10. Preserve user state such as:
+
+* read/unread
+* labels
+* categories
+* pinned state
+* internal VoltSafe annotations
+* AI summaries
+* assignments
+
+11. Avoid creating duplicate messages or threads.
+12. Resume safely after interruption.
+13. Record progress and completion status.
+14. Rate-limit provider calls responsibly.
+15. Retry transient failures with backoff.
+16. surface permanent failures clearly.
+
+The reconciliation must be restartable and safe to run multiple times.
+
+Use provider IDs as canonical identifiers:
+
+* Gmail message ID
+* Gmail thread ID
+* Connected mailbox/account ID
+
+Never deduplicate solely by subject, sender, timestamp, or snippet.
+
+⸻
+
+4. Fix incremental synchronization permanently
+
+After reconciliation, incremental synchronization must remain complete.
+
+Audit Gmail history handling.
+
+The system must detect:
+
+* expired history IDs
+* history gaps
+* invalid start history IDs
+* partial page failures
+* push notification loss
+* webhook delays
+* OAuth expiration
+* revoked permissions
+
+When a Gmail history gap is detected:
+
+* do not silently continue;
+* mark the mailbox as requiring reconciliation;
+* automatically trigger a safe recovery sync;
+* alert the user or administrator if recovery cannot complete.
+
+Push notifications must not be the only source of truth. Add a periodic reconciliation safety check so lost notifications cannot permanently hide mail.
+
+Recommended safety model:
+
+* near-real-time incremental sync;
+* scheduled lightweight consistency checks;
+* periodic deeper reconciliation;
+* immediate full recovery after a detected history gap.
+
+⸻
+
+5. Fix email-address search semantics
+
+Searching an email address such as:
+
+scott@voltsafe.com
+
+must match every authorized email where the address appears in:
+
+* From
+* To
+* CC
+* BCC, when visible to the authenticated mailbox
+* Reply-To
+* Sender
+* Delivered-To
+* Thread participants
+* Any message inside the thread
+* Searchable quoted headers, when supported
+* Normalized participant metadata
+
+Normalize email addresses before indexing and searching:
+
+* lowercase
+* trim whitespace
+* strip display names
+* parse angle brackets
+* safely handle commas and multiple recipients
+* preserve mailbox ownership boundaries
+* support common alias formats
+* handle Unicode display names
+* prevent malformed-header crashes
+
+Examples that must all match:
+
+Scott Carlson <scott@voltsafe.com>
+scott@voltsafe.com
+SCOTT@VOLTSAFE.COM
+"Scott Carlson" <scott@voltsafe.com>
+
+Do not search only the newest message in a thread.
+
+A thread matches when any message within the thread matches.
+
+⸻
+
+6. Build complete thread search documents
+
+For each thread, build or maintain a searchable aggregate containing data from every message in the thread:
+
+* all sender addresses
+* all recipient addresses
+* all CC addresses
+* all BCC addresses available to that mailbox
+* all reply-to addresses
+* all participant names
+* all participant email addresses
+* every subject variation
+* every provider label
+* earliest timestamp
+* latest timestamp
+* message count
+* searchable snippets or body text according to privacy and indexing rules
+* mailbox owner/account ID
+* provider thread ID
+* provider message IDs
+
+Rebuild this aggregate whenever:
+
+* a new message arrives
+* a message is deleted
+* a label changes
+* a participant changes
+* reconciliation repairs the thread
+* the search schema changes
+
+⸻
+
+7. Separate and clearly label search scopes
+
+VoltSafe Mail must distinguish:
+
+Current view
+
+Search only the currently selected mailbox view or folder.
+
+Examples:
+
+* Inbox
+* Sent
+* Archive
+* Drafts
+* Spam
+* Trash
+* Category
+* Team inbox
+
+All mail history
+
+Search the complete authorized mailbox across:
+
+* Inbox
+* Archived mail
+* Sent mail
+* Categories
+* Older mail
+* Every synchronized message
+* Every message inside matching threads
+
+The interface must clearly show which scope is active.
+
+Do not let hidden category or folder filters remain active during “All mail history” search.
+
+⸻
+
+8. Fix pagination and result-count accuracy
+
+Search filtering must happen before pagination.
+
+Never:
+
+fetch first 50 recent emails
+→ filter those 50
+→ present the result as complete
+
+The search endpoint must:
+
+* query all matching indexed records
+* return a correct total
+* paginate matching results
+* use stable ordering
+* avoid duplicate rows between pages
+* avoid skipped rows between pages
+* distinguish message count from thread count
+
+The UI should show:
+
+307 messages in 184 conversations
+
+when applicable, rather than mixing message and thread totals.
+
+If the interface displays grouped threads, say so clearly.
+
+⸻
+
+9. Verify provider counts against local counts
+
+For trevor@voltsafe.com, run these provider-side comparisons:
+
+from:scott@voltsafe.com
+to:scott@voltsafe.com
+cc:scott@voltsafe.com
+{from:scott@voltsafe.com to:scott@voltsafe.com cc:scott@voltsafe.com}
+in:anywhere scott@voltsafe.com
+
+For each query, report:
+
+* Gmail API matching messages
+* Gmail API matching threads
+* Local database matching messages
+* Local database matching threads
+* Search endpoint matching messages
+* Search endpoint matching threads
+* UI rendered conversations
+* Any intentional exclusions and the exact reason
+
+Do not rely on Spark’s displayed number as the only authority. Compare VoltSafe directly against Gmail’s provider data.
+
+Also test known missing conversations from the screenshots, including:
+
+* “Marina Pipeline + a few inputs”
+* “VoltSafe / ETL Path – Commercial Alignment and Next Steps”
+* “Safety certification progress”
+* “VoltSafe Investment”
+* Any conversation where Scott is only an older thread participant
+* Any conversation where Scott appears only in To or CC
+
+Every known valid match must be accounted for.
+
+⸻
+
+10. Audit every connected VoltSafe Mail account
+
+This is not a one-mailbox patch.
+
+Run the integrity audit for every currently connected VoltSafe Mail account.
+
+For each account:
+
+1. Compare provider and local totals.
+2. Reconcile missing records.
+3. Rebuild search indexes.
+4. Verify thread participant aggregates.
+5. Verify historical search.
+6. Verify archived and sent mail.
+7. Verify pagination.
+8. Verify no cross-account leakage.
+9. Record final healthy status.
+
+Do not expose one user’s mailbox metadata to another user.
+
+Respect all existing permission boundaries.
+
+⸻
+
+11. Add automated regression coverage
+
+Add tests covering at least:
+
+Synchronization
+
+* complete initial historical sync
+* paginated provider fetch
+* incremental history sync
+* expired history ID recovery
+* retry after provider failure
+* interrupted reconciliation resumes safely
+* rerunning reconciliation creates no duplicates
+* sent and archived messages are imported
+* account boundaries remain isolated
+
+Search
+
+* address in From
+* address in To
+* address in CC
+* address in Reply-To
+* address only in an older thread message
+* uppercase address
+* display-name address
+* multiple recipients
+* archived message
+* sent message
+* result beyond first page
+* matching thread with non-matching latest message
+* correct message count
+* correct thread count
+* global history ignores current category filter
+* current-view search respects selected folder
+* no duplicate results between pages
+
+Search index
+
+* index created when message is inserted
+* index updated when thread changes
+* index rebuilt during reconciliation
+* failed index job is retried
+* stale participant data is repaired
+
+Security
+
+* one user cannot search another user’s private mailbox
+* team inbox permissions still work
+* account IDs are mandatory in every query
+* provider tokens are never logged
+* private message bodies are not exposed in diagnostics
+
+⸻
+
+12. Add monitoring and failure visibility
+
+Add operational alerts for:
+
+* mailbox sync behind expected time
+* history ID gap
+* OAuth expiration
+* reconciliation failure
+* provider/local count mismatch
+* failed search-index job
+* repeated provider rate limits
+* mailbox with zero recent sync activity
+* incomplete pagination
+* unresolved orphaned message
+
+Do not silently mark a mailbox healthy while mismatches remain.
+
+Expose a visible reconnect prompt when OAuth has expired.
+
+⸻
+
+13. Performance requirements
+
+Completeness comes first, but search must remain usable.
+
+Targets:
+
+* first search page returned promptly
+* additional result pages load incrementally
+* reconciliation runs in the background
+* progress visible to administrators
+* normal mailbox use remains available during reconciliation
+* no full mailbox fetch on every search
+* search uses indexed local data after integrity is confirmed
+
+Do not solve this by calling Gmail for the entire mailbox on every keystroke.
+
+⸻
+
+14. Required completion evidence
+
+Do not report this fixed until all of the following are provided:
+
+Root cause
+
+* exact root cause
+* exact code path
+* why existing tests failed to catch it
+* whether the defect affected all users or only certain sync states
+
+Code
+
+* exact files changed
+* database migrations
+* background jobs added or changed
+* search schema changes
+* index rebuild logic
+* reconciliation logic
+
+Trevor mailbox proof
+
+For trevor@voltsafe.com and scott@voltsafe.com:
+
+* Gmail provider message count
+* Gmail provider thread count
+* local message count
+* local thread count
+* API result count
+* UI result count
+* confirmation that every known missing example now appears
+* screenshots of the corrected results
+
+All-mailbox proof
+
+* list of every connected account audited
+* before reconciliation status
+* after reconciliation status
+* provider/local mismatches repaired
+* accounts still requiring OAuth reconnect
+* accounts with unresolved failures
+
+Do not reveal private email contents in the report.
+
+Tests
+
+* exact commands run
+* per-suite pass/fail totals
+* full-suite exit code
+* confirmation that the working tree is clean
+
+Production verification
+
+Verify in an authenticated production-like session:
+
+* search From match
+* search To match
+* search CC match
+* older-thread-participant match
+* archived message match
+* sent message match
+* pagination beyond first page
+* correct message/thread totals
+* no cross-account leakage
+
+⸻
+
+15. Definition of done
+
+This task is complete only when:
+
+* provider and local mailbox records reconcile;
+* every connected mailbox has been audited;
+* missing records have been safely backfilled;
+* search indexes have been rebuilt;
+* email-address searches match all relevant message headers and all thread messages;
+* archived and sent mail work in global search;
+* pagination is complete;
+* counts are accurate;
+* known Scott examples appear;
+* all tests pass;
+* authenticated UI verification succeeds;
+* monitoring exists to prevent recurrence;
+* no privacy or permission boundaries are weakened.
+
+Do not return a planning-only response.
+
+Start by auditing the current production implementation and database state, then implement the complete fix. Continue until the evidence above is produced or report the exact blocker preventing completion.
+
+⸻

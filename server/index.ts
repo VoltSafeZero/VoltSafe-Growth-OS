@@ -24,6 +24,19 @@ setTimeout(() => {
     .catch((e) => console.error("[startup] backfillAccountsForLeads failed:", e?.message || e));
 }, 5000);
 
+// Repair all_participants for historically-imported email messages that have NULL.
+// Root cause: all_participants was added to the schema after some messages were
+// first synced, so those rows lack the denormalized participant field that search
+// relies on for CC/To recipient matching. This runs once per process at low
+// priority (60s delay) so it never competes with the initial request burst.
+setTimeout(() => {
+  import("./services/mailbox-integrity").then(({ backfillAllParticipants }) => {
+    backfillAllParticipants().catch((e: any) =>
+      console.error("[startup] backfillAllParticipants failed:", e?.message || e)
+    );
+  }).catch(() => {});
+}, 60_000);
+
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
 });

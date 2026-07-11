@@ -429,13 +429,13 @@ export async function listLocalMessages(p: {
     const lc = safe(freeText.toLowerCase());
     // all_participants covers from + to + cc, so recipient searches work even
     // when to_emails is not in the pre-built FTS GIN index.
-    // idx_email_fts_v2 covers this exact tsvector expression — Postgres will use
+    // idx_email_fts_v3 covers this exact tsvector expression — Postgres will use
     // the GIN index instead of a seq scan once that index is built.
-    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,''))`;
+    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,'') || ' ' || coalesce(cc_emails,''))`;
     const ftsCond = `${tsv} @@ plainto_tsquery('english', ${lit})`;
     // ALWAYS add trigram ILIKE fallback on participant and address fields alongside FTS.
     //
-    // Root cause: all_participants stores email addresses as a JSON array string,
+    // Root cause 1: all_participants stores email addresses as a JSON array string,
     // e.g. '["bob@example.com","boatbnbsd@gmail.com"]'. PostgreSQL's FTS parser
     // sees the surrounding double-quotes and does NOT recognise the value as an
     // email token, so it may miss the local-part ("boatbnbsd") even though a bare
@@ -444,9 +444,13 @@ export async function listLocalMessages(p: {
     // addresses, and any term that is only present as part of an email address in
     // the participant list.
     //
-    // The GIN trigram indexes on all_participants, from_email, and to_emails make
-    // these ILIKE conditions fast (index scan, not seq scan).
-    where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%' OR lower(coalesce(from_email,'')) LIKE '%${lc}%' OR lower(coalesce(to_emails,'')) LIKE '%${lc}%')`);
+    // Root cause 2: rows synced before all_participants was added to the schema
+    // may have all_participants = NULL. Explicitly searching cc_emails and to_emails
+    // ensures CC/To participants are found even for those historical rows.
+    //
+    // The GIN trigram indexes on all_participants, from_email, to_emails, and
+    // cc_emails make these ILIKE conditions fast (index scan, not seq scan).
+    where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%' OR lower(coalesce(from_email,'')) LIKE '%${lc}%' OR lower(coalesce(to_emails,'')) LIKE '%${lc}%' OR lower(coalesce(cc_emails,'')) LIKE '%${lc}%')`);
   }
   // When the user searches with free text but without an explicit "in:" label
   // filter, exclude TRASH and SPAM messages from results. Without this exclusion,
@@ -576,17 +580,26 @@ export async function listLocalThreads(p: {
   where.push(...qWhere);
   if (freeText) {
     const lit = `'${safe(freeText)}'`;
-    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,''))`;
+    const lc = safe(freeText.toLowerCase());
+    // idx_email_fts_v3 covers this tsvector expression — Postgres uses the GIN
+    // index instead of a seq scan once built.
+    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,'') || ' ' || coalesce(cc_emails,''))`;
     const ftsCond = `${tsv} @@ plainto_tsquery('english', ${lit})`;
-    if (freeText.includes('@')) {
-      const lc = safe(freeText.toLowerCase());
-      // Mirror listLocalMessages: add from_email + to_emails ILIKE fallbacks in
-      // addition to all_participants, so threads are found even when all_participants
-      // is null/empty for a particular row.
-      where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%' OR lower(coalesce(from_email,'')) LIKE '%${lc}%' OR lower(coalesce(to_emails,'')) LIKE '%${lc}%')`);
-    } else {
-      where.push(ftsCond);
-    }
+    // Always apply LIKE fallbacks for ALL free-text searches (not just @ queries).
+    //
+    // Previously only email-address searches (q contains '@') used LIKE fallbacks.
+    // This was inconsistent with listLocalMessages which always applies them.
+    // The missing-emails defect was partly caused by this asymmetry: a search for
+    // "Scott Carlson" (no @) would only use FTS, missing messages where
+    // all_participants is NULL and the match is only in cc_emails or to_emails.
+    //
+    // Root cause: rows synced before all_participants was added to the schema
+    // have all_participants = NULL. Explicitly covering cc_emails ensures CC/To
+    // participants are found for those historical rows.
+    //
+    // GIN trigram indexes on all_participants, from_email, to_emails, cc_emails
+    // make these ILIKE checks fast (index scans, not seq scans).
+    where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%' OR lower(coalesce(from_email,'')) LIKE '%${lc}%' OR lower(coalesce(to_emails,'')) LIKE '%${lc}%' OR lower(coalesce(cc_emails,'')) LIKE '%${lc}%')`);
   }
   // Same TRASH/SPAM exclusion as listLocalMessages — see comment there for full rationale.
   if (freeText && !hasLabelFilter) {

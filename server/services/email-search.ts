@@ -23,11 +23,15 @@ const INDEX_DDL: { name: string; sql: string }[] = [
   { name: "pg_trgm_extension", sql: `CREATE EXTENSION IF NOT EXISTS pg_trgm` },
   { name: "idx_email_participants_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_participants_trgm ON email_messages USING gin (lower(coalesce(all_participants,'')) gin_trgm_ops)` },
   { name: "idx_email_subject_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_subject_trgm ON email_messages USING gin (lower(coalesce(subject,'')) gin_trgm_ops)` },
-  // Fast ILIKE on from_email and to_emails — needed because the participant-field
-  // fallback in search now always checks these fields (not just @-queries), so
-  // without a GIN trgm index they would fall back to a seq scan on 87K+ rows.
+  // Fast ILIKE on from_email, to_emails, and cc_emails — needed because the participant-field
+  // fallback in search always checks these fields, so without a GIN trgm index they would
+  // fall back to a seq scan on 87K+ rows.
   { name: "idx_email_from_email_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_from_email_trgm ON email_messages USING gin (lower(coalesce(from_email,'')) gin_trgm_ops)` },
   { name: "idx_email_to_emails_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_to_emails_trgm ON email_messages USING gin (lower(coalesce(to_emails,'')) gin_trgm_ops)` },
+  // cc_emails ILIKE index — cc-only participants were missing from every local search
+  // because cc_emails was not in any LIKE clause and all_participants can be NULL for
+  // rows imported before that column existed. This index makes the cc_emails LIKE fast.
+  { name: "idx_email_cc_emails_trgm", sql: `CREATE INDEX IF NOT EXISTS idx_email_cc_emails_trgm ON email_messages USING gin (lower(coalesce(cc_emails,'')) gin_trgm_ops)` },
   // Phase 2E — attachment metadata indexes
   { name: "idx_email_attach_message", sql: `CREATE INDEX IF NOT EXISTS idx_email_attach_message ON email_attachments(message_id)` },
   { name: "idx_email_attach_mime", sql: `CREATE INDEX IF NOT EXISTS idx_email_attach_mime ON email_attachments(mime_type)` },
@@ -46,13 +50,7 @@ const INDEX_DDL: { name: string; sql: string }[] = [
       )
     )`,
   },
-  // v2 FTS index that adds all_participants — this makes the GIN index usable for
-  // searches that match cc/bcc recipients or thread participants by name or email.
-  // The legacy idx_email_fts index omits all_participants; local-mailbox queries
-  // already include it in the tsvector expression, so this new index unlocks the
-  // index scan path instead of falling back to a seq scan every time.
-  // Named _v2 so it can coexist with the old index (CREATE IF NOT EXISTS is
-  // idempotent; the old index is harmless and will eventually be dropped manually).
+  // v2 FTS index that adds all_participants — kept for backwards-compat, coexists with v3.
   {
     name: "idx_email_fts_v2",
     sql: `CREATE INDEX IF NOT EXISTS idx_email_fts_v2 ON email_messages USING gin (
@@ -63,6 +61,23 @@ const INDEX_DDL: { name: string; sql: string }[] = [
         coalesce(snippet, '') || ' ' ||
         coalesce(body_text, '') || ' ' ||
         coalesce(all_participants, '')
+      )
+    )`,
+  },
+  // v3 FTS index adds cc_emails — CC-only participants were invisible to FTS because
+  // all_participants can be NULL for historically-imported rows. Adding cc_emails here
+  // means the GIN index can serve queries for CC participants without a seq scan.
+  {
+    name: "idx_email_fts_v3",
+    sql: `CREATE INDEX IF NOT EXISTS idx_email_fts_v3 ON email_messages USING gin (
+      to_tsvector('english',
+        coalesce(subject, '') || ' ' ||
+        coalesce(from_name, '') || ' ' ||
+        coalesce(from_email, '') || ' ' ||
+        coalesce(snippet, '') || ' ' ||
+        coalesce(body_text, '') || ' ' ||
+        coalesce(all_participants, '') || ' ' ||
+        coalesce(cc_emails, '')
       )
     )`,
   },
@@ -152,24 +167,25 @@ export async function searchEmails(p: SearchParams): Promise<SearchResult> {
   if (q) {
     const qLit = `'${safe(q)}'`;
     const lc = safe(q.toLowerCase());
-    // all_participants covers from + to + cc so recipient searches ("I emailed zach@…")
-    // work even though to_emails isn't in the pre-built GIN index.
-    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,''))`;
+    // idx_email_fts_v3 covers this tsvector — GIN index scan instead of seq scan.
+    const tsv = `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(from_name,'') || ' ' || coalesce(from_email,'') || ' ' || coalesce(snippet,'') || ' ' || coalesce(body_text,'') || ' ' || coalesce(all_participants,'') || ' ' || coalesce(cc_emails,''))`;
     const tsq = `plainto_tsquery('english', ${qLit})`;
     const ftsCond = `${tsv} @@ ${tsq}`;
-    // ALWAYS add trigram ILIKE fallback on participant and address fields alongside FTS.
+    // ALWAYS add trigram ILIKE fallback on ALL participant and address fields.
     //
-    // Root cause: all_participants stores email addresses as a JSON array string,
+    // Root cause 1: all_participants stores email addresses as a JSON array string,
     // e.g. '["bob@example.com","boatbnbsd@gmail.com"]'. PostgreSQL's FTS parser
     // sees the surrounding double-quotes and does NOT recognise the value as an
     // email token, so it misses the local-part ("boatbnbsd") even though a bare
-    // 'boatbnbsd@gmail.com' string would produce the correct lexeme. This affects
-    // any search for an email username, company name in an address, or any term
-    // that only appears inside an email address in the participant fields.
+    // 'boatbnbsd@gmail.com' string would produce the correct lexeme.
     //
-    // GIN trigram indexes on all_participants, from_email, and to_emails make
-    // these ILIKE conditions fast (index scan rather than seq scan).
-    where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%' OR lower(coalesce(from_email,'')) LIKE '%${lc}%' OR lower(coalesce(to_emails,'')) LIKE '%${lc}%')`);
+    // Root cause 2: rows imported before all_participants was added to the schema
+    // have all_participants = NULL. cc_emails must be searched explicitly so
+    // CC-only participants are found for those historical rows.
+    //
+    // GIN trigram indexes on all_participants, from_email, to_emails, cc_emails
+    // make these ILIKE conditions fast (index scan rather than seq scan).
+    where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%' OR lower(coalesce(from_email,'')) LIKE '%${lc}%' OR lower(coalesce(to_emails,'')) LIKE '%${lc}%' OR lower(coalesce(cc_emails,'')) LIKE '%${lc}%')`);
     
     rankExpr = `ts_rank(${tsv}, ${tsq}) AS rank`;
     snippetExpr = `ts_headline('english', coalesce(body_text, snippet, ''), ${tsq}, 'StartSel=<<,StopSel=>>,MaxFragments=1,MaxWords=18,MinWords=6') AS snippet`;

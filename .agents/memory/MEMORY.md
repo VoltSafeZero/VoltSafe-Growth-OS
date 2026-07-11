@@ -77,6 +77,7 @@
 - [Radix Popover-in-Dialog scroll-lock trap](radix-popover-in-dialog-scroll-lock.md) — popovers default-portal to body, landing outside the dialog's scroll-lock boundary; fix by threading a `container` prop into the dialog's own content node.
 - [Per-mailbox signatures](per-mailbox-signatures.md) — nullable emailAccountId + single assert*AccountAccess helper pattern; client query must key by active mailbox id.
 - [CC/BCC normalization helper](cc-bcc-normalization-helper.md) — root cause of "Invalid Cc header" was naive comma-split on display names; route To/Cc/Bcc through shared/recipients.ts everywhere.
+- [Mail Search Completeness Fix](mail-search-completeness.md) — 4 root causes of missing emails: cc_emails absent from LIKE clause, listLocalThreads @ guard, FTS/GIN missing cc_emails, null all_participants; server/services/mailbox-integrity.ts is the audit+backfill service.
 - [Training Hub video numbering/hosting](training-hub-capital-videos.md) — number field drives global order (no restart per playlist); hosted status is derived from file-on-disk; route is /training not /training-hub; use system Chromium via launchBrowser().
 - [Calendar source-checkbox visibility](calendar-source-visibility.md) — toEventListItem stripped externalCalendarId; client filter always saw undefined → show-all bypass.
 - [Calendar externalCalendarId PII fix](calendar-source-key.md) — raw Google Calendar IDs (which are email addresses) replaced with SHA-256 opaque calendarSourceKey in all list responses; server translates back to raw IDs for filtering/storage.

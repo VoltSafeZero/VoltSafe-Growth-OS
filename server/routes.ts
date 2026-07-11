@@ -8783,6 +8783,54 @@ export async function registerRoutes(
     }
   });
 
+  // ── Mailbox integrity audit ──────────────────────────────────────────────
+  // GET /api/admin/mailbox/integrity-audit
+  // Returns per-account sync coverage, participant-field completeness, and
+  // health status for every connected mailbox. Admin-only — no message bodies
+  // or private content are exposed, only aggregate counts.
+  app.get("/api/admin/mailbox/integrity-audit", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { getMailboxAudit } = await import("./services/mailbox-integrity");
+      const reqUserId = (req.session as any).userId as number;
+      const audit = await getMailboxAudit(reqUserId, true);
+      res.json({ ok: true, accounts: audit, generatedAt: new Date().toISOString() });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/admin/mailbox/:id/repair-participants
+  // Idempotent: rebuilds all_participants from from_email + to_emails + cc_emails
+  // for every message in this account where all_participants is NULL or empty.
+  // Safe to run multiple times — never overwrites a non-null all_participants.
+  app.post("/api/admin/mailbox/:id/repair-participants", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const accountId = parseInt(req.params.id, 10);
+      if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid mailbox id" });
+
+      const { repairParticipantsForAccount } = await import("./services/mailbox-integrity");
+      const result = await repairParticipantsForAccount(accountId);
+      res.json({ ok: true, accountId, ...result });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/admin/mailbox/repair-all-participants
+  // Runs the full all_participants backfill across ALL accounts (same as the
+  // startup job but callable on demand by an admin without restarting the server).
+  app.post("/api/admin/mailbox/repair-all-participants", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { backfillAllParticipants } = await import("./services/mailbox-integrity");
+      // force: true bypasses the backfillDone guard so this runs even if the
+      // startup job already completed.
+      await backfillAllParticipants({ force: true });
+      res.json({ ok: true, message: "Participant backfill completed — check server logs for details." });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.put("/api/admin/users/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
