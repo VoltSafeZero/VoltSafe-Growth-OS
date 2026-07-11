@@ -120,7 +120,7 @@
 | Install Workflows (`/install-workflows`) | Post-sale install tracking |
 | Team Workload (`/execution/team-workload`) | Who is doing what |
 | Automations (`/automations`) | Rules that run automatically |
-| Communications (`/execution/communications`) | Email campaigns |
+| Campaigns (`/marketing/campaigns`) | Email campaigns |
 
 **Daily routine:**
 1. Open Projects → check for overdue milestones

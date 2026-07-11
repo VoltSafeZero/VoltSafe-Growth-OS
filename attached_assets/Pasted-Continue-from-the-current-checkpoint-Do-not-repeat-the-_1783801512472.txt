@@ -1,0 +1,157 @@
+Continue from the current checkpoint. Do not repeat the implementation work.
+
+The production deployment and live verification were NOT completed. The previous session ended after “Planning production deployment suggestions” and did not provide a production deployment ID or proof of a successful publish.
+
+Also resolve this contradiction before claiming the stale-reference count is zero:
+
+docs/training-handbook.md still references a “live Communications/Campaigns module” at:
+
+/execution/communications
+
+I reported that the Communications tab appears to no longer exist. Do not classify this reference as intentional merely because the route appears in documentation.
+
+FIRST — VERIFY THE COMMUNICATIONS ROUTE
+
+Using the current source code and authenticated production UI, determine:
+
+1. Does /execution/communications currently resolve?
+2. Is it registered in App.tsx?
+3. Is it present in nav-config.ts?
+4. Is there a visible Communications navigation tab or subtab?
+5. What current feature actually lives there?
+6. Is it accessible to CEO, executives and managers?
+7. Does the route redirect, render, return 404 or represent dead code?
+8. Is this route still the canonical location for Campaigns?
+9. Should Cortex ever direct a user there?
+
+Rules:
+
+- If the route or visible navigation no longer exists, remove the stale training-handbook reference.
+- If the route still exists but is hidden, renamed or not canonical, update the handbook to the current visible path.
+- Do not count stale references only inside “Cortex-served knowledge.” Learn, Training, Help, manuals, handbooks and FAQ content must also be current.
+- Historical audit documents may remain, but they must be explicitly excluded from the active knowledge index.
+
+SECOND — COMPLETE THE ACTUAL PRODUCTION DEPLOYMENT
+
+Publish the current checkpoint to production now.
+
+Do not stop after preparing or planning the deployment.
+
+After publishing, capture:
+
+- Production deployment ID
+- Production build ID
+- Git commit SHA
+- Publish completion timestamp
+- Knowledge rebuild job ID
+- Current production deployment ID detected by the app
+- Last successfully indexed deployment ID
+
+THIRD — VERIFY THE LIVE REBUILD
+
+Prove in production that:
+
+- The publish triggered the rebuild
+- Status moved through Rebuilding to Current
+- The current production deployment ID equals the last successfully indexed deployment ID
+- The rebuild did not skip because another rebuild ran earlier that day
+- The success timestamp occurred after the production publish
+- A second startup of the same deployment skips correctly
+- A failed rebuild would not falsely display Current
+
+FOURTH — VERIFY THE ADMIN PAGE
+
+Open the authenticated production page:
+
+/admin/knowledge-rebuild
+
+Verify and report:
+
+- Current Deployment
+- Indexed Deployment
+- Status
+- Last rebuild started
+- Last rebuild completed
+- Retry count
+- Last error
+- Rebuild Now control
+
+Provide a screenshot or browser-verification evidence.
+
+FIFTH — VERIFY SNIPPETS & TEMPLATES IN PRODUCTION
+
+Open:
+
+/marketing/email-tools
+
+Verify:
+
+- The navigation entry is visible
+- CEO/master admin can access it
+- Executive can access it
+- Manager can access it
+- Snippet creation works
+- Template creation works
+- Edit works
+- Archive works
+- Composer insertion works
+
+Do not rely only on source-grep tests. Verify the actual production UI and APIs.
+
+SIXTH — ASK LIVE CORTEX
+
+In production, ask exactly:
+
+“How do I add more canned email responses?”
+
+Provide Cortex’s exact answer.
+
+It must direct the user to:
+
+Marketing → Email Tools
+
+It must not mention:
+
+- Communications
+- /execution/communications
+- Settings → Snippets
+- “if available”
+- fabricated or hidden routes
+
+SEVENTH — FINAL STALE-REFERENCE AUDIT
+
+Audit all active knowledge sources:
+
+- Cortex knowledge
+- Learn
+- Training
+- Help
+- Quick Start
+- Operations Manual
+- Training Handbook
+- FAQ and Glossary
+- Generated runtime help content
+
+Report remaining active stale references to:
+
+- Communications
+- /execution/communications
+- Settings → Snippets
+
+Required count: zero, unless production verification proves the route is still valid and canonical.
+
+FINAL REPORT REQUIRED
+
+Do not claim completion until you provide:
+
+- Successful production deployment ID
+- Matching indexed deployment ID
+- Rebuild job ID
+- Exact production timestamps
+- Verified Communications route disposition
+- Exact final Snippets route
+- Role access results
+- Exact live Cortex answer
+- Active stale-reference count
+- Production screenshots or browser evidence
+- Final test and production smoke-test results
