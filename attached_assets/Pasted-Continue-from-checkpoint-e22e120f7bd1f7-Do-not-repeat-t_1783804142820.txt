@@ -1,0 +1,141 @@
+Continue from checkpoint e22e120f7bd1f7.
+
+Do not repeat the Communications audit or documentation cleanup. Those are complete.
+
+The remaining task is production deployment and production proof.
+
+1. Publish the current checkpoint to production now.
+
+Do not stop after:
+- planning the deployment
+- creating a checkpoint
+- showing dev logs
+- checking old production logs
+
+Wait until Replit confirms the production publish completed.
+
+2. Capture the new live production identifiers:
+
+- production deployment ID
+- production build ID
+- Git commit SHA
+- publish completion timestamp
+- current production deployment ID detected by the application
+- last successfully indexed deployment ID
+- knowledge rebuild job/run ID
+
+3. Read the production startup logs for the NEW deployment.
+
+Required evidence must show:
+
+- the new deployment-ID-based help-center refresh service started
+- the production deployment ID was detected
+- the rebuild started because the ID differed from the previously indexed deployment
+- the rebuild completed successfully
+- the indexed deployment ID was updated to the new production deployment ID
+
+The current production logs showing the old date-based system are not sufficient. Those logs only prove production is still running the old version.
+
+4. Verify the following equality:
+
+current production deployment ID
+=
+last successfully indexed deployment ID
+
+If they do not match, diagnose and fix the production issue before claiming completion.
+
+5. Open the authenticated production page:
+
+/admin/knowledge-rebuild
+
+Verify:
+
+- Status = Current
+- Current Deployment is populated
+- Indexed Deployment is populated
+- Both deployment IDs match
+- Last Started is after the production publish
+- Last Completed is after Last Started
+- Retry Count is correct
+- Last Error is empty
+- Rebuild Now is visible to master admin
+
+Provide browser evidence or a screenshot.
+
+6. Open the production page:
+
+/marketing/email-tools
+
+Verify:
+
+- The page loads from navigation
+- The route is not hidden-only
+- Existing snippets/templates load
+- Create Snippet works
+- Create Template works
+- Edit works
+- Archive works
+- Insert into the email composer works
+
+Clean up any test records afterward.
+
+7. Verify role access in production for:
+
+- CEO/master admin
+- Executive
+- Manager
+
+For each role, verify both:
+
+- navigation visibility
+- API authorization
+
+Do not prove this only with source-grep tests.
+
+8. Ask production Cortex exactly:
+
+“How do I add more canned email responses?”
+
+Provide the exact production response.
+
+It must say:
+
+Marketing → Email Tools
+
+It must not mention:
+
+- Communications
+- /execution/communications
+- Settings → Snippets
+- “if available”
+
+9. Confirm the active stale-reference count remains zero after the production rebuild across:
+
+- Cortex
+- Learn
+- Training
+- Help
+- Quick Start
+- Operations Manual
+- Training Handbook
+- FAQ and Glossary
+- runtime help-center output
+
+10. Final report must include:
+
+- production URL
+- deployment ID
+- build ID
+- Git commit SHA
+- publish timestamp
+- indexed deployment ID
+- rebuild job/run ID
+- production startup log evidence
+- admin-page verification
+- email-tools verification
+- role-access matrix
+- exact Cortex answer
+- stale-reference count
+- remaining failures, if any
+
+Do not claim completion unless the production deployment ID and indexed deployment ID match.
