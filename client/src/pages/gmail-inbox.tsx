@@ -10223,11 +10223,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         className="flex-1 text-left px-2 py-3 pr-10 min-w-0"
                       >
                         <div className="flex items-center justify-between gap-2 mb-[3px]">
-                          <span className="text-[13px] leading-none font-medium text-foreground/80 truncate">{senderName}</span>
-                          <span className="text-[11px] text-muted-foreground/45 whitespace-nowrap flex-shrink-0 tabular-nums">{dateStr}</span>
+                          <span className="text-[13px] leading-none font-medium text-foreground truncate">{senderName}</span>
+                          <span className="text-[11px] text-foreground/55 whitespace-nowrap flex-shrink-0 tabular-nums">{dateStr}</span>
                         </div>
                         <div className="text-[12px] leading-snug truncate">
-                          <span className="text-muted-foreground/65">{email.subject || "(no subject)"}</span>
+                          <span className="text-foreground/80">{email.subject || "(no subject)"}</span>
                           {email.snippet && <span className="text-muted-foreground/38"> — {email.snippet}</span>}
                         </div>
                       </button>
@@ -10305,7 +10305,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         className="flex-1 text-left px-2 py-2.5 pr-16 min-w-0"
                       >
                         <div className="flex items-center justify-between gap-2 mb-[3px]">
-                          <span className={`text-[13px] leading-none truncate ${isUnread ? "font-semibold text-foreground" : "font-medium text-foreground/80"}`}>{senderName}</span>
+                          <span className={`text-[13px] leading-none truncate ${isUnread ? "font-semibold text-foreground" : "font-medium text-foreground"}`}>{senderName}</span>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
                             {/* Clicking the badge navigates back to the flat inbox tab and pre-selects this thread */}
                             <CategoryBadge
@@ -10322,7 +10322,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           </div>
                         </div>
                         <div className="text-[12px] leading-snug truncate">
-                          <span className={isUnread ? "text-foreground/80 font-medium" : "text-muted-foreground/65"}>{msg.subject || "(no subject)"}</span>
+                          <span className={isUnread ? "text-foreground/90 font-medium" : "text-foreground/80"}>{msg.subject || "(no subject)"}</span>
                           {msg.snippet && <span className="text-muted-foreground/38"> — {msg.snippet}</span>}
                         </div>
                       </button>
@@ -10814,20 +10814,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         <span className={`${densityClasses.senderText} leading-none truncate ${
                           unread
                             ? "font-semibold text-foreground tracking-[-0.01em]"
-                            : "font-medium text-muted-foreground/75"
+                            : "font-medium text-foreground"
                         }`}>
                           {senderName}
                         </span>
                       </div>
                       <span className={`text-[11px] whitespace-nowrap flex-shrink-0 tabular-nums ${
-                        unread ? "text-foreground/65 font-medium" : "text-muted-foreground/45"
+                        unread ? "text-foreground/65 font-medium" : "text-foreground/55"
                       }`}>
                         {formatDate(msg.date, msg.internalDate)}
                       </span>
                     </div>
                     {/* Row 2: subject — snippet (inline) */}
                     <div className={`${densityClasses.subText} leading-snug truncate`}>
-                      <span className={unread ? "text-foreground/90 font-medium" : "text-muted-foreground/55"}>
+                      <span className={unread ? "text-foreground/90 font-medium" : "text-foreground/80"}>
                         {msg.subject || "(no subject)"}
                       </span>
                       {msg.snippet && densityClasses.showSnippet && (

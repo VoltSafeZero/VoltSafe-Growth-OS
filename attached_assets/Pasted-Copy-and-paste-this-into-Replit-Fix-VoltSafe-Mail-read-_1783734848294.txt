@@ -1,0 +1,121 @@
+Copy and paste this into Replit:
+
+⸻
+
+Fix VoltSafe Mail read-state styling to match Spark Mail
+
+VoltSafe Mail currently fades email rows after they are opened/read. This makes the inbox look washed out and reduces readability.
+
+Update the email-list styling so that reading an email only removes the unread indicator dot. It must not weaken, fade, grey out, reduce opacity, or otherwise lower the contrast of the email row.
+
+Required behaviour
+
+Unread email
+
+* Show the coloured unread dot on the left.
+* Keep the sender name bold and high-contrast.
+* Keep the subject high-contrast.
+* Keep the preview/snippet clearly readable.
+* The row may use the existing subtle unread background treatment.
+
+Read email
+
+* Remove the coloured unread dot.
+* Keep the sender name strong, dark and clearly readable.
+* Keep the subject strong and clearly readable.
+* Keep the preview/snippet readable at normal secondary-text contrast.
+* Do not apply reduced opacity to the entire row.
+* Do not make the sender, subject or timestamp look disabled.
+* Do not use pale grey styling that makes the message appear inactive.
+
+Important design rule
+
+Unread versus read should primarily be communicated by:
+
+1. The unread dot appearing or disappearing.
+2. A subtle difference in font weight or background, if needed.
+
+It must not be communicated by fading the entire email.
+
+The visual target is Spark Mail:
+
+* Unread: coloured dot plus strong text.
+* Read: no dot, but the email remains crisp and easy to scan.
+
+Specific implementation checks
+
+Inspect every place where message-row styles depend on:
+
+* isUnread
+* isRead
+* read
+* unread
+* opacity
+* muted text classes
+* disabled text classes
+* conditional grey text
+* conditional font-weight
+* conditional background colour
+
+Remove any read-state styling such as:
+
+* opacity-*
+* text-muted-*
+* very light grey sender or subject colours
+* reduced opacity on parent containers
+* disabled-looking timestamps
+* fading applied to the whole message row
+
+Do not remove the existing unread dot logic.
+
+Suggested visual hierarchy
+
+Use the existing VoltSafe design system, but follow this hierarchy:
+
+* Sender: strong foreground colour for both read and unread.
+* Unread sender: bold or semibold.
+* Read sender: medium or semibold, not faded.
+* Subject: normal foreground colour for both states.
+* Preview: secondary foreground colour, but still WCAG-readable.
+* Timestamp: secondary foreground colour, never disabled-grey.
+* Unread dot: visible only when unread.
+
+A read email can be marginally less bold than an unread email, but the contrast difference must be subtle. The current dramatic fade must be eliminated.
+
+Scope
+
+Apply this consistently to:
+
+* All Inboxes
+* Individual inboxes
+* Team inboxes
+* Private inboxes
+* Search results
+* Category views
+* Sent, pinned and other message-list views that reuse the same row component
+* Grouped inbox sections such as People, Marine Related, Updates, Promotions, Social and Forums & Communities
+
+Fix the shared message-row component rather than patching individual pages separately.
+
+Regression requirements
+
+Add tests confirming:
+
+1. An unread message displays the unread dot.
+2. Opening the message removes the unread dot.
+3. Opening the message does not add row opacity.
+4. Opening the message does not apply disabled or faded text classes.
+5. Read sender and subject text retain strong contrast.
+6. Search-result rows use the same styling.
+7. All inbox and category views inherit the shared fix.
+8. Existing message selection, hover, keyboard navigation and unread-count behaviour still work.
+
+Visual verification
+
+Test with a mixed inbox containing both read and unread messages.
+
+The final result should make it immediately obvious which messages are unread because of the dot, while every email remains crisp, strong and easy to scan after it has been read.
+
+Do not change message data, read/unread behaviour, syncing, grouping, sorting or filtering. This is a shared UI styling correction only.
+
+⸻
