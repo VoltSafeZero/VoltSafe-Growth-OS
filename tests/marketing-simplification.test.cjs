@@ -3,8 +3,8 @@
  * Marketing Simplification — Phase 11 Regression Tests
  *
  * Pins the Phase 11 changes:
- *   - Marketing nav has exactly 6 items (Dashboard, Campaigns, Audiences,
- *     Replies, Hot Accounts, Compliance)
+ *   - Marketing nav has exactly 7 items (Dashboard, Campaigns, Audiences,
+ *     Hot Accounts, Engagement, Compliance, Email Tools)
  *   - Templates, Analytics, Suppression are NOT in the primary nav
  *   - Marketing Dashboard page exists and has required sections
  *   - Hot Accounts page exists as a standalone route
@@ -78,8 +78,8 @@ ok("Hot Accounts route is /marketing/hot-accounts",
 
 // Count marketing child items
 const itemMatches = [...mSec.matchAll(/id: "marketing-[^"]+"/g)];
-ok(`Marketing nav has exactly 6 items (found ${itemMatches.length})`,
-  itemMatches.length === 6,
+ok(`Marketing nav has exactly 7 items (found ${itemMatches.length})`,
+  itemMatches.length === 7,
   `Items: ${itemMatches.map(m => m[0]).join(", ")}`);
 
 ok("Templates is NOT a primary marketing nav item",

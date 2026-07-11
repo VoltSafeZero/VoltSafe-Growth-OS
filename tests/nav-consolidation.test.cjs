@@ -467,12 +467,12 @@ console.log("\n[9] Sidebar child count ≤7 per section");
   const mktBlock = navSrc.match(/id: "marketing"[\s\S]*?(?=id: "capital")/)?.[0] ?? "";
   sections.marketing = (mktBlock.match(/\bid: "[^"]+"/g) ?? []).length - 1;
   assert(sections.marketing <= 7, `Marketing has ≤7 items (has ${sections.marketing})`);
-  assert(sections.marketing === 6, `Marketing has exactly 6 items (has ${sections.marketing})`);
+  assert(sections.marketing === 7, `Marketing has exactly 7 items (has ${sections.marketing})`);
 
   const adminBlock = navSrc.match(/id: "admin"[\s\S]*?(?=\];\s*function projectLabel)/)?.[0] ?? "";
   sections.admin = (adminBlock.match(/\bid: "[^"]+"/g) ?? []).length - 1;
-  assert(sections.admin <= 9, `Admin has ≤9 items (has ${sections.admin})`);
-  assert(sections.admin === 9, `Admin has exactly 9 items (has ${sections.admin})`);
+  assert(sections.admin <= 10, `Admin has ≤10 items (has ${sections.admin})`);
+  assert(sections.admin === 10, `Admin has exactly 10 items (has ${sections.admin})`);
 }
 
 // ── 10. Hub pages link to correct sub-pages ───────────────────────────────────

@@ -192,7 +192,7 @@ console.log("\n── 11. Frontend — nav-config.ts ──");
 ok("User Signatures nav item added",
   navSrc.includes("/admin/signatures"));
 ok("User Signatures nav item is admin-only",
-  navSrc.includes('"admin-user-signatures"') &&
+  navSrc.includes('"admin-signatures"') &&
   navSrc.includes("adminOnly: true"));
 
 // ── 12. Signature consistency — admin path uses same HTML pipeline ─────────

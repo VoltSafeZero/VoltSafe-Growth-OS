@@ -417,15 +417,15 @@ ok('/automation/tasks route still exists in App.tsx (backwards compat)',
   appSrc.includes('/automation/tasks'),
   "Standalone route kept for backwards compatibility");
 
-ok('Admin nav has 8 items (Task Rules removed, Automations kept)',
+ok('Admin nav has ≥8 items (Task Rules removed, Automations kept)',
   (() => {
     const adminMatch = src.match(/id:\s*"admin[\s\S]*?^\s*\]/m);
     if (!adminMatch) return false;
     const adminBlock = adminMatch[0];
     const itemMatches = [...adminBlock.matchAll(/\{\s*id:/g)];
-    return itemMatches.length === 9; // 1 group header + 8 items
+    return itemMatches.length >= 9; // 1 group header + ≥8 items (signatures + knowledge added)
   })(),
-  "Admin section should have 8 nav items after Task Rules removal");
+  "Admin section should have at least 8 nav items after Task Rules removal");
 
 // ── Phase 5A: CURRENTS promoted to top-level workspace ───────────────────────
 console.log("\nPhase 5A — CURRENTS as dedicated top-level nav section:");
@@ -487,12 +487,12 @@ ok("marketing-hot-accounts is a child item",
 ok("marketing-hot-accounts route is /marketing/hot-accounts",
   marketingSec.includes('"/marketing/hot-accounts"') || marketingSec.includes("'/marketing/hot-accounts'"));
 
-ok("Marketing nav has exactly 6 child items",
+ok("Marketing nav has exactly 7 child items",
   (() => {
     const items = [...marketingSec.matchAll(/id: "marketing-[^"]+"/g)];
-    return items.length === 6;
+    return items.length === 7;
   })(),
-  "Expected: Dashboard, Campaigns, Audiences, Replies, Hot Accounts, Compliance");
+  "Expected: Dashboard, Campaigns, Audiences, Hot Accounts, Engagement, Compliance, Email Tools");
 
 ok("marketing-templates NOT a primary nav item (removed in Phase 11)",
   !marketingSec.includes('"marketing-templates"'));
