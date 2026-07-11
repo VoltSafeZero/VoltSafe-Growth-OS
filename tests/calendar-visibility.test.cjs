@@ -40,24 +40,19 @@ test("visibleOwnEvents useMemo defined in component", () => {
   assert(src.includes("const visibleOwnEvents = useMemo("), "visibleOwnEvents memo not found");
 });
 
-test("visibleOwnEvents filters by calendarSourceKey", () => {
-  assert(
-    src.includes("calendarSourceKey") && src.includes("selectedIds.includes(sourceKey)"),
-    "filtering by calendarSourceKey + selectedIds.includes(sourceKey) missing"
-  );
+test("visibleOwnEvents filters by externalCalendarId", () => {
+  assert(src.includes("externalCalendarId") && src.includes("selectedIds.includes(extCalId)"),
+    "filtering by externalCalendarId + selectedIds missing");
 });
 
-test("app-created events (no calendarSourceKey) pass through when selectedIds is null", () => {
-  // When no primary calendar is found, selectedIds stays null and all events show
-  assert(
-    src.includes("if (selectedIds === null) return ownEvents"),
-    "null selectedIds passthrough (return all events) missing"
-  );
+test("app-created events (null externalCalendarId) always pass through", () => {
+  assert(src.includes("if (!extCalId) return true"),
+    "null externalCalendarId passthrough missing");
 });
 
 test("when selectedIds is null, default to primary-only (not all)", () => {
   assert(
-    src.includes("selectedIds ?? (primaryKey ? [primaryKey] : null)"),
+    src.includes("selectedIds ?? (primaryId ? [primaryId] : null)"),
     "primary-only default not found"
   );
 });
@@ -74,7 +69,7 @@ test("toggleCalendarSource uses primary-only default (not allIds)", () => {
   assert(fnMatch, "toggleCalendarSource function not matched");
   const fn = fnMatch[0];
   assert(!fn.includes("?? all"), "still using ?? all (all-IDs fallback) — should be primary-only");
-  assert(fn.includes("primaryKey ? [primaryKey] : []"), "primary-only fallback not found in toggle");
+  assert(fn.includes("primaryId ? [primaryId] : []"), "primary-only fallback not found in toggle");
 });
 
 test("toggleCalendarSource never saves null to persist 'all selected'", () => {
@@ -90,7 +85,7 @@ console.log("\n── 3. My Calendars checkbox rendering default ──");
 
 test("My Calendars checkbox uses primary-only default", () => {
   assert(
-    src.includes("selectedIds ?? (primaryKey ? [primaryKey] : [])"),
+    src.includes("selectedIds ?? (primaryId ? [primaryId] : [])"),
     "checkbox current fallback not primary-only"
   );
 });
