@@ -1,0 +1,264 @@
+Do not mark this complete yet.
+
+Your statement that the July 11 “Active / 14,319 messages” screenshot must have belonged to another account is factually unsupported and contradicted by the screenshot. The screenshot clearly shows:
+
+Trevor Burgess · trevor@voltsafe.com
+Status: Active
+Synced: 7/11/2026
+Messages: 14,319
+
+You must explain exactly how the live UI produced those values for trevor@voltsafe.com while your database audit found a June 18 sync date and different message totals.
+
+Passing 196 source and regression checks does not resolve this live-data contradiction.
+
+Perform a final evidence-based verification now.
+
+1. Trace the exact production request behind the Mailbox Connections screen
+
+Using the same deployed URL and authenticated Trevor session shown in the screenshot:
+
+- Open the browser Network panel or use the production API directly.
+- Identify the exact endpoint returning the trevor@voltsafe.com mailbox card.
+- Capture the response fields responsible for:
+  - account email
+  - Active status
+  - synced timestamp
+  - message count
+  - Gmail watch expiry
+- Report the exact account ID and user ID returned.
+- Report the exact database connection and schema used by that request.
+- Do not expose tokens, secrets, passwords, or private email bodies.
+
+2. Trace the inbox request for the same account
+
+Identify the exact API requests powering the trevor@voltsafe.com inbox shown in the screenshot.
+
+Report:
+
+- account ID
+- owner user ID
+- mailbox email
+- environment
+- database/schema
+- newest returned message timestamp
+- newest stored message timestamp
+- total message count used by the inbox
+- whether the inbox reads from email_messages, a cache, a search index, another table, or another service
+
+Prove where the July 10 messages shown in the inbox came from.
+
+3. Query the canonical database row used by the live UI
+
+For the exact account ID returned by the UI endpoint, report:
+
+- email_accounts.id
+- user_id
+- email_address
+- auth_status
+- active/enabled state
+- created_at
+- updated_at
+- last_sync_at
+- last_incremental_sync_at
+- last successful Gmail API timestamp
+- Gmail watch expiration
+- stored history ID
+- current sync error
+- count of email_messages
+- newest email_messages.sent_at
+- oldest email_messages.sent_at
+
+Do not query a different account record and assume it is the same mailbox.
+
+4. Resolve account ID 91
+
+You reported account ID 91 has 6,933 messages but no matching email_accounts row.
+
+Determine exactly:
+
+- what table contains account ID 91 references
+- which mailbox email those messages belong to
+- which user owns them
+- whether account 91 was deleted, orphaned, migrated, or duplicated
+- whether those records are included in UI totals or search results
+- whether any of Trevor’s messages are incorrectly split between account IDs
+- whether account 91 causes missing search results, wrong counts, or cross-account leakage
+
+Do not delete or reassign anything until ownership is proven using provider IDs and historical records.
+
+5. Check every duplicate or historical trevor@voltsafe.com record
+
+Search all relevant tables for trevor@voltsafe.com, including:
+
+- email_accounts
+- email_messages
+- OAuth/token tables
+- mailbox connection tables
+- Gmail watch tables
+- sync-state/history tables
+- deleted or archived account records
+- user-mailbox mapping tables
+
+For every matching record, report:
+
+- table
+- record ID
+- account ID
+- user ID
+- status
+- last sync
+- message count
+- newest message date
+- whether the live UI references it
+- whether the sync worker references it
+- whether search references it
+
+5. Prove the canonical health service is actually used everywhere
+
+List the exact files and endpoints now using the shared canonical mailbox-health service.
+
+Verify it powers:
+
+- Mailbox Connections UI
+- VoltSafe Mail sidebar/status
+- mailbox integrity audit
+- Gmail sync worker
+- reconciliation routes
+- admin diagnostics
+
+For the canonical trevor@voltsafe.com account, call every relevant endpoint and show that all return the same health status and timestamps.
+
+No endpoint may say Active while another says OAuth Expired unless the responses were captured at different times and the transition is documented.
+
+6. Perform a live Gmail API call
+
+For the exact canonical account used by the UI:
+
+- attempt token refresh
+- call a harmless Gmail endpoint such as profile or message-list metadata
+- report success or exact failure
+- report the Gmail profile email returned
+- report provider message/thread estimates where available
+- do not expose the token
+
+Do not call the mailbox expired unless this live provider call fails for the canonical UI account.
+
+7. Re-run the Scott search through every layer
+
+Using the canonical trevor@voltsafe.com account, search for:
+
+scott@voltsafe.com
+
+Report:
+
+- provider/Gmail matching messages
+- provider/Gmail matching threads
+- local matching messages
+- local matching threads
+- search API total messages
+- search API total conversations
+- UI rendered conversations
+- account ID at every layer
+
+Verify these known threads through all four layers:
+
+- Marina Pipeline + a few inputs
+- VoltSafe / ETL Path – Commercial Alignment and Next Steps
+- Safety certification progress
+- VoltSafe Investment
+- VoltSafe Investment Opportunity
+
+For each show:
+
+- Gmail exists
+- local DB exists
+- API returns it
+- UI displays it
+
+8. Verify archived-mail reconciliation
+
+You changed historical reconciliation from inbox/sent-only scope.
+
+Prove the new reconciliation:
+
+- searches complete authorized history
+- includes archived mail
+- excludes or separately handles Spam and Trash
+- follows every pagination token
+- resumes after interruption
+- creates zero duplicates on a second run
+- records progress outside the request lifecycle
+
+Report:
+
+- archived messages discovered
+- archived messages inserted
+- records updated
+- duplicates avoided
+- final unresolved mismatch count
+
+9. Verify every connected mailbox
+
+Run the canonical health and integrity audit for all five visible mailboxes:
+
+- trevor@voltsafe.com
+- burgess...@gmail.com
+- trevor@hyalos.com
+- sales@voltsafe.com
+- support@voltsafe.com
+
+For each report:
+
+- canonical account ID
+- owner
+- health status
+- live Gmail API access result
+- last successful sync
+- watch expiry
+- provider message count
+- local message count
+- provider/local mismatch
+- unresolved errors
+- whether reconciliation is required
+
+Do not disclose private message content.
+
+10. Provide authenticated browser proof
+
+Using the same live deployed app:
+
+- show the trevor@voltsafe.com Mailbox Connections card
+- show its API response
+- show the trevor@voltsafe.com inbox
+- search scott@voltsafe.com
+- show the known previously missing conversations
+- show an archived result
+- show a sent result
+- show a CC-only result
+- show a result beyond the first page
+
+Capture screenshots after the fix.
+
+11. Required final report
+
+Provide:
+
+- exact root cause of the Active versus Expired contradiction
+- exact root cause of the 14,319 versus 60,165 versus other message counts
+- exact role of orphaned account ID 91
+- exact canonical trevor@voltsafe.com account ID
+- exact environment and database used by the live UI
+- exact files changed
+- migration files
+- commit hash
+- live Gmail API result
+- provider/local/API/UI search counts
+- known-thread verification
+- all-mailbox audit
+- test commands and totals
+- full-suite exit code
+- git status --short
+
+Do not say the screenshot was from another mailbox unless you produce direct evidence from the live request and account ID proving that.
+
+Do not claim completion based only on tests. This is complete only when the production UI, production API, canonical database row, sync worker, integrity audit, and Gmail provider all agree for the same trevor@voltsafe.com account.
