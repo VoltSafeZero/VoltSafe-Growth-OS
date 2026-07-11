@@ -743,23 +743,48 @@ Rules that run automatically when something happens in the CRM.
 
 ---
 
-## Communications and Campaigns
+## Marketing → Campaigns
 
-**Route:** `/execution/communications`
+**Route:** `/marketing/campaigns`
 
 **What is it?**
 Manage outbound email campaigns to groups of contacts or accounts.
 
 **How to send a campaign:**
-1. Go to Communications.
+1. Go to **Marketing → Campaigns** in the left sidebar.
 2. Click **+ New Campaign**.
-3. Choose the audience (a list of contacts).
+3. Choose the audience (a list of contacts from the Audiences tab).
 4. Write your email content.
 5. Choose send time.
 6. Launch.
 
-**Communication Lists:**
-Before sending a campaign, you need a list. Go to Communications → Lists to create and manage lists of contacts.
+**Campaign Lists / Audiences:**
+Before sending a campaign, you need an audience. Go to **Marketing → Audiences** to create and manage lists of contacts.
+
+---
+
+## Snippets & Templates
+
+**Route:** `/marketing/email-tools`
+
+**What is it?**
+A library of reusable email content — short snippets you insert into replies, and full templates with subject lines for outbound campaigns.
+
+**Snippets** are body-only: short canned responses you paste into an email mid-conversation.
+**Templates** include a subject line: full pre-written emails for prospecting or follow-up.
+
+**How to use:**
+1. Go to **Marketing → Email Tools** in the left sidebar.
+2. Browse or search the library.
+3. Click **New Snippet** to add your own.
+4. Admins can click **Load Starter Library** to populate 15+ pre-built marina sales templates.
+
+**Visibility:**
+- **Org-wide** snippets are visible to all teammates.
+- **Private** snippets are only visible to you.
+
+**From the Compose window:**
+Click the bookmark icon in the email toolbar to open the snippet picker and insert saved content directly into your draft.
 
 ---
 

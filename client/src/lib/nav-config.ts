@@ -229,6 +229,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "marketing-hot-accounts", label: "Hot Accounts", route: "/marketing/hot-accounts", icon: Flame },
       { id: "marketing-engagement",   label: "Engagement",   route: "/marketing/engagement",   icon: MessageSquare },
       { id: "marketing-compliance",   label: "Compliance",   route: "/marketing/compliance",   icon: ShieldCheck },
+      { id: "marketing-email-tools",  label: "Email Tools",  route: "/marketing/email-tools",  icon: StickyNote },
     ],
   },
 
@@ -513,6 +514,8 @@ export const PAGE_NAV_INDEX: PageNavEntry[] = [
   { name: "Replies",                url: "/marketing/replies",      section: "Marketing", aliases: ["Marketing Replies"] },
   { name: "Hot Accounts",           url: "/marketing/hot-accounts", section: "Marketing" },
   { name: "Compliance",             url: "/marketing/compliance",   section: "Marketing", aliases: ["Marketing Compliance"] },
+  { name: "Email Tools",            url: "/marketing/email-tools",  section: "Marketing", aliases: ["Snippets", "Canned Replies", "Canned Responses", "Email Templates", "Saved Replies"] },
+  { name: "Snippets & Templates",   url: "/marketing/email-tools",  section: "Marketing", aliases: ["Snippets", "Templates", "Canned Responses"] },
   // Capital — all entries are capitalOnly: true (hidden from non-CEO/CFO users in global search)
   { name: "Capital Command Center", url: "/capital/command-center", section: "Capital", capitalOnly: true, aliases: ["Command Center"] },
   { name: "Capital Dashboard",      url: "/capital/dashboard",      section: "Capital", capitalOnly: true },

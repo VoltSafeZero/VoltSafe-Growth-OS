@@ -7,637 +7,1168 @@
       "id": "faq-001",
       "question": "How do I create a lead?",
       "answer": "Go to Opportunities in the sidebar. Click '+ New Opportunity'. Fill in: name, stage (set to 'New Lead' or 'Contacted'), value, expected close date, and link to an Account. Click Save. You can also ask me: 'Create a lead for [marina name]' and I will do it for you.",
-      "tags": ["leads", "create", "opportunities", "getting-started"]
+      "tags": [
+        "leads",
+        "create",
+        "opportunities",
+        "getting-started"
+      ]
     },
     {
       "id": "faq-002",
       "question": "How do I convert a lead to an opportunity?",
-      "answer": "In VoltSafe Cortex, leads and opportunities are the same record type — they progress through stages. To 'convert' a lead, simply update its stage from 'New Lead' or 'Contacted' to 'Qualified'. This signals it has passed the initial qualification step. You can do this by opening the opportunity, clicking the Stage dropdown, and selecting 'Qualified'.",
-      "tags": ["leads", "convert", "opportunities", "stages"]
+      "answer": "In VoltSafe Cortex, leads and opportunities are the same record type \u2014 they progress through stages. To 'convert' a lead, simply update its stage from 'New Lead' or 'Contacted' to 'Qualified'. This signals it has passed the initial qualification step. You can do this by opening the opportunity, clicking the Stage dropdown, and selecting 'Qualified'.",
+      "tags": [
+        "leads",
+        "convert",
+        "opportunities",
+        "stages"
+      ]
     },
     {
       "id": "faq-003",
       "question": "Why is an opportunity showing as stale?",
-      "answer": "An opportunity is marked stale when there has been no logged activity for a defined number of days (typically 7–14 days). To fix it: open the opportunity, log an activity (call, email, or note) in the Timeline section, and update the stage if it has moved. The stale flag will clear once activity is logged.",
-      "tags": ["stale", "opportunities", "pipeline", "activity"]
+      "answer": "An opportunity is marked stale when there has been no logged activity for a defined number of days (typically 7\u201314 days). To fix it: open the opportunity, log an activity (call, email, or note) in the Timeline section, and update the stage if it has moved. The stale flag will clear once activity is logged.",
+      "tags": [
+        "stale",
+        "opportunities",
+        "pipeline",
+        "activity"
+      ]
     },
     {
       "id": "faq-004",
       "question": "How do I send a quote?",
       "answer": "Go to Quotes in the sidebar. Click '+ New Quote'. Select the Account. Add line items by clicking '+ Add Line Item' and choosing products. Review totals. Click 'Send' to deliver to the customer or 'Save as Draft' to finish later. The quote status will update to 'Sent' automatically.",
-      "tags": ["quotes", "send", "proposals"]
+      "tags": [
+        "quotes",
+        "send",
+        "proposals"
+      ]
     },
     {
       "id": "faq-005",
       "question": "What does weighted pipeline mean?",
       "answer": "Weighted pipeline is the sum of all your open deal values multiplied by their probability of closing. For example, a $100,000 deal at 50% probability contributes $50,000 to the weighted pipeline. It gives a more realistic revenue estimate than the raw pipeline total. A healthy pipeline has weighted value of at least 1x your revenue target.",
-      "tags": ["pipeline", "forecast", "metrics", "weighted"]
+      "tags": [
+        "pipeline",
+        "forecast",
+        "metrics",
+        "weighted"
+      ]
     },
     {
       "id": "faq-006",
       "question": "How do I assign tasks in bulk?",
       "answer": "Go to Tasks Hub. Check the boxes on the left side of the tasks you want to reassign. A bulk action toolbar will appear at the top of the page. Click 'Reassign' and select the new owner. Click Confirm. You can also bulk-complete, bulk-delete, or bulk-update priority from the same toolbar.",
-      "tags": ["tasks", "bulk", "assign", "bulk-actions"]
+      "tags": [
+        "tasks",
+        "bulk",
+        "assign",
+        "bulk-actions"
+      ]
     },
     {
       "id": "faq-007",
       "question": "Where do I find install workflows?",
       "answer": "Go to the sidebar and look under the Revenue Engine section. Click 'Install Workflows'. You will see all active and completed installation workflows. Each workflow shows the marina name, current phase, and completion status. Click any workflow to see the detailed step-by-step checklist.",
-      "tags": ["install", "workflows", "operations"]
+      "tags": [
+        "install",
+        "workflows",
+        "operations"
+      ]
     },
     {
       "id": "faq-008",
       "question": "How do I log a phone call?",
       "answer": "Open the Account, Contact, or Opportunity the call was about. Scroll to the Timeline section. Click '+ Log Activity'. Select type 'Call'. Write a brief summary of what was discussed and any outcomes. Set the date. Click Save. The call will appear in the timeline immediately.",
-      "tags": ["activity", "call", "log", "timeline"]
+      "tags": [
+        "activity",
+        "call",
+        "log",
+        "timeline"
+      ]
     },
     {
       "id": "faq-009",
       "question": "How do I connect my Gmail?",
-      "answer": "Go to Settings → My Mailboxes (in the sidebar under Admin). Click 'Connect Gmail'. Sign in with your Google account and approve the permissions. Your inbox will sync within a few minutes. Once connected, all emails to/from CRM contacts will automatically link to their records.",
-      "tags": ["gmail", "email", "connect", "mailbox", "settings"]
+      "answer": "Go to Settings \u2192 My Mailboxes (in the sidebar under Admin). Click 'Connect Gmail'. Sign in with your Google account and approve the permissions. Your inbox will sync within a few minutes. Once connected, all emails to/from CRM contacts will automatically link to their records.",
+      "tags": [
+        "gmail",
+        "email",
+        "connect",
+        "mailbox",
+        "settings"
+      ]
     },
     {
       "id": "faq-010",
       "question": "What is a warmness score?",
-      "answer": "Warmness score is a 0–100 rating that measures how actively you are emailing with an account. It is calculated based on how recently you emailed them and how often. Score 70–100: warm relationship. Score 40–69: cooling off. Score 0–39: cold — needs re-engagement. You can see it on any Account profile.",
-      "tags": ["warmness", "email", "engagement", "score"]
+      "answer": "Warmness score is a 0\u2013100 rating that measures how actively you are emailing with an account. It is calculated based on how recently you emailed them and how often. Score 70\u2013100: warm relationship. Score 40\u201369: cooling off. Score 0\u201339: cold \u2014 needs re-engagement. You can see it on any Account profile.",
+      "tags": [
+        "warmness",
+        "email",
+        "engagement",
+        "score"
+      ]
     },
     {
       "id": "faq-011",
       "question": "How do I find duplicate accounts?",
       "answer": "Go to Data Quality Center in the sidebar (under Revenue Engine). The page will flag potential duplicates. Click on any flagged duplicate pair to review them. If they are duplicates, click 'Merge' and choose which record to keep as the primary. All data from the secondary record will be merged into the primary.",
-      "tags": ["duplicates", "data quality", "accounts", "merge"]
+      "tags": [
+        "duplicates",
+        "data quality",
+        "accounts",
+        "merge"
+      ]
     },
     {
       "id": "faq-012",
       "question": "How do I create an automation?",
       "answer": "Go to Automations in the sidebar (under Operations). Click '+ New Rule'. Choose a trigger (e.g., 'Deal stage changes'). Set your conditions. Choose the action (e.g., 'Create task' or 'Send alert'). Give it a name. Save and toggle it to Active. The rule will run automatically from that point on.",
-      "tags": ["automation", "rules", "triggers", "workflow"]
+      "tags": [
+        "automation",
+        "rules",
+        "triggers",
+        "workflow"
+      ]
     },
     {
       "id": "faq-013",
       "question": "How do I update a deal stage?",
       "answer": "Open the opportunity. Click the 'Stage' dropdown at the top of the record. Select the new stage. The change saves automatically. You can also drag the deal card to a new column in Pipeline board view.",
-      "tags": ["deals", "stage", "pipeline", "update"]
+      "tags": [
+        "deals",
+        "stage",
+        "pipeline",
+        "update"
+      ]
     },
     {
       "id": "faq-014",
       "question": "How do I export contacts to CSV?",
       "answer": "Go to Contacts. Apply any filters you want (optional). Click the Export button (usually a download icon or in the '...' menu). Select 'Export to CSV'. The file will download to your computer. Note: export requires appropriate permissions.",
-      "tags": ["export", "contacts", "csv", "download"]
+      "tags": [
+        "export",
+        "contacts",
+        "csv",
+        "download"
+      ]
     },
     {
       "id": "faq-015",
       "question": "What is the Today page?",
       "answer": "The Today page (/today) is your personal daily dashboard. It shows meetings scheduled for today, tasks due today or overdue, hot opportunities needing attention, and AI-generated next best actions. Open it every morning as your starting point.",
-      "tags": ["today", "dashboard", "daily", "getting-started"]
+      "tags": [
+        "today",
+        "dashboard",
+        "daily",
+        "getting-started"
+      ]
     },
     {
       "id": "faq-016",
       "question": "How do I create a saved view?",
       "answer": "Go to Opportunities, Accounts, or Contacts. Set your filters to exactly what you want to save. Look for the 'Save View' button or bookmark icon near the filter bar. Click it and give your view a name. It will now appear in the view selector dropdown so you can access it instantly.",
-      "tags": ["saved views", "filters", "productivity"]
+      "tags": [
+        "saved views",
+        "filters",
+        "productivity"
+      ]
     },
     {
       "id": "faq-017",
       "question": "How do I see all tasks assigned to my team?",
       "answer": "Go to Tasks Hub. In the filter options at the top, switch from 'My Tasks' to 'All Tasks'. You can then filter by assignee to see a specific person's tasks, or see everything across the team. Managers can also use Team Workload (/execution/team-workload) for a visual overview.",
-      "tags": ["tasks", "team", "workload", "management"]
+      "tags": [
+        "tasks",
+        "team",
+        "workload",
+        "management"
+      ]
     },
     {
       "id": "faq-018",
       "question": "How do I generate a board pack?",
       "answer": "Go to Board Pack in the sidebar. Select the time period you want the report to cover. Click 'Generate'. The system will compile revenue performance, pipeline health, key deals, and forecast data into a formatted report. You can view it in-app or download it as a PDF.",
-      "tags": ["board pack", "reports", "leadership", "pdf"]
+      "tags": [
+        "board pack",
+        "reports",
+        "leadership",
+        "pdf"
+      ]
     },
     {
       "id": "faq-019",
       "question": "How do I add a note to an account?",
       "answer": "Open the Account. Scroll to the Timeline section. Click '+ Add Note'. Type your note. Click Save. The note will appear in the timeline with a timestamp and your name.",
-      "tags": ["notes", "accounts", "timeline", "activity"]
+      "tags": [
+        "notes",
+        "accounts",
+        "timeline",
+        "activity"
+      ]
     },
     {
       "id": "faq-020",
       "question": "How do I reset my password?",
-      "answer": "On the login page, click 'Forgot your password?' and follow the instructions. Alternatively, ask your Admin — they can reset your password from Admin → Users → find your account → Reset Password.",
-      "tags": ["password", "login", "account", "admin"]
+      "answer": "On the login page, click 'Forgot your password?' and follow the instructions. Alternatively, ask your Admin \u2014 they can reset your password from Admin \u2192 Users \u2192 find your account \u2192 Reset Password.",
+      "tags": [
+        "password",
+        "login",
+        "account",
+        "admin"
+      ]
     },
     {
       "id": "faq-021",
       "question": "How do I change user permissions?",
-      "answer": "Admin access is required. Go to Admin → Users. Find the user. Click on their name. In their profile, look for the Permissions section. You can set each module to 'None', 'View', or 'Edit'. Save when done. Changes take effect on the user's next page load.",
-      "tags": ["permissions", "admin", "users", "access"]
+      "answer": "Admin access is required. Go to Admin \u2192 Users. Find the user. Click on their name. In their profile, look for the Permissions section. You can set each module to 'None', 'View', or 'Edit'. Save when done. Changes take effect on the user's next page load.",
+      "tags": [
+        "permissions",
+        "admin",
+        "users",
+        "access"
+      ]
     },
     {
       "id": "faq-022",
       "question": "What is the command bar?",
-      "answer": "The command bar is a quick-access search and navigation tool. Open it by pressing ⌘K (Mac) or Ctrl+K (Windows). Type anything — an account name, contact, page name, or action — and the system will show matching results. It is the fastest way to navigate Cortex.",
-      "tags": ["command bar", "search", "navigation", "shortcut"]
+      "answer": "The command bar is a quick-access search and navigation tool. Open it by pressing \u2318K (Mac) or Ctrl+K (Windows). Type anything \u2014 an account name, contact, page name, or action \u2014 and the system will show matching results. It is the fastest way to navigate Cortex.",
+      "tags": [
+        "command bar",
+        "search",
+        "navigation",
+        "shortcut"
+      ]
     },
     {
       "id": "faq-023",
       "question": "How do I link an email to an account?",
       "answer": "Emails sent and received through the Cortex Gmail inbox are automatically linked to accounts based on email domain matching. If an email is not auto-linked, open the email in the Gmail inbox, look for the 'Link to Account' option in the right panel, search for the account, and manually link it.",
-      "tags": ["email", "gmail", "link", "accounts"]
+      "tags": [
+        "email",
+        "gmail",
+        "link",
+        "accounts"
+      ]
     },
     {
       "id": "faq-024",
       "question": "What is pipeline coverage ratio?",
       "answer": "Pipeline coverage ratio is total pipeline value divided by your revenue target. Example: $600,000 in pipeline with a $200,000 target = 3x coverage. A ratio of 3x or higher is considered healthy because not all deals will close. Below 2x is a warning sign that more deals need to be created.",
-      "tags": ["pipeline", "coverage", "forecast", "metrics"]
+      "tags": [
+        "pipeline",
+        "coverage",
+        "forecast",
+        "metrics"
+      ]
     },
     {
       "id": "faq-025",
       "question": "How do I mark an opportunity as won or lost?",
-      "answer": "Open the opportunity. Click the Stage dropdown. Select 'Closed Won' or 'Closed Lost'. For Closed Lost, you may be prompted to enter a loss reason — always fill this in, as it helps improve future performance. Save the record.",
-      "tags": ["won", "lost", "close", "opportunity", "stage"]
+      "answer": "Open the opportunity. Click the Stage dropdown. Select 'Closed Won' or 'Closed Lost'. For Closed Lost, you may be prompted to enter a loss reason \u2014 always fill this in, as it helps improve future performance. Save the record.",
+      "tags": [
+        "won",
+        "lost",
+        "close",
+        "opportunity",
+        "stage"
+      ]
     },
     {
       "id": "faq-026",
       "question": "How do I search for an account?",
-      "answer": "Three ways: 1) Go to Accounts page and use the search bar at the top. 2) Press ⌘K anywhere and type the name. 3) Use Global Search at /search. All three will find the account within seconds.",
-      "tags": ["search", "accounts", "find"]
+      "answer": "Three ways: 1) Go to Accounts page and use the search bar at the top. 2) Press \u2318K anywhere and type the name. 3) Use Global Search at /search. All three will find the account within seconds.",
+      "tags": [
+        "search",
+        "accounts",
+        "find"
+      ]
     },
     {
       "id": "faq-027",
       "question": "How do I assign a task to someone?",
       "answer": "When creating or editing a task, look for the 'Assigned To' or 'Owner' field. Type the person's name and select them from the dropdown. Save the task. They will see it in their Tasks Hub under 'My Tasks'.",
-      "tags": ["tasks", "assign", "ownership"]
+      "tags": [
+        "tasks",
+        "assign",
+        "ownership"
+      ]
     },
     {
       "id": "faq-028",
       "question": "What is the Executive Copilot?",
       "answer": "The Executive Copilot (/executive-copilot) is an AI-powered daily briefing system. Every morning it analyzes your CRM data and generates: a summary of the business state, alerts about at-risk deals, suggested priority actions, and revenue tracking vs. targets. It is designed for leadership to start the day with full situational awareness.",
-      "tags": ["executive copilot", "AI", "brief", "leadership", "alerts"]
+      "tags": [
+        "executive copilot",
+        "AI",
+        "brief",
+        "leadership",
+        "alerts"
+      ]
     },
     {
       "id": "faq-029",
       "question": "How do I add a contact to an account?",
       "answer": "Option 1: Go to the Account profile. Look for a 'Contacts' tab. Click '+ Add Contact'. Fill in their details. Option 2: Create the contact from Contacts page and in the Account field, type and select the company. Both methods link the contact to the account.",
-      "tags": ["contacts", "accounts", "link", "create"]
+      "tags": [
+        "contacts",
+        "accounts",
+        "link",
+        "create"
+      ]
     },
     {
       "id": "faq-030",
       "question": "How do I set up an email campaign?",
-      "answer": "Go to Communications (/execution/communications). First, create or select a contact list under 'Lists'. Then click '+ New Campaign', choose the list as your audience, write your email content, set the send time, and launch. Track open rates and replies from the campaign dashboard.",
-      "tags": ["campaign", "email", "communications", "bulk email"]
+      "answer": "Go to Marketing \u2192 Campaigns (/marketing/campaigns). First, create or select a contact list under 'Lists'. Then click '+ New Campaign', choose the list as your audience, write your email content, set the send time, and launch. Track open rates and replies from the campaign dashboard.",
+      "tags": [
+        "campaign",
+        "email",
+        "communications",
+        "bulk email"
+      ]
     },
     {
       "id": "faq-031",
       "question": "How do I use the Revenue Simulator?",
       "answer": "Go to Revenue Simulator (/revenue-sim). You can adjust deal counts, average deal sizes, and close rates using the input sliders. The simulator recalculates projected revenue in real time. Use it for scenario planning: 'What if we add 5 more deals this quarter?' Save scenarios to compare them.",
-      "tags": ["revenue simulator", "forecast", "scenarios", "planning"]
+      "tags": [
+        "revenue simulator",
+        "forecast",
+        "scenarios",
+        "planning"
+      ]
     },
     {
       "id": "faq-032",
       "question": "What are email signals?",
       "answer": "Email signals are automatic alerts generated from email activity patterns. Examples: no reply received in 14 days, an email opened multiple times (signals high interest), or a bounce detected. Signals appear on account profiles and in the Signals feed (/intelligence/signals). Act on them promptly.",
-      "tags": ["signals", "email", "alerts", "engagement"]
+      "tags": [
+        "signals",
+        "email",
+        "alerts",
+        "engagement"
+      ]
     },
     {
       "id": "faq-033",
       "question": "How do I delete a record?",
       "answer": "Open the record (account, contact, opportunity, etc.). Look for a 'Delete' option in the '...' menu or action dropdown. Confirm the deletion. Note: deletion is permanent. If you only want to hide a deal, consider setting it to 'Closed Lost' instead of deleting it.",
-      "tags": ["delete", "records", "accounts", "contacts"]
+      "tags": [
+        "delete",
+        "records",
+        "accounts",
+        "contacts"
+      ]
     },
     {
       "id": "faq-034",
       "question": "How do I track a renewal?",
       "answer": "Go to Renewals (/renewals) in the sidebar. This page shows all accounts with upcoming contract renewals. You can see the renewal date, contract value, and current status. Click any account to start the renewal conversation. Consider setting up an automation to create a follow-up task 90 days before renewal.",
-      "tags": ["renewals", "contracts", "recurring revenue"]
+      "tags": [
+        "renewals",
+        "contracts",
+        "recurring revenue"
+      ]
     },
     {
       "id": "faq-035",
       "question": "What does 'Close Date' mean?",
-      "answer": "Close date is the date you expect to either win or lose a deal. It should be realistic — not optimistic. An overdue close date (in the past) is a red flag that the deal has been neglected. Update close dates as soon as you know the timeline has shifted.",
-      "tags": ["close date", "opportunity", "pipeline", "forecast"]
+      "answer": "Close date is the date you expect to either win or lose a deal. It should be realistic \u2014 not optimistic. An overdue close date (in the past) is a red flag that the deal has been neglected. Update close dates as soon as you know the timeline has shifted.",
+      "tags": [
+        "close date",
+        "opportunity",
+        "pipeline",
+        "forecast"
+      ]
     },
     {
       "id": "faq-036",
       "question": "How do I see my team's workload?",
-      "answer": "Go to Team Workload (/execution/team-workload). This page shows each team member's current task load — how many tasks they have, which are overdue, and capacity indicators. Use it to redistribute work and prevent bottlenecks.",
-      "tags": ["team workload", "tasks", "management", "capacity"]
+      "answer": "Go to Team Workload (/execution/team-workload). This page shows each team member's current task load \u2014 how many tasks they have, which are overdue, and capacity indicators. Use it to redistribute work and prevent bottlenecks.",
+      "tags": [
+        "team workload",
+        "tasks",
+        "management",
+        "capacity"
+      ]
     },
     {
       "id": "faq-037",
       "question": "How do I view a contact's email history?",
       "answer": "Open the Contact's profile. Click the Timeline tab. All emails sent to and from that contact will appear here chronologically. You can also see notes, calls, and meetings in the same view.",
-      "tags": ["contacts", "email history", "timeline"]
+      "tags": [
+        "contacts",
+        "email history",
+        "timeline"
+      ]
     },
     {
       "id": "faq-038",
       "question": "What is source attribution?",
-      "answer": "Source attribution (/analytics/source-attribution) tracks where your leads and deals originally came from — whether that is inbound website traffic, referrals, outbound cold calls, partnerships, or events. Use it to identify which channels are producing the highest-value deals and focus your efforts accordingly.",
-      "tags": ["source attribution", "analytics", "leads", "channels"]
+      "answer": "Source attribution (/analytics/source-attribution) tracks where your leads and deals originally came from \u2014 whether that is inbound website traffic, referrals, outbound cold calls, partnerships, or events. Use it to identify which channels are producing the highest-value deals and focus your efforts accordingly.",
+      "tags": [
+        "source attribution",
+        "analytics",
+        "leads",
+        "channels"
+      ]
     },
     {
       "id": "faq-039",
       "question": "How do I create a user account for a new employee?",
-      "answer": "Admin access required. Go to Admin → Users. Click '+ New User'. Enter their name, email, and temporary password. Assign their role (admin, sales, operations, etc.) and set module-level permissions. Click Save. They can log in immediately and will be prompted to change their password.",
-      "tags": ["admin", "users", "onboarding", "create account"]
+      "answer": "Admin access required. Go to Admin \u2192 Users. Click '+ New User'. Enter their name, email, and temporary password. Assign their role (admin, sales, operations, etc.) and set module-level permissions. Click Save. They can log in immediately and will be prompted to change their password.",
+      "tags": [
+        "admin",
+        "users",
+        "onboarding",
+        "create account"
+      ]
     },
     {
       "id": "faq-040",
       "question": "How do I use the Jira integration?",
-      "answer": "Go to Jira in the sidebar. You can view Jira issues linked to CRM accounts, create new issues from within Cortex, and track project progress. To link a Jira issue to an account, open the account and use the Jira panel to search for or create the issue. Requires Jira to be connected in Admin → Integrations.",
-      "tags": ["jira", "integration", "projects"]
+      "answer": "Go to Jira in the sidebar. You can view Jira issues linked to CRM accounts, create new issues from within Cortex, and track project progress. To link a Jira issue to an account, open the account and use the Jira panel to search for or create the issue. Requires Jira to be connected in Admin \u2192 Integrations.",
+      "tags": [
+        "jira",
+        "integration",
+        "projects"
+      ]
     },
     {
       "id": "faq-041",
       "question": "How do I view the geography of my leads?",
       "answer": "Go to Geography (/geography) in the sidebar. This page shows a map view of your accounts and leads by location. Use it to identify geographic clusters, plan field visits efficiently, and understand regional coverage gaps.",
-      "tags": ["geography", "map", "territory", "field"]
+      "tags": [
+        "geography",
+        "map",
+        "territory",
+        "field"
+      ]
     },
     {
       "id": "faq-042",
       "question": "How do I use bulk actions on accounts?",
-      "answer": "Go to Accounts. Check the boxes on the left of the rows you want. A bulk action bar appears. Options include: Export to CSV, Bulk Assign Owner, Bulk Add Tag, Bulk Delete. Always double-check your selection before confirming bulk delete — it cannot be undone.",
-      "tags": ["bulk actions", "accounts", "export", "productivity"]
+      "answer": "Go to Accounts. Check the boxes on the left of the rows you want. A bulk action bar appears. Options include: Export to CSV, Bulk Assign Owner, Bulk Add Tag, Bulk Delete. Always double-check your selection before confirming bulk delete \u2014 it cannot be undone.",
+      "tags": [
+        "bulk actions",
+        "accounts",
+        "export",
+        "productivity"
+      ]
     },
     {
       "id": "faq-043",
       "question": "What is the Activity Feed?",
-      "answer": "The Activity Feed (/activity) shows a real-time stream of all CRM changes across the system — new accounts created, deals moved, tasks completed, emails sent, and more. Use it to stay aware of what the team is doing and catch anything that needs attention.",
-      "tags": ["activity feed", "timeline", "notifications"]
+      "answer": "The Activity Feed (/activity) shows a real-time stream of all CRM changes across the system \u2014 new accounts created, deals moved, tasks completed, emails sent, and more. Use it to stay aware of what the team is doing and catch anything that needs attention.",
+      "tags": [
+        "activity feed",
+        "timeline",
+        "notifications"
+      ]
     },
     {
       "id": "faq-044",
       "question": "Can Cortex AI write to the CRM for me?",
       "answer": "Yes. Cortex can perform write operations on your behalf. You can say things like: 'Update Marina Bay's deal stage to Negotiation', 'Create a task to follow up with Harbor Point next Tuesday', or 'Add a note to the Pacific Marina account'. Cortex will find the record, confirm what it is about to do, and apply the change.",
-      "tags": ["cortex AI", "write", "CRM", "voice assistant"]
+      "tags": [
+        "cortex AI",
+        "write",
+        "CRM",
+        "voice assistant"
+      ]
     },
     {
       "id": "faq-045",
       "question": "How does Cortex AI search the web?",
-      "answer": "When you ask Cortex a question that requires external information (e.g., 'What is the latest news about marina electrification?'), it automatically searches the web and summarizes the results. You do not need to do anything special — just ask the question naturally.",
-      "tags": ["cortex AI", "web search", "internet", "research"]
+      "answer": "When you ask Cortex a question that requires external information (e.g., 'What is the latest news about marina electrification?'), it automatically searches the web and summarizes the results. You do not need to do anything special \u2014 just ask the question naturally.",
+      "tags": [
+        "cortex AI",
+        "web search",
+        "internet",
+        "research"
+      ]
     },
     {
       "id": "faq-046",
       "question": "How do I set up an install workflow?",
       "answer": "Go to Install Workflows in the sidebar. Click '+ New Workflow'. Name it (usually the marina name + project type). Add each step in the install process. For each step, set a description, assigned owner, and expected completion date. Save. The field team updates each step as they complete it.",
-      "tags": ["install workflow", "operations", "deployment", "steps"]
+      "tags": [
+        "install workflow",
+        "operations",
+        "deployment",
+        "steps"
+      ]
     },
     {
       "id": "faq-047",
       "question": "How do I filter the pipeline by date range?",
       "answer": "Go to Pipeline. Look for the filter bar at the top. Click 'Filters' and add a filter for 'Close Date'. You can set a specific date range (e.g., this quarter). The pipeline will update to show only deals expected to close in that range.",
-      "tags": ["pipeline", "filter", "date", "forecast"]
+      "tags": [
+        "pipeline",
+        "filter",
+        "date",
+        "forecast"
+      ]
     },
     {
       "id": "faq-048",
       "question": "What is deal velocity?",
       "answer": "Deal velocity measures how fast your deals move through the pipeline, typically expressed as days to close from creation. Faster velocity means a more efficient sales process. You can see deal velocity metrics on the Executive Dashboard and Revenue Hub pages.",
-      "tags": ["deal velocity", "pipeline", "metrics", "performance"]
+      "tags": [
+        "deal velocity",
+        "pipeline",
+        "metrics",
+        "performance"
+      ]
     },
     {
       "id": "faq-049",
       "question": "How do I upload a document to an account?",
       "answer": "Open the Account profile. Look for a Documents tab or the Documents section in the sidebar. Click 'Upload'. Select your file. Add a title and optional tags. The document will be linked to the account and visible to anyone with access.",
-      "tags": ["documents", "upload", "accounts", "files"]
+      "tags": [
+        "documents",
+        "upload",
+        "accounts",
+        "files"
+      ]
     },
     {
       "id": "faq-050",
       "question": "How do I fix an account with missing information?",
       "answer": "Go to Data Quality Center first to see what fields are flagged as missing. Or open the account directly, click Edit, and fill in the empty fields (address, phone, website, etc.). Save when done. Completing key fields improves warmness scoring, signals accuracy, and reporting.",
-      "tags": ["data quality", "accounts", "missing fields", "fix"]
+      "tags": [
+        "data quality",
+        "accounts",
+        "missing fields",
+        "fix"
+      ]
     },
     {
       "id": "faq-051",
       "question": "What does pipeline coverage ratio mean?",
-      "answer": "Pipeline coverage ratio = total pipeline value ÷ revenue target. A 3x ratio means you have $3 in pipeline for every $1 of target. This buffer is needed because not all deals will close. Below 2x is a warning sign. Above 4x may mean your pipeline has too many unlikely deals.",
-      "tags": ["coverage ratio", "pipeline", "target", "forecast"]
+      "answer": "Pipeline coverage ratio = total pipeline value \u00f7 revenue target. A 3x ratio means you have $3 in pipeline for every $1 of target. This buffer is needed because not all deals will close. Below 2x is a warning sign. Above 4x may mean your pipeline has too many unlikely deals.",
+      "tags": [
+        "coverage ratio",
+        "pipeline",
+        "target",
+        "forecast"
+      ]
     },
     {
       "id": "faq-052",
       "question": "How do I track procurement status?",
       "answer": "Go to Procurement (/procurement) in the sidebar. Each purchase order shows the supplier, items ordered, quantity, status (ordered, in transit, received), and linked project. Update the status as equipment moves through the supply chain.",
-      "tags": ["procurement", "purchase orders", "supply chain", "operations"]
+      "tags": [
+        "procurement",
+        "purchase orders",
+        "supply chain",
+        "operations"
+      ]
     },
     {
       "id": "faq-053",
       "question": "What is territory routing?",
       "answer": "Territory routing (/routing) helps plan efficient visit routes for field sales reps. It shows nearby accounts on a map and can suggest optimized visit sequences. Use it before a field trip to minimize drive time between marina visits.",
-      "tags": ["territory", "routing", "field", "geography"]
+      "tags": [
+        "territory",
+        "routing",
+        "field",
+        "geography"
+      ]
     },
     {
       "id": "faq-054",
       "question": "How do I add a price list?",
       "answer": "Go to Price Lists (/price-lists) in the sidebar. Click '+ New Price List'. Add your products with names, descriptions, and prices. Assign it to a category. Once created, products from the price list will be available when building quotes.",
-      "tags": ["price lists", "products", "pricing", "quotes"]
+      "tags": [
+        "price lists",
+        "products",
+        "pricing",
+        "quotes"
+      ]
     },
     {
       "id": "faq-055",
       "question": "How do I escalate a support ticket?",
       "answer": "Open the ticket. Change the Severity to 'Critical' or 'High'. Reassign it to a senior team member. Add a note explaining the escalation reason. You can also use the @mention feature in comments to alert a specific person.",
-      "tags": ["support", "tickets", "escalate", "severity"]
+      "tags": [
+        "support",
+        "tickets",
+        "escalate",
+        "severity"
+      ]
     },
     {
       "id": "faq-056",
       "question": "What is the Relationship Intelligence page?",
       "answer": "Relationship Intelligence (/relationships or /intelligence/rel-intelligence) shows a visual analysis of your relationship network. It highlights which accounts have strong vs. weak relationships, who your key connectors are, and relationship trends over time.",
-      "tags": ["relationships", "intelligence", "network", "analytics"]
+      "tags": [
+        "relationships",
+        "intelligence",
+        "network",
+        "analytics"
+      ]
     },
     {
       "id": "faq-057",
       "question": "How do I view Confluence pages from inside Cortex?",
-      "answer": "Go to Confluence in the sidebar. If it is connected, you will see your Confluence spaces. Browse or search for pages. You can read pages directly without leaving Cortex. To connect Confluence, go to Admin → Integrations.",
-      "tags": ["confluence", "documentation", "wiki", "integration"]
+      "answer": "Go to Confluence in the sidebar. If it is connected, you will see your Confluence spaces. Browse or search for pages. You can read pages directly without leaving Cortex. To connect Confluence, go to Admin \u2192 Integrations.",
+      "tags": [
+        "confluence",
+        "documentation",
+        "wiki",
+        "integration"
+      ]
     },
     {
       "id": "faq-058",
       "question": "How do I see which deals closed this month?",
       "answer": "Go to Opportunities. Filter by Stage = 'Closed Won' and Close Date = this month. You can also ask Cortex: 'Show me all deals won this month' for an instant list.",
-      "tags": ["closed won", "deals", "reporting", "monthly"]
+      "tags": [
+        "closed won",
+        "deals",
+        "reporting",
+        "monthly"
+      ]
     },
     {
       "id": "faq-059",
       "question": "How do I send an email from inside a deal?",
       "answer": "Open the Opportunity. In the Timeline or Actions section, click 'Send Email' or 'Compose'. The email form will pre-fill the contact's email address. Write your message. Send. The email is automatically logged in the timeline and linked to the deal and account.",
-      "tags": ["email", "opportunity", "send", "gmail"]
+      "tags": [
+        "email",
+        "opportunity",
+        "send",
+        "gmail"
+      ]
     },
     {
       "id": "faq-060",
       "question": "What is the Winter Support module?",
       "answer": "Winter Support (/winter) is a specialized module for managing support cases and operational issues related to seasonal marina operations. It includes case tracking, escalation workflows, and priority flagging specific to winter operational challenges.",
-      "tags": ["winter", "support", "seasonal", "operations"]
+      "tags": [
+        "winter",
+        "support",
+        "seasonal",
+        "operations"
+      ]
     },
     {
       "id": "faq-061",
       "question": "How do I see my win rate?",
       "answer": "Go to Executive Dashboard (/executive-dashboard) for a high-level win rate metric. For a detailed breakdown, go to Source Attribution or ask Cortex: 'What is my win rate this quarter?' Cortex can calculate it from your closed won vs. closed lost opportunities.",
-      "tags": ["win rate", "performance", "metrics", "reporting"]
+      "tags": [
+        "win rate",
+        "performance",
+        "metrics",
+        "reporting"
+      ]
     },
     {
       "id": "faq-062",
       "question": "How do I set a task due date?",
       "answer": "When creating or editing a task, look for the 'Due Date' field. Click on it to open a date picker. Select the date. For recurring tasks, you can set a repeat frequency. Tasks past their due date will show as overdue and appear highlighted in the Tasks Hub.",
-      "tags": ["tasks", "due date", "overdue"]
+      "tags": [
+        "tasks",
+        "due date",
+        "overdue"
+      ]
     },
     {
       "id": "faq-063",
       "question": "How do I add a tag to a record?",
       "answer": "Open the account, contact, or opportunity. Look for the Tags field (usually in the Edit view). Type a tag name and press Enter. Tags help with filtering and searching. You can filter the Accounts or Opportunities list by tag to find specific groups.",
-      "tags": ["tags", "labels", "filter", "accounts"]
+      "tags": [
+        "tags",
+        "labels",
+        "filter",
+        "accounts"
+      ]
     },
     {
       "id": "faq-064",
       "question": "What happens when I suspend a user?",
-      "answer": "A suspended user cannot log in. Their data remains intact — activities, notes, and records they created stay in the system. Suspended users still appear as assigned owners on records. Use suspension when an employee leaves. Admin access is required.",
-      "tags": ["admin", "suspend user", "access", "offboarding"]
+      "answer": "A suspended user cannot log in. Their data remains intact \u2014 activities, notes, and records they created stay in the system. Suspended users still appear as assigned owners on records. Use suspension when an employee leaves. Admin access is required.",
+      "tags": [
+        "admin",
+        "suspend user",
+        "access",
+        "offboarding"
+      ]
     },
     {
       "id": "faq-065",
       "question": "How do I use the Jira integration to create an issue?",
       "answer": "Open an Account or Opportunity. In the Jira panel (if connected), click '+ Create Issue'. Fill in the issue title, type, and description. The issue will be created in Jira and linked to the CRM record. You can see it under the Jira tab on the account.",
-      "tags": ["jira", "create issue", "integration", "projects"]
+      "tags": [
+        "jira",
+        "create issue",
+        "integration",
+        "projects"
+      ]
     },
     {
       "id": "faq-066",
       "question": "How do I check if my emails are being delivered?",
       "answer": "Go to Gmail (/gmail) in the sidebar. In the Sent folder, you can see delivery status. For campaign emails, go to Communications and open the campaign to see open rates, delivery rates, and bounce alerts.",
-      "tags": ["email", "delivery", "sent", "campaigns"]
+      "tags": [
+        "email",
+        "delivery",
+        "sent",
+        "campaigns"
+      ]
     },
     {
       "id": "faq-067",
       "question": "Can I use voice to interact with Cortex?",
-      "answer": "Yes. Click the microphone icon in the Cortex AI assistant panel. Speak your question or command. Cortex will transcribe it and respond with both text and voice. This works great hands-free — for example when reviewing accounts on a call or driving between site visits.",
-      "tags": ["voice", "cortex AI", "microphone", "hands-free"]
+      "answer": "Yes. Click the microphone icon in the Cortex AI assistant panel. Speak your question or command. Cortex will transcribe it and respond with both text and voice. This works great hands-free \u2014 for example when reviewing accounts on a call or driving between site visits.",
+      "tags": [
+        "voice",
+        "cortex AI",
+        "microphone",
+        "hands-free"
+      ]
     },
     {
       "id": "faq-068",
       "question": "How do I see all activities logged by a specific rep?",
       "answer": "Go to Activity Feed (/activity). Use the filter to select the specific team member as the author. The feed will show all activities they have logged. You can also go to Reports or ask Cortex: 'Show me all activities logged by [rep name] this week'.",
-      "tags": ["activities", "reporting", "team", "management"]
+      "tags": [
+        "activities",
+        "reporting",
+        "team",
+        "management"
+      ]
     },
     {
       "id": "faq-069",
       "question": "How do I handle a lost deal?",
       "answer": "Open the opportunity. Change the stage to 'Closed Lost'. Fill in the loss reason when prompted (competitor won, budget, timing, etc.). Add a note with any useful context. This data improves future pipeline analysis and helps identify patterns in lost deals.",
-      "tags": ["closed lost", "loss reason", "opportunity", "reporting"]
+      "tags": [
+        "closed lost",
+        "loss reason",
+        "opportunity",
+        "reporting"
+      ]
     },
     {
       "id": "faq-070",
       "question": "How do I know if my pipeline is healthy?",
-      "answer": "A healthy pipeline has: 1) Coverage ratio of 3x or higher. 2) No more than 20% of deals in stale status. 3) Deals spread across multiple stages — not all bunched at 'New Lead'. 4) Close dates that are realistic and current. Ask Cortex: 'Evaluate my pipeline health' for an AI assessment.",
-      "tags": ["pipeline", "health", "coverage", "forecast"]
+      "answer": "A healthy pipeline has: 1) Coverage ratio of 3x or higher. 2) No more than 20% of deals in stale status. 3) Deals spread across multiple stages \u2014 not all bunched at 'New Lead'. 4) Close dates that are realistic and current. Ask Cortex: 'Evaluate my pipeline health' for an AI assessment.",
+      "tags": [
+        "pipeline",
+        "health",
+        "coverage",
+        "forecast"
+      ]
     },
     {
       "id": "faq-071",
       "question": "How do I run a report on revenue by region?",
       "answer": "Go to Executive Dashboard or Revenue Hub and look for regional breakdown charts. For detailed data, go to Geography (/geography) which shows revenue and deal distribution by location. You can also ask Cortex: 'Show me revenue by region this quarter'.",
-      "tags": ["revenue", "region", "reporting", "geography"]
+      "tags": [
+        "revenue",
+        "region",
+        "reporting",
+        "geography"
+      ]
     },
     {
       "id": "faq-072",
       "question": "What is the Daily Execution page?",
       "answer": "Daily Execution (/execution/daily) is a focused task view for working through high-priority items. It is designed for reps who want a distraction-free view of just what needs to be done today, without the full Tasks Hub interface.",
-      "tags": ["daily execution", "tasks", "focus", "productivity"]
+      "tags": [
+        "daily execution",
+        "tasks",
+        "focus",
+        "productivity"
+      ]
     },
     {
       "id": "faq-073",
       "question": "How do I archive an old account?",
-      "answer": "You cannot archive accounts directly in the current version — you can mark them Inactive by editing the account status field. Setting an account to Inactive removes it from default list views but keeps all its history. Use this for marinas that are no longer customers.",
-      "tags": ["accounts", "archive", "inactive", "status"]
+      "answer": "You cannot archive accounts directly in the current version \u2014 you can mark them Inactive by editing the account status field. Setting an account to Inactive removes it from default list views but keeps all its history. Use this for marinas that are no longer customers.",
+      "tags": [
+        "accounts",
+        "archive",
+        "inactive",
+        "status"
+      ]
     },
     {
       "id": "faq-074",
       "question": "How do I set up Cortex notifications?",
       "answer": "Go to Settings. Look for the Notifications section. You can enable or disable notifications for: new tasks assigned to you, deal stage changes, stale deal alerts, email signal triggers, and system alerts. Set your preferences and save.",
-      "tags": ["notifications", "settings", "alerts"]
+      "tags": [
+        "notifications",
+        "settings",
+        "alerts"
+      ]
     },
     {
       "id": "faq-075",
       "question": "How do I add someone to a project?",
       "answer": "Go to Projects (/execution/projects). Open the project. Look for the Team Members or Assigned Users section. Click '+ Add Member'. Search for the team member's name and select them. They will now have visibility into the project and can be assigned tasks within it.",
-      "tags": ["projects", "team", "assign", "members"]
+      "tags": [
+        "projects",
+        "team",
+        "assign",
+        "members"
+      ]
     },
     {
       "id": "faq-076",
       "question": "Can I use Cortex on mobile?",
-      "answer": "VoltSafe Cortex is a web application that works in mobile browsers. The interface is responsive and usable on phones and tablets. For field use, the voice feature of Cortex AI is especially useful — you can ask questions hands-free while on-site at a marina.",
-      "tags": ["mobile", "browser", "field", "responsive"]
+      "answer": "VoltSafe Cortex is a web application that works in mobile browsers. The interface is responsive and usable on phones and tablets. For field use, the voice feature of Cortex AI is especially useful \u2014 you can ask questions hands-free while on-site at a marina.",
+      "tags": [
+        "mobile",
+        "browser",
+        "field",
+        "responsive"
+      ]
     },
     {
       "id": "faq-077",
       "question": "How does the engagement scheduler work?",
       "answer": "The engagement scheduler runs automatically in the background every 6 hours. It evaluates all accounts and contacts against engagement rules you have set up in Automations. When a rule triggers (e.g., no email in 14 days), it creates an alert or task automatically.",
-      "tags": ["automation", "scheduler", "engagement", "background"]
+      "tags": [
+        "automation",
+        "scheduler",
+        "engagement",
+        "background"
+      ]
     },
     {
       "id": "faq-078",
       "question": "How do I view an account's full email history?",
       "answer": "Open the Account profile. Click the Timeline tab. Emails are listed chronologically alongside calls, meetings, and notes. You can filter the timeline to show only emails by using the activity type filter. This shows all inbound and outbound emails associated with that account.",
-      "tags": ["email history", "accounts", "timeline"]
+      "tags": [
+        "email history",
+        "accounts",
+        "timeline"
+      ]
     },
     {
       "id": "faq-079",
       "question": "What is the Score or Hot Score on leads?",
       "answer": "VoltSafe Cortex has an AI scoring engine that rates opportunities on multiple dimensions: lead quality, close probability, churn risk, expansion likelihood, and more. Scores update automatically based on CRM data. Higher scores = higher priority. Use the hot list view to see your top-scored opportunities.",
-      "tags": ["scoring", "AI", "hot score", "leads", "priority"]
+      "tags": [
+        "scoring",
+        "AI",
+        "hot score",
+        "leads",
+        "priority"
+      ]
     },
     {
       "id": "faq-080",
       "question": "How do I export a quote as PDF?",
       "answer": "Open the quote. Look for the 'Download PDF' or 'Export PDF' button. The quote will be formatted and downloaded as a professionally styled PDF document, ready to send to the customer.",
-      "tags": ["quotes", "PDF", "export", "download"]
+      "tags": [
+        "quotes",
+        "PDF",
+        "export",
+        "download"
+      ]
     },
     {
       "id": "faq-081",
       "question": "How do I view deals by account manager?",
       "answer": "Go to Opportunities. Click 'Filters'. Add a filter for 'Owner' and select the account manager's name. The list will show only their deals. You can combine with Stage or Date filters for more specific views. Save as a Saved View if you need this regularly.",
-      "tags": ["opportunities", "owner", "filter", "account manager"]
+      "tags": [
+        "opportunities",
+        "owner",
+        "filter",
+        "account manager"
+      ]
     },
     {
       "id": "faq-082",
       "question": "What is a rollout phase in deployments?",
       "answer": "A rollout phase is a stage in the physical deployment of VoltSafe hardware. Phases might include: Site Assessment, Equipment Delivery, Installation, Testing, Go Live. Each phase has a status, responsible person, and expected date. Track them in Deployments (/deployments).",
-      "tags": ["deployments", "rollout", "phases", "hardware"]
+      "tags": [
+        "deployments",
+        "rollout",
+        "phases",
+        "hardware"
+      ]
     },
     {
       "id": "faq-083",
       "question": "How do I use the global calendar?",
       "answer": "Go to Calendar (/execution/calendar). The calendar shows team events, scheduled site visits, proposal deadlines, and task due dates. You can create events directly in Cortex or connect your external calendar via CalDAV sync in Settings.",
-      "tags": ["calendar", "events", "scheduling"]
+      "tags": [
+        "calendar",
+        "events",
+        "scheduling"
+      ]
     },
     {
       "id": "faq-084",
       "question": "How do I merge two contacts?",
       "answer": "Currently, merging contacts is done through the Data Quality Center. Go to Data Quality, find the duplicate flagged contacts, and use the Merge function. Choose which contact record to keep as the primary and which to merge in. All activities and linked records will be combined.",
-      "tags": ["merge", "contacts", "duplicates", "data quality"]
+      "tags": [
+        "merge",
+        "contacts",
+        "duplicates",
+        "data quality"
+      ]
     },
     {
       "id": "faq-085",
       "question": "How do I view my notification history?",
       "answer": "Click the bell icon in the top navigation bar. This opens your notification panel showing recent alerts, mentions, and system events. Unread notifications appear highlighted. Click any notification to go directly to the relevant record.",
-      "tags": ["notifications", "alerts", "bell", "history"]
+      "tags": [
+        "notifications",
+        "alerts",
+        "bell",
+        "history"
+      ]
     },
     {
       "id": "faq-086",
       "question": "What is the Notes page?",
       "answer": "Notes (/notes) is a centralized view of all notes logged across the entire CRM. It is useful for finding notes written about specific topics across multiple accounts, or for reviewing what your team has been documenting recently.",
-      "tags": ["notes", "centralized", "activity"]
+      "tags": [
+        "notes",
+        "centralized",
+        "activity"
+      ]
     },
     {
       "id": "faq-087",
       "question": "How do I track my email reply rate?",
       "answer": "Email reply metrics are available in the Gmail inbox view within Cortex and in the Email Engagement reports. For individual account tracking, look at the email signal for 'no reply received'. For campaign tracking, go to Communications and open the campaign report.",
-      "tags": ["email", "reply rate", "engagement", "campaigns"]
+      "tags": [
+        "email",
+        "reply rate",
+        "engagement",
+        "campaigns"
+      ]
     },
     {
       "id": "faq-088",
       "question": "How do I see what changed on an account?",
       "answer": "Open the Account. The Timeline tab shows every change: when fields were updated, by whom, and to what value. Activities, emails, and status changes all appear here. For a system-wide view, check the Activity Feed (/activity).",
-      "tags": ["account history", "timeline", "changes", "audit trail"]
+      "tags": [
+        "account history",
+        "timeline",
+        "changes",
+        "audit trail"
+      ]
     },
     {
       "id": "faq-089",
       "question": "How do I create a partnership record?",
       "answer": "Go to Partnerships in the sidebar (under Growth Channels). Choose the partnership type (Industry, OEM, Government, etc.). Click '+ New Partnership'. Fill in the organization name, contact person, status, and any notes. Save. Partnership records track the relationship status and history with external strategic partners.",
-      "tags": ["partnerships", "create", "strategy", "channels"]
+      "tags": [
+        "partnerships",
+        "create",
+        "strategy",
+        "channels"
+      ]
     },
     {
       "id": "faq-090",
       "question": "How do I see deals that are at risk?",
       "answer": "Risk indicators appear on the Command Center and Executive Dashboard pages. You can also filter Opportunities by high risk score. Or ask Cortex: 'Show me deals at risk of being lost'. Cortex uses scoring signals to identify at-risk deals based on deal age, lack of activity, and competitive signals.",
-      "tags": ["at risk", "deals", "pipeline", "alerts"]
+      "tags": [
+        "at risk",
+        "deals",
+        "pipeline",
+        "alerts"
+      ]
     },
     {
       "id": "faq-091",
       "question": "Can Cortex schedule a meeting for me?",
-      "answer": "Cortex can help you identify who to meet and create a task to schedule a meeting. Direct calendar booking through Cortex is not currently automated — use the Calendar page to create the event manually, or sync with your external calendar via CalDAV in Settings.",
-      "tags": ["cortex AI", "meetings", "calendar", "scheduling"]
+      "answer": "Cortex can help you identify who to meet and create a task to schedule a meeting. Direct calendar booking through Cortex is not currently automated \u2014 use the Calendar page to create the event manually, or sync with your external calendar via CalDAV in Settings.",
+      "tags": [
+        "cortex AI",
+        "meetings",
+        "calendar",
+        "scheduling"
+      ]
     },
     {
       "id": "faq-092",
       "question": "How do I view a report by month?",
       "answer": "On the Executive Dashboard, Revenue Hub, or Source Attribution pages, use the date range picker in the top right to select a specific month or custom date range. The metrics will update to reflect that period.",
-      "tags": ["reports", "monthly", "date range", "analytics"]
+      "tags": [
+        "reports",
+        "monthly",
+        "date range",
+        "analytics"
+      ]
     },
     {
       "id": "faq-093",
       "question": "What is 'expansion likelihood' on an account?",
-      "answer": "Expansion likelihood is an AI-generated score that predicts how likely an existing customer is to expand their contract — buying more products, adding slips, or upgrading their plan. High expansion likelihood accounts are upsell targets. The score is visible on account profiles and in the scoring views.",
-      "tags": ["expansion", "upsell", "scoring", "AI"]
+      "answer": "Expansion likelihood is an AI-generated score that predicts how likely an existing customer is to expand their contract \u2014 buying more products, adding slips, or upgrading their plan. High expansion likelihood accounts are upsell targets. The score is visible on account profiles and in the scoring views.",
+      "tags": [
+        "expansion",
+        "upsell",
+        "scoring",
+        "AI"
+      ]
     },
     {
       "id": "faq-094",
       "question": "How do I link a project to an account?",
       "answer": "When creating or editing a project, look for the 'Account' field. Type the account name and select it from the dropdown. Once linked, the project will appear in the account's profile and timeline, giving a full view of the customer relationship.",
-      "tags": ["projects", "accounts", "link", "relationship"]
+      "tags": [
+        "projects",
+        "accounts",
+        "link",
+        "relationship"
+      ]
     },
     {
       "id": "faq-095",
       "question": "How do I add a comment to a support ticket?",
-      "answer": "Open the ticket from Support → Tickets. Scroll to the comments section at the bottom. Type your comment in the text box. Click 'Add Comment'. Comments are visible to anyone with access to the ticket and appear in chronological order.",
-      "tags": ["tickets", "comments", "support", "communication"]
+      "answer": "Open the ticket from Support \u2192 Tickets. Scroll to the comments section at the bottom. Type your comment in the text box. Click 'Add Comment'. Comments are visible to anyone with access to the ticket and appear in chronological order.",
+      "tags": [
+        "tickets",
+        "comments",
+        "support",
+        "communication"
+      ]
     },
     {
       "id": "faq-096",
       "question": "What is the Ecosystem section?",
       "answer": "The Ecosystem section contains tools for tracking broader industry relationships beyond direct sales: Ecosystem Organizations (industry bodies, associations), Ecosystem People (industry contacts not in active sales), and Ecosystem Events (conferences, trade shows). Use it to track your industry network.",
-      "tags": ["ecosystem", "industry", "network", "organizations"]
+      "tags": [
+        "ecosystem",
+        "industry",
+        "network",
+        "organizations"
+      ]
     },
     {
       "id": "faq-097",
       "question": "How do I check if data quality has improved?",
       "answer": "Go to Data Quality Center (/data-quality). The page shows a score or count of issues. Run it monthly and compare the issue count over time. Fewer flagged issues = improving data quality. You can also ask Cortex: 'What is the current data quality score?'",
-      "tags": ["data quality", "score", "improvement", "reporting"]
+      "tags": [
+        "data quality",
+        "score",
+        "improvement",
+        "reporting"
+      ]
     },
     {
       "id": "faq-098",
       "question": "How do I use the board pack for a meeting?",
       "answer": "Generate the board pack before the meeting (at least one day prior). Review it yourself first to understand the numbers. Download the PDF. Share it with attendees. During the meeting, use it as your reference for revenue performance, pipeline, and risk discussion. It auto-generates all the data you need.",
-      "tags": ["board pack", "meeting", "leadership", "preparation"]
+      "tags": [
+        "board pack",
+        "meeting",
+        "leadership",
+        "preparation"
+      ]
     },
     {
       "id": "faq-099",
       "question": "How do I use automations to prevent stale deals?",
       "answer": "Create an automation rule: Trigger = 'Last activity date'. Condition = 'More than 7 days ago'. Action = 'Create task: Follow up on [deal name]' assigned to the deal owner. This ensures no deal can go stale without an automatic reminder being created.",
-      "tags": ["automations", "stale", "deals", "prevention"]
+      "tags": [
+        "automations",
+        "stale",
+        "deals",
+        "prevention"
+      ]
     },
     {
       "id": "faq-100",
       "question": "What should I do if I suspect data is wrong?",
-      "answer": "1) Go to Data Quality Center to see flagged issues. 2) Open the specific record and compare it to what you know. 3) Click Edit and correct the data. 4) Add a note explaining the correction. 5) If the error is widespread, flag it to your Admin. Do not delete and recreate records — always edit to preserve the history.",
-      "tags": ["data quality", "errors", "fix", "data integrity"]
+      "answer": "1) Go to Data Quality Center to see flagged issues. 2) Open the specific record and compare it to what you know. 3) Click Edit and correct the data. 4) Add a note explaining the correction. 5) If the error is widespread, flag it to your Admin. Do not delete and recreate records \u2014 always edit to preserve the history.",
+      "tags": [
+        "data quality",
+        "errors",
+        "fix",
+        "data integrity"
+      ]
     },
     {
       "id": "faq-101",
       "question": "How do I add a news article to a CRM profile?",
-      "answer": "Open any Lead, Account, Contact, or Partner profile. Scroll to the Recent News section. Click 'Add News'. Paste the article URL — it must start with http:// or https://. Optionally add a note (e.g. 'This is about their Phase 2 electrification grant') and a relevance type. Click 'Add article'. VoltSafe will fetch the article and generate a summary, strategic relevance note, suggested outreach angle, key points, and a relevance score in the background. This usually takes 10–30 seconds.",
-      "tags": ["recent news", "add news", "article", "account intelligence"]
+      "answer": "Open any Lead, Account, Contact, or Partner profile. Scroll to the Recent News section. Click 'Add News'. Paste the article URL \u2014 it must start with http:// or https://. Optionally add a note (e.g. 'This is about their Phase 2 electrification grant') and a relevance type. Click 'Add article'. VoltSafe will fetch the article and generate a summary, strategic relevance note, suggested outreach angle, key points, and a relevance score in the background. This usually takes 10\u201330 seconds.",
+      "tags": [
+        "recent news",
+        "add news",
+        "article",
+        "account intelligence"
+      ]
     },
     {
       "id": "faq-102",
       "question": "What does VoltSafe do with a news article URL I add to a profile?",
-      "answer": "VoltSafe fetches the article, extracts its content, and then uses AI to create: (1) a plain-language summary of the article, (2) a strategic relevance note explaining why it matters to VoltSafe, (3) a suggested outreach angle — a specific way to reference this news in a sales or relationship email, (4) key points listed as bullet points, and (5) a relevance score from 1–5 (5 = high priority). The raw article body is never stored or sent anywhere — only the AI-distilled intelligence is kept.",
-      "tags": ["recent news", "ai summary", "how it works", "account intelligence"]
+      "answer": "VoltSafe fetches the article, extracts its content, and then uses AI to create: (1) a plain-language summary of the article, (2) a strategic relevance note explaining why it matters to VoltSafe, (3) a suggested outreach angle \u2014 a specific way to reference this news in a sales or relationship email, (4) key points listed as bullet points, and (5) a relevance score from 1\u20135 (5 = high priority). The raw article body is never stored or sent anywhere \u2014 only the AI-distilled intelligence is kept.",
+      "tags": [
+        "recent news",
+        "ai summary",
+        "how it works",
+        "account intelligence"
+      ]
     },
     {
       "id": "faq-103",
       "question": "What is the bookmark/pin button on a Recent News article?",
-      "answer": "The bookmark (pin) button on each news card marks that article for email context. When it is pinned (filled teal), it will be automatically selected when you open the Suggested Email modal for that profile. This tells the AI to reference that specific article when writing an email. Pinned articles are prioritised above high-relevance-score articles in the auto-selection. You can pin or unpin at any time — only you can change the pin on articles you added (admins can change any).",
-      "tags": ["recent news", "pin", "bookmark", "email context", "suggested email"]
+      "answer": "The bookmark (pin) button on each news card marks that article for email context. When it is pinned (filled teal), it will be automatically selected when you open the Suggested Email modal for that profile. This tells the AI to reference that specific article when writing an email. Pinned articles are prioritised above high-relevance-score articles in the auto-selection. You can pin or unpin at any time \u2014 only you can change the pin on articles you added (admins can change any).",
+      "tags": [
+        "recent news",
+        "pin",
+        "bookmark",
+        "email context",
+        "suggested email"
+      ]
     },
     {
       "id": "faq-104",
       "question": "How does Recent News affect the AI-suggested email?",
-      "answer": "When you open the Suggested Email modal, the system checks for Recent News articles on that profile. Pinned articles are auto-selected first. If nothing is pinned, articles with a relevance score of 4 or 5 are auto-selected (up to 3). You can also manually check or uncheck any article in the 'Recent News Context' section of the modal. The selected articles are sent to the AI as compressed context — it uses them to write a more timely, specific opener, like: 'I saw your recent marina modernisation announcement and thought it could be a good moment to reconnect.' The AI never pastes raw article text into the email.",
-      "tags": ["recent news", "suggested email", "ai email", "email context", "outreach"]
+      "answer": "When you open the Suggested Email modal, the system checks for Recent News articles on that profile. Pinned articles are auto-selected first. If nothing is pinned, articles with a relevance score of 4 or 5 are auto-selected (up to 3). You can also manually check or uncheck any article in the 'Recent News Context' section of the modal. The selected articles are sent to the AI as compressed context \u2014 it uses them to write a more timely, specific opener, like: 'I saw your recent marina modernisation announcement and thought it could be a good moment to reconnect.' The AI never pastes raw article text into the email.",
+      "tags": [
+        "recent news",
+        "suggested email",
+        "ai email",
+        "email context",
+        "outreach"
+      ]
     },
     {
       "id": "faq-105",
       "question": "Can I add the same article to multiple CRM profiles?",
-      "answer": "Yes. You can add the same URL to a Lead, an Account, a Contact, and a Partner independently. Each profile maintains its own separate entry — with its own note, relevance type, tags, and pin status. Adding the same URL to a second profile is allowed. What is blocked is adding the same URL twice to the same profile (you will see a duplicate warning).",
-      "tags": ["recent news", "duplicate", "multiple records", "same url"]
+      "answer": "Yes. You can add the same URL to a Lead, an Account, a Contact, and a Partner independently. Each profile maintains its own separate entry \u2014 with its own note, relevance type, tags, and pin status. Adding the same URL to a second profile is allowed. What is blocked is adding the same URL twice to the same profile (you will see a duplicate warning).",
+      "tags": [
+        "recent news",
+        "duplicate",
+        "multiple records",
+        "same url"
+      ]
     },
     {
       "id": "faq-106",
       "question": "What happens if the article is behind a paywall or the fetch fails?",
-      "answer": "If VoltSafe cannot fetch the article (paywall, 404, timeout, or access restriction), the record is still saved with a 'Could not fetch' status badge. The article link is preserved so you can open it manually. You can add a note summarising the key context yourself. Click 'Refresh Summary' at any time to retry the fetch — useful if the article was temporarily unavailable. The system will never block you from saving a link just because it cannot fetch it.",
-      "tags": ["recent news", "paywall", "failed fetch", "refresh", "error"]
+      "answer": "If VoltSafe cannot fetch the article (paywall, 404, timeout, or access restriction), the record is still saved with a 'Could not fetch' status badge. The article link is preserved so you can open it manually. You can add a note summarising the key context yourself. Click 'Refresh Summary' at any time to retry the fetch \u2014 useful if the article was temporarily unavailable. The system will never block you from saving a link just because it cannot fetch it.",
+      "tags": [
+        "recent news",
+        "paywall",
+        "failed fetch",
+        "refresh",
+        "error"
+      ]
+    },
+    {
+      "question": "Where can I find canned email responses, snippets, and reusable email templates?",
+      "answer": "Go to Marketing \u2192 Email Tools in the left sidebar. This is the central library for org-wide Snippets (short reusable body content) and Templates (full emails with subject lines). You can filter by type, category, or ownership. Admins can click \"Load Starter Library\" to seed 15+ pre-built marina sales templates. Snippets marked as Org-wide are available to your whole team; Private ones are only visible to you. You can also access the snippet picker directly from the email Compose window using the bookmark icon in the toolbar."
+    },
+    {
+      "question": "Where are email campaigns managed?",
+      "answer": "Email campaigns are in Marketing \u2192 Campaigns (/marketing/campaigns). From there you can create and edit campaigns, manage their email sequences, enroll recipients, and track performance. The old Communications tab no longer exists \u2014 everything is now under the Marketing section."
     }
   ],
   "features": [
@@ -645,120 +1176,200 @@
       "name": "Command Center",
       "route": "/",
       "description": "Role-customized hub showing pipeline metrics, urgent actions, and key performance indicators.",
-      "keyActions": ["View pipeline health", "See urgent action items", "Monitor team KPIs"]
+      "keyActions": [
+        "View pipeline health",
+        "See urgent action items",
+        "Monitor team KPIs"
+      ]
     },
     {
       "name": "Today Page",
       "route": "/today",
       "description": "Daily personal dashboard with today's meetings, hot tasks, and AI-generated suggestions.",
-      "keyActions": ["Review today's schedule", "Work through hot tasks", "Act on AI suggestions"]
+      "keyActions": [
+        "Review today's schedule",
+        "Work through hot tasks",
+        "Act on AI suggestions"
+      ]
     },
     {
       "name": "Opportunities",
       "route": "/opportunities",
-      "description": "The full list of active deals — leads and opportunities in one unified view.",
-      "keyActions": ["Create a deal", "Update stage", "Log activity", "Filter by owner or stage"]
+      "description": "The full list of active deals \u2014 leads and opportunities in one unified view.",
+      "keyActions": [
+        "Create a deal",
+        "Update stage",
+        "Log activity",
+        "Filter by owner or stage"
+      ]
     },
     {
       "name": "Pipeline",
       "route": "/pipeline",
       "description": "Visual kanban board of deals organized by stage. Drag cards to update stages.",
-      "keyActions": ["View pipeline by stage", "Drag to update", "Filter by date or owner"]
+      "keyActions": [
+        "View pipeline by stage",
+        "Drag to update",
+        "Filter by date or owner"
+      ]
     },
     {
       "name": "Accounts",
       "route": "/accounts",
       "description": "All marina/company records with profiles, timelines, linked contacts and deals.",
-      "keyActions": ["Search accounts", "View timeline", "Create account", "Export"]
+      "keyActions": [
+        "Search accounts",
+        "View timeline",
+        "Create account",
+        "Export"
+      ]
     },
     {
       "name": "Contacts",
       "route": "/contacts",
       "description": "Directory of all people in the CRM with profiles linked to accounts.",
-      "keyActions": ["Search contacts", "Link to account", "View email history"]
+      "keyActions": [
+        "Search contacts",
+        "Link to account",
+        "View email history"
+      ]
     },
     {
       "name": "Quotes",
       "route": "/quotes",
       "description": "Create, manage, and send professional price proposals to customers.",
-      "keyActions": ["Build quote", "Add line items", "Send to customer", "Export PDF", "Mark accepted"]
+      "keyActions": [
+        "Build quote",
+        "Add line items",
+        "Send to customer",
+        "Export PDF",
+        "Mark accepted"
+      ]
     },
     {
       "name": "Tasks Hub",
       "route": "/execution/tasks",
       "description": "Unified task management for the entire team with filters, bulk actions, and due date tracking.",
-      "keyActions": ["Create task", "Mark complete", "Bulk assign", "Filter overdue"]
+      "keyActions": [
+        "Create task",
+        "Mark complete",
+        "Bulk assign",
+        "Filter overdue"
+      ]
     },
     {
       "name": "Gmail Inbox",
       "route": "/gmail",
-      "description": "Full email inbox with CRM context — emails auto-linked to accounts and contacts.",
-      "keyActions": ["Read emails", "Send emails", "Link to accounts", "View email signals"]
+      "description": "Full email inbox with CRM context \u2014 emails auto-linked to accounts and contacts.",
+      "keyActions": [
+        "Read emails",
+        "Send emails",
+        "Link to accounts",
+        "View email signals"
+      ]
     },
     {
       "name": "Cortex AI (Voice Assistant)",
       "route": "Available on all pages",
       "description": "Full-access AI assistant that can answer questions, query CRM data, perform write operations, and search the web.",
-      "keyActions": ["Ask questions", "Query pipeline data", "Update records", "Search web", "Voice mode"]
+      "keyActions": [
+        "Ask questions",
+        "Query pipeline data",
+        "Update records",
+        "Search web",
+        "Voice mode"
+      ]
     },
     {
       "name": "Executive Dashboard",
       "route": "/executive-dashboard",
       "description": "Leadership-level KPI view with revenue performance, pipeline health, and trend analysis.",
-      "keyActions": ["View KPIs", "Compare periods", "Monitor team performance"]
+      "keyActions": [
+        "View KPIs",
+        "Compare periods",
+        "Monitor team performance"
+      ]
     },
     {
       "name": "Revenue Simulator",
       "route": "/revenue-sim",
       "description": "What-if scenario planner for revenue forecasting.",
-      "keyActions": ["Run scenarios", "Adjust deal counts", "Project quarterly revenue"]
+      "keyActions": [
+        "Run scenarios",
+        "Adjust deal counts",
+        "Project quarterly revenue"
+      ]
     },
     {
       "name": "Board Pack",
       "route": "/board-pack",
       "description": "Auto-generated board-ready business report with PDF export.",
-      "keyActions": ["Generate report", "Download PDF", "Share with leadership"]
+      "keyActions": [
+        "Generate report",
+        "Download PDF",
+        "Share with leadership"
+      ]
     },
     {
       "name": "Data Quality Center",
       "route": "/data-quality",
       "description": "Identifies and helps fix CRM data issues including duplicates and missing fields.",
-      "keyActions": ["Find duplicates", "Fix missing data", "Merge records"]
+      "keyActions": [
+        "Find duplicates",
+        "Fix missing data",
+        "Merge records"
+      ]
     },
     {
       "name": "Automations",
       "route": "/automations",
       "description": "Rule-based automation engine for creating tasks, alerts, and workflows automatically.",
-      "keyActions": ["Create rule", "Set trigger", "Set action", "Activate/deactivate"]
+      "keyActions": [
+        "Create rule",
+        "Set trigger",
+        "Set action",
+        "Activate/deactivate"
+      ]
     },
     {
       "name": "Executive Copilot",
       "route": "/executive-copilot",
       "description": "AI-generated daily business briefing with alerts and priority recommendations.",
-      "keyActions": ["Read daily brief", "Review alerts", "Act on recommendations"]
+      "keyActions": [
+        "Read daily brief",
+        "Review alerts",
+        "Act on recommendations"
+      ]
     },
     {
       "name": "Recent News",
       "route": "Inside each Lead, Account, Contact, or Partner profile",
-      "description": "Paste a news article URL into any CRM profile. VoltSafe automatically fetches it and generates a plain-language summary, strategic relevance note, suggested outreach angle, key points, and a relevance score (1–5). Use it to spot timely reasons to reach out. Pin articles with the bookmark button to prioritise them when generating suggested emails.",
-      "keyActions": ["Add news article URL", "View AI summary and outreach angle", "Pin article for email context", "Refresh AI summary", "Edit note or relevance type", "Archive article"]
+      "description": "Paste a news article URL into any CRM profile. VoltSafe automatically fetches it and generates a plain-language summary, strategic relevance note, suggested outreach angle, key points, and a relevance score (1\u20135). Use it to spot timely reasons to reach out. Pin articles with the bookmark button to prioritise them when generating suggested emails.",
+      "keyActions": [
+        "Add news article URL",
+        "View AI summary and outreach angle",
+        "Pin article for email context",
+        "Refresh AI summary",
+        "Edit note or relevance type",
+        "Archive article"
+      ]
     }
   ],
   "troubleshooting": [
     {
       "problem": "Page shows Access Denied",
       "cause": "User's permissions do not include that module",
-      "fix": "Ask Admin to grant access under Admin → Users → Permissions"
+      "fix": "Ask Admin to grant access under Admin \u2192 Users \u2192 Permissions"
     },
     {
       "problem": "Email not syncing",
       "cause": "Gmail not connected or OAuth token expired",
-      "fix": "Go to Settings → My Mailboxes → reconnect Gmail account"
+      "fix": "Go to Settings \u2192 My Mailboxes \u2192 reconnect Gmail account"
     },
     {
       "problem": "Cannot find a record",
       "cause": "Possible spelling variation or record is in a filtered-out state",
-      "fix": "Use Global Search (⌘K) and search by email, phone, or partial name"
+      "fix": "Use Global Search (\u2318K) and search by email, phone, or partial name"
     },
     {
       "problem": "Deal stage not updating",
@@ -773,7 +1384,7 @@
     {
       "problem": "Duplicate accounts in system",
       "cause": "Same company created twice with different spelling",
-      "fix": "Go to Data Quality Center → find duplicates → use Merge function"
+      "fix": "Go to Data Quality Center \u2192 find duplicates \u2192 use Merge function"
     },
     {
       "problem": "Email sent outside Cortex not showing in timeline",
@@ -793,41 +1404,137 @@
     {
       "problem": "Pipeline forecast looks wrong",
       "cause": "Close dates not updated, or deals with wrong stages",
-      "fix": "Review all deals — update stages and close dates to reflect reality"
+      "fix": "Review all deals \u2014 update stages and close dates to reflect reality"
     }
   ],
   "glossary": [
-    { "term": "Account", "definition": "A company or organization in the CRM. Usually a marina." },
-    { "term": "Activity", "definition": "A logged interaction: call, email, meeting, or note." },
-    { "term": "Automation", "definition": "A rule that triggers actions automatically based on data changes." },
-    { "term": "Board Pack", "definition": "Auto-generated leadership report package with PDF export." },
-    { "term": "Campaign", "definition": "A bulk email sent to a list of contacts." },
-    { "term": "Close Date", "definition": "Expected date when a deal will be won or lost." },
-    { "term": "Contact", "definition": "A person in the CRM, usually linked to an Account." },
-    { "term": "CRM", "definition": "Customer Relationship Management — the system for tracking customer data." },
-    { "term": "Cortex", "definition": "The built-in AI assistant in VoltSafe Cortex that can answer questions and perform CRM actions." },
-    { "term": "Coverage Ratio", "definition": "Pipeline value divided by revenue target. 3x is healthy." },
-    { "term": "Deal Velocity", "definition": "Average number of days for a deal to move from creation to close." },
-    { "term": "Deployment", "definition": "Physical installation of VoltSafe equipment at a marina." },
-    { "term": "Executive Copilot", "definition": "AI-generated daily business briefing with alerts." },
-    { "term": "Forecast", "definition": "A prediction of future revenue based on current pipeline data." },
-    { "term": "Hot Lead", "definition": "A lead with high urgency and fit signals — high priority to contact." },
-    { "term": "Install Workflow", "definition": "Step-by-step checklist for tracking a marina installation project." },
-    { "term": "Lead", "definition": "An early-stage potential sale before full qualification." },
-    { "term": "Opportunity", "definition": "A qualified potential sale with a value, stage, and close date." },
-    { "term": "Pipeline", "definition": "All open opportunities organized by sales stage." },
-    { "term": "Procurement", "definition": "Purchasing of equipment and materials for a project." },
-    { "term": "Quote", "definition": "A formal price proposal sent to a customer." },
-    { "term": "Renewal", "definition": "When an existing customer extends or upgrades their service." },
-    { "term": "Saved View", "definition": "A saved filter configuration on a list page for quick access." },
-    { "term": "Signal", "definition": "An automated alert based on CRM data patterns, such as no reply in 14 days." },
-    { "term": "Source Attribution", "definition": "Tracking where a lead or deal originally came from." },
-    { "term": "Stage", "definition": "Where a deal is in the sales process (e.g., Qualified, Proposal Sent)." },
-    { "term": "Stale Deal", "definition": "A deal with no recent activity that needs attention." },
-    { "term": "Task", "definition": "A specific action item assigned to a person with a due date." },
-    { "term": "Timeline", "definition": "Chronological log of all activity on a CRM record." },
-    { "term": "Warmness Score", "definition": "0–100 score measuring email engagement frequency with an account." },
-    { "term": "Weighted Pipeline", "definition": "Pipeline value adjusted for probability of closing each deal." },
-    { "term": "Win Rate", "definition": "Percentage of opportunities won vs. total opportunities closed." }
+    {
+      "term": "Account",
+      "definition": "A company or organization in the CRM. Usually a marina."
+    },
+    {
+      "term": "Activity",
+      "definition": "A logged interaction: call, email, meeting, or note."
+    },
+    {
+      "term": "Automation",
+      "definition": "A rule that triggers actions automatically based on data changes."
+    },
+    {
+      "term": "Board Pack",
+      "definition": "Auto-generated leadership report package with PDF export."
+    },
+    {
+      "term": "Campaign",
+      "definition": "A bulk email sent to a list of contacts."
+    },
+    {
+      "term": "Close Date",
+      "definition": "Expected date when a deal will be won or lost."
+    },
+    {
+      "term": "Contact",
+      "definition": "A person in the CRM, usually linked to an Account."
+    },
+    {
+      "term": "CRM",
+      "definition": "Customer Relationship Management \u2014 the system for tracking customer data."
+    },
+    {
+      "term": "Cortex",
+      "definition": "The built-in AI assistant in VoltSafe Cortex that can answer questions and perform CRM actions."
+    },
+    {
+      "term": "Coverage Ratio",
+      "definition": "Pipeline value divided by revenue target. 3x is healthy."
+    },
+    {
+      "term": "Deal Velocity",
+      "definition": "Average number of days for a deal to move from creation to close."
+    },
+    {
+      "term": "Deployment",
+      "definition": "Physical installation of VoltSafe equipment at a marina."
+    },
+    {
+      "term": "Executive Copilot",
+      "definition": "AI-generated daily business briefing with alerts."
+    },
+    {
+      "term": "Forecast",
+      "definition": "A prediction of future revenue based on current pipeline data."
+    },
+    {
+      "term": "Hot Lead",
+      "definition": "A lead with high urgency and fit signals \u2014 high priority to contact."
+    },
+    {
+      "term": "Install Workflow",
+      "definition": "Step-by-step checklist for tracking a marina installation project."
+    },
+    {
+      "term": "Lead",
+      "definition": "An early-stage potential sale before full qualification."
+    },
+    {
+      "term": "Opportunity",
+      "definition": "A qualified potential sale with a value, stage, and close date."
+    },
+    {
+      "term": "Pipeline",
+      "definition": "All open opportunities organized by sales stage."
+    },
+    {
+      "term": "Procurement",
+      "definition": "Purchasing of equipment and materials for a project."
+    },
+    {
+      "term": "Quote",
+      "definition": "A formal price proposal sent to a customer."
+    },
+    {
+      "term": "Renewal",
+      "definition": "When an existing customer extends or upgrades their service."
+    },
+    {
+      "term": "Saved View",
+      "definition": "A saved filter configuration on a list page for quick access."
+    },
+    {
+      "term": "Signal",
+      "definition": "An automated alert based on CRM data patterns, such as no reply in 14 days."
+    },
+    {
+      "term": "Source Attribution",
+      "definition": "Tracking where a lead or deal originally came from."
+    },
+    {
+      "term": "Stage",
+      "definition": "Where a deal is in the sales process (e.g., Qualified, Proposal Sent)."
+    },
+    {
+      "term": "Stale Deal",
+      "definition": "A deal with no recent activity that needs attention."
+    },
+    {
+      "term": "Task",
+      "definition": "A specific action item assigned to a person with a due date."
+    },
+    {
+      "term": "Timeline",
+      "definition": "Chronological log of all activity on a CRM record."
+    },
+    {
+      "term": "Warmness Score",
+      "definition": "0\u2013100 score measuring email engagement frequency with an account."
+    },
+    {
+      "term": "Weighted Pipeline",
+      "definition": "Pipeline value adjusted for probability of closing each deal."
+    },
+    {
+      "term": "Win Rate",
+      "definition": "Percentage of opportunities won vs. total opportunities closed."
+    }
   ]
 }

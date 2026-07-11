@@ -128,6 +128,7 @@ const MarketingDashboardPage = lazy(() => import("@/pages/marketing-dashboard"))
 const MarketingCampaignsPage = lazy(() => import("@/pages/marketing-campaigns"));
 const MarketingAudiencesPage = lazy(() => import("@/pages/marketing-audiences"));
 const MarketingTemplatesPage = lazy(() => import("@/pages/marketing-templates"));
+const EmailToolsPage = lazy(() => import("@/pages/email-tools"));
 const MarketingAnalyticsPage = lazy(() => import("@/pages/marketing-analytics"));
 const MarketingSuppressionPage = lazy(() => import("@/pages/marketing-suppression"));
 const MarketingRepliesPage = lazy(() => import("@/pages/marketing-replies"));
@@ -448,6 +449,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/marketing/campaigns">{() => guard("crm", <MarketingCampaignsPage />)}</Route>
       <Route path="/marketing/audiences">{() => guard("crm", <MarketingAudiencesPage />)}</Route>
       <Route path="/marketing/templates">{() => guard("crm", <MarketingTemplatesPage />)}</Route>
+      <Route path="/marketing/email-tools">{() => wrap(<EmailToolsPage />)}</Route>
       <Route path="/marketing/analytics">{() => guard("crm", <MarketingAnalyticsPage />)}</Route>
       <Route path="/marketing/suppression">{() => guard("crm", <MarketingSuppressionPage />)}</Route>
       <Route path="/marketing/replies">{() => guard("crm", <MarketingRepliesPage />)}</Route>

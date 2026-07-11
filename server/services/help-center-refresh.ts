@@ -287,6 +287,27 @@ function msUntilNextEndOfDay(now: Date = new Date(), tz: string = TIMEZONE): num
 
 let timerHandle: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * Run on server startup: if no refresh happened today, run one immediately.
+ * Unlike the midnight scheduler, this bypasses the `wasRepublishedToday` check
+ * because a cold start IS a deploy event (or a content-change that needs
+ * the runtime copies brought up to date).
+ */
+export async function runStartupRefresh(): Promise<void> {
+  try {
+    const today = localDateString();
+    const last = await lastRunRecord();
+    if (last && last.localDate === today) {
+      log(`[help-center-refresh] startup: already refreshed today (${today}), skipping`);
+      return;
+    }
+    log(`[help-center-refresh] startup: triggering unconditional refresh for ${today}`);
+    await refreshHelpCenterAssets("scheduled");
+  } catch (err) {
+    console.error("[help-center-refresh] startup refresh error:", err);
+  }
+}
+
 export function startHelpCenterRefreshScheduler(): void {
   if (timerHandle) return;
   const armNext = () => {

@@ -323,7 +323,7 @@
     {
       "id": "faq-030",
       "question": "How do I set up an email campaign?",
-      "answer": "Go to Communications (/execution/communications). First, create or select a contact list under 'Lists'. Then click '+ New Campaign', choose the list as your audience, write your email content, set the send time, and launch. Track open rates and replies from the campaign dashboard.",
+      "answer": "Go to Marketing → Campaigns (/marketing/campaigns). First, create or select a contact list under 'Lists'. Then click '+ New Campaign', choose the list as your audience, write your email content, set the send time, and launch. Track open rates and replies from the campaign dashboard.",
       "tags": [
         "campaign",
         "email",
@@ -1161,6 +1161,14 @@
         "refresh",
         "error"
       ]
+    },
+    {
+      "question": "Where can I find canned email responses, snippets, and reusable email templates?",
+      "answer": "Go to Marketing → Email Tools in the left sidebar. This is the central library for org-wide Snippets (short reusable body content) and Templates (full emails with subject lines). You can filter by type, category, or ownership. Admins can click \"Load Starter Library\" to seed 15+ pre-built marina sales templates. Snippets marked as Org-wide are available to your whole team; Private ones are only visible to you. You can also access the snippet picker directly from the email Compose window using the bookmark icon in the toolbar."
+    },
+    {
+      "question": "Where are email campaigns managed?",
+      "answer": "Email campaigns are in Marketing → Campaigns (/marketing/campaigns). From there you can create and edit campaigns, manage their email sequences, enroll recipients, and track performance. The old Communications tab no longer exists — everything is now under the Marketing section."
     }
   ],
   "features": [
@@ -1529,6 +1537,6 @@
       "definition": "Percentage of opportunities won vs. total opportunities closed."
     }
   ],
-  "lastUpdated": "2026-07-10",
-  "lastRevisionTimestamp": "2026-07-11T06:58:00.139Z"
+  "lastUpdated": "2026-07-11",
+  "lastRevisionTimestamp": "2026-07-11T17:03:46.922Z"
 }

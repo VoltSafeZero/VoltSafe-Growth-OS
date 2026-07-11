@@ -1,3 +1,4 @@
+- [Email Tools Snippets Architecture](email-tools-snippets.md) — two separate systems: DB org library (/marketing/email-tools) + localStorage composer; don't merge without making useSnippets async.
 - [Ask Cortex retrieval grounding](cortex-ask-grounding.md) — grounding a RAG system prompt is not enough; gpt-4o-mini needs first-person framing + a post-gen boilerplate regex guard.
 - [Team Tasks flag-scoped board](team-tasks-overhaul.md) — Team view must filter by is_team_task flag at every call site (board/hub/counts), never by admin role.
 - [Contextual help toggle architecture](help-icons-toggle-system.md) — gate global toggles in one shared component; nav icons must be siblings of links, not nested; restart app after startup migrations before testing.

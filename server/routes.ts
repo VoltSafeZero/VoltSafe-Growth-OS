@@ -8031,6 +8031,34 @@ export async function registerRoutes(
     }
   })();
 
+  // ── Email Snippets (migration 0032) ──────────────────────────────────────
+  (async () => {
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS email_snippets (
+          id SERIAL PRIMARY KEY,
+          title TEXT NOT NULL,
+          subject TEXT NOT NULL DEFAULT '',
+          body TEXT NOT NULL,
+          category TEXT NOT NULL DEFAULT 'Custom',
+          snippet_type TEXT NOT NULL DEFAULT 'snippet',
+          owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          sharing_scope TEXT NOT NULL DEFAULT 'org',
+          is_starter BOOLEAN NOT NULL DEFAULT FALSE,
+          usage_count INTEGER NOT NULL DEFAULT 0,
+          is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_snippets_owner ON email_snippets(owner_user_id);
+        CREATE INDEX IF NOT EXISTS idx_email_snippets_scope ON email_snippets(sharing_scope, is_archived);
+      `));
+      console.log("[migration] email_snippets table ready.");
+    } catch (e) {
+      console.error("[migration] email_snippets error:", e);
+    }
+  })();
+
   app.get("/api/admin/role-definitions", requireAuth, requireAdmin, async (_req, res) => {
     try {
       const rows = await db.execute(sql.raw(
@@ -43315,6 +43343,177 @@ ${contextText}`;
     } catch (err: any) {
       console.error("[daily-downloads] /stop:", err.message);
       return res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Email Snippets CRUD ──────────────────────────────────────────────────
+  const EMAIL_SNIPPET_ADMIN_ROLES = new Set(["master_admin", "admin", "ceo"]);
+  function isSnippetAdmin(user: any) {
+    return EMAIL_SNIPPET_ADMIN_ROLES.has(user?.globalRole);
+  }
+
+  const STARTER_SNIPPETS = [
+    { title: "Thanks for Reaching Out", category: "Introduction", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nThanks for reaching out.\n\nAppreciate the interest in VoltSafe Marine. We're building a fully integrated dock-to-dashboard shore power platform designed to modernize one of the most overlooked parts of marina infrastructure.\n\nIn short:\nSafer connections. Smarter management. Lower operational friction.\n\nHappy to answer questions or set up a short intro call if useful.\n\nTrevor" },
+    { title: "Schedule a Call", category: "Meeting Request", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nHappy to connect.\n\nHere's my calendar if easier:\n{{calendarLink}}\n\nNo formal pitch deck needed unless useful. Usually best to start with what problems your team is actively trying to solve at the dock level.\n\nTrevor" },
+    { title: "Cold Email — Marina Hook", category: "Introduction", snippetType: "template", sharingScope: "org", isStarter: true, subject: "A quick question about your shore power setup", body: "Hi {{firstName}},\n\nA strange question:\n\nWhy are marinas still relying on 140-year-old plug technology for mission-critical electrical infrastructure?\n\nVoltSafe changes that. We've built the first fully integrated dock-to-dashboard shore power platform:\n\n• Prongless magnetic connectors (no exposed live metal)\n• Real-time fault detection\n• Automated metered billing per slip\n• Remote monitoring and predictive maintenance\n\nWould it be worth 20 minutes to show you what forward-thinking marinas are moving toward?\n\nTrevor" },
+    { title: "Cold Email — Social Proof", category: "Follow-Up", snippetType: "template", sharingScope: "org", isStarter: true, subject: "Re: Shore power modernization at {{marinaName}}", body: "Hi {{firstName}},\n\nQuick follow up.\n\nElectrical compliance pressure is increasing. Insurance concerns are growing. Operators are tired of smart marina systems patched together from multiple vendors.\n\nVoltSafe consolidates all of it: pedestal, connectors, monitoring, billing, CRM, and boater controls.\n\nWorth a quick call to see if the timing makes sense for {{marinaName}}?\n\nTrevor" },
+    { title: "Post Demo Follow Up", category: "Follow-Up", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nAppreciate you taking the time today.\n\nAs discussed, VoltSafe is not just a pedestal replacement — it's a fully integrated operational platform designed to improve safety, visibility, billing accuracy, and boater experience.\n\nA few marinas are currently in advanced deployment planning. Happy to keep {{marinaName}} in the priority conversation as we finalize the early cohort.\n\nTrevor" },
+    { title: "Founder Marina Opportunity", category: "Proposal", snippetType: "template", sharingScope: "org", isStarter: true, subject: "Founder Marina opportunity — {{marinaName}}", body: "Hi {{firstName}},\n\nWe're finalizing a limited number of VoltSafe Founder Marina relationships ahead of broader commercialization.\n\nThese early partners gain: priority deployment access, early pricing advantages, direct collaboration with our product team, and strategic visibility opportunities.\n\nHappy to walk through what the Founder Marina relationship looks like and whether it makes sense for {{marinaName}}.\n\nTrevor" },
+    { title: "Ghost Follow Up", category: "Re-Engagement", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nJust checking in.\n\nWe've continued making strong progress on certification, deployments, and manufacturing readiness.\n\nCurious if shore power modernization is still something {{marinaName}} is exploring this season or next.\n\nHappy to reconnect anytime.\n\nTrevor" },
+    { title: "Breakup Email", category: "Closing", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nTotally understand timing may not be right.\n\nI'll close the loop for now, but happy to reconnect anytime if modernizing shore power becomes a priority.\n\nEither way, appreciate the consideration.\n\nTrevor" },
+    { title: "Why VoltSafe", category: "Introduction", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nMost people never question the electrical plug. But they should.\n\nThe plug system the world still relies on was designed in the 1800s — before modern electrification, automation, or connected systems even existed.\n\nVoltSafe exists because good enough is no longer good enough.\n\nWe believe electrical connections should be inherently safe, inherently smart, and inherently connected.\n\nThat conviction is built into everything we make.\n\nTrevor" },
+    { title: "Soft PO to Hard PO", category: "Closing", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nAs discussed, we're now organizing deployment planning and manufacturing allocation for upcoming marina installations.\n\nTo support forecasting, we're working with marina groups through Letters of Intent, Reservation Agreements, and Soft Purchase Orders — to secure queue position and lock in early pricing.\n\nHappy to walk through what makes the most sense for {{marinaName}} at this stage.\n\nTrevor" },
+    { title: "International Interest", category: "Introduction", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nThank you for reaching out.\n\nAt the moment, our commercialization focus is North America as we complete launch activities and certification rollout. That said, we're tracking international interest carefully and happy to stay connected as our geographic expansion plans develop.\n\nAppreciate the outreach.\n\nTrevor" },
+    { title: "Delivery Window Urgency", category: "Closing", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nWorth noting: most marinas don't modernize infrastructure at the last second.\n\nPlanning cycles, electrical reviews, budgeting, dock schedules, procurement, and seasonal timing all stack together quickly.\n\nAs commercialization ramps, delivery prioritization will increasingly favor operators already engaged in planning conversations.\n\nNot intended as pressure — just operational reality.\n\nTrevor" },
+    { title: "Dealer Inquiry", category: "Support", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nAppreciate the interest in VoltSafe Marine.\n\nAt present, we're managing deployment and distribution internally as we move through early commercialization. That said, we recognize the importance of strategic dealer relationships longer term.\n\nI've shared your information internally so we can stay connected as our distribution strategy evolves.\n\nAppreciate the outreach.\n\nTrevor" },
+    { title: "Objection — Too Early", category: "Objection Handling", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nFair point — and worth addressing directly.\n\nWe're not asking you to be a guinea pig. We're asking you to be part of a carefully selected early cohort that gets the best access, pricing, and support we'll ever offer.\n\nThe marinas that move early will set the standard. The ones that wait will adopt what's already the norm.\n\nTrevor" },
+    { title: "Objection — Budget", category: "Objection Handling", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nUnderstood. Budget is always part of the conversation.\n\nThe way most operators look at VoltSafe: it's not a cost — it's a revenue and liability trade-off.\n\nBilling recovery alone often funds the platform. Add reduced maintenance, insurance benefits, and boater experience uplift, and the math changes quickly.\n\nHappy to model it out for {{marinaName}} if useful.\n\nTrevor" },
+  ];
+
+  app.get("/api/email-snippets", requireAuth, async (req: any, res) => {
+    try {
+      const user = req.user;
+      const uid = user?.id;
+      const admin = isSnippetAdmin(user);
+      // Admins see all; others see org-scoped + their own private
+      const rows = await db.execute(sql.raw(
+        `SELECT s.id, s.title, s.subject, s.body, s.category, s.snippet_type,
+                s.owner_user_id, u.name AS owner_name,
+                s.sharing_scope, s.is_starter, s.usage_count, s.is_archived,
+                s.created_at, s.updated_at
+         FROM email_snippets s
+         LEFT JOIN users u ON u.id = s.owner_user_id
+         WHERE s.is_archived = FALSE
+           AND (${admin ? "TRUE" : `s.sharing_scope = 'org' OR s.owner_user_id = ${Number(uid)}`})
+         ORDER BY s.is_starter DESC, s.usage_count DESC, s.created_at ASC`
+      ));
+      const mapped = (rows.rows as any[]).map(r => ({
+        id: r.id, title: r.title, subject: r.subject ?? "", body: r.body,
+        category: r.category, snippetType: r.snippet_type,
+        ownerUserId: r.owner_user_id, ownerName: r.owner_name,
+        sharingScope: r.sharing_scope, isStarter: r.is_starter,
+        usageCount: r.usage_count, isArchived: r.is_archived,
+        createdAt: r.created_at, updatedAt: r.updated_at,
+      }));
+      res.json(mapped);
+    } catch (err: any) {
+      console.error("[email-snippets] GET:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/email-snippets/seed-defaults", requireAuth, requireAdmin, async (req: any, res) => {
+    try {
+      const user = req.user;
+      let seeded = 0;
+      for (const s of STARTER_SNIPPETS) {
+        const exists = await db.execute(sql.raw(
+          `SELECT 1 FROM email_snippets WHERE title = '${s.title.replace(/'/g, "''")}' AND is_starter = TRUE LIMIT 1`
+        ));
+        if ((exists.rows as any[]).length === 0) {
+          await db.execute(sql.raw(
+            `INSERT INTO email_snippets (title, subject, body, category, snippet_type, owner_user_id, sharing_scope, is_starter)
+             VALUES ('${s.title.replace(/'/g, "''")}', '${s.subject.replace(/'/g, "''")}', '${s.body.replace(/'/g, "''")}',
+                     '${s.category}', '${s.snippetType}', ${user.id}, '${s.sharingScope}', TRUE)`
+          ));
+          seeded++;
+        }
+      }
+      res.json({ seeded, total: STARTER_SNIPPETS.length });
+    } catch (err: any) {
+      console.error("[email-snippets] seed-defaults:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/email-snippets", requireAuth, async (req: any, res) => {
+    try {
+      const user = req.user;
+      const { title, subject = "", body, category = "Custom", snippetType = "snippet", sharingScope = "org" } = req.body;
+      if (!title?.trim()) return res.status(400).json({ error: "title required" });
+      if (!body?.trim()) return res.status(400).json({ error: "body required" });
+      const safeTitle = title.trim().replace(/'/g, "''");
+      const safeSubject = (subject || "").replace(/'/g, "''");
+      const safeBody = body.trim().replace(/'/g, "''");
+      const safeCategory = String(category).replace(/'/g, "''");
+      const safeType = ["snippet","template"].includes(snippetType) ? snippetType : "snippet";
+      const safeScope = ["org","private"].includes(sharingScope) ? sharingScope : "org";
+      const rows = await db.execute(sql.raw(
+        `INSERT INTO email_snippets (title, subject, body, category, snippet_type, owner_user_id, sharing_scope)
+         VALUES ('${safeTitle}', '${safeSubject}', '${safeBody}', '${safeCategory}', '${safeType}', ${user.id}, '${safeScope}')
+         RETURNING id, title, subject, body, category, snippet_type, owner_user_id, sharing_scope, is_starter, usage_count, created_at, updated_at`
+      ));
+      const r = (rows.rows as any[])[0];
+      res.status(201).json({ id: r.id, title: r.title, subject: r.subject, body: r.body, category: r.category, snippetType: r.snippet_type, ownerUserId: r.owner_user_id, sharingScope: r.sharing_scope, isStarter: r.is_starter, usageCount: r.usage_count, createdAt: r.created_at, updatedAt: r.updated_at });
+    } catch (err: any) {
+      console.error("[email-snippets] POST:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/email-snippets/:id", requireAuth, async (req: any, res) => {
+    try {
+      const user = req.user;
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "invalid id" });
+      // Ownership check — admin can edit any, others only their own
+      const check = await db.execute(sql.raw(`SELECT owner_user_id FROM email_snippets WHERE id = ${id} AND is_archived = FALSE`));
+      const row = (check.rows as any[])[0];
+      if (!row) return res.status(404).json({ error: "Not found" });
+      if (!isSnippetAdmin(user) && row.owner_user_id !== user.id) return res.status(403).json({ error: "Not your snippet" });
+
+      const { title, subject, body, category, snippetType, sharingScope } = req.body;
+      const sets: string[] = [`updated_at = NOW()`];
+      if (title !== undefined) sets.push(`title = '${String(title).replace(/'/g, "''")}'`);
+      if (subject !== undefined) sets.push(`subject = '${String(subject).replace(/'/g, "''")}'`);
+      if (body !== undefined) sets.push(`body = '${String(body).replace(/'/g, "''")}'`);
+      if (category !== undefined) sets.push(`category = '${String(category).replace(/'/g, "''")}'`);
+      if (snippetType !== undefined && ["snippet","template"].includes(snippetType)) sets.push(`snippet_type = '${snippetType}'`);
+      if (sharingScope !== undefined && ["org","private"].includes(sharingScope)) sets.push(`sharing_scope = '${sharingScope}'`);
+      await db.execute(sql.raw(`UPDATE email_snippets SET ${sets.join(", ")} WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[email-snippets] PATCH:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/email-snippets/:id", requireAuth, async (req: any, res) => {
+    try {
+      const user = req.user;
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "invalid id" });
+      const check = await db.execute(sql.raw(`SELECT owner_user_id FROM email_snippets WHERE id = ${id}`));
+      const row = (check.rows as any[])[0];
+      if (!row) return res.status(404).json({ error: "Not found" });
+      if (!isSnippetAdmin(user) && row.owner_user_id !== user.id) return res.status(403).json({ error: "Not your snippet" });
+      await db.execute(sql.raw(`UPDATE email_snippets SET is_archived = TRUE, updated_at = NOW() WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[email-snippets] DELETE:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/email-snippets/:id/use", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ error: "invalid id" });
+      await db.execute(sql.raw(`UPDATE email_snippets SET usage_count = usage_count + 1, updated_at = NOW() WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Help Center rebuild status (admin panel) ─────────────────────────────
+  app.get("/api/help-center/snippet-rebuild-status", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const { readRevisions, lastRefreshRecord, lastRunRecord } = await import("./services/help-center-refresh");
+      const [last, revisions] = await Promise.all([lastRefreshRecord(), readRevisions()]);
+      res.json({ lastRefresh: last, recentRevisions: revisions.slice(-10) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

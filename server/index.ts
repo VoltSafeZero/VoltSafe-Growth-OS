@@ -9,7 +9,7 @@ import { registerRoutes, registerJiraRoutes, registerConfluenceRoutes } from "./
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startHourlySyncScheduler } from "./services/gmail-sync";
-import { startHelpCenterRefreshScheduler } from "./services/help-center-refresh";
+import { startHelpCenterRefreshScheduler, runStartupRefresh } from "./services/help-center-refresh";
 import { storage } from "./storage";
 
 // ── Startup timing ────────────────────────────────────────────────────────────
@@ -673,6 +673,10 @@ app.use((req, res, next) => {
       if (process.env.ENABLE_BACKGROUND_JOBS !== "false") {
         startHourlySyncScheduler();
         startHelpCenterRefreshScheduler();
+        // Refresh knowledge-base assets on every cold start (= deploy), not
+        // just at midnight. runStartupRefresh is idempotent — it skips if a
+        // refresh already happened earlier today.
+        runStartupRefresh().catch(e => console.error("[startup] runStartupRefresh:", e?.message));
 
         // Automation drip tick — every 10 minutes
         (function scheduleAutomationTick() {
