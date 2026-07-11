@@ -381,6 +381,7 @@ export async function runDeploymentIdGatedRebuild(
 
   if (result.action === "refreshed") {
     await upsertRebuildState({
+      current_deployment_id:                   currentId,   // ensure saved even if "rebuilding" upsert lost the race
       last_successfully_indexed_deployment_id: currentId,
       rebuild_status:      "succeeded",
       rebuild_completed_at: new Date().toISOString(),

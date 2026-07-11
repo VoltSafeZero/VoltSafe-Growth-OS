@@ -1,0 +1,88 @@
+Continue. Do not stop at the checkpoint or local tests.
+
+Now complete the live production verification.
+
+1. Publish the current application to production.
+
+2. Capture and report:
+- production deployment ID
+- production build ID
+- Git commit/checkpoint SHA
+- knowledge rebuild job ID
+- last successfully indexed deployment ID
+
+3. Verify the publish-triggered rebuild:
+- confirm the new production deployment is detected
+- confirm a knowledge rebuild is queued or started
+- confirm status moves through Queued → Rebuilding → Current
+- confirm the indexed deployment ID exactly matches the production deployment ID
+- confirm the rebuild is not being skipped because another rebuild ran earlier today
+
+4. Verify the admin Knowledge Rebuild page in production:
+- page loads
+- current deployment ID appears
+- indexed deployment ID appears
+- status is accurate
+- last started/completed timestamps appear
+- error and retry fields work
+- Rebuild Now works for master admin
+
+5. Verify Snippets & Templates access in production:
+- CEO/master admin can access it
+- executive can access it
+- manager can access it
+- the navigation entry is visible
+- the direct route works
+- the email composer can insert a snippet
+- the email composer can insert a template
+- creating, editing, archiving and deleting work
+
+6. Ask Cortex in production exactly:
+
+“How do I add more canned email responses?”
+
+The answer must:
+- give the exact current navigation path
+- mention Snippets & Templates
+- not mention Communications
+- not mention /execution/communications
+- not say “if available”
+- not fabricate any route
+
+7. Search the rebuilt Cortex and Help knowledge for stale references to:
+- Communications
+- /execution/communications
+- Settings > Snippets
+- removed navigation paths
+
+Report the exact remaining count. The required count is zero unless a reference is intentionally retained as historical documentation, in which case explain why.
+
+8. Verify the Help Center:
+- Last revised timestamp changed only after successful rebuild
+- the indexed deployment ID is visible or traceable
+- current navigation instructions match production
+- failed rebuilds do not falsely show Current
+
+9. Run production smoke tests for:
+- knowledge rebuild status API
+- forced rebuild API
+- snippets list/create/update/archive/delete APIs
+- role permissions
+- current navigation registry
+- Cortex navigation answer
+
+10. Provide a final evidence-based report with:
+- production URL
+- deployment ID
+- indexed deployment ID
+- rebuild job ID
+- exact timestamps
+- production screenshots
+- test results
+- exact Cortex answer
+- exact Snippets route
+- role permission matrix
+- stale-reference count
+- any remaining failures
+
+Do not claim completion until the production deployment ID and indexed deployment ID match and the Cortex answer has been manually verified in production.
