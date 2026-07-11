@@ -79,3 +79,4 @@
 - [CC/BCC normalization helper](cc-bcc-normalization-helper.md) — root cause of "Invalid Cc header" was naive comma-split on display names; route To/Cc/Bcc through shared/recipients.ts everywhere.
 - [Training Hub video numbering/hosting](training-hub-capital-videos.md) — number field drives global order (no restart per playlist); hosted status is derived from file-on-disk; route is /training not /training-hub; use system Chromium via launchBrowser().
 - [Calendar source-checkbox visibility](calendar-source-visibility.md) — toEventListItem stripped externalCalendarId; client filter always saw undefined → show-all bypass.
+- [Calendar externalCalendarId PII fix](calendar-source-key.md) — raw Google Calendar IDs (which are email addresses) replaced with SHA-256 opaque calendarSourceKey in all list responses; server translates back to raw IDs for filtering/storage.

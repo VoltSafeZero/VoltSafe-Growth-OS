@@ -1,0 +1,54 @@
+Good—this tells us the migration itself is simple and non-destructive:
+
+ALTER TABLE "cortex_email_intel" ADD COLUMN "original_filename" text;
+ALTER TABLE "cortex_email_intel" ADD COLUMN "file_size_bytes" bigint;
+ALTER TABLE "cortex_email_intel" ADD COLUMN "file_mime_type" text;
+
+These only add three nullable columns. They do not delete or overwrite data.
+
+So the likely issue is now one of two things:
+
+1. Replit’s provisioning job is internally stuck, or
+2. PostgreSQL is waiting for a lock on cortex_email_intel.
+
+There is no approval button inside this expanded section. The top-right Approve is unrelated.
+
+Paste this into Replit Agent:
+
+Publishing is stuck at Provision while applying these generated production migrations:
+ALTER TABLE "cortex_email_intel" ADD COLUMN "original_filename" text;
+ALTER TABLE "cortex_email_intel" ADD COLUMN "file_size_bytes" bigint;
+ALTER TABLE "cortex_email_intel" ADD COLUMN "file_mime_type" text;
+The migration is additive and nullable, but publishing has remained stuck for approximately two hours.
+Do not change application features and do not reset or recreate either database.
+Please diagnose this specific blockage:
+1. Check whether production table cortex_email_intel currently exists.
+2. Check whether any of these three columns already exist in production.
+3. Inspect pg_stat_activity and pg_locks for:
+   - blocked ALTER TABLE statements
+   - open transactions involving cortex_email_intel
+   - idle-in-transaction sessions
+   - long-running queries holding locks on cortex_email_intel
+4. Identify the exact blocking PID, query, transaction age, and lock type, if any.
+5. Check whether the Replit provisioning job actually submitted these ALTER TABLE statements or is stuck before execution.
+6. Check whether a cancelled previous publish left an orphaned migration or provisioning operation.
+7. Confirm whether the generated SQL lacks IF NOT EXISTS and whether a partially applied prior attempt could now be causing duplicate-column errors.
+8. Retrieve the complete database/provisioning error—not only application runtime logs.
+Before taking action, report:
+- whether the table exists
+- which of the three columns already exist
+- whether a database lock exists
+- the exact blocker or error
+- whether terminating any session is safe
+- the smallest safe fix
+Rules:
+- Do not terminate normal production traffic
+- Do not drop tables or columns
+- Do not reset the database
+- Do not overwrite production data
+- Do not manually edit the migration journal unless inconsistency is proven
+- Do not claim success without completing a real publish
+If a stale idle transaction is proven to be blocking this migration, terminate only that exact stale blocker, then retry publishing once.
+If there is no database blocker and the provisioning job is stuck internally, state that clearly and prepare the exact information needed for Replit Support, including timestamps, deployment ID, migration SQL, and screenshots.
+
+The earlier scheduler errors are probably a separate production-schema issue. They reference different tables and columns, so they do not explain these three cortex_email_intel changes by themselves. The lock check is now the key move.

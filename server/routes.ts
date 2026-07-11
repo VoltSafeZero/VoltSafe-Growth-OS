@@ -155,6 +155,7 @@ import {
   accountInfoForEvent,
   classifyCalendarConnection,
   toEventListItem,
+  calendarSourceKey,
 } from "./services/calendar-visibility";
 import {
   lookupZoomConnection, disconnectZoom, toPublicZoomConnection, isZoomConfigured,
@@ -9348,12 +9349,13 @@ export async function registerRoutes(
         ? events
         : events.filter((ev: any) => !ev.externalCalendarId || selectedCalIds.includes(ev.externalCalendarId));
 
-      // Default list response is minimized — description/meetingUrl/invitees/
-      // attendeeDetails/external*/bookingLinkRecipientId never leave the server
-      // here, even for the requester's own events. Full detail is only served
-      // via the authorized GET /api/calendar/events/:id endpoint.
-      // NOTE: externalCalendarId IS included (see toEventListItem) so the
-      // client-side source-checkbox filter can work correctly.
+      // Default list response is minimized via toEventListItem — description,
+      // meetingUrl, invitees, attendeeDetails, external* IDs (including
+      // externalCalendarId which can be an email address), and
+      // bookingLinkRecipientId are never returned here.  Full detail is only
+      // served via the authorized GET /api/calendar/events/:id endpoint.
+      // A stable opaque calendarSourceKey (SHA-256 hash) is returned instead of
+      // externalCalendarId so the client-side source-checkbox filter still works.
       res.json(filtered.map((ev: any) => toEventListItem(ev)));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -9795,24 +9797,43 @@ export async function registerRoutes(
         }
       }
 
-      const selectedIds = Array.isArray(conn.selectedCalendarIds)
+      // selectedIds are stored as raw Google Calendar IDs in the DB.
+      // Return them as opaque calendarSourceKeys to the client so the raw IDs
+      // (which can be email addresses) are never sent over the wire.
+      const rawSelectedIds = Array.isArray(conn.selectedCalendarIds)
         ? (conn.selectedCalendarIds as string[])
         : null;
+      const selectedIds = rawSelectedIds
+        ? rawSelectedIds.map((id: string) => calendarSourceKey(id)).filter(Boolean) as string[]
+        : null;
 
-      res.json({ sources, selectedIds, connectionId: conn.id });
+      // Augment each discovered source with an opaque calendarSourceKey
+      const sourcesWithKey = sources.map((s: any) => ({
+        ...s,
+        calendarSourceKey: calendarSourceKey(s.id),
+      }));
+
+      res.json({ sources: sourcesWithKey, selectedIds, connectionId: conn.id });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  // POST /api/calendar/sources/select — save selected calendar IDs
+  // POST /api/calendar/sources/select — save selected calendar IDs.
+  // The client sends opaque calendarSourceKeys (SHA-256 hashes) — the server
+  // translates them back to raw Google Calendar IDs before storing.
   app.post("/api/calendar/sources/select", requireAuth, async (req, res) => {
     try {
       const userId = (req.session as any).userId as number;
+      // selectedIds are calendarSourceKey hashes — NOT raw Google Calendar IDs.
       const { connectionId, selectedIds } = req.body as { connectionId: number; selectedIds: string[] | null };
 
       const [conn] = await db
-        .select({ id: calendarConnections.id, userId: calendarConnections.userId })
+        .select({
+          id: calendarConnections.id,
+          userId: calendarConnections.userId,
+          calendarsDiscovered: calendarConnections.calendarsDiscovered,
+        })
         .from(calendarConnections)
         .where(eq(calendarConnections.id, connectionId))
         .limit(1);
@@ -9821,8 +9842,21 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Connection not found" });
       }
 
+      // Translate calendarSourceKeys → raw Google Calendar IDs for storage.
+      // The raw IDs are used server-side for filtering (never returned to clients).
+      let rawIdsToStore: string[] | null = null;
+      if (selectedIds !== null) {
+        const discovered: any[] = Array.isArray(conn.calendarsDiscovered) ? (conn.calendarsDiscovered as any[]) : [];
+        rawIdsToStore = selectedIds
+          .map((key: string) => {
+            const match = discovered.find((c: any) => calendarSourceKey(c.id) === key);
+            return match?.id ?? null;
+          })
+          .filter(Boolean) as string[];
+      }
+
       await db.update(calendarConnections)
-        .set({ selectedCalendarIds: selectedIds as any, updatedAt: new Date() })
+        .set({ selectedCalendarIds: rawIdsToStore as any, updatedAt: new Date() })
         .where(eq(calendarConnections.id, connectionId));
 
       res.json({ ok: true });

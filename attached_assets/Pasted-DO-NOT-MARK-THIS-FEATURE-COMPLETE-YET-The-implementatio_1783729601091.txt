@@ -1,0 +1,313 @@
+DO NOT MARK THIS FEATURE COMPLETE YET.
+
+The implementation may be promising, but the verification is incomplete and one of the final actions is concerning.
+
+You modified tests/security-audit.test.cjs to make the suite pass:
+
+- expanded the route slice
+- changed the regex
+- removed externalCalendarId from the sensitive-field list
+
+Do not treat changing a security test as harmless cleanup without proving that the original security requirement was incorrect.
+
+Before completion, perform a proper audit and full live verification.
+
+1. SECURITY TEST REVIEW
+
+For every change made to tests/security-audit.test.cjs, provide:
+
+- the original assertion
+- the modified assertion
+- why the original assertion was wrong
+- the production-code evidence supporting the change
+- the security impact
+- confirmation that no real privacy protection was weakened
+
+Specifically explain:
+
+A. externalCalendarId
+
+Prove:
+
+- what exact value this field contains
+- whether it can expose a user email address
+- whether it can expose a private calendar identifier
+- whether it can be used to query another user’s calendar
+- whether it is returned only to authorized users
+- why the client requires it
+- why a safer opaque source ID could not be used instead
+
+Do not simply say it is “not sensitive.”
+
+If externalCalendarId can contain an email address or private Google Calendar identifier, restore the security protection and expose a safe internal source identifier to the client instead.
+
+B. events.map versus filtered.map
+
+Changing a security test regex to accept implementation details is acceptable only if the test still verifies the intended security behaviour.
+
+Rewrite the test so it verifies the actual response payload and excluded fields, not fragile source-code variable names.
+
+C. slice length
+
+Do not rely on arbitrary source slices such as 2,200 or 4,000 characters for security tests.
+
+Replace that test with one of:
+
+- an API integration test
+- an AST-based inspection
+- a focused exported serializer test
+
+The test must fail if sensitive fields are returned, regardless of line spacing or route length.
+
+2. RUN THE COMPLETE TEST SUITE
+
+The full test suite timed out. That is not a passing result.
+
+Run the complete suite with a sufficient timeout or split it deterministically into batches.
+
+Report:
+
+- total test files
+- total tests
+- passed
+- failed
+- skipped
+- elapsed time
+- exact command used
+
+Do not report only:
+
+- 39 security tests
+- 144 Feed Cortex tests
+- 14 ingestion tests
+
+Those are scoped tests, not the complete application suite.
+
+If the full suite cannot finish, identify the slow or hanging test and fix the test runner or test itself.
+
+3. VERIFY THE FEATURE IS REAL, NOT SOURCE-GREP COMPLETE
+
+The 144 Feed Cortex tests appear heavily based on source-string expectations.
+
+Add functional tests that exercise actual behaviour.
+
+Required end-to-end or integration tests:
+
+PASTED TEXT
+- submit unique pasted text
+- confirm the database stores it
+- confirm chunks are created
+- ask Cortex a question answerable only from that text
+- confirm the answer and citation
+
+DOCUMENT
+- upload a real PDF fixture
+- confirm extraction
+- confirm chunk creation
+- confirm retrieval
+
+IMAGE
+- upload a real image containing visible text and a meaningful visual
+- confirm extracted text
+- confirm visual description
+- ask a source-specific question
+
+AUDIO
+- upload a real short audio fixture
+- confirm transcription
+- confirm timestamps or sections
+- confirm retrieval
+
+VIDEO
+- upload a real short video fixture
+- confirm audio extraction/transcription
+- confirm frame or slide analysis if claimed
+- confirm retrieval
+
+VOICE
+- use the browser microphone flow or a deterministic mocked MediaRecorder test
+- start
+- pause
+- resume
+- stop
+- preview
+- submit
+- confirm processing completes
+- confirm the spinner clears
+- confirm transcript persistence
+
+MULTIPLE FILES
+- drag and drop multiple file types
+- confirm independent progress
+- confirm one failure does not block successful files
+
+PERMISSIONS
+- ingest a private source as User A
+- confirm User B cannot list, inspect, retrieve, cite, or ask Cortex about it
+
+DUPLICATES
+- ingest the same file twice
+- confirm no duplicate chunks are silently created
+
+RESTART
+- interrupt a processing job
+- restart the application
+- confirm the job resumes safely or reaches an honest failed state
+
+4. VERIFY ACTUAL FORMAT SUPPORT
+
+List every format the UI claims to support.
+
+For each format, report:
+
+- MIME type
+- extension
+- parser/transcriber used
+- tested fixture
+- maximum size
+- whether it is fully supported, partially supported, or only accepted by the UI
+
+Do not display support for formats that have no working backend processor.
+
+Installing `mammoth` proves DOCX parsing only. It does not prove:
+
+- PDF
+- XLSX
+- PPTX
+- images
+- audio
+- video
+- voice transcription
+
+5. VERIFY THE DATABASE MIGRATION
+
+Report:
+
+- migration filename
+- tables created or changed
+- columns created
+- indexes
+- foreign keys
+- permission fields
+- status fields
+- rollback behaviour
+- whether the migration ran successfully in development
+- whether it is safe for production data
+
+Confirm existing URL ingestion records remain compatible.
+
+6. VERIFY BACKGROUND PROCESSING
+
+Confirm whether ingestion happens:
+
+- synchronously inside the request
+- through a durable job queue
+- through an in-process background task
+
+If it is in-process only, state that clearly as a limitation.
+
+Test:
+
+- large upload
+- request timeout
+- page navigation during processing
+- server restart
+- duplicate submission
+- failed parsing
+- retry
+
+Do not claim durable background ingestion unless it survives application restarts.
+
+7. LIVE BROWSER VERIFICATION
+
+Use the live deployed app and capture screenshots.
+
+Required screenshots:
+
+1. Feed Cortex desktop page
+2. Feed Cortex mobile or narrow viewport
+3. universal drag-and-drop state
+4. pasted-text composer
+5. file preview
+6. image preview
+7. audio/video processing state
+8. voice recorder active
+9. successful ingestion
+10. failed ingestion with a specific reason
+11. What Cortex Learned Today
+12. ingestion history filters
+
+Perform these real actions in the browser:
+
+- paste a URL
+- paste text
+- upload a PDF
+- upload an image
+- upload audio
+- upload video
+- record a voice note
+- drag multiple files
+
+For each source:
+
+- open its detail view
+- show extracted content
+- show chunk count
+- run retrieval
+- ask Cortex a source-specific question
+- confirm the source citation
+
+Browser-console cleanliness alone is not sufficient.
+
+8. CHECK FRONTEND IMPORTS AND BUILD
+
+You already found one invalid Lucide import after claiming the interface worked.
+
+Run:
+
+- production frontend build
+- TypeScript check
+- lint, if configured
+- unused import check
+- browser-console check
+
+Report the actual commands and results.
+
+9. DO NOT MODIFY TESTS TO HIDE FAILURES
+
+Any existing test changed during this work must be listed.
+
+For each changed test, classify it as:
+
+- legitimately updated requirement
+- stale implementation-detail assertion
+- weakened test
+- expanded test coverage
+
+No security, privacy, permission, ingestion, or retrieval test may be weakened merely to pass.
+
+10. FINAL COMPLETION REPORT
+
+Do not mark complete until the report includes:
+
+- files changed
+- migrations
+- supported formats
+- unsupported formats
+- backend processors
+- ingestion architecture
+- permission model
+- security-test justification
+- full test totals
+- production build result
+- live browser evidence
+- screenshots
+- one successful example for every ingestion type
+- one failed-ingestion example
+- known limitations
+
+The current status should be described as:
+
+“Implementation complete, comprehensive verification still pending.”
+
+It is not fully complete until the full suite and live multimodal ingestion flow pass.

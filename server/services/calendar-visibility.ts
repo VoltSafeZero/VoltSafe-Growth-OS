@@ -14,6 +14,7 @@
 
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { createHash } from "crypto";
 
 export type CalendarVisibilityType =
   | "private_personal"
@@ -154,6 +155,25 @@ export function sanitizeEventForBusyOnly<T extends Record<string, any>>(event: T
  * check. This applies even to events the requester owns — the list view
  * simply never carries the sensitive fields over the wire.
  */
+
+/**
+ * Derives a stable, opaque 12-character hex key from a Google Calendar source
+ * ID.  The raw Google Calendar ID (which is frequently an email address such as
+ * "trevor@voltsafe.com" for primary calendars, or a private group ID like
+ * "c_abc@group.calendar.google.com") is NEVER returned to clients in list
+ * responses.  Instead this SHA-256-derived key lets the client match events to
+ * selected calendar sources without exposing the underlying email or private
+ * identifier.
+ *
+ * SHA-256 is used purely for determinism / stability, not cryptographic
+ * secrecy.  The server retains the real mapping via calendarsDiscovered.
+ * 12 hex chars = 48 bits — sufficient to uniquely identify any calendar source.
+ */
+export function calendarSourceKey(externalCalendarId: string | null | undefined): string | null {
+  if (!externalCalendarId) return null;
+  return createHash("sha256").update(externalCalendarId).digest("hex").slice(0, 12);
+}
+
 export function toEventListItem<T extends Record<string, any>>(event: T): Record<string, any> {
   return {
     id: event.id,
@@ -167,12 +187,11 @@ export function toEventListItem<T extends Record<string, any>>(event: T): Record
     showAs: event.showAs ?? null,
     color: event.isBusyOnly ? null : (event.color ?? null),
     calendarName: event.isBusyOnly ? null : (event.calendarName ?? null),
-    // externalCalendarId is the Google Calendar source ID (e.g. "trevor@voltsafe.com")
-    // and MUST be included so the client-side source-checkbox filter can work.
-    // Without it, every event looks like an "app-created" event and bypasses all
-    // calendar-source filtering — causing every delegated/subscribed calendar to
-    // bleed through regardless of which checkboxes are checked.
-    externalCalendarId: event.isBusyOnly ? null : (event.externalCalendarId ?? null),
+    // calendarSourceKey is a stable SHA-256-derived opaque key for the calendar
+    // source this event came from.  Raw externalCalendarId (which can be an email
+    // address) is intentionally withheld from all list responses; only the
+    // single-event detail endpoint (after authorization) returns the raw field.
+    calendarSourceKey: event.isBusyOnly ? null : calendarSourceKey(event.externalCalendarId),
     locationSummary: event.isBusyOnly ? null : summarizeLocation(event.location),
     isBusyOnly: event.isBusyOnly ?? false,
   };

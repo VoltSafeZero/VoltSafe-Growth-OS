@@ -56,23 +56,31 @@ const CALENDAR_PAGE_SRC = fs.readFileSync(
   "utf8"
 );
 
-// ── Layer 1: toEventListItem includes externalCalendarId ─────────────────────
-console.log("\n── toEventListItem: externalCalendarId field ──");
+// ── Layer 1: toEventListItem exposes calendarSourceKey (not raw externalCalendarId) ──
+// The raw Google Calendar ID (which can be an email address) is replaced with a
+// stable SHA-256-derived opaque key before being returned in any list response.
+console.log("\n── toEventListItem: calendarSourceKey field ──");
 
 check(
-  "toEventListItem returns externalCalendarId",
-  CALENDAR_VISIBILITY_SRC.includes("externalCalendarId")
+  "toEventListItem returns calendarSourceKey (opaque, not raw externalCalendarId)",
+  CALENDAR_VISIBILITY_SRC.includes("calendarSourceKey:") &&
+    CALENDAR_VISIBILITY_SRC.includes("calendarSourceKey(event.externalCalendarId)")
 );
 
 check(
-  "externalCalendarId is null for busy-only events (privacy-safe)",
+  "calendarSourceKey is null for busy-only events (privacy-safe)",
   CALENDAR_VISIBILITY_SRC.includes("event.isBusyOnly ? null") &&
-    CALENDAR_VISIBILITY_SRC.includes("externalCalendarId")
+    CALENDAR_VISIBILITY_SRC.includes("calendarSourceKey")
 );
 
 check(
-  "externalCalendarId falls back to null when missing (not undefined)",
-  CALENDAR_VISIBILITY_SRC.includes("event.externalCalendarId ?? null")
+  "calendarSourceKey helper function exported from calendar-visibility.ts",
+  CALENDAR_VISIBILITY_SRC.includes("export function calendarSourceKey")
+);
+
+check(
+  "calendarSourceKey returns null for missing/null input (safe null-guard)",
+  CALENDAR_VISIBILITY_SRC.includes("if (!externalCalendarId) return null")
 );
 
 // ── Layer 2: server-side selectedCalendarIds pre-filter ───────────────────────
@@ -126,18 +134,19 @@ check(
 );
 
 check(
-  "Filter reads externalCalendarId from the event",
-  CALENDAR_PAGE_SRC.includes("externalCalendarId")
+  "Filter reads calendarSourceKey from the event (not raw externalCalendarId)",
+  CALENDAR_PAGE_SRC.includes("calendarSourceKey") &&
+    CALENDAR_PAGE_SRC.includes("sourceKey")
 );
 
 check(
-  "App-created events (no externalCalendarId) are always shown client-side",
-  CALENDAR_PAGE_SRC.includes("!extCalId") && CALENDAR_PAGE_SRC.includes("return true")
+  "App-created events (no calendarSourceKey) are always shown client-side",
+  CALENDAR_PAGE_SRC.includes("!sourceKey") && CALENDAR_PAGE_SRC.includes("return true")
 );
 
 check(
-  "Filter uses selectedIds.includes(extCalId) to gate synced-calendar events",
-  CALENDAR_PAGE_SRC.includes("selectedIds.includes(extCalId)")
+  "Filter uses selectedIds.includes(sourceKey) to gate synced-calendar events",
+  CALENDAR_PAGE_SRC.includes("selectedIds.includes(sourceKey)")
 );
 
 check(

@@ -1485,8 +1485,8 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
 
   // Calendar sources — which Google calendars to show
   const { data: sourcesData, refetch: refetchSources } = useQuery<{
-    sources: { id: string; name: string; color: string | null; accessRole: string; primary: boolean }[];
-    selectedIds: string[] | null;
+    sources: { id: string; calendarSourceKey: string | null; name: string; color: string | null; accessRole: string; primary: boolean }[];
+    selectedIds: string[] | null; // opaque calendarSourceKey hashes (not raw Google Calendar IDs)
     connectionId: number;
   }>({
     queryKey: ["/api/calendar/sources"],
@@ -1504,15 +1504,16 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
     },
   });
 
-  const toggleCalendarSource = (sourceId: string) => {
+  const toggleCalendarSource = (sourceKey: string) => {
     if (!sourcesData) return;
-    const primaryId = sourcesData.sources.find(s => s.primary)?.id ?? null;
+    const primaryKey = sourcesData.sources.find(s => s.primary)?.calendarSourceKey ?? null;
     // null = never configured → default is primary only (not all)
-    const current = sourcesData.selectedIds ?? (primaryId ? [primaryId] : []);
-    const next = current.includes(sourceId)
-      ? current.filter(id => id !== sourceId)
-      : [...current, sourceId];
+    const current = sourcesData.selectedIds ?? (primaryKey ? [primaryKey] : []);
+    const next = current.includes(sourceKey)
+      ? current.filter(k => k !== sourceKey)
+      : [...current, sourceKey];
     // Always save explicit array — null is reserved for "uninitialized / primary only"
+    // Server translates opaque keys back to raw Google Calendar IDs before storage.
     sourceSelectionMutation.mutate({ connectionId: sourcesData.connectionId, selectedIds: next });
   };
 
@@ -1564,19 +1565,19 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   const { data: ownEvents, isLoading } = useCalendarEvents(currentDate, view);
 
   // Filter ownEvents to only the calendars the user has checked.
-  // externalCalendarId = the Google Calendar source ID for synced events;
+  // calendarSourceKey = opaque SHA-256 hash of the Google Calendar source ID;
   // null = event created in-app (always show).
   // When selectedIds is null (never configured), default to primary-only.
   const visibleOwnEvents = useMemo(() => {
     if (!ownEvents) return [];
     if (!sourcesData?.sources?.length) return ownEvents;
-    const primaryId = sourcesData.sources.find(s => s.primary)?.id ?? null;
-    const selectedIds = sourcesData.selectedIds ?? (primaryId ? [primaryId] : null);
+    const primaryKey = sourcesData.sources.find(s => s.primary)?.calendarSourceKey ?? null;
+    const selectedIds = sourcesData.selectedIds ?? (primaryKey ? [primaryKey] : null);
     if (selectedIds === null) return ownEvents; // no primary found → show all
     return ownEvents.filter(e => {
-      const extCalId = (e as any).externalCalendarId as string | null | undefined;
-      if (!extCalId) return true; // app-created event — always visible
-      return selectedIds.includes(extCalId);
+      const sourceKey = (e as any).calendarSourceKey as string | null | undefined;
+      if (!sourceKey) return true; // app-created event — always visible
+      return selectedIds.includes(sourceKey);
     });
   }, [ownEvents, sourcesData]);
 
@@ -2175,20 +2176,21 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                 </div>
                 <div className="space-y-2">
                   {sourcesData.sources.map((src) => {
-                    const primaryId = sourcesData.sources.find(s => s.primary)?.id ?? null;
+                    const primaryKey = sourcesData.sources.find(s => s.primary)?.calendarSourceKey ?? null;
                     // null = never configured → only primary is checked by default
-                    const current = sourcesData.selectedIds ?? (primaryId ? [primaryId] : []);
-                    const checked = current.includes(src.id);
+                    const current = sourcesData.selectedIds ?? (primaryKey ? [primaryKey] : []);
+                    const srcKey = src.calendarSourceKey ?? "";
+                    const checked = !!(srcKey && current.includes(srcKey));
                     return (
                       <label
                         key={src.id}
                         className="flex items-center gap-2 cursor-pointer group"
-                        data-testid={`source-cal-${src.id}`}
+                        data-testid={`source-cal-${srcKey}`}
                       >
                         <Checkbox
                           checked={checked}
-                          onCheckedChange={() => toggleCalendarSource(src.id)}
-                          data-testid={`checkbox-source-${src.id}`}
+                          onCheckedChange={() => srcKey && toggleCalendarSource(srcKey)}
+                          data-testid={`checkbox-source-${srcKey}`}
                         />
                         <span
                           className="h-2.5 w-2.5 rounded-full shrink-0"

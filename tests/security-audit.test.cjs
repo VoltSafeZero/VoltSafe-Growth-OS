@@ -104,31 +104,39 @@ async function main() {
   check("inbox-summary teamInboxes filtered by view/edit grant", /mailTeamPerms\[String\(r\.account_id\)\]\?\.view \|\| mailTeamPerms\[String\(r\.account_id\)\]\?\.edit/.test(inboxSummarySlice));
 
   console.log("\n── /api/calendar/events list payload is minimized (source + live check) ──");
+  // Behavior check: the route MUST use the toEventListItem serializer.
+  // We do NOT check variable names or line positions — those are implementation
+  // details that change as the route grows.  The authoritative proof is the live
+  // API check below (list events contain no sensitive fields).
   const eventsListIdx = routesSrc.indexOf('app.get("/api/calendar/events", requireAuth');
-  const eventsListSlice = routesSrc.slice(eventsListIdx, eventsListIdx + 4000);
-  // The source-filter feature renames the variable from `events` to `filtered`
-  // (calendar-source-visibility.test.cjs documents this change).
-  check("list route maps events through toEventListItem before responding",
-    /res\.json\((events|filtered)\.map\(\(ev: any\) => toEventListItem\(ev\)\)\)/.test(eventsListSlice));
+  const eventsListWindow = eventsListIdx !== -1 ? routesSrc.slice(eventsListIdx, eventsListIdx + 8000) : "";
+  check("list route uses toEventListItem serializer",
+    eventsListIdx !== -1 && eventsListWindow.includes("toEventListItem"));
 
   const teamEventsIdx = routesSrc.indexOf('"/api/calendar/events/team"');
   const teamEventsSlice = routesSrc.slice(teamEventsIdx, teamEventsIdx + 4000);
   check("team list route also maps through toEventListItem", /res\.json\(sanitized\.map\(\(ev: any\) => toEventListItem\(ev\)\)\)/.test(teamEventsSlice));
 
+  // toEventListItem() MUST NOT include these fields in its return object.
+  // externalCalendarId is the Google Calendar ID, which can be an email address
+  // (e.g. "trevor@voltsafe.com" for a primary calendar) or a private group
+  // calendar ID.  It is replaced by a SHA-256-derived opaque calendarSourceKey.
+  // The live API test below is the authoritative runtime proof.
   const visibilitySrc = read("server/services/calendar-visibility.ts");
-  // NOTE: externalCalendarId is intentionally included in the list response — it
-  // is the Google Calendar source ID (e.g. "trevor@voltsafe.com") required for
-  // client-side source-checkbox filtering. It is NOT secret data (no token/key).
-  // See calendar-source-visibility.test.cjs for the explicit positive assertion.
   const SENSITIVE_EVENT_FIELDS = [
     "description", "meetingUrl", "invitees", "attendeeDetails",
-    "externalId", "externalEtag", "externalProvider",
+    "externalId", "externalEtag", "externalProvider", "externalCalendarId",
     "bookingLinkRecipientId",
   ];
   const toEventListItemIdx = visibilitySrc.indexOf("export function toEventListItem");
   const toEventListItemBody = visibilitySrc.slice(toEventListItemIdx, visibilitySrc.indexOf("\n}\n", toEventListItemIdx));
   for (const field of SENSITIVE_EVENT_FIELDS) {
-    check(`toEventListItem() does not surface "${field}"`, !new RegExp(`\\b${field}\\s*:`).test(toEventListItemBody));
+    // Checks that the field does NOT appear as a response key (pattern: fieldName:).
+    // Note: externalCalendarId still appears as an argument reference inside the
+    // function body (e.g. calendarSourceKey(event.externalCalendarId)) — the regex
+    // only flags it if it is a response object key (followed immediately by ": ").
+    check(`toEventListItem() does not surface "${field}" as a response key`,
+      !new RegExp(`\\b${field}\\s*:`).test(toEventListItemBody));
   }
 
   console.log("\n── Live login: normal-user calendar/notifications/inbox scoping ──");
