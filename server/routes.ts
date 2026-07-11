@@ -8831,6 +8831,63 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/admin/mailbox/:id/reconcile
+  // Triggers a full-mailbox reconciliation using "in:anywhere -in:spam -in:trash".
+  // This is the complement of the scroll backfill (in:inbox OR in:sent) — it imports
+  // archived mail that was never in inbox or sent. Admin-only. Long-running; returns
+  // immediately with job metadata; progress is logged to the server console.
+  // Optional body: { maxMessages: number (default 50000), includeSpam: bool, includeTrash: bool }
+  app.post("/api/admin/mailbox/:id/reconcile", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const accountId = parseInt(req.params.id, 10);
+      if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid mailbox id" });
+      const maxMessages = Number(req.body?.maxMessages ?? 50_000);
+      const includeSpam  = req.body?.includeSpam  === true;
+      const includeTrash = req.body?.includeTrash === true;
+      const { reconcileFullMailbox } = await import("./services/mailbox-reconcile");
+      // Run async — do not await. Return accepted immediately so the HTTP client
+      // does not time out on large mailboxes.
+      reconcileFullMailbox({ accountId, maxMessages, includeSpam, includeTrash })
+        .then((r) => console.log("[reconcile] completed", JSON.stringify(r)))
+        .catch((e) => console.error("[reconcile] failed", e.message));
+      res.json({ ok: true, accountId, message: "Reconciliation started — check server logs for progress." });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/admin/mailbox/orphaned-messages
+  // Reports email_messages rows whose source_account_id has no parent email_accounts row.
+  // Useful to detect deleted-then-recreated accounts (e.g. old id=91 for burgesstrevor76@gmail.com).
+  app.get("/api/admin/mailbox/orphaned-messages", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          m.source_account_id,
+          COUNT(*)::int          AS message_count,
+          MIN(m.sent_at)         AS oldest_message,
+          MAX(m.sent_at)         AS newest_message,
+          COUNT(DISTINCT m.gmail_thread_id)::int AS thread_count
+        FROM email_messages m
+        WHERE NOT EXISTS (
+          SELECT 1 FROM email_accounts a WHERE a.id = m.source_account_id
+        )
+        GROUP BY m.source_account_id
+        ORDER BY message_count DESC
+      `));
+      const orphaned = ((rows as any).rows ?? rows);
+      res.json({
+        ok: true,
+        orphanedAccountCount: orphaned.length,
+        totalOrphanedMessages: orphaned.reduce((s: number, r: any) => s + (r.message_count ?? 0), 0),
+        accounts: orphaned,
+        note: "These messages belong to deleted/recreated email accounts. They do not appear in any inbox view but consume storage. Safe to archive.",
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.put("/api/admin/users/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
@@ -20083,15 +20140,23 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           id: r.id, email: r.email_address, unread_count: r.unread_count,
         })),
       }));
+      const { computeMailboxHealth } = await import("./services/mailbox-health");
       const annotated = list.map((r) => {
         const watchExp = r.watch_expiration_at ? new Date(r.watch_expiration_at).getTime() : null;
         const lastWebhook = r.last_webhook_at ? new Date(r.last_webhook_at).getTime() : null;
         const watchHoursRemaining = watchExp ? Math.round((watchExp - now) / 3_600_000) : null;
         const lastWebhookMinAgo = lastWebhook ? Math.round((now - lastWebhook) / 60_000) : null;
-        // Status: green = healthy, amber = warning (watch < 24h or no webhook in 6h), red = revoked / disabled
-        let status: "green" | "amber" | "red" = "green";
-        if (r.auth_status !== "active" || !r.sync_enabled) status = "red";
-        else if ((watchHoursRemaining !== null && watchHoursRemaining < 24) || (lastWebhookMinAgo !== null && lastWebhookMinAgo > 360)) status = "amber";
+        // Canonical health — single source of truth for status dot + semantic label.
+        const healthResult = computeMailboxHealth({
+          authStatus: r.auth_status,
+          isActive: r.is_active !== false,
+          syncEnabled: r.sync_enabled,
+          syncErrorMessage: r.sync_error_message,
+          watchExpirationAt: r.watch_expiration_at,
+          lastIncrementalSyncAt: r.last_incremental_sync_at,
+          lastSyncAt: r.last_sync_at,
+          lastWebhookAt: r.last_webhook_at,
+        });
         return {
           id: r.id,
           emailAddress: r.email_address,
@@ -20112,7 +20177,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           lastMessageAt: r.last_message_at,
           watchHoursRemaining,
           lastWebhookMinAgo,
-          status,
+          status: healthResult.dot,
+          healthStatus: healthResult.status,
+          healthReason: healthResult.reason,
         };
       });
       res.json(annotated);

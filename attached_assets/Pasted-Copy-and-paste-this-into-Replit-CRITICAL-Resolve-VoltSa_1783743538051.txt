@@ -1,0 +1,593 @@
+Copy and paste this into Replit:
+
+⸻
+
+CRITICAL: Resolve VoltSafe Mail missing-email search defect and contradictory mailbox status across all connected accounts
+
+VoltSafe Mail must never silently omit valid emails, search the wrong dataset, or show contradictory mailbox health.
+
+There are now two confirmed issues that must be resolved together:
+
+1. Search completeness defect
+    * Searching scott@voltsafe.com in VoltSafe Mail returned far fewer results than Spark Mail for the same mailbox.
+    * Known valid conversations were missing from VoltSafe Mail search.
+    * Code-level defects were found around CC recipients, all_participants, full-text indexing, and local search fallbacks.
+2. Mailbox-status contradiction
+    * The live UI shows trevor@voltsafe.com as:
+        * Active
+        * Connected to Gmail
+        * Synced July 11, 2026
+        * Approximately 14,319 messages
+        * Gmail watch active
+        * July 10 emails visibly loading
+    * The audit previously reported:
+        * auth_status=expired
+        * last sync June 18, 2026
+        * newest local message June 18, 2026
+    * Those facts cannot describe the same canonical mailbox record and environment.
+
+This is a data-integrity, environment-consistency, and search-trust issue.
+
+Do not return a planning-only response. Investigate, fix, reconcile, test, and provide proof.
+
+⸻
+
+1. First resolve the environment and mailbox-record contradiction
+
+Before doing any further reconciliation, identify exactly why the live UI and the database audit disagree.
+
+Confirm the exact environment used by:
+
+* live browser UI;
+* server process;
+* Gmail sync worker;
+* admin mailbox page;
+* mailbox-integrity audit;
+* search API;
+* background jobs;
+* database queries.
+
+Report, without exposing secrets:
+
+* deployment URL;
+* environment name;
+* database host;
+* database name;
+* schema;
+* server process environment;
+* mailbox account ID;
+* user ID;
+* connected Gmail address;
+* token record ID;
+* latest successful Gmail API timestamp;
+* last incremental sync timestamp;
+* Gmail watch expiration;
+* latest locally stored message timestamp.
+
+Trace the exact API endpoint powering the Mailbox Connections screen and identify the row that produces:
+
+trevor@voltsafe.com
+Active
+Synced 7/11/2026
+Messages 14,319
+
+Trace the exact API endpoint powering the inbox and identify:
+
+* mailbox account ID;
+* database queried;
+* newest message timestamp;
+* source of the July 10 emails visible in the UI.
+
+Compare that against the previously reported row:
+
+auth_status=expired
+last_incremental_sync_at=2026-06-18
+
+Determine whether that row is:
+
+* stale;
+* duplicated;
+* from development;
+* from production;
+* an old disconnected mailbox record;
+* an obsolete status field;
+* or tied to the wrong account ID.
+
+Check for duplicate records matching:
+
+trevor@voltsafe.com
+
+For each matching record report:
+
+* account ID;
+* user ID;
+* environment;
+* active status;
+* token status;
+* created date;
+* updated date;
+* last sync;
+* message count;
+* latest message timestamp.
+
+Do not claim OAuth reconnection is required unless a live token refresh or Gmail API request fails for the same canonical mailbox record used by the UI.
+
+⸻
+
+2. Establish one canonical mailbox-health calculation
+
+The system must not show Active in one place and Expired in another.
+
+Create one shared mailbox-health service used by:
+
+* Mailbox Connections UI;
+* inbox status;
+* integrity audit;
+* sync worker;
+* admin diagnostics;
+* reconciliation job.
+
+Mailbox health must be derived from:
+
+* usable refresh token;
+* successful token refresh;
+* latest successful Gmail API call;
+* sync recency;
+* Gmail watch expiration;
+* current sync error;
+* account active/disabled state;
+* provider authorization state.
+
+Do not rely on a stale auth_status field alone.
+
+Return one of:
+
+* Healthy
+* Sync delayed
+* Reconciliation required
+* OAuth reconnect required
+* Disabled
+* Failed
+
+Update all UI and audit endpoints to use the same canonical calculation.
+
+⸻
+
+3. Confirm and preserve the code-level search fixes
+
+The following previously identified fixes must remain in place and be verified:
+
+* cc_emails included in local LIKE fallback search;
+* cc_emails included in full-text search;
+* cc_emails included in search indexes;
+* historical rows with null all_participants backfilled;
+* thread search no longer limited by the old @ guard;
+* search matches participants from every message in a thread;
+* pagination occurs after filtering, not before;
+* account boundaries remain enforced.
+
+Provide:
+
+* exact commit hash;
+* exact files changed;
+* exact search queries changed;
+* exact indexes added;
+* exact backfill logic;
+* exact admin routes;
+* exact tests added.
+
+Do not use runtime DDL as the permanent final solution. Move search-index creation into a proper migration if it is not already there.
+
+⸻
+
+4. Fix historical sync scope
+
+The normal backfill currently uses:
+
+in:inbox OR in:sent
+
+That excludes archived Gmail mail.
+
+Replace it with a complete mailbox-history strategy equivalent to:
+
+in:anywhere -in:spam -in:trash
+
+unless Spam and Trash are intentionally included as separate supported scopes.
+
+Requirements:
+
+* follow every Gmail pagination token;
+* preserve Gmail labels accurately;
+* import archived mail;
+* import sent mail;
+* avoid duplicates;
+* use Gmail message ID, Gmail thread ID, and connected account ID as canonical identifiers;
+* make the process idempotent;
+* make it resumable;
+* track progress;
+* retry transient failures;
+* do not perform a full mailbox fetch on normal app startup;
+* run reconciliation as a controlled background job;
+* keep the mailbox usable during reconciliation.
+
+If Drafts, Spam, and Trash are supported, reconcile them deliberately rather than accidentally.
+
+⸻
+
+5. Build a real mailbox-integrity audit
+
+Create or correct an admin-only audit that works for every connected mailbox.
+
+For each mailbox report:
+
+* account owner;
+* mailbox email;
+* provider;
+* canonical health status;
+* OAuth/token status;
+* latest successful Gmail API call;
+* last successful incremental sync;
+* last successful full reconciliation;
+* Gmail watch expiration;
+* current history ID;
+* provider message count;
+* local message count;
+* provider thread count;
+* local thread count;
+* oldest provider message date;
+* oldest local message date;
+* newest provider message date;
+* newest local message date;
+* archived message count;
+* sent message count;
+* inbox message count;
+* records missing headers;
+* records missing bodies;
+* records missing thread IDs;
+* null all_participants rows;
+* missing cc_emails;
+* duplicate local records;
+* orphaned messages;
+* failed index writes;
+* unresolved provider/local mismatches;
+* sync errors;
+* final status.
+
+Do not expose private message bodies or tokens.
+
+⸻
+
+6. Reconcile the canonical trevor@voltsafe.com mailbox
+
+After identifying the correct canonical record, run a live full reconciliation against Gmail.
+
+Report before and after:
+
+* Gmail total messages;
+* Gmail total threads;
+* local total messages;
+* local total threads;
+* missing Gmail message IDs;
+* missing Gmail thread IDs;
+* local orphan records;
+* local duplicates;
+* missing archived messages;
+* missing sent messages;
+* missing participant metadata;
+* search-index records rebuilt;
+* rows inserted;
+* rows updated;
+* rows deduplicated;
+* final unresolved mismatch count.
+
+If there was a sync gap, reconcile it explicitly.
+
+The final unresolved mismatch count must be zero, or you must report the exact provider-level blocker.
+
+⸻
+
+7. Prove the Scott search against Gmail
+
+For mailbox:
+
+trevor@voltsafe.com
+
+and search address:
+
+scott@voltsafe.com
+
+run Gmail provider queries equivalent to:
+
+from:scott@voltsafe.com
+to:scott@voltsafe.com
+cc:scott@voltsafe.com
+{from:scott@voltsafe.com to:scott@voltsafe.com cc:scott@voltsafe.com}
+in:anywhere scott@voltsafe.com
+
+For every query report:
+
+* Gmail matching message count;
+* Gmail matching thread count;
+* local matching message count;
+* local matching thread count;
+* VoltSafe search API message count;
+* VoltSafe search API thread count;
+* UI rendered conversation count;
+* exact difference at each stage.
+
+Explain legitimate differences between message counts and grouped-thread counts.
+
+Do not use Spark as the source of truth. Gmail is the source of truth.
+
+⸻
+
+8. Verify the known missing conversations
+
+Confirm these appear in live VoltSafe Mail search:
+
+* Marina Pipeline + a few inputs
+* VoltSafe / ETL Path – Commercial Alignment and Next Steps
+* Safety certification progress
+* VoltSafe Investment
+* VoltSafe Investment Opportunity
+
+For each report:
+
+* Gmail provider exists;
+* local database record exists;
+* search API returns it;
+* UI displays it;
+* correct mailbox ownership;
+* correct thread grouping.
+
+Also verify at least one case where:
+
+* Scott appears only in CC;
+* Scott appears only in To;
+* Scott appears only in an older message, not the newest;
+* the conversation is archived;
+* the conversation is sent mail;
+* the result is beyond page one.
+
+⸻
+
+9. Perform authenticated browser verification
+
+Use a live authenticated VoltSafe Mail session tied to the canonical mailbox record.
+
+Capture proof showing:
+
+* scott@voltsafe.com entered in search;
+* All Mail History scope active;
+* correct total message count;
+* correct total conversation count;
+* known previously missing conversations visible;
+* CC-only result visible;
+* To-only result visible;
+* older-thread participant result visible;
+* archived result visible;
+* sent result visible;
+* page two or later results visible.
+
+Do not substitute source-grep tests, database queries, or screenshots of only the connection page for this step.
+
+⸻
+
+10. Audit every connected VoltSafe Mail account
+
+This must apply to all mailboxes, not only Trevor’s.
+
+Run the integrity audit for every connected mailbox.
+
+For each report:
+
+* email;
+* owner;
+* canonical health;
+* OAuth status;
+* last successful sync;
+* last reconciliation;
+* Gmail provider message count;
+* local message count;
+* Gmail provider thread count;
+* local thread count;
+* missing-message count;
+* null participant count;
+* index health;
+* unresolved mismatch count;
+* whether reconciliation succeeded;
+* whether reconnect is genuinely required.
+
+Run reconciliation for every mailbox with valid OAuth.
+
+Do not expose one user’s private mailbox metadata to another user.
+
+⸻
+
+11. Prevent recurrence
+
+Implement and verify:
+
+* incremental Gmail history sync;
+* expired history ID detection;
+* automatic recovery reconciliation;
+* retry after failed provider page;
+* resumable reconciliation;
+* periodic provider/local consistency checks;
+* lost push notification recovery;
+* search-index retry;
+* sync-lag monitoring;
+* visible OAuth-expired alerts;
+* admin mismatch alerts;
+* idempotent reconciliation;
+* zero duplicates on second run;
+* no cross-account data leakage;
+* one canonical mailbox-health service.
+
+Push notifications must not be the only source of truth.
+
+⸻
+
+12. Add complete regression coverage
+
+Add tests for:
+
+Search
+
+* address in From;
+* address in To;
+* address in CC;
+* address in Reply-To;
+* address in older thread message;
+* uppercase/lowercase normalization;
+* display-name format;
+* multiple recipients;
+* archived mail;
+* sent mail;
+* result beyond first page;
+* correct message count;
+* correct thread count;
+* no duplicates across pages;
+* all-mail scope ignores current category filters;
+* current-view scope respects selected folder.
+
+Sync
+
+* complete initial sync;
+* paginated provider fetch;
+* archived-mail backfill;
+* sent-mail import;
+* incremental history sync;
+* expired history recovery;
+* interrupted reconciliation resume;
+* idempotent rerun;
+* zero duplicates;
+* provider failure retry;
+* account isolation.
+
+Health
+
+* Active UI and audit return the same health;
+* stale status fields do not override live provider state;
+* failed live token refresh produces reconnect status;
+* duplicate mailbox records are detected;
+* canonical record selection is deterministic.
+
+Security
+
+* mailbox account ID required on every query;
+* one user cannot search another private mailbox;
+* team inbox permissions still work;
+* tokens are never logged;
+* diagnostics do not expose bodies.
+
+⸻
+
+13. Run final tests
+
+Run:
+
+* mailbox completeness tests;
+* email search tests;
+* mailbox health tests;
+* reconciliation tests;
+* mail read-state styling tests;
+* calendar visibility tests;
+* full npm run test:grep.
+
+Report:
+
+* exact command;
+* passed count;
+* failed count;
+* exit code.
+
+Also provide:
+
+git status --short
+
+The final working tree must be clean except for intentionally committed changes.
+
+⸻
+
+14. Required completion report
+
+Do not report this complete until you provide:
+
+Root cause
+
+* exact cause of missing emails;
+* exact cause of UI Active versus audit Expired contradiction;
+* exact environment or duplicate-record issue;
+* why existing tests missed it.
+
+Code
+
+* exact files changed;
+* commit hashes;
+* migrations;
+* jobs;
+* routes;
+* services;
+* indexes;
+* tests.
+
+Trevor proof
+
+* canonical mailbox record;
+* Gmail provider counts;
+* local counts;
+* search API counts;
+* UI counts;
+* known missing threads visible;
+* archived and sent results visible;
+* pagination beyond page one;
+* zero unresolved mismatches.
+
+All-mailbox proof
+
+* every connected mailbox audited;
+* reconciled accounts;
+* accounts with actual OAuth failure;
+* unresolved mismatches;
+* final health status.
+
+UI proof
+
+* authenticated screenshots;
+* correct search totals;
+* known missing conversations;
+* correct scope;
+* no cross-account leakage.
+
+Tests
+
+* all test totals;
+* full-suite exit code;
+* clean working tree.
+
+⸻
+
+Definition of done
+
+This task is complete only when:
+
+* the live UI and audit use the same canonical mailbox record;
+* Active versus Expired contradiction is eliminated;
+* provider and local mailbox records reconcile;
+* archived mail is included in historical sync;
+* CC, To, From, Reply-To, and older-thread participants are searchable;
+* known Scott conversations appear;
+* pagination is complete;
+* message and thread counts are accurate;
+* every connected mailbox is audited;
+* valid mailboxes have zero unresolved mismatches;
+* genuine OAuth failures are clearly identified;
+* authenticated UI verification succeeds;
+* all tests pass;
+* working tree is clean;
+* no privacy boundary is weakened.
+
+Do not claim success based only on code inspection or source-level tests. Produce live provider, database, API, and UI proof.
+
+⸻

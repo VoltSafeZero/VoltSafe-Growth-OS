@@ -2,6 +2,7 @@
 - [Team Tasks flag-scoped board](team-tasks-overhaul.md) — Team view must filter by is_team_task flag at every call site (board/hub/counts), never by admin role.
 - [Contextual help toggle architecture](help-icons-toggle-system.md) — gate global toggles in one shared component; nav icons must be siblings of links, not nested; restart app after startup migrations before testing.
 - [Kanban column flex stretch causes footer gap](flex-row-column-stretch.md) — flex row default align-items:stretch forces columns to equal height; add items-start, not mt-auto/justify-between.
+- [Canonical Mailbox Health](canonical-mailbox-health.md) — computeMailboxHealth() in server/services/mailbox-health.ts is the single source of truth; updated_at ≠ last sync time; use last_incremental_sync_at.
 - [Modal horizontal overflow root cause](modal-horizontal-overflow.md) — overflow-y-auto alone forces overflow-x:auto too; flex children need min-w-0 or long text forces the dialog wider than viewport.
 - [Save URL to Cortex](save-url-to-cortex.md) — extended cortex_email_intel with source_type/canonical_url instead of a new table; always re-check service-layer constant names before hand-copying UI selects from a sibling modal.
 - [Smart Inbox Flip-Back Fix](smart-inbox-flipback.md) — dropping broad invalidateQueries(["/api/gmail/messages"]) from mark-read .then(); re-patch setQueriesData instead; 15s poll handles eventual consistency.

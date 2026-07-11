@@ -17,6 +17,7 @@
 
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { computeMailboxHealth } from "./mailbox-health";
 
 const log = (...a: any[]) => console.log("[mailbox-integrity]", ...a);
 
@@ -145,6 +146,11 @@ export type MailboxAuditEntry = {
   nullCcEmails: number;
   health: "healthy" | "participants_incomplete" | "sync_stale" | "oauth_error" | "no_data";
   healthDetails: string[];
+  // Canonical health from the shared computeMailboxHealth() function.
+  // This is the single source of truth used by the inbox sidebar and settings UI.
+  canonicalHealth: string;
+  canonicalHealthDot: "green" | "amber" | "red";
+  canonicalHealthReason: string;
 };
 
 export async function getMailboxAudit(
@@ -158,18 +164,27 @@ export async function getMailboxAudit(
 
   const res = await db.execute(sql.raw(`
     SELECT
-      ea.id                         AS account_id,
+      ea.id                             AS account_id,
       ea.email_address,
-      u.name                        AS owner_name,
-      u.email                       AS owner_email,
-      COALESCE(ea.provider, 'gmail') AS provider,
+      u.name                            AS owner_name,
+      u.email                           AS owner_email,
+      COALESCE(ea.provider, 'gmail')    AS provider,
       COALESCE(ea.auth_status, 'unknown') AS auth_status,
-      ea.updated_at                 AS last_incremental_sync,
+      ea.is_active,
+      ea.sync_enabled,
+      ea.sync_error_message,
+      ea.watch_expiration_at,
+      ea.last_webhook_at,
+      -- Use last_incremental_sync_at (the actual sync timestamp), not updated_at
+      -- (updated_at can be bumped by non-sync operations and is misleading as a
+      --  sync freshness indicator).
+      ea.last_incremental_sync_at       AS last_incremental_sync,
+      ea.last_sync_at,
       -- message-level stats (all non-destructive aggregates)
-      COUNT(m.id)::int              AS total_local_messages,
+      COUNT(m.id)::int                  AS total_local_messages,
       COUNT(DISTINCT m.gmail_thread_id)::int AS total_local_threads,
-      MIN(m.sent_at)                AS oldest_local_message,
-      MAX(m.sent_at)                AS newest_local_message,
+      MIN(m.sent_at)                    AS oldest_local_message,
+      MAX(m.sent_at)                    AS newest_local_message,
       SUM(CASE WHEN m.is_inbox  = true THEN 1 ELSE 0 END)::int   AS inbox_messages,
       SUM(CASE WHEN m.is_sent   = true THEN 1 ELSE 0 END)::int   AS sent_messages,
       SUM(CASE WHEN m.is_draft  = true THEN 1 ELSE 0 END)::int   AS draft_messages,
@@ -194,7 +209,9 @@ export async function getMailboxAudit(
     LEFT JOIN users u ON u.id = ea.user_id
     LEFT JOIN email_messages m ON m.source_account_id = ea.id AND m.ignored_reason IS NULL
     ${accountFilter}
-    GROUP BY ea.id, ea.email_address, u.name, u.email, ea.provider, ea.auth_status, ea.updated_at
+    GROUP BY ea.id, ea.email_address, u.name, u.email, ea.provider, ea.auth_status,
+             ea.is_active, ea.sync_enabled, ea.sync_error_message, ea.watch_expiration_at,
+             ea.last_webhook_at, ea.last_incremental_sync_at, ea.last_sync_at
     ORDER BY ea.email_address
   `));
 
@@ -250,6 +267,19 @@ export async function getMailboxAudit(
       healthDetails.push(`${r.missing_thread_id} messages have no thread ID — thread grouping broken for these`);
     }
 
+    // Compute canonical health using the shared service — same function used
+    // by the inbox sidebar and mailbox settings UI status dot.
+    const canonical = computeMailboxHealth({
+      authStatus: r.auth_status,
+      isActive: r.is_active !== false,
+      syncEnabled: r.sync_enabled,
+      syncErrorMessage: r.sync_error_message ?? null,
+      watchExpirationAt: r.watch_expiration_at ?? null,
+      lastIncrementalSyncAt: r.last_incremental_sync ?? null,
+      lastSyncAt: r.last_sync_at ?? null,
+      lastWebhookAt: r.last_webhook_at ?? null,
+    });
+
     return {
       accountId: r.account_id,
       emailAddress: r.email_address ?? "",
@@ -275,6 +305,9 @@ export async function getMailboxAudit(
       nullCcEmails: r.null_cc_emails ?? 0,
       health: health as MailboxAuditEntry["health"],
       healthDetails,
+      canonicalHealth: canonical.status,
+      canonicalHealthDot: canonical.dot,
+      canonicalHealthReason: canonical.reason,
     };
   });
 }
