@@ -105,17 +105,24 @@ async function main() {
 
   console.log("\n── /api/calendar/events list payload is minimized (source + live check) ──");
   const eventsListIdx = routesSrc.indexOf('app.get("/api/calendar/events", requireAuth');
-  const eventsListSlice = routesSrc.slice(eventsListIdx, eventsListIdx + 2200);
-  check("list route maps events through toEventListItem before responding", /res\.json\(events\.map\(\(ev: any\) => toEventListItem\(ev\)\)\)/.test(eventsListSlice));
+  const eventsListSlice = routesSrc.slice(eventsListIdx, eventsListIdx + 4000);
+  // The source-filter feature renames the variable from `events` to `filtered`
+  // (calendar-source-visibility.test.cjs documents this change).
+  check("list route maps events through toEventListItem before responding",
+    /res\.json\((events|filtered)\.map\(\(ev: any\) => toEventListItem\(ev\)\)\)/.test(eventsListSlice));
 
   const teamEventsIdx = routesSrc.indexOf('"/api/calendar/events/team"');
   const teamEventsSlice = routesSrc.slice(teamEventsIdx, teamEventsIdx + 4000);
   check("team list route also maps through toEventListItem", /res\.json\(sanitized\.map\(\(ev: any\) => toEventListItem\(ev\)\)\)/.test(teamEventsSlice));
 
   const visibilitySrc = read("server/services/calendar-visibility.ts");
+  // NOTE: externalCalendarId is intentionally included in the list response — it
+  // is the Google Calendar source ID (e.g. "trevor@voltsafe.com") required for
+  // client-side source-checkbox filtering. It is NOT secret data (no token/key).
+  // See calendar-source-visibility.test.cjs for the explicit positive assertion.
   const SENSITIVE_EVENT_FIELDS = [
     "description", "meetingUrl", "invitees", "attendeeDetails",
-    "externalId", "externalEtag", "externalProvider", "externalCalendarId",
+    "externalId", "externalEtag", "externalProvider",
     "bookingLinkRecipientId",
   ];
   const toEventListItemIdx = visibilitySrc.indexOf("export function toEventListItem");
