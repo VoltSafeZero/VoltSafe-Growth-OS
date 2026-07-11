@@ -1,0 +1,79 @@
+We have already cancelled and republished more than once, and every attempt stalls at Provision. Do not simply tell me to retry again.
+
+The diagnostic results confirm:
+
+- Production table cortex_email_intel exists
+- The three generated columns are absent
+- There are no locks
+- There are no blocked queries
+- There are no idle transactions
+- The migration was never submitted by Replit provisioning
+- The migration is additive, nullable, and non-destructive
+
+Proceed with the smallest safe workaround.
+
+PHASE 1 — SAFETY CHECK
+
+Before changing production:
+
+1. Confirm the active connection is the PRODUCTION database, not development.
+2. Record the current row count of cortex_email_intel.
+3. Record the existing column list and data types.
+4. Export or create a backup of the cortex_email_intel table structure and its 10 existing rows.
+5. Show me the backup location or confirmation before running the ALTER statements.
+
+PHASE 2 — APPLY THE SAFE PRODUCTION SCHEMA CHANGE
+
+Run the following against the PRODUCTION database only:
+
+ALTER TABLE "cortex_email_intel"
+ADD COLUMN IF NOT EXISTS "original_filename" text;
+
+ALTER TABLE "cortex_email_intel"
+ADD COLUMN IF NOT EXISTS "file_size_bytes" bigint;
+
+ALTER TABLE "cortex_email_intel"
+ADD COLUMN IF NOT EXISTS "file_mime_type" text;
+
+Do not drop, rename, truncate, replace, or recreate anything.
+
+PHASE 3 — VERIFY
+
+After applying the changes, verify:
+
+1. All three columns exist in production.
+2. Their types are:
+   - original_filename: text
+   - file_size_bytes: bigint
+   - file_mime_type: text
+3. All three columns are nullable.
+4. The original 10 rows still exist.
+5. No existing data changed.
+6. A read and write test against cortex_email_intel succeeds.
+7. There are no new PostgreSQL errors.
+
+PHASE 4 — REPUBLISH ONCE
+
+After successful verification:
+
+1. Refresh the Publishing page.
+2. Start one new publish.
+3. Confirm whether Replit now detects no pending migration for cortex_email_intel.
+4. Verify the deployment advances through:
+   Provision → Security checks → Build → Bundle → Promote
+5. Confirm the live application loads successfully.
+6. Confirm the new deployment ID.
+7. Confirm production database reads and writes work.
+
+Do not claim success until the live deployment completes.
+
+If publishing still stalls at Provision after the production schema already matches, stop retrying and provide a Replit Support escalation report containing:
+
+- project name
+- deployment ID
+- exact UTC and local timestamps
+- stuck stage
+- screenshots
+- confirmation that production schema matches
+- confirmation of zero locks or blocked queries
+- confirmation that no migration remains to apply
