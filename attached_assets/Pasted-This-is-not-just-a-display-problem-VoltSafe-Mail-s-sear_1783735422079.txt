@@ -1,0 +1,266 @@
+This is not just a display problem. VoltSafe Mail’s search is almost certainly searching a narrower dataset than Spark.
+
+The strongest clue is this:
+
+* Spark reports 307 emails found
+* VoltSafe Mail returns only a small subset
+* Several “missing” Spark results are threads where Scott is a participant or appears in an older message, but Scott may not be the sender of the newest message in the thread
+
+What is probably happening
+
+VoltSafe Mail is likely doing one or more of these:
+
+1. Searching only the latest message in each thread
+    If Scott sent an earlier message, but the latest reply came from James, Sanad, Tiffany, or someone else, the thread may not match.
+2. Searching only the visible Inbox folder
+    “Inbox → All” appears to mean all inbox categories, not Gmail’s full All Mail history. Spark may include archived, sent, categorized, and older messages.
+3. Searching only cached/synced messages
+    VoltSafe may query its local database rather than Gmail directly. If only a limited sync window was imported, older messages simply do not exist in VoltSafe’s search index.
+4. Matching sender fields too narrowly
+    VoltSafe may search only the normalized from_email of the displayed message, while Spark searches:
+    * From
+    * To
+    * CC
+    * BCC
+    * Thread participants
+    * Every message inside the thread
+    * Body text and quoted headers
+5. Pagination or result caps
+    The backend may fetch only the first 50 or 100 records and then apply the search filter afterward. That creates silent missing results—a classic “looks fine until you compare it to reality” bug.
+6. Thread collapsing
+    Spark may count individual messages, while VoltSafe displays one row per thread. That explains some count difference, but it does not fully explain the visible missing conversations.
+
+The most likely core bug
+
+VoltSafe Mail appears to be searching the summary record for a conversation, rather than searching every underlying Gmail message and participant within that conversation.
+
+That would explain why a thread such as:
+
+* “Scott, Sanad, Miguel, Kent”
+* “Scott, Miguel”
+* “Zach, Paula, Walden”
+* “Scott Carlson”
+
+can appear in Spark but disappear in VoltSafe—even though Scott is clearly involved.
+
+This needs to be treated as a data-integrity issue
+
+A mail search cannot quietly omit emails. That destroys trust in the entire system. Fancy AI summaries are useless if the email itself has vanished into the digital couch cushions.
+
+Copy this into Replit:
+
+⸻
+
+Critical VoltSafe Mail search completeness audit and fix
+
+VoltSafe Mail is returning materially fewer results than Spark Mail for the exact same Gmail account and query.
+
+Account being tested:
+
+trevor@voltsafe.com
+
+Search query:
+
+scott@voltsafe.com
+
+Spark Mail reports approximately 307 matching emails, while VoltSafe Mail returns only a small subset. Multiple known matching emails and threads from July 8–9 are missing from VoltSafe Mail.
+
+This is a critical search-completeness and data-integrity defect. Do not treat it as a cosmetic UI issue.
+
+Known missing examples
+
+Spark displays matching conversations such as:
+
+* Tiffany M — “Marina Pipeline + a few inputs”
+* Scott, Sanad, Miguel, Kent — “VoltSafe / ETL Path – Commercial Alignment and Next Steps”
+* Scott, Miguel — “VoltSafe / ETL Path – Commercial Alignment and Next Steps”
+* Zach, Paula, Walden — “Safety certification progress”
+* Scott Carlson — “VoltSafe Investment”
+* Other threads where Scott Carlson or scott@voltsafe.com appears as a sender, recipient, CC participant, or earlier participant in the thread
+
+Some of these are not displayed in VoltSafe Mail search results even though they exist in the same Gmail mailbox.
+
+Required investigation
+
+Trace the complete search path from the UI through the API, database, Gmail synchronization layer, thread aggregation, and result rendering.
+
+Determine exactly which of these is happening:
+
+1. Search only checks the latest message in each thread.
+2. Search only checks the thread summary row.
+3. Search ignores older messages inside a thread.
+4. Search only checks from_email.
+5. Search does not check To, CC, BCC, reply-to, or participant fields.
+6. Search does not search archived mail.
+7. Search is limited to Inbox rather than Gmail All Mail.
+8. Local synchronization imported only a limited date range.
+9. Search operates only on locally cached records.
+10. Pagination is applied before filtering.
+11. A hard result limit truncates valid matches.
+12. Gmail thread IDs or message IDs are being deduplicated incorrectly.
+13. Email-address normalization fails for display-name formats such as:
+
+* Scott Carlson <scott@voltsafe.com>
+* scott@voltsafe.com
+* quoted or lowercase/uppercase variations
+
+14. Search excludes sent messages or messages where the connected account is not the direct recipient.
+15. Category or inbox filters remain active when global mailbox search is used.
+16. Thread collapsing hides matching conversations incorrectly.
+
+Required search behaviour
+
+Searching for an email address such as:
+
+scott@voltsafe.com
+
+must find every authorized message or thread in the selected mailbox where that address appears in any of the following:
+
+* From
+* To
+* CC
+* BCC, where available to the authenticated mailbox
+* Reply-To
+* Thread participants
+* Any individual message inside a thread
+* Normalized sender or recipient metadata
+* Searchable message headers
+* Body or quoted header text, where full-text search is supported
+
+A thread must match when any message inside the thread matches, not only when the newest message matches.
+
+Search scope
+
+Clearly define and enforce two scopes:
+
+Current view search
+
+Search only the currently selected folder or inbox.
+
+Search all mail history
+
+Search the complete authorized Gmail mailbox, including:
+
+* Inbox
+* Archived mail
+* Sent mail
+* Categories
+* Older synchronized messages
+* All messages inside matching threads
+
+The existing “Search all mail history” wording must genuinely search the full mailbox history. It must not search only currently loaded rows or a recent synchronization window.
+
+Gmail and local-index validation
+
+For the test mailbox, compare:
+
+1. Gmail API result count for the equivalent Gmail query.
+2. Number of matching raw message records in the VoltSafe database.
+3. Number of matching thread records.
+4. Number returned by the VoltSafe search endpoint.
+5. Number rendered in the UI.
+
+Produce the counts at every stage so the exact point of data loss is proven.
+
+Use Gmail search semantics for comparison, including queries such as:
+
+* from:scott@voltsafe.com
+* to:scott@voltsafe.com
+* cc:scott@voltsafe.com
+* {from:scott@voltsafe.com to:scott@voltsafe.com cc:scott@voltsafe.com}
+* in:anywhere scott@voltsafe.com
+
+Do not expose private email content in logs. Counts, IDs, timestamps, and normalized metadata are sufficient.
+
+Pagination requirements
+
+Filtering must occur at the database or Gmail query level before pagination.
+
+Do not:
+
+1. Fetch the first page of recent messages.
+2. Filter that page locally.
+3. Present the partial result as complete.
+
+Pagination must continue until all matching results requested by the user are available.
+
+The UI must display:
+
+* Total matching messages
+* Total matching conversations, when threads are grouped
+* Whether results are still loading
+* Whether additional pages remain
+
+Synchronization audit
+
+Verify:
+
+* Oldest synchronized Gmail message date
+* Newest synchronized Gmail message date
+* Total Gmail messages available
+* Total local messages stored
+* Total Gmail threads available
+* Total local threads stored
+* Whether archived and sent messages are imported
+* Whether synchronization uses Gmail history IDs correctly
+* Whether any history-expiration gap caused messages to be skipped
+* Whether a full reconciliation has ever been completed
+
+If the local index is incomplete, implement a safe reconciliation job that backfills missing metadata and messages without creating duplicates.
+
+Thread aggregation fix
+
+For every thread, maintain searchable normalized participant metadata derived from every message in the thread.
+
+A thread search document should include:
+
+* All sender addresses
+* All recipient addresses
+* All CC addresses
+* All reply-to addresses
+* All participant display names
+* All subjects
+* Searchable snippets from each message
+* Gmail labels
+* Earliest and latest timestamps
+
+Rebuild this search document whenever a thread receives a new message.
+
+Regression tests
+
+Add tests proving:
+
+1. A thread matches when Scott sent the newest message.
+2. A thread matches when Scott sent an older message but not the newest.
+3. A thread matches when Scott appears only in To.
+4. A thread matches when Scott appears only in CC.
+5. Display-name formatting does not prevent matching.
+6. Uppercase and lowercase email variations match.
+7. Archived mail appears in global-history search.
+8. Sent mail appears in global-history search.
+9. Inbox-only search excludes archived messages correctly.
+10. Results beyond the first pagination page are returned.
+11. Search is not limited to currently rendered or cached UI rows.
+12. Thread grouping does not drop valid matches.
+13. Matching individual-message count and matching-thread count are not confused.
+14. Full synchronization and incremental synchronization produce identical search results.
+15. The known July 8–9 examples are returned for scott@voltsafe.com.
+
+Required completion evidence
+
+Do not report this fixed until you provide:
+
+* Root cause
+* Files changed
+* Gmail API matching count
+* Local database matching count
+* Search API matching count
+* UI rendered count
+* Before-and-after comparison
+* Confirmation that known missing Scott-related conversations now appear
+* Regression-test results
+* Confirmation that no mailbox permissions or privacy boundaries were weakened
+
+Do not modify unrelated mail styling, reading state, categorization, AI summaries, sending, drafts, labels, or tracking.
+
+⸻
