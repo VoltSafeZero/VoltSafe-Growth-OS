@@ -602,6 +602,18 @@
       "question": "What should I do if I suspect data is wrong?",
       "answer": "1) Go to Data Quality Center to see flagged issues. 2) Open the specific record and compare it to what you know. 3) Click Edit and correct the data. 4) Add a note explaining the correction. 5) If the error is widespread, flag it to your Admin. Do not delete and recreate records — always edit to preserve the history.",
       "tags": ["data quality", "errors", "fix", "data integrity"]
+    },
+    {
+      "id": "faq-101",
+      "question": "Where can I find canned email responses, snippets, and reusable email templates?",
+      "answer": "Go to Marketing → Email Tools in the left sidebar (/marketing/email-tools). This is the central library for org-wide Snippets (short reusable body content) and Templates (full emails with subject lines). You can filter by type, category, or ownership scope. Admins can click 'Load Starter Library' to seed 15+ pre-built marina sales templates. Snippets marked as Org-wide are visible to your whole team; Private ones are only visible to you.",
+      "tags": ["snippets", "templates", "canned responses", "email tools", "reusable"]
+    },
+    {
+      "id": "faq-102",
+      "question": "How do I create a new email snippet or template for the team?",
+      "answer": "Go to Marketing → Email Tools (/marketing/email-tools) and click 'New Snippet'. Choose type (Snippet or Template), add a title, category, and body. For templates, also add a subject line. Set sharing scope to 'Org-wide' so teammates can use it, or 'Private' to keep it for yourself. Admins can edit or delete any snippet; regular users can only edit their own.",
+      "tags": ["snippets", "templates", "create", "email tools", "org-wide"]
     }
   ],
   "features": [

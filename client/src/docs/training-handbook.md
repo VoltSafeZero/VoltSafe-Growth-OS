@@ -121,6 +121,7 @@
 | Team Workload (`/execution/team-workload`) | Who is doing what |
 | Automations (`/automations`) | Rules that run automatically |
 | Communications (`/execution/communications`) | Email campaigns |
+| Email Tools (`/marketing/email-tools`) | Snippets & reusable templates |
 
 **Daily routine:**
 1. Open Projects → check for overdue milestones

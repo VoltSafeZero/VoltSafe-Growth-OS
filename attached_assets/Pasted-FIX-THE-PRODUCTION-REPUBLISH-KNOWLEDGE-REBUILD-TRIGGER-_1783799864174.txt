@@ -1,0 +1,129 @@
+FIX THE PRODUCTION REPUBLISH → KNOWLEDGE REBUILD TRIGGER
+
+The current implementation is incorrect.
+
+In server/services/help-center-refresh.ts, runStartupRefresh() skips when:
+
+“already refreshed today”
+
+This means multiple successful production publishes on the same day do not trigger new Cortex, Learn, Training and Help rebuilds.
+
+A calendar date is not a deployment identity.
+
+Replace the daily idempotency rule with deployment-version idempotency.
+
+REQUIRED BEHAVIOUR
+
+1. Read a unique production deployment/version identifier at application startup.
+
+Use the best available stable value from the production environment, such as:
+
+- REPLIT_DEPLOYMENT_ID
+- deployment ID supplied by Replit
+- release/version ID
+- Git commit SHA
+- build ID
+
+Do not use startup timestamp or today’s date as the primary identity.
+
+2. Persist rebuild state containing at minimum:
+
+- production_deployment_id
+- last_successfully_indexed_deployment_id
+- rebuild_status
+- rebuild_started_at
+- rebuild_completed_at
+- last_error
+- retry_count
+
+3. On every production application startup:
+
+- Read the current production deployment ID
+- Compare it with last_successfully_indexed_deployment_id
+- If different, immediately queue or run the full knowledge rebuild
+- If identical and the previous rebuild succeeded, skip
+- If identical but the previous rebuild failed or is incomplete, retry
+- Never skip merely because a rebuild already ran today
+
+4. The complete rebuild must cover:
+
+- Cortex production-app knowledge
+- Learn
+- Training
+- Help
+- Quick Start
+- Operations Manual
+- Training Handbook
+- FAQ and Glossary
+- Navigation and route instructions
+- Role and permission instructions
+- Current buttons, tabs, subtabs and workflows
+
+5. Only update last_successfully_indexed_deployment_id after:
+
+- every knowledge asset is rebuilt
+- route validation passes
+- stale navigation validation passes
+- the final knowledge set is published atomically
+
+If validation fails, leave the prior successful deployment ID in place and mark the new deployment as stale/failed.
+
+6. Keep the midnight America/Vancouver scheduler only as reconciliation backup.
+
+At midnight it must:
+
+- read the current production deployment ID
+- compare it with last_successfully_indexed_deployment_id
+- rebuild only if they differ or the previous attempt failed
+- not depend on “republished today”
+- not mark the system current unless validation succeeds
+
+7. Remove or replace all logic based on:
+
+- already refreshed today
+- wasRepublishedToday
+- local date as rebuild identity
+- cold start alone proving a new deployment
+
+8. Add an admin status endpoint and UI showing:
+
+- current production deployment ID
+- indexed deployment ID
+- status: Current, Queued, Rebuilding, Failed or Stale
+- rebuild started/completed timestamps
+- last error
+- retry count
+
+Add a “Rebuild now” button for CEO/master admin.
+
+9. Add regression tests proving:
+
+- first deployment triggers rebuild
+- second different deployment on the same day triggers another rebuild
+- same deployment does not duplicate a successful rebuild
+- failed rebuild retries
+- midnight reconciliation detects a missed deployment
+- indexed deployment ID only updates after full validation succeeds
+
+10. Live verification:
+
+- publish production
+- capture the real deployment ID
+- verify startup detects it
+- verify the rebuild starts
+- verify indexed deployment ID equals production deployment ID
+- publish a second version on the same day
+- verify a second rebuild occurs
+- ask Cortex for navigation instructions and confirm it uses the newest production structure
+
+Do not merely remove the “already refreshed today” line.
+
+Implement reliable deployment-ID-based rebuild tracking and provide:
+
+- files changed
+- environment variable used for deployment identity
+- database table/schema used
+- test results
+- first production deployment ID
+- indexed deployment ID
+- proof that the IDs match

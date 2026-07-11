@@ -249,7 +249,7 @@ function SalesCommandCenter({ visible, compact }: { visible: Record<string, bool
         </SalesSection>
       )}
       {visible.inbox_followups && (
-        <SalesSection icon={Mail} title="Inbox Follow-ups" count={sections?.inboxFollowUps.count ?? 0} link="/communications" compact={compact}>
+        <SalesSection icon={Mail} title="Inbox Follow-ups" count={sections?.inboxFollowUps.count ?? 0} link="/gmail" compact={compact}>
           {sections?.inboxFollowUps.count === 0
             ? <p className="text-xs text-muted-foreground italic py-2">Inbox clear.</p>
             : sections?.inboxFollowUps.items.slice(0, 4).map((e: any) => (

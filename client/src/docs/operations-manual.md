@@ -763,6 +763,29 @@ Before sending a campaign, you need a list. Go to Communications → Lists to cr
 
 ---
 
+## Snippets & Templates
+
+**Route:** `/marketing/email-tools`
+
+**What is it?**
+A library of reusable email content — short snippets you insert into replies, and full templates with subject lines for outbound campaigns.
+
+**Snippets** are body-only: short canned responses you paste into an email mid-conversation.
+**Templates** include a subject line and full body for new outbound emails.
+
+**How to use:**
+1. Go to **Marketing → Email Tools** in the sidebar.
+2. Use the search bar and filters to find the snippet or template you need.
+3. Click **New Snippet** to add your own.
+
+**Sharing:**
+- **Org-wide** snippets are visible to all teammates.
+- **Private** snippets are only visible to you.
+
+Admins can click **Load Starter Library** to seed 15+ pre-built marina sales templates.
+
+---
+
 ## Documents and Assets
 
 **Documents Route:** `/documents`

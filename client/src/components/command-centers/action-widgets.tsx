@@ -390,7 +390,7 @@ export function MyWaitingOnWidget({ compact, isDragging, dragProps }: WidgetProp
           icon={Mail}
           title={t.subject ?? "(No subject)"}
           subtitle={t.account_name ?? "Waiting on reply"}
-          link="/communications"
+          link="/gmail"
           testId={`waiting-thread-${i}`}
         />
       ))}
