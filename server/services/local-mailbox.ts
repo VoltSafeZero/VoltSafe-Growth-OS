@@ -580,7 +580,10 @@ export async function listLocalThreads(p: {
     const ftsCond = `${tsv} @@ plainto_tsquery('english', ${lit})`;
     if (freeText.includes('@')) {
       const lc = safe(freeText.toLowerCase());
-      where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%')`);
+      // Mirror listLocalMessages: add from_email + to_emails ILIKE fallbacks in
+      // addition to all_participants, so threads are found even when all_participants
+      // is null/empty for a particular row.
+      where.push(`(${ftsCond} OR lower(coalesce(all_participants,'')) LIKE '%${lc}%' OR lower(coalesce(from_email,'')) LIKE '%${lc}%' OR lower(coalesce(to_emails,'')) LIKE '%${lc}%')`);
     } else {
       where.push(ftsCond);
     }

@@ -14234,12 +14234,25 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         // overflow adds no value and is actively harmful (Gmail doesn't understand in:updates etc).
         const isSpamOrTrashQuery = /\bin:(spam|trash|junk|updates|promotions|social|forums)\b/i.test(q);
 
+        // For email-address searches on the FIRST page, trigger overflow even when
+        // the local DB returns a full page of results. Without this guard, a full
+        // first page (50 results) means shouldOverflow is always false — so Gmail
+        // threads that aren't yet in the local mirror are permanently invisible
+        // until the user scrolls to the very end of local results.
+        // Example: scott@voltsafe.com has 307 Gmail results; local may have 50+
+        // matches → first page is always "full" → overflow never fires → only
+        // locally-cached threads are ever shown.
+        const isEmailAddressSearch = !queryEmpty && q.includes("@") && !q.trim().startsWith("in:");
+        const isEmailSearchFirstPage = isEmailAddressSearch && !pageToken;
+
         const shouldOverflow =
           canOverflow &&
-          local.localExhausted &&
-          local.messages.length < maxResults &&
           !capReached &&
-          !isSpamOrTrashQuery;
+          !isSpamOrTrashQuery &&
+          (
+            (local.localExhausted && local.messages.length < maxResults) ||
+            isEmailSearchFirstPage
+          );
 
         if (!shouldOverflow) {
           res.setHeader("X-Mail-Source", "local");
@@ -14278,7 +14291,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         // the cap could overshoot by up to maxResults (=100) on a single
         // request, defeating the cap's purpose.
         const remainingBudget = Math.max(0, SOFT_CAP - backfilledSoFar);
-        const wantMore = Math.min(maxResults - local.messages.length, remainingBudget);
+        // For email-address first-page searches, always request a full page from
+        // Gmail (not just the shortfall). When local is full (50 results),
+        // maxResults - local.messages.length = 0, so nothing would be fetched even
+        // though the overflow correctly triggered. Requesting the full limit ensures
+        // we discover Gmail threads not yet in the local DB on first page load.
+        const wantMore = isEmailSearchFirstPage
+          ? Math.min(maxResults, remainingBudget)
+          : Math.min(maxResults - local.messages.length, remainingBudget);
         // For email-address searches (q contains "@"), do NOT apply a before: date
         // restriction. The date boundary is designed to find older messages we don't
         // have yet, but for email-address queries the user wants ALL messages
@@ -14287,7 +14307,6 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         // before:<unix> clause, so Gmail returns the full result set for the query,
         // which we then de-dupe and upsert. For standard inbox/sent paging (no @),
         // keep the date boundary so we don't re-fetch what we already have.
-        const isEmailAddressSearch = !queryEmpty && q.includes("@") && !q.trim().startsWith("in:");
         const beforeDate = isEmailAddressSearch
           ? null
           : (local.oldestLocalSentAt ? new Date(local.oldestLocalSentAt) : null);
