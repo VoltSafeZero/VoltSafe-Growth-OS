@@ -1,0 +1,251 @@
+The development investigation is useful, but the original missing-email defect exists in the published production app. Do not mark this complete based on the development database.
+
+Do not ask me to share the production DATABASE_URL. That contains credentials and must not be exposed.
+
+Complete the production verification safely.
+
+1. Confirm the current published deployment includes these commits and files:
+
+- commit containing the CC and all_participants search fixes
+- server/services/mailbox-health.ts
+- server/services/mailbox-reconcile.ts
+- migrations/0031_search_indexes.sql
+- corrected mailbox-integrity service
+- updated health endpoint
+- mailbox health and completeness tests
+
+Report the deployed commit hash and compare it with the development commit hash.
+
+2. Add or use an admin-only production diagnostic endpoint
+
+Create a temporary or permanent master-admin-only endpoint that returns non-secret mailbox integrity data for a specified account.
+
+It may return:
+
+- environment name
+- deployment commit hash
+- database identity hash or safe database fingerprint
+- account ID
+- user ID
+- mailbox email
+- auth status
+- canonical health status
+- last successful sync
+- last incremental sync
+- Gmail watch expiration
+- latest local email timestamp
+- oldest local email timestamp
+- local message count
+- local thread count
+- inbox count
+- sent count
+- archived count
+- null all_participants count
+- orphan count
+- search index status
+- current reconciliation status
+
+It must not return:
+
+- access tokens
+- refresh tokens
+- DATABASE_URL
+- passwords
+- private email bodies
+- raw credentials
+
+Require master_admin authorization and ensure one user cannot inspect another private mailbox without permission.
+
+3. Inspect the production trevor@voltsafe.com account
+
+Using the exact account displayed in the published Mailbox Connections UI, report:
+
+- canonical account ID
+- owner user ID
+- auth status
+- canonical health
+- last successful sync
+- last incremental sync
+- Gmail watch expiration
+- local message count
+- local thread count
+- newest local message timestamp
+- oldest local message timestamp
+- inbox count
+- sent count
+- archived count
+
+Explain exactly why production shows 14,319 messages while development shows 60,165.
+
+Determine whether:
+
+- 14,319 is inbox-only
+- 14,319 is a capped or cached count
+- 14,319 is the complete local production total
+- production has not completed historical sync
+- production excludes archived mail
+- production uses a different account record
+- production is missing data
+
+Do not guess. Trace the exact SQL or service producing the UI number.
+
+4. Make a live Gmail API call in production
+
+For the canonical production account used by the UI:
+
+- refresh the token if required
+- call Gmail profile metadata
+- confirm the returned Gmail email address
+- confirm the API call succeeds
+- obtain provider message estimates where available
+- report the current Gmail history ID
+
+Do not expose tokens.
+
+5. Run a full production reconciliation
+
+Run the new reconciliation process for production trevor@voltsafe.com using:
+
+in:anywhere -in:spam -in:trash
+
+Requirements:
+
+- follow every Gmail page token
+- include archived mail
+- include sent mail
+- preserve labels
+- use Gmail message ID plus connected account ID as canonical identity
+- resume safely after interruption
+- log progress
+- create zero duplicates on rerun
+- run outside the web request lifecycle
+
+Report:
+
+- messages scanned from Gmail
+- messages already present
+- missing messages inserted
+- messages updated
+- archived messages inserted
+- sent messages inserted
+- duplicate inserts prevented
+- failed pages
+- unresolved errors
+- final local message count
+- final local thread count
+
+Run it a second time and prove the second run creates zero duplicates.
+
+6. Prove the Scott search in production
+
+For production trevor@voltsafe.com, search:
+
+scott@voltsafe.com
+
+Report:
+
+- Gmail matching message count
+- Gmail matching thread count
+- production local matching message count
+- production local matching thread count
+- production API total
+- production UI conversation count
+
+Explain any message-versus-thread count difference.
+
+Verify these known threads in production:
+
+- Marina Pipeline + a few inputs
+- VoltSafe / ETL Path – Commercial Alignment and Next Steps
+- Safety certification progress
+- VoltSafe Investment
+- VoltSafe Investment Opportunity
+
+For each confirm:
+
+- exists in Gmail
+- exists in production database
+- returned by search API
+- displayed in production UI
+
+Also verify:
+
+- CC-only result
+- To-only result
+- older-thread participant
+- archived result
+- sent result
+- result beyond page one
+
+7. Investigate production orphaned accounts
+
+Run the orphan audit in production.
+
+For every source_account_id appearing in email_messages without a matching email_accounts row, report:
+
+- orphaned account ID
+- owner user ID
+- inferred mailbox email
+- message count
+- date range
+- whether a current replacement account exists
+- whether those messages are hidden from search
+- safe recommended repair
+
+Do not delete or reassign orphaned records until ownership is proven.
+
+8. Audit every production mailbox
+
+Audit:
+
+- trevor@voltsafe.com
+- burgesstrevor76@gmail.com
+- trevor@hyalos.com
+- sales@voltsafe.com
+- support@voltsafe.com
+
+For each provide:
+
+- canonical account ID
+- health
+- live Gmail API result
+- last sync
+- watch expiration
+- provider count where available
+- local message count
+- local thread count
+- archived count
+- reconciliation status
+- unresolved mismatches
+
+9. Capture authenticated production proof
+
+Provide screenshots from the published app showing:
+
+- trevor@voltsafe.com active mailbox card
+- production Scott search
+- known previously missing conversations
+- archived result
+- sent result
+- CC-only result
+- result beyond the first page
+- accurate message and conversation totals
+
+10. Final completion requirements
+
+Do not declare this resolved until:
+
+- production is running the intended code
+- production indexes and migration are applied
+- production Gmail reconciliation completes
+- production message and thread counts are explained
+- Scott searches match Gmail
+- known missing conversations appear
+- archived mail is searchable
+- every production mailbox is audited
+- orphaned account records are accounted for
+- no cross-account leakage exists
+- full tests pass
+- authenticated production screenshots are captured
+
+Provide exact commit hashes, production deployment hash, test totals, reconciliation totals, and final unresolved mismatch count.

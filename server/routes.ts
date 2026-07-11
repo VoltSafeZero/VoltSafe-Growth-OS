@@ -8006,6 +8006,31 @@ export async function registerRoutes(
     }
   })();
 
+  // ── Search GIN indexes (migration 0031) ───────────────────────────────────
+  // Idempotent. Ensures CC and all_participants GIN trigram + FTS v3 indexes
+  // exist in every environment (dev and production) on first startup after deploy.
+  (async () => {
+    try {
+      await db.execute(sql.raw(`CREATE EXTENSION IF NOT EXISTS pg_trgm`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_email_cc_emails_trgm ON email_messages USING GIN (cc_emails gin_trgm_ops)`));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_email_all_participants_trgm ON email_messages USING GIN (all_participants gin_trgm_ops)`));
+      await db.execute(sql.raw(`
+        CREATE INDEX IF NOT EXISTS idx_email_fts_v3 ON email_messages USING GIN (
+          to_tsvector('english',
+            coalesce(subject,'')          || ' ' ||
+            coalesce(from_email,'')       || ' ' ||
+            coalesce(all_participants,'') || ' ' ||
+            coalesce(cc_emails,'')        || ' ' ||
+            coalesce(body_text,'')
+          )
+        )
+      `));
+      console.log("[migration] Search GIN indexes (0031) ready.");
+    } catch (e) {
+      console.error("[migration] CRM Recent News error:", e);
+    }
+  })();
+
   app.get("/api/admin/role-definitions", requireAuth, requireAdmin, async (_req, res) => {
     try {
       const rows = await db.execute(sql.raw(
@@ -8635,6 +8660,208 @@ export async function registerRoutes(
           contentProtected: isPrivateOther ? true : undefined,
         },
         recentBackfills: isPrivateOther ? [] : ((recentBackfills as any).rows ?? []),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/admin/mailbox/:id/production-audit
+  // Master-admin-only comprehensive diagnostic snapshot for a single mailbox.
+  // Returns all non-secret integrity data needed for production verification.
+  // NEVER returns: access tokens, refresh tokens, DATABASE_URL, passwords, email bodies.
+  app.get("/api/admin/mailbox/:id/production-audit", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const reqUserId  = (req.session as any).userId as number;
+      const accountId  = parseInt(req.params.id, 10);
+      if (!accountId || isNaN(accountId)) return res.status(400).json({ message: "Invalid mailbox id" });
+
+      // ── Environment ──────────────────────────────────────────────────────
+      let commitHash = "unknown";
+      try {
+        const { execSync } = await import("child_process");
+        commitHash = execSync("git rev-parse HEAD", { timeout: 3000 }).toString().trim();
+      } catch { /* non-git environments */ }
+
+      const dbFingerprintR = await db.execute(sql.raw(
+        `SELECT md5(current_database() || ':' || pg_postmaster_start_time()::text) AS fingerprint,
+                current_database() AS dbname`
+      ));
+      const dbRow = ((dbFingerprintR as any).rows ?? [])[0] ?? {};
+
+      // ── Account ──────────────────────────────────────────────────────────
+      const acctR = await db.execute(sql.raw(`
+        SELECT a.id, a.email_address, a.display_name, a.user_id, a.is_shared,
+               a.is_active, a.auth_status, a.sync_enabled, a.sync_error_message,
+               a.last_sync_at, a.last_incremental_sync_at, a.watch_expiration_at,
+               a.last_webhook_at, a.last_history_id, a.incremental_event_count,
+               a.created_at, a.updated_at,
+               COALESCE(a.visibility_type, 'private_personal') AS visibility_type
+        FROM email_accounts a WHERE a.id = ${accountId} LIMIT 1
+      `)) as any;
+      const acct = (acctR.rows ?? [])[0];
+      if (!acct) return res.status(404).json({ message: "Mailbox not found" });
+
+      // Privacy guard: private mailboxes owned by another user get metadata only.
+      const isPrivateOther = acct.visibility_type === "private_personal" && Number(acct.user_id) !== reqUserId;
+
+      // ── Message stats ────────────────────────────────────────────────────
+      let msgStats: any = null;
+      if (!isPrivateOther) {
+        const statsR = await db.execute(sql.raw(`
+          SELECT
+            COUNT(*)::int                                                                                      AS total,
+            COUNT(*) FILTER (WHERE is_inbox = true)::int                                                      AS inbox,
+            COUNT(*) FILTER (WHERE is_sent  = true)::int                                                      AS sent,
+            COUNT(*) FILTER (WHERE is_inbox = false AND is_sent = false
+                              AND (label_ids IS NULL
+                                   OR (label_ids NOT ILIKE '%SPAM%' AND label_ids NOT ILIKE '%TRASH%')))::int AS archived,
+            COUNT(*) FILTER (WHERE label_ids ILIKE '%SPAM%')::int                                             AS spam,
+            COUNT(*) FILTER (WHERE label_ids ILIKE '%TRASH%')::int                                            AS trash,
+            COUNT(*) FILTER (WHERE is_unread = true AND is_inbox = true)::int                                 AS unread_inbox,
+            COUNT(DISTINCT gmail_thread_id)::int                                                              AS threads,
+            COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true)::int                               AS inbox_threads,
+            COUNT(*) FILTER (WHERE all_participants IS NULL OR all_participants = '')::int                     AS null_all_participants,
+            MAX(sent_at)                                                                                       AS newest_message,
+            MIN(sent_at)                                                                                       AS oldest_message
+          FROM email_messages
+          WHERE source_account_id = ${accountId}
+        `)) as any;
+        msgStats = (statsR.rows ?? [])[0] ?? null;
+      }
+
+      // ── Orphaned message count (messages with no parent email_accounts row) ─
+      const orphanR = await db.execute(sql.raw(`
+        SELECT COUNT(*)::int AS orphan_count
+        FROM email_messages m
+        WHERE NOT EXISTS (SELECT 1 FROM email_accounts a WHERE a.id = m.source_account_id)
+      `)) as any;
+      const orphanCount = (orphanR.rows ?? [])[0]?.orphan_count ?? 0;
+
+      // ── Search index status ───────────────────────────────────────────────
+      const idxR = await db.execute(sql.raw(`
+        SELECT indexname, indexdef
+        FROM pg_indexes
+        WHERE tablename = 'email_messages'
+          AND indexname IN (
+            'idx_email_cc_emails_trgm',
+            'idx_email_all_participants_trgm',
+            'idx_email_fts_v3',
+            'idx_email_fts_v2',
+            'idx_email_fts'
+          )
+        ORDER BY indexname
+      `)) as any;
+      const searchIndexes = (idxR.rows ?? []).map((r: any) => r.indexname);
+
+      // ── Canonical health ─────────────────────────────────────────────────
+      const { computeMailboxHealth } = await import("./services/mailbox-health");
+      const health = computeMailboxHealth({
+        authStatus: acct.auth_status,
+        isActive: acct.is_active,
+        syncEnabled: acct.sync_enabled,
+        watchExpirationAt: acct.watch_expiration_at,
+        lastIncrementalSyncAt: acct.last_incremental_sync_at,
+        lastWebhookAt: acct.last_webhook_at,
+        syncErrorMessage: acct.sync_error_message,
+      });
+
+      // ── Reconciliation status ─────────────────────────────────────────────
+      const { getReconcileStatus } = await import("./services/mailbox-reconcile");
+      const reconcileStatus = getReconcileStatus(accountId);
+
+      // ── Live Gmail API check (non-secret: profile metadata only) ─────────
+      let gmailProfile: any = null;
+      if (acct.auth_status === "active" && !isPrivateOther) {
+        try {
+          const { getGmailClient } = await import("./gmail-oauth");
+          const gmail = await getGmailClient(Number(acct.user_id), accountId);
+          const profileRes = await gmail.users.getProfile({ userId: "me" });
+          const p = profileRes.data;
+          gmailProfile = {
+            emailAddress:    p.emailAddress,
+            messagesTotal:   p.messagesTotal,
+            threadsTotal:    p.threadsTotal,
+            historyId:       p.historyId,
+          };
+        } catch (e: any) {
+          gmailProfile = { error: e.message };
+        }
+      }
+
+      res.json({
+        ok: true,
+        generatedAt: new Date().toISOString(),
+
+        environment: {
+          nodeEnv:      process.env.NODE_ENV ?? "development",
+          replId:       process.env.REPL_ID ?? null,
+          replOwner:    process.env.REPL_OWNER ?? null,
+          commitHash,
+          dbName:       dbRow.dbname ?? null,
+          dbFingerprint: dbRow.fingerprint ?? null,
+        },
+
+        account: {
+          id:                    acct.id,
+          emailAddress:          acct.email_address,
+          displayName:           acct.display_name ?? null,
+          userId:                acct.user_id,
+          isShared:              acct.is_shared,
+          isActive:              acct.is_active,
+          authStatus:            acct.auth_status,
+          syncEnabled:           acct.sync_enabled,
+          visibilityType:        acct.visibility_type,
+          createdAt:             acct.created_at,
+          updatedAt:             acct.updated_at,
+          lastSyncAt:            acct.last_sync_at,
+          lastIncrementalSyncAt: acct.last_incremental_sync_at,
+          watchExpirationAt:     acct.watch_expiration_at,
+          lastWebhookAt:         acct.last_webhook_at,
+          lastHistoryId:         acct.last_history_id,
+          incrementalEventCount: acct.incremental_event_count ?? 0,
+          syncErrorMessage:      acct.sync_error_message ?? null,
+          contentProtected:      isPrivateOther ? true : undefined,
+        },
+
+        health: {
+          status:      health.status,
+          healthStatus: health.healthStatus,
+          reason:      health.reason,
+        },
+
+        messageStats: isPrivateOther ? null : {
+          total:               Number(msgStats?.total ?? 0),
+          inbox:               Number(msgStats?.inbox ?? 0),
+          sent:                Number(msgStats?.sent ?? 0),
+          archived:            Number(msgStats?.archived ?? 0),
+          spam:                Number(msgStats?.spam ?? 0),
+          trash:               Number(msgStats?.trash ?? 0),
+          unreadInbox:         Number(msgStats?.unread_inbox ?? 0),
+          threads:             Number(msgStats?.threads ?? 0),
+          inboxThreads:        Number(msgStats?.inbox_threads ?? 0),
+          nullAllParticipants: Number(msgStats?.null_all_participants ?? 0),
+          newestMessage:       msgStats?.newest_message ?? null,
+          oldestMessage:       msgStats?.oldest_message ?? null,
+        },
+
+        orphanedMessages: {
+          globalOrphanCount: orphanCount,
+          note: "Messages in email_messages with no matching email_accounts row.",
+        },
+
+        searchIndexes: {
+          present: searchIndexes,
+          required: ["idx_email_cc_emails_trgm", "idx_email_all_participants_trgm", "idx_email_fts_v3"],
+          allPresent: ["idx_email_cc_emails_trgm", "idx_email_all_participants_trgm", "idx_email_fts_v3"]
+            .every((n) => searchIndexes.includes(n)),
+        },
+
+        gmailProfile,
+
+        reconciliation: reconcileStatus
+          ? { phase: reconcileStatus.phase, startedAt: reconcileStatus.startedAt, fetched: reconcileStatus.fetched, inserted: reconcileStatus.inserted, updated: reconcileStatus.updated, skipped: reconcileStatus.skipped, errors: reconcileStatus.errors, providerTotal: reconcileStatus.providerTotal, durationMs: reconcileStatus.durationMs ?? null }
+          : { phase: "idle", note: "No reconcile running or completed in last 30 min." },
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });

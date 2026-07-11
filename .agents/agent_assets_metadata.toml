@@ -66,3 +66,9 @@ id = "AcItY2T6iHJf-kEahiotT"
 uri = "file://exports/bc-enrichment-report-2026-05-21-1923.csv"
 type = "table"
 title = "BC Marina Enrichment — Dry-Run Report"
+
+[[outputs]]
+id = "cOKbGPyGFuRh4ulgSJLqn"
+uri = "file://docs/screenshots/dev-scott-search-results.jpeg"
+type = "image"
+title = "Dev: scott@voltsafe.com search results — CC/FTS indexes working"

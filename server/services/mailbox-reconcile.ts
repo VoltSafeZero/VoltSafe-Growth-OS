@@ -25,6 +25,33 @@ import pLimit from "p-limit";
 const CONCURRENCY = 5;
 const BATCH_LOG_INTERVAL = 100;
 
+// ── In-memory progress tracker ────────────────────────────────────────────────
+// Keyed by accountId. Cleared when the job finishes (success or failure).
+export interface ReconcileProgress {
+  accountId: number;
+  emailAddress: string;
+  startedAt: string;
+  fetched: number;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  providerTotal: number;
+  phase: "running" | "done" | "failed";
+  durationMs?: number;
+  stopReason?: string;
+}
+
+const _active = new Map<number, ReconcileProgress>();
+
+export function getReconcileStatus(accountId: number): ReconcileProgress | null {
+  return _active.get(accountId) ?? null;
+}
+
+export function getAllReconcileStatuses(): ReconcileProgress[] {
+  return Array.from(_active.values());
+}
+
 export interface ReconcileOptions {
   accountId: number;
   includeSpam?: boolean;
@@ -87,6 +114,12 @@ export async function reconcileFullMailbox(opts: ReconcileOptions): Promise<Reco
 
   log(`start account=${accountId} email=${emailAddress} q="${q}" maxMessages=${maxMessages}`);
 
+  const progress: ReconcileProgress = {
+    accountId, emailAddress, startedAt: new Date().toISOString(),
+    fetched: 0, inserted: 0, updated: 0, skipped: 0, errors: 0, providerTotal: 0, phase: "running",
+  };
+  _active.set(accountId, progress);
+
   while (true) {
     if (fetched >= maxMessages) {
       stopped = true;
@@ -111,6 +144,7 @@ export async function reconcileFullMailbox(opts: ReconcileOptions): Promise<Reco
     pageToken = listRes.data.nextPageToken;
     if (!providerTotal && listRes.data.resultSizeEstimate) {
       providerTotal = listRes.data.resultSizeEstimate;
+      progress.providerTotal = providerTotal;
     }
 
     if (messages.length === 0) break;
@@ -127,6 +161,11 @@ export async function reconcileFullMailbox(opts: ReconcileOptions): Promise<Reco
           log(`msg error account=${accountId} msgId=${m.id}: ${e.message}`);
         }
         fetched++;
+        progress.fetched   = fetched;
+        progress.inserted  = inserted;
+        progress.updated   = updated;
+        progress.skipped   = skipped;
+        progress.errors    = errors;
         if (fetched % BATCH_LOG_INTERVAL === 0) {
           log(`progress account=${accountId} fetched=${fetched} inserted=${inserted} skipped=${skipped} errors=${errors}`);
         }
@@ -139,6 +178,12 @@ export async function reconcileFullMailbox(opts: ReconcileOptions): Promise<Reco
 
   const durationMs = Date.now() - start;
   log(`done account=${accountId} fetched=${fetched} inserted=${inserted} updated=${updated} skipped=${skipped} errors=${errors} durationMs=${durationMs}${stopped ? ` STOPPED: ${stopReason}` : ""}`);
+
+  progress.phase      = errors > 0 && fetched === 0 ? "failed" : "done";
+  progress.durationMs = durationMs;
+  progress.stopReason = stopReason;
+  // Keep the final status in the map for 30 minutes so the audit endpoint can read it.
+  setTimeout(() => _active.delete(accountId), 30 * 60 * 1000);
 
   return { accountId, emailAddress, providerTotal, fetched, inserted, updated, skipped, errors, durationMs, stopped, stopReason };
 }
