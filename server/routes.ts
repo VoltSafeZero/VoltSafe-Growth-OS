@@ -820,6 +820,8 @@ export async function registerRoutes(
   {
     const {
       getRefreshStatus,
+      getKnowledgeRebuildStatus,
+      runDeploymentIdGatedRebuild,
       readRefreshedAsset,
       readRevisions,
       runEndOfDayTick,
@@ -8028,6 +8030,31 @@ export async function registerRoutes(
       console.log("[migration] Search GIN indexes (0031) ready.");
     } catch (e) {
       console.error("[migration] CRM Recent News error:", e);
+    }
+  })();
+
+  // ── Help Center Rebuild State (migration 0033) ───────────────────────────
+  (async () => {
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS help_center_rebuild_state (
+          id INTEGER PRIMARY KEY DEFAULT 1,
+          current_deployment_id TEXT NOT NULL DEFAULT '',
+          last_successfully_indexed_deployment_id TEXT,
+          rebuild_status TEXT NOT NULL DEFAULT 'pending',
+          rebuild_started_at TIMESTAMPTZ,
+          rebuild_completed_at TIMESTAMPTZ,
+          last_error TEXT,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        INSERT INTO help_center_rebuild_state (id, current_deployment_id, rebuild_status)
+        VALUES (1, '', 'pending')
+        ON CONFLICT (id) DO NOTHING;
+      `));
+      console.log("[migration] help_center_rebuild_state table ready.");
+    } catch (e) {
+      console.error("[migration] help_center_rebuild_state error:", e);
     }
   })();
 
@@ -43514,6 +43541,28 @@ ${contextText}`;
       res.json({ lastRefresh: last, recentRevisions: revisions.slice(-10) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Knowledge rebuild admin status ────────────────────────────────────────
+  app.get("/api/admin/knowledge-rebuild/status", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      res.json(await getKnowledgeRebuildStatus());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to read rebuild status" });
+    }
+  });
+
+  app.post("/api/admin/knowledge-rebuild/trigger", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const { CURRENT_DEPLOYMENT_ID } = await import("./services/help-center-refresh");
+      // Fire rebuild async — returns immediately so the UI can poll status
+      runDeploymentIdGatedRebuild("manual", CURRENT_DEPLOYMENT_ID).catch(err =>
+        console.error("[knowledge-rebuild] manual trigger error:", err)
+      );
+      res.json({ ok: true, message: "Rebuild triggered" });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to trigger rebuild" });
     }
   });
 

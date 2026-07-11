@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Settings, Zap, Layers, Search, ArrowRight } from "lucide-react";
+import { Settings, Zap, Layers, Search, Database, ArrowRight } from "lucide-react";
 import { CmsBreadcrumb } from "@/components/shared/cms-breadcrumb";
 
 const cards = [
@@ -42,6 +42,16 @@ const cards = [
     desc: "Full-text search configuration — index management, advanced filters, and search diagnostics.",
     tags: ["Full-text", "Index", "Diagnostics"],
     testId: "card-global-search",
+  },
+  {
+    href: "/admin/knowledge-rebuild",
+    icon: Database,
+    iconBg: "bg-teal-500/10",
+    iconColor: "text-teal-400",
+    title: "Knowledge Rebuild",
+    desc: "Monitor Cortex, Help, Learn and Training rebuild state. Trigger a manual rebuild or check indexed deployment ID.",
+    tags: ["Cortex", "Deployment", "Help Center"],
+    testId: "card-knowledge-rebuild",
   },
 ];
 

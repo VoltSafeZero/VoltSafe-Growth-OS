@@ -143,8 +143,8 @@ ok("/execution/communications removed from manual", !manual.includes("/execution
 console.log("\n── 10. Knowledge rebuild system ─────────────────────────────────────────");
 const refresh = read("server/services/help-center-refresh.ts");
 ok("runStartupRefresh exported", refresh.includes("export async function runStartupRefresh"));
-ok("startup refresh bypasses republish gate", refresh.includes("unconditional refresh"));
-ok("startup refresh is idempotent (skips if already ran today)", refresh.includes("already refreshed today"));
+ok("startup refresh uses deployment-ID gate (not date)", refresh.includes("runDeploymentIdGatedRebuild"));
+ok("startup refresh skips when same deployment already succeeded", refresh.includes("last_successfully_indexed_deployment_id === currentId"));
 ok("startHelpCenterRefreshScheduler still exported", refresh.includes("export function startHelpCenterRefreshScheduler"));
 const indexTs = read("server/index.ts");
 ok("runStartupRefresh imported in index.ts", indexTs.includes("runStartupRefresh"));

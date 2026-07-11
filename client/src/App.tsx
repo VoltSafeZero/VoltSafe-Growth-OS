@@ -70,6 +70,7 @@ const AdminUsersPage = lazy(() => import("@/pages/admin-users"));
 const AdminTaskAccessPage = lazy(() => import("@/pages/admin-task-access"));
 const AdminSignaturesPage = lazy(() => import("@/pages/admin-signatures"));
 const AdminRolesPage = lazy(() => import("@/pages/admin-roles"));
+const AdminKnowledgeRebuildPage = lazy(() => import("@/pages/admin-knowledge-rebuild"));
 const ProjectsPage = lazy(() => import("@/pages/projects"));
 const ResetPasswordPage = lazy(() => import("@/pages/reset-password"));
 const UnsubscribePage = lazy(() => import("@/pages/unsubscribe"));
@@ -483,6 +484,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/admin/integrations">{() => wrap(<AdminIntegrationsPage />)}</Route>
       <Route path="/admin/signatures">{() => wrap(<AdminSignaturesPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>
       <Route path="/admin/roles">{() => wrap(<AdminRolesPage currentUserGlobalRole={user.globalRole || "sales"} />)}</Route>
+      <Route path="/admin/knowledge-rebuild">{() => wrap(<AdminKnowledgeRebuildPage />)}</Route>
       <Route path="/jira">{() => wrap(<JiraPage />)}</Route>
       <Route path="/confluence">{() => wrap(<ConfluencePage />)}</Route>
       <Route path="/training">{() => wrap(<TrainingHubPage />)}</Route>

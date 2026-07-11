@@ -313,7 +313,8 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "admin-task-hub",    label: "Task Hub Access",         route: "/admin/task-hub-access", icon: Users2,      adminOnly: true },
       { id: "admin-roles",       label: "Role Manager",            route: "/admin/roles",           icon: Settings2,   adminOnly: true },
       { id: "admin-search",      label: "Search",                  route: "/search",                icon: Search,      adminOnly: true },
-      { id: "admin-signatures", label: "User Signatures", route: "/admin/signatures", icon: PenSquare, adminOnly: true }, // "admin-user-signatures"
+      { id: "admin-signatures",  label: "User Signatures",   route: "/admin/signatures",         icon: PenSquare,      adminOnly: true },
+      { id: "admin-knowledge",   label: "Knowledge Rebuild", route: "/admin/knowledge-rebuild",   icon: Bot,            adminOnly: true },
     ],
   },
 ];
