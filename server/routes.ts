@@ -389,6 +389,12 @@ const assetUpload = multer({
   },
 });
 
+// Cortex multimodal file upload — all types, memory storage, 150 MB limit
+const cortexFileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 150 * 1024 * 1024 },
+});
+
 // CTA asset uploader — images only (PNG/JPG/WEBP), 10 MB limit, stable disk filenames
 const CTA_ASSETS_DIR = path.resolve("uploads/cta-assets");
 if (!fs.existsSync(CTA_ASSETS_DIR)) fs.mkdirSync(CTA_ASSETS_DIR, { recursive: true });
@@ -41794,6 +41800,158 @@ ${contextText}`;
     } catch (err: any) {
       console.error("[cortex-ask] POST /api/cortex/ask:", err.message);
       res.status(500).json({ error: "Failed to get an answer. Please try again." });
+    }
+  });
+
+  // ── Cortex multimodal ingestion — text paste ────────────────────────────────
+
+  app.post("/api/cortex/text", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      const { title, body, notes, category, importance, tags, useInAiContext } = req.body || {};
+      if (!body || typeof body !== "string" || body.trim().length < 10) {
+        return res.status(400).json({ error: "body required (minimum 10 characters)" });
+      }
+      const { createCortexIntelRecord } = await import("./services/cortex-intel");
+      const record = await createCortexIntelRecord({
+        sourceType: "text",
+        title: (title || body.trim().slice(0, 80).replace(/\n/g, " ")).slice(0, 200),
+        intelType: category || "Notes & Knowledge",
+        importance: importance || "Medium",
+        useFor: [],
+        tags: Array.isArray(tags) ? tags : [],
+        useInAiContext: useInAiContext !== false,
+        userNotes: notes || undefined,
+        createdByUserId: userId,
+      });
+      const { queueTextIngestion } = await import("./services/cortex-ingestion");
+      queueTextIngestion(record.id, body.trim());
+      (record as any).ingestion_status = "queued";
+      res.status(201).json({ ok: true, record });
+    } catch (err: any) {
+      console.error("[cortex-text] POST /api/cortex/text:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Cortex multimodal ingestion — file/image/audio/video/voice upload ────────
+
+  app.post("/api/cortex/upload", requireAuth, (req: any, res: any, next: any) => {
+    cortexFileUpload.single("file")(req, res, (err: any) => {
+      if (err) return res.status(400).json({ error: err.message || "Upload failed" });
+      next();
+    });
+  }, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      if (!req.file) return res.status(400).json({ error: "file required" });
+      const { originalname, mimetype, buffer, size } = req.file;
+      const { title, notes, category, importance, tags, useInAiContext, sourceTypeOverride } = req.body || {};
+      const isImage = /^image\//.test(mimetype);
+      const isAudio = /^audio\//.test(mimetype) || /^video\//.test(mimetype);
+      const detectedType = isImage ? "image" : isAudio ? "audio" : "file";
+      const sourceType = (sourceTypeOverride === "voice" ? "voice" : detectedType) as string;
+      const defaultCategory = isImage ? "Image & Visual" : isAudio ? "Audio & Video" : "Document";
+      const { createCortexIntelRecord } = await import("./services/cortex-intel");
+      const record = await createCortexIntelRecord({
+        sourceType,
+        title: (title || originalname || "Uploaded file").slice(0, 200),
+        intelType: category || defaultCategory,
+        importance: importance || "Medium",
+        useFor: [],
+        tags: Array.isArray(tags) ? tags : [],
+        useInAiContext: useInAiContext !== false,
+        userNotes: notes || undefined,
+        createdByUserId: userId,
+      });
+      const safeFilename = originalname.replace(/'/g, "''").slice(0, 500);
+      const safeMime = mimetype.replace(/'/g, "''").slice(0, 200);
+      await db.execute(sql.raw(`
+        UPDATE cortex_email_intel
+        SET original_filename = '${safeFilename}', file_size_bytes = ${size}, file_mime_type = '${safeMime}'
+        WHERE id = ${record.id}
+      `));
+      const { queueFileIngestion } = await import("./services/cortex-ingestion");
+      queueFileIngestion(record.id, buffer, originalname, mimetype);
+      (record as any).ingestion_status = "queued";
+      res.status(201).json({ ok: true, record });
+    } catch (err: any) {
+      console.error("[cortex-upload] POST /api/cortex/upload:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Cortex unified history — all non-email source types ─────────────────────
+
+  app.get("/api/cortex/history", requireAuth, async (req: any, res) => {
+    try {
+      const limit = Math.min(300, Math.max(1, Number(req.query.limit) || 150));
+      const sourceType = req.query.sourceType as string | undefined;
+      const sourceFilter = sourceType && sourceType !== "all"
+        ? `AND c.source_type = '${sourceType.replace(/'/g, "''")}'`
+        : `AND c.source_type NOT IN ('email')`;
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          c.id, c.source_url, c.canonical_url, c.domain, c.title,
+          c.intel_type, c.importance, c.ai_summary, c.user_notes,
+          c.tags, c.created_at, c.created_by_user_id, c.use_in_ai_context,
+          c.ingestion_status, c.ingestion_stage, c.failure_reason, c.retry_count,
+          c.retrieval_ready, c.extraction_method, c.content_char_count, c.chunk_count,
+          c.source_type, c.original_filename, c.file_size_bytes, c.file_mime_type,
+          u.name AS created_by_name, u.email AS created_by_email
+        FROM cortex_email_intel c
+        LEFT JOIN users u ON u.id = c.created_by_user_id
+        WHERE c.deleted_at IS NULL ${sourceFilter}
+        ORDER BY c.created_at DESC
+        LIMIT ${limit}
+      `));
+      res.json({ records: (rows as any).rows ?? [] });
+    } catch (err: any) {
+      console.error("[cortex-history] GET /api/cortex/history:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Cortex source delete ──────────────────────────────────────────────────────
+
+  app.delete("/api/cortex/source/:id", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const userId = req.session?.userId;
+      const isAdmin = req.session?.isAdmin;
+      const rows = await db.execute(sql.raw(`SELECT id, created_by_user_id FROM cortex_email_intel WHERE id = ${id} AND deleted_at IS NULL`));
+      const record = (rows as any).rows?.[0];
+      if (!record) return res.status(404).json({ error: "Not found" });
+      if (record.created_by_user_id !== userId && !isAdmin) {
+        return res.status(403).json({ error: "Only the creator or an admin can delete this" });
+      }
+      await db.execute(sql.raw(`UPDATE cortex_email_intel SET deleted_at = NOW() WHERE id = ${id}`));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[cortex-source] DELETE /api/cortex/source/:id:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Cortex source status poll ─────────────────────────────────────────────────
+
+  app.get("/api/cortex/source/:id/status", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const rows = await db.execute(sql.raw(`
+        SELECT id, ingestion_status, ingestion_stage, failure_reason,
+               retrieval_ready, chunk_count, content_char_count, extraction_method
+        FROM cortex_email_intel WHERE id = ${id} AND deleted_at IS NULL
+      `));
+      const record = (rows as any).rows?.[0];
+      if (!record) return res.status(404).json({ error: "Not found" });
+      res.json(record);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

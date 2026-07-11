@@ -1,0 +1,850 @@
+REDESIGN AND EXPAND “FEED CORTEX” INTO A TRUE MULTIMODAL KNOWLEDGE INGESTION HUB.
+
+CURRENT PROBLEM
+
+Feed Cortex currently looks polished, but functionally it only accepts pasted URLs.
+
+That is far too limiting.
+
+Cortex must be able to ingest knowledge in any useful form:
+
+- URL
+- pasted text
+- documents
+- images
+- video
+- audio
+- live voice recording
+- screen capture or screenshots
+- drag-and-drop files
+- multiple files at once
+
+The redesigned page must make these options immediately obvious, visually engaging, simple, and trustworthy.
+
+Do not remove the current Cortex visual identity. Evolve it into something cleaner, more powerful, and more intuitive.
+
+==================================================
+1. CORE PRODUCT GOAL
+==================================================
+
+A user should land on Feed Cortex and instantly understand:
+
+“I can teach Cortex anything, in almost any format.”
+
+The page should feel like a futuristic knowledge intake console, not a plain upload form.
+
+Every ingestion method must feed the same verified backend pipeline:
+
+Input
+→ upload or capture
+→ extract content
+→ analyze
+→ chunk
+→ index
+→ verify retrieval
+→ mark ready
+→ make available to Cortex
+
+Do not create fake UI controls that are not wired to working ingestion.
+
+==================================================
+2. REDESIGN THE MAIN FEED CORTEX INTERFACE
+==================================================
+
+Keep the current:
+
+- Feed CORTEX title
+- VoltSafe Intelligence Layer identity
+- central Cortex visual
+- clean white/light visual style
+- teal accents
+- “What Cortex Learned Today”
+- ingestion history
+- Ask Cortex
+
+Improve the main ingestion area substantially.
+
+Replace the single URL input with a visually prominent multimodal ingestion panel.
+
+Suggested structure:
+
+FEED CORTEX
+
+“Teach Cortex anything. Add a link, paste text, upload a file, show it an image, or speak directly.”
+
+Under this, show six clear ingestion cards or tiles:
+
+1. Add a Link
+   Icon: globe/link
+   Text: “Paste a webpage, article, YouTube video, cloud document, or other URL.”
+
+2. Paste Text
+   Icon: text/document
+   Text: “Paste notes, research, meeting summaries, emails, ideas, or raw knowledge.”
+
+3. Upload Files
+   Icon: upload/folder
+   Text: “Add PDFs, Word documents, spreadsheets, presentations, and other files.”
+
+4. Add Images
+   Icon: image/camera
+   Text: “Upload screenshots, diagrams, charts, product photos, and scanned documents.”
+
+5. Add Video or Audio
+   Icon: play/waveform
+   Text: “Upload recordings, presentations, interviews, webinars, or training videos.”
+
+6. Speak to Cortex
+   Icon: microphone
+   Text: “Record a voice note and teach Cortex directly.”
+
+These should not look like six boring form buttons.
+
+Use:
+
+- clean cards
+- subtle shadows
+- hover lift
+- animated Cortex-style glow
+- clear iconography
+- drag-and-drop interaction
+- concise descriptions
+- strong selected state
+- responsive layout
+
+On desktop, use a 3 × 2 grid or similarly balanced layout.
+
+On smaller screens, stack intelligently.
+
+==================================================
+3. UNIVERSAL DRAG-AND-DROP ZONE
+==================================================
+
+Add a large universal drop zone below or integrated with the input cards:
+
+“Drop anything here to feed Cortex”
+
+Supporting text:
+
+“Documents, images, video, audio, or multiple files”
+
+The drop zone should:
+
+- highlight on drag-over
+- show accepted formats
+- support multiple files
+- show file thumbnails or icons
+- detect file type automatically
+- route each file into the correct ingestion pipeline
+- reject unsupported files clearly
+- enforce file-size limits
+- show per-file progress
+- allow removal before submission
+
+Users should also be able to click the drop zone to browse files.
+
+==================================================
+4. INPUT-SPECIFIC EXPERIENCES
+==================================================
+
+Each ingestion card should open the correct interaction.
+
+A. ADD A LINK
+
+Provide:
+
+- URL input
+- paste-from-clipboard support
+- URL validation
+- detected source type
+- title preview
+- site icon/domain
+- current ingestion status
+- Feed Cortex button
+
+Support, where technically and legally possible:
+
+- normal webpages
+- articles
+- YouTube
+- Vimeo
+- public Google Docs
+- public Dropbox links
+- PDFs by URL
+- LinkedIn pages when accessible
+- other public media URLs
+
+Do not mark a source as learned unless actual content was extracted and indexed.
+
+B. PASTE TEXT
+
+Provide a large text composer with:
+
+- title field
+- text body
+- character count
+- optional source/context field
+- optional tags
+- paste formatting cleanup
+- plain-text fallback
+- Markdown support where practical
+- Save and Feed Cortex button
+
+Allow users to paste:
+
+- meeting notes
+- emails
+- research
+- technical findings
+- customer feedback
+- strategy notes
+- procedures
+- copied article text
+- product requirements
+
+C. UPLOAD FILES
+
+Support at minimum:
+
+- PDF
+- DOCX
+- TXT
+- CSV
+- XLSX
+- PPTX
+- Markdown
+- common office-document formats already supported by the codebase
+
+For each file:
+
+- show filename
+- file type
+- size
+- extraction status
+- page or sheet count where available
+- extracted character count
+- chunk count
+- retrieval-ready status
+
+D. ADD IMAGES
+
+Support:
+
+- PNG
+- JPG/JPEG
+- WebP
+- screenshots
+- photographed documents
+- diagrams
+- charts
+- whiteboards
+- scanned pages
+
+Image ingestion should include:
+
+- visual analysis
+- text extraction
+- description
+- key objects or subjects
+- chart or diagram interpretation where supported
+- generated summary
+- original image retention
+- extracted text preview
+- privacy and permission scope
+
+Do not rely only on OCR. Preserve both the image and the model-generated visual understanding.
+
+E. ADD VIDEO OR AUDIO
+
+Support uploads such as:
+
+- MP4
+- MOV
+- WebM
+- MP3
+- WAV
+- M4A
+- other formats supported by the existing media pipeline
+
+For video:
+
+- extract audio
+- transcribe speech
+- preserve timestamps
+- sample important frames when useful
+- analyze visible slides or screens
+- produce a structured summary
+- create retrievable transcript chunks
+- link chunks to timestamps
+
+For audio:
+
+- transcribe
+- identify speakers when supported
+- retain timestamps
+- summarize
+- create searchable chunks
+
+Show clear states:
+
+- uploading
+- processing
+- transcribing
+- analyzing
+- indexing
+- verifying
+- ready
+- failed
+
+F. SPEAK TO CORTEX
+
+Add a built-in voice recorder.
+
+Controls:
+
+- Start recording
+- Pause
+- Resume
+- Stop
+- Cancel
+- Preview
+- Re-record
+- Feed Cortex
+
+While recording, show:
+
+- waveform
+- timer
+- microphone state
+- recording indicator
+
+After recording:
+
+- transcribe the audio
+- allow the user to edit the transcript
+- allow a title
+- allow tags
+- show duration
+- submit to Cortex
+
+The recording must finish cleanly and display success. It must not remain stuck on a spinning loader after processing completes.
+
+==================================================
+5. SINGLE UNIFIED COMPOSER
+==================================================
+
+In addition to the six cards, consider a unified central composer inspired by a modern AI prompt box.
+
+It should support:
+
+- pasted URL
+- pasted text
+- attached files
+- attached images
+- attached audio/video
+- voice recording
+- drag and drop
+
+Cortex should automatically recognize the input type.
+
+The composer can show quick-action icons along the bottom:
+
+- Link
+- Text
+- File
+- Image
+- Video
+- Audio
+- Microphone
+
+This can coexist with the visual cards so first-time users understand every option, while experienced users can use the faster universal composer.
+
+==================================================
+6. INGESTION PREVIEW BEFORE SUBMISSION
+==================================================
+
+Before feeding Cortex, show a preview panel.
+
+Include:
+
+- title
+- source type
+- filename or URL
+- size
+- estimated processing type
+- permission scope
+- optional category
+- optional tags
+- optional notes for Cortex
+- detected duplicates
+- estimated extraction quality where relevant
+
+Primary button:
+
+“Feed Cortex”
+
+Secondary button:
+
+“Cancel”
+
+For multiple files, support:
+
+“Feed all to Cortex”
+
+==================================================
+7. INGESTION PROGRESS
+==================================================
+
+After submission, show live, honest progress.
+
+Example:
+
+Uploading
+Extracting content
+Transcribing audio
+Analyzing visuals
+Creating knowledge chunks
+Indexing
+Verifying retrieval
+Ready
+
+Each source should have its own progress state.
+
+Do not show a fake generic spinner for the entire process.
+
+Show:
+
+- progress percentage where measurable
+- current stage
+- elapsed time
+- failure reason
+- retry button
+- cancel button when safe
+- background-processing notice if the user leaves the page
+
+==================================================
+8. “WHAT CORTEX LEARNED TODAY”
+==================================================
+
+Keep this section, but improve it.
+
+Each item should show:
+
+- source title
+- source icon/type
+- source domain or filename
+- ingestion time
+- submitted by
+- status
+- key knowledge learned
+- extracted content count
+- chunk count
+- confidence or extraction quality
+- permission scope
+- open source
+- view extracted content
+- ask Cortex about this
+- retry if incomplete
+
+Use source-type icons:
+
+- globe for URL
+- text for pasted text
+- document for file
+- image for image
+- play for video
+- waveform for audio
+- microphone for voice note
+
+Do not display vague lines such as:
+
+“Captured for Cortex AI context”
+
+Replace that with specific information such as:
+
+“Extracted 4,820 words and created 31 searchable knowledge chunks.”
+
+Or:
+
+“Transcribed 18 minutes of audio and created 14 timestamped knowledge sections.”
+
+==================================================
+9. INGESTION HISTORY
+==================================================
+
+Expand the ingestion history so users can filter by:
+
+- all
+- URL
+- text
+- documents
+- images
+- video
+- audio
+- voice
+- ready
+- processing
+- failed
+- submitted by
+- date
+
+Include:
+
+- search
+- sort
+- retry
+- delete
+- reprocess
+- inspect
+- ask about source
+- bulk actions
+
+==================================================
+10. BACKEND INGESTION MODEL
+==================================================
+
+All ingestion types must use a common source model.
+
+Each source record should include:
+
+- source ID
+- source type
+- original filename or URL
+- normalized URL when applicable
+- title
+- description
+- MIME type
+- file size
+- submitted by
+- submission date
+- permission scope
+- raw content storage reference
+- extracted text
+- transcript
+- image analysis
+- visual description
+- metadata
+- tags
+- content hash
+- duplicate relationship
+- ingestion stage
+- ingestion status
+- failure reason
+- extracted character count
+- page count
+- duration
+- chunk count
+- indexed chunk count
+- retrieval-ready boolean
+- created timestamp
+- updated timestamp
+
+Use explicit source types such as:
+
+- url
+- pasted_text
+- document
+- spreadsheet
+- presentation
+- image
+- video
+- audio
+- voice_recording
+
+==================================================
+11. DUPLICATE DETECTION
+==================================================
+
+Before ingesting:
+
+- compare normalized URL
+- compare file hash
+- compare content hash
+- compare prior source records
+
+If a duplicate is detected, show:
+
+“This appears to have already been fed to Cortex.”
+
+Provide options:
+
+- Open existing source
+- Reprocess
+- Create a new version
+- Cancel
+
+Do not silently create duplicate knowledge chunks.
+
+==================================================
+12. PERMISSIONS AND SECURITY
+==================================================
+
+Every ingested item must respect CMS permissions.
+
+Allow the user to set visibility:
+
+- Private to me
+- My team
+- Department
+- Entire company
+- Custom users
+
+Default to the existing product permission rules.
+
+All derived items must inherit the source permissions:
+
+- extracted text
+- transcript
+- chunks
+- summaries
+- embeddings
+- search results
+- Cortex answers
+
+Never allow another user to retrieve a source they cannot access.
+
+Protect against:
+
+- unsafe file types
+- executable uploads
+- oversized files
+- malformed files
+- malicious HTML
+- prompt injection inside uploaded content
+- cross-user retrieval
+- private URL leakage
+- duplicate processing attacks
+
+Treat uploaded knowledge as source material, not system instructions.
+
+==================================================
+13. FILE LIMITS AND USER FEEDBACK
+==================================================
+
+Create practical configurable limits.
+
+Display limits before upload.
+
+For example:
+
+- documents: configurable maximum
+- images: configurable maximum
+- audio/video: configurable maximum
+- voice recordings: configurable duration
+- total batch size: configurable maximum
+
+Do not hardcode values in multiple components.
+
+Use a central configuration.
+
+When a limit is exceeded, explain exactly what must change.
+
+Bad:
+
+“Upload failed.”
+
+Good:
+
+“This video is 620 MB. The current upload limit is 500 MB.”
+
+==================================================
+14. VISUAL DIRECTION
+==================================================
+
+The interface should feel:
+
+- clean
+- intelligent
+- premium
+- futuristic
+- calm
+- trustworthy
+- easy to understand
+
+Avoid:
+
+- clutter
+- too many borders
+- tiny controls
+- unexplained icons
+- excessive gradients
+- gimmicky animations
+- giant empty whitespace
+- six identical grey boxes
+
+Use the existing Cortex orb/network visual as the focal point, but make it more purposeful.
+
+Possible improvement:
+
+Place the Cortex orb above the ingestion area with subtle animated data paths pointing toward the different knowledge inputs.
+
+When a user drags a file over the page, the Cortex visual can subtly react or glow.
+
+Keep animation lightweight and accessible.
+
+Respect:
+
+- reduced-motion settings
+- light mode
+- dark mode
+- keyboard navigation
+- screen readers
+- visible focus states
+- colour contrast
+
+==================================================
+15. RESPONSIVE BEHAVIOUR
+==================================================
+
+Desktop:
+- prominent hero
+- 3 × 2 ingestion grid
+- universal composer
+- drop zone
+- learned-today section
+- history and Ask Cortex below
+
+Tablet:
+- 2-column ingestion grid
+
+Mobile:
+- stacked cards
+- fixed-width-safe controls
+- usable recorder
+- usable file previews
+- no horizontal scrolling
+
+==================================================
+16. REQUIRED WORKING TESTS
+==================================================
+
+Add real functional tests.
+
+URL:
+- paste URL
+- extract content
+- index
+- retrieve
+- display ready status
+
+Text:
+- paste unique text
+- ingest
+- ask Cortex a question answerable only from that text
+- confirm grounded answer
+
+Document:
+- upload PDF or DOCX fixture
+- extract content
+- create chunks
+- retrieve content
+
+Image:
+- upload image fixture containing visible text and visual meaning
+- confirm extracted text and visual summary
+- confirm Cortex can answer about it
+
+Video:
+- upload short video fixture
+- transcribe
+- preserve timestamps
+- ask a transcript-specific question
+
+Audio:
+- upload audio fixture
+- transcribe
+- retrieve
+
+Voice:
+- record or simulate voice input
+- stop processing
+- confirm success state
+- confirm spinner clears
+- confirm transcript is stored
+
+Multiple files:
+- drag in several supported files
+- confirm independent progress and results
+
+Failure:
+- upload unsupported format
+- confirm clear failure message
+
+Duplicate:
+- upload the same file twice
+- confirm duplicate warning
+
+Permissions:
+- ingest private source as User A
+- confirm User B cannot retrieve it
+
+Restart:
+- begin a background ingestion job
+- restart application
+- confirm processing resumes safely
+
+==================================================
+17. LIVE BROWSER VERIFICATION
+==================================================
+
+After implementation, verify in the live app:
+
+1. Paste a URL.
+2. Paste plain text.
+3. Upload a PDF.
+4. Upload an image.
+5. Upload an audio file.
+6. Upload a video.
+7. Record a voice note.
+8. Drag and drop multiple files.
+9. Watch each item progress independently.
+10. Open extracted content.
+11. Test retrieval.
+12. Ask Cortex a question specific to each source.
+13. Confirm every answer is grounded and cited.
+14. Confirm failed sources are not represented as learned.
+15. Confirm the page works in light and dark mode.
+16. Confirm responsive layout.
+17. Confirm keyboard access.
+
+==================================================
+18. COMPLETION STANDARD
+==================================================
+
+Do not declare this complete unless:
+
+- all visible ingestion options work
+- URL ingestion still works
+- pasted text works
+- documents work
+- images work
+- video works
+- audio works
+- voice recording works
+- drag and drop works
+- multiple-file upload works
+- progress is accurate
+- success states clear correctly
+- failure messages are specific
+- ingestion records persist
+- chunks are indexed
+- retrieval works
+- permissions work
+- Cortex can answer source-specific questions
+- the UI visibly communicates every input method
+- no dead buttons remain
+
+Provide a completion report with:
+
+1. UX changes
+2. Screens/pages changed
+3. Backend pipeline changes
+4. Supported formats
+5. File-size limits
+6. Permission controls
+7. Database changes
+8. Tests added
+9. Test results
+10. Live browser verification
+11. Known limitations
+12. Screenshots of the final Feed Cortex interface

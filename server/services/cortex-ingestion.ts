@@ -420,6 +420,283 @@ function buildOrTsQuery(query: string): string | null {
   return unique.map((w) => `${w.replace(/'/g, "''")}:*`).join(" | ");
 }
 
+// ── Text ingestion ────────────────────────────────────────────────────────────
+
+export async function runTextIngestion(sourceId: number, text: string): Promise<void> {
+  try {
+    const cleaned = text.replace(/\u0000/g, "").trim();
+    if (cleaned.length < MIN_USABLE_CHARS) {
+      await setStatus(sourceId, "partial", "extract", {
+        failure_reason: `Text too short — only ${cleaned.length} characters. Minimum is ${MIN_USABLE_CHARS}.`,
+        extracted_text: cleaned,
+        content_char_count: cleaned.length,
+        retrieval_ready: false,
+      });
+      return;
+    }
+    await setStatus(sourceId, "chunking", "chunk");
+    const chunks = chunkText(cleaned);
+    await setStatus(sourceId, "indexing", "index");
+    const indexedCount = await persistChunks(sourceId, chunks);
+    await db.execute(sql.raw(`
+      UPDATE cortex_email_intel SET
+        extracted_text = '${cleaned.slice(0, 500_000).replace(/'/g, "''")}',
+        content_char_count = ${cleaned.length},
+        content_hash = '${contentHash(cleaned)}',
+        chunk_count = ${chunks.length},
+        indexed_chunk_count = ${indexedCount},
+        extraction_method = 'direct-text',
+        fetch_completed_at = NOW()
+      WHERE id = ${sourceId}
+    `));
+    await setStatus(sourceId, "ready", "verify", { retrieval_ready: true });
+  } catch (err: any) {
+    console.error(`[cortex-ingestion] text source ${sourceId} failed:`, err.message);
+    await setStatus(sourceId, "failed", "unexpected_error", {
+      failure_reason: String(err.message || err).slice(0, 2000),
+      retrieval_ready: false,
+    });
+  }
+}
+
+export function queueTextIngestion(sourceId: number, text: string): void {
+  db.execute(sql.raw(`UPDATE cortex_email_intel SET ingestion_status = 'queued', ingestion_stage = 'queued' WHERE id = ${sourceId}`))
+    .then(() => logStage(sourceId, "queued", "queued"))
+    .then(() => runTextIngestion(sourceId, text))
+    .catch((e) => console.error("[cortex-ingestion] queueTextIngestion failed:", e.message));
+}
+
+// ── Image ingestion (GPT-4o-mini vision) ─────────────────────────────────────
+
+export async function runImageIngestion(sourceId: number, imageBuffer: Buffer, mimeType: string): Promise<void> {
+  try {
+    await setStatus(sourceId, "extracting", "analyze");
+    const { default: OpenAI } = await import("openai");
+    const oai = new OpenAI({
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    });
+    const base64 = imageBuffer.toString("base64");
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+    const completion = await oai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: dataUrl, detail: "high" } as any },
+          { type: "text", text: `Analyze this image thoroughly for a business knowledge base. Provide:\n1. A detailed description of what the image shows\n2. All text visible in the image (exact transcription)\n3. Key data, numbers, or metrics if present\n4. Interpretation of any charts, diagrams, or visual data\n5. Main topics and subject matter\n6. Business relevance and key takeaways\n\nFormat as clear prose with each section labeled. Be comprehensive.` },
+        ],
+      }],
+      max_tokens: 2000,
+    });
+    const analysis = completion.choices[0]?.message?.content?.trim() ?? "";
+    if (!analysis || analysis.length < MIN_USABLE_CHARS) {
+      await setStatus(sourceId, "partial", "analyze", {
+        failure_reason: "Image analysis produced insufficient content.",
+        extracted_text: analysis,
+        content_char_count: analysis.length,
+        retrieval_ready: false,
+      });
+      return;
+    }
+    await setStatus(sourceId, "chunking", "chunk");
+    const chunks = chunkText(analysis);
+    await setStatus(sourceId, "indexing", "index");
+    const indexedCount = await persistChunks(sourceId, chunks);
+    await db.execute(sql.raw(`
+      UPDATE cortex_email_intel SET
+        extracted_text = '${analysis.slice(0, 500_000).replace(/'/g, "''")}',
+        content_char_count = ${analysis.length},
+        content_hash = '${contentHash(analysis)}',
+        chunk_count = ${chunks.length},
+        indexed_chunk_count = ${indexedCount},
+        extraction_method = 'gpt4o-vision',
+        fetch_completed_at = NOW()
+      WHERE id = ${sourceId}
+    `));
+    await setStatus(sourceId, "ready", "verify", { retrieval_ready: true });
+  } catch (err: any) {
+    console.error(`[cortex-ingestion] image source ${sourceId} failed:`, err.message);
+    await setStatus(sourceId, "failed", "unexpected_error", {
+      failure_reason: String(err.message || err).slice(0, 2000),
+      retrieval_ready: false,
+    });
+  }
+}
+
+// ── Audio/Video ingestion (Whisper) ───────────────────────────────────────────
+
+export async function runAudioIngestion(sourceId: number, audioBuffer: Buffer, filename: string, mimeType: string): Promise<void> {
+  try {
+    await setStatus(sourceId, "transcribing", "transcribe");
+    const { default: OpenAI, toFile } = await import("openai");
+    const oai = new OpenAI({
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    });
+    const audioFile = await toFile(audioBuffer, filename, { type: mimeType });
+    const transcription = await (oai.audio.transcriptions.create as any)({
+      file: audioFile,
+      model: "whisper-1",
+      response_format: "text",
+    });
+    const transcript = typeof transcription === "string" ? transcription : (transcription as any)?.text ?? "";
+    if (!transcript || transcript.trim().length < MIN_USABLE_CHARS) {
+      await setStatus(sourceId, "partial", "transcribe", {
+        failure_reason: "Audio transcription produced insufficient content — the recording may be too short, silent, or unclear.",
+        extracted_text: transcript,
+        content_char_count: transcript.length,
+        retrieval_ready: false,
+      });
+      return;
+    }
+    const cleaned = transcript.replace(/\u0000/g, "").trim();
+    await setStatus(sourceId, "chunking", "chunk");
+    const chunks = chunkText(cleaned);
+    await setStatus(sourceId, "indexing", "index");
+    const indexedCount = await persistChunks(sourceId, chunks);
+    await db.execute(sql.raw(`
+      UPDATE cortex_email_intel SET
+        extracted_text = '${cleaned.slice(0, 500_000).replace(/'/g, "''")}',
+        transcript = '${cleaned.slice(0, 500_000).replace(/'/g, "''")}',
+        content_char_count = ${cleaned.length},
+        content_hash = '${contentHash(cleaned)}',
+        chunk_count = ${chunks.length},
+        indexed_chunk_count = ${indexedCount},
+        extraction_method = 'whisper-v1',
+        fetch_completed_at = NOW()
+      WHERE id = ${sourceId}
+    `));
+    await setStatus(sourceId, "ready", "verify", { retrieval_ready: true });
+  } catch (err: any) {
+    console.error(`[cortex-ingestion] audio source ${sourceId} failed:`, err.message);
+    await setStatus(sourceId, "failed", "unexpected_error", {
+      failure_reason: String(err.message || err).slice(0, 2000),
+      retrieval_ready: false,
+    });
+  }
+}
+
+// ── File buffer routing ───────────────────────────────────────────────────────
+
+const IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/bmp"]);
+const AUDIO_MIMES = new Set([
+  "audio/mpeg", "audio/mp3", "audio/wav", "audio/wave", "audio/x-wav",
+  "audio/mp4", "audio/m4a", "audio/aac", "audio/ogg", "audio/webm",
+  "video/mp4", "video/mov", "video/quicktime", "video/webm", "video/avi",
+  "video/x-matroska",
+]);
+
+export async function runFileIngestion(sourceId: number, fileBuffer: Buffer, filename: string, mimeType: string): Promise<void> {
+  try {
+    if (IMAGE_MIMES.has(mimeType)) return await runImageIngestion(sourceId, fileBuffer, mimeType);
+    if (AUDIO_MIMES.has(mimeType)) return await runAudioIngestion(sourceId, fileBuffer, filename, mimeType);
+    if (mimeType === "application/pdf") {
+      await setStatus(sourceId, "extracting", "extract");
+      const pdfParse = (await import("pdf-parse")).default;
+      const data = await pdfParse(fileBuffer);
+      const text = (data.text || "").replace(/\u0000/g, "").trim();
+      if (text.length < MIN_USABLE_CHARS) {
+        await setStatus(sourceId, "partial", "extract", {
+          failure_reason: "PDF appears to be scanned or image-based — no selectable text could be extracted.",
+          extracted_text: text, content_char_count: text.length, retrieval_ready: false,
+        });
+        return;
+      }
+      const fullText = `[${data.numpages} pages]\n\n${text}`;
+      await setStatus(sourceId, "chunking", "chunk");
+      const chunks = chunkText(fullText);
+      await setStatus(sourceId, "indexing", "index");
+      const indexedCount = await persistChunks(sourceId, chunks);
+      await db.execute(sql.raw(`
+        UPDATE cortex_email_intel SET
+          extracted_text = '${fullText.slice(0, 500_000).replace(/'/g, "''")}',
+          content_char_count = ${fullText.length},
+          content_hash = '${contentHash(fullText)}',
+          chunk_count = ${chunks.length}, indexed_chunk_count = ${indexedCount},
+          extraction_method = 'pdf-parse-buffer', fetch_completed_at = NOW()
+        WHERE id = ${sourceId}
+      `));
+      await setStatus(sourceId, "ready", "verify", { retrieval_ready: true });
+      return;
+    }
+    const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || filename.toLowerCase().endsWith(".docx");
+    if (isDocx) {
+      await setStatus(sourceId, "extracting", "extract");
+      const mammoth = await import("mammoth");
+      const result = await mammoth.extractRawText({ buffer: fileBuffer });
+      const text = (result.value || "").replace(/\u0000/g, "").trim();
+      if (text.length < MIN_USABLE_CHARS) {
+        await setStatus(sourceId, "partial", "extract", {
+          failure_reason: "DOCX file appears empty or contains no extractable text.",
+          extracted_text: text, content_char_count: text.length, retrieval_ready: false,
+        });
+        return;
+      }
+      await setStatus(sourceId, "chunking", "chunk");
+      const chunks = chunkText(text);
+      await setStatus(sourceId, "indexing", "index");
+      const indexedCount = await persistChunks(sourceId, chunks);
+      await db.execute(sql.raw(`
+        UPDATE cortex_email_intel SET
+          extracted_text = '${text.slice(0, 500_000).replace(/'/g, "''")}',
+          content_char_count = ${text.length},
+          content_hash = '${contentHash(text)}',
+          chunk_count = ${chunks.length}, indexed_chunk_count = ${indexedCount},
+          extraction_method = 'mammoth-docx', fetch_completed_at = NOW()
+        WHERE id = ${sourceId}
+      `));
+      await setStatus(sourceId, "ready", "verify", { retrieval_ready: true });
+      return;
+    }
+    const fn = filename.toLowerCase();
+    const isPlainText = mimeType.startsWith("text/") || fn.endsWith(".md") || fn.endsWith(".csv") || fn.endsWith(".txt") || fn.endsWith(".json");
+    if (isPlainText) {
+      await setStatus(sourceId, "extracting", "extract");
+      const text = fileBuffer.toString("utf-8").replace(/\u0000/g, "").trim();
+      if (text.length < MIN_USABLE_CHARS) {
+        await setStatus(sourceId, "partial", "extract", {
+          failure_reason: "File is too short to produce usable knowledge chunks.",
+          extracted_text: text, content_char_count: text.length, retrieval_ready: false,
+        });
+        return;
+      }
+      await setStatus(sourceId, "chunking", "chunk");
+      const chunks = chunkText(text);
+      await setStatus(sourceId, "indexing", "index");
+      const indexedCount = await persistChunks(sourceId, chunks);
+      await db.execute(sql.raw(`
+        UPDATE cortex_email_intel SET
+          extracted_text = '${text.slice(0, 500_000).replace(/'/g, "''")}',
+          content_char_count = ${text.length},
+          content_hash = '${contentHash(text)}',
+          chunk_count = ${chunks.length}, indexed_chunk_count = ${indexedCount},
+          extraction_method = 'plaintext-buffer', fetch_completed_at = NOW()
+        WHERE id = ${sourceId}
+      `));
+      await setStatus(sourceId, "ready", "verify", { retrieval_ready: true });
+      return;
+    }
+    await setStatus(sourceId, "unsupported", "extract", {
+      failure_reason: `File type '${mimeType}' (${filename}) is not supported for content extraction.`,
+      retrieval_ready: false,
+    });
+  } catch (err: any) {
+    console.error(`[cortex-ingestion] file source ${sourceId} failed:`, err.message);
+    await setStatus(sourceId, "failed", "unexpected_error", {
+      failure_reason: String(err.message || err).slice(0, 2000),
+      retrieval_ready: false,
+    });
+  }
+}
+
+export function queueFileIngestion(sourceId: number, fileBuffer: Buffer, filename: string, mimeType: string): void {
+  db.execute(sql.raw(`UPDATE cortex_email_intel SET ingestion_status = 'queued', ingestion_stage = 'queued' WHERE id = ${sourceId}`))
+    .then(() => logStage(sourceId, "queued", "queued"))
+    .then(() => runFileIngestion(sourceId, fileBuffer, filename, mimeType))
+    .catch((e) => console.error("[cortex-ingestion] queueFileIngestion failed:", e.message));
+}
+
 /** Simple lexical (non-vector) retrieval: PostgreSQL full-text search over chunk text, scoped to ready sources. */
 export async function retrieveChunksForQuery(query: string, opts: { limit?: number; sourceIds?: number[]; onlyToday?: boolean } = {}): Promise<any[]> {
   const limit = opts.limit ?? 8;
