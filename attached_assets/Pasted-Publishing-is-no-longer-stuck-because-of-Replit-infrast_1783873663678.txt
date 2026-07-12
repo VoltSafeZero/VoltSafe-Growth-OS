@@ -1,0 +1,94 @@
+Publishing is no longer stuck because of Replit infrastructure. It is now failing migration validation because the generated idx_email_fts_v3 SQL is malformed.
+
+The Publishing screen reports:
+
+Failed to run database migration statement
+
+CREATE INDEX "idx_email_fts_v3" ON "email_messages" USING gin (
+  to_tsvector(
+    'english'::regconfig,
+    ((((((((((((COALESCE(subject, tsvector_ops);
+  )
+);
+
+PostgreSQL error:
+syntax error at or near ";"
+
+Do not publish.
+Do not copy the development database schema or data into production.
+Do not reset either database.
+Do not change unrelated application features.
+
+Find and permanently fix the source that causes Replit to generate this malformed index.
+
+PHASE 1 — TRACE THE SOURCE
+
+1. Search the complete codebase, ORM schema, migrations, startup migrations, and raw SQL for:
+   - idx_email_fts_v3
+   - tsvector_ops
+   - to_tsvector
+   - email_messages
+   - subject
+2. Identify the exact file and definition causing the malformed generated migration.
+3. Determine whether idx_email_fts_v3 is currently defined through:
+   - the ORM schema
+   - a checked-in migration
+   - startup SQL
+   - more than one of these
+4. Show the intended full-text search expression used by the actual email search query.
+5. Check whether Replit/Drizzle is misinterpreting tsvector_ops as part of the indexed expression rather than as an operator class.
+
+PHASE 2 — AUDIT CURRENT DATABASE STATE
+
+Run read-only checks against both development and production:
+
+1. Confirm whether these indexes exist:
+   - idx_email_fts_v3
+   - idx_email_all_participants_trgm
+   - idx_email_cc_emails_trgm
+2. Return their exact definitions from pg_indexes.
+3. Confirm whether pg_trgm is installed.
+4. Confirm the exact data types of every email_messages column referenced by the intended full-text expression.
+5. Confirm no partial or invalid idx_email_fts_v3 index exists.
+6. Confirm whether the three cortex_email_intel columns exist in each database.
+
+PHASE 3 — DESIGN THE SMALLEST SAFE FIX
+
+The fix must:
+
+1. Remove the malformed ORM/index declaration that causes Replit to generate invalid SQL.
+2. Preserve the intended full-text email search behaviour.
+3. Ensure the index is created through exactly one controlled path.
+4. Use syntactically valid PostgreSQL.
+5. Use COALESCE(column, '') for nullable text fields—not tsvector_ops.
+6. Use proper casts for arrays, JSON, or non-text fields.
+7. Use CREATE INDEX IF NOT EXISTS where supported.
+8. Avoid CREATE INDEX CONCURRENTLY inside a transaction.
+9. Avoid duplicate index creation from both ORM schema and startup migrations.
+10. Not modify or delete production email data.
+
+Before implementing, show me:
+
+- the exact defective source code
+- the complete malformed generated SQL
+- the corrected complete SQL
+- every column included in the search vector
+- why the corrected expression matches the application’s search query
+- whether the fix changes ORM schema, migration SQL, startup SQL, or all three
+- production safety and lock impact
+
+PHASE 4 — IMPLEMENT AND VERIFY
+
+After the defect is proven:
+
+1. Apply the smallest code correction.
+2. Do not manually alter production yet.
+3. Run the production build.
+4. Run all relevant email search and migration tests.
+5. Generate or preview the next production migration.
+6. Confirm the generated migration no longer contains malformed idx_email_fts_v3 SQL.
+7. Print the complete pending migration without truncation.
+8. Confirm it contains no destructive operations.
+9. Confirm no development data will be copied to production.
+
+Stop before publishing and give me the final migration preview for approval.
