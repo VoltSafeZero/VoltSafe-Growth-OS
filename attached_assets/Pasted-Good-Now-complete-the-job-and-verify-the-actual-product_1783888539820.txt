@@ -1,0 +1,77 @@
+Good. Now complete the job and verify the actual production user experience.
+
+Do not stop at confirming that the MP4 files exist or that their durations exceed three minutes.
+
+Complete all of the following:
+
+1. Review all five newly generated videos end-to-end:
+   - 07. Capital Module Overview
+   - 08. Investor Pipeline & Commitments
+   - 09. Data Room & Materials
+   - 10. Follow-Ups & Engagement Tracking
+   - 11. Reports & the AI Copilot
+
+2. Confirm for each video:
+   - The entire recording shows the real VoltSafe Growth OS interface.
+   - There are no blank or mostly blank screens.
+   - There are no login screens, loading failures, error states, developer pages, or unrelated modules.
+   - The two concatenated parts join cleanly.
+   - There is no duplicated introduction or repeated content at the join.
+   - Cursor position and screen context do not jump confusingly.
+   - Instructional text is readable and remains visible long enough to understand.
+   - The video demonstrates meaningful user actions, not merely slowly displaying static pages.
+   - Every claim in the text matches what is actually shown.
+   - Each video genuinely teaches the topic named in its title.
+
+3. Produce a verification table containing:
+   - Video number and title
+   - Exact runtime
+   - Resolution
+   - File size
+   - Number of instructional overlays
+   - Main screens demonstrated
+   - Main actions demonstrated
+   - Concatenation timestamp
+   - Whether the join is visually clean
+   - PASS or FAIL
+
+4. Fix any failed video before proceeding. Do not mark a video ready merely because its duration is over 180 seconds.
+
+5. Publish/host the five new final MP4 files using the same production-serving mechanism used by videos 01–06.
+
+6. Replace the old videos completely. Ensure no stale 24-second file remains available through:
+   - The Learn page
+   - The training video API
+   - Static asset routing
+   - Any cached or fallback URL
+
+7. Update the Learn page metadata:
+   - Status must be “Hosted,” not “Edited.”
+   - Display each video’s actual runtime rather than a generic “~3 min.”
+   - Keep the titles and descriptions aligned with the actual video content.
+   - Remove any raw internal file paths, development paths, provider debugging text, or production-pipeline details from the normal user-facing cards. Those details should only appear in an admin/debug view.
+
+8. Publish the app.
+
+9. After publishing, test production as an authenticated user:
+   - Open Learn → Training → Video Library.
+   - Open videos 07 through 11 individually.
+   - Confirm each video starts correctly.
+   - Scrub to the middle and near the end.
+   - Confirm the duration shown by the player matches the new video.
+   - Confirm the correct video is attached to each card.
+   - Confirm there are no 404, 403, CORS, range-request, buffering, or playback errors.
+   - Confirm the browser is not serving an old cached file.
+
+10. Return final production evidence:
+   - Production URL tested
+   - Actual duration reported by the production video player for each video
+   - HTTP status for each MP4
+   - Content-Type for each MP4
+   - Content-Length for each MP4
+   - Whether byte-range requests work
+   - Screenshot of the updated cards showing Hosted status and accurate duration
+   - Screenshot from the middle of each playing video
+   - Final PASS/FAIL for each video
+
+The task is complete only when videos 07–11 are genuinely useful onboarding tutorials and the new versions are playing correctly in production.

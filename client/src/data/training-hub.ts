@@ -218,7 +218,7 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
     title: "Capital Module Overview",
     description:
       "A tour of the Capital command center — round progress, investor pipeline stages, and how sample data maps to the real fundraising workflow.",
-    duration: "~3.5 min",
+    duration: "3:09",
     audiences: ["CFO"],
     status: "edited",
     rawVideoPath: "onboarding-videos/outputs/raw/cap-01-capital-overview.webm",
@@ -232,7 +232,7 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
     title: "Investor Pipeline & Commitments",
     description:
       "How to move investors through pipeline stages, log soft circles and commitments, and read the round's committed vs. target progress.",
-    duration: "~3.5 min",
+    duration: "3:06",
     audiences: ["CFO"],
     status: "edited",
     rawVideoPath: "onboarding-videos/outputs/raw/cap-02-investor-pipeline.webm",
@@ -246,7 +246,7 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
     title: "Data Room & Materials",
     description:
       "Organizing diligence materials into folders, marking confidentiality, and sharing a data room with an investor via the investor portal.",
-    duration: "~3.5 min",
+    duration: "3:09",
     audiences: ["CFO"],
     status: "edited",
     rawVideoPath: "onboarding-videos/outputs/raw/cap-03-data-room.webm",
@@ -260,7 +260,7 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
     title: "Follow-Ups & Engagement Tracking",
     description:
       "Creating and assigning investor follow-ups, and reading the engagement log to see who's warm and who's gone quiet.",
-    duration: "~3.5 min",
+    duration: "3:05",
     audiences: ["CFO"],
     status: "edited",
     rawVideoPath: "onboarding-videos/outputs/raw/cap-04-followups-engagement.webm",
@@ -274,7 +274,7 @@ export const TRAINING_VIDEOS: TrainingVideo[] = [
     title: "Reports & the AI Copilot",
     description:
       "Generating weekly briefs, board updates, and CFO closing reports, plus how to use the Capital AI Copilot for quick investor Q&A.",
-    duration: "~3.5 min",
+    duration: "3:05",
     audiences: ["CFO"],
     status: "edited",
     rawVideoPath: "onboarding-videos/outputs/raw/cap-05-reports-copilot.webm",
