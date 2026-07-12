@@ -166,8 +166,8 @@ export const NAV_CONFIG: NavSection[] = [
     label: "Operations",
     icon: SlidersHorizontal,
     items: [
-      { id: "install-deployments",   label: "Install & Deployments", route: "/install-workflows",  icon: Layers,       permKey: "crm",      advisorHidden: true },
       { id: "projects",              label: "Projects",              route: "/execution/projects", icon: Layers,       permKey: "projects" },
+      { id: "install-deployments",   label: "Install & Deployments", route: "/install-workflows",  icon: Layers,       permKey: "crm",      advisorHidden: true },
       { id: "procurement",           label: "Procurement",           route: "/procurement",        icon: Package,      permKey: "crm",      advisorHidden: true },
       { id: "support",               label: "Support",               route: "/support/tickets",    icon: ClipboardList,permKey: "support" },
       { id: "knowledge-documents",   label: "Document Hub",          route: "/documents",          icon: BookOpen },
