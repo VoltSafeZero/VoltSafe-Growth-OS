@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/useAuth";
 
 type Snippet = {
   id: number;
@@ -136,7 +135,7 @@ function SnippetFormDialog({
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { data: user } = useQuery<any>({ queryKey: ["/api/auth/me"] });
   const isAdmin = ["master_admin", "admin", "ceo"].includes((user as any)?.globalRole ?? "");
   const [form, setForm] = useState<FormValues>(
     initial
@@ -265,7 +264,7 @@ function SnippetFormDialog({
 
 export default function EmailToolsPage() {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { data: user } = useQuery<any>({ queryKey: ["/api/auth/me"] });
   const isAdmin = ["master_admin", "admin", "ceo"].includes((user as any)?.globalRole ?? "");
   const currentUserId = (user as any)?.id ?? 0;
 
