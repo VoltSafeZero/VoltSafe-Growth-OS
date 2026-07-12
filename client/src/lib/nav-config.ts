@@ -249,13 +249,13 @@ export const NAV_CONFIG: NavSection[] = [
     capitalOnly: true,
     items: [
       { id: "capital-follow-ups",     label: "Follow-Ups",          route: "/capital/follow-ups",     icon: Zap },
-      { id: "capital-engagement",     label: "Engagement",          route: "/capital/engagement",     icon: Activity },
       { id: "capital-command-center", label: "Command Center",      route: "/capital/command-center", icon: Target },
       // capital-dashboard (/capital/dashboard) + capital-email-review (/capital/email-review) rolled into Command Center above.
-      { id: "capital-reports",        label: "Reports",             route: "/capital/reports",        icon: FileText },
       { id: "capital-copilot",        label: "AI Copilot",          route: "/capital/copilot",        icon: Bot },
       { id: "capital-rounds",         label: "Rounds & Commitments",route: "/capital/rounds",         icon: RefreshCcw },
+      { id: "capital-engagement",     label: "Engagement",          route: "/capital/engagement",     icon: Activity },
       { id: "capital-investors",      label: "Investors",           route: "/capital/pipeline",       icon: TrendingUp },
+      { id: "capital-reports",        label: "Reports",             route: "/capital/reports",        icon: FileText },
       { id: "capital-data-room",      label: "Data Room",           route: "/capital/data-room",      icon: FolderOpen },
       { id: "capital-updates",        label: "Updates & Reviews",   route: "/capital/updates",        icon: BellRing },
     ],
