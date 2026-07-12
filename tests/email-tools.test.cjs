@@ -57,7 +57,7 @@ ok("admin role check uses globalRole", routes.includes("EMAIL_SNIPPET_ADMIN_ROLE
 ok("master_admin in admin set", routes.includes('"master_admin"'));
 ok("ceo in admin set", routes.includes('"ceo"'));
 ok("ownership check on PATCH", routes.includes("Not your snippet"));
-ok("ownership check on DELETE", routes.includes("owner_user_id !== user.id"));
+ok("ownership check on DELETE", routes.includes("owner_user_id !== userId"));
 ok("archived items excluded from GET", routes.includes("is_archived = FALSE"));
 ok("usage_count increment on /use", routes.includes("usage_count = usage_count + 1"));
 
