@@ -1,0 +1,172 @@
+The Capital onboarding videos 07–11 need to be completely rebuilt.
+
+Do NOT create placeholder videos.
+
+These are production onboarding videos intended to teach a first-time user how to use the Capital module.
+
+Requirements (applies to ALL videos):
+
+• Minimum runtime: 3 minutes.
+• Maximum runtime: 5 minutes.
+• No narration required.
+• Use only real application footage.
+• Use smooth camera movement (zoom/pan only when helpful).
+• Display instructional text overlays throughout the video.
+• Every overlay should explain:
+  - what the user is looking at
+  - why it matters
+  - what action to perform
+  - what the expected result is
+• Show realistic sample investor data.
+• No blank screens.
+• No idle waiting.
+• No placeholder content.
+• Every major feature should be demonstrated by actually using it.
+
+Text overlays should appear naturally throughout the walkthrough, similar to software onboarding videos.
+
+----------------------------------------
+VIDEO 07 — Capital Module Overview
+----------------------------------------
+
+Target length: 3–4 minutes
+
+Demonstrate:
+
+• Opening the Capital module
+• Dashboard overview
+• Capital KPIs
+• Fundraising progress
+• Navigation between sections
+• Relationship between Pipeline, Data Room, Follow-Ups and Reports
+• Typical daily workflow
+
+Overlay examples:
+
+"Welcome to the Capital Command Centre."
+
+"This dashboard provides a live view of your fundraising progress."
+
+"Use these KPIs to monitor investor activity and round performance."
+
+"The navigation on the left separates every stage of the fundraising process."
+
+"Most users begin each day by reviewing new investor activity."
+
+----------------------------------------
+VIDEO 08 — Investor Pipeline & Commitments
+----------------------------------------
+
+Target length: 3–5 minutes
+
+Demonstrate:
+
+• Opening Pipeline
+• Creating an investor
+• Updating investor stages
+• Recording meetings
+• Logging soft circles
+• Recording commitments
+• Viewing round progress
+• Filtering investors
+• Searching
+• Editing records
+
+Overlay examples:
+
+"Every investor begins in the Prospect stage."
+
+"Move investors forward as conversations progress."
+
+"Soft circles help estimate likely commitments before funds are received."
+
+"The commitment tracker automatically updates fundraising progress."
+
+----------------------------------------
+VIDEO 09 — Data Room & Materials
+----------------------------------------
+
+Target length: 3–5 minutes
+
+Demonstrate:
+
+• Opening the Data Room
+• Folder organization
+• Uploading documents
+• Sharing documents
+• Investor permissions
+• Viewing confidential files
+• Organizing due diligence materials
+
+Overlay examples:
+
+"Keep documents organized by category."
+
+"Only share sensitive files with approved investors."
+
+"Version control ensures everyone accesses the latest document."
+
+----------------------------------------
+VIDEO 10 — Follow-Ups & Engagement Tracking
+----------------------------------------
+
+Target length: 3–5 minutes
+
+Demonstrate:
+
+• Logging meetings
+• Recording emails
+• Recording calls
+• Creating follow-up tasks
+• Assigning owners
+• Updating engagement status
+• Tracking warm vs cold investors
+• Reviewing upcoming follow-ups
+
+Overlay examples:
+
+"Every investor interaction should be logged."
+
+"Assign ownership so follow-ups are never missed."
+
+"Engagement history provides valuable fundraising context."
+
+----------------------------------------
+VIDEO 11 — Reports & AI Copilot
+----------------------------------------
+
+Target length: 3–5 minutes
+
+Demonstrate:
+
+• Opening Reports
+• Weekly fundraising summaries
+• Board reporting
+• AI Copilot
+• Asking questions
+• Generating summaries
+• Reviewing investor insights
+
+Overlay examples:
+
+"Generate executive-ready fundraising reports in seconds."
+
+"The AI Copilot can summarize investor activity and answer questions about your pipeline."
+
+"Reports help keep management and investors aligned."
+
+----------------------------------------
+Production Quality Requirements
+
+• All text overlays must be grammatically correct.
+• Keep text visible long enough to comfortably read.
+• Use smooth transitions.
+• Do not rapidly jump between screens.
+• Ensure cursor movements are deliberate and easy to follow.
+• Every feature demonstrated should match the current production UI.
+• Export at 1080p.
+• Verify every MP4 is between 3 and 5 minutes before publishing.
+• Replace the existing hosted videos.
+• Verify that the Learn page duration matches the actual runtime of each video.
+
+The finished videos should feel like polished SaaS onboarding tutorials that allow a new CFO or CEO to learn the Capital module without needing live training.

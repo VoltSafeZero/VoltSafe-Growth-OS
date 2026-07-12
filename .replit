@@ -44,27 +44,11 @@ args = "permissions"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "HTML backfill"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Attachment backfill"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "mail-permissions"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "mailbox-switching"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "tracking-proof"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "tracking-multi-proof"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
@@ -99,28 +83,6 @@ args = "node tests/permissions.test.js"
 isValidation = true
 
 [[workflows.workflow]]
-name = "HTML backfill"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npx tsx scripts/html-backfill-all.ts"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow]]
-name = "Attachment backfill"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npx tsx scripts/attachment-backfill-all.ts"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow]]
 name = "mail-permissions"
 author = "agent"
 
@@ -138,22 +100,6 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "node tests/mailbox-switching.test.js"
-
-[[workflows.workflow]]
-name = "tracking-proof"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node tests/tracking-proof.test.js"
-
-[[workflows.workflow]]
-name = "tracking-multi-proof"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node tests/tracking-multi-proof.test.js"
 
 [[workflows.workflow]]
 name = "not-spam-blocked-domain"
