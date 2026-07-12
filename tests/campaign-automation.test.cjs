@@ -491,6 +491,17 @@ console.log("\n[2] Source-grep invariants");
 console.log("\n[3] API tests (unauthenticated)");
 
 async function runApiTests() {
+  // Pre-check: skip gracefully if server is not reachable
+  try {
+    await req("GET", "/api/marketing/campaigns/1/automation/status");
+  } catch (err) {
+    if (err?.code === "ECONNREFUSED" || err?.message?.includes("ECONNREFUSED")) {
+      console.log("  ~ all API tests [skipped: server not reachable]");
+      SKIPPED += 7;
+      return;
+    }
+  }
+
   // 3a: Unauthenticated guards
   try {
     const r = await req("GET", "/api/marketing/campaigns/1/automation/status");
