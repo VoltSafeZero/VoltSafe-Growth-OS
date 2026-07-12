@@ -43397,11 +43397,30 @@ ${contextText}`;
     { title: "Objection — Budget", category: "Objection Handling", snippetType: "snippet", sharingScope: "org", isStarter: true, subject: "", body: "Hi {{firstName}},\n\nUnderstood. Budget is always part of the conversation.\n\nThe way most operators look at VoltSafe: it's not a cost — it's a revenue and liability trade-off.\n\nBilling recovery alone often funds the platform. Add reduced maintenance, insurance benefits, and boater experience uplift, and the math changes quickly.\n\nHappy to model it out for {{marinaName}} if useful.\n\nTrevor" },
   ];
 
+  // Auto-seed starter snippets on startup if none exist yet (covers production deploys)
+  (async () => {
+    try {
+      const count = await db.execute(sql.raw(`SELECT COUNT(*) AS c FROM email_snippets WHERE is_starter = TRUE`));
+      if (Number((count.rows[0] as any).c) === 0) {
+        for (const s of STARTER_SNIPPETS) {
+          await db.execute(sql.raw(
+            `INSERT INTO email_snippets (title, subject, body, category, snippet_type, owner_user_id, sharing_scope, is_starter)
+             VALUES ('${s.title.replace(/'/g, "''")}', '${s.subject.replace(/'/g, "''")}', '${s.body.replace(/'/g, "''")}',
+                     '${s.category}', '${s.snippetType}', NULL, '${s.sharingScope}', TRUE)`
+          ));
+        }
+        console.log("[email-snippets] auto-seeded", STARTER_SNIPPETS.length, "starter snippets.");
+      }
+    } catch (e: any) {
+      console.error("[email-snippets] auto-seed error:", e.message);
+    }
+  })();
+
   app.get("/api/email-snippets", requireAuth, async (req: any, res) => {
     try {
-      const user = req.user;
-      const uid = user?.id;
-      const admin = isSnippetAdmin(user);
+      const userId = Number(req.session?.userId || 0);
+      const globalRole = String((req.session as any)?.globalRole || "");
+      const admin = EMAIL_SNIPPET_ADMIN_ROLES.has(globalRole);
       // Admins see all; others see org-scoped + their own private
       const rows = await db.execute(sql.raw(
         `SELECT s.id, s.title, s.subject, s.body, s.category, s.snippet_type,
@@ -43411,7 +43430,7 @@ ${contextText}`;
          FROM email_snippets s
          LEFT JOIN users u ON u.id = s.owner_user_id
          WHERE s.is_archived = FALSE
-           AND (${admin ? "TRUE" : `s.sharing_scope = 'org' OR s.owner_user_id = ${Number(uid)}`})
+           AND (${admin ? "TRUE" : `s.sharing_scope = 'org' OR s.owner_user_id = ${userId}`})
          ORDER BY s.is_starter DESC, s.usage_count DESC, s.created_at ASC`
       ));
       const mapped = (rows.rows as any[]).map(r => ({
@@ -43431,7 +43450,8 @@ ${contextText}`;
 
   app.post("/api/email-snippets/seed-defaults", requireAuth, requireAdmin, async (req: any, res) => {
     try {
-      const user = req.user;
+      const userId = req.session?.userId ? Number(req.session.userId) : null;
+      if (!userId) return res.status(400).json({ error: "Not authenticated — no session userId" });
       let seeded = 0;
       for (const s of STARTER_SNIPPETS) {
         const exists = await db.execute(sql.raw(
@@ -43441,7 +43461,7 @@ ${contextText}`;
           await db.execute(sql.raw(
             `INSERT INTO email_snippets (title, subject, body, category, snippet_type, owner_user_id, sharing_scope, is_starter)
              VALUES ('${s.title.replace(/'/g, "''")}', '${s.subject.replace(/'/g, "''")}', '${s.body.replace(/'/g, "''")}',
-                     '${s.category}', '${s.snippetType}', ${user.id}, '${s.sharingScope}', TRUE)`
+                     '${s.category}', '${s.snippetType}', ${userId}, '${s.sharingScope}', TRUE)`
           ));
           seeded++;
         }
@@ -43455,7 +43475,8 @@ ${contextText}`;
 
   app.post("/api/email-snippets", requireAuth, async (req: any, res) => {
     try {
-      const user = req.user;
+      const userId = Number(req.session?.userId || 0);
+      if (!userId) return res.status(400).json({ error: "Not authenticated" });
       const { title, subject = "", body, category = "Custom", snippetType = "snippet", sharingScope = "org" } = req.body;
       if (!title?.trim()) return res.status(400).json({ error: "title required" });
       if (!body?.trim()) return res.status(400).json({ error: "body required" });
@@ -43467,7 +43488,7 @@ ${contextText}`;
       const safeScope = ["org","private"].includes(sharingScope) ? sharingScope : "org";
       const rows = await db.execute(sql.raw(
         `INSERT INTO email_snippets (title, subject, body, category, snippet_type, owner_user_id, sharing_scope)
-         VALUES ('${safeTitle}', '${safeSubject}', '${safeBody}', '${safeCategory}', '${safeType}', ${user.id}, '${safeScope}')
+         VALUES ('${safeTitle}', '${safeSubject}', '${safeBody}', '${safeCategory}', '${safeType}', ${userId}, '${safeScope}')
          RETURNING id, title, subject, body, category, snippet_type, owner_user_id, sharing_scope, is_starter, usage_count, created_at, updated_at`
       ));
       const r = (rows.rows as any[])[0];
@@ -43480,14 +43501,16 @@ ${contextText}`;
 
   app.patch("/api/email-snippets/:id", requireAuth, async (req: any, res) => {
     try {
-      const user = req.user;
+      const userId = Number(req.session?.userId || 0);
+      const globalRole = String((req.session as any)?.globalRole || "");
+      const isAdmin = EMAIL_SNIPPET_ADMIN_ROLES.has(globalRole);
       const id = Number(req.params.id);
       if (!id || isNaN(id)) return res.status(400).json({ error: "invalid id" });
       // Ownership check — admin can edit any, others only their own
       const check = await db.execute(sql.raw(`SELECT owner_user_id FROM email_snippets WHERE id = ${id} AND is_archived = FALSE`));
       const row = (check.rows as any[])[0];
       if (!row) return res.status(404).json({ error: "Not found" });
-      if (!isSnippetAdmin(user) && row.owner_user_id !== user.id) return res.status(403).json({ error: "Not your snippet" });
+      if (!isAdmin && row.owner_user_id !== userId) return res.status(403).json({ error: "Not your snippet" });
 
       const { title, subject, body, category, snippetType, sharingScope } = req.body;
       const sets: string[] = [`updated_at = NOW()`];
@@ -43507,13 +43530,15 @@ ${contextText}`;
 
   app.delete("/api/email-snippets/:id", requireAuth, async (req: any, res) => {
     try {
-      const user = req.user;
+      const userId = Number(req.session?.userId || 0);
+      const globalRole = String((req.session as any)?.globalRole || "");
+      const isAdmin = EMAIL_SNIPPET_ADMIN_ROLES.has(globalRole);
       const id = Number(req.params.id);
       if (!id || isNaN(id)) return res.status(400).json({ error: "invalid id" });
       const check = await db.execute(sql.raw(`SELECT owner_user_id FROM email_snippets WHERE id = ${id}`));
       const row = (check.rows as any[])[0];
       if (!row) return res.status(404).json({ error: "Not found" });
-      if (!isSnippetAdmin(user) && row.owner_user_id !== user.id) return res.status(403).json({ error: "Not your snippet" });
+      if (!isAdmin && row.owner_user_id !== userId) return res.status(403).json({ error: "Not your snippet" });
       await db.execute(sql.raw(`UPDATE email_snippets SET is_archived = TRUE, updated_at = NOW() WHERE id = ${id}`));
       res.json({ ok: true });
     } catch (err: any) {

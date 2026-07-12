@@ -1,0 +1,114 @@
+Audit and restore the existing VoltSafe canned email snippets into Marketing → Email Tools → Snippets & Templates.
+
+We previously confirmed the old canned email responses still existed somewhere in the app or database. The new page now shows:
+
+0 results
+0 org-wide
+0 mine
+
+Clicking “Load Starter Library” fails with:
+
+500: {"error":"Cannot read properties of undefined (reading 'id')"}
+
+Do not create new placeholder snippets yet. First find the real existing records.
+
+Tasks:
+
+1. Search the codebase and database for all existing canned email content, including:
+
+email templates
+email snippets
+canned responses
+saved replies
+response templates
+communication templates
+legacy Communications templates
+mail composer reusable content
+
+2. Identify:
+
+the exact table or data source containing the old records
+the number of records
+sample titles
+owner user IDs
+organization or workspace IDs
+whether each is personal, org-wide, archived, or deleted
+
+3. Identify:
+
+the API endpoint used by the new Snippets & Templates page
+the table that endpoint currently queries
+why it returns zero results
+
+Check for:
+
+wrong table
+wrong organization ID
+wrong user ID
+tenant mismatch
+permission filtering
+archived or deleted flags
+legacy schema not included
+production versus development database mismatch
+
+4. Restore the old records into the new page.
+
+Preserve:
+
+title
+body
+category
+owner
+org-wide or personal status
+created and updated timestamps
+
+Do not duplicate records. Use the legacy record ID or another stable migration key. Make the migration idempotent so it is safe to run more than once.
+
+5. Fix the Starter Library error.
+
+Find exactly which object is undefined when reading .id.
+
+Ensure the seed route correctly resolves:
+
+authenticated user
+organization or workspace
+tenant
+creator ID
+
+The route must return a clear 4xx error if required context is missing instead of throwing a 500 TypeError.
+
+The Starter Library action must also:
+
+avoid duplicates
+be safe to retry
+never overwrite existing real snippets
+
+6. Verify in production.
+
+Open Marketing → Email Tools → Snippets & Templates.
+
+Confirm:
+
+the old canned emails appear
+the total, org-wide, and mine counts are correct
+at least three restored snippets open with the correct content
+search works
+category filters work
+Snippets and Templates filters work
+ownership filters work
+Load Starter Library succeeds
+no duplicates are created
+records remain after refresh
+
+Final report must include:
+
+exact legacy data location
+number of records found
+number restored or migrated
+number skipped as duplicates
+root cause of the empty page
+root cause of the undefined.id error
+files changed
+database tables changed
+
+Do not stop after finding the data. Restore it and verify it in the actual production page.
