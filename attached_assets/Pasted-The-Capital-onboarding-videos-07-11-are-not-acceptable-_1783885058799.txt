@@ -1,0 +1,97 @@
+The Capital onboarding videos (07–11) are not acceptable for production.
+
+Current issue:
+- The Learn page advertises each video as approximately 3 minutes.
+- The hosted MP4s are actually less than 30 seconds.
+- The videos contain almost no instructional content and do not onboard a new CFO/user.
+- This is not a playback issue—the wrong videos have been rendered or published.
+
+Completely replace and re-record the following training videos:
+
+07. Capital Module Overview
+08. Investor Pipeline & Commitments
+09. Data Room & Materials
+10. Follow-Ups & Engagement Tracking
+11. Reports & the AI Copilot
+
+Requirements for EVERY video:
+
+• Minimum runtime: 3 minutes (preferably 3–5 minutes).
+• Professionally narrated.
+• Follow the same quality and pacing as Videos 01–06.
+• Show the real UI, not placeholder screens.
+• Every click, menu, button and workflow must be demonstrated.
+• Zoom into important controls when necessary.
+• Explain WHY the feature exists, not just what to click.
+• Use realistic sample investor data throughout.
+• No blank screens.
+• No rapid skipping.
+• No placeholder narration.
+• No dead air.
+
+Specific content required:
+
+VIDEO 07 — Capital Module Overview
+- Purpose of the Capital module
+- Navigation
+- Dashboard overview
+- KPIs
+- Fundraising workflow
+- Relationship between Pipeline, Data Room, Follow-ups and Reports
+- Daily workflow for a CFO/CEO
+- Best practices
+
+VIDEO 08 — Investor Pipeline & Commitments
+- Create investors
+- Investor stages
+- Soft circles
+- Commitments
+- Target round progress
+- Filters
+- Notes
+- Next actions
+- Example of moving an investor from first meeting to committed
+
+VIDEO 09 — Data Room & Materials
+- Folder organization
+- Confidentiality
+- Uploading documents
+- Permissions
+- Investor portal
+- Sharing data rooms
+- Version control
+- Best practices for diligence
+
+VIDEO 10 — Follow-Ups & Engagement Tracking
+- Logging meetings
+- Calls
+- Emails
+- Tasks
+- Assigning owners
+- Tracking investor engagement
+- Warm vs cold investors
+- Next follow-up dates
+- Daily workflow examples
+
+VIDEO 11 — Reports & AI Copilot
+- Weekly reports
+- Board updates
+- Fundraising summaries
+- AI Copilot
+- Asking questions
+- Generating reports
+- Investor status summaries
+- Practical workflow examples
+
+Deliverables:
+
+- New storyboard for each video.
+- New narration script.
+- New screen recording.
+- New rendered MP4.
+- Verify every MP4 duration is at least 180 seconds.
+- Replace hosted files.
+- Confirm the duration shown in the Learn page matches the actual MP4 duration.
+- Play every hosted video end-to-end after publishing to verify the correct file is being served.
+
+Do not pad videos with idle time. Every minute should teach the user something useful.
