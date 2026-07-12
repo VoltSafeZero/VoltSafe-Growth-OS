@@ -127,11 +127,11 @@ export const NAV_CONFIG: NavSection[] = [
     label: "Work",
     icon: Briefcase,
     items: [
+      { id: "daily-exec",      label: "Daily Execution",    route: "/execution/daily",        icon: CalendarDays },
       { id: "mission-control", label: "Mission Control",    route: "/",                       icon: LayoutDashboard, exactMatch: true },
       { id: "inbox",           label: "Inbox & Mail",       route: "/gmail",                  icon: Mail },
       { id: "tasks",           label: "Tasks",              route: "/execution/tasks",        icon: CheckSquare },
       { id: "calendar",        label: "Calendar & Meetings",route: "/execution/calendar",     icon: CalendarClock, permKey: "calendar" },
-      { id: "daily-exec",      label: "Daily Execution",    route: "/execution/daily",        icon: CalendarDays },
       // nav-drift phase 4B: { label: "Digest Settings", route: "/alerts-digest" } — accessible via ⌘K
     ],
   },
@@ -148,10 +148,10 @@ export const NAV_CONFIG: NavSection[] = [
     advisorHidden: true,
     items: [
       { id: "pipeline-snapshot", label: "Snapshot",       route: "/pipeline",         icon: GitBranch, permKey: "crm",     advisorHidden: true },
+      { id: "outreach",       label: "Outreach",         route: "/booking-outreach", icon: CalendarClock, permKey: "crm", advisorHidden: true },
       { id: "leads-accounts", label: "Leads & Accounts", route: "/opportunities",    icon: Building2, permKey: "crm",     advisorHidden: true },
       { id: "contacts",       label: "Contacts",         route: "/contacts",         icon: Contact,   permKey: "crm",     advisorHidden: true },
       { id: "quotes-renewals",label: "Quotes & Renewals",route: "/quotes",           icon: FileText,  permKey: "quoting", advisorHidden: true },
-      { id: "outreach",       label: "Outreach",         route: "/booking-outreach", icon: CalendarClock, permKey: "crm", advisorHidden: true },
       { id: "revenue-tools",  label: "Revenue Tools",    route: "/price-lists",      icon: Tags,      permKey: "quoting", advisorHidden: true },
     ],
   },
