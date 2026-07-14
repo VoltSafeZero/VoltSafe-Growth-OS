@@ -268,13 +268,17 @@ export const FILTER_PRIORITY_OPTIONS = [
 
 /** Sort options shared between Leads and Accounts filter bars. */
 export const FILTER_SORT_OPTIONS = [
-  { value: "default",         label: "Default" },
-  { value: "name:asc",        label: "A→Z" },
-  { value: "name:desc",       label: "Z→A" },
-  { value: "dealAmount:desc", label: "Deal $ High→Low" },
-  { value: "dealAmount:asc",  label: "Deal $ Low→High" },
-  { value: "createdAt:desc",  label: "Recently Added" },
-  { value: "updatedAt:desc",  label: "Recently Updated" },
+  { value: "default",                   label: "Default" },
+  { value: "name:asc",                  label: "A→Z" },
+  { value: "name:desc",                 label: "Z→A" },
+  { value: "dealAmount:desc",           label: "Deal $ High→Low" },
+  { value: "dealAmount:asc",            label: "Deal $ Low→High" },
+  { value: "createdAt:desc",            label: "Recently Added" },
+  { value: "updatedAt:desc",            label: "Recently Updated" },
+  { value: "last_comm_at:desc",         label: "Last Contact (newest)" },
+  { value: "last_comm_at:asc",          label: "Last Contact (oldest)" },
+  { value: "last_outgoing_at:desc",     label: "Last Outreach (newest)" },
+  { value: "days_since_contact:desc",   label: "Longest Silence First" },
 ] as const;
 
 // ─── Segment classification helpers ──────────────────────────────────────────

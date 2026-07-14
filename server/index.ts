@@ -37,6 +37,16 @@ setTimeout(() => {
   }).catch(() => {});
 }, 60_000);
 
+// Backfill lead communication summaries (email matching against contact emails).
+// Runs at low priority; safe to skip if table is already populated.
+setTimeout(() => {
+  import("./services/lead-comms-sync").then(({ backfillLeadComms }) => {
+    backfillLeadComms().catch((e: any) =>
+      console.error("[startup] backfillLeadComms failed:", e?.message || e)
+    );
+  }).catch(() => {});
+}, 90_000);
+
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
 });

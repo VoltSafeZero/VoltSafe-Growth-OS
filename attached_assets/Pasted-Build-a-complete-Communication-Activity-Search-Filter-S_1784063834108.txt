@@ -1,0 +1,748 @@
+Build a complete Communication Activity Search, Filter, Sort, and Follow-Up system across VoltSafe Growth OS Pipeline records.
+
+PRIMARY GOAL
+
+Upgrade Pipeline > Leads & Accounts and Pipeline > Contacts so users can immediately identify:
+
+- Who VoltSafe has not contacted recently
+- Who is waiting for a VoltSafe response
+- Who VoltSafe is waiting to hear back from
+- Which leads have gone stale
+- Which leads have never been contacted
+- What the most recent communication was
+- Whether the latest communication was incoming or outgoing
+- Which communication channel was used
+- Which VoltSafe employee owns or made the latest touchpoint
+- What needs attention today
+
+This must use actual communication data, not placeholder values.
+
+==================================================
+1. COMMUNICATION FIELDS
+==================================================
+
+For every Lead, Account, Marina, Company, and Contact, calculate and expose these fields:
+
+A. Last Communication
+- Date and time of the most recent communication in either direction
+- Communication type
+- Direction: Incoming or Outgoing
+- Subject or short preview
+- VoltSafe employee involved
+- Contact person involved
+
+B. Last Outgoing Communication
+- Date and time VoltSafe last contacted the record
+- Communication type
+- Sender
+- Recipient/contact
+- Subject or short preview
+
+C. Last Incoming Communication
+- Date and time the record last contacted VoltSafe
+- Communication type
+- Sender/contact
+- VoltSafe recipient
+- Subject or short preview
+
+D. Follow-Up Metrics
+- Days since last communication
+- Days since last outgoing communication
+- Days since last incoming communication
+- Days waiting for their response
+- Days they have been waiting for our response
+- Never contacted flag
+- No response received flag
+- Follow-up overdue flag
+- Next follow-up date
+- Next follow-up owner
+- Current communication status
+
+Supported communication types should include, where data exists:
+
+- Email
+- Phone call
+- Voicemail
+- SMS/text
+- Meeting
+- Video meeting
+- Calendar event
+- LinkedIn
+- Currents/internal handoff
+- Note
+- Task
+- Quote sent
+- Proposal sent
+- Contract sent
+- Other
+
+Do not treat internal-only notes or internal team messages as external lead communication unless they are explicitly linked to an external communication.
+
+==================================================
+2. DEFINE THE FOLLOW-UP LOGIC
+==================================================
+
+Use clear and deterministic rules.
+
+Communication Status values:
+
+- Never Contacted
+- VoltSafe Owes Reply
+- Waiting for Lead
+- Follow-Up Due
+- Follow-Up Overdue
+- Recently Contacted
+- Active Conversation
+- No Response
+- Dormant
+- Closed / No Follow-Up Required
+
+Suggested logic:
+
+Never Contacted:
+- No qualifying outgoing external communication exists
+
+VoltSafe Owes Reply:
+- Latest qualifying external communication is incoming
+- No outgoing response exists after it
+
+Waiting for Lead:
+- Latest qualifying external communication is outgoing
+- No incoming response exists after it
+- Follow-up date has not yet arrived
+
+Follow-Up Due:
+- Next follow-up date is today
+
+Follow-Up Overdue:
+- Next follow-up date is before today
+- Record is not closed, disqualified, lost, or marked no follow-up required
+
+Recently Contacted:
+- Outgoing communication occurred within the configurable recent-contact window
+
+No Response:
+- VoltSafe sent one or more communications
+- No incoming response has been received
+- Configurable number of days has passed
+
+Dormant:
+- No incoming or outgoing external communication within a configurable number of days
+
+Active Conversation:
+- Both incoming and outgoing communication have occurred within a configurable recent period
+
+Store the configurable timing rules in Pipeline settings rather than hard-coding them.
+
+Default settings:
+
+- Recently contacted: within 7 days
+- No response: 7 days after outgoing communication
+- Dormant: no communication for 30 days
+- Urgent stale lead: no communication for 14 days
+- Follow-up due soon: within the next 3 days
+
+==================================================
+3. LEADS & ACCOUNTS TABLE COLUMNS
+==================================================
+
+Add optional columns to the existing Leads & Accounts table:
+
+- Last Communication
+- Communication Type
+- Direction
+- Last Outgoing
+- Last Incoming
+- Days Since Contact
+- Days Waiting for Lead
+- Days Lead Is Waiting
+- Communication Status
+- Next Follow-Up
+- Follow-Up Owner
+- Last Contacted By
+- Last Contact Person
+
+The default table should not become cluttered.
+
+Add a Columns control that lets each user choose which fields are visible.
+
+Save each user’s column selection and column order.
+
+Recommended default visible communication columns:
+
+- Last Communication
+- Direction
+- Communication Status
+- Next Follow-Up
+
+Display compact visual labels such as:
+
+- Incoming
+- Outgoing
+- Waiting for Lead
+- VoltSafe Owes Reply
+- Overdue
+- Never Contacted
+
+Use readable icons for communication types.
+
+Hovering over the latest communication should show:
+
+- Exact date and time
+- Direction
+- Type
+- Sender
+- Recipient
+- Subject
+- Short preview
+- Link to open the communication record
+
+Clicking the communication should open its full activity record or the relevant email, meeting, note, call, quote, or task.
+
+==================================================
+4. SEARCH AND FILTER CAPABILITIES
+==================================================
+
+Add an “Activity & Follow-Up” filter group to:
+
+- Leads & Accounts
+- Contacts
+- Pipeline Snapshot
+- Outreach
+- Any other relevant Pipeline record list
+
+Filters must support:
+
+LAST COMMUNICATION DATE
+- Today
+- Yesterday
+- Last 3 days
+- Last 7 days
+- Last 14 days
+- Last 30 days
+- Last 60 days
+- Last 90 days
+- Before a selected date
+- After a selected date
+- Between two dates
+- Never
+
+LAST OUTGOING COMMUNICATION
+- Same date options
+- Never sent
+
+LAST INCOMING COMMUNICATION
+- Same date options
+- Never received
+
+COMMUNICATION DIRECTION
+- Incoming
+- Outgoing
+- Either
+- No communication
+
+COMMUNICATION TYPE
+- Multi-select all supported communication types
+
+COMMUNICATION STATUS
+- Never Contacted
+- VoltSafe Owes Reply
+- Waiting for Lead
+- Follow-Up Due
+- Follow-Up Overdue
+- Recently Contacted
+- Active Conversation
+- No Response
+- Dormant
+- Closed / No Follow-Up Required
+
+FOLLOW-UP DATE
+- Overdue
+- Due today
+- Due tomorrow
+- Due this week
+- Due next week
+- No follow-up scheduled
+- Custom date range
+
+ACTIVITY OWNER
+- Record owner
+- Last contacted by
+- Follow-up owner
+- Specific VoltSafe team member
+- Unassigned
+
+RESPONSE CONDITIONS
+- We contacted them and they have not replied
+- They contacted us and we have not replied
+- They replied after our last outreach
+- No incoming communication ever
+- No outgoing communication ever
+
+DAYS SINCE ACTIVITY
+- More than X days since last communication
+- More than X days since last outgoing
+- More than X days since last incoming
+- Waiting more than X days for their reply
+- They have been waiting more than X days for our reply
+
+Allow multiple filters to be combined using AND logic.
+
+Where practical, support advanced filter groups with AND/OR logic.
+
+Example:
+
+Stage = Qualified
+AND Last Outgoing > 7 days ago
+AND Last Incoming = Never
+AND Owner = Trevor
+
+==================================================
+5. SORTING
+==================================================
+
+Allow sorting ascending or descending by:
+
+- Last Communication
+- Last Outgoing
+- Last Incoming
+- Days Since Contact
+- Days Waiting for Lead
+- Days Lead Is Waiting
+- Next Follow-Up
+- Communication Status
+- Last Contacted By
+- Communication Type
+
+Add useful preset sorts:
+
+- Most Urgent First
+- Oldest Follow-Up First
+- Waiting Longest for VoltSafe
+- Waiting Longest for Lead
+- Least Recently Contacted
+- Most Recently Active
+- Never Contacted First
+
+Sorting must happen server-side for large datasets.
+
+The current system contains approximately 10,000+ leads and must remain fast.
+
+==================================================
+6. SAVED VIEWS
+==================================================
+
+Allow users to save communication-focused views.
+
+Create these default views:
+
+1. VoltSafe Owes a Reply
+- Latest communication is incoming
+- No outgoing reply after it
+
+2. Waiting for Lead Response
+- Latest communication is outgoing
+- No incoming response after it
+
+3. Follow-Ups Overdue
+- Follow-up date before today
+- Active/open records only
+
+4. Never Contacted
+- No outgoing communication exists
+
+5. No Contact in 14+ Days
+- Last communication older than 14 days
+- Active/open records only
+
+6. Dormant Opportunities
+- No communication in 30+ days
+- Deal is still open
+
+7. Recently Active
+- Incoming or outgoing communication within 7 days
+
+8. My Follow-Ups Today
+- Follow-up owner is current user
+- Follow-up date is today or overdue
+
+Users must be able to:
+
+- Save a new view
+- Rename a view
+- Duplicate a view
+- Set a default view
+- Share a view with selected team members
+- Delete their own saved views
+- Preserve filters, sorts, visible columns, and column order
+
+==================================================
+7. FOLLOW-UP ACTIONS
+==================================================
+
+From each lead/account/contact row, allow authorized users to:
+
+- Schedule a follow-up
+- Change the follow-up date
+- Assign a follow-up owner
+- Mark follow-up complete
+- Mark no follow-up required
+- Log a call
+- Log an email
+- Add a note
+- Create a task
+- Open the complete communication timeline
+
+Add bulk actions for selected records:
+
+- Assign follow-up owner
+- Set follow-up date
+- Create follow-up tasks
+- Add to outreach sequence
+- Change communication status where manually permitted
+- Mark no follow-up required
+
+Do not allow a manually entered status to silently override factual communication history.
+
+Manually controlled exceptions must be clearly identified and audited.
+
+==================================================
+8. RECORD DETAIL PAGE
+==================================================
+
+On every Lead, Account, Marina, Company, and Contact detail page, add a Communication Summary card showing:
+
+- Last Communication
+- Last Outgoing
+- Last Incoming
+- Current Communication Status
+- Days Since Contact
+- Next Follow-Up
+- Follow-Up Owner
+- Total Emails
+- Total Calls
+- Total Meetings
+- Total Other Touchpoints
+
+Add a chronological communication timeline with filters for:
+
+- All
+- Incoming
+- Outgoing
+- Email
+- Calls
+- Meetings
+- Notes
+- Tasks
+- Quotes
+- Proposals
+- Contracts
+
+Clearly distinguish incoming and outgoing activity.
+
+==================================================
+9. DATA SOURCES AND LINKING
+==================================================
+
+Audit the existing data model before implementation.
+
+Qualifying communications may exist in:
+
+- VoltSafe Mail
+- Gmail-synced messages
+- Calendar events
+- Meetings
+- Call logs
+- Outreach activity
+- Notes
+- Tasks
+- Quotes
+- Proposals
+- Contracts
+- Currents
+- Existing CRM activity tables
+
+Create one canonical communication activity layer rather than independently recalculating different answers on every page.
+
+Every activity should support, where available:
+
+- activity_id
+- entity_type
+- entity_id
+- contact_id
+- account_id
+- lead_id
+- communication_type
+- direction
+- occurred_at
+- sender
+- recipients
+- owner_user_id
+- subject
+- preview
+- external_message_id
+- source_system
+- source_record_id
+- visibility
+- created_at
+- updated_at
+
+Avoid duplicating synced Gmail or calendar activity.
+
+Use stable external IDs and deduplication rules.
+
+When one communication belongs to both a contact and an account, link the same canonical activity to both rather than creating conflicting duplicates.
+
+==================================================
+10. CONTACT MATCHING
+==================================================
+
+Communications must be matched to records using safe rules:
+
+1. Exact normalized email address
+2. Existing explicit contact-record relationship
+3. Existing account-domain relationship where verified
+4. Explicit manual linking
+5. Phone number for calls or SMS where normalized and verified
+
+Do not automatically attach communications based only on a weak company-name similarity.
+
+Provide an admin-visible unresolved communication queue for activity that cannot be safely matched.
+
+Allow authorized users to manually link or unlink an activity.
+
+All manual linking changes must be audited.
+
+==================================================
+11. PERFORMANCE
+==================================================
+
+This feature must work efficiently with 10,000+ leads and potentially hundreds of thousands of communication records.
+
+Do not run an expensive per-row communication query from the browser.
+
+Implement appropriate:
+
+- Database indexes
+- Aggregated activity fields or summary table
+- Incremental updates when new activity arrives
+- Background reconciliation for historical records
+- Server-side filtering
+- Server-side sorting
+- Pagination
+- Query caching where appropriate
+
+Suggested summary fields or summary table should include:
+
+- last_communication_at
+- last_communication_type
+- last_communication_direction
+- last_outgoing_at
+- last_outgoing_type
+- last_incoming_at
+- last_incoming_type
+- last_contacted_by_user_id
+- next_follow_up_at
+- follow_up_owner_user_id
+- communication_status
+- activity_count
+- outgoing_count
+- incoming_count
+
+Do not rely only on stale nightly calculations.
+
+New communication should update the relevant record summary promptly.
+
+==================================================
+12. PERMISSIONS AND PRIVACY
+==================================================
+
+Respect all existing mailbox, team inbox, private inbox, role, lead, account, and contact permissions.
+
+A user must not see:
+
+- Private email content they do not have permission to access
+- Private mailbox details
+- Restricted contact information
+- Activity belonging to records they cannot access
+
+Where the user can see the CRM record but cannot view the underlying private communication, show only an appropriately restricted indicator such as:
+
+“Communication recorded — details restricted”
+
+Do not expose subject lines, previews, sender details, or recipients without permission.
+
+==================================================
+13. UI REQUIREMENTS
+==================================================
+
+Match the existing VoltSafe Growth OS visual system.
+
+On the screenshot’s Leads & Accounts page:
+
+- Add an Activity & Follow-Up filter button or filter group without overcrowding the current filter rows
+- Add a Columns button
+- Add communication-related sort options to the existing sort control
+- Keep filters easy to understand
+- Show active filter chips
+- Allow one-click clearing of all activity filters
+- Show a result count after filters are applied
+- Preserve existing filters and functionality
+
+Use plain-language labels.
+
+Do not make users decode CRM jargon.
+
+Examples:
+
+Good:
+- “They are waiting for us”
+- “We are waiting for them”
+- “No contact in 14+ days”
+
+Avoid:
+- “Inbound disposition aging state”
+
+==================================================
+14. AUDIT HISTORY
+==================================================
+
+Record audit events for:
+
+- Follow-up date changed
+- Follow-up owner changed
+- Communication manually linked
+- Communication manually unlinked
+- Communication status manually overridden
+- No follow-up required selected
+- Bulk follow-up changes
+- Saved view shared or changed
+
+Audit entries must include:
+
+- User
+- Date and time
+- Previous value
+- New value
+- Related record
+- Source action
+
+==================================================
+15. MIGRATION AND BACKFILL
+==================================================
+
+Create a safe migration and historical backfill process.
+
+The backfill must:
+
+- Process records in batches
+- Be restartable
+- Show progress
+- Avoid locking production tables for long periods
+- Deduplicate communication activity
+- Populate communication summary fields
+- Report unmatched activity
+- Report errors
+- Be safe to rerun
+
+Add an admin diagnostic showing:
+
+- Total activities processed
+- Activities linked
+- Activities unmatched
+- Duplicate activities skipped
+- Leads with summaries
+- Contacts with summaries
+- Accounts with summaries
+- Last successful reconciliation
+- Backfill status
+- Errors
+
+==================================================
+16. TESTING
+==================================================
+
+Add automated tests covering:
+
+- Incoming email becomes latest incoming communication
+- Outgoing email becomes latest outgoing communication
+- Latest direction is calculated correctly
+- Incoming message after outgoing changes status appropriately
+- Outgoing reply after incoming clears “VoltSafe Owes Reply”
+- Never-contacted records are correctly identified
+- Follow-up due and overdue logic
+- No-response timing logic
+- Dormant timing logic
+- Email deduplication
+- Contact matching by email
+- Account matching
+- Manual linking and unlinking
+- Restricted mailbox privacy
+- Server-side date filtering
+- Server-side sorting
+- Combined filters
+- Saved views
+- Bulk actions
+- Pagination with 10,000+ mock records
+- Historical backfill rerun safety
+
+==================================================
+17. ACCEPTANCE TESTS
+==================================================
+
+Do not mark this complete until all of the following are demonstrated in the running application:
+
+1. Filter Leads & Accounts to show records VoltSafe has never contacted.
+2. Filter records where VoltSafe sent the last communication and no reply has been received.
+3. Filter records where the lead sent the last communication and VoltSafe has not replied.
+4. Sort by oldest last outgoing communication.
+5. Sort by longest waiting for a lead response.
+6. Show only overdue follow-ups owned by the current user.
+7. Filter by communication type, including Email and Meeting.
+8. Combine Stage, Owner, Country, Last Outgoing Date, and Response Status filters.
+9. Save the filters and columns as a named view.
+10. Reload the page and confirm the saved view persists.
+11. Open the last communication directly from a lead row.
+12. Confirm unauthorized users cannot see restricted private communication details.
+13. Confirm new incoming and outgoing communications update the lead summary.
+14. Confirm there are no duplicate Gmail or calendar activities.
+15. Confirm the page remains responsive with the full existing lead dataset.
+
+==================================================
+18. IMPLEMENTATION PROCESS
+==================================================
+
+Before changing code:
+
+1. Audit the current Leads & Accounts, Contacts, Outreach, Mail, Calendar, activity, task, quote, and pipeline schemas.
+2. Identify the canonical source of incoming and outgoing communication data.
+3. Show the exact proposed schema changes.
+4. Identify all affected pages, APIs, services, and background jobs.
+5. Confirm how communication direction will be determined.
+6. Confirm how duplicate Gmail and calendar records will be prevented.
+7. Confirm privacy rules before exposing communication details.
+
+Then implement the full feature end to end.
+
+Do not create disconnected mock UI.
+
+Do not use placeholder activity.
+
+Do not declare success based only on compilation or unit tests.
+
+Restart the application where required and perform the complete browser-level acceptance tests against real seeded or safely created test records.
+
+At completion, provide:
+
+- Root architecture implemented
+- Schema changes
+- APIs added or changed
+- Pages and components changed
+- Communication matching rules
+- Status calculation rules
+- Privacy safeguards
+- Indexes and performance strategy
+- Backfill results
+- Automated test results
+- Browser test evidence
+- Any remaining limitations

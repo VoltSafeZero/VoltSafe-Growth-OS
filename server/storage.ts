@@ -81,7 +81,7 @@ export interface IStorage {
   getMarinas(options: { search?: string; state?: string; page?: number; limit?: number }): Promise<{ data: Marina[]; total: number; page: number; totalPages: number }>;
   getMarinaStates(): Promise<string[]>;
 
-  getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }): Promise<{ data: Lead[]; total: number; page: number; totalPages: number }>;
+  getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; type?: string; priority?: string; commStatus?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }): Promise<{ data: (Lead & { commSummary?: Record<string, unknown> | null })[]; total: number; page: number; totalPages: number }>;
   getLead(id: number): Promise<Lead | undefined>;
   createLead(data: InsertLead): Promise<Lead>;
   updateLead(id: number, data: Partial<InsertLead>): Promise<Lead | undefined>;
@@ -373,11 +373,11 @@ export class DatabaseStorage implements IStorage {
     return result.map((r) => r.state);
   }
 
-  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; type?: string; priority?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
+  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; type?: string; priority?: string; commStatus?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
-    const conditions = [];
+    const conditions: SQL[] = [];
 
     if (options?.search) {
       conditions.push(or(
@@ -386,7 +386,7 @@ export class DatabaseStorage implements IStorage {
         ilike(leads.contactEmail, `%${options.search}%`),
         ilike(leads.city, `%${options.search}%`),
         ilike(leads.state, `%${options.search}%`)
-      ));
+      ) as SQL);
     }
     if (options?.status) {
       conditions.push(eq(leads.status, options.status));
@@ -399,7 +399,7 @@ export class DatabaseStorage implements IStorage {
         conditions.push(or(
           sql`${leads.country} IS NULL`,
           sql`${leads.country} NOT IN ('CA', 'US')`
-        ));
+        ) as SQL);
       } else {
         conditions.push(eq(leads.country, options.country));
       }
@@ -409,7 +409,7 @@ export class DatabaseStorage implements IStorage {
         conditions.push(or(
           eq(leads.primaryIndustry, "marine"),
           sql`${leads.primaryIndustry} IS NULL`
-        ));
+        ) as SQL);
       } else {
         conditions.push(eq(leads.primaryIndustry, options.primaryIndustry));
       }
@@ -422,7 +422,7 @@ export class DatabaseStorage implements IStorage {
         conditions.push(or(
           eq(leads.shorePower, "unknown"),
           sql`${leads.shorePower} IS NULL`
-        ));
+        ) as SQL);
       } else {
         conditions.push(eq(leads.shorePower, options.shorePower));
       }
@@ -440,26 +440,120 @@ export class DatabaseStorage implements IStorage {
       const vals = relTypeMap[options.type];
       if (vals?.length) conditions.push(inArray(leads.relationshipType, vals));
     }
-    // Note: leads table has no `priority` column yet — this param is accepted
-    // for UI parity with Accounts but currently has no filtering effect.
+    // Note: leads table has no `priority` column yet — accepted for UI parity.
+
+    // Comm status filter — uses a correlated subquery against lead_comms_summary.
+    // The commStatus value is parameterized; the CASE SQL is a hardcoded fragment.
+    if (options?.commStatus && options.commStatus !== "all") {
+      if (options.commStatus === "never_contacted") {
+        conditions.push(sql`NOT EXISTS (
+          SELECT 1 FROM lead_comms_summary lcs
+          WHERE lcs.lead_id = ${leads.id}
+          AND (lcs.outgoing_count > 0 OR lcs.incoming_count > 0)
+        )`);
+      } else {
+        conditions.push(sql`COALESCE((
+          SELECT CASE
+            WHEN lcs.last_incoming_at IS NOT NULL AND (lcs.last_outgoing_at IS NULL OR lcs.last_incoming_at > lcs.last_outgoing_at) THEN 'voltSafe_owes_reply'
+            WHEN lcs.outgoing_count > 0 AND lcs.incoming_count = 0 AND lcs.last_outgoing_at < NOW() - INTERVAL '30 days' THEN 'no_response'
+            WHEN lcs.last_outgoing_at IS NOT NULL AND (lcs.last_incoming_at IS NULL OR lcs.last_outgoing_at > lcs.last_incoming_at) AND lcs.last_outgoing_at >= NOW() - INTERVAL '30 days' THEN 'waiting_for_lead'
+            WHEN lcs.last_comm_at IS NOT NULL AND lcs.last_comm_at < NOW() - INTERVAL '60 days' THEN 'dormant'
+            WHEN lcs.last_comm_at IS NOT NULL THEN 'recently_contacted'
+            ELSE 'never_contacted'
+          END
+          FROM lead_comms_summary lcs WHERE lcs.lead_id = ${leads.id}
+        ), 'never_contacted') = ${options.commStatus}`);
+      }
+    }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
+
     // "name" is an alias for company so the shared FILTER_SORT_OPTIONS key works.
     const leadSortColumns: Record<string, AnyColumn> = { company: leads.company, name: leads.company, city: leads.city, state: leads.state, status: leads.status, source: leads.source, contactName: leads.contactName, createdAt: leads.createdAt, updatedAt: leads.updatedAt, dealAmount: leads.dealAmount };
     const sortCol = options?.sortBy && leadSortColumns[options.sortBy];
     const isSlipsSort = options?.sortBy === "slips";
-    const orderClause = isSlipsSort
-      ? (options?.sortOrder === "desc"
+    const COMM_SORTS = new Set(["last_comm_at", "last_outgoing_at", "days_since_contact"]);
+    const isCommSort = options?.sortBy ? COMM_SORTS.has(options.sortBy) : false;
+
+    let orderClause: SQL;
+    if (isSlipsSort) {
+      orderClause = options?.sortOrder === "desc"
         ? sql`CAST(NULLIF(REGEXP_REPLACE(${leads.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) DESC NULLS LAST`
-        : sql`CAST(NULLIF(REGEXP_REPLACE(${leads.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST`)
-      : sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(leads.createdAt);
+        : sql`CAST(NULLIF(REGEXP_REPLACE(${leads.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST`;
+    } else if (isCommSort) {
+      const dir = options?.sortOrder === "desc" ? "DESC" : "ASC";
+      const col = options?.sortBy === "last_outgoing_at" ? "last_outgoing_at" : "last_comm_at";
+      // days_since_contact: asc = fewest days (most recent) = last_comm_at DESC
+      const actualDir = options?.sortBy === "days_since_contact"
+        ? (options?.sortOrder === "asc" ? "DESC" : "ASC")
+        : dir;
+      orderClause = sql.raw(`(SELECT ${col} FROM lead_comms_summary WHERE lead_id = leads.id) ${actualDir} NULLS LAST`);
+    } else {
+      orderClause = sortCol ? getSortOrder(sortCol, options?.sortOrder || "asc") : desc(leads.createdAt);
+    }
 
     const [data, countResult] = await Promise.all([
       db.select().from(leads).where(where).orderBy(orderClause).limit(limit).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(leads).where(where),
     ]);
 
-    return { data, total: Number(countResult[0].count), page, totalPages: Math.ceil(Number(countResult[0].count) / limit) };
+    // Batch-fetch comm summaries for this page of leads and merge into each row.
+    let commMap = new Map<number, Record<string, unknown>>();
+    if (data.length > 0) {
+      const ids = data.map((l) => l.id);
+      try {
+        const commResult = await db.execute(sql.raw(`
+          SELECT
+            lead_id,
+            last_comm_at,
+            last_outgoing_at,
+            last_incoming_at,
+            outgoing_count,
+            incoming_count,
+            CASE WHEN last_comm_at IS NOT NULL THEN
+              FLOOR(EXTRACT(EPOCH FROM (NOW() - last_comm_at)) / 86400)::INT
+            END AS days_since_contact,
+            CASE
+              WHEN last_incoming_at IS NOT NULL AND (last_outgoing_at IS NULL OR last_incoming_at > last_outgoing_at) THEN 'incoming'
+              ELSE 'outgoing'
+            END AS last_comm_direction,
+            CASE
+              WHEN last_incoming_at IS NOT NULL AND (last_outgoing_at IS NULL OR last_incoming_at > last_outgoing_at) THEN 'voltSafe_owes_reply'
+              WHEN outgoing_count > 0 AND incoming_count = 0 AND last_outgoing_at < NOW() - INTERVAL '30 days' THEN 'no_response'
+              WHEN last_outgoing_at IS NOT NULL AND (last_incoming_at IS NULL OR last_outgoing_at > last_incoming_at) AND last_outgoing_at >= NOW() - INTERVAL '30 days' THEN 'waiting_for_lead'
+              WHEN last_comm_at IS NOT NULL AND last_comm_at < NOW() - INTERVAL '60 days' THEN 'dormant'
+              WHEN last_comm_at IS NOT NULL THEN 'recently_contacted'
+              ELSE 'never_contacted'
+            END AS comm_status
+          FROM lead_comms_summary
+          WHERE lead_id = ANY(ARRAY[${ids.join(",")}])
+        `));
+        commMap = new Map(
+          (commResult.rows as Array<Record<string, unknown>>).map((r) => [Number(r.lead_id), r])
+        );
+      } catch (_) { /* comm summary is optional — never block main query */ }
+    }
+
+    const enriched = data.map((lead) => {
+      const lcs = commMap.get(lead.id);
+      return {
+        ...lead,
+        commSummary: lcs
+          ? {
+              lastCommAt: lcs.last_comm_at ?? null,
+              lastOutgoingAt: lcs.last_outgoing_at ?? null,
+              lastIncomingAt: lcs.last_incoming_at ?? null,
+              outgoingCount: lcs.outgoing_count ?? 0,
+              incomingCount: lcs.incoming_count ?? 0,
+              daysSinceContact: lcs.days_since_contact ?? null,
+              lastCommDirection: lcs.last_comm_direction ?? null,
+              commStatus: lcs.comm_status ?? "never_contacted",
+            }
+          : { commStatus: "never_contacted" },
+      };
+    });
+
+    return { data: enriched, total: Number(countResult[0].count), page, totalPages: Math.ceil(Number(countResult[0].count) / limit) };
   }
 
   async getLeadStates(): Promise<string[]> {

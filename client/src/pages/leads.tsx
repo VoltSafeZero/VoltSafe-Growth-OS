@@ -19,6 +19,7 @@ import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2, ArrowUpDown,
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink, Globe,
   CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
+  MessageSquare, ArrowDownLeft, ArrowUpRight, Clock,
 } from "lucide-react";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { RecordCurrentFeed } from "@/components/current/record-current-feed";
@@ -50,6 +51,48 @@ const PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS;
 const statusColors: Record<string, string> = Object.fromEntries(
   PIPELINE_STAGES.map(s => [s.value, s.color])
 );
+
+const COMM_STATUS_OPTIONS = [
+  { value: "all",               label: "All Comm Status" },
+  { value: "voltSafe_owes_reply", label: "VoltSafe Owes Reply" },
+  { value: "waiting_for_lead",  label: "Waiting for Lead" },
+  { value: "no_response",       label: "No Response" },
+  { value: "dormant",           label: "Dormant" },
+  { value: "recently_contacted", label: "Recently Contacted" },
+  { value: "never_contacted",   label: "Never Contacted" },
+] as const;
+
+const COMM_STATUS_STYLE: Record<string, { label: string; cls: string; icon?: React.ReactNode }> = {
+  never_contacted:    { label: "Never",        cls: "text-muted-foreground border-border/40 bg-muted/20" },
+  voltSafe_owes_reply: { label: "Owes Reply",  cls: "text-red-400 border-red-500/30 bg-red-500/10" },
+  waiting_for_lead:   { label: "Awaiting",     cls: "text-amber-400 border-amber-500/30 bg-amber-500/10" },
+  no_response:        { label: "No Response",  cls: "text-orange-400 border-orange-500/30 bg-orange-500/10" },
+  dormant:            { label: "Dormant",      cls: "text-slate-400 border-slate-500/30 bg-slate-500/10" },
+  recently_contacted: { label: "Active",       cls: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" },
+};
+
+function formatDaysAgo(days: number | null | undefined): string {
+  if (days === null || days === undefined) return "—";
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
+type CommSummary = {
+  commStatus: string;
+  lastCommAt?: string | null;
+  lastOutgoingAt?: string | null;
+  lastIncomingAt?: string | null;
+  outgoingCount?: number;
+  incomingCount?: number;
+  daysSinceContact?: number | null;
+  lastCommDirection?: string | null;
+};
+
+type LeadWithComms = Lead & { commSummary?: CommSummary | null };
 
 const LEGACY_ORG_TYPE_OPTIONS = [
   { value: "marina_prospect", label: "Marina Prospect" },
@@ -89,6 +132,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [typeFilter, setTypeFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [shorePowerFilter, setShorePowerFilter] = useState("all");
+  const [commStatusFilter, setCommStatusFilter] = useState("all");
   const [sortOption, setSortOption] = useState("name:asc");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
@@ -165,7 +209,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "__all__" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, priority: priorityFilter === "all" ? "" : priorityFilter, shorePower: shorePowerFilter === "all" ? "" : shorePowerFilter, sort: sortOption, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "__all__" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, priority: priorityFilter === "all" ? "" : priorityFilter, shorePower: shorePowerFilter === "all" ? "" : shorePowerFilter, commStatus: commStatusFilter === "all" ? "" : commStatusFilter, sort: sortOption, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
@@ -177,6 +221,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
       if (typeFilter !== "all") params.set("type", typeFilter);
       if (priorityFilter !== "all") params.set("priority", priorityFilter);
       if (shorePowerFilter !== "all") params.set("shorePower", shorePowerFilter);
+      if (commStatusFilter !== "all") params.set("commStatus", commStatusFilter);
       if (sortOption !== "default") { const [sk, so] = sortOption.split(":"); params.set("sortBy", sk); params.set("sortOrder", so); } else if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -333,7 +378,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
-  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter, marketSegment: marketSegmentFilter, type: typeFilter, priority: priorityFilter, shorePower: shorePowerFilter, sort: sortOption }), [statusFilter, countryFilter, stateFilter, industryFilter, marketSegmentFilter, typeFilter, priorityFilter, shorePowerFilter, sortOption]);
+  const currentFiltersJson = useMemo(() => JSON.stringify({ status: statusFilter, country: countryFilter, state: stateFilter, primaryIndustry: industryFilter, marketSegment: marketSegmentFilter, type: typeFilter, priority: priorityFilter, shorePower: shorePowerFilter, commStatus: commStatusFilter, sort: sortOption }), [statusFilter, countryFilter, stateFilter, industryFilter, marketSegmentFilter, typeFilter, priorityFilter, shorePowerFilter, commStatusFilter, sortOption]);
 
   const applyView = (sv: SavedView) => {
     setActiveViewId(sv.id);
@@ -348,12 +393,13 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         if (f.type !== undefined) setTypeFilter(f.type);
         if (f.priority !== undefined) setPriorityFilter(f.priority);
         if (f.shorePower !== undefined) setShorePowerFilter(f.shorePower);
+        if (f.commStatus !== undefined) setCommStatusFilter(f.commStatus);
         if (f.sort !== undefined) setSortOption(f.sort);
       } catch {}
     }
   };
 
-  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("__all__"); setMarketSegmentFilter("__all__"); setTypeFilter("all"); setPriorityFilter("all"); setShorePowerFilter("all"); setSortOption("name:asc"); };
+  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("__all__"); setMarketSegmentFilter("__all__"); setTypeFilter("all"); setPriorityFilter("all"); setShorePowerFilter("all"); setCommStatusFilter("all"); setSortOption("name:asc"); };
 
   const isAllSelected = allLeads.length > 0 && allLeads.every(l => selectedIds.has(l.id));
 
@@ -546,7 +592,19 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
             <SelectItem value="no">No</SelectItem>
           </SelectContent>
         </Select>
-        {/* 8 — Sort */}
+        {/* 8 — Comm Status */}
+        <Select value={commStatusFilter} onValueChange={setCommStatusFilter}>
+          <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-comm-status-filter">
+            <MessageSquare className="mr-2 h-3.5 w-3.5" />
+            <SelectValue placeholder="Comm Status" />
+          </SelectTrigger>
+          <SelectContent>
+            {COMM_STATUS_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* 9 — Sort */}
         <Select value={sortOption} onValueChange={setSortOption}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-sort">
             <ArrowUpDown className="mr-2 h-4 w-4" />
@@ -663,6 +721,8 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                     <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden xl:table-cell">Quality</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden xl:table-cell" data-testid="th-comm-status">Comm Status</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden 2xl:table-cell" data-testid="th-last-contact">Last Contact</th>
                     <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
@@ -707,6 +767,45 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                       <td className="p-3 sm:p-4 hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
                         {leadScores[lead.id] && <ScoreBadge score={leadScores[lead.id]} variant="compact" data-testid={`score-lead-quality-${lead.id}`} />}
                       </td>
+                      <td className="p-3 sm:p-4 hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
+                        {(() => {
+                          const cs = (lead as LeadWithComms).commSummary;
+                          const status = cs?.commStatus ?? "never_contacted";
+                          const style = COMM_STATUS_STYLE[status] ?? COMM_STATUS_STYLE["never_contacted"];
+                          const direction = cs?.lastCommDirection;
+                          return (
+                            <div className="flex items-center gap-1.5" data-testid={`comm-status-${lead.id}`}>
+                              {direction === "outgoing" ? (
+                                <ArrowUpRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                              ) : direction === "incoming" ? (
+                                <ArrowDownLeft className="h-3 w-3 text-muted-foreground shrink-0" />
+                              ) : null}
+                              <Badge variant="outline" className={`text-xs px-1.5 py-0 ${style.cls}`}>
+                                {style.label}
+                              </Badge>
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td className="p-3 sm:p-4 hidden 2xl:table-cell text-sm" onClick={() => setSelectedLead(lead)}>
+                        {(() => {
+                          const cs = (lead as LeadWithComms).commSummary;
+                          const days = cs?.daysSinceContact;
+                          const total = (cs?.outgoingCount ?? 0) + (cs?.incomingCount ?? 0);
+                          return (
+                            <div data-testid={`last-contact-${lead.id}`}>
+                              <span className={`font-medium ${days !== null && days !== undefined && days > 60 ? "text-orange-400" : "text-foreground"}`}>
+                                {formatDaysAgo(days)}
+                              </span>
+                              {total > 0 && (
+                                <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                                  <MessageSquare className="h-3 w-3" />{total} email{total !== 1 ? "s" : ""}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="p-3 sm:p-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Link href={`/opportunities/${lead.id}`}>
@@ -728,7 +827,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                     </tr>
                   ))}
                   {allLeads.length === 0 && (
-                    <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No leads found. Click "Import Marinas" to populate your pipeline.</td></tr>
+                    <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">No leads found. Click "Import Marinas" to populate your pipeline.</td></tr>
                   )}
                 </tbody>
               </table>

@@ -2784,7 +2784,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/leads", requirePermission("crm", "view"), async (req, res) => {
-    const { search, status, state, country, primaryIndustry, marketSegment, shorePower, type, priority, page, limit, sortBy, sortOrder } = req.query;
+    const { search, status, state, country, primaryIndustry, marketSegment, shorePower, type, priority, commStatus, page, limit, sortBy, sortOrder } = req.query;
     res.json(await storage.getLeads({
       search: search as string | undefined,
       status: status as string | undefined,
@@ -2795,11 +2795,27 @@ export async function registerRoutes(
       shorePower: shorePower as string | undefined,
       type: type as string | undefined,
       priority: priority as string | undefined,
+      commStatus: commStatus as string | undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
       sortOrder: sortOrder as string | undefined,
     }));
+  });
+
+  app.post("/api/leads/sync-comms", requireAuth, requireAdmin, async (_req, res) => {
+    import("./services/lead-comms-sync").then(({ backfillLeadComms }) => {
+      backfillLeadComms().catch((e: Error) => console.error("[sync-comms] error:", e?.message || e));
+    });
+    res.json({ message: "Lead comms sync started in background" });
+  });
+
+  app.post("/api/leads/:id/sync-comms", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+    const leadId = Number(req.params.id);
+    if (!leadId || isNaN(leadId)) return res.status(400).json({ message: "Invalid lead id" });
+    const { refreshLeadComms } = await import("./services/lead-comms-sync");
+    await refreshLeadComms(leadId);
+    res.json({ message: "Comm summary refreshed" });
   });
 
   app.get("/api/leads/:id", requirePermission("crm", "view"), async (req, res) => {
