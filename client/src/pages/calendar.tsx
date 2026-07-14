@@ -775,7 +775,8 @@ function NowNextStrip({
   calendarConnected,
   onJoin,
   onOpenEvent,
-  onScheduleTask,
+  onScheduleFocusBlock,
+  isScheduling,
 }: {
   events: DisplayEvent[];
   tasks: any[];
@@ -785,8 +786,12 @@ function NowNextStrip({
   calendarConnected: boolean;
   onJoin: (url: string) => void;
   onOpenEvent: (eventId: number, tab: "prep" | "outcome") => void;
-  onScheduleTask: (taskId: number) => void;
+  onScheduleFocusBlock: (task: any, window: OpenWindow) => void;
+  isScheduling?: boolean;
 }) {
+  const [schedulePopoverOpen, setSchedulePopoverOpen] = useState(false);
+  const [scheduleConfirmWindow, setScheduleConfirmWindow] = useState<OpenWindow | null>(null);
+
   if (!calendarConnected) {
     return (
       <div
@@ -806,15 +811,17 @@ function NowNextStrip({
   const now = new Date();
   const { primary, secondary } = getNowNextRecommendation({ events, tasks, outcomeStatuses, now, scheduledTaskIds });
 
+  const todayWindows = computeSuggestedOpenings(now, events.filter(e => !e._team), []);
+  const scheduleTask = primary.taskId != null ? tasks.find((t: any) => t.id === primary.taskId) ?? null : null;
+
   const handleAction = (rec: NowNextRec) => {
     if (rec.joinUrl) { onJoin(rec.joinUrl); return; }
     if (rec.type === "current_meeting" && rec.eventId) { onOpenEvent(rec.eventId, "prep"); return; }
     if (rec.type === "prep_next"       && rec.eventId) { onOpenEvent(rec.eventId, "prep"); return; }
     if (rec.type === "capture_outcome" && rec.eventId) { onOpenEvent(rec.eventId, "outcome"); return; }
-    if ((rec.type === "due_task" || rec.type === "focus_window") && rec.taskId) {
-      onScheduleTask(rec.taskId);
-    }
   };
+
+  const isScheduleAction = (primary.type === "due_task" || primary.type === "focus_window") && !!primary.taskId;
 
   return (
     <div
@@ -853,18 +860,105 @@ function NowNextStrip({
 
       {/* Primary action button */}
       {primary.actionLabel && primary.type !== "all_clear" && (
-        <Button
-          size="sm"
-          variant={primary.type === "current_meeting" ? "default" : "outline"}
-          className="h-7 text-xs shrink-0 gap-1"
-          onClick={() => handleAction(primary)}
-          data-testid="now-next-action-btn"
-        >
-          {primary.type === "current_meeting" && primary.joinUrl && (
-            <Video className="h-3 w-3 shrink-0" />
-          )}
-          {primary.actionLabel}
-        </Button>
+        isScheduleAction && scheduleTask ? (
+          <Popover
+            open={schedulePopoverOpen}
+            onOpenChange={(o) => {
+              setSchedulePopoverOpen(o);
+              if (!o) setScheduleConfirmWindow(null);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs shrink-0 gap-1"
+                data-testid="now-next-action-btn"
+              >
+                {primary.actionLabel}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 p-2" side="bottom" align="end">
+              {scheduleConfirmWindow ? (
+                <div className="space-y-2.5" data-testid="strip-schedule-confirm-step">
+                  <div className="flex items-center gap-1.5">
+                    <CalendarCheck className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <p className="text-xs font-medium">Confirm Focus Block</p>
+                  </div>
+                  <div className="rounded bg-secondary/30 border border-border/40 p-2 space-y-0.5">
+                    <p className="text-xs font-medium truncate">Focus: {scheduleTask.title}</p>
+                    <p className="text-[10px] text-muted-foreground">{format(scheduleConfirmWindow.start, "EEE, MMM d")}</p>
+                    <p className="text-[11px] text-foreground font-medium">
+                      {format(scheduleConfirmWindow.start, "h:mm")}–{format(scheduleConfirmWindow.end, "h:mm a")}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {Math.round((scheduleConfirmWindow.end.getTime() - scheduleConfirmWindow.start.getTime()) / 60_000)} min focus block
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button
+                      size="sm" variant="ghost"
+                      className="flex-1 h-7 text-xs"
+                      onClick={() => setScheduleConfirmWindow(null)}
+                      data-testid="strip-schedule-back"
+                    >
+                      ← Back
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 h-7 text-xs gap-1"
+                      disabled={isScheduling}
+                      onClick={() => {
+                        onScheduleFocusBlock(scheduleTask, scheduleConfirmWindow);
+                        setSchedulePopoverOpen(false);
+                        setScheduleConfirmWindow(null);
+                      }}
+                      data-testid="strip-schedule-confirm"
+                    >
+                      {isScheduling ? <Loader2 className="h-3 w-3 animate-spin" /> : <CircleCheck className="h-3 w-3" />}
+                      Create
+                    </Button>
+                  </div>
+                </div>
+              ) : todayWindows.length > 0 ? (
+                <>
+                  <p className="text-xs font-medium mb-1.5">Pick a time window</p>
+                  <p className="text-[10px] text-muted-foreground mb-2 truncate">for: {scheduleTask.title}</p>
+                  <div className="space-y-1">
+                    {todayWindows.map((w, i) => (
+                      <Button
+                        key={i}
+                        variant="outline" size="sm"
+                        className="w-full h-7 text-[11px] justify-start gap-1.5"
+                        data-testid={`strip-schedule-window-${i}`}
+                        onClick={() => setScheduleConfirmWindow(w)}
+                      >
+                        <Zap className="h-3 w-3 text-primary shrink-0" />
+                        {format(w.start, "h:mm")}–{format(w.end, "h:mm a")}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-2 text-center">Select a window to continue</p>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center py-2">No open windows available today.</p>
+              )}
+            </PopoverContent>
+          </Popover>
+        ) : (
+          <Button
+            size="sm"
+            variant={primary.type === "current_meeting" ? "default" : "outline"}
+            className="h-7 text-xs shrink-0 gap-1"
+            onClick={() => handleAction(primary)}
+            data-testid="now-next-action-btn"
+          >
+            {primary.type === "current_meeting" && primary.joinUrl && (
+              <Video className="h-3 w-3 shrink-0" />
+            )}
+            {primary.actionLabel}
+          </Button>
+        )
       )}
     </div>
   );
@@ -1988,7 +2082,8 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
             const ev = visibleOwnEvents.find(e => e.id === eventId);
             if (ev) { setSelectedEvent(ev as CalendarEvent); setEventInitialTab(tab); }
           }}
-          onScheduleTask={(taskId) => setPopoverOpenTaskId(taskId)}
+          onScheduleFocusBlock={(task, window) => scheduleFocusMutation.mutate({ task, window })}
+          isScheduling={scheduleFocusMutation.isPending}
         />
       )}
 
