@@ -1,0 +1,1088 @@
+EXPAND THE @MENTION SYSTEM ACROSS THE ENTIRE VOLTSAFE CMS
+
+The @mention system must not be limited to CURRENTS and Task HUB.
+
+Build it as a shared, CMS-wide capability that works anywhere a user can write text, add a note, leave a comment, record an update, assign an action, or communicate about a record.
+
+The goal is simple:
+
+When someone writes @Scott, @Terri, @Sanad, @Trevor, or another valid user anywhere in VoltSafe CMS:
+
+1. The name becomes a real user-linked mention.
+2. The mentioned user is notified.
+3. The notification links directly to the exact record and exact location where they were mentioned.
+4. The mentioned user can see what they were asked to do.
+5. The mentioned user can acknowledge, view, or complete the callout.
+6. The author and relevant users can see the mention status.
+7. Every user has one central place to see all their mentions across the entire CMS.
+
+Do not create separate, inconsistent mention systems inside each module.
+
+Build one shared mention service, one shared mention UI component, one shared status model, and one shared mentions feed that every module uses.
+
+CMS-WIDE COVERAGE
+
+Audit the full VoltSafe CMS and enable @mentions anywhere user-generated text exists or should reasonably support collaboration.
+
+This includes, but is not limited to:
+
+CURRENTS
+
+- Channel messages
+- Private channel messages
+- Direct messages
+- Group direct messages
+- Thread replies
+- Message edits
+
+TASK HUB
+
+- Tasks
+- Task descriptions
+- Task comments
+- Subtasks
+- Checklist items where notes are supported
+- Boards
+- Board comments
+- Projects
+- Project descriptions
+- Project comments
+- Project updates
+- Activity discussions
+- Meeting-generated tasks
+- Recorder-generated tasks or notes
+
+LEADS, ACCOUNTS, CONTACTS AND SALES
+
+- Lead notes
+- Lead comments
+- Lead activity
+- Lead follow-up notes
+- Lead qualification notes
+- Lead timeline entries
+- Account notes
+- Account comments
+- Account activity
+- Account timeline entries
+- Contact notes
+- Contact comments
+- Contact activity
+- Contact timeline entries
+- Opportunity notes
+- Opportunity comments
+- Deal notes
+- Pipeline record comments
+- Sales handoff notes
+- Customer follow-up notes
+- Logged call notes
+- Logged meeting notes
+- Logged email notes
+- Next-step fields where rich text is supported
+
+CUSTOMER SUCCESS
+
+- Customer records
+- Customer notes
+- Customer comments
+- Onboarding records
+- Implementation records
+- Support records
+- Customer health notes
+- Success plan notes
+- Renewal notes
+- Escalation notes
+
+MARKETING
+
+- Campaign comments
+- Campaign notes
+- Content records
+- Marketing project comments
+- Persona notes
+- Campaign review notes
+- Approval discussions
+
+CAPITAL
+
+- Investor records
+- Investor notes
+- Investor comments
+- Data room comments
+- Fundraising pipeline notes
+- Due diligence notes
+- Meeting notes
+- Follow-up notes
+- Capital project comments
+
+PRODUCT, ENGINEERING AND OPERATIONS
+
+- Product feedback
+- Bug reports
+- Feature requests
+- Engineering notes
+- Release notes and discussions
+- Operations records
+- SOP comments
+- Hardware records
+- Software records
+- Testing records
+- Quality records
+- Incident records
+- Risk records
+
+MEETINGS AND CALENDAR
+
+- Meeting descriptions
+- Meeting notes
+- Meeting comments
+- Agendas
+- Action items
+- Recorder transcripts where comments or callouts are supported
+- Post-meeting follow-ups
+
+DOCUMENTS AND KNOWLEDGE
+
+- Document comments
+- Knowledge entries
+- Cortex entries
+- Feed Cortex content
+- Review comments
+- Approval notes
+- Document-related tasks or discussions
+
+FINANCE AND ADMINISTRATION
+
+- Budget comments
+- Financial record notes
+- Approval notes
+- Expense notes
+- Administrative comments
+- Internal review notes
+
+OTHER MODULES
+
+Audit every current VoltSafe CMS module, submodule, editor, notes field, comment field, activity timeline, rich-text editor, and collaboration surface.
+
+Create a coverage inventory before implementation.
+
+The final solution must not depend on a manually hard-coded list of only the modules named above.
+
+Use a reusable entity-based architecture so new CMS modules can add mention support without rebuilding the entire system.
+
+GLOBAL MENTION RECORD
+
+Every mention must create a normalized global mention record.
+
+Suggested fields:
+
+global_mentions
+- id
+- organization_id or tenant_id
+- mentioned_user_id
+- author_user_id
+- entity_type
+- entity_id
+- parent_entity_type
+- parent_entity_id
+- module_key
+- module_label
+- record_title
+- record_subtitle
+- source_type
+- source_id
+- source_preview
+- mention_context
+- requested_action
+- status
+- viewed_at
+- acknowledged_at
+- completed_at
+- dismissed_at
+- completed_by_user_id
+- completion_note
+- due_at
+- priority
+- created_at
+- updated_at
+- deleted_at
+
+Status values should include at minimum:
+
+- unread
+- viewed
+- acknowledged
+- completed
+- dismissed
+
+Do not treat “viewed” and “completed” as the same thing.
+
+Viewing means the user opened the callout.
+
+Completed means the user confirms that the requested action is finished.
+
+A mention may not always require completion, so support lightweight acknowledgement as well.
+
+STRUCTURED CONTENT
+
+Mentions must be stored as structured user references using immutable user IDs.
+
+Example:
+
+{
+  "type": "mention",
+  "userId": "immutable-user-id",
+  "label": "Scott Carlson",
+  "mentionId": "global-mention-id"
+}
+
+Do not rely on repeatedly parsing raw text such as @Scott.
+
+USER EXPERIENCE WHEN MENTIONING SOMEONE
+
+When a user types “@” anywhere supported:
+
+- Open the shared people autocomplete.
+- Search by:
+  - First name
+  - Last name
+  - Full name
+  - Display name
+  - Email
+  - Username
+  - Role or title
+- Show:
+  - Avatar
+  - Full name
+  - Job title or business role
+  - Email only when needed to distinguish duplicate names
+- Support keyboard and mouse navigation.
+- Support mobile.
+- Insert a structured mention chip.
+- Use the same mention component throughout the CMS.
+
+After selecting the user, optionally allow the author to define what the mention means.
+
+Provide a small, unobtrusive menu such as:
+
+- FYI
+- Please review
+- Please respond
+- Please approve
+- Please complete
+- Please follow up
+- Custom callout
+
+This should not be mandatory.
+
+If no action type is chosen, default to a normal informational mention.
+
+Optional fields:
+
+- Due date
+- Priority
+- Short instruction
+
+Do not force users through a large modal every time they mention someone.
+
+The standard flow should remain fast.
+
+EXAMPLE
+
+Trevor enters this note on a lead:
+
+“@Scott please review the proposed pricing before I respond.”
+
+The system must:
+
+1. Save Scott as a structured mention linked to Scott’s user ID.
+2. Create a global mention record.
+3. Notify Scott.
+4. Identify the module as Leads.
+5. Identify the exact lead record.
+6. Save a preview of the note.
+7. Deep-link Scott directly to the exact note on the lead.
+8. Mark the mention viewed when Scott opens it.
+9. Allow Scott to click his mention chip or callout control to:
+   - Acknowledge
+   - Mark complete
+   - Add a completion note
+10. Show Trevor that Scott viewed and/or completed the callout.
+
+DEEP LINKING
+
+Every global mention must link to the exact destination.
+
+Do not merely open the top-level module.
+
+The deep link must open:
+
+- The correct module
+- The correct record
+- The correct tab
+- The correct comment, note, activity, message, or timeline item
+- The correct thread where applicable
+
+Highlight or briefly pulse the exact mention location when the destination opens.
+
+Examples:
+
+- Open the exact lead and scroll to the mentioned lead note.
+- Open the exact account and highlight the account comment.
+- Open the exact contact timeline entry.
+- Open the exact CURRENTS thread reply.
+- Open the exact task comment.
+- Open the exact investor note.
+- Open the exact meeting action item.
+
+If the source item is inside a collapsed panel, expand it automatically.
+
+If the source is paginated or virtualized, load the relevant page or record and scroll to it.
+
+VIEWED, ACKNOWLEDGED AND COMPLETED BEHAVIOUR
+
+When the mentioned user opens the exact destination:
+
+- Automatically mark the mention as viewed.
+- Record viewed_at.
+- Update the unread count.
+- Do not automatically mark it completed.
+
+At the mention location, display a small callout control visible to the mentioned user.
+
+Example:
+
+“@Scott Carlson · Requested review”
+
+Available actions:
+
+- Acknowledge
+- Mark complete
+- Add response
+- Dismiss, where appropriate
+
+When completed:
+
+- Record completed_at.
+- Record completed_by_user_id.
+- Allow an optional short completion note.
+- Visually show completion at the source location.
+- Notify the original author that the mention was completed, unless notification preferences disable this.
+
+Examples:
+
+“Scott viewed this 14 minutes ago.”
+
+“Scott acknowledged this.”
+
+“Scott completed this callout.”
+
+“Scott completed this callout: Pricing approved at $12,500.”
+
+Clicking the person’s own mention chip should open the status actions when that person is the mentioned user.
+
+Clicking another person’s mention chip should open their profile or mention-status summary, subject to permissions.
+
+Do not allow unrelated users to mark someone else’s mention completed.
+
+The author, administrators, and authorized managers may be allowed to close or cancel a mention with an audit record.
+
+MENTION RESPONSE
+
+Allow the mentioned user to respond directly from the source location where the module supports comments or notes.
+
+For example:
+
+- Respond to a CURRENTS message.
+- Reply to a task comment.
+- Add a lead note.
+- Add an account comment.
+- Add a project comment.
+
+Where direct inline response is not appropriate, provide:
+
+- “Open record”
+- “Add response”
+- “Mark complete”
+
+GLOBAL “MY MENTIONS” EXPERIENCE
+
+Create a reusable global My Mentions widget and feed that combines mentions from every VoltSafe CMS module.
+
+Every user must be able to see all locations where they have been mentioned.
+
+The feed must show:
+
+- Mentioning user
+- Mentioned user
+- Module
+- Record type
+- Record name
+- Where inside the record the mention occurred
+- Date and time mentioned
+- Short content preview
+- Requested action
+- Priority
+- Due date
+- Current status
+- Viewed date
+- Completed date
+- Completion note
+- Direct link to the exact source
+
+Example row:
+
+Trevor Burgess
+Lead · Vancouver Marina Group
+Lead note
+“@Scott please review the proposed pricing…”
+Please review
+High priority
+Mentioned July 15, 2026 at 10:42 AM
+Unread
+Open
+
+SORTING AND FILTERING
+
+The My Mentions feed must support sorting by:
+
+- Newest
+- Oldest
+- Unread first
+- Due soon
+- Overdue
+- Priority
+- Module
+- Mentioning user
+- Status
+- Record name
+
+Filters must include:
+
+- All
+- Unread
+- Viewed
+- Acknowledged
+- Completed
+- Open
+- Overdue
+- Due today
+- Assigned to me through a mention
+- FYI
+- Review requested
+- Response requested
+- Approval requested
+- Completion requested
+- Module
+- Author
+- Date range
+- Priority
+
+Provide search across:
+
+- Record title
+- Mention author
+- Preview text
+- Module
+- Requested action
+
+Allow users to bulk:
+
+- Mark viewed
+- Acknowledge
+- Mark complete, where appropriate
+- Dismiss informational mentions
+- Open selected records
+
+Do not allow bulk completion of high-risk approval actions without opening the record.
+
+PLACEMENT IN TODAY
+
+Add a My Mentions section to every user’s Today tab.
+
+The Today version should focus on action.
+
+Show:
+
+- Unread mentions
+- Mentions due today
+- Overdue mentions
+- High-priority mentions
+- Recently completed mentions
+- Total open count
+
+Recommended section title:
+
+“My Mentions & Callouts”
+
+The Today widget should include:
+
+- Compact list
+- Module icon
+- Author
+- Record title
+- Short preview
+- Status
+- Due date
+- Direct open button
+
+Provide:
+
+- View all
+- Mark viewed
+- Acknowledge
+- Complete
+
+Do not overwhelm the Today tab with hundreds of records.
+
+Default to the highest-priority and most recent open mentions, with a clear “View all” link.
+
+PLACEMENT IN WORK > DAILY EXECUTION
+
+Add a full My Mentions & Callouts panel inside:
+
+Work > Daily Execution
+
+This should be the primary work-management view for mentions.
+
+It must include:
+
+- Full sortable table or list
+- Filters
+- Search
+- Status controls
+- Due dates
+- Priority
+- Module
+- Author
+- Record
+- Deep link
+- Completion actions
+
+Allow the user to include mentions in their Daily Execution planning.
+
+Useful groupings:
+
+- Needs attention now
+- Due today
+- Overdue
+- Waiting for my response
+- FYI
+- Recently completed
+
+Where appropriate, allow users to drag or schedule a mention-related action into their daily execution plan without changing the source record.
+
+Do not automatically convert every mention into a task.
+
+Mentions and tasks are related but distinct.
+
+PLACEMENT IN MISSION CONTROL
+
+Create an optional Mission Control widget:
+
+“My Mentions & Callouts”
+
+Users must be able to add or remove it through the existing Mission Control widget customization system.
+
+The widget should support configurable display options:
+
+- Open mentions
+- Unread mentions
+- Overdue mentions
+- Due today
+- High priority
+- Specific modules
+- Mentions from selected users
+- Compact or expanded view
+- Maximum number of rows
+
+Clicking a record must open the exact mention source.
+
+The widget must use the same shared data source as Today and Daily Execution.
+
+Do not build three separate mention feeds with different logic.
+
+OTHER USEFUL PLACEMENTS
+
+Also consider adding:
+
+- Global notification-centre Mentions filter
+- Header mention badge
+- Sidebar unread mention count
+- User profile “Mentions” section
+- Record-level “Mentions” filter within activity timelines
+- “Mentions I created” view for authors who need to follow up
+
+Do not clutter every screen.
+
+Use existing VoltSafe CMS patterns and allow optional configuration where appropriate.
+
+MENTIONS I CREATED
+
+Users must be able to review mentions they created.
+
+Add a view or filter for:
+
+- Mentions I created
+- Not yet viewed
+- Viewed but not acknowledged
+- Acknowledged but not completed
+- Completed
+- Overdue
+- Cancelled
+
+This allows Trevor or another user to see whether Scott actually saw and completed a callout.
+
+Example:
+
+“Scott has not yet viewed your pricing review request.”
+
+“Scott viewed your pricing review request 2 hours ago.”
+
+“Scott completed your pricing review request.”
+
+Avoid noisy repeated reminders.
+
+Allow the author to send a manual reminder, subject to rate limits.
+
+PERMISSIONS AND RECORD ACCESS
+
+A mention must never bypass existing permissions.
+
+If the mentioned user already has access:
+
+- Save the mention.
+- Notify them.
+- Deep-link them to the record.
+
+If the mentioned user lacks access:
+
+- Determine whether the author has permission to share the record.
+- Explain the minimum access that would be granted.
+- Require explicit confirmation before granting access.
+- Grant the lowest appropriate permission.
+- Log the access change.
+- Notify the mentioned user only after access is valid.
+
+Example:
+
+“Scott Carlson does not currently have access to this lead. Mentioning Scott will grant access to this lead and its related account information. Continue?”
+
+Actions:
+
+- Share and mention
+- Cancel
+
+Only offer “Mention without sharing” when the mentioned user can legally and technically see enough context for the mention to be useful.
+
+Do not notify users about records they cannot open.
+
+Do not expose the record title, preview text, customer name, financial information, private communication, or other restricted details before permission is granted.
+
+SHARING SCOPE
+
+Use the smallest existing permission scope that makes the mention usable.
+
+Examples:
+
+- Mention in a lead note may grant access to that lead if record-level access exists.
+- If access is controlled at account level, grant account-level access only when required and explicitly confirmed.
+- Mention in a private project must follow project membership rules.
+- Mention in a private channel must follow channel membership rules.
+- Mention in an investor record must respect Capital permissions.
+- Mention in finance records must respect finance-role restrictions.
+- Mention in admin or HR areas must never grant access unless the author has explicit authority.
+
+Do not build @mentions into a permission loophole.
+
+MODULE ADAPTER ARCHITECTURE
+
+Create a shared module adapter contract for mention-enabled entities.
+
+Suggested interface:
+
+MentionEntityAdapter
+- entityType
+- moduleKey
+- getRecordTitle()
+- getRecordSubtitle()
+- getRecordUrl()
+- getExactSourceUrl()
+- getSourcePreview()
+- canAuthorMention()
+- canMentionedUserView()
+- canAuthorShare()
+- grantMinimumAccess()
+- getPermissionScope()
+- getActivityContext()
+- getResponseActions()
+- getDisplayMetadata()
+
+Each supported module should register an adapter.
+
+This allows new modules to add mentions without rewriting global logic.
+
+SHARED BACKEND SERVICE
+
+Build one shared global mention service.
+
+It must:
+
+1. Validate the author.
+2. Validate mentioned user IDs.
+3. Prevent cross-organization mentions.
+4. Validate entity type and entity ID.
+5. Validate source type and source ID.
+6. Verify the author can access the source.
+7. Verify the mentioned user’s access.
+8. Determine whether sharing is required.
+9. Require explicit sharing confirmation where needed.
+10. Grant only the lowest authorized access.
+11. Create deduplicated global mention records.
+12. Create notifications.
+13. Create deep links.
+14. Record status events.
+15. Update unread counts.
+16. Record viewed, acknowledged, completed, dismissed, cancelled, and reopened states.
+17. Write complete audit logs.
+18. Support idempotent retries.
+19. Handle edited content correctly.
+20. Remove or archive deleted mentions safely.
+
+EDITING CONTENT
+
+When content is edited:
+
+- Compare old structured mentions to new structured mentions.
+- Notify only users newly added.
+- Do not notify unchanged mentions again.
+- Mark removed mentions as removed or cancelled.
+- Keep audit history.
+- Do not delete historical status silently.
+- If a completed mention is removed from edited content, retain its audit history but remove it from active lists.
+- If the requested action or due date changes, notify the mentioned user only when the change is meaningful.
+
+DELETING CONTENT
+
+If the source message, comment, note, task, or record is deleted:
+
+- Mark the mention source unavailable or deleted.
+- Remove it from active work queues.
+- Preserve audit history.
+- Do not leave broken links without explanation.
+
+Show:
+
+“This mention’s original source was deleted.”
+
+If the entire record is deleted, archive the mention.
+
+NOTIFICATIONS
+
+Notifications must include:
+
+- Who mentioned the user
+- Module
+- Record name
+- Requested action
+- Due date when present
+- Short authorized preview
+- Direct link
+- Current status
+
+Examples:
+
+“Trevor mentioned you in Lead: Vancouver Marina Group.”
+
+“Trevor requested your review in Account: Port of San Diego.”
+
+“Trevor mentioned you in a Task HUB comment.”
+
+“Trevor requested approval in Capital: Investor Follow-up.”
+
+Notifications should support:
+
+- In-app notification
+- Unread badge
+- Daily Execution feed
+- Today feed
+- Mission Control widget
+
+Respect notification preferences for email, push, or other channels.
+
+Do not send duplicate notifications for the same mention event.
+
+NOTIFICATION FOLLOW-UPS
+
+Optionally notify the author when:
+
+- The mention is first viewed
+- It is acknowledged
+- It is completed
+- It becomes overdue
+
+These notifications should be configurable.
+
+Do not generate a notification storm.
+
+Default behaviour should prioritize completion and overdue events over every minor status change.
+
+RELATIONSHIP TO TASK ASSIGNMENT
+
+Do not automatically create or assign a task merely because someone was mentioned.
+
+A mention means:
+
+- Attention
+- Awareness
+- Review
+- Response
+- Approval
+- Follow-up
+- Completion request
+
+A task means formal tracked work.
+
+When the author chooses “Please complete,” optionally offer:
+
+“Create a linked task”
+
+This must be explicit.
+
+If a linked task is created:
+
+- Link the task to the source mention.
+- Link the mention to the task.
+- Avoid duplicate work items.
+- Completing the linked task may complete the mention when configured.
+- Completing the mention should not automatically close unrelated tasks.
+
+VISUAL STATUS AT THE SOURCE
+
+At the exact source location, display mention status subtly.
+
+Example:
+
+@Scott Carlson
+Review requested · Viewed 10:54 AM · Open
+
+After completion:
+
+@Scott Carlson
+Review completed · July 15, 2026 at 11:22 AM
+
+Authors should be able to click the status to see:
+
+- Created
+- Notified
+- Viewed
+- Acknowledged
+- Completed
+- Completion note
+- Audit history
+
+Keep the interface clean.
+
+Do not turn every note into a giant workflow card.
+
+ACCESSIBILITY
+
+- Mention autocomplete must support keyboard-only use.
+- Status actions must have accessible labels.
+- Screen readers must identify mention name and status.
+- Focus must move correctly after autocomplete selection.
+- Status must not rely only on colour.
+- Mobile interactions must be fully supported.
+
+PERFORMANCE
+
+The global mention feed may become large.
+
+Design for:
+
+- Indexed organization_id
+- Indexed mentioned_user_id
+- Indexed author_user_id
+- Indexed status
+- Indexed module_key
+- Indexed created_at
+- Indexed due_at
+- Indexed entity_type and entity_id
+- Cursor-based pagination
+- Efficient unread counts
+- Batched metadata fetching
+- No N+1 queries
+
+Do not load every mention across the company on page load.
+
+TODAY, DAILY EXECUTION AND MISSION CONTROL must remain fast.
+
+TESTING
+
+Add automated tests covering at minimum:
+
+GLOBAL CREATION
+
+1. Mentioning a user in a lead note creates a structured mention.
+2. Mentioning a user in an account comment creates a structured mention.
+3. Mentioning a user in a contact activity creates a structured mention.
+4. Mentioning a user in a task comment creates a structured mention.
+5. Mentioning a user in CURRENTS creates a structured mention.
+6. Mentioning a user in a Capital record creates a structured mention.
+7. Every module uses the shared mention service.
+
+NOTIFICATIONS
+
+8. Mention creates one notification.
+9. Duplicate appearances in the same source create only one notification.
+10. Self-mention creates no notification.
+11. Unauthorized previews are never exposed.
+12. Deep links open the exact source.
+13. Notification retries are idempotent.
+
+ACCESS
+
+14. User with access receives the mention.
+15. User without access triggers a sharing confirmation.
+16. Authorized sharing grants minimum access.
+17. Unauthorized sharing is blocked.
+18. Cross-organization mentions are blocked.
+19. Restricted Finance, Capital, private channel, and confidential project permissions are preserved.
+
+STATUS
+
+20. Opening the exact source marks the mention viewed.
+21. Opening only the general module does not mark the exact mention viewed.
+22. Acknowledging records acknowledged_at.
+23. Completing records completed_at.
+24. Only the mentioned user or authorized override user can complete it.
+25. Completion note is saved.
+26. Author can see completion status.
+27. Deleted source is archived correctly.
+28. Removed mentions are no longer active but retain history.
+
+EDITING
+
+29. Adding a new mention through editing notifies only the new user.
+30. Editing text without changing mentions sends no duplicate notification.
+31. Removing a mention updates active status.
+32. Changing due date updates the global feed.
+33. Meaningful action changes notify correctly.
+
+GLOBAL FEEDS
+
+34. Today shows open and urgent mentions.
+35. Daily Execution shows the full sortable mention feed.
+36. Mission Control widget can be added and removed.
+37. All three surfaces use the same backend data.
+38. Sorting works.
+39. Filters work.
+40. Search works.
+41. Pagination works.
+42. Unread counts stay correct.
+43. Opening from any feed reaches the exact source.
+
+MOBILE AND ACCESSIBILITY
+
+44. Autocomplete works on mobile.
+45. Global mention feed works on mobile.
+46. Keyboard navigation works.
+47. Screen-reader labels work.
+
+REGRESSION
+
+48. Existing notes and comments without mentions continue working.
+49. Existing notifications continue working.
+50. Existing task assignment remains separate.
+51. Existing project, channel, record, and module permissions remain intact.
+52. Existing activity timelines continue loading.
+53. Existing Today, Daily Execution, and Mission Control widgets continue working.
+
+IMPLEMENTATION PROCESS
+
+Before changing code:
+
+1. Audit every CMS module and identify all current:
+   - Rich-text editors
+   - Plain-text note fields
+   - Comment fields
+   - Activity timelines
+   - User autocomplete components
+   - Notification systems
+   - Deep-link patterns
+   - Permission systems
+   - Record-sharing systems
+   - Today widgets
+   - Daily Execution components
+   - Mission Control widget framework
+
+2. Produce a CMS-wide mention coverage matrix showing:
+   - Module
+   - Entity type
+   - Current text/comment surfaces
+   - Existing editor type
+   - Access model
+   - Deep-link capability
+   - Mention support to be added
+
+3. Identify reusable shared components and services.
+
+4. Show the implementation plan and affected files.
+
+5. Then implement the complete shared foundation first.
+
+6. Connect modules through adapters.
+
+7. Do not implement isolated one-off versions in each module.
+
+MANUAL VERIFICATION
+
+After implementation, manually test at minimum:
+
+- Trevor mentions Scott in a Lead note.
+- Scott receives the mention in Today.
+- Scott receives the mention in Work > Daily Execution.
+- Scott adds the Mission Control mention widget.
+- Scott opens the lead from the widget.
+- The page opens the exact lead note.
+- The mention becomes viewed.
+- Scott marks the callout complete.
+- Trevor can see it was completed.
+
+Also test:
+
+- Account comment
+- Contact activity
+- CURRENTS public message
+- CURRENTS private channel
+- Task comment
+- Project comment
+- Capital investor note
+- Restricted Finance record
+- A record Scott already has access to
+- A record Scott does not have access to
+- A user who lacks permission to share
+- Edited note adding Scott later
+- Edited note removing Scott
+- Duplicate @Scott mentions in one note
+- Scott being mentioned but not assigned
+- Explicit linked-task creation
+- Mobile view
+- Keyboard-only operation
+
+DELIVERY STANDARD
+
+This is not merely an autocomplete or notification feature.
+
+It is a CMS-wide callout and accountability system.
+
+A successful implementation means:
+
+- Every real mention is linked to a user.
+- Every mention is tied to a specific source.
+- Every user can see all their mentions in one place.
+- Every mention can be opened directly.
+- Every mention can be tracked as unread, viewed, acknowledged, or completed.
+- The person who created the mention can see whether it was handled.
+- Permissions are never bypassed.
+- Today, Daily Execution, and Mission Control all use the same global mention system.
+- New VoltSafe CMS modules can adopt mentions through the shared adapter architecture.

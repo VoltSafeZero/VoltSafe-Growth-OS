@@ -3,6 +3,7 @@ import type { Server } from "http";
 import sharp from "sharp";
 
 import { cacheFor, cacheInvalidate, cacheGet, cacheSet } from "./cache";
+import { saveMentions } from "./services/mention-service";
 import { normalizeRecipients, normalizeRecipientListString } from "@shared/recipients";
 import { pick } from "./utils";
 import { normalizeSource, buildNormalizeCaseExpr, BUCKET_LABELS, SOURCE_BUCKETS } from "./source-attribution";
@@ -37884,6 +37885,15 @@ export function registerConfluenceRoutes(app: Express) {
     objectType?: string | null,
     objectId?: number | null
   ): Promise<void> {
+    // Fire-and-forget: also write to global_mentions for the CMS-wide @mentions feed
+    const _gmDeepLink = objectType && objectId
+      ? (() => {
+          if (objectType === "lead") return `/opportunities?selected=${objectId}&tab=current&message=${messageId}${parentMessageId ? `&thread=${parentMessageId}` : ""}`;
+          const _bases: Record<string,string> = { account: `/accounts/${objectId}`, contact: `/contacts/${objectId}`, opportunity: `/opportunities/${objectId}` };
+          return `${_bases[objectType] ?? "/"}?tab=current&message=${messageId}${parentMessageId ? `&thread=${parentMessageId}` : ""}`;
+        })()
+      : channelSlug ? `/current?channel=${encodeURIComponent(channelSlug)}&message=${messageId}${parentMessageId ? `&thread=${parentMessageId}` : ""}` : undefined;
+    saveMentions({ body, entityType: "current_message", entityId: messageId, moduleKey: "currents", moduleLabel: "CURRENTS", authorId: senderUserId, deepLinkUrl: _gmDeepLink }).catch(() => {});
     const mentionedIds = parseCurrentMentionIds(body);
     for (const mid of mentionedIds) {
       if (mid === senderUserId) continue;
@@ -37955,13 +37965,21 @@ export function registerConfluenceRoutes(app: Express) {
         ORDER BY name ASC
         LIMIT 10
       `));
-      res.json(rows.rows.map((r: any) => ({
+      const users = rows.rows.map((r: any) => ({
         id: r.id,
         name: r.name,
         email: r.email,
         avatarUrl: withAvatarVersion(r.avatar_url),
         department: r.department || null,
-      })));
+        isAll: false,
+      }));
+      // Prepend virtual @all entry when it matches the search query
+      const qLower = raw.toLowerCase();
+      const showAll = !raw || ["all","everyone","team","@all"].some(t => t.startsWith(qLower));
+      const result = showAll
+        ? [{ id: 0, name: "all", email: "", avatarUrl: null, department: "Notify everyone", isAll: true }, ...users]
+        : users;
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -43604,6 +43622,138 @@ ${contextText}`;
       res.json({ ok: true, message: "Rebuild triggered" });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to trigger rebuild" });
+    }
+  });
+
+  // ── Global @mentions API ──────────────────────────────────────────────────────
+  //
+  // GET  /api/mentions              — my mentions feed (sorted, filtered)
+  // GET  /api/mentions/unread-count — badge count
+  // PATCH /api/mentions/:id         — update status
+  // Note: /api/current/users already returns user list; @all is a virtual
+  //       user (id=0) prepended client-side by useMentionComposer.
+
+  app.get("/api/mentions/unread-count", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const r: any = await db.execute(sql`
+        SELECT COUNT(*)::int AS count
+        FROM global_mentions
+        WHERE mentioned_user_id = ${userId} AND status = 'unread'
+      `);
+      res.json({ count: r.rows?.[0]?.count ?? 0 });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/mentions", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const statusFilter = String(req.query.status || "open");
+      const moduleFilter = String(req.query.module || "all");
+      const sortBy = String(req.query.sort || "newest");
+
+      let statusClause = "";
+      if (statusFilter === "open") {
+        statusClause = `AND gm.status IN ('unread','viewed','acknowledged')`;
+      } else if (statusFilter !== "all") {
+        const safeStatus = ["unread","viewed","acknowledged","completed","dismissed"].includes(statusFilter)
+          ? statusFilter : "unread";
+        statusClause = `AND gm.status = '${safeStatus}'`;
+      }
+
+      const moduleClause = moduleFilter !== "all"
+        ? `AND gm.module_key = '${moduleFilter.replace(/'/g,"''").slice(0,40)}'`
+        : "";
+
+      const orderClause = (() => {
+        switch (sortBy) {
+          case "oldest":  return "ORDER BY gm.created_at ASC";
+          case "unread":  return "ORDER BY (CASE WHEN gm.status='unread' THEN 0 ELSE 1 END), gm.created_at DESC";
+          case "module":  return "ORDER BY gm.module_key, gm.created_at DESC";
+          default:        return "ORDER BY gm.created_at DESC";
+        }
+      })();
+
+      const rows: any = await db.execute(sql.raw(`
+        SELECT
+          gm.id, gm.mentioned_user_id AS "mentionedUserId",
+          gm.author_user_id AS "authorUserId",
+          u.name AS "authorName",
+          u.avatar_url AS "authorAvatarUrl",
+          gm.entity_type AS "entityType",
+          gm.entity_id AS "entityId",
+          gm.module_key AS "moduleKey",
+          gm.module_label AS "moduleLabel",
+          gm.record_title AS "recordTitle",
+          gm.source_preview AS "sourcePreview",
+          gm.requested_action AS "requestedAction",
+          gm.status,
+          gm.viewed_at AS "viewedAt",
+          gm.acknowledged_at AS "acknowledgedAt",
+          gm.completed_at AS "completedAt",
+          gm.dismissed_at AS "dismissedAt",
+          gm.completion_note AS "completionNote",
+          gm.deep_link_url AS "deepLinkUrl",
+          gm.is_all_mention AS "isAllMention",
+          gm.created_at AS "createdAt"
+        FROM global_mentions gm
+        JOIN users u ON u.id = gm.author_user_id
+        WHERE gm.mentioned_user_id = ${userId}
+        ${statusClause}
+        ${moduleClause}
+        ${orderClause}
+        LIMIT 200
+      `));
+
+      // Auto-mark unread as viewed after fetching
+      if (rows.rows?.length) {
+        const unreadIds = (rows.rows as any[])
+          .filter((r: any) => r.status === "unread")
+          .map((r: any) => r.id);
+        if (unreadIds.length) {
+          db.execute(sql.raw(`
+            UPDATE global_mentions
+            SET status = 'viewed', viewed_at = NOW(), updated_at = NOW()
+            WHERE id = ANY(ARRAY[${unreadIds.join(",")}]::int[])
+              AND status = 'unread'
+          `)).catch(() => {});
+        }
+      }
+
+      res.json(rows.rows ?? []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/mentions/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const VALID_STATUSES = new Set(["viewed","acknowledged","completed","dismissed"]);
+      const status = String(req.body?.status || "");
+      if (!VALID_STATUSES.has(status)) return res.status(400).json({ message: "Invalid status" });
+      const completionNote = req.body?.completionNote
+        ? String(req.body.completionNote).slice(0, 500).replace(/'/g, "''")
+        : null;
+      const tsField = status === "acknowledged" ? "acknowledged_at"
+        : status === "completed" ? "completed_at"
+        : status === "dismissed" ? "dismissed_at"
+        : "viewed_at";
+      const noteClause = completionNote ? `, completion_note = '${completionNote}'` : "";
+      const r: any = await db.execute(sql.raw(`
+        UPDATE global_mentions
+        SET status = '${status}', ${tsField} = NOW(), updated_at = NOW()${noteClause}
+        WHERE id = ${id} AND mentioned_user_id = ${userId}
+        RETURNING id, status
+      `));
+      if (!r.rows?.length) return res.status(404).json({ message: "Mention not found" });
+      res.json(r.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

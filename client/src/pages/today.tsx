@@ -15,6 +15,7 @@ import {
   BellOff, ChevronUp, ChevronDown, Plus, MoreVertical,
   RotateCcw, Eye, EyeOff, CheckCircle,
   LayoutDashboard, FileText, Activity, Users, BookOpen, Shield, BarChart2,
+  AtSign,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +57,7 @@ import { CeoActionQueuePanel } from "@/components/today/ceo-action-queue";
 import { CeoBriefingPanel } from "@/components/today/ceo-briefing";
 import { CeoExecutionRadarPanel } from "@/components/today/ceo-execution-radar";
 import { CeoForecastingPanel } from "@/components/today/ceo-forecasting";
+import { MyMentionsFeed } from "@/components/mentions/my-mentions-feed";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -118,6 +120,7 @@ const SECTION_CONFIG: SectionMeta[] = [
   { id: "operations",       label: "Operations", fullWidth: true },
   { id: "capital",          label: "Capital & Fundraising", capitalOnly: true, fullWidth: true },
   { id: "favorites_recents", label: "Favorites & Recents", fullWidth: true },
+  { id: "mentions",          label: "My Mentions",          fullWidth: true },
 ];
 
 const DEFAULT_ORDER = SECTION_CONFIG.map(s => s.id);
@@ -1303,6 +1306,22 @@ export default function TodayPage() {
           <div key="favorites_recents" data-testid="section-favorites-recents">
             <FavoritesRecentsSection isCapitalUser={isCapital} isAdmin={isAdmin} compact={compact} />
           </div>
+        );
+
+      case "mentions":
+        return (
+          <SectionCard
+            key="mentions"
+            icon={AtSign}
+            title="My Mentions"
+            link="/mentions"
+            testId="section-mentions"
+            {...sharedCardProps}
+            isFetching={false}
+            onRefresh={undefined}
+          >
+            <MyMentionsFeed compact={compact} maxItems={5} showFilters={false} />
+          </SectionCard>
         );
 
       default:

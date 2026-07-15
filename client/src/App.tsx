@@ -57,6 +57,7 @@ const CalendarPage = lazy(() => import("@/pages/calendar"));
 const LoginPage = lazy(() => import("@/pages/login"));
 const ChangePasswordPage = lazy(() => import("@/pages/change-password"));
 const NotFound = lazy(() => import("@/pages/not-found"));
+const MentionsPage = lazy(() => import("@/pages/mentions"));
 const VoiceAssistant = lazy(() => import("@/components/voice-assistant").then(m => ({ default: m.VoiceAssistant })));
 const QuickCapture = lazy(() => import("@/components/quick-capture").then(m => ({ default: m.QuickCapture })));
 const GmailInboxPage = lazy(() => import("@/pages/gmail-inbox"));
@@ -354,6 +355,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/command-center">{() => wrap(<CommandCenter />)}</Route>
       <Route path="/dashboard">{() => wrap(<Dashboard />)}</Route>
       <Route path="/today">{() => wrap(<TodayPage />)}</Route>
+      <Route path="/mentions">{() => wrap(<MentionsPage />)}</Route>
       <Route path="/my-travel">{() => wrap(<MyTravelPage />)}</Route>
       <Route path="/work/team-calendar">{() => wrap(<TeamWorkCalendarPage />)}</Route>
       <Route path="/field/nearby">{() => wrap(<FieldNearbyPage />)}</Route>

@@ -2,6 +2,7 @@ import type { Express, Request } from "express";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { requirePermission } from "./auth";
+import { saveMentions } from "./services/mention-service";
 
 // ── System columns: permanent, shared, always present for every user ─────────
 export const SYSTEM_COLUMNS = [
@@ -1158,6 +1159,17 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         INSERT INTO comments (object_type, object_id, user_id, user_name, content)
         VALUES ('task', ${id}, ${userId}, ${userName}, ${body}) RETURNING id, created_at`);
       await logActivity(id, userId, "commented", null, body.slice(0, 80));
+      // Fire-and-forget global @mention tracking
+      saveMentions({
+        body,
+        entityType: "task_comment",
+        entityId: id,
+        moduleKey: "tasks",
+        moduleLabel: "Tasks",
+        authorId: userId!,
+        recordTitle: `Task #${id}`,
+        deepLinkUrl: `/execution/tasks?selected=${id}`,
+      }).catch(() => {});
       res.json({ id: r.rows?.[0]?.id, createdAt: r.rows?.[0]?.created_at });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

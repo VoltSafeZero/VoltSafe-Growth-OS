@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, renderMentionBody } from "@/components/shared/mention-input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1422,16 +1423,21 @@ function CommentsBlock({ taskId, comments }: { taskId: number; comments: any[] }
             <div className="text-xs text-muted-foreground mb-0.5">
               <span className="font-medium text-foreground">{c.authorName || "Someone"}</span> · {fmtDateTime(c.createdAt)}
             </div>
-            <div className="whitespace-pre-wrap">{c.body}</div>
+            <div className="whitespace-pre-wrap">{renderMentionBody(c.body)}</div>
           </div>
         ))}
         {comments.length === 0 && <div className="text-xs text-muted-foreground italic">No comments yet.</div>}
       </div>
-      <Textarea
+      <MentionInput
         value={val}
-        onChange={(e) => setVal(e.target.value)}
-        rows={2}
-        placeholder="Write a comment…"
+        onChange={setVal}
+        placeholder="Write a comment… type @ to mention someone"
+        onSubmit={async () => {
+          if (!val.trim()) return;
+          await apiRequest("POST", `/api/tasks/${taskId}/comments`, { body: val.trim() });
+          setVal("");
+          qc.invalidateQueries({ queryKey: ["/api/tasks", taskId, "comments"] });
+        }}
         data-testid="input-new-comment"
       />
       <Button

@@ -8,7 +8,7 @@ import {
   Newspaper, PlayCircle, FlaskRound, BellRing, MapPin, ShieldCheck, Tags,
   Zap, HelpCircle, ClipboardList, Snowflake, Search, Settings, Smartphone,
   Mic, Car, PenSquare, GraduationCap, CalendarDays, MessageSquare,
-  Radio, Ban, Flame, Banknote, Activity, Bot,
+  Radio, Ban, Flame, Banknote, Activity, Bot, AtSign,
 } from "lucide-react";
 
 // Note: a few items intentionally use a different icon on mobile than on desktop
@@ -132,6 +132,7 @@ export const NAV_CONFIG: NavSection[] = [
       { id: "inbox",           label: "Inbox & Mail",       route: "/gmail",                  icon: Mail },
       { id: "tasks",           label: "Tasks",              route: "/execution/tasks",        icon: CheckSquare },
       { id: "calendar",        label: "Calendar & Meetings",route: "/execution/calendar",     icon: CalendarClock, permKey: "calendar" },
+      { id: "mentions",        label: "My Mentions",        route: "/mentions",               icon: AtSign },
       // nav-drift phase 4B: { label: "Digest Settings", route: "/alerts-digest" } — accessible via ⌘K
     ],
   },
@@ -460,6 +461,7 @@ export const PAGE_NAV_INDEX: PageNavEntry[] = [
   { name: "Activity Feed",     url: "/activity",                section: "Work", aliases: ["Activity"] },
   { name: "Travel",            url: "/my-travel",               section: "Work", aliases: ["My Travel"] },
   { name: "Personal Settings", url: "/settings/personal",       section: "Work" },
+  { name: "My Mentions",       url: "/mentions",                section: "Work", aliases: ["Mentions", "@mentions", "Notifications"] },
   { name: "Email Signatures",  url: "/settings/signatures",     section: "Settings", aliases: ["Signatures"] },
   { name: "AI Voice Profiles", url: "/settings/voice-profiles", section: "Settings", aliases: ["Voice Profiles"] },
   { name: "Digest Settings",   url: "/alerts-digest",           section: "Work", aliases: ["Digest", "Alerts"] },
