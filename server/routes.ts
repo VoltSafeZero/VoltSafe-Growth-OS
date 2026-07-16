@@ -7035,7 +7035,13 @@ export async function registerRoutes(
     };
     const parsed = insertCommentSchema.safeParse(data);
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
-    res.status(201).json(await storage.createComment(parsed.data));
+    const comment = await storage.createComment(parsed.data);
+    res.status(201).json(comment);
+    if (req.body?.content && typeof req.body.content === "string") {
+      const _cObjType = req.body.objectType; const _cObjId = Number(req.body.objectId);
+      const _cLink = _cObjType && _cObjId > 0 ? `/${_cObjType === "lead" ? "opportunities" : _cObjType + "s"}/${_cObjId}?tab=comments` : null;
+      saveMentions({ body: req.body.content, entityType: "comment", entityId: comment.id, moduleKey: _cObjType || "crm", moduleLabel: "Comments", authorId: (req.session as any).userId, deepLinkUrl: _cLink }).catch(() => {});
+    }
   });
 
   // ── Attachments ────────────────────────────────────────────────
@@ -24373,6 +24379,11 @@ export function registerConfluenceRoutes(app: Express) {
       });
       res.status(201).json(note);
       const _nt = req.body?.linkedObjectType; const _ni = Number(req.body?.linkedObjectId);
+      if (req.body?.content && typeof req.body.content === "string") {
+        const _noteObjType = _nt; const _noteObjId = _ni > 0 ? _ni : null;
+        const _deepLink = _noteObjType && _noteObjId ? `/${_noteObjType === "lead" ? "opportunities" : _noteObjType + "s"}/${_noteObjId}?tab=notes` : null;
+        saveMentions({ body: req.body.content, entityType: "note", entityId: note.id, moduleKey: _noteObjType || "crm", moduleLabel: "Notes", authorId: userId, deepLinkUrl: _deepLink }).catch(() => {});
+      }
       if (["lead","account","contact"].includes(_nt) && _ni > 0) import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(_nt, _ni, "note")).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -24406,6 +24417,9 @@ export function registerConfluenceRoutes(app: Express) {
       const note = await storage.updateNote(existing.id, safe as any);
       if (!note) return res.status(404).json({ message: "Note not found" });
       res.json(note);
+      const _put_nt = (existing as any).linkedObjectType; const _put_ni = Number((existing as any).linkedObjectId);
+      const _put_link = _put_nt && _put_ni > 0 ? `/${_put_nt === "lead" ? "opportunities" : _put_nt + "s"}/${_put_ni}?tab=notes` : null;
+      if (safe.content) saveMentions({ body: safe.content as string, entityType: "note", entityId: existing.id, moduleKey: _put_nt || "crm", moduleLabel: "Notes", authorId: (req.session as any).userId, deepLinkUrl: _put_link }).catch(() => {});
       const _ut = (existing as any).linkedObjectType; const _ui = Number((existing as any).linkedObjectId);
       if (["lead","account","contact"].includes(_ut) && _ui > 0) import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale(_ut, _ui, "note")).catch(() => {});
     } catch (err: any) {

@@ -820,6 +820,15 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         }
       }
       res.json({ success: true });
+      // Fire-and-forget: notify @mentions in description or completionNotes
+      if ("description" in body && typeof body.description === "string" && body.description.trim()) {
+        const lnkType = prev.linked_object_type; const lnkId = prev.linked_object_id ? Number(prev.linked_object_id) : null;
+        const deepLink = lnkType && lnkId ? `/${lnkType === "lead" ? "opportunities" : lnkType + "s"}/${lnkId}?task=${id}` : `/execution/tasks?task=${id}`;
+        saveMentions({ body: body.description, entityType: "task_description", entityId: id, moduleKey: "tasks", moduleLabel: "Tasks", authorId: userId, deepLinkUrl: deepLink, recordTitle: prev.title || undefined }).catch(() => {});
+      }
+      if ("completionNotes" in body && typeof body.completionNotes === "string" && body.completionNotes.trim()) {
+        saveMentions({ body: body.completionNotes, entityType: "task_completion_notes", entityId: id, moduleKey: "tasks", moduleLabel: "Tasks", authorId: userId, deepLinkUrl: `/execution/tasks?task=${id}`, recordTitle: prev.title || undefined }).catch(() => {});
+      }
     } catch (err: any) {
       console.error("[tasks/:id PATCH]", err.message);
       res.status(500).json({ message: err.message });

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, renderMentionBody } from "@/components/shared/mention-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -115,13 +115,12 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
     >
       {editingId === note.id ? (
         <div className="space-y-2">
-          <Textarea
+          <MentionInput
             value={editContent}
-            onChange={e => setEditContent(e.target.value)}
+            onChange={setEditContent}
             rows={3}
-            className="text-sm resize-none"
-            data-testid={`input-edit-note-${note.id}`}
             autoFocus
+            data-testid={`input-edit-note-${note.id}`}
           />
           <div className="flex gap-1.5">
             <Button
@@ -146,7 +145,7 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
         </div>
       ) : (
         <>
-          <p className="text-sm whitespace-pre-wrap leading-relaxed">{note.content}</p>
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{renderMentionBody(note.content)}</p>
           <div className="flex items-center justify-between mt-2.5">
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{note.authorName}</Badge>
@@ -200,18 +199,13 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
     <div className="space-y-3">
       {/* New note input */}
       <div className="space-y-2">
-        <Textarea
+        <MentionInput
           value={newContent}
-          onChange={e => setNewContent(e.target.value)}
-          placeholder="Add a note..."
+          onChange={setNewContent}
+          placeholder="Add a note… type @ to mention someone"
           rows={compact ? 2 : 3}
-          className="text-sm resize-none"
           data-testid="input-new-note"
-          onKeyDown={e => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && newContent.trim()) {
-              createMutation.mutate();
-            }
-          }}
+          onSubmit={() => { if (newContent.trim()) createMutation.mutate(); }}
         />
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-muted-foreground">Cmd/Ctrl+Enter to submit</span>

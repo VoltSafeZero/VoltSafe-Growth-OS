@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, renderMentionBody } from "@/components/shared/mention-input";
 import {
   StickyNote, Zap, Paperclip, Mail, Pin, Download, Shield, Link as LinkIcon,
   AlertTriangle, ChevronDown, ChevronUp, Unlink, Clock, Filter,
@@ -125,7 +125,7 @@ function NoteCard({ item }: { item: TimelineItem }) {
     <div className="min-w-0">
       <div className="flex items-center gap-1.5 mb-1">
         <p className="text-sm font-medium text-foreground leading-snug line-clamp-2">
-          {item.body}
+          {renderMentionBody(item.body ?? "")}
         </p>
         {meta.isPinned && <Pin className="h-3 w-3 text-primary shrink-0" />}
       </div>
@@ -389,15 +389,13 @@ function NoteComposer({ objectType, objectId, onAdded }: { objectType: string; o
 
   return (
     <div className="space-y-2">
-      <Textarea
+      <MentionInput
         value={text}
-        onChange={e => setText(e.target.value)}
-        placeholder="Add a note…"
-        className="min-h-[72px] text-sm resize-none"
+        onChange={setText}
+        placeholder="Add a note… type @ to mention someone"
+        rows={3}
         data-testid="input-timeline-note"
-        onKeyDown={e => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
-        }}
+        onSubmit={save}
       />
       <div className="flex items-center justify-between">
         <span className="text-[10px] text-muted-foreground">⌘↵ to save</span>

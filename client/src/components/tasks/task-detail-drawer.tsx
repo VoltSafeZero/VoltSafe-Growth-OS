@@ -5,7 +5,6 @@ import { useTaskColumns } from "@/hooks/use-task-columns";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { MentionInput, renderMentionBody } from "@/components/shared/mention-input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -751,19 +750,20 @@ function DescriptionEditor({ taskId, initial, onSaved }: { taskId: number; initi
           onClick={() => setEditing(true)}
           data-testid="text-description"
         >
-          {val || <span className="text-muted-foreground">Add a more detailed description…</span>}
+          {val ? renderMentionBody(val) : <span className="text-muted-foreground">Add a more detailed description…</span>}
         </div>
       </Section>
     );
   }
   return (
     <Section title="Description" icon={<MessageSquare className="h-4 w-4" />}>
-      <Textarea
+      <MentionInput
         autoFocus
         rows={5}
         value={val}
-        onChange={(e) => setVal(e.target.value)}
+        onChange={setVal}
         data-testid="input-description"
+        placeholder="Add a more detailed description… type @ to mention someone"
       />
       <div className="flex gap-2 mt-2">
         <Button size="sm" onClick={async () => {
@@ -780,11 +780,11 @@ function CompletionNotes({ taskId, initial, onSaved }: { taskId: number; initial
   const [val, setVal] = useState(initial || "");
   return (
     <div className="space-y-2">
-      <Textarea
+      <MentionInput
         rows={3}
         value={val}
-        onChange={(e) => setVal(e.target.value)}
-        placeholder="What was done? Outcome, links, follow-ups…"
+        onChange={setVal}
+        placeholder="What was done? Outcome, links, follow-ups… @ to mention"
         data-testid="input-completion-notes"
       />
       <Button size="sm" onClick={async () => {
@@ -1957,12 +1957,11 @@ function NewTaskForm({ onCreated, onCancel, defaultBoardColumn }: { onCreated: (
         {/* Description */}
         <div className="space-y-1.5">
           <label className="text-sm font-medium">Description</label>
-          <Textarea
-            placeholder="Add context, links, or acceptance criteria…"
+          <MentionInput
+            placeholder="Add context, links, or acceptance criteria… type @ to mention"
             value={description}
-            onChange={e => setDescription(e.target.value)}
+            onChange={setDescription}
             rows={4}
-            className="resize-none"
             data-testid="input-new-task-description"
           />
         </div>

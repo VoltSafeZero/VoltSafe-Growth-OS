@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { MentionInput } from "@/components/shared/mention-input";
 import { useToast } from "@/hooks/use-toast";
 import { StickyNote, Phone, MapPin, ArrowRight, Loader2, X } from "lucide-react";
 
@@ -89,17 +89,14 @@ export function QuickLogModal({ open, onClose, linkedObjectType, linkedObjectId,
             ))}
           </div>
 
-          <Textarea
+          <MentionInput
             value={content}
-            onChange={e => setContent(e.target.value)}
+            onChange={setContent}
             placeholder={selected.placeholder}
             rows={5}
             autoFocus
-            className="resize-none text-sm"
             data-testid="quick-log-content"
-            onKeyDown={e => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSave();
-            }}
+            onSubmit={handleSave}
           />
           <p className="text-[10px] text-muted-foreground mt-1">⌘+Enter to save</p>
         </div>

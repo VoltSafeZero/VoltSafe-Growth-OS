@@ -1,0 +1,504 @@
+FIX THE CMS-WIDE @MENTION COVERAGE GAP
+
+The @mention feature is currently inconsistent.
+
+The screenshots show that typing “@scott” works in some areas but does not trigger autocomplete or create a linked mention in other text fields, including:
+
+1. Task description fields
+2. Task comment fields
+3. Other plain textarea-based inputs
+
+This is not acceptable.
+
+The required behaviour is:
+
+ANY user-editable text field anywhere in VoltSafe CMS that can save user-entered text must support the shared @mention system unless there is a specific documented security or technical reason it should not.
+
+Typing “@” must trigger the same shared user autocomplete everywhere.
+
+Selecting Scott Carlson must create a structured user-linked mention, notification, deep link, status record, and audit event using the global mention system already specified.
+
+Do not patch only the fields shown in the screenshots.
+
+This must be fixed at the shared component and architecture level.
+
+CURRENT FAILURE TO INVESTIGATE
+
+The likely issue is that mention support was added only to specific rich-text editors or specific module forms, while many other fields still use raw:
+
+- textarea
+- input
+- Textarea component
+- autosizing textarea
+- plain contenteditable
+- modal description editor
+- comment composer
+- notes editor
+- inline edit field
+
+Audit the actual code and confirm the root cause before changing it.
+
+Do not assume every editable field uses the same component.
+
+REQUIRED SOLUTION
+
+Create one shared mention-capable text input system that can be used by every text surface in the CMS.
+
+At minimum, provide shared components such as:
+
+- MentionTextarea
+- MentionInput
+- MentionRichTextEditor
+- MentionCommentComposer
+- MentionContentEditable
+
+Or one shared abstraction capable of supporting the existing editor types.
+
+The shared component must handle:
+
+- Detecting “@”
+- Opening user autocomplete
+- Searching active users
+- Keyboard navigation
+- Mouse selection
+- Mobile selection
+- Inserting structured mention metadata
+- Rendering linked mention chips
+- Extracting mention user IDs on save
+- Passing mentions to the global mention backend service
+- Editing existing structured mentions
+- Removing mentions
+- Restoring mention state when reopening an editor
+- Preventing duplicate mention notifications
+- Permission and sharing checks
+- Deep-link source registration
+- Mention status tracking
+
+Do not duplicate mention parsing logic inside individual modules.
+
+CMS-WIDE TEXT FIELD AUDIT
+
+Search the entire frontend codebase for every user-editable text surface, including:
+
+- textarea
+- Textarea
+- input fields used for free-form collaboration text
+- contenteditable
+- rich-text editors
+- comment boxes
+- notes fields
+- description fields
+- activity composers
+- message composers
+- checklist notes
+- meeting notes
+- project updates
+- lead notes
+- account notes
+- contact notes
+- investor notes
+- customer notes
+- approval notes
+- modal text editors
+- inline editing controls
+
+Build a coverage matrix containing:
+
+- File path
+- Component name
+- Module
+- Field purpose
+- Current editor type
+- Whether mention support exists
+- Whether the field saves structured content
+- Required migration
+- Final verification status
+
+Do not mark this complete until every applicable field has been reviewed.
+
+DEFAULT RULE
+
+Any field that stores collaborative, descriptive, note, comment, message, update, instruction, or activity text must support @mentions.
+
+Examples include:
+
+TASK HUB
+
+- Task title where practical
+- Task description
+- Task comments
+- Project description
+- Project comments
+- Board comments
+- Subtask descriptions
+- Checklist item notes
+- Activity comments
+- Meeting-created task notes
+
+CURRENTS
+
+- Channel messages
+- Thread replies
+- DMs
+- Group DMs
+- Message edits
+
+PIPELINE
+
+- Lead notes
+- Lead descriptions
+- Lead comments
+- Account notes
+- Account descriptions
+- Account comments
+- Contact notes
+- Contact comments
+- Opportunity notes
+- Deal notes
+- Follow-up notes
+- Qualification notes
+- Timeline comments
+- Logged call notes
+- Logged meeting notes
+- Logged email notes
+- Next-step text fields
+
+OTHER CMS MODULES
+
+- Marketing notes and comments
+- Capital notes and comments
+- Investor notes
+- Meeting notes
+- Calendar descriptions where internal collaboration is supported
+- Customer Success notes
+- Operations notes
+- Finance approval notes
+- Product feedback
+- Feature requests
+- Bug reports
+- Cortex entries
+- Document comments
+- Knowledge comments
+- Administrative notes
+- Any other collaborative text surface
+
+EXCEPTIONS
+
+Do not automatically add mentions to fields where “@” is expected to be literal data rather than collaboration.
+
+Examples that may be excluded:
+
+- Email address fields
+- Username fields
+- Password fields
+- API key fields
+- URLs
+- Machine-readable configuration
+- Search bars
+- Command palette
+- Numeric fields
+- Address fields
+- External customer-facing form fields unless explicitly intended
+
+Every excluded field must be documented in the coverage matrix with the reason.
+
+Do not use broad exclusions based only on component type.
+
+A textarea is not automatically exempt.
+
+TASK DESCRIPTION FIX
+
+The task description editor shown in the screenshot must support @mentions.
+
+Typing:
+
+@scott
+
+must immediately display Scott Carlson in the autocomplete dropdown.
+
+Selecting Scott must:
+
+- Insert a structured mention
+- Display @Scott Carlson as a linked mention
+- Save Scott’s immutable user ID
+- Notify Scott when the description is saved
+- Link Scott directly to this exact task and description
+- Show the callout in Scott’s Today tab
+- Show it in Work > Daily Execution
+- Show it in the optional Mission Control widget
+- Allow Scott to mark the callout viewed, acknowledged, or completed
+- Show Trevor the resulting status
+
+TASK COMMENT FIX
+
+The task comment editor shown in the screenshot must behave exactly the same way.
+
+Typing:
+
+@scott
+
+must display the shared autocomplete.
+
+Selecting Scott must create a real mention in the posted comment.
+
+Do not save it as plain text.
+
+PLAIN TEXTAREA SUPPORT
+
+Many existing fields may need to remain visually plain textareas.
+
+That is fine.
+
+They still need mention support.
+
+Implement mention-aware textarea behaviour that tracks:
+
+- Current cursor position
+- Active mention query
+- Text offsets
+- Selected user
+- Mention token metadata
+- Text edits before and after the mention
+- Deletion of the mention
+- Copy and paste behaviour
+- Multiline behaviour
+- Scroll position
+- Dropdown positioning
+
+The autocomplete dropdown must appear near the active cursor where technically possible.
+
+If exact cursor positioning is not practical in a legacy textarea, anchor it cleanly below or above the field.
+
+Do not use that limitation as a reason to omit mentions.
+
+STRUCTURED STORAGE
+
+Do not rely only on storing visible text.
+
+Each mention-capable record must save:
+
+- Display text
+- Structured mention metadata
+- Mentioned user ID
+- Mention offsets or token positions
+- Source entity type
+- Source entity ID
+- Parent record
+- Module
+- Exact deep-link data
+
+Where an existing database field stores plain text, add an adjacent structured metadata field if changing the primary field would create migration risk.
+
+Example:
+
+description_text
+description_mentions_json
+
+or:
+
+content
+content_json
+
+Use the safest migration pattern based on the existing schema.
+
+BACKWARD COMPATIBILITY
+
+Existing plain-text values must continue to display correctly.
+
+Old text containing “@Scott” must not automatically notify Scott.
+
+Only structured mentions selected through the autocomplete should create active mention records.
+
+Historical plain text may be upgraded only when the user edits the field and explicitly selects a valid person from autocomplete.
+
+SHARED SAVE PIPELINE
+
+Every mention-capable editor must submit through one shared save pipeline.
+
+The save pipeline must:
+
+1. Save the text content.
+2. Save structured mention metadata.
+3. Compare old mentions to new mentions.
+4. Create newly added mention records.
+5. Avoid re-notifying unchanged mentions.
+6. Cancel or archive removed mentions.
+7. Trigger permission checks.
+8. Trigger access-sharing confirmation where needed.
+9. Create notifications.
+10. Create deep links.
+11. Record audit history.
+12. Return updated mention statuses.
+
+Do not let individual modules directly create notifications independently.
+
+USER SEARCH
+
+The shared autocomplete must search:
+
+- First name
+- Last name
+- Full name
+- Display name
+- Username
+- Email
+- Job title
+- Business role
+
+Typing lowercase “@scott” must still find Scott Carlson.
+
+Search must be case-insensitive.
+
+Rank exact first-name and username matches first.
+
+PERMISSIONS
+
+Mention support must not bypass record permissions.
+
+If Scott lacks access to the record:
+
+- Show the correct share confirmation.
+- Do not silently notify him.
+- Do not expose restricted preview text.
+- Grant only the minimum permitted access after confirmation.
+- Block the action if the author cannot share.
+
+This must work consistently in textarea-based fields too.
+
+DEEP LINKS
+
+Every editor must register enough context to create an exact source link.
+
+For example:
+
+- Module
+- Record ID
+- Tab
+- Section
+- Comment ID
+- Description anchor
+- Timeline item ID
+- Modal or drawer state where needed
+
+Opening the mention must scroll to and highlight the exact field or comment.
+
+COMPONENT ENFORCEMENT
+
+Prevent future fields from silently missing mention support.
+
+Add one or more safeguards:
+
+1. Create a standard CMS text-field wrapper and require collaborative text fields to use it.
+2. Add an ESLint rule, code audit test, or static scan that flags raw textarea usage in collaboration modules.
+3. Add a developer checklist for mention-capable fields.
+4. Add automated coverage tests for registered mention surfaces.
+
+The rule should not flag valid excluded fields such as email inputs or search boxes.
+
+TESTING
+
+Add automated tests for the exact current failures.
+
+TASK DESCRIPTION
+
+1. Open a task.
+2. Edit the description.
+3. Type “@scott”.
+4. Confirm autocomplete appears.
+5. Confirm Scott Carlson appears.
+6. Select Scott.
+7. Confirm structured mention is inserted.
+8. Save.
+9. Confirm one mention record exists.
+10. Confirm one notification exists.
+11. Confirm exact task deep link exists.
+
+TASK COMMENT
+
+12. Open a task.
+13. Type “@scott” in the comment field.
+14. Confirm autocomplete appears.
+15. Select Scott.
+16. Post comment.
+17. Confirm structured mention is saved.
+18. Confirm Scott is notified once.
+19. Confirm the link opens the exact comment.
+
+CMS COVERAGE
+
+20. Test at least one mention-capable text field in every major CMS module.
+21. Confirm lowercase searches work.
+22. Confirm keyboard selection works.
+23. Confirm mobile selection works.
+24. Confirm editing without changing mentions does not re-notify.
+25. Confirm removing a mention archives the active callout.
+26. Confirm plain historical @text creates no notification.
+27. Confirm unauthorized sharing is blocked.
+28. Confirm Today receives the mention.
+29. Confirm Daily Execution receives the mention.
+30. Confirm Mission Control receives the mention.
+31. Confirm completion status syncs back to the source.
+
+STATIC COVERAGE TEST
+
+Add a codebase test that identifies collaborative text surfaces that do not use the shared mention-capable components or explicitly declare an approved exclusion.
+
+The test must fail when a new collaborative raw textarea is introduced without mention support.
+
+MANUAL VERIFICATION
+
+Manually test the exact screens shown in the supplied screenshots.
+
+Required proof:
+
+1. Open “PORT OF SAN DIEGO – Meeting”.
+2. Edit the Description.
+3. Type “@scott”.
+4. Show autocomplete appearing.
+5. Select Scott Carlson.
+6. Save the description.
+7. Confirm Scott receives the callout.
+
+Then:
+
+8. Open the Comments field on the same task.
+9. Type “@scott”.
+10. Show autocomplete appearing.
+11. Select Scott Carlson.
+12. Post the comment.
+13. Confirm Scott receives the callout.
+
+Also manually test:
+
+- Lead note
+- Account note
+- Contact note
+- CURRENTS message
+- Project comment
+- Investor note
+- Meeting note
+- Customer Success note
+- Marketing comment
+- Operations note
+
+DELIVERY REQUIREMENTS
+
+Before implementation:
+
+- Identify the root cause.
+- Provide the coverage matrix.
+- Identify every raw collaborative textarea.
+- Identify which shared components will replace them.
+
+After implementation:
+
+- Run migrations.
+- Run targeted tests.
+- Run the static coverage test.
+- Run the full existing test suite.
+- Perform browser verification.
+- Provide the final coverage matrix showing every supported field and every approved exclusion.
+
+Do not report this fixed because mentions work in one or two editors.
+
+The feature is complete only when every applicable collaborative text field in VoltSafe CMS supports the same shared @mention functionality.

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, renderMentionBody } from "@/components/shared/mention-input";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, MessageSquare, Send } from "lucide-react";
 import type { Comment } from "@shared/schema";
@@ -90,13 +90,13 @@ export function CommentsFeed({
       </div>
 
       <form onSubmit={handleSubmit} className="flex gap-2">
-        <Textarea
+        <MentionInput
           value={newComment}
-          onChange={(e) => setNewComment(e.target.value)}
-          placeholder="Add a comment..."
+          onChange={setNewComment}
+          placeholder="Add a comment… type @ to mention"
           rows={2}
-          className="resize-none flex-1"
           data-testid="input-comment"
+          onSubmit={() => { if (newComment.trim()) postMutation.mutate(newComment.trim()); }}
         />
         <Button
           type="submit"
@@ -145,7 +145,7 @@ export function CommentsFeed({
                   </span>
                 </div>
                 <p className="text-sm text-foreground/80 whitespace-pre-wrap mt-0.5">
-                  {comment.content}
+                  {renderMentionBody(comment.content)}
                 </p>
               </div>
             </div>
