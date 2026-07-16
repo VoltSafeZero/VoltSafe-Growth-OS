@@ -78,7 +78,8 @@ export class ChunkErrorBoundary extends Component<Props, State> {
             A new version of VoltSafe was deployed. Reload the page to get the latest version.
           </p>
           <button
-            onClick={() => window.location.reload()}
+            data-testid="button-hard-refresh"
+            onClick={() => { window.location.href = window.location.href; }}
             className="mt-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
           >
             Hard refresh

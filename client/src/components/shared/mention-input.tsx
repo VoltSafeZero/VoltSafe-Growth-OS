@@ -148,9 +148,11 @@ interface MentionInputProps {
   onChange: (value: string) => void;
   onSubmit?: () => void;
   placeholder?: string;
+  rows?: number;
   minRows?: number;
   maxRows?: number;
   disabled?: boolean;
+  autoFocus?: boolean;
   className?: string;
   "data-testid"?: string;
 }
@@ -160,7 +162,9 @@ export function MentionInput({
   onChange,
   onSubmit,
   placeholder = "Write something… type @ to mention someone",
+  rows,
   disabled,
+  autoFocus,
   className,
   "data-testid": testId,
 }: MentionInputProps) {
@@ -189,7 +193,9 @@ export function MentionInput({
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
+        rows={rows}
         disabled={disabled}
+        autoFocus={autoFocus}
         className={cn("resize-none", className)}
         data-testid={testId}
       />
