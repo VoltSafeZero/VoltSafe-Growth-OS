@@ -1,0 +1,202 @@
+DO NOT MAKE ANY MORE BROAD @MENTION CHANGES YET.
+
+First, prove the exact reported production bug is fixed through real browser interaction.
+
+The previous implementation report says 98/98 tests pass, but that is not sufficient. The original failure was:
+
+- The @mention dropdown appeared.
+- User results appeared.
+- Clicking a user did not select them.
+- Raw text such as “@scott” remained in the field.
+- The canonical full name was not inserted.
+
+Perform the following real browser verification against the running application.
+
+TEST 1 — TASK DESCRIPTION CLICK SELECTION
+
+1. Open the task:
+   “PORT OF SAN DIEGO – Meeting”
+
+2. Edit the Description field.
+
+3. Type:
+   @scott
+
+4. Confirm the dropdown displays:
+   Scott Carlson
+
+5. Click the centre of the entire Scott Carlson result row.
+
+6. Prove all of the following:
+   - The row is clickable.
+   - The dropdown closes.
+   - “@scott” is removed.
+   - “@Scott Carlson” appears in the description.
+   - The editor remains focused.
+   - The cursor appears after the inserted mention.
+   - Scott Carlson’s immutable user ID exists in the editor’s structured mention state.
+
+7. Save the description.
+
+8. Reopen the description and prove:
+   - The mention still displays as “@Scott Carlson”.
+   - It is rendered as a linked mention, not raw token text.
+   - It remains associated with Scott Carlson’s user ID.
+
+TEST 2 — TASK COMMENT CLICK SELECTION
+
+1. Open the Comments field on the same task.
+
+2. Type:
+   @scott
+
+3. Click the Scott Carlson result row.
+
+4. Prove:
+   - The click selects Scott.
+   - The field displays “@Scott Carlson”.
+   - The raw query does not remain.
+   - The dropdown closes.
+   - The comment can be posted.
+
+5. Post the comment.
+
+6. Reopen or refresh and prove:
+   - The comment displays “@Scott Carlson”.
+   - The mention is clickable.
+   - The raw storage token is not visible.
+
+TEST 3 — ALEXANDRA CANONICAL NAME
+
+1. In a supported comment field, type:
+   @alex
+
+2. Click Alexandra Ruiz.
+
+3. Prove the inserted text is exactly:
+   @Alexandra Ruiz
+
+4. Confirm it does not remain:
+   @alex
+
+5. Confirm it does not display:
+   Alexandra R.
+   Alex
+   @alexandra
+
+TEST 4 — KEYBOARD SELECTION
+
+1. Type:
+   @sco
+
+2. Use the arrow keys to highlight Scott Carlson.
+
+3. Press Enter.
+
+4. Prove:
+   - “@Scott Carlson” is inserted.
+   - The dropdown closes.
+   - Focus returns to the editor.
+   - The cursor is after the mention.
+
+TEST 5 — DUPLICATE SPECIAL MENTION
+
+1. Type:
+   @
+
+2. Count all “everyone (notify all)” results.
+
+3. There must be no more than one.
+
+4. Confirm every result uses a stable unique key:
+   - user:{userId}
+   - special:everyone
+   - special:channel
+   - special:project
+   - special:board
+   - special:assignees
+   - special:watchers
+
+5. Confirm @everyone appears only where the current user has permission and where the field has a defined recipient scope.
+
+TEST 6 — CLICK EVENT ORDER
+
+Instrument the shared mention component temporarily and verify the interaction event order.
+
+Confirm whether the following fire:
+
+- pointerdown
+- mousedown
+- blur
+- click
+- selection handler
+- state update
+- dropdown close
+- editor refocus
+
+The selection handler must complete before blur destroys the dropdown.
+
+Do not fix this using only an arbitrary timeout.
+
+Use shared, reliable selection handling such as pointer-down or mouse-down with preventDefault where appropriate.
+
+TEST 7 — DATABASE AND NOTIFICATION PROOF
+
+After posting the Scott mention:
+
+1. Confirm exactly one structured mention record exists.
+2. Confirm mentioned_user_id is Scott Carlson’s immutable user ID.
+3. Confirm the stored label is Scott Carlson.
+4. Confirm the source entity and source ID point to the exact task description or comment.
+5. Confirm exactly one notification was created.
+6. Confirm the notification deep-link opens the exact task and mention location.
+7. Confirm no duplicate notification was created.
+
+TEST 8 — GLOBAL SURFACES
+
+Confirm the new Scott callout appears in:
+
+- Scott’s Today tab
+- Work > Daily Execution
+- The optional Mission Control My Mentions widget
+
+Open the callout from each location and prove it reaches the exact task description or comment.
+
+TEST 9 — STATUS FLOW
+
+As Scott:
+
+1. Open the mention.
+2. Confirm it becomes Viewed.
+3. Mark it Acknowledged.
+4. Mark it Completed.
+5. Add a short completion note.
+
+As Trevor:
+
+6. Confirm the source displays Scott’s current status.
+7. Confirm Trevor can see when it was viewed and completed.
+
+SCREENSHOT EVIDENCE REQUIRED
+
+Provide screenshots showing:
+
+1. @scott typed with Scott Carlson visible.
+2. The field after Scott is clicked, showing @Scott Carlson.
+3. The saved description or comment showing the linked mention.
+4. Scott’s Today mention.
+5. Scott’s Daily Execution mention.
+6. The exact deep-linked task location.
+7. The completed mention status.
+
+Also provide:
+
+- The exact browser route tested.
+- The relevant database mention row with sensitive information omitted.
+- The notification record with sensitive information omitted.
+- The console output showing the selection event sequence.
+- Any remaining fields where the click still fails.
+
+Do not report this fixed based only on unit tests, grep tests, TypeScript checks, or the dropdown appearing.
+
+The feature passes only when a real mouse click on Scott Carlson converts “@scott” into the structured canonical mention “@Scott Carlson” and the saved callout works end-to-end.
