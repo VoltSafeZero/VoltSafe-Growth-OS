@@ -1,0 +1,237 @@
+Before this communication-status work is accepted, complete a strict verification and gap audit.
+
+The previous run ended with:
+
+Validation failed · 1 passed · 1 failed
+
+Do not mark the task complete while the official validation result is failed.
+
+PART 1 — EXPLAIN THE VALIDATION FAILURE
+
+Provide:
+
+1. The exact validation command that returned failure.
+2. The complete failing test name.
+3. The exact failure message.
+4. Whether that same test failed before these changes.
+5. Evidence proving whether it is pre-existing or caused by this work.
+6. A clean targeted test run covering every changed file.
+7. A clean full test run, or a clearly documented and reproducible unrelated failure.
+
+Do not summarize this as “all tests pass except a known issue” while the task validator still reports failure.
+
+Either:
+
+- fix the failure; or
+- isolate it with hard evidence and make the official validation process pass without hiding genuine failures.
+
+Do not disable, skip, weaken, or delete legitimate tests merely to obtain a passing result.
+
+PART 2 — REPORT EXACT FILES AND CODE PATHS CHANGED
+
+List every changed file and explain what changed in each.
+
+Include:
+
+- Industry and Segment filter initialization
+- Select controlled values
+- Reset behaviour
+- saved-view behaviour
+- communication filter frontend values
+- backend filter predicates
+- communication rollup/backfill logic
+- empty-state logic
+- tests
+
+Confirm that no fake fallback display labels remain.
+
+PART 3 — VERIFY THE INDUSTRY AND SEGMENT FIX
+
+Prove all of the following with tests and runtime evidence:
+
+1. Industry internally initializes to the canonical `marine` value.
+2. Industry displays Marine.
+3. Opening Industry highlights Marine.
+4. Segment internally initializes to the canonical `marina` value.
+5. Segment displays Marina.
+6. Opening Segment highlights Marina.
+7. The API request genuinely includes the Marine and Marina filters.
+8. Clear/reset returns to Marine and Marina.
+9. Explicit saved views and URL parameters still override defaults.
+10. Changing Comm Status does not erase Industry or Segment.
+
+PART 4 — CONFIRM THE COMMUNICATION DATA SCOPE
+
+The previous report references:
+
+- lead.contact_email
+- email_threads.primary_lead_id
+
+That may still be only an email-specific partial fix.
+
+State exactly which communication sources are now included:
+
+- inbound email
+- outbound email
+- secondary linked-contact email
+- account-level email
+- calls
+- SMS
+- meetings
+- manually logged communications
+- contact aliases
+- account aliases
+
+For every source not implemented, explicitly say:
+
+NOT IMPLEMENTED
+
+Do not describe an email-only implementation as a unified communication timeline.
+
+PART 5 — VERIFY LINKED CONTACT AGGREGATION
+
+Prove that communication is aggregated across all linked Contacts, not only:
+
+- the primary contact;
+- lead.contact_email; or
+- one email thread linked directly to the lead.
+
+Test an Account with at least two linked Contacts where the newest communication belongs to the secondary Contact.
+
+The Account’s communication status must reflect that newest communication.
+
+PART 6 — REPORT BEFORE/AFTER COUNTS
+
+Run the status queries against the current database and provide exact counts before and after the repair for:
+
+- All Comm Status
+- VoltSafe Owes Reply
+- Waiting for Lead
+- Recently Contacted
+- Dormant
+- Never Contacted
+
+Also report how many records changed during the backfill.
+
+A result of zero for a category must be investigated and justified rather than assumed correct.
+
+PART 7 — VALIDATE REAL RECORDS
+
+Identify at least one real Lead/Account matching each category:
+
+1. Recently Contacted through an outbound message today
+2. Recently Contacted through an inbound message
+3. VoltSafe Owes Reply
+4. Waiting for Lead with no response ever
+5. Waiting for Lead after an earlier response
+6. Dormant with communication older than 60 days
+7. Dormant because it has never been contacted
+8. Never Contacted
+9. A manually created Lead
+10. An imported Lead
+11. An Account whose latest communication belongs to a secondary linked Contact
+
+For each example report:
+
+- Lead/Account name or authorized admin-visible ID
+- latest inbound timestamp
+- latest outbound timestamp
+- latest communication direction
+- latest communication type
+- resulting filter membership
+- reason it qualifies
+
+PART 8 — CONFIRM OVERLAPPING FILTER LOGIC
+
+These filters are not a single mutually exclusive status enum.
+
+Prove:
+
+- a recently contacted Lead can also be Waiting for Lead;
+- a recently contacted Lead can also be VoltSafe Owes Reply;
+- a never-contacted Lead appears in both Dormant and Never Contacted.
+
+Do not use one mutually exclusive CASE expression to determine filter membership.
+
+A CASE may be used only for a single display badge if necessary, not for the actual filter predicates.
+
+PART 9 — CONFIRM STATUS DEFINITIONS
+
+Verify the implemented predicates exactly match:
+
+VoltSafe Owes Reply:
+lastInboundAt is not null
+AND
+(lastOutboundAt is null OR lastInboundAt > lastOutboundAt)
+
+Waiting for Lead:
+lastOutboundAt is not null
+AND
+(lastInboundAt is null OR lastOutboundAt > lastInboundAt)
+
+Recently Contacted:
+lastCommunicationAt is within the last 30 days
+
+Dormant:
+lastCommunicationAt is null
+OR
+lastCommunicationAt is at least 60 days old
+
+Never Contacted:
+lastInboundAt is null
+AND
+lastOutboundAt is null
+AND
+no qualifying external communication exists
+
+Remove No Response from the UI and map its old behaviour into Waiting for Lead.
+
+PART 10 — BACKFILL VERIFICATION
+
+The report says the backfill runs asynchronously on startup.
+
+Confirm:
+
+1. It actually completed.
+2. It did not merely begin.
+3. It reports progress and final totals.
+4. It is idempotent.
+5. It is safe across multiple app instances.
+6. It does not run a massive full-table rebuild on every ordinary restart.
+7. Failures are persisted and visible to an administrator.
+8. New communications update rollups incrementally without requiring another restart.
+
+Provide the final backfill report:
+
+- scanned
+- changed
+- unchanged
+- never contacted
+- unresolved
+- failed
+- elapsed time
+
+PART 11 — EMPTY STATE
+
+Verify:
+
+- a filtered zero-result state says “No leads match the current filters.”
+- it includes a Clear Filters action;
+- the “Import Marinas” onboarding message appears only when the entire Lead database is actually empty.
+
+PART 12 — FINAL ACCEPTANCE REPORT
+
+Do not mark complete until the final report includes:
+
+- exact root causes
+- exact files changed
+- database changes
+- indexes added
+- before/after status counts
+- real record validation
+- backfill results
+- targeted test results
+- full validation result
+- screenshots showing working Industry, Segment, and Comm Status selections
+
+The final official result must be PASS, not “failed because of a pre-existing test.”
