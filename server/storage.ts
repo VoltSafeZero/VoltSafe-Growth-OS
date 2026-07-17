@@ -442,27 +442,63 @@ export class DatabaseStorage implements IStorage {
     }
     // Note: leads table has no `priority` column yet — accepted for UI parity.
 
-    // Comm status filter — uses a correlated subquery against lead_comms_summary.
-    // The commStatus value is parameterized; the CASE SQL is a hardcoded fragment.
+    // Comm status filter — each status is an independent operational predicate,
+    // NOT a mutually-exclusive CASE enum.  This means filters can overlap:
+    //   - Recently Contacted ∩ VoltSafe Owes Reply is valid
+    //   - Recently Contacted ∩ Waiting for Lead is valid
+    //   - Dormant ⊇ Never Contacted
+    //
+    // "no_response" is an alias for "waiting_for_lead" (legacy value kept for
+    // backward compat with saved views; both resolve to the same predicate).
     if (options?.commStatus && options.commStatus !== "all") {
-      if (options.commStatus === "never_contacted") {
+      const cs = options.commStatus;
+
+      if (cs === "never_contacted") {
+        // No inbound or outbound communication on record at all.
         conditions.push(sql`NOT EXISTS (
           SELECT 1 FROM lead_comms_summary lcs
           WHERE lcs.lead_id = ${leads.id}
-          AND (lcs.outgoing_count > 0 OR lcs.incoming_count > 0)
+            AND (lcs.outgoing_count > 0 OR lcs.incoming_count > 0)
         )`);
-      } else {
-        conditions.push(sql`COALESCE((
-          SELECT CASE
-            WHEN lcs.last_incoming_at IS NOT NULL AND (lcs.last_outgoing_at IS NULL OR lcs.last_incoming_at > lcs.last_outgoing_at) THEN 'voltSafe_owes_reply'
-            WHEN lcs.outgoing_count > 0 AND lcs.incoming_count = 0 AND lcs.last_outgoing_at < NOW() - INTERVAL '30 days' THEN 'no_response'
-            WHEN lcs.last_outgoing_at IS NOT NULL AND (lcs.last_incoming_at IS NULL OR lcs.last_outgoing_at > lcs.last_incoming_at) AND lcs.last_outgoing_at >= NOW() - INTERVAL '30 days' THEN 'waiting_for_lead'
-            WHEN lcs.last_comm_at IS NOT NULL AND lcs.last_comm_at < NOW() - INTERVAL '60 days' THEN 'dormant'
-            WHEN lcs.last_comm_at IS NOT NULL THEN 'recently_contacted'
-            ELSE 'never_contacted'
-          END
-          FROM lead_comms_summary lcs WHERE lcs.lead_id = ${leads.id}
-        ), 'never_contacted') = ${options.commStatus}`);
+
+      } else if (cs === "voltSafe_owes_reply") {
+        // Last communication was inbound — the ball is in VoltSafe's court.
+        conditions.push(sql`EXISTS (
+          SELECT 1 FROM lead_comms_summary lcs
+          WHERE lcs.lead_id = ${leads.id}
+            AND lcs.last_incoming_at IS NOT NULL
+            AND (lcs.last_outgoing_at IS NULL OR lcs.last_incoming_at > lcs.last_outgoing_at)
+        )`);
+
+      } else if (cs === "waiting_for_lead" || cs === "no_response") {
+        // Last communication was outbound — the ball is in the lead's court.
+        // Covers "no response ever" and "responded before but VoltSafe sent last".
+        conditions.push(sql`EXISTS (
+          SELECT 1 FROM lead_comms_summary lcs
+          WHERE lcs.lead_id = ${leads.id}
+            AND lcs.last_outgoing_at IS NOT NULL
+            AND (lcs.last_incoming_at IS NULL OR lcs.last_outgoing_at >= lcs.last_incoming_at)
+        )`);
+
+      } else if (cs === "recently_contacted") {
+        // Any communication (inbound or outbound) within the last 30 days.
+        // Intentionally overlaps with voltSafe_owes_reply and waiting_for_lead.
+        conditions.push(sql`EXISTS (
+          SELECT 1 FROM lead_comms_summary lcs
+          WHERE lcs.lead_id = ${leads.id}
+            AND lcs.last_comm_at IS NOT NULL
+            AND lcs.last_comm_at >= NOW() - INTERVAL '30 days'
+        )`);
+
+      } else if (cs === "dormant") {
+        // No communication at all, OR last communication was 60+ days ago.
+        // Includes never-contacted leads (dormant ⊇ never_contacted).
+        conditions.push(sql`NOT EXISTS (
+          SELECT 1 FROM lead_comms_summary lcs
+          WHERE lcs.lead_id = ${leads.id}
+            AND lcs.last_comm_at IS NOT NULL
+            AND lcs.last_comm_at >= NOW() - INTERVAL '60 days'
+        )`);
       }
     }
 
@@ -518,12 +554,10 @@ export class DatabaseStorage implements IStorage {
               ELSE 'outgoing'
             END AS last_comm_direction,
             CASE
+              WHEN last_comm_at IS NULL THEN 'never_contacted'
+              WHEN last_comm_at < NOW() - INTERVAL '60 days' THEN 'dormant'
               WHEN last_incoming_at IS NOT NULL AND (last_outgoing_at IS NULL OR last_incoming_at > last_outgoing_at) THEN 'voltSafe_owes_reply'
-              WHEN outgoing_count > 0 AND incoming_count = 0 AND last_outgoing_at < NOW() - INTERVAL '30 days' THEN 'no_response'
-              WHEN last_outgoing_at IS NOT NULL AND (last_incoming_at IS NULL OR last_outgoing_at > last_incoming_at) AND last_outgoing_at >= NOW() - INTERVAL '30 days' THEN 'waiting_for_lead'
-              WHEN last_comm_at IS NOT NULL AND last_comm_at < NOW() - INTERVAL '60 days' THEN 'dormant'
-              WHEN last_comm_at IS NOT NULL THEN 'recently_contacted'
-              ELSE 'never_contacted'
+              ELSE 'waiting_for_lead'
             END AS comm_status
           FROM lead_comms_summary
           WHERE lead_id = ANY(ARRAY[${ids.join(",")}])

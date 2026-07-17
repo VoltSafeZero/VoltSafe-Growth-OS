@@ -55,22 +55,21 @@ const statusColors: Record<string, string> = Object.fromEntries(
 );
 
 const COMM_STATUS_OPTIONS = [
-  { value: "all",               label: "All Comm Status" },
-  { value: "voltSafe_owes_reply", label: "VoltSafe Owes Reply" },
-  { value: "waiting_for_lead",  label: "Waiting for Lead" },
-  { value: "no_response",       label: "No Response" },
-  { value: "dormant",           label: "Dormant" },
-  { value: "recently_contacted", label: "Recently Contacted" },
-  { value: "never_contacted",   label: "Never Contacted" },
+  { value: "all",                label: "All Comm Status",    tooltip: "" },
+  { value: "voltSafe_owes_reply", label: "VoltSafe Owes Reply", tooltip: "The lead contacted us most recently." },
+  { value: "waiting_for_lead",   label: "Waiting for Lead",   tooltip: "VoltSafe contacted the lead most recently." },
+  { value: "recently_contacted", label: "Recently Contacted", tooltip: "Any communication within the last 30 days." },
+  { value: "dormant",            label: "Dormant",            tooltip: "No communication in 60+ days, including never contacted." },
+  { value: "never_contacted",    label: "Never Contacted",    tooltip: "No recorded external communication." },
 ] as const;
 
-const COMM_STATUS_STYLE: Record<string, { label: string; cls: string; icon?: React.ReactNode }> = {
-  never_contacted:    { label: "Never",        cls: "text-muted-foreground border-border/40 bg-muted/20" },
-  voltSafe_owes_reply: { label: "Owes Reply",  cls: "text-red-400 border-red-500/30 bg-red-500/10" },
-  waiting_for_lead:   { label: "Awaiting",     cls: "text-amber-400 border-amber-500/30 bg-amber-500/10" },
-  no_response:        { label: "No Response",  cls: "text-orange-400 border-orange-500/30 bg-orange-500/10" },
-  dormant:            { label: "Dormant",      cls: "text-slate-400 border-slate-500/30 bg-slate-500/10" },
-  recently_contacted: { label: "Active",       cls: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" },
+const COMM_STATUS_STYLE: Record<string, { label: string; cls: string }> = {
+  never_contacted:    { label: "Never",       cls: "text-muted-foreground border-border/40 bg-muted/20" },
+  voltSafe_owes_reply: { label: "Owes Reply", cls: "text-red-400 border-red-500/30 bg-red-500/10" },
+  waiting_for_lead:   { label: "Awaiting",    cls: "text-amber-400 border-amber-500/30 bg-amber-500/10" },
+  no_response:        { label: "Awaiting",    cls: "text-amber-400 border-amber-500/30 bg-amber-500/10" },
+  dormant:            { label: "Dormant",     cls: "text-slate-400 border-slate-500/30 bg-slate-500/10" },
+  recently_contacted: { label: "Active",      cls: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" },
 };
 
 function formatDaysAgo(days: number | null | undefined): string {
@@ -602,7 +601,12 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
           </SelectTrigger>
           <SelectContent>
             {COMM_STATUS_OPTIONS.map(o => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              <SelectItem key={o.value} value={o.value} title={o.tooltip || undefined}>
+                <span>{o.label}</span>
+                {o.tooltip && (
+                  <span className="block text-xs text-muted-foreground leading-tight mt-0.5 max-w-[200px] whitespace-normal">{o.tooltip}</span>
+                )}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -829,7 +833,29 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                     </tr>
                   ))}
                   {allLeads.length === 0 && (
-                    <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">No leads found. Click "Import Marinas" to populate your pipeline.</td></tr>
+                    <tr>
+                      <td colSpan={10} className="p-8 text-center text-muted-foreground">
+                        {commStatusFilter !== "all" || statusFilter !== "all" || stateFilter !== "all" || countryFilter !== "all" || search ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <span>No leads match the current filters.</span>
+                            <button
+                              className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
+                              onClick={() => {
+                                setCommStatusFilter("all");
+                                setStatusFilter("all");
+                                setStateFilter("all");
+                                setCountryFilter("all");
+                                setSearch("");
+                              }}
+                            >
+                              Clear filters
+                            </button>
+                          </div>
+                        ) : (
+                          <span>No leads found. Click &ldquo;Import Marinas&rdquo; to populate your pipeline.</span>
+                        )}
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
