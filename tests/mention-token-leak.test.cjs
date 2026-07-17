@@ -184,6 +184,46 @@ ok("useComposerMentions hook exposes initFromTokenText in return object",
 ok("InlineEditRow no longer passes raw trimmed string to onSave",
   !grep(currentSrc, "onSave(trimmed)"));
 
+// ── Section 14: Lead/Marina edit form — Notes, Competitors, ROI Story ─────────
+const leadsSrc = fs.readFileSync("client/src/pages/leads.tsx", "utf8");
+
+ok("leads.tsx imports MentionInput and MentionInputHandle",
+  grep(leadsSrc, 'import { MentionInput, MentionInputHandle }'));
+ok("leads.tsx imports tokensToCleanText",
+  grep(leadsSrc, 'tokensToCleanText'));
+ok("EditLeadForm declares notesRef as MentionInputHandle ref",
+  grep(leadsSrc, 'notesRef = useRef<MentionInputHandle>'));
+ok("EditLeadForm declares competitorsRef as MentionInputHandle ref",
+  grep(leadsSrc, 'competitorsRef = useRef<MentionInputHandle>'));
+ok("EditLeadForm declares roiStoryRef as MentionInputHandle ref",
+  grep(leadsSrc, 'roiStoryRef = useRef<MentionInputHandle>'));
+ok("EditLeadForm initializes notes with tokensToCleanText (not raw lead.notes)",
+  grep(leadsSrc, 'notes: tokensToCleanText(lead.notes'));
+ok("EditLeadForm initializes competitors with tokensToCleanText",
+  grep(leadsSrc, 'competitors: tokensToCleanText(lead.competitors'));
+ok("EditLeadForm initializes roiStory with tokensToCleanText",
+  grep(leadsSrc, 'roiStory: tokensToCleanText(lead.roiStory'));
+ok("EditLeadForm useEffect calls initFromTokenText for notes on mount",
+  grep(leadsSrc, 'notesRef.current?.initFromTokenText(lead.notes'));
+ok("EditLeadForm useEffect calls initFromTokenText for competitors on mount",
+  grep(leadsSrc, 'competitorsRef.current?.initFromTokenText(lead.competitors'));
+ok("EditLeadForm useEffect calls initFromTokenText for roiStory on mount",
+  grep(leadsSrc, 'roiStoryRef.current?.initFromTokenText(lead.roiStory'));
+ok("EditLeadForm onSubmit serializes notes via getTokenizedValue",
+  grep(leadsSrc, 'notesRef.current?.getTokenizedValue(form.notes'));
+ok("EditLeadForm onSubmit serializes competitors via getTokenizedValue",
+  grep(leadsSrc, 'competitorsRef.current?.getTokenizedValue(form.competitors'));
+ok("EditLeadForm onSubmit serializes roiStory via getTokenizedValue",
+  grep(leadsSrc, 'roiStoryRef.current?.getTokenizedValue(form.roiStory'));
+ok("Notes field uses MentionInput (not plain Textarea)",
+  grep(leadsSrc, 'MentionInput ref={notesRef}') && !grep(leadsSrc, 'Textarea.*input-edit-notes'));
+ok("Competitors field uses MentionInput (not plain Input)",
+  grep(leadsSrc, 'MentionInput ref={competitorsRef}') && !grep(leadsSrc, '<Input.*input-edit-competitors'));
+ok("ROI Story field uses MentionInput (not plain Textarea)",
+  grep(leadsSrc, 'MentionInput ref={roiStoryRef}') && !grep(leadsSrc, 'Textarea.*input-edit-roi-story'));
+ok("Competitors field uses rows={1} to preserve single-line appearance",
+  grep(leadsSrc, 'ref={competitorsRef}') && grep(leadsSrc, 'rows={1}'));
+
 // ── Final results ──────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(60)}`);
 console.log(`  Results: ${passed + failed} checks — ${passed} passed, ${failed} failed`);

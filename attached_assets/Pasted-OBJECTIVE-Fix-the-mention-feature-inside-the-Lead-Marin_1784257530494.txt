@@ -1,0 +1,164 @@
+OBJECTIVE
+
+Fix the @mention feature inside the Lead/Marina edit form shown in the attached screenshots.
+
+Typing @scott currently behaves as ordinary text and does not open the user autocomplete in any of the tested fields.
+
+CONFIRMED FAILING FIELDS
+
+The screenshots confirm the failure in:
+
+- Notes
+- Competitors
+- ROI Story
+
+Typing:
+
+@scott
+
+currently produces:
+
+- No autocomplete dropdown
+- No Scott user result
+- No mouse-selectable mention
+- No keyboard-selectable mention
+- No linked mention
+- No notification
+
+This is a real functional failure, not a display-name issue.
+
+SUCCESS CRITERIA
+
+The task is complete only when all of the following work inside this actual Lead/Marina edit modal:
+
+1. Typing @scott in Notes opens the mention autocomplete.
+2. Typing @scott in Competitors opens the mention autocomplete.
+3. Typing @scott in ROI Story opens the mention autocomplete.
+4. Scott appears as a selectable user.
+5. Mouse selection works.
+6. Arrow-key and Enter selection work.
+7. The selected mention displays as clean readable text.
+8. The correct internal user ID remains associated with the mention.
+9. Saving the lead preserves the mention.
+10. Reopening the lead renders the mention correctly.
+11. The mentioned user receives one notification.
+12. No raw serialized token is exposed to the user.
+
+INVESTIGATION
+
+Before changing code, inspect the actual components rendering these three fields.
+
+Determine:
+
+- Whether they are still plain Input or Textarea components.
+- Whether they use the shared MentionInput component.
+- Whether MentionInput supports both single-line and multiline fields.
+- Whether the autocomplete menu is being rendered but hidden behind the modal.
+- Whether the modal has overflow clipping.
+- Whether the dropdown has an incorrect z-index.
+- Whether the user-search request is being triggered.
+- Whether the current user list contains Scott.
+- Whether click events are blocked by the modal, overlay, or focus handling.
+- Whether these fields were incorrectly classified as non-collaborative fields during the previous audit.
+
+Report the exact root cause before implementing the fix.
+
+IMPLEMENTATION
+
+Make only the changes required to make @mentions work in the actual fields shown.
+
+Use the existing shared mention system where possible.
+
+Do not create another independent mention implementation.
+
+If these fields are plain inputs/textareas, replace or wrap them with the existing shared mention-capable component while preserving:
+
+- Existing field labels
+- Existing form state
+- Existing validation
+- Existing save behavior
+- Existing layout
+- Existing styling
+- Existing keyboard navigation
+- Existing accessibility behaviour
+
+The Competitors field is currently single-line.
+
+Preserve its existing single-line appearance unless the shared mention component requires a controlled single-line mode.
+
+Notes and ROI Story should remain multiline.
+
+DROPDOWN BEHAVIOUR
+
+The autocomplete dropdown must:
+
+- Appear immediately after typing @ plus matching characters.
+- Display above the modal content and not behind it.
+- Not be clipped by the modal or scroll container.
+- Stay anchored to the active field.
+- Support mouse selection.
+- Support Arrow Up, Arrow Down, Enter, Tab if already supported, and Escape.
+- Close after selection.
+- Restore focus to the field after selection.
+
+Do not fix this only by increasing z-index unless z-index is proven to be the root cause.
+
+VALIDATION
+
+Test the real Lead/Marina edit modal, not only the isolated MentionInput component.
+
+For each field below, perform the complete interaction:
+
+| Field | Type @scott | Dropdown opens | Scott appears | Mouse select | Keyboard select | Save | Reopen |
+|---|---|---|---|---|---|---|---|
+| Notes | | | | | | | |
+| Competitors | | | | | | | |
+| ROI Story | | | | | | | |
+
+Every cell must be reported as:
+
+- PASS
+- FAIL
+- NOT VERIFIED
+
+Also verify:
+
+- Raw mention tokens are never visible.
+- Exactly one mention record is stored.
+- Exactly one notification is created.
+- The notification deep link opens the correct lead.
+- Existing non-mention text still saves correctly in all three fields.
+
+TESTS
+
+Add or update tests that render the actual Lead/Marina edit form and verify:
+
+1. Notes opens autocomplete on @scott.
+2. Competitors opens autocomplete on @scott.
+3. ROI Story opens autocomplete on @scott.
+4. Mouse selection works in each field.
+5. Keyboard selection works in each field.
+6. Form submission preserves mention metadata.
+7. Reopening renders clean mention text.
+8. The dropdown is not clipped or hidden by the modal.
+9. Existing ordinary text entry still works.
+10. No duplicate mention notification is created.
+
+Do not treat source-code grep as sufficient verification.
+
+DELIVERABLES
+
+Return:
+
+1. Exact root cause.
+2. Files changed.
+3. Brief description of the fix.
+4. Completed validation table.
+5. Tests run and results.
+6. Any remaining NOT VERIFIED item and the exact reason.
+
+STOP.
+
+Do not expand this task into a CMS-wide mention rewrite, user-name cleanup, inbox work, deployment work, or unrelated refactoring.
+
+Fix and verify the three failing fields shown in the screenshots.

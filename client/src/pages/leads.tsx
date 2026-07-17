@@ -21,6 +21,8 @@ import {
   CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
   MessageSquare, ArrowDownLeft, ArrowUpRight, Clock,
 } from "lucide-react";
+import { MentionInput, MentionInputHandle } from "@/components/shared/mention-input";
+import { tokensToCleanText } from "@/hooks/use-mention-composer";
 import { RecordSummaryBar } from "@/components/record-summary-bar";
 import { RecordCurrentFeed } from "@/components/current/record-current-feed";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
@@ -2071,13 +2073,23 @@ function LeadDetailDialog({
 }
 
 function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPilotPending }: { lead: Lead; onSubmit: (data: Record<string, unknown>) => void; onCancel: () => void; isPending: boolean; onPilotToggle: () => void; isPilotPending: boolean }) {
+  const notesRef = useRef<MentionInputHandle>(null);
+  const competitorsRef = useRef<MentionInputHandle>(null);
+  const roiStoryRef = useRef<MentionInputHandle>(null);
+
+  useEffect(() => {
+    if (lead.notes) notesRef.current?.initFromTokenText(lead.notes);
+    if (lead.competitors) competitorsRef.current?.initFromTokenText(lead.competitors);
+    if (lead.roiStory) roiStoryRef.current?.initFromTokenText(lead.roiStory);
+  }, []);
+
   const [form, setForm] = useState({
     company: lead.company || "",
     contactName: lead.contactName || "",
     contactEmail: lead.contactEmail || "",
     contactPhone: lead.contactPhone || "",
     source: lead.source || "",
-    notes: lead.notes || "",
+    notes: tokensToCleanText(lead.notes || ""),
     tags: lead.tags || "",
     nextStep: lead.nextStep || "",
     dueDate: lead.dueDate ? new Date(lead.dueDate).toISOString().split("T")[0] : "",
@@ -2097,8 +2109,8 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
     estimatedPedestalCount: lead.estimatedPedestalCount != null ? String(lead.estimatedPedestalCount) : "",
     estimatedSlipsImpacted: lead.estimatedSlipsImpacted != null ? String(lead.estimatedSlipsImpacted) : "",
     estCloseDate: lead.estCloseDate ? new Date(lead.estCloseDate).toISOString().split("T")[0] : "",
-    competitors: lead.competitors || "",
-    roiStory: lead.roiStory || "",
+    competitors: tokensToCleanText(lead.competitors || ""),
+    roiStory: tokensToCleanText(lead.roiStory || ""),
     closedLostReason: lead.closedLostReason || "",
     closedWonNotes: lead.closedWonNotes || "",
     primaryIndustry: (lead as any).primaryIndustry || "",
@@ -2119,6 +2131,9 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
       e.preventDefault();
       onSubmit({
         ...form,
+        notes: notesRef.current?.getTokenizedValue(form.notes.trim()) ?? form.notes,
+        competitors: competitorsRef.current?.getTokenizedValue(form.competitors.trim()) ?? form.competitors,
+        roiStory: roiStoryRef.current?.getTokenizedValue(form.roiStory.trim()) ?? form.roiStory,
         dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
         estCloseDate: form.estCloseDate ? new Date(form.estCloseDate).toISOString() : null,
         contactName: form.contactName || "Marina Contact",
@@ -2306,7 +2321,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
           <div><Label className="text-xs">Due Date</Label><DatePicker value={form.dueDate} onChange={(v) => setForm(f => ({ ...f, dueDate: v }))} data-testid="input-edit-due-date" /></div>
         </div>
         <div className="mt-3"><Label className="text-xs">Tags</Label><Input value={form.tags} onChange={(e) => setForm(f => ({ ...f, tags: e.target.value }))} placeholder="Comma-separated tags" data-testid="input-edit-tags" /></div>
-        <div className="mt-3"><Label className="text-xs">Notes</Label><Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} rows={3} placeholder="Meeting notes, observations, key details..." data-testid="input-edit-notes" /></div>
+        <div className="mt-3"><Label className="text-xs">Notes</Label><MentionInput ref={notesRef} value={form.notes} onChange={(v) => setForm(f => ({ ...f, notes: v }))} rows={3} placeholder="Meeting notes, observations, key details..." data-testid="input-edit-notes" /></div>
       </div>
 
       <div className="border-t border-border/50 pt-3">
@@ -2339,8 +2354,8 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
           </div>
           {showMarinaOps && <div><Label className="text-xs">Est. Pedestals</Label><Input type="number" value={form.estimatedPedestalCount} onChange={(e) => setForm(f => ({ ...f, estimatedPedestalCount: e.target.value }))} data-testid="input-edit-pedestal-count" /></div>}
         </div>
-        <div className="mt-3"><Label className="text-xs">Competitors</Label><Input value={form.competitors} onChange={(e) => setForm(f => ({ ...f, competitors: e.target.value }))} placeholder="Competing vendors or solutions" data-testid="input-edit-competitors" /></div>
-        <div className="mt-3"><Label className="text-xs">ROI Story</Label><Textarea value={form.roiStory} onChange={(e) => setForm(f => ({ ...f, roiStory: e.target.value }))} rows={2} placeholder="How does VoltSafe create value for this marina?" data-testid="input-edit-roi-story" /></div>
+        <div className="mt-3"><Label className="text-xs">Competitors</Label><MentionInput ref={competitorsRef} value={form.competitors} onChange={(v) => setForm(f => ({ ...f, competitors: v }))} rows={1} placeholder="Competing vendors or solutions" data-testid="input-edit-competitors" /></div>
+        <div className="mt-3"><Label className="text-xs">ROI Story</Label><MentionInput ref={roiStoryRef} value={form.roiStory} onChange={(v) => setForm(f => ({ ...f, roiStory: v }))} rows={2} placeholder="How does VoltSafe create value for this marina?" data-testid="input-edit-roi-story" /></div>
         {lead.status === "converted" && (
           <div className="mt-3"><Label className="text-xs">Won Notes</Label><Textarea value={form.closedWonNotes} onChange={(e) => setForm(f => ({ ...f, closedWonNotes: e.target.value }))} rows={2} data-testid="input-edit-won-notes" /></div>
         )}

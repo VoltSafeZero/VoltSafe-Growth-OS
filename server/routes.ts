@@ -2868,6 +2868,10 @@ export async function registerRoutes(
       });
     }
     res.json(result);
+    const _leadUrl = `/leads/${lid}`;
+    if (body.notes) saveMentions({ body: body.notes, entityType: "lead", entityId: lid, moduleKey: "crm", moduleLabel: "Leads", authorId: userId, deepLinkUrl: _leadUrl }).catch(() => {});
+    if (body.competitors) saveMentions({ body: body.competitors, entityType: "lead", entityId: lid, moduleKey: "crm", moduleLabel: "Leads", authorId: userId, deepLinkUrl: _leadUrl }).catch(() => {});
+    if (body.roiStory) saveMentions({ body: body.roiStory, entityType: "lead", entityId: lid, moduleKey: "crm", moduleLabel: "Leads", authorId: userId, deepLinkUrl: _leadUrl }).catch(() => {});
     import("./services/crm-ai-summary").then(m => m.markCrmAiSummaryStale("lead", lid, "fields")).catch(() => {});
     // Auto-geocode if address changed and lead still has no coords
     if (!existing.marinaId && !result?.leadLat && (body.city || body.streetAddress || body.state || body.zipCode)) {
