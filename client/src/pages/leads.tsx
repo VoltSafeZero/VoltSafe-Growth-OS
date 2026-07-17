@@ -129,8 +129,8 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [statusFilter, setStatusFilter] = useState(lockedStatus ?? "all");
   const [countryFilter, setCountryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [industryFilter, setIndustryFilter] = useState("__all__");
-  const [marketSegmentFilter, setMarketSegmentFilter] = useState("__all__");
+  const [industryFilter, setIndustryFilter] = useState("marine");
+  const [marketSegmentFilter, setMarketSegmentFilter] = useState("marina");
   const [typeFilter, setTypeFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [shorePowerFilter, setShorePowerFilter] = useState("all");
@@ -401,7 +401,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     }
   };
 
-  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("__all__"); setMarketSegmentFilter("__all__"); setTypeFilter("all"); setPriorityFilter("all"); setShorePowerFilter("all"); setCommStatusFilter("all"); setSortOption("name:asc"); };
+  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("marine"); setMarketSegmentFilter("marina"); setTypeFilter("all"); setPriorityFilter("all"); setShorePowerFilter("all"); setCommStatusFilter("all"); setSortOption("name:asc"); };
 
   const isAllSelected = allLeads.length > 0 && allLeads.every(l => selectedIds.has(l.id));
 
@@ -513,7 +513,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         {/* 1 — Industry */}
         <Select value={industryFilter} onValueChange={(v) => { setIndustryFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-industry-filter">
-            {industryFilter === "__all__" ? <span>Marine</span> : <SelectValue />}
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Industries</SelectItem>
@@ -525,7 +525,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
         {/* 2 — Segment */}
         <Select value={marketSegmentFilter} onValueChange={(v) => { setMarketSegmentFilter(v); }}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-market-segment-filter">
-            {marketSegmentFilter === "__all__" ? <span>Marina</span> : <SelectValue />}
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Segments</SelectItem>
