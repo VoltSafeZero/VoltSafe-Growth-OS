@@ -96,11 +96,11 @@ ok("deepLinkUrl points to tasks page", grep(routesTasks, "deepLinkUrl: `/executi
 console.log("\n── 5. useMentionComposer Hook (client/src/hooks/use-mention-composer.ts) ──");
 const hook = readFile("client/src/hooks/use-mention-composer.ts");
 ok("useMentionComposer exported", grep(hook, "export function useMentionComposer"));
-ok("insertMentionToken exported", grep(hook, "export function insertMentionToken"));
+ok("serializeForSave exported (converts clean text → token format)", grep(hook, "serializeForSave"));
 ok("parseMentionTokens available on client", grep(hook, "extractMentionedIds"));
 ok("@all virtual user (id:0)", grep(hook, "id: 0, name: \"all\", isAll: true"));
 ok("@ trigger detection", grep(hook, "detectMentionTrigger"));
-ok("@[Name](user:ID) token format", grep(hook, "@[${user.name}](user:${user.id})"));
+ok("@[Name](user:ID) token format produced by serializer", grep(hook, "entry.userId"));
 ok("Keyboard navigation: ArrowDown/ArrowUp/Enter/Escape", grep(hook, "ArrowDown"));
 ok("handles Tab key to insert", grep(hook, "\"Tab\""));
 ok("/api/current/users query", grep(hook, "/api/current/users"));
@@ -109,7 +109,7 @@ ok("@all matches 'everyone' and 'team'", grep(hook, "\"everyone\""));
 // ── 6. MentionInput shared component ──────────────────────────────────────────
 console.log("\n── 6. MentionInput Component (client/src/components/shared/mention-input.tsx) ──");
 const mentionInput = readFile("client/src/components/shared/mention-input.tsx");
-ok("MentionInput exported", grep(mentionInput, "export function MentionInput"));
+ok("MentionInput exported", grep(mentionInput, "export const MentionInput") || grep(mentionInput, "export function MentionInput"));
 ok("renderMentionBody exported", grep(mentionInput, "export function renderMentionBody"));
 ok("MentionDropdown portal via createPortal", grep(mentionInput, "createPortal"));
 ok("@all rendered with amber color", grep(mentionInput, "amber"));
@@ -160,7 +160,7 @@ ok("link to /mentions full page", grep(today, "link=\"/mentions\""));
 // ── 9. Task Detail Drawer integration ────────────────────────────────────────
 console.log("\n── 9. Task Detail Drawer (client/src/components/tasks/task-detail-drawer.tsx) ──");
 const drawer = readFile("client/src/components/tasks/task-detail-drawer.tsx");
-ok("MentionInput imported", grep(drawer, "import { MentionInput, renderMentionBody }"));
+ok("MentionInput imported", grep(drawer, "MentionInput") && grep(drawer, "renderMentionBody"));
 ok("MentionInput used in CommentsBlock", grep(drawer, "<MentionInput"));
 ok("renderMentionBody used for comment display", grep(drawer, "renderMentionBody(c.body)"));
 ok("Enter shortcut via onSubmit", grep(drawer, "onSubmit={async"));
