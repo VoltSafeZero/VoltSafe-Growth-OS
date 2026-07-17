@@ -916,5 +916,20 @@
     "republishedToday": true,
     "trigger": "scheduled",
     "reason": "deployment IDs match and previous rebuild succeeded"
+  },
+  {
+    "ranAt": "2026-07-17T18:05:46.765Z",
+    "localDate": "2026-07-17",
+    "action": "refreshed",
+    "bootTime": "2026-07-17T18:05:42.504Z",
+    "deploymentId": "634014b6eafdfb30baeee6cf2f3cde47f6c6bf99",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "startup"
   }
 ]

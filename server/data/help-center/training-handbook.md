@@ -316,4 +316,4 @@ This covers the minimum a new employee needs to function on day one.
 3. Audit data quality — run Data Quality page and fix issues
 
 <!-- voltsafe:help-center-revised -->
-*Last revised: 2026-07-16 — auto-refreshed after production deploy.*
+*Last revised: 2026-07-17 — auto-refreshed after production deploy.*
