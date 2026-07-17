@@ -1,0 +1,321 @@
+DO NOT MARK THIS COMPLETE.
+
+You found and fixed a genuine raw-token leak in record-current-feed.tsx. Good.
+
+However, the work is still incomplete because:
+
+1. Real browser interaction was not verified.
+2. The production application was not verified.
+3. The full test suite was still running when you marked the task complete.
+4. Several required CMS surfaces were not individually verified.
+5. Source-grep testing does not prove click selection works.
+6. The final result does not include a complete pass/fail/not-verified matrix.
+
+Continue from the current checkpoint.
+
+DO NOT REBUILD THE SYSTEM AGAIN.
+
+Focus only on verification, remaining defects, and completion evidence.
+
+1. WAIT FOR THE FULL TEST SUITE
+
+The full test suite was still running.
+
+Let it finish.
+
+Report:
+
+- Total suites
+- Total tests
+- Passed
+- Failed
+- Skipped
+- Duration
+- Every failure by exact test name and file
+
+Do not mark completion before the suite finishes.
+
+Do not stop the suite because it takes 20+ minutes.
+
+If it fails:
+
+- Investigate whether each failure is caused by this change.
+- Do not automatically label failures unrelated.
+- Do not weaken, skip, delete, or hide tests.
+
+2. VERIFY THE RECORD CURRENT FEED FIX
+
+You found that record-current-feed.tsx previously inserted:
+
+@[Scott](user:138)
+
+directly into the visible textarea.
+
+Prove the fix now behaves as follows:
+
+User types:
+@scott
+
+User selects:
+Scott Carlson
+
+Visible composer shows:
+@Scott Carlson
+
+Internal structured metadata contains:
+userId: 138
+label: Scott Carlson
+
+Saved server payload may serialize internally if necessary, but no user-facing field may show:
+
+@[Scott Carlson](user:138)
+
+Test:
+
+- New post
+- Reply
+- Edit existing post
+- Reopen after save
+- Read mode
+- Notification preview
+- Activity preview
+
+3. DO NOT ACCEPT SOURCE-GREP AS CLICK PROOF
+
+Source-grep tests are useful regression checks.
+
+They do not prove:
+
+- Pointer events reach the dropdown row
+- The dropdown is above overlays
+- Blur does not close the popup first
+- Focus is restored
+- The cursor moves correctly
+- The correct user is selected
+- The field-specific integration is wired
+
+The live click path is still unverified.
+
+4. CREATE A LIGHTWEIGHT REAL DOM TEST
+
+If full Playwright against the running Replit server crashes the dev server, create a lightweight component integration test using the existing frontend test framework with jsdom, Testing Library, or the project’s supported equivalent.
+
+Use the real components:
+
+- MentionInput
+- MentionDropdown
+- useMentionComposer or equivalent
+- Actual task description editor integration
+- Actual task comment integration
+
+Do not use grep.
+
+Do not reimplement the component logic in the test.
+
+The test must:
+
+1. Render the real component.
+2. Type @scott.
+3. Confirm Scott Carlson appears.
+4. Fire pointerDown or mouseDown on the full result row.
+5. Confirm visible text becomes:
+   @Scott Carlson
+6. Confirm raw token is never visible.
+7. Confirm structured metadata contains user ID 138.
+8. Confirm the dropdown closes.
+9. Confirm textarea focus returns.
+10. Confirm the cursor is after the mention.
+11. Submit the form.
+12. Confirm serialized save data is correct.
+13. Reopen the saved value.
+14. Confirm visible text remains:
+    @Scott Carlson
+
+Also test keyboard selection using ArrowDown and Enter.
+
+5. RUN PRODUCTION VERIFICATION
+
+The dev Vite HMR overlay is not a valid excuse for skipping production verification.
+
+The feature has been published.
+
+Use the production deployment URL, where Vite HMR does not exist.
+
+Verify at minimum:
+
+A. Task description
+B. Task comment
+C. Lead note
+D. Account note
+E. Contact note
+F. CURRENTS message
+G. Record Current feed composer
+
+For each:
+
+- Type @scott
+- Dropdown opens
+- Scott Carlson appears
+- Click Scott Carlson
+- Visible text becomes @Scott Carlson
+- Raw token is never visible
+- Save succeeds
+- Refresh
+- Reopen
+- @Scott Carlson still displays correctly
+- Notification created once
+- Deep link opens the exact source
+
+If production automation is unavailable, use the available browser testing path against production rather than the local Vite development server.
+
+Do not mark the test passed unless the interaction actually ran.
+
+6. CANONICAL NAME VERIFICATION
+
+Confirm user ID 138 resolves to:
+
+First name:
+Scott
+
+Last name:
+Carlson
+
+Canonical visible mention:
+@Scott Carlson
+
+Search may begin from:
+
+@scott
+@sco
+@SCOTT
+Scott’s email fragment
+Scott’s username
+
+Every successful selection must visibly produce:
+
+@Scott Carlson
+
+Repeat for:
+
+- Alexandra Ruiz
+- Terri Breker
+- One other active user
+
+7. RAW TOKEN LEAK AUDIT
+
+Your new leak test passed 58/58, but provide the actual audited surfaces.
+
+Verify no raw token appears in:
+
+- Textareas
+- Inputs
+- Rich-text editors
+- Read-only content
+- CURRENTS
+- Task descriptions
+- Task comments
+- Lead notes
+- Account notes
+- Contact notes
+- Record Current feed
+- Notifications
+- Today
+- Daily Execution
+- Mission Control
+- Search snippets
+- Activity timelines
+- Email templates
+- Exports
+- CSV generation
+- Tooltips
+- Modals
+- Mobile views
+
+The forbidden user-visible pattern is:
+
+](user:
+
+Internal serialization code may contain it only if it is never rendered.
+
+8. INBOX TEST EVIDENCE
+
+You stated the inbox unread-count test failed identically three times because one thread belongs to two category buckets.
+
+Provide the exact evidence:
+
+- Test file
+- Test name
+- Assertion
+- Expected value
+- Actual value
+- Run 1
+- Run 2
+- Run 3
+- Pre-task commit result
+- Git history proving the failure predates the mention changes
+- Explanation of whether the test is incorrect or the application count is incorrect
+
+Do not leave a consistently failing test as “timing.”
+
+A deterministic failure is not flaky.
+
+Create a separate bug ticket or fix it now, but classify it accurately.
+
+9. REMOVE TESTING-ONLY PRODUCT CHANGES
+
+Audit whether any product code was changed solely to make browser tests easier, including ChunkErrorBoundary.
+
+For each such change:
+
+- Explain why it belongs in production
+- Add a real regression test
+- Or revert it
+
+Do not retain unrelated product changes without justification.
+
+10. FINAL EVIDENCE MATRIX
+
+Return this exact table:
+
+| Surface | Autocomplete | Mouse select | Keyboard select | Canonical full name | No raw token | Save | Reopen | Notification | Exact deep link | Result |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Shared MentionInput | | | | | | | | N/A | N/A | |
+| Task description | | | | | | | | | | |
+| Task comment | | | | | | | | | | |
+| Lead note | | | | | | | | | | |
+| Account note | | | | | | | | | | |
+| Contact note | | | | | | | | | | |
+| CURRENTS message | | | | | | | | | | |
+| CURRENTS reply | | | | | | | | | | |
+| Direct message | | | | | | | | | | |
+| Record Current feed | | | | | | | | | | |
+| Today | N/A | N/A | N/A | | | N/A | N/A | | | |
+| Daily Execution | N/A | N/A | N/A | | | N/A | N/A | | | |
+| Mission Control | N/A | N/A | N/A | | | N/A | N/A | | | |
+
+Every cell must be:
+
+- PASS
+- FAIL
+- NOT VERIFIED
+- N/A
+
+Do not convert NOT VERIFIED into PASS.
+
+11. COMPLETION STANDARD
+
+The task is complete only when:
+
+- The full test suite has finished.
+- All mention-specific real component tests pass.
+- Production click selection is verified.
+- Users see @Scott Carlson.
+- Users never see @[Scott Carlson](user:138).
+- User ID 138 remains attached internally.
+- The affected CMS fields save and reopen correctly.
+- Notifications and exact deep links work.
+- The Record Current feed leak is fixed.
+- The inbox test is accurately classified or repaired.
+- The final evidence matrix is complete.
+
+Do not mark complete while tests are still running.
