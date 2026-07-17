@@ -37494,6 +37494,9 @@ export function registerConfluenceRoutes(app: Express) {
           UNION
           SELECT DISTINCT user_id FROM current_channel_preferences
             WHERE channel_id = ${channelId}
+          UNION
+          SELECT DISTINCT user_id FROM current_channel_members
+            WHERE channel_id = ${channelId}
         )
           AND (u.status IS NULL OR u.status NOT IN ('suspended', 'deactivated'))
         ORDER BY u.name, u.id

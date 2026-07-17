@@ -3016,10 +3016,11 @@ function ChannelDetailsModal({
     return [...you, ...online, ...offline];
   }, [participants, currentUserId, presenceMap]);
 
-  const filteredMembers = memberSearch.trim()
+  const memberSearchNorm = memberSearch.trim().replace(/^@/, "").toLowerCase();
+  const filteredMembers = memberSearchNorm
     ? sorted.filter((p) =>
-        p.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
-        p.email.toLowerCase().includes(memberSearch.toLowerCase())
+        p.name.toLowerCase().includes(memberSearchNorm) ||
+        p.email.toLowerCase().includes(memberSearchNorm)
       )
     : sorted;
 
@@ -4663,7 +4664,10 @@ export default function CurrentPage() {
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to remove member"); }
       return r.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/current/channels", selectedSlug, "members"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels", selectedSlug, "members"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels", selectedSlug, "participants"] });
+    },
     onError: (err: Error) => toast({ title: "Could not remove member", description: err.message, variant: "destructive" }),
   });
 
@@ -4673,7 +4677,12 @@ export default function CurrentPage() {
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to add member"); }
       return r.json();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/current/channels", selectedSlug, "members"] }),
+    onSuccess: (_data, { slug }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels", slug, "members"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/current/channels", slug, "participants"] });
+      const chanName = channels.find((c) => c.slug === slug)?.name ?? slug;
+      toast({ title: `Member added to #${chanName}` });
+    },
     onError: (err: Error) => toast({ title: "Could not add member", description: err.message, variant: "destructive" }),
   });
 

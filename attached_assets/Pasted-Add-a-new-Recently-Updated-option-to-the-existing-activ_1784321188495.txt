@@ -1,0 +1,200 @@
+Add a new “Recently Updated” option to the existing activity/status filter used across Leads, Accounts, and Contacts.
+
+Placement:
+Add it directly below “Recently Contacted” in the dropdown.
+
+Label:
+Recently Updated
+
+Description:
+Any meaningful activity or data change within the last 30 days.
+
+Required behavior:
+When selected, show any Lead, Account, or Contact that has had meaningful activity within the past 30 days.
+
+Results must be sorted automatically from most recently updated to least recently updated:
+- today
+- yesterday
+- progressively older
+- maximum age of 30 days
+
+This is broader than “Recently Contacted.”
+
+“Recently Contacted” should continue to mean:
+- inbound or outbound email
+- logged call
+- meeting
+- SMS/message
+- other external communication
+
+“Recently Updated” must include all meaningful record activity, including:
+- comment added
+- note added or edited
+- email sent or received
+- call logged
+- meeting added or completed
+- task created, updated, completed, or reassigned
+- pipeline stage changed
+- lead status changed
+- account status changed
+- owner or assignee changed
+- contact information changed
+- company/account information changed
+- qualification data changed
+- score changed
+- tag added or removed
+- attachment or file added
+- relationship created or changed
+- custom field changed
+- record created
+- any other meaningful user-generated data update connected to the Lead, Account, or Contact
+
+Do not count meaningless system activity such as:
+- merely viewing a record
+- opening a page
+- background polling
+- search indexing
+- cache refreshes
+- automated sync timestamps where no underlying data changed
+- query refetches
+- internal maintenance jobs
+
+Data model:
+Create or use a canonical field representing the latest meaningful activity:
+
+lastMeaningfulActivityAt
+
+This value should be calculated from the newest qualifying activity across the record and its related records.
+
+For a Lead, include meaningful activity directly on the Lead and associated:
+- contacts
+- account/company
+- communications
+- notes
+- comments
+- tasks
+- meetings
+- files
+- activity history
+
+For an Account, include meaningful activity directly on the Account and associated:
+- leads
+- contacts
+- communications
+- notes
+- comments
+- tasks
+- meetings
+- files
+- opportunities/pipeline records
+- activity history
+
+For a Contact, include meaningful activity directly on the Contact and associated:
+- lead
+- account/company
+- communications
+- notes
+- comments
+- tasks
+- meetings
+- files
+- activity history
+
+Important:
+Do not rely only on the base table’s generic updated_at value. That would miss related comments, emails, tasks, notes, and other connected activity.
+
+Filtering rule:
+lastMeaningfulActivityAt >= current time minus 30 days
+
+Sorting rule:
+lastMeaningfulActivityAt DESC
+
+Tie-breaker:
+If two records have the same activity timestamp, sort by name A–Z.
+
+Display requirements:
+1. When “Recently Updated” is selected, automatically switch the effective sort to “Most recently updated.”
+2. Clearly display the latest activity date/time on each row.
+3. Preferably display the latest activity type, for example:
+   - Comment added
+   - Email received
+   - Stage changed
+   - Task completed
+   - Contact information updated
+4. Add hover text or a small secondary line showing:
+   - activity type
+   - date/time
+   - person who made the update, where available
+5. Preserve the user’s previously selected manual sort when they leave the “Recently Updated” filter.
+
+Dropdown order:
+- All Comm Status
+- VoltSafe Owes Reply
+- Waiting for Lead
+- Recently Contacted
+- Recently Updated
+- Dormant
+- Never Contacted
+
+Although this currently sits in the “Comm Status” dropdown, “Recently Updated” is not strictly a communication status. Rename the dropdown label from:
+
+All Comm Status
+
+to:
+
+All Activity Status
+
+Only do this if the terminology change can be made consistently everywhere without breaking saved filters or backend enum values.
+
+For backward compatibility:
+- preserve existing stored filter values
+- do not break bookmarked URLs
+- do not break existing saved views
+- map legacy “All Comm Status” behavior to the new “All Activity Status” label if needed
+
+Performance requirements:
+1. Do not calculate this by loading every related activity record into the browser.
+2. Calculate or aggregate the latest meaningful activity on the backend.
+3. Add appropriate database indexes.
+4. Pagination must continue to work correctly.
+5. The filter should remain fast with thousands of Leads, Accounts, Contacts, emails, comments, tasks, and activities.
+6. Avoid N+1 queries.
+
+Recommended implementation:
+Create a shared backend helper or activity aggregation service that returns:
+
+{
+  recordId,
+  recordType,
+  lastMeaningfulActivityAt,
+  lastMeaningfulActivityType,
+  lastMeaningfulActivitySummary,
+  lastMeaningfulActivityUserId
+}
+
+Use the same canonical logic across Leads, Accounts, and Contacts so each module does not develop a different definition of “updated.”
+
+Regression tests:
+1. Add a comment to a Lead and confirm it appears at the top.
+2. Update a Lead field and confirm it appears at the top.
+3. Receive an email from a Contact and confirm both the Contact and related Account update appropriately.
+4. Complete a task related to an Account and confirm the Account updates.
+5. Change a pipeline stage and confirm the record updates.
+6. Add a file and confirm the related record updates.
+7. Merely open/view a record and confirm it does not count.
+8. Run a background sync with no changed data and confirm it does not count.
+9. Confirm activity 29 days old appears.
+10. Confirm activity more than 30 days old does not appear.
+11. Confirm results are sorted newest to oldest.
+12. Confirm pagination does not disrupt the ordering.
+13. Confirm existing communication-status filters still work.
+14. Confirm this works independently in Leads, Accounts, and Contacts.
+
+Before declaring completion, report:
+- frontend files changed
+- backend files changed
+- database/index changes
+- exact activities included
+- exact system events excluded
+- query performance before and after
+- regression test results

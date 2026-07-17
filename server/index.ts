@@ -47,6 +47,36 @@ setTimeout(() => {
   }).catch(() => {});
 }, 90_000);
 
+// Backfill missing creator memberships for private Currents channels.
+// Root cause: if a private channel was created before the creator auto-add
+// logic was in place, created_by is set on the channel row but no
+// current_channel_members row exists for the creator. This backfill inserts
+// the missing rows idempotently (ON CONFLICT DO NOTHING).
+setTimeout(async () => {
+  try {
+    const { db } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    const result = await db.execute(sql.raw(`
+      INSERT INTO current_channel_members (channel_id, user_id, created_by)
+      SELECT c.id, c.created_by, c.created_by
+      FROM current_channels c
+      WHERE c.is_private = TRUE
+        AND c.created_by IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM current_channel_members m
+          WHERE m.channel_id = c.id AND m.user_id = c.created_by
+        )
+      ON CONFLICT (channel_id, user_id) DO NOTHING
+    `));
+    const count = (result as any).rowCount ?? 0;
+    if (count > 0) {
+      console.log(`[startup] backfilled ${count} missing private-channel creator membership row(s)`);
+    }
+  } catch (e: any) {
+    console.error("[startup] private-channel creator backfill failed:", e?.message || e);
+  }
+}, 15_000);
+
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
 });
