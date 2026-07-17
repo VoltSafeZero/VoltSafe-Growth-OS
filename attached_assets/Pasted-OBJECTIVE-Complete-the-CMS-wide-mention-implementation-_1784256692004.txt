@@ -1,0 +1,84 @@
+OBJECTIVE
+
+Complete the CMS-wide @mention implementation by resolving the remaining issues identified during validation.
+
+The implementation is largely complete. This task is to finish the remaining work, verify the real integrations, and close any genuine gaps. Do not redesign the mention system.
+
+SUCCESS CRITERIA
+
+✓ Users always see clean mentions (e.g. @Scott Carlson).
+✓ Raw mention tokens are never visible anywhere in the UI.
+✓ Mentions preserve the correct internal user association.
+✓ Every collaborative editor uses the shared mention component.
+✓ Notifications and deep links work correctly.
+✓ No regressions are introduced.
+
+CONSTRAINTS
+
+- Do not rewrite the mention architecture.
+- Do not perform unrelated refactoring.
+- Do not create new infrastructure unless required to fix an identified issue.
+- If an item cannot be verified in the current environment, report it as "Not Verified" rather than assuming success.
+- Only change code necessary to satisfy the success criteria.
+
+INVESTIGATION
+
+Before making changes:
+
+1. Identify any remaining gaps between the intended behavior and the current implementation.
+2. Confirm whether user ID 138 is intentionally named "Scott" or whether the underlying user/profile data is incomplete.
+3. Confirm that every collaborative editor is actually using the shared MentionInput component rather than an older implementation.
+
+IMPLEMENTATION
+
+Complete only the work required to satisfy the success criteria.
+
+Specifically:
+
+• Ensure selecting a user inserts the user's canonical display name.
+• Ensure internal user IDs remain attached to the mention.
+• Ensure raw serialized mention tokens are never rendered to users.
+• Replace any remaining legacy mention implementations with the shared component.
+• Preserve existing notification and deep-link behavior.
+
+VALIDATION
+
+Provide evidence for the following:
+
+Shared Component
+- Mouse selection
+- Keyboard selection
+- Clean display
+- Internal user association
+
+CMS Editors
+- Task descriptions
+- Task comments
+- Lead notes
+- Account notes
+- Contact notes
+- Currents posts
+- Currents replies
+- Record Current posts
+
+For each editor report:
+
+- PASS
+- FAIL
+- NOT VERIFIED
+
+If production cannot be tested from your environment, state that clearly instead of attempting to infer results.
+
+DELIVERABLES
+
+Provide:
+
+1. Remaining root cause(s), if any.
+2. Files changed.
+3. Summary of changes.
+4. Validation matrix.
+5. Any items still marked NOT VERIFIED and why.
+
+STOP.
+
+Do not expand this work into unrelated UI improvements, new features, additional diagnostics, or architectural changes unless they are strictly required to complete the @mention implementation.

@@ -166,6 +166,24 @@ ok("No old-style '@[' + name + '](user:' template literal in insertMention",
   !grep(recFeed, /`@\[.*\]\(user:/));
 ok("insertMention function puts cleanName into setText (not token)", grep(recFeed, "setText(newText)") && grep(recFeed, "const newText = `${before}@${cleanName}"));
 
+// ── Section 13: current.tsx InlineEditRow — edit mode clean-text ──────────────
+console.log("\n── 13. current.tsx InlineEditRow — edit mode must not show raw tokens ──");
+
+ok("InlineEditRow initializes text state via tokensToCleanText (not raw message.body)",
+  grep(currentSrc, "useState(() => tokensToCleanText(message.body"));
+ok("InlineEditRow calls mention.initFromTokenText in useEffect",
+  grep(currentSrc, "mention.initFromTokenText(message.body"));
+ok("InlineEditRow calls mention.serializeForSave before onSave",
+  grep(currentSrc, "onSave(mention.serializeForSave(trimmed))"));
+ok("InlineEditRow no-change guard uses tokensToCleanText (compares clean vs clean)",
+  grep(currentSrc, "trimmed === tokensToCleanText(message.body"));
+ok("InlineEditRow calls updateEntryPositions in onChange to track position shifts",
+  grep(currentSrc, "mention.updateEntryPositions(text, newValue)"));
+ok("useComposerMentions hook exposes initFromTokenText in return object",
+  grep(currentSrc, "initFromTokenText:"));
+ok("InlineEditRow no longer passes raw trimmed string to onSave",
+  !grep(currentSrc, "onSave(trimmed)"));
+
 // ── Final results ──────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(60)}`);
 console.log(`  Results: ${passed + failed} checks — ${passed} passed, ${failed} failed`);

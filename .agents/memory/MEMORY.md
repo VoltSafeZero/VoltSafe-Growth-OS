@@ -87,3 +87,4 @@
 - [Mention display rule](mention-display-rule.md) — textarea always shows clean "@Name" text; tokens only in DB; MentionInputHandle ref + getTokenizedValue before every save; 66-check regression test.
 - [vitest DOM testing setup](vitest-dom-testing-setup.md) — vitest+happy-dom for real DOM hook tests; fetch mocking, QueryClient config, pointerDown not click.
 - [Inbox thread canonical CTE](inbox-thread-canonical-cte.md) — per-category COUNT(DISTINCT) double-counts cross-category threads; use DISTINCT ON subquery instead.
+- [Currents InlineEditRow edit-mode bug](currents-inline-edit-row.md) — edit-mode textareas must init via tokensToCleanText+initFromTokenText, save via serializeForSave.

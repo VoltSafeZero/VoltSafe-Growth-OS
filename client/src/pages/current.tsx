@@ -68,6 +68,7 @@ import {
 } from "@/components/current/current-attachment-display";
 import type { CurrentAttachment } from "@/components/current/current-attachment-display";
 import { CurrentSummaryPanel } from "@/components/current/current-summary-panel";
+import { tokensToCleanText } from "@/hooks/use-mention-composer";
 import type { CurrentSummaryData } from "@/components/current/current-summary-panel";
 import { CreateTaskFromCurrentDialog } from "@/components/current/create-task-from-current-dialog";
 import type { CreateTaskSource } from "@/components/current/create-task-from-current-dialog";
@@ -751,6 +752,23 @@ function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
     updateEntryPositions,
     serializeForSave,
     clearEntries: () => { mentionEntriesRef.current = []; },
+    initFromTokenText: (stored: string) => {
+      const TOKEN_RE = /@\[([^\]]+)\]\(user:(\d+)\)/g;
+      const entries: MentionEntry[] = [];
+      let lastIndex = 0;
+      let cleanPos = 0;
+      let match: RegExpExecArray | null;
+      while ((match = TOKEN_RE.exec(stored)) !== null) {
+        cleanPos += match.index - lastIndex;
+        lastIndex = match.index + match[0].length;
+        const name = match[1];
+        const userId = parseInt(match[2], 10);
+        const atPos = cleanPos;
+        entries.push({ name, userId, isAll: false, atPos, end: atPos + 1 + name.length });
+        cleanPos = atPos + 1 + name.length;
+      }
+      mentionEntriesRef.current = entries;
+    },
   };
 }
 
@@ -1564,11 +1582,12 @@ function InlineEditRow({
   onSave: (newBody: string) => void;
   onCancel: () => void;
 }) {
-  const [text, setText] = useState(message.body ?? "");
+  const [text, setText] = useState(() => tokensToCleanText(message.body ?? ""));
   const taRef = useRef<HTMLTextAreaElement>(null);
   const mention = useComposerMentions(taRef);
 
   useEffect(() => {
+    mention.initFromTokenText(message.body ?? "");
     if (taRef.current) {
       taRef.current.focus();
       const len = taRef.current.value.length;
@@ -1594,11 +1613,11 @@ function InlineEditRow({
   function submit() {
     const trimmed = text.trim();
     if (!trimmed) return;
-    if (trimmed === (message.body ?? "").trim()) {
+    if (trimmed === tokensToCleanText(message.body ?? "").trim()) {
       onCancel();
       return;
     }
-    onSave(trimmed);
+    onSave(mention.serializeForSave(trimmed));
   }
 
   return (
@@ -1632,11 +1651,13 @@ function InlineEditRow({
           ref={taRef}
           value={text}
           onChange={(e) => {
-            setText(e.target.value);
+            const newValue = e.target.value;
+            mention.updateEntryPositions(text, newValue);
+            setText(newValue);
             growTextarea(e.target, 192);
             mention.onValueChange(
-              e.target.value,
-              e.target.selectionStart ?? e.target.value.length
+              newValue,
+              e.target.selectionStart ?? newValue.length
             );
           }}
           onKeyDown={handleKeyDown}
