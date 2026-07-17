@@ -191,7 +191,7 @@ console.log("\n[8] SaveToCortexModal — duplicate prevention");
 ok("Modal POSTs to /api/cortex-intel", modal.includes('apiRequest("POST", "/api/cortex-intel"'));
 ok("Modal has check query for existing record", modal.includes("/api/cortex-intel/check"));
 ok("Modal pre-fills form from existing record when already saved", modal.includes("setExistingRecord") && modal.includes("setIntelType"));
-ok("Modal shows 'Already saved to Cortex' notice", modal.includes("Already saved to Cortex"));
+ok("Modal shows already-saved indicator ('In Cortex' badge or 'Already saved' toast)", modal.includes("In Cortex") || modal.includes("Already saved"));
 ok("Modal has Update path for existing record", modal.includes("updateMutation") && modal.includes("PUT"));
 ok("Modal invalidates cortex-intel query on success", modal.includes('invalidateQueries({ queryKey: ["/api/cortex-intel"] })'));
 

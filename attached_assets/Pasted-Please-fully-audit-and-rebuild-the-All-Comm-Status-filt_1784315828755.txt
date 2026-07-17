@@ -1,0 +1,562 @@
+Please fully audit and rebuild the All Comm Status filtering logic on:
+
+Pipeline → Leads & Accounts
+
+The current behaviour is incorrect and cannot be trusted.
+
+CONFIRMED PROBLEMS
+
+1. RECENTLY CONTACTED IS BROKEN
+
+Selecting Recently Contacted returns zero leads.
+
+This is incorrect because many Leads/Accounts have recently been contacted, including at least one contacted today whose recent communication is already visible and updated inside the Lead record.
+
+The filter is therefore not using the same communication data shown in the Lead detail view, or it is querying it incorrectly.
+
+2. NO RESPONSE AND WAITING FOR LEAD ARE DUPLICATES
+
+“No Response” and “Waiting for Lead” represent substantially the same operational state.
+
+They should be consolidated into one clear status:
+
+Waiting for Lead
+
+Waiting for Lead must include any Lead/Account where:
+
+- VoltSafe has sent at least one communication; and
+- the Lead/Account has never responded;
+
+OR:
+
+- the Lead/Account has responded previously; but
+- VoltSafe’s most recent communication is newer than their most recent inbound communication.
+
+In plain terms:
+
+The last meaningful communication was sent by VoltSafe, so the ball is in the Lead’s court.
+
+Remove “No Response” from the dropdown after its records and logic are safely merged into Waiting for Lead.
+
+3. VOLTSAFE OWES REPLY IS BROKEN
+
+Selecting VoltSafe Owes Reply returns zero leads.
+
+This is incorrect because there are Leads/Accounts whose latest communication was an incoming response and VoltSafe has not replied afterward.
+
+VoltSafe Owes Reply must include any Lead/Account where:
+
+- the latest meaningful communication is inbound from the Lead/Account or one of its linked contacts; and
+- there is no later outbound reply from VoltSafe.
+
+In plain terms:
+
+The Lead spoke last, so the ball is in VoltSafe’s court.
+
+4. DORMANT IS INCORRECT
+
+Dormant must include:
+
+- Leads/Accounts whose most recent communication was 60 or more days ago; and
+- Leads/Accounts that have never been contacted.
+
+A never-contacted Lead is operationally dormant and must be included in Dormant.
+
+5. EMPTY-STATE MESSAGE IS MISLEADING
+
+When a communication filter returns zero records, the page currently says:
+
+“No leads found. Click ‘Import Marinas’ to populate your pipeline.”
+
+That is wrong when the database already contains thousands of leads and the selected filter simply returned no matches.
+
+Replace this with a contextual message such as:
+
+“No leads match the current filters.”
+
+Include a Clear Filters action.
+
+Only show the Import Marinas onboarding message when the user truly has zero Leads/Accounts in the database.
+
+CORE DESIGN REQUIREMENT
+
+Communication status must be derived from the actual unified communication timeline.
+
+Do not rely on a manually stored status field that can become stale.
+
+For each Lead/Account, derive communication facts from all associated records, including:
+
+- emails
+- sent emails
+- received emails
+- email threads
+- calls
+- logged phone calls
+- SMS or text messages, if supported
+- meetings
+- manually logged communications
+- notes explicitly classified as communication activity
+- linked Contacts
+- all contact email aliases
+- all contact phone numbers
+- account-level communications
+- lead-level communications
+
+Do not count internal-only VoltSafe activity as external communication.
+
+Examples that must not change the status:
+
+- internal notes
+- task creation
+- record edits
+- assignment changes
+- stage changes
+- Cortex processing
+- internal @mentions
+- internal VoltSafe-to-VoltSafe emails
+
+CANONICAL DERIVED FIELDS
+
+Create or confirm reliable derived communication fields for every Lead/Account:
+
+- lastCommunicationAt
+- lastCommunicationDirection
+- lastCommunicationType
+- lastInboundAt
+- lastOutboundAt
+- lastInboundType
+- lastOutboundType
+- lastInboundContactId
+- lastOutboundUserId
+- firstOutboundAt
+- hasEverBeenContacted
+- hasEverResponded
+- daysSinceLastCommunication
+- communicationStatusReason
+
+Use normalized directions:
+
+- inbound
+- outbound
+
+Use normalized communication types such as:
+
+- email
+- call
+- sms
+- meeting
+- manual_log
+- other
+
+These fields may be generated dynamically, maintained as a safe rollup, or both.
+
+If rollup fields are stored, they must be rebuilt from source communication data and updated automatically whenever communication records change.
+
+AUTHORITATIVE STATUS DEFINITIONS
+
+A. ALL COMM STATUS
+
+No communication-status restriction.
+
+B. VOLTSAFE OWES REPLY
+
+A Lead/Account qualifies when:
+
+- lastInboundAt is not null; and
+- lastOutboundAt is null OR lastInboundAt > lastOutboundAt.
+
+Equivalent operational definition:
+
+The latest external communication was inbound.
+
+This must work across all associated contacts and all supported communication types.
+
+C. WAITING FOR LEAD
+
+A Lead/Account qualifies when:
+
+- lastOutboundAt is not null; and
+- lastInboundAt is null OR lastOutboundAt > lastInboundAt.
+
+Equivalent operational definition:
+
+The latest external communication was outbound from VoltSafe.
+
+This includes:
+
+- leads that have never responded; and
+- leads that responded previously but have not responded to VoltSafe’s latest message.
+
+Remove the duplicate No Response filter.
+
+D. RECENTLY CONTACTED
+
+A Lead/Account qualifies when:
+
+- lastCommunicationAt is within the configured recent-contact window.
+
+Use 30 days as the default recent-contact window unless an existing documented product rule specifies another value.
+
+Recently Contacted includes both:
+
+- inbound communication
+- outbound communication
+
+Do not define Recently Contacted as outbound-only.
+
+Display the actual window in the tooltip or filter description:
+
+“Communication within the last 30 days”
+
+Ideally make the day threshold configurable later, but do not delay this fix.
+
+E. DORMANT
+
+A Lead/Account qualifies when:
+
+- lastCommunicationAt is null; OR
+- lastCommunicationAt is at least 60 days old.
+
+This means never-contacted leads are included.
+
+Use an exact date comparison rather than approximate month logic.
+
+F. NEVER CONTACTED
+
+This may remain as a separate filter for convenience, but it is a subset of Dormant.
+
+A Lead/Account qualifies when:
+
+- lastInboundAt is null; and
+- lastOutboundAt is null; and
+- no qualifying external communication exists.
+
+If Never Contacted remains in the dropdown, clearly understand that:
+
+Never Contacted ⊂ Dormant
+
+STATUS FILTERS ARE OPERATIONAL VIEWS
+
+Do not force every Lead/Account into only one permanent communication bucket.
+
+Some filters intentionally overlap.
+
+Examples:
+
+- A Lead contacted yesterday by VoltSafe may appear under:
+  - Recently Contacted
+  - Waiting for Lead
+
+- A Lead that emailed VoltSafe today may appear under:
+  - Recently Contacted
+  - VoltSafe Owes Reply
+
+- A Lead never contacted may appear under:
+  - Dormant
+  - Never Contacted
+
+The filter should evaluate the selected rule against communication facts.
+
+Do not convert this into a single mutually exclusive enum unless there is also a separate “current action owner” field.
+
+SAME-TIMESTAMP AND THREAD RULES
+
+Handle edge cases consistently.
+
+1. If inbound and outbound timestamps are exactly equal, use:
+   - message/thread ordering
+   - sequence ID
+   - source event creation order
+
+2. Automated inbound messages must not normally create VoltSafe Owes Reply, including:
+   - delivery notices
+   - out-of-office replies
+   - bounce messages
+   - spam
+   - automated confirmations
+   - unsubscribe notices
+
+3. Automated outbound system messages must not normally create Waiting for Lead unless they are a genuine sales/customer communication.
+
+4. Drafts do not count as outbound communication.
+
+5. Scheduled but unsent emails do not count.
+
+6. Failed or bounced outbound sends should not count as successful contact unless product requirements explicitly say otherwise.
+
+7. Deleted communications should be handled according to the source-of-truth policy and should not leave stale rollups.
+
+LINKED-CONTACT AGGREGATION
+
+The communication status belongs to the Lead/Account, not only to one primary contact.
+
+Aggregate communications across:
+
+- the account’s primary contact
+- every linked contact
+- account-level email aliases
+- contact aliases
+- account phone numbers
+- contact phone numbers
+- legacy contact links
+- opportunity-associated contacts
+- pilot/project-associated contacts where they belong to the same account
+
+Avoid double-counting the same email or event when it is linked through more than one relationship.
+
+ROOT-CAUSE AUDIT
+
+Before implementing the fix, identify and report:
+
+1. Where the Lead detail view gets its recent communication activity.
+2. Where the Leads & Accounts comm filter gets its data.
+3. Whether those two features use different tables, endpoints, or rollups.
+4. Whether the filter only checks one contact.
+5. Whether it ignores account-level communication.
+6. Whether it checks only emails and ignores calls or meetings.
+7. Whether direction is reversed or incorrectly inferred.
+8. Whether imported versus manually created Leads use different associations.
+9. Whether stale/null summary columns are causing zero results.
+10. Whether timezone handling excludes communications from today.
+11. Whether the frontend sends the expected filter value.
+12. Whether the backend recognizes the same canonical value.
+13. Whether applying the filter accidentally sends an unsupported enum.
+14. Whether the query uses AND conditions that make valid records impossible to match.
+
+Trace the complete flow:
+
+Dropdown selection
+→ frontend state
+→ URL/search parameters
+→ API request
+→ backend validation
+→ database query
+→ communication aggregation
+→ API response
+→ rendered rows
+
+DATABASE QUERY REQUIREMENTS
+
+The filtering should occur server-side for correct pagination and counts.
+
+Do not fetch only the current page and then filter client-side.
+
+The count shown at the top and bottom must represent the complete filtered dataset.
+
+Use indexed queries or safely maintained rollup fields so filtering remains fast across the full Lead/Account database.
+
+Prevent N+1 communication queries.
+
+ROLLUP REBUILD
+
+Create an idempotent master-admin rebuild process that recalculates the communication rollups for all Leads/Accounts from authoritative source records.
+
+It must provide:
+
+- total records scanned
+- records with communications
+- records never contacted
+- records changed
+- records unchanged
+- records with unresolved contact associations
+- records with conflicting timestamps
+- records skipped
+- failures
+- elapsed time
+
+Support:
+
+- dry-run mode
+- batched execution
+- progress reporting
+- safe restart
+- repeat execution without duplication
+
+Do not block normal application startup with a massive synchronous rebuild.
+
+REAL-TIME UPDATE REQUIREMENTS
+
+Communication facts and filters must update after:
+
+- sending an email
+- receiving an email
+- logging a call
+- receiving or logging a call
+- logging a meeting
+- completing an external meeting
+- adding a manual communication
+- linking a previously unlinked contact
+- merging contacts
+- merging Leads/Accounts
+- deleting or correcting a communication
+- Gmail synchronization
+- calendar synchronization, where meetings qualify
+
+A Lead should not require a page refresh or overnight job before moving into the correct operational view.
+
+UI IMPROVEMENTS
+
+Rename the dropdown options to:
+
+- All Comm Status
+- VoltSafe Owes Reply
+- Waiting for Lead
+- Recently Contacted
+- Dormant
+- Never Contacted
+
+Remove:
+
+- No Response
+
+Add tooltips or brief explanatory text:
+
+VoltSafe Owes Reply:
+“The lead contacted us most recently.”
+
+Waiting for Lead:
+“VoltSafe contacted the lead most recently.”
+
+Recently Contacted:
+“Any communication within the last 30 days.”
+
+Dormant:
+“No communication in 60+ days, including never contacted.”
+
+Never Contacted:
+“No recorded external communication.”
+
+COLUMN REQUIREMENTS
+
+The Comm Status column should show a useful status badge and supporting information.
+
+Examples:
+
+- Owes Reply · inbound email today
+- Waiting · outbound email 3 days ago
+- Recent · call 8 days ago
+- Dormant · last contact 92 days ago
+- Never Contacted
+
+Where practical, hovering should show:
+
+- latest direction
+- latest communication type
+- latest communication date/time
+- linked contact involved
+- why the record matches the filter
+
+SORTING
+
+Add or confirm sorting by:
+
+- most recent communication
+- oldest communication
+- longest waiting for VoltSafe
+- longest waiting for Lead
+- never contacted first
+- never contacted last
+
+The existing general A–Z sort must not silently override communication-specific sort choices.
+
+TEST DATA AND VALIDATION
+
+Use known real records to validate the results.
+
+At minimum, identify examples for:
+
+- a Lead contacted today
+- a Lead whose latest message was inbound
+- a Lead whose latest message was outbound
+- a Lead with no response ever
+- a Lead last contacted more than 60 days ago
+- a Lead never contacted
+- an account with communications across multiple linked contacts
+- a manually created Lead
+- an imported Lead
+
+For privacy, final reports may use record IDs or names visible only to authorized administrators.
+
+AUTOMATED TESTS
+
+Add tests covering:
+
+1. Recently Contacted includes an outbound email sent today.
+2. Recently Contacted includes an inbound email received today.
+3. Recently Contacted includes a recent call.
+4. Recently Contacted excludes communication older than the configured window.
+5. VoltSafe Owes Reply includes a record whose latest communication is inbound.
+6. VoltSafe Owes Reply excludes a record after VoltSafe sends a later reply.
+7. Waiting for Lead includes a record whose latest communication is outbound.
+8. Waiting for Lead includes a record that has never responded.
+9. Waiting for Lead includes a record that responded previously but not to the latest outbound message.
+10. No Response is removed and safely mapped to Waiting for Lead.
+11. Dormant includes communication exactly 60 days old.
+12. Dormant includes communication older than 60 days.
+13. Dormant includes never-contacted Leads.
+14. Dormant excludes a Lead contacted 59 days ago.
+15. Never Contacted includes only records with no qualifying external communication.
+16. Internal notes do not count.
+17. Internal VoltSafe email does not count.
+18. Draft email does not count.
+19. Failed email does not count as successful communication.
+20. Automated out-of-office response does not create Owes Reply.
+21. Communications across secondary linked contacts are included.
+22. Duplicate contact links do not duplicate communication events.
+23. Manually created Leads work the same as imported Leads.
+24. Server-side pagination returns correct total counts.
+25. Changing the comm filter does not reset Industry, Segment, Type, Country, Region, Priority, or Shore Power filters.
+26. Empty filtered results show “No leads match the current filters.”
+27. The rollup rebuild is idempotent.
+28. A newly synced inbound email updates the correct status.
+29. A newly sent outbound email updates the correct status.
+30. Timezone boundaries do not exclude communication from today.
+
+PERFORMANCE TARGET
+
+The filtered Lead list should normally return within 2 seconds for the current database size.
+
+Add or confirm indexes for:
+
+- account/lead association
+- contact association
+- communication timestamp
+- communication direction
+- communication type
+- canonical message/event ID
+
+Do not trade correctness for a client-side shortcut.
+
+ACCEPTANCE CRITERIA
+
+This work is complete only when:
+
+1. Recently Contacted returns Leads/Accounts with qualifying recent activity.
+2. A communication from today appears immediately.
+3. No Response is removed and consolidated into Waiting for Lead.
+4. Waiting for Lead correctly means VoltSafe spoke last.
+5. VoltSafe Owes Reply correctly means the Lead spoke last.
+6. Dormant includes records with no communication for 60+ days.
+7. Dormant also includes never-contacted records.
+8. Never Contacted remains available as an optional Dormant subset.
+9. Imported and manually created records behave identically.
+10. Linked-contact communications are aggregated correctly.
+11. Counts and pagination are accurate.
+12. Empty-state messaging is contextual.
+13. Existing filters remain intact when Comm Status changes.
+14. The root cause is documented.
+15. The rollup rebuild completes and reports its counts.
+16. Automated tests pass.
+
+Before changing code, report the exact current implementation and explain why each existing Comm Status option returns the results seen in the screenshots.
+
+Then implement the full repair and provide:
+
+- root cause
+- files changed
+- database changes
+- indexes added
+- rebuild results
+- before/after counts for every Comm Status option
+- real sample validation
+- automated test results

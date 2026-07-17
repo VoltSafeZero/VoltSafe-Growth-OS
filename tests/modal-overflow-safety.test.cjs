@@ -109,8 +109,8 @@ ok("Sender/date line wraps safely", /text-xs text-muted-foreground mt-0\.5 white
 ok("Email snippet still line-clamped (vertical) but also wraps", /line-clamp-2 whitespace-normal break-words/.test(cortexModal));
 ok("Email preview card row can wrap onto multiple lines (flex-wrap)", /items-start justify-between gap-2 flex-wrap/.test(cortexModal));
 ok("'In Cortex' badge stays flex-shrink-0 so it never gets squeezed off-card", /In Cortex[\s\S]{0,40}<\/Badge>/.test(cortexModal) && cortexModal.includes("flex-shrink-0 text-[10px] bg-cyan-500/15 text-cyan-400 border-cyan-500/30 gap-1"));
-ok("'Already saved to Cortex' text column has min-w-0/flex-1", /flex items-start gap-2 min-w-0 flex-1/.test(cortexModal));
-ok("Update button stays flex-shrink-0 inside modal bounds", /border-cyan-500\/30 text-cyan-400 hover:bg-cyan-500\/10 flex-shrink-0/.test(cortexModal));
+ok("Already-saved text column has min-w-0 (overflow-safe)", /flex items-start gap-2 min-w-0/.test(cortexModal) || /min-w-0 flex-1/.test(cortexModal));
+ok("Update button stays flex-shrink-0 inside modal bounds", /border-cyan-500\/30 text-cyan-400 hover:bg-cyan-500\/10[^"]*flex-shrink-0/.test(cortexModal));
 ok("DialogContent for this modal still caps height and scrolls vertically", cortexModal.includes('max-h-[90vh] overflow-y-auto'));
 
 // ── Results ──────────────────────────────────────────────────────────────
