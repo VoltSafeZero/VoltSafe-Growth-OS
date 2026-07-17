@@ -28,6 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { MentionEntry, serializeToTokens } from "@/hooks/use-mention-composer";
 import {
   CurrentAttachmentChips, PendingFileChips, uploadCurrentAttachments,
 } from "./current-attachment-display";
@@ -260,6 +261,7 @@ function useComposerMentions(text: string, setText: (t: string) => void) {
   const [mentionIdx, setMentionIdx] = useState(0);
   const [triggerStart, setTriggerStart] = useState(-1);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const mentionEntriesRef = useRef<MentionEntry[]>([]);
 
   const { data: mentionUsers = [] } = useQuery<MentionUser[]>({
     queryKey: ["/api/current/users", mentionQuery],
@@ -272,6 +274,9 @@ function useComposerMentions(text: string, setText: (t: string) => void) {
 
   function onInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value;
+    mentionEntriesRef.current = mentionEntriesRef.current.filter(
+      entry => entry.atPos < val.length && val.slice(entry.atPos, entry.end) === `@${entry.name}`
+    );
     setText(val);
     const selEnd = (e.target as HTMLTextAreaElement).selectionStart ?? val.length;
     const trig = detectMentionTrigger(val.slice(0, selEnd));
@@ -300,17 +305,33 @@ function useComposerMentions(text: string, setText: (t: string) => void) {
   }
 
   function insertMention(user: MentionUser) {
-    const token = `@[${user.name}](user:${user.id}) `;
+    const cleanName = user.name;
     const before = text.slice(0, triggerStart);
     const after = text.slice(triggerStart + 1 + mentionQuery.length);
-    setText(before + token + after);
+    const atPos = before.length;
+    const end = atPos + 1 + cleanName.length;
+    const newText = `${before}@${cleanName} ${after}`;
+    mentionEntriesRef.current = [
+      ...mentionEntriesRef.current.filter(e => e.end < atPos),
+      { name: cleanName, userId: user.id, atPos, end },
+    ];
+    setText(newText);
     setMentionActive(false);
+  }
+
+  function serializeForSave(cleanText: string): string {
+    return serializeToTokens(cleanText, mentionEntriesRef.current);
+  }
+
+  function clearEntries() {
+    mentionEntriesRef.current = [];
   }
 
   return {
     mentionActive, mentionUsers, mentionIdx, anchorRect,
     onInput, handleMentionKeyDown, insertMention,
     closeMention: () => setMentionActive(false),
+    serializeForSave, clearEntries,
   };
 }
 
@@ -337,13 +358,14 @@ function MessageComposer({
   }
 
   function submit() {
-    const trimmed = draft.trim();
     const files = [...pendingFiles];
-    if ((!trimmed && files.length === 0) || disabled) return;
-    onSend(trimmed, files);
+    const serialized = mention.serializeForSave(draft).trim();
+    if ((!serialized && files.length === 0) || disabled) return;
+    onSend(serialized, files);
     setDraft("");
     setPendingFiles([]);
     mention.closeMention();
+    mention.clearEntries();
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
