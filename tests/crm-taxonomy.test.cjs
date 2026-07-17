@@ -139,10 +139,10 @@ async function run() {
   // ── 1. Default industry filter shows null-industry leads ──────────────────
   console.log("\n1. Default industry filter — null-industry leads visible");
 
-  // Source check: default is "__all__", not "marine"
+  // Source check: default is "marine" (genuine filter, not fake label hack)
   assert(
-    "leads.tsx industryFilter default is \"__all__\"",
-    srcContains("client/src/pages/leads.tsx", 'useState("__all__")')
+    "leads.tsx industryFilter default is \"marine\"",
+    srcContains("client/src/pages/leads.tsx", 'useState("marine")')
   );
 
   // API check: no primaryIndustry param returns full count (should be > 0)
