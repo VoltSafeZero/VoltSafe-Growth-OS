@@ -124,7 +124,7 @@ console.log("\n[leads.tsx] UI changes");
 check("No Response is NOT in COMM_STATUS_OPTIONS dropdown", () => {
   // The options array should not have { value: "no_response" ... }
   // Check the COMM_STATUS_OPTIONS array does not have no_response as a value
-  const optionsMatch = leadsTsx.match(/const COMM_STATUS_OPTIONS[\s\S]{0,800}as const/);
+  const optionsMatch = leadsTsx.match(/const COMM_STATUS_OPTIONS[\s\S]{0,1500}as const/);
   assert.ok(optionsMatch, "COMM_STATUS_OPTIONS not found");
   noMatch(optionsMatch[0], /"no_response"[\s,\n]*label/, "no_response not in dropdown");
 });
