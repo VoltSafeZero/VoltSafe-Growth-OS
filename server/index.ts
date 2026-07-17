@@ -52,6 +52,39 @@ setTimeout(() => {
 // logic was in place, created_by is set on the channel row but no
 // current_channel_members row exists for the creator. This backfill inserts
 // the missing rows idempotently (ON CONFLICT DO NOTHING).
+// Create partial indexes to make the recently_updated filter fast across
+// activities, notes, comments, tasks, and calendar_events for lead records.
+// Uses IF NOT EXISTS — safe to call at every startup (no-op when indexes exist).
+async function ensureRecentlyUpdatedIndexes(): Promise<void> {
+  try {
+    const { db } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_activities_lead_ts
+        ON activities(linked_object_id, created_at DESC)
+        WHERE linked_object_type = 'lead';
+      CREATE INDEX IF NOT EXISTS idx_notes_lead_ts
+        ON notes(linked_object_id, updated_at DESC)
+        WHERE linked_object_type = 'lead';
+      CREATE INDEX IF NOT EXISTS idx_comments_lead_ts
+        ON comments(object_id, created_at DESC)
+        WHERE object_type = 'lead';
+      CREATE INDEX IF NOT EXISTS idx_tasks_lead_ts
+        ON tasks(linked_object_id, updated_at DESC)
+        WHERE linked_object_type = 'lead';
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_lead_ts
+        ON calendar_events(linked_object_id, updated_at DESC)
+        WHERE linked_object_type = 'lead';
+      CREATE INDEX IF NOT EXISTS idx_email_threads_primary_lead
+        ON email_threads(primary_lead_id)
+        WHERE primary_lead_id IS NOT NULL;
+    `));
+  } catch (e: any) {
+    console.error("[startup] recently-updated index creation failed:", e?.message || e);
+  }
+}
+setTimeout(() => { void ensureRecentlyUpdatedIndexes(); }, 30_000);
+
 async function backfillPrivateChannelCreators(): Promise<void> {
   try {
     const { db } = await import("./db");

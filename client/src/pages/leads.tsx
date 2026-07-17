@@ -55,12 +55,13 @@ const statusColors: Record<string, string> = Object.fromEntries(
 );
 
 const COMM_STATUS_OPTIONS = [
-  { value: "all",                label: "All Comm Status",    tooltip: "" },
-  { value: "voltSafe_owes_reply", label: "VoltSafe Owes Reply", tooltip: "The lead contacted us most recently." },
-  { value: "waiting_for_lead",   label: "Waiting for Lead",   tooltip: "VoltSafe contacted the lead most recently." },
-  { value: "recently_contacted", label: "Recently Contacted", tooltip: "Any communication within the last 30 days." },
-  { value: "dormant",            label: "Dormant",            tooltip: "No communication in 60+ days, including never contacted." },
-  { value: "never_contacted",    label: "Never Contacted",    tooltip: "No recorded external communication." },
+  { value: "all",                 label: "All Activity Status",  tooltip: "" },
+  { value: "voltSafe_owes_reply", label: "VoltSafe Owes Reply",  tooltip: "The lead contacted us most recently." },
+  { value: "waiting_for_lead",    label: "Waiting for Lead",     tooltip: "VoltSafe contacted the lead most recently." },
+  { value: "recently_contacted",  label: "Recently Contacted",   tooltip: "Any email, call, or meeting within the last 30 days." },
+  { value: "recently_updated",    label: "Recently Updated",     tooltip: "Any meaningful data change (comment, note, task, email, field edit, etc.) within the last 30 days." },
+  { value: "dormant",             label: "Dormant",              tooltip: "No communication in 60+ days, including never contacted." },
+  { value: "never_contacted",     label: "Never Contacted",      tooltip: "No recorded external communication." },
 ] as const;
 
 const COMM_STATUS_STYLE: Record<string, { label: string; cls: string }> = {
@@ -91,7 +92,34 @@ type CommSummary = {
   incomingCount?: number;
   daysSinceContact?: number | null;
   lastCommDirection?: string | null;
+  lastActivityAt?: string | null;
+  lastActivityType?: string | null;
+  lastActivitySub?: string | null;
 };
+
+function getActivityLabel(src: string | null | undefined, sub?: string | null): string {
+  if (!src) return "Updated";
+  if (src === "activity") {
+    switch (sub) {
+      case "call": return "Call logged";
+      case "email": return "Email logged";
+      case "meeting": return "Meeting logged";
+      case "note": return "Note logged";
+      default: return "Activity logged";
+    }
+  }
+  switch (src) {
+    case "lead_updated": return "Record updated";
+    case "note": return "Note updated";
+    case "comment": return "Comment added";
+    case "task_completed": return "Task completed";
+    case "task_updated": return "Task updated";
+    case "email_received": return "Email received";
+    case "email_sent": return "Email sent";
+    case "calendar": return "Meeting updated";
+    default: return "Updated";
+  }
+}
 
 type LeadWithComms = Lead & { commSummary?: CommSummary | null };
 
@@ -593,11 +621,11 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
             <SelectItem value="no">No</SelectItem>
           </SelectContent>
         </Select>
-        {/* 8 — Comm Status */}
+        {/* 8 — Activity Status */}
         <Select value={commStatusFilter} onValueChange={setCommStatusFilter}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-comm-status-filter">
             <MessageSquare className="mr-2 h-3.5 w-3.5" />
-            <SelectValue placeholder="Comm Status" />
+            <SelectValue placeholder="Activity Status" />
           </SelectTrigger>
           <SelectContent>
             {COMM_STATUS_OPTIONS.map(o => (
@@ -727,8 +755,8 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                     <SortableHeader label="Stage" sortKey="status" sort={sort} onSort={handleSort} />
                     <SortableHeader label="Source" sortKey="source" sort={sort} onSort={handleSort} className="hidden lg:table-cell" />
                     <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden xl:table-cell">Quality</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden xl:table-cell" data-testid="th-comm-status">Comm Status</th>
-                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden 2xl:table-cell" data-testid="th-last-contact">Last Contact</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden xl:table-cell" data-testid="th-comm-status">{commStatusFilter === "recently_updated" ? "Activity" : "Comm Status"}</th>
+                    <th className="p-3 sm:p-4 text-sm font-medium text-muted-foreground hidden 2xl:table-cell" data-testid="th-last-contact">{commStatusFilter === "recently_updated" ? "Last Activity" : "Last Contact"}</th>
                     <th className="text-right p-3 sm:p-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
@@ -776,6 +804,16 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                       <td className="p-3 sm:p-4 hidden xl:table-cell" onClick={() => setSelectedLead(lead)}>
                         {(() => {
                           const cs = (lead as LeadWithComms).commSummary;
+                          if (commStatusFilter === "recently_updated") {
+                            const label = getActivityLabel(cs?.lastActivityType, cs?.lastActivitySub);
+                            return (
+                              <div className="flex items-center gap-1.5" data-testid={`comm-status-${lead.id}`}>
+                                <Badge variant="outline" className="text-xs px-1.5 py-0 text-teal-400 border-teal-500/30 bg-teal-500/10 max-w-[120px] truncate" title={label}>
+                                  {label}
+                                </Badge>
+                              </div>
+                            );
+                          }
                           const status = cs?.commStatus ?? "never_contacted";
                           const style = COMM_STATUS_STYLE[status] ?? COMM_STATUS_STYLE["never_contacted"];
                           const direction = cs?.lastCommDirection;
@@ -796,6 +834,24 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                       <td className="p-3 sm:p-4 hidden 2xl:table-cell text-sm" onClick={() => setSelectedLead(lead)}>
                         {(() => {
                           const cs = (lead as LeadWithComms).commSummary;
+                          if (commStatusFilter === "recently_updated") {
+                            const actAt = cs?.lastActivityAt;
+                            const daysSince = actAt
+                              ? Math.floor((Date.now() - new Date(actAt).getTime()) / 86_400_000)
+                              : null;
+                            return (
+                              <div data-testid={`last-contact-${lead.id}`}>
+                                <span className="font-medium text-foreground">
+                                  {formatDaysAgo(daysSince)}
+                                </span>
+                                {actAt && (
+                                  <div className="text-xs text-muted-foreground mt-0.5">
+                                    {new Date(actAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: daysSince !== null && daysSince > 364 ? "numeric" : undefined })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
                           const days = cs?.daysSinceContact;
                           const total = (cs?.outgoingCount ?? 0) + (cs?.incomingCount ?? 0);
                           return (

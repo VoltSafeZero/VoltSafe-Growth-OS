@@ -490,6 +490,75 @@ export class DatabaseStorage implements IStorage {
             AND lcs.last_comm_at >= NOW() - INTERVAL '30 days'
         )`);
 
+      } else if (cs === "recently_updated") {
+        // Any meaningful data change on the lead or its associated account within
+        // the last 30 days. Broader than recently_contacted — covers field edits,
+        // notes, comments, tasks, emails, meetings, and the lead record itself.
+        // Excludes: mere views, background syncs, polling, cache refreshes.
+        conditions.push(sql`(
+          ${leads.updatedAt} >= NOW() - INTERVAL '30 days'
+          OR EXISTS (
+            SELECT 1 FROM activities
+            WHERE linked_object_type = 'lead' AND linked_object_id = ${leads.id}
+              AND created_at >= NOW() - INTERVAL '30 days'
+          )
+          OR EXISTS (
+            SELECT 1 FROM notes
+            WHERE linked_object_type = 'lead' AND linked_object_id = ${leads.id}
+              AND updated_at >= NOW() - INTERVAL '30 days'
+          )
+          OR EXISTS (
+            SELECT 1 FROM comments
+            WHERE object_type = 'lead' AND object_id = ${leads.id}
+              AND created_at >= NOW() - INTERVAL '30 days'
+          )
+          OR EXISTS (
+            SELECT 1 FROM tasks
+            WHERE linked_object_type = 'lead' AND linked_object_id = ${leads.id}
+              AND updated_at >= NOW() - INTERVAL '30 days'
+          )
+          OR EXISTS (
+            SELECT 1 FROM email_threads
+            WHERE primary_lead_id = ${leads.id}
+              AND GREATEST(
+                COALESCE(last_inbound_at, '1970-01-01'::timestamptz),
+                COALESCE(last_outbound_at, '1970-01-01'::timestamptz)
+              ) >= NOW() - INTERVAL '30 days'
+          )
+          OR EXISTS (
+            SELECT 1 FROM calendar_events
+            WHERE linked_object_type = 'lead' AND linked_object_id = ${leads.id}
+              AND updated_at >= NOW() - INTERVAL '30 days'
+          )
+          OR (
+            ${leads.convertedAccountId} IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM activities
+              WHERE linked_object_type = 'account'
+                AND linked_object_id = ${leads.convertedAccountId}
+                AND created_at >= NOW() - INTERVAL '30 days'
+            )
+          )
+          OR (
+            ${leads.convertedAccountId} IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM notes
+              WHERE linked_object_type = 'account'
+                AND linked_object_id = ${leads.convertedAccountId}
+                AND updated_at >= NOW() - INTERVAL '30 days'
+            )
+          )
+          OR (
+            ${leads.convertedAccountId} IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM tasks
+              WHERE linked_object_type = 'account'
+                AND linked_object_id = ${leads.convertedAccountId}
+                AND updated_at >= NOW() - INTERVAL '30 days'
+            )
+          )
+        )`);
+
       } else if (cs === "dormant") {
         // No communication at all, OR last communication was 60+ days ago.
         // Includes never-contacted leads (dormant ⊇ never_contacted).
@@ -510,9 +579,22 @@ export class DatabaseStorage implements IStorage {
     const isSlipsSort = options?.sortBy === "slips";
     const COMM_SORTS = new Set(["last_comm_at", "last_outgoing_at", "days_since_contact"]);
     const isCommSort = options?.sortBy ? COMM_SORTS.has(options.sortBy) : false;
+    const isRecentlyUpdated = options?.commStatus === "recently_updated";
 
     let orderClause: SQL;
-    if (isSlipsSort) {
+    if (isRecentlyUpdated) {
+      // Auto-sort by most recent meaningful activity DESC when recently_updated filter is active.
+      // Uses correlated subqueries — only evaluated for the filtered+paginated set (~25 rows).
+      orderClause = sql.raw(`GREATEST(
+        leads.updated_at,
+        (SELECT MAX(a.created_at) FROM activities a WHERE a.linked_object_type = 'lead' AND a.linked_object_id = leads.id),
+        (SELECT MAX(n.updated_at) FROM notes n WHERE n.linked_object_type = 'lead' AND n.linked_object_id = leads.id),
+        (SELECT MAX(c.created_at) FROM comments c WHERE c.object_type = 'lead' AND c.object_id = leads.id),
+        (SELECT MAX(t.updated_at) FROM tasks t WHERE t.linked_object_type = 'lead' AND t.linked_object_id = leads.id),
+        (SELECT MAX(GREATEST(COALESCE(et.last_inbound_at,'1970-01-01'::timestamptz), COALESCE(et.last_outbound_at,'1970-01-01'::timestamptz))) FROM email_threads et WHERE et.primary_lead_id = leads.id),
+        (SELECT MAX(ce.updated_at) FROM calendar_events ce WHERE ce.linked_object_type = 'lead' AND ce.linked_object_id = leads.id)
+      ) DESC NULLS LAST, leads.company ASC`);
+    } else if (isSlipsSort) {
       orderClause = options?.sortOrder === "desc"
         ? sql`CAST(NULLIF(REGEXP_REPLACE(${leads.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) DESC NULLS LAST`
         : sql`CAST(NULLIF(REGEXP_REPLACE(${leads.slips}, '[^0-9]', '', 'g'), '') AS INTEGER) ASC NULLS LAST`;
@@ -568,8 +650,72 @@ export class DatabaseStorage implements IStorage {
       } catch (_) { /* comm summary is optional — never block main query */ }
     }
 
+    // Batch-fetch lastMeaningfulActivityAt across all activity sources for this page.
+    // Uses a UNION ALL + window function approach to find the single most-recent
+    // meaningful event per lead without N+1 queries.
+    let activityMap = new Map<number, { lastActivityAt: string | null; lastActivityType: string | null; lastActivitySub: string | null }>();
+    if (data.length > 0) {
+      const ids = data.map((l) => l.id);
+      try {
+        const activityResult = await db.execute(sql.raw(`
+          WITH ranked_sources AS (
+            SELECT id AS lead_id, updated_at AS ts, 'lead_updated' AS src, NULL::text AS sub
+            FROM leads WHERE id = ANY(ARRAY[${ids.join(",")}])
+            UNION ALL
+            SELECT linked_object_id, created_at, 'activity', type
+            FROM activities
+            WHERE linked_object_type = 'lead' AND linked_object_id = ANY(ARRAY[${ids.join(",")}])
+            UNION ALL
+            SELECT linked_object_id, updated_at, 'note', NULL::text
+            FROM notes
+            WHERE linked_object_type = 'lead' AND linked_object_id = ANY(ARRAY[${ids.join(",")}])
+            UNION ALL
+            SELECT object_id, created_at, 'comment', NULL::text
+            FROM comments
+            WHERE object_type = 'lead' AND object_id = ANY(ARRAY[${ids.join(",")}])
+            UNION ALL
+            SELECT linked_object_id,
+              GREATEST(updated_at, COALESCE(completed_at, updated_at)),
+              CASE WHEN completed_at IS NOT NULL THEN 'task_completed' ELSE 'task_updated' END,
+              NULL::text
+            FROM tasks
+            WHERE linked_object_type = 'lead' AND linked_object_id = ANY(ARRAY[${ids.join(",")}])
+            UNION ALL
+            SELECT primary_lead_id,
+              GREATEST(COALESCE(last_inbound_at,'1970-01-01'::timestamptz), COALESCE(last_outbound_at,'1970-01-01'::timestamptz)),
+              CASE WHEN COALESCE(last_inbound_at,'1970-01-01'::timestamptz) >= COALESCE(last_outbound_at,'1970-01-01'::timestamptz)
+                THEN 'email_received' ELSE 'email_sent' END,
+              NULL::text
+            FROM email_threads
+            WHERE primary_lead_id = ANY(ARRAY[${ids.join(",")}])
+              AND (last_inbound_at IS NOT NULL OR last_outbound_at IS NOT NULL)
+            UNION ALL
+            SELECT linked_object_id, updated_at, 'calendar', NULL::text
+            FROM calendar_events
+            WHERE linked_object_type = 'lead' AND linked_object_id = ANY(ARRAY[${ids.join(",")}])
+          ),
+          best AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY lead_id ORDER BY ts DESC NULLS LAST) AS rn
+            FROM ranked_sources
+          )
+          SELECT lead_id, ts AS last_activity_at, src, sub FROM best WHERE rn = 1
+        `));
+        activityMap = new Map(
+          (activityResult.rows as Array<Record<string, unknown>>).map((r) => [
+            Number(r.lead_id),
+            {
+              lastActivityAt: r.last_activity_at ? String(r.last_activity_at) : null,
+              lastActivityType: r.src ? String(r.src) : null,
+              lastActivitySub: r.sub ? String(r.sub) : null,
+            },
+          ])
+        );
+      } catch (_) { /* activity enrichment is optional — never block main query */ }
+    }
+
     const enriched = data.map((lead) => {
       const lcs = commMap.get(lead.id);
+      const act = activityMap.get(lead.id);
       return {
         ...lead,
         commSummary: lcs
@@ -582,8 +728,16 @@ export class DatabaseStorage implements IStorage {
               daysSinceContact: lcs.days_since_contact ?? null,
               lastCommDirection: lcs.last_comm_direction ?? null,
               commStatus: lcs.comm_status ?? "never_contacted",
+              lastActivityAt: act?.lastActivityAt ?? null,
+              lastActivityType: act?.lastActivityType ?? null,
+              lastActivitySub: act?.lastActivitySub ?? null,
             }
-          : { commStatus: "never_contacted" },
+          : {
+              commStatus: "never_contacted",
+              lastActivityAt: act?.lastActivityAt ?? null,
+              lastActivityType: act?.lastActivityType ?? null,
+              lastActivitySub: act?.lastActivitySub ?? null,
+            },
       };
     });
 
