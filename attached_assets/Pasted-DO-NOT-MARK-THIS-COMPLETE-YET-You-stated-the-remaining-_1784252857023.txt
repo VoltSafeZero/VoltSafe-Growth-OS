@@ -1,0 +1,256 @@
+DO NOT MARK THIS COMPLETE YET.
+
+You stated the remaining validation failure is an unrelated inbox unread-count drift.
+
+Prove that clearly, isolate it, and then finish the @mention verification.
+
+1. PROVE THE FAILURE IS PRE-EXISTING
+
+Provide:
+
+- Exact failing test name
+- Exact test file
+- Exact assertion
+- Expected value
+- Actual value
+- The code path being tested
+- The files changed during this @mention task
+- A clear explanation of why none of those changed files can affect the inbox unread-count calculation
+
+Use git diff or equivalent to show whether the failing inbox-related files were modified during this task.
+
+If they were modified, the failure cannot be dismissed as unrelated without further investigation.
+
+2. RUN THE FAILURE IN ISOLATION
+
+Run the exact inbox unread-count test by itself at least three times.
+
+Report:
+
+- Run 1 result
+- Run 2 result
+- Run 3 result
+
+If the results vary, classify it as flaky or data-state dependent and identify the source of nondeterminism.
+
+If it fails consistently, investigate the actual defect.
+
+Do not simply call it “timing” without evidence.
+
+3. RUN THE SAME TEST AGAINST THE PRE-TASK COMMIT
+
+Run the failing test against the commit immediately before the @mention changes.
+
+Report whether it passes or fails there.
+
+This is the strongest proof that the failure is genuinely pre-existing.
+
+Do not alter production data merely to force the test to pass.
+
+4. DO NOT WEAKEN OR DELETE THE UNRELATED TEST
+
+Do not:
+
+- Remove the inbox test
+- Skip it
+- Loosen its assertion
+- Change expected values
+- Add arbitrary retries
+- Add sleeps
+- Hide the failure from validation
+
+If it is flaky, create a separate documented repair task rather than disguising it.
+
+5. VERIFY THE NEW CLEAN-TEXT MENTION ARCHITECTURE
+
+The key requirement is that users never see raw tokens.
+
+Prove all of the following with actual tests:
+
+A. COMPOSER DISPLAY
+
+Typing:
+
+@scott
+
+and selecting Scott Carlson must visibly show:
+
+@Scott Carlson
+
+It must never visibly show:
+
+@[Scott Carlson](user:138)
+
+B. STORED DATA
+
+Show the saved record structure.
+
+Preferred:
+
+content_text:
+“@Scott Carlson please review this.”
+
+mention metadata:
+[
+  {
+    "userId": "138",
+    "label": "Scott Carlson",
+    "start": 0,
+    "end": 15
+  }
+]
+
+If internal token serialization is still used anywhere, clearly identify where and prove it is never exposed to any user-facing renderer or editor.
+
+C. REOPEN FOR EDITING
+
+After saving and reopening the field:
+
+- The editor must show @Scott Carlson
+- The mention must remain attached to user ID 138
+- The raw token must not appear
+- Editing text before or after the mention must preserve the link
+- Deleting the mention must remove its metadata correctly
+
+D. READ MODE
+
+Saved content must display a linked:
+
+@Scott Carlson
+
+not raw syntax.
+
+E. COPY AND PASTE
+
+Copying visible content must produce:
+
+@Scott Carlson please review this.
+
+not:
+
+@[Scott Carlson](user:138) please review this.
+
+F. NOTIFICATIONS AND FEEDS
+
+Confirm the mention preview appears cleanly in:
+
+- Notifications
+- Today
+- Work > Daily Execution
+- Mission Control
+- Activity history
+- Search results
+
+No user-facing surface may display:
+
+](user:
+
+6. RUN REAL COMPONENT TESTS
+
+The new tests must exercise the real shared mention components.
+
+They must not rely only on grep or source inspection.
+
+Add tests for:
+
+- Typing @scott
+- Selecting Scott Carlson by mouse
+- Selecting Scott Carlson by keyboard
+- Visible value becomes @Scott Carlson
+- Structured metadata contains user ID 138
+- Raw token never becomes visible
+- Cursor returns after the mention
+- Reopening preserves the mention
+- Removing the mention removes metadata
+- Duplicate @everyone results do not appear
+
+7. RUN FIELD INTEGRATION TESTS
+
+Verify the real shared system in:
+
+- Task description
+- Task comment
+- Lead note
+- Account note
+- Contact note
+- CURRENTS channel message
+- CURRENTS thread reply
+- Direct message
+
+For each field, report:
+
+- Autocomplete opens
+- User is selectable
+- Canonical full name is inserted
+- Raw token is never visible
+- Save succeeds
+- Reopen succeeds
+- Notification is created once
+- Deep link reaches the exact source
+
+8. CHECK FOR RAW TOKEN LEAKS
+
+Search the entire frontend for any place that could render raw serialized mention content directly.
+
+Audit:
+
+- JSX text output
+- textarea values
+- input values
+- notification previews
+- activity previews
+- exports
+- CSV generation
+- email templates
+- search snippets
+- logs visible to users
+- tooltips
+- modal previews
+
+Add a regression test that fails if a user-facing rendered value contains:
+
+](user:
+
+Do not flag legitimate internal serialization code that is never rendered.
+
+9. FINAL VALIDATION REPORT
+
+Return a concise table with:
+
+- Mention component tests
+- Task description
+- Task comment
+- Lead note
+- Account note
+- Contact note
+- CURRENTS channel
+- CURRENTS thread
+- Direct message
+- Notification preview
+- Today
+- Daily Execution
+- Mission Control
+- Raw-token leak scan
+- Full mention test suite
+- Full application validation
+- Unrelated inbox test isolation
+
+For every row report:
+
+- Pass
+- Fail
+- Not verified
+
+Do not describe unverified items as passing.
+
+10. COMPLETION STANDARD
+
+This work is complete only when:
+
+- Users see @Scott Carlson
+- Users never see @[Scott Carlson](user:138)
+- Scott’s immutable user ID remains correctly attached
+- The behaviour works across all registered collaborative text fields
+- The real component interaction tests pass
+- The unrelated validation failure is proven pre-existing or separately fixed
+- No test was weakened, skipped, or hidden
