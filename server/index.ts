@@ -52,7 +52,7 @@ setTimeout(() => {
 // logic was in place, created_by is set on the channel row but no
 // current_channel_members row exists for the creator. This backfill inserts
 // the missing rows idempotently (ON CONFLICT DO NOTHING).
-setTimeout(async () => {
+async function backfillPrivateChannelCreators(): Promise<void> {
   try {
     const { db } = await import("./db");
     const { sql } = await import("drizzle-orm");
@@ -75,7 +75,8 @@ setTimeout(async () => {
   } catch (e: any) {
     console.error("[startup] private-channel creator backfill failed:", e?.message || e);
   }
-}, 15_000);
+}
+setTimeout(() => { void backfillPrivateChannelCreators(); }, 15_000);
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
