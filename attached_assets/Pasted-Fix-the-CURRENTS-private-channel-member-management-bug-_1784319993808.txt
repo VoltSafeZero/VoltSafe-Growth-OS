@@ -1,0 +1,112 @@
+Fix the CURRENTS private-channel member management bug.
+
+Problem:
+I created a private Currents channel called “bank” / “banking” and attempted to add Scott Carlson (scott@voltsafe.com).
+
+Observed behavior:
+1. Scott Carlson appears correctly in the “Add people” search results.
+2. After clicking/selecting Scott, he does not appear in the channel’s Members list.
+3. The Members tab continues to show “0 members” and “No channel participants yet.”
+4. Scott can be searched for and selected repeatedly, but he still never appears.
+5. Searching the existing-member field for “@scott” returns no results.
+6. There is no success message, failure message, or visible explanation.
+
+This must be fixed at the data, API, and UI levels. Do not apply a cosmetic-only patch.
+
+Required investigation:
+1. Trace the full add-member flow:
+   - teammate search result click
+   - frontend mutation
+   - API request
+   - authorization check
+   - database insert
+   - API response
+   - members query refresh
+   - rendered member list
+
+2. Confirm which database table stores Currents channel participants/memberships.
+
+3. Confirm that the correct IDs are being sent:
+   - channel ID
+   - selected user ID
+   - current user ID where required
+   Do not confuse contact IDs, employee IDs, account IDs, email addresses, or legacy user IDs.
+
+4. Check whether the API is:
+   - failing silently
+   - returning success without inserting
+   - inserting into the wrong channel
+   - rejecting private-channel membership
+   - blocked by a duplicate constraint
+   - blocked by an incorrect permission check
+   - using a stale or mismatched channel ID
+   - creating a membership that the list endpoint then filters out
+
+5. Inspect the actual database immediately before and after adding Scott and prove whether the membership row is created.
+
+Required fixes:
+1. Clicking an “Add people” result must add that user to the channel exactly once.
+
+2. The backend must return a clear error if the insert fails. Never return a fake 200 success.
+
+3. After a successful add:
+   - invalidate/refetch the channel-members query
+   - immediately show the new member
+   - update the member count
+   - clear the Add people search field
+   - show a success toast such as “Scott Carlson added to #bank”
+
+4. If the person is already a member:
+   - do not create a duplicate
+   - display “Scott Carlson is already a member”
+   - keep the existing membership visible
+
+5. The channel creator must be included as a member automatically when a private channel is created, unless the product intentionally uses a separate owner record. In either case, the Members tab must not misleadingly show 0 members when the creator has access.
+
+6. Normalize member searching so all of these find Scott:
+   - Scott
+   - Carlson
+   - scott@voltsafe.com
+   - scott
+   - @scott
+   Strip an optional leading “@” before searching.
+
+7. Keep the two search boxes logically separate:
+   - “Find members” searches current channel members only
+   - “Add people” searches eligible teammates who are not already members
+
+8. After Scott is added, he must disappear from the eligible “Add people” results or be clearly marked “Already a member.”
+
+9. Private-channel access must actually update:
+   - Scott can see/open the private channel after being added
+   - a non-member cannot see/open it
+   - removing a member revokes access
+
+10. Add proper loading and disabled states so repeated clicks cannot fire duplicate requests.
+
+Required regression tests:
+1. Create a private channel.
+2. Verify the creator is represented correctly as an owner/member.
+3. Add Scott Carlson.
+4. Confirm exactly one membership row exists.
+5. Confirm the Members tab updates without refreshing the page.
+6. Refresh the page and confirm Scott remains listed.
+7. Search “@scott” and confirm Scott is found.
+8. Attempt to add Scott again and confirm no duplicate is created.
+9. Log in as Scott or simulate Scott’s permissions and confirm he can access the channel.
+10. Remove Scott and confirm access is revoked.
+11. Confirm public-channel behavior is not broken.
+
+Also inspect whether existing private channels have missing creator membership rows. If so, add a safe idempotent migration/backfill that:
+- inserts missing creator/owner memberships
+- does not duplicate existing memberships
+- logs how many rows were repaired
+
+Before declaring completion, provide:
+- the precise root cause
+- affected frontend and backend files
+- database table and relevant columns
+- API endpoint used
+- before/after database evidence for Scott Carlson
+- regression test results
+- confirmation that a hard refresh still shows Scott as a member
