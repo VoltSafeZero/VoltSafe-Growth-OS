@@ -3128,7 +3128,7 @@ export async function registerRoutes(
         opportunityTitle,
         opportunityAmount,
         opportunityStage = "inbound_new",
-        orgType: reqOrgType = "marina_prospect",
+        orgType: reqOrgType,
         fieldOverrides = {},
         conversionTarget: reqConversionTarget,
       } = req.body ?? {};
@@ -3153,7 +3153,23 @@ export async function registerRoutes(
         ? (PARTNER_ORG_TYPE_MAP[leadRelType ?? ""] ?? "integration_partner")
         : null;
 
-      const orgType = isPartnerConversion ? partnerOrgType! : reqOrgType;
+      // Map lead entityType → default orgType when caller didn't specify.
+      // This ensures a marina lead converts to a marina_prospect account by default,
+      // and a marina_group lead converts to a marina_group account, etc.
+      const ENTITY_TYPE_ORG_MAP: Record<string, string> = {
+        marina:         "marina_prospect",
+        marina_group:   "marina_group",
+        port_authority: "port_harbor",
+        municipality:   "port_harbor",
+        partner:        "partner",
+        vendor:         "partner",
+      };
+      const leadEntityType = (lead as any).entityType as string | null | undefined;
+      const entityDerivedOrgType = (!isPartnerConversion && leadEntityType)
+        ? (ENTITY_TYPE_ORG_MAP[leadEntityType] ?? "marina_prospect")
+        : "marina_prospect";
+
+      const orgType = isPartnerConversion ? partnerOrgType! : (reqOrgType ?? entityDerivedOrgType);
       let createOpportunity = req.body?.createOpportunity ?? false;
       if (isPartnerConversion) createOpportunity = false;
 

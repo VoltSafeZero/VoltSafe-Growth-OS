@@ -89,3 +89,4 @@
 - [Inbox thread canonical CTE](inbox-thread-canonical-cte.md) — per-category COUNT(DISTINCT) double-counts cross-category threads; use DISTINCT ON subquery instead.
 - [Currents InlineEditRow edit-mode bug](currents-inline-edit-row.md) — edit-mode textareas must init via tokensToCleanText+initFromTokenText, save via serializeForSave.
 - [Lead edit form mention fields](lead-edit-mention-fields.md) — Notes/Competitors/ROI Story wired to MentionInput; 4-step pattern + server saveMentions.
+- [Entity Type Anchor System](entity-type-anchor.md) — marina anchor driven by entity_type column, not marina_id; isMarinaEntity() is the canonical gate; migration 0034.

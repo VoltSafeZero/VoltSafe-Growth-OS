@@ -45,7 +45,7 @@ import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
 import { EmailIdentifiersPanel } from "@/components/email-identifiers-panel";
 import { RecentNewsPanel } from "@/components/crm/recent-news-panel";
-import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, shouldShowMarinaOps, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry } from "@/lib/crm-taxonomy";
+import { PIPELINE_STAGE_OPTIONS, PRIMARY_INDUSTRY_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, shouldShowMarinaOps, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry, ENTITY_TYPE_OPTIONS, isMarinaEntity } from "@/lib/crm-taxonomy";
 
 
 const PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS;
@@ -736,7 +736,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
                       </td>
                       <td className="p-3 sm:p-4" onClick={() => setSelectedLead(lead)}>
                         <div className="flex items-center gap-2">
-                          {lead.marinaId && <Anchor className="h-4 w-4 text-primary shrink-0" />}
+                          {isMarinaEntity(lead) && <Anchor className="h-4 w-4 text-primary shrink-0" />}
                           <div className="min-w-0">
                             <span className="font-medium block truncate max-w-[180px] sm:max-w-none">{lead.company}</span>
                             <span className="text-xs text-muted-foreground md:hidden">
@@ -990,7 +990,7 @@ function PipelineView({
                   data-testid={`pipeline-card-${lead.id}`}
                 >
                   <div className="flex items-start gap-2 mb-1">
-                    {lead.marinaId && <Anchor className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />}
+                    {isMarinaEntity(lead) && <Anchor className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />}
                     <p className="text-sm font-medium leading-tight line-clamp-2">{lead.company}</p>
                   </div>
                   {(lead.city || lead.state) && (
@@ -2121,6 +2121,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
     slipCountInt: (lead as any).slipCountInt != null ? String((lead as any).slipCountInt) : "",
     shorePower: (lead as any).shorePower || "unknown",
     website: (lead as any).website || "",
+    entityType: (lead as any).entityType || "",
   });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
@@ -2159,7 +2160,17 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
 
       <div className="border-t border-border/50 pt-3">
         <Label className="text-xs text-muted-foreground mb-2 block">Classification</Label>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          <div>
+            <Label className="text-xs">Entity Type</Label>
+            <Select value={form.entityType || "__none__"} onValueChange={(v) => setForm(f => ({ ...f, entityType: v === "__none__" ? "" : v }))}>
+              <SelectTrigger data-testid="select-edit-entity-type"><SelectValue placeholder="Select entity type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Select type</SelectItem>
+                {ENTITY_TYPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
           <div>
             <Label className="text-xs">Industry</Label>
             <Select value={form.primaryIndustry || "none"} onValueChange={(v) => setForm(f => ({ ...f, primaryIndustry: v === "none" ? "" : v }))}>
@@ -2170,6 +2181,8 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
               </SelectContent>
             </Select>
           </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label className="text-xs">Relationship Type</Label>
             <Select value={form.relationshipType || "none"} onValueChange={(v) => setForm(f => ({ ...f, relationshipType: v === "none" ? "" : v }))}>
@@ -2375,7 +2388,7 @@ function EditLeadForm({ lead, onSubmit, onCancel, isPending, onPilotToggle, isPi
 }
 
 function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<string, string>) => void; isPending: boolean }) {
-  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", country: "", state: "", city: "", primaryIndustry: "marine", relationshipType: "customer_prospect", marketSegment: "", slipRange: "" });
+  const [form, setForm] = useState({ company: "", contactName: "", contactEmail: "", contactPhone: "", source: "", notes: "", country: "", state: "", city: "", primaryIndustry: "marine", relationshipType: "customer_prospect", marketSegment: "", slipRange: "", entityType: "marina" });
 
   const formRegions = form.country ? getRegionsForCountry(form.country) : [];
   const showMarinaOps = shouldShowMarinaOps(form.primaryIndustry, form.relationshipType, form.marketSegment);
@@ -2441,6 +2454,19 @@ function CreateLeadForm({ onSubmit, isPending }: { onSubmit: (data: Record<strin
       <div>
         <Label>Source</Label>
         <Input value={form.source} onChange={(e) => setForm(f => ({ ...f, source: e.target.value }))} placeholder="e.g. Website, Referral, Trade Show" data-testid="input-source" />
+      </div>
+      <div>
+        <Label>Entity Type</Label>
+        <Select value={form.entityType || "marina"} onValueChange={(v) => setForm(f => ({ ...f, entityType: v }))}>
+          <SelectTrigger data-testid="select-entity-type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ENTITY_TYPE_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>

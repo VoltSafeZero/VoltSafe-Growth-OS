@@ -311,6 +311,56 @@ export function isAssociationSegment(value: string | null | undefined): boolean 
   return value === "association";
 }
 
+// ─── Entity Type — canonical lead classification ──────────────────────────────
+
+/**
+ * Controlled vocabulary for the entity_type column on leads.
+ * This is the single canonical source of truth for whether a lead represents
+ * a marina entity. The anchor icon is based on isMarinaEntity(), not on
+ * marina_id, source, or import status.
+ */
+export const ENTITY_TYPE_OPTIONS = [
+  { value: "marina",         label: "Marina" },
+  { value: "marina_group",   label: "Marina Group / Portfolio" },
+  { value: "port_authority", label: "Port Authority" },
+  { value: "municipality",   label: "Municipality" },
+  { value: "partner",        label: "Partner" },
+  { value: "vendor",         label: "Vendor" },
+  { value: "other",          label: "Other" },
+] as const;
+
+/**
+ * Entity types that represent a marina-class entity and should display
+ * the teal anchor icon. Port authorities are included because they
+ * manage dock/slip infrastructure.
+ */
+export const MARINA_ENTITY_TYPES = new Set<string>([
+  "marina",
+  "marina_group",
+  "port_authority",
+]);
+
+/**
+ * Returns true if the lead/record represents a marina-class entity and
+ * should display the anchor icon.
+ *
+ * Priority: entityType field (new canonical) → marinaId fallback
+ * (backward compat for imported records before migration 0034 backfill runs).
+ *
+ * Do NOT base this on: source, marina_id alone, name keywords, import status.
+ */
+export function isMarinaEntity(record: {
+  entityType?: string | null;
+  marinaId?: number | null;
+}): boolean {
+  if (record.entityType != null && record.entityType !== "") {
+    return MARINA_ENTITY_TYPES.has(record.entityType);
+  }
+  // Backward compat: imported records have marinaId set by the marina_directory
+  // import even before migration 0034 backfills entity_type.
+  return !!record.marinaId;
+}
+
 // ─── Form field visibility helpers ───────────────────────────────────────────
 
 /**

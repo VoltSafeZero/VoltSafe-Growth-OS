@@ -136,6 +136,12 @@ export const leads = pgTable("leads", {
   slipRange: text("slip_range"),
   slipCountInt: integer("slip_count_int"),
   shorePower: text("shore_power").default("unknown"),
+  // ── Entity Type — canonical marina classification ─────────────────────────
+  // Values: 'marina' | 'marina_group' | 'port_authority' | 'municipality'
+  //       | 'partner' | 'vendor' | 'other'
+  // The anchor icon is shown when isMarinaEntity(lead) returns true.
+  // Imported marina-directory records are backfilled to 'marina' by migration 0034.
+  entityType: text("entity_type"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
