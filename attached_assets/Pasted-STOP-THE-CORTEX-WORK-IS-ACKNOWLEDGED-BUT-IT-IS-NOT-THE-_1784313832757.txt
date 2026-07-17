@@ -1,0 +1,132 @@
+STOP. THE CORTEX WORK IS ACKNOWLEDGED, BUT IT IS NOT THE ACTIVE TASK.
+
+Do not make any further Cortex changes.
+
+The active task is:
+
+Fix @mention autocomplete in the Lead/Marina edit modal shown in the screenshots.
+
+Confirmed failing fields:
+
+- Notes
+- Competitors
+- ROI Story
+
+Typing @scott currently behaves like ordinary text:
+
+- No autocomplete dropdown
+- No selectable user
+- No mention creation
+- No notification
+
+FIRST RESPONSE REQUIRED
+
+Before changing any code, reply with only:
+
+1. The exact file and component that render the Lead/Marina edit modal.
+2. The exact components used by Notes, Competitors, and ROI Story.
+3. Whether each field currently uses MentionInput, Input, Textarea, or another component.
+4. The most likely root cause based on the code.
+
+Do not begin implementation until you have identified the correct modal and fields.
+
+OBJECTIVE
+
+Make @mention autocomplete function correctly in:
+
+- Notes
+- Competitors
+- ROI Story
+
+inside the actual Lead/Marina edit modal.
+
+SUCCESS CRITERIA
+
+For each of the three fields:
+
+- Typing @scott opens autocomplete.
+- Scott appears as a selectable result.
+- Mouse selection works.
+- Keyboard selection works.
+- The selected mention displays as clean readable text.
+- The associated internal user ID is preserved.
+- Saving the form preserves the mention.
+- Reopening the record displays the mention correctly.
+- No raw serialized mention token is visible.
+- Exactly one notification is created for the mentioned user.
+
+CONSTRAINTS
+
+- Do not modify Cortex.
+- Do not modify Executive Copilot.
+- Do not modify Cortex routes or services.
+- Do not redesign the Lead/Marina modal.
+- Do not perform unrelated refactoring.
+- Do not create a second mention system.
+- Use the existing shared mention implementation.
+- Do not mark this complete based only on source inspection or grep tests.
+
+INVESTIGATION
+
+Determine the actual failure:
+
+- Are these plain Input/Textarea fields?
+- Are they missing MentionInput entirely?
+- Is the autocomplete request not firing?
+- Is the dropdown rendered but clipped by the modal?
+- Is z-index or overflow hiding it?
+- Is field state incompatible with mention metadata?
+- Does the save route strip the mention?
+- Does the notification pipeline ignore these fields?
+
+Identify the exact root cause before implementing the fix.
+
+IMPLEMENTATION
+
+Make only the changes needed to fix the three confirmed fields.
+
+Preserve:
+
+- Existing layout
+- Existing labels
+- Existing form state
+- Existing validation
+- Existing normal text entry
+- Existing save behaviour
+
+Notes and ROI Story must remain multiline.
+
+Competitors should retain its current single-line appearance unless the existing shared mention component requires a single-line mode.
+
+VALIDATION
+
+Test the actual Lead/Marina edit modal, not only the isolated MentionInput component.
+
+Return:
+
+| Field | Dropdown | Scott result | Mouse | Keyboard | Save | Reopen | Notification | No raw token | Result |
+|---|---|---|---|---|---|---|---|---|---|
+| Notes | | | | | | | | | |
+| Competitors | | | | | | | | | |
+| ROI Story | | | | | | | | | |
+
+Every cell must be:
+
+- PASS
+- FAIL
+- NOT VERIFIED
+
+DELIVERABLES
+
+1. Exact root cause
+2. Exact modal component
+3. Files changed
+4. Validation table
+5. Tests run
+6. Any NOT VERIFIED items and why
+
+STOP.
+
+Do not resume Cortex work.
+
+Do not mark this task complete until the three screenshot-confirmed fields work in the actual Lead/Marina modal.

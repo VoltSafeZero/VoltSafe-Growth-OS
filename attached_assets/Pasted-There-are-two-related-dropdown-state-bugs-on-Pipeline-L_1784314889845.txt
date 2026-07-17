@@ -1,0 +1,285 @@
+There are two related dropdown state bugs on Pipeline → Leads & Accounts.
+
+BUG 1 — INDUSTRY
+
+The closed Industry dropdown displays:
+
+Marine
+
+However, when the dropdown is opened, the highlighted/selected option is:
+
+All Industries
+
+The visible label and the actual selected dropdown value are out of sync.
+
+BUG 2 — SEGMENT TYPE
+
+The closed Segment Type dropdown displays:
+
+Marina
+
+However, when the dropdown is opened, the highlighted/selected option is:
+
+All Segments
+
+Again, the visible label and actual selected value are out of sync.
+
+LIKELY ROOT CAUSE
+
+The closed dropdown label is probably using a fallback/default display value such as:
+
+industry || "Marine"
+
+or:
+
+segment || "Marina"
+
+while the underlying controlled select value is still:
+
+undefined
+"all"
+""
+null
+
+This creates a false visual default without actually setting the filter state.
+
+REQUIRED BEHAVIOUR
+
+Industry must genuinely default to:
+
+Marine
+
+Segment Type must genuinely default to:
+
+Marina
+
+That means all of the following must agree:
+
+1. Closed dropdown label
+2. Highlighted option when opened
+3. Internal React state
+4. URL query parameters, if used
+5. API request filters
+6. Saved view state
+7. Reset filter behaviour
+8. Browser refresh behaviour
+
+DO NOT FIX THIS BY ONLY CHANGING THE DISPLAY LABEL
+
+The selected value itself must be correctly initialized.
+
+REQUIRED INVESTIGATION
+
+Trace both filters through the full state path:
+
+- component initialization
+- controlled Select value
+- defaultValue versus value usage
+- filter state object
+- URL/search params
+- local storage or persisted view state
+- query cache key
+- API request parameters
+- reset filters function
+- saved view restoration
+
+Report the exact cause before implementing the fix.
+
+INDUSTRY EXPECTED STATE
+
+On first load of Pipeline → Leads & Accounts:
+
+- Industry control displays Marine
+- Opening the menu highlights Marine
+- The actual internal value is the canonical Marine value
+- The API request includes the Marine industry filter
+- Results shown are actually filtered to Marine
+
+Use the existing canonical stored value. For example, if the option is stored as:
+
+marine
+
+then the controlled value must be:
+
+marine
+
+and the label shown to users should be:
+
+Marine
+
+Do not store the display label if the application uses normalized values.
+
+SEGMENT EXPECTED STATE
+
+On first load:
+
+- Segment Type displays Marina
+- Opening the menu highlights Marina
+- The actual internal value is the canonical Marina value
+- The API request includes the Marina segment filter
+- Results shown are actually filtered to Marina
+
+Use the existing canonical stored value. For example:
+
+marina
+
+with the display label:
+
+Marina
+
+CONTROLLED COMPONENT REQUIREMENT
+
+Both dropdowns must be fully controlled.
+
+Do not mix:
+
+defaultValue
+
+with:
+
+value
+
+after initial render.
+
+Use a single source of truth.
+
+Example pattern:
+
+const DEFAULT_FILTERS = {
+  industry: "marine",
+  segment: "marina",
+};
+
+const [filters, setFilters] = useState(DEFAULT_FILTERS);
+
+<Select
+  value={filters.industry}
+  onValueChange={(value) =>
+    setFilters((current) => ({
+      ...current,
+      industry: value,
+    }))
+  }
+>
+
+The exact implementation should match the project’s existing architecture.
+
+ALL OPTION BEHAVIOUR
+
+Selecting:
+
+All Industries
+
+must explicitly set the Industry value to the canonical all-state, such as:
+
+all
+
+Selecting:
+
+All Segments
+
+must explicitly set the Segment value to the canonical all-state.
+
+The closed label must then display the corresponding All label.
+
+Do not use empty values inconsistently across different filters.
+
+RESET FILTERS
+
+Confirm the intended product behaviour.
+
+For this page, Reset Filters should return to the VoltSafe default operating view:
+
+- Industry = Marine
+- Segment Type = Marina
+
+It should not reset to:
+
+- All Industries
+- All Segments
+
+unless there is a separate “Show Everything” action.
+
+SAVED VIEWS AND URL PARAMETERS
+
+Priority order should be:
+
+1. Explicit URL query parameters
+2. Restored saved view
+3. Persisted user filter selection, if supported
+4. Page defaults:
+   - Industry = Marine
+   - Segment = Marina
+
+If a saved view explicitly uses All Industries or All Segments, preserve that selection.
+
+Do not overwrite explicit user choices with the default on every render.
+
+COMMS DROPDOWN INTERACTION
+
+The user noticed this while using the Comms dropdown.
+
+Audit whether changing the Comms filter is accidentally resetting or partially resetting Industry and Segment state.
+
+Changing the Comms filter must not:
+
+- visually reset Industry
+- visually reset Segment
+- silently change either filter value
+- replace the current filter object with a partial object
+- drop unrelated filter properties
+
+Watch for incorrect state updates like:
+
+setFilters({ commStatus: value })
+
+That would erase Industry and Segment.
+
+Use a safe merge pattern:
+
+setFilters((current) => ({
+  ...current,
+  commStatus: value,
+}))
+
+Audit all filter dropdown update handlers for this same bug.
+
+TESTS REQUIRED
+
+Add tests proving:
+
+1. Initial Industry value is Marine.
+2. Opening Industry highlights Marine.
+3. Initial Segment value is Marina.
+4. Opening Segment highlights Marina.
+5. API request includes industry=marine.
+6. API request includes segment=marina.
+7. Selecting All Industries updates both label and selected option.
+8. Selecting All Segments updates both label and selected option.
+9. Changing Comms does not alter Industry.
+10. Changing Comms does not alter Segment.
+11. Changing any other filter does not erase unrelated filter state.
+12. Reset returns Industry to Marine.
+13. Reset returns Segment to Marina.
+14. Refresh preserves explicit URL or saved-view values.
+15. No controlled/uncontrolled React warnings appear.
+16. The result count reflects the actual active filters.
+
+ADD ACTIVE FILTER VISIBILITY
+
+Where practical, ensure active filters are clearly represented so the user can trust what the page is actually showing.
+
+The selected dropdown values must always match the actual query being executed.
+
+ACCEPTANCE CRITERIA
+
+This issue is complete only when:
+
+- Industry displays Marine and highlights Marine when opened.
+- Segment displays Marina and highlights Marina when opened.
+- The backend query is genuinely filtered to those values.
+- Changing Comms does not reset either filter.
+- Reset returns to the intended Marine + Marina default.
+- Saved views and URL filters override defaults correctly.
+- Tests pass.
+- The exact original root cause is documented.

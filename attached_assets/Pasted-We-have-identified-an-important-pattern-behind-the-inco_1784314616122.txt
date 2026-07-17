@@ -1,0 +1,235 @@
+We have identified an important pattern behind the inconsistent marina anchor icons.
+
+OBSERVED ROOT-CAUSE PATTERN
+
+All or nearly all marina Leads/Accounts that display the teal anchor came from the original marina import.
+
+The marina Leads/Accounts missing the anchor were manually created by me through the New Lead/Account workflow.
+
+This strongly suggests the original import assigns a marina classification, type, category, source marker, or related field that the manual creation workflow does not assign.
+
+Please investigate and fix this specific issue.
+
+DO NOT BEGIN BY ADDING NAME-BASED ICON LOGIC
+
+Do not simply show the anchor whenever the company name contains “Marina.”
+
+The proper fix is to ensure manually created marina records receive the same canonical marina classification as imported marina records.
+
+PHASE 1 — CONFIRM THE EXACT ROOT CAUSE
+
+Compare at least:
+
+Imported records with anchor:
+- Oak Bay Marina
+- Shelter Cove Marina
+
+Manually created records without anchor:
+- Pentowna Marina
+- Shuswap Marina
+- Shuswap Waterfront Marina
+- Splash Marina
+- Any other manually created marina records
+
+For each record, compare all relevant database fields, including:
+
+- entity type
+- account type
+- lead type
+- company type
+- industry
+- category
+- source
+- source type
+- marina ID or marina metadata
+- opportunity type
+- customer type
+- imported flags
+- slip count
+- shore-power fields
+- pilot relationship
+- any field used by the frontend anchor condition
+
+Find and report:
+
+1. The exact frontend condition that renders the anchor.
+2. The exact database field and value that imported records have.
+3. The corresponding missing or different value on manually created records.
+4. The API endpoint used to manually create a Lead/Account.
+5. Whether the field is:
+   - missing from the manual form
+   - collected by the form but not submitted
+   - submitted but rejected by the API schema
+   - accepted by the API but not written to the database
+   - written correctly but omitted from the API response
+   - present in the response but ignored by the frontend
+
+Do not guess. Trace the full path:
+
+Manual creation form
+→ frontend payload
+→ API validation
+→ server create handler
+→ database insert
+→ returned object
+→ anchor-rendering condition
+
+PHASE 2 — FIX MANUAL LEAD/ACCOUNT CREATION
+
+Add a required or clearly visible field to the New Lead/Account form:
+
+Entity Type
+
+Suggested options:
+
+- Marina
+- Marina Group
+- Port Authority
+- Municipality
+- Partner
+- Vendor
+- Other
+
+Use normalized stored values:
+
+- marina
+- marina_group
+- port_authority
+- municipality
+- partner
+- vendor
+- other
+
+Because VoltSafe’s core customer records are primarily marinas, the creation flow may default Entity Type to “Marina” when the user enters the New Marina Lead/Account workflow.
+
+However:
+
+- Do not silently classify every account in the entire system as a marina.
+- If the existing create button is generic for all account types, make Entity Type visible and default it intelligently based on the selected creation context.
+- The user must be able to change the value before saving.
+
+Ensure the selected Entity Type is:
+
+1. Included in the frontend request payload.
+2. Accepted by validation.
+3. Persisted in the canonical database field.
+4. Returned by the create endpoint.
+5. Returned by list and detail endpoints.
+6. Preserved during lead-to-account or lead-to-opportunity conversion.
+7. Available immediately in the UI without requiring a page refresh.
+
+PHASE 3 — USE ONE CANONICAL ANCHOR RULE
+
+The anchor must be based on the canonical normalized Entity Type—not on whether the record was imported.
+
+Create one reusable helper such as:
+
+isMarinaEntity(record)
+
+It should return true for the classifications that should use the anchor, including at minimum:
+
+- marina
+- marina_group
+
+Confirm whether these should also use the marina anchor:
+
+- port_authority
+- municipality
+
+If they represent an actual marina account, support a marina subtype or operating-entity relationship rather than relying only on the organization’s broad legal type.
+
+Do not base the anchor on:
+
+- imported status
+- marina_directory source
+- pilot status
+- opportunity stage
+- slip count
+- whether contacts exist
+- whether the name contains “Marina”
+
+PHASE 4 — REPAIR EXISTING MANUALLY CREATED MARINAS
+
+Create an idempotent backfill for existing manually created records.
+
+Start with records that:
+
+- were manually created
+- currently lack the canonical marina classification
+- contain strong marina indicators in existing structured data
+- have marina-specific fields such as slip count or shore-power status
+- or are clearly identified marina records
+
+Before updating, generate a preview report containing:
+
+- record ID
+- company/account name
+- creation method
+- created by
+- source
+- existing entity/type/category fields
+- slip count
+- shore-power value
+- proposed canonical Entity Type
+- reason for proposed classification
+
+Automatically update only high-confidence records.
+
+Flag ambiguous records for manual review rather than guessing.
+
+The manually entered examples shown in the UI should be reviewed and, if confirmed, classified as marina:
+
+- Pentowna Marina
+- Shuswap Marina
+- Shuswap Waterfront Marina
+- Splash Marina
+- Penticton Yacht Club Marina
+- Kelowna Yacht Club, if it is a marina account
+
+PHASE 5 — EDITING AND CORRECTION
+
+Add Entity Type to:
+
+- Edit Lead
+- Edit Account
+- Quick-view modal
+- Full lead/account profile
+
+Users with the appropriate permission must be able to correct the classification.
+
+Changing Entity Type to Marina should cause the anchor to appear immediately.
+
+Changing it away from Marina should remove the anchor immediately.
+
+PHASE 6 — AUTOMATED TESTS
+
+Add tests proving:
+
+1. An imported marina displays the anchor.
+2. A manually created marina displays the anchor.
+3. The manual creation payload contains the canonical Entity Type.
+4. The API persists the canonical Entity Type.
+5. The create response returns the Entity Type.
+6. The new marina displays the anchor immediately after creation.
+7. A manually created non-marina account does not display the anchor.
+8. Editing a record to Marina adds the anchor.
+9. Editing a Marina to Other removes the anchor.
+10. Lead conversion preserves the classification.
+11. Account merging preserves the correct classification.
+12. The backfill can run more than once without duplicate or destructive changes.
+13. The anchor does not depend on source or imported status.
+
+ACCEPTANCE CRITERIA
+
+The issue is complete only when:
+
+1. The exact original difference between imported and manually created records is documented.
+2. The manual New Lead/Account workflow saves the canonical marina classification.
+3. Newly manually created marina accounts display the anchor immediately.
+4. Existing manually created marina records are safely backfilled or surfaced for review.
+5. Entity Type can be edited later.
+6. All anchor rendering uses one reusable canonical rule.
+7. Imported status and source are no longer what determine whether the anchor appears.
+8. Tests pass.
+
+Before changing code, report the exact field-value comparison between one imported record with the anchor and one manually created record without it. Then implement the fix and report all updated files, migrations, tests, and backfill counts.
