@@ -41862,6 +41862,20 @@ Your campaigns are direct, specific, marina-focused, and never generic. You alwa
     }
   });
 
+  // GET /api/cortex-intel/:id/related — find related records by intel_type
+  app.get("/api/cortex-intel/:id/related", requireAuth, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const { getRelatedCortexIntelById } = await import("./services/cortex-intel");
+      const records = await getRelatedCortexIntelById(id, 4);
+      res.json(records);
+    } catch (err: any) {
+      console.error("[cortex-intel] GET /api/cortex-intel/:id/related:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/cortex-intel/generate-summary — AI summary before saving
   app.post("/api/cortex-intel/generate-summary", requireAuth, async (req: any, res) => {
     try {

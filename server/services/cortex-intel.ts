@@ -259,13 +259,30 @@ export function validatePublicUrl(rawUrl: string): string | null {
 export async function checkCortexIntelByMessageId(mailMessageId: string): Promise<any | null> {
   const rows = await db.execute(sql.raw(`
     SELECT id, mail_message_id, intel_type, importance, ai_summary, strategic_relevance,
-           use_for, tags, user_notes, created_at, updated_at
+           use_for, tags, user_notes, extracted_facts, created_at, updated_at
     FROM cortex_email_intel
     WHERE mail_message_id = '${mailMessageId.replace(/'/g, "''")}'
       AND deleted_at IS NULL
     LIMIT 1
   `));
   return (rows as any).rows?.[0] ?? null;
+}
+
+export async function getRelatedCortexIntelById(id: number, limit = 4): Promise<any[]> {
+  const record = await getCortexIntelById(id);
+  if (!record) return [];
+  const intelType = (record.intel_type || "").replace(/'/g, "''");
+  const rows = await db.execute(sql.raw(`
+    SELECT id, subject, sender_name, sender_email, intel_type, importance,
+           tags, ai_summary, created_at
+    FROM cortex_email_intel
+    WHERE id != ${id}
+      AND deleted_at IS NULL
+      AND intel_type = '${intelType}'
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `));
+  return (rows as any).rows ?? [];
 }
 
 export async function checkCortexIntelByCanonicalUrl(canonicalUrl: string): Promise<any | null> {
@@ -570,6 +587,11 @@ export async function generateCortexIntelSummary(emailData: {
   suggestedIntelType: string;
   suggestedUseCases: string[];
   extractedFacts: string[];
+  extractedOrgs: string[];
+  extractedTopics: string[];
+  extractedPeople: string[];
+  sentiment: string;
+  confidence: number;
 }> {
   const openai = buildOpenAIClient();
   if (!openai) {
@@ -580,6 +602,11 @@ export async function generateCortexIntelSummary(emailData: {
       suggestedIntelType: "Marine Industry Intel",
       suggestedUseCases: ["Cortex knowledge base"],
       extractedFacts: [],
+      extractedOrgs: [],
+      extractedTopics: [],
+      extractedPeople: [],
+      sentiment: "Neutral",
+      confidence: 0,
     };
   }
 
@@ -602,6 +629,11 @@ Analyze this email and return JSON with:
 - suggestedIntelType: one of: "Marine Industry Intel", "NMMA / Association News", "Marina Market Data", "Boating Consumer Trends", "Regulatory / Compliance", "Competitor / Partner Intel", "Grant / Funding Intel", "Customer Pain / Voice of Market", "Other"
 - suggestedUseCases: array from: ["AI email writing", "Lead/account research", "Campaign context", "Investor/funding narrative", "Cortex knowledge base"]
 - extractedFacts: array of 3-5 specific, concrete, quotable facts or data points from the email — these MUST be verbatim or very close paraphrases of what the source actually says (e.g. "NMMA reported U.S. recreational marine spending totaled $54B in 2025")
+- extractedOrgs: array of up to 6 organization or company names explicitly mentioned (e.g. ["NMMA", "Transport Canada", "U.S. Congress"])
+- extractedTopics: array of up to 6 key topics, concepts, or themes (e.g. ["marine electrification", "federal funding", "EV charging infrastructure"])
+- extractedPeople: array of up to 4 specific named people explicitly mentioned (e.g. ["Trevor Burgess", "John Smith"])
+- sentiment: one of "Positive", "Negative", "Neutral", or "Mixed" — the overall tone of the email content relative to VoltSafe's interests
+- confidence: integer 0-100 representing how confident you are in the extraction quality based on email length and clarity
 
 IMPORTANT: Do not invent or estimate statistics. Only extract facts that are clearly stated in the source email.
 
@@ -612,7 +644,7 @@ Return only valid JSON.`;
       model: "gpt-5-mini",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
-      ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 800, temperature: 0.3 }),
+      ...buildOpenAIModelParams("gpt-5-mini", { tokenLimit: 1000, temperature: 0.3 }),
     });
 
     const raw = completion.choices[0]?.message?.content || "{}";
@@ -626,6 +658,11 @@ Return only valid JSON.`;
       suggestedIntelType: parsed.suggestedIntelType || "Marine Industry Intel",
       suggestedUseCases: Array.isArray(parsed.suggestedUseCases) ? parsed.suggestedUseCases : ["Cortex knowledge base"],
       extractedFacts: Array.isArray(parsed.extractedFacts) ? parsed.extractedFacts.slice(0, 8) : [],
+      extractedOrgs: Array.isArray(parsed.extractedOrgs) ? parsed.extractedOrgs.slice(0, 6) : [],
+      extractedTopics: Array.isArray(parsed.extractedTopics) ? parsed.extractedTopics.slice(0, 6) : [],
+      extractedPeople: Array.isArray(parsed.extractedPeople) ? parsed.extractedPeople.slice(0, 4) : [],
+      sentiment: ["Positive", "Negative", "Neutral", "Mixed"].includes(parsed.sentiment) ? parsed.sentiment : "Neutral",
+      confidence: typeof parsed.confidence === "number" ? Math.min(100, Math.max(0, Math.round(parsed.confidence))) : 0,
     };
   } catch (e) {
     console.error("[cortex-intel] AI summary generation failed:", e);
@@ -636,6 +673,11 @@ Return only valid JSON.`;
       suggestedIntelType: "Marine Industry Intel",
       suggestedUseCases: ["Cortex knowledge base"],
       extractedFacts: [],
+      extractedOrgs: [],
+      extractedTopics: [],
+      extractedPeople: [],
+      sentiment: "Neutral",
+      confidence: 0,
     };
   }
 }
