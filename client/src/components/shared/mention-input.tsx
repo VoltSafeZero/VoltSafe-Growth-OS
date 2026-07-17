@@ -2,26 +2,24 @@
  * mention-input.tsx
  *
  * Drop-in textarea replacement that supports @mention autocomplete.
- * Uses the useMentionComposer hook to detect @ triggers, fetch user
- * suggestions (including @all), and insert structured tokens.
  *
- * Token format: @[Name](user:ID)  /  @[all](user:0) for @all
+ * DISPLAY RULE: the textarea ALWAYS shows clean human-readable text.
+ *   Typing @scott, clicking Scott → textarea shows "@Scott " — never "@[Scott](user:138)".
  *
- * Usage:
- *   <MentionInput
- *     value={text}
- *     onChange={setText}
- *     onSubmit={handleSend}
- *     placeholder="Write a comment… @mention teammates"
- *   />
+ * Token format (@[Name](user:ID)) is used only for DB storage.
+ * Use the ref handle to convert before saving:
+ *
+ *   const ref = useRef<MentionInputHandle>(null);
+ *   // On load:  setVal(tokensToCleanText(initial))  +  ref.current?.initFromTokenText(initial)
+ *   // On save:  const toStore = ref.current?.getTokenizedValue(val) ?? val
  */
 
-import { useRef } from "react";
+import { forwardRef, useImperativeHandle, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, Users } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { useMentionComposer, type MentionUser } from "@/hooks/use-mention-composer";
+import { useMentionComposer, tokensToCleanText, type MentionUser } from "@/hooks/use-mention-composer";
 
 // Reusable avatarBg helper (deterministic colour from user id)
 const AVATAR_COLOURS = [
@@ -37,7 +35,8 @@ function initials(name: string) {
   return name.split(/\s+/).map(p => p[0]).slice(0, 2).join("").toUpperCase() || "?";
 }
 
-/** Render body text containing @[Name](user:ID) tokens as styled chips. */
+/** Render body text containing @[Name](user:ID) tokens as styled chips.
+ *  Works on stored token format — never call with clean text unless no tokens exist. */
 export function renderMentionBody(
   body: string | null,
   myUserId?: number
@@ -143,6 +142,13 @@ function MentionDropdown({
   return createPortal(el, document.body);
 }
 
+export interface MentionInputHandle {
+  /** Convert clean-text editor value → token format for DB storage. */
+  getTokenizedValue(cleanText: string): string;
+  /** Pre-populate mention registry from a stored token string (call when entering edit mode). */
+  initFromTokenText(tokenText: string): void;
+}
+
 interface MentionInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -157,58 +163,76 @@ interface MentionInputProps {
   "data-testid"?: string;
 }
 
-export function MentionInput({
-  value,
-  onChange,
-  onSubmit,
-  placeholder = "Write something… type @ to mention someone",
-  rows,
-  disabled,
-  autoFocus,
-  className,
-  "data-testid": testId,
-}: MentionInputProps) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
-  const mention = useMentionComposer(taRef);
+export const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
+  function MentionInput(
+    {
+      value,
+      onChange,
+      onSubmit,
+      placeholder = "Write something… type @ to mention someone",
+      rows,
+      disabled,
+      autoFocus,
+      className,
+      "data-testid": testId,
+    },
+    ref
+  ) {
+    const taRef = useRef<HTMLTextAreaElement>(null);
+    const prevValueRef = useRef(value);
+    const mention = useMentionComposer(taRef);
 
-  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const v = e.target.value;
-    onChange(v);
-    mention.onValueChange(v, e.target.selectionStart ?? v.length);
-  }
+    useImperativeHandle(ref, () => ({
+      getTokenizedValue: (cleanText: string) => mention.serializeForSave(cleanText),
+      initFromTokenText: (tokenText: string) => mention.initFromTokenText(tokenText),
+    }));
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (mention.handleMentionKeyDown(e, value, onChange)) return;
-    if (e.key === "Enter" && !e.shiftKey && onSubmit) {
-      e.preventDefault();
-      onSubmit();
+    function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+      const newVal = e.target.value;
+      // Keep mention entry positions in sync with every keystroke
+      mention.updateEntryPositions(prevValueRef.current, newVal);
+      prevValueRef.current = newVal;
+      onChange(newVal);
+      mention.onValueChange(newVal, e.target.selectionStart ?? newVal.length);
     }
-  }
 
-  return (
-    <div className="relative">
-      <Textarea
-        ref={taRef}
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        rows={rows}
-        disabled={disabled}
-        autoFocus={autoFocus}
-        className={cn("resize-none", className)}
-        data-testid={testId}
-      />
-      {mention.mentionActive && mention.mentionAnchorRect && (
-        <MentionDropdown
-          users={mention.mentionUsers}
-          isLoading={mention.mentionLoading}
-          anchorRect={mention.mentionAnchorRect}
-          activeIdx={mention.mentionIdx}
-          onSelect={(u) => mention.insertMention(value, onChange, u)}
-          onHover={mention.setMentionIdx}
+    function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+      if (mention.handleMentionKeyDown(e, value, onChange)) return;
+      if (e.key === "Enter" && !e.shiftKey && onSubmit) {
+        e.preventDefault();
+        onSubmit();
+      }
+    }
+
+    // Guard: if parent passes a token-format string (from a non-migrated call site),
+    // show clean text anyway so raw tokens are never visible.
+    const displayValue = /@\[/.test(value) ? tokensToCleanText(value) : value;
+
+    return (
+      <div className="relative">
+        <Textarea
+          ref={taRef}
+          value={displayValue}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          rows={rows}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          className={cn("resize-none", className)}
+          data-testid={testId}
         />
-      )}
-    </div>
-  );
-}
+        {mention.mentionActive && mention.mentionAnchorRect && (
+          <MentionDropdown
+            users={mention.mentionUsers}
+            isLoading={mention.mentionLoading}
+            anchorRect={mention.mentionAnchorRect}
+            activeIdx={mention.mentionIdx}
+            onSelect={(u) => mention.insertMention(value, onChange, u)}
+            onHover={mention.setMentionIdx}
+          />
+        )}
+      </div>
+    );
+  }
+);

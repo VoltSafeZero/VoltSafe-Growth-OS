@@ -5,7 +5,8 @@ import { useTaskColumns } from "@/hooks/use-task-columns";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MentionInput, renderMentionBody } from "@/components/shared/mention-input";
+import { MentionInput, renderMentionBody, type MentionInputHandle } from "@/components/shared/mention-input";
+import { tokensToCleanText } from "@/hooks/use-mention-composer";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -739,18 +740,30 @@ function InlineTitle({ taskId, initial, onSaved }: { taskId: number; initial: st
 
 function DescriptionEditor({ taskId, initial, onSaved }: { taskId: number; initial?: string | null; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(initial || "");
-  useEffect(() => setVal(initial || ""), [initial, taskId]);
+  // Edit state uses clean text — tokens never visible in textarea
+  const [val, setVal] = useState(() => tokensToCleanText(initial));
+  const mentionRef = useRef<MentionInputHandle>(null);
+
+  useEffect(() => {
+    const clean = tokensToCleanText(initial);
+    setVal(clean);
+    // Re-populate mention registry when initial content changes (e.g. task switch)
+    requestAnimationFrame(() => mentionRef.current?.initFromTokenText(initial ?? ""));
+  }, [initial, taskId]);
 
   if (!editing) {
     return (
       <Section title="Description" icon={<MessageSquare className="h-4 w-4" />}>
         <div
           className="text-sm whitespace-pre-wrap rounded-md border bg-muted/30 px-3 py-2 min-h-[60px] cursor-text hover:bg-muted/50"
-          onClick={() => setEditing(true)}
+          onClick={() => {
+            setEditing(true);
+            // Init registry from stored token format when user opens the editor
+            requestAnimationFrame(() => mentionRef.current?.initFromTokenText(initial ?? ""));
+          }}
           data-testid="text-description"
         >
-          {val ? renderMentionBody(val) : <span className="text-muted-foreground">Add a more detailed description…</span>}
+          {initial ? renderMentionBody(initial) : <span className="text-muted-foreground">Add a more detailed description…</span>}
         </div>
       </Section>
     );
@@ -758,6 +771,7 @@ function DescriptionEditor({ taskId, initial, onSaved }: { taskId: number; initi
   return (
     <Section title="Description" icon={<MessageSquare className="h-4 w-4" />}>
       <MentionInput
+        ref={mentionRef}
         autoFocus
         rows={5}
         value={val}
@@ -767,20 +781,31 @@ function DescriptionEditor({ taskId, initial, onSaved }: { taskId: number; initi
       />
       <div className="flex gap-2 mt-2">
         <Button size="sm" onClick={async () => {
-          await apiRequest("PATCH", `/api/tasks/${taskId}`, { description: val });
+          // Serialize clean text → token format before saving to DB
+          const toStore = mentionRef.current?.getTokenizedValue(val) ?? val;
+          await apiRequest("PATCH", `/api/tasks/${taskId}`, { description: toStore });
           setEditing(false); onSaved();
         }} data-testid="button-save-description">Save</Button>
-        <Button size="sm" variant="ghost" onClick={() => { setVal(initial || ""); setEditing(false); }}>Cancel</Button>
+        <Button size="sm" variant="ghost" onClick={() => {
+          setVal(tokensToCleanText(initial));
+          setEditing(false);
+        }}>Cancel</Button>
       </div>
     </Section>
   );
 }
 
 function CompletionNotes({ taskId, initial, onSaved }: { taskId: number; initial?: string | null; onSaved: () => void }) {
-  const [val, setVal] = useState(initial || "");
+  const [val, setVal] = useState(() => tokensToCleanText(initial));
+  const mentionRef = useRef<MentionInputHandle>(null);
+  useEffect(() => {
+    setVal(tokensToCleanText(initial));
+    requestAnimationFrame(() => mentionRef.current?.initFromTokenText(initial ?? ""));
+  }, [initial, taskId]);
   return (
     <div className="space-y-2">
       <MentionInput
+        ref={mentionRef}
         rows={3}
         value={val}
         onChange={setVal}
@@ -788,7 +813,8 @@ function CompletionNotes({ taskId, initial, onSaved }: { taskId: number; initial
         data-testid="input-completion-notes"
       />
       <Button size="sm" onClick={async () => {
-        await apiRequest("PATCH", `/api/tasks/${taskId}`, { completionNotes: val });
+        const toStore = mentionRef.current?.getTokenizedValue(val) ?? val;
+        await apiRequest("PATCH", `/api/tasks/${taskId}`, { completionNotes: toStore });
         onSaved();
       }}>Save notes</Button>
     </div>
@@ -1414,6 +1440,7 @@ function ChecklistBlock({ checklist, onChanged }: any) {
 
 function CommentsBlock({ taskId, comments }: { taskId: number; comments: any[] }) {
   const [val, setVal] = useState("");
+  const mentionRef = useRef<MentionInputHandle>(null);
   const qc = useQueryClient();
   return (
     <div className="space-y-2">
@@ -1429,12 +1456,14 @@ function CommentsBlock({ taskId, comments }: { taskId: number; comments: any[] }
         {comments.length === 0 && <div className="text-xs text-muted-foreground italic">No comments yet.</div>}
       </div>
       <MentionInput
+        ref={mentionRef}
         value={val}
         onChange={setVal}
         placeholder="Write a comment… type @ to mention someone"
         onSubmit={async () => {
           if (!val.trim()) return;
-          await apiRequest("POST", `/api/tasks/${taskId}/comments`, { body: val.trim() });
+          const toStore = mentionRef.current?.getTokenizedValue(val.trim()) ?? val.trim();
+          await apiRequest("POST", `/api/tasks/${taskId}/comments`, { body: toStore });
           setVal("");
           qc.invalidateQueries({ queryKey: ["/api/tasks", taskId, "comments"] });
         }}
@@ -1444,7 +1473,9 @@ function CommentsBlock({ taskId, comments }: { taskId: number; comments: any[] }
         size="sm"
         disabled={!val.trim()}
         onClick={async () => {
-          await apiRequest("POST", `/api/tasks/${taskId}/comments`, { body: val.trim() });
+          if (!val.trim()) return;
+          const toStore = mentionRef.current?.getTokenizedValue(val.trim()) ?? val.trim();
+          await apiRequest("POST", `/api/tasks/${taskId}/comments`, { body: toStore });
           setVal("");
           qc.invalidateQueries({ queryKey: ["/api/tasks", taskId, "comments"] });
         }}
@@ -1874,6 +1905,7 @@ function NewTaskForm({ onCreated, onCancel, defaultBoardColumn }: { onCreated: (
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const descMentionRef = useRef<MentionInputHandle>(null);
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState("medium");
   const [column, setColumn] = useState(defaultBoardColumn || "backlog");
@@ -1893,7 +1925,7 @@ function NewTaskForm({ onCreated, onCancel, defaultBoardColumn }: { onCreated: (
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/tasks", {
         title: title.trim(),
-        description: description.trim() || null,
+        description: (descMentionRef.current?.getTokenizedValue(description.trim()) ?? description.trim()) || null,
         dueDate: dueDate || null,
         priority,
         status: "pending",
@@ -1958,6 +1990,7 @@ function NewTaskForm({ onCreated, onCancel, defaultBoardColumn }: { onCreated: (
         <div className="space-y-1.5">
           <label className="text-sm font-medium">Description</label>
           <MentionInput
+            ref={descMentionRef}
             placeholder="Add context, links, or acceptance criteria… type @ to mention"
             value={description}
             onChange={setDescription}

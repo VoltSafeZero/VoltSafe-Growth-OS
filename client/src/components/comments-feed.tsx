@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { MentionInput, renderMentionBody } from "@/components/shared/mention-input";
+import { MentionInput, renderMentionBody, type MentionInputHandle } from "@/components/shared/mention-input";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, MessageSquare, Send } from "lucide-react";
 import type { Comment } from "@shared/schema";
@@ -39,6 +39,7 @@ export function CommentsFeed({
 }) {
   const { toast } = useToast();
   const [newComment, setNewComment] = useState("");
+  const mentionRef = useRef<MentionInputHandle>(null);
 
   const { data: comments = [], isLoading } = useQuery<Comment[]>({
     queryKey: ["/api/comments", { objectType, objectId }],
@@ -74,7 +75,8 @@ export function CommentsFeed({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim()) return;
-    postMutation.mutate(newComment.trim());
+    const toStore = mentionRef.current?.getTokenizedValue(newComment.trim()) ?? newComment.trim();
+    postMutation.mutate(toStore);
   };
 
   return (
@@ -91,12 +93,17 @@ export function CommentsFeed({
 
       <form onSubmit={handleSubmit} className="flex gap-2">
         <MentionInput
+          ref={mentionRef}
           value={newComment}
           onChange={setNewComment}
           placeholder="Add a comment… type @ to mention"
           rows={2}
           data-testid="input-comment"
-          onSubmit={() => { if (newComment.trim()) postMutation.mutate(newComment.trim()); }}
+          onSubmit={() => {
+            if (!newComment.trim()) return;
+            const toStore = mentionRef.current?.getTokenizedValue(newComment.trim()) ?? newComment.trim();
+            postMutation.mutate(toStore);
+          }}
         />
         <Button
           type="submit"

@@ -524,21 +524,26 @@ function detectMentionTrigger(value: string, cursor: number): string | null {
   return m ? m[1] : null;
 }
 
-// Replace the @query at the cursor with a structured mention token.
+// Replace the @query at the cursor with clean "@Name " text.
+// Mention metadata (user id) is tracked separately in mentionEntriesRef.
+// Token format is only produced at serialization time (serializeForSave).
 function insertMentionToken(
   value: string,
   cursor: number,
   user: MentionUser
-): { newValue: string; newCursor: number } {
+): { newValue: string; newCursor: number; atPos: number; insertedLen: number } {
   const before = value.slice(0, cursor);
   const after = value.slice(cursor);
   const m = before.match(/@([^\s@]*)$/);
-  if (!m) return { newValue: value, newCursor: cursor };
+  if (!m) return { newValue: value, newCursor: cursor, atPos: cursor, insertedLen: 0 };
   const atPos = before.length - m[0].length;
-  const token = `@[${user.name}](user:${user.id}) `;
+  // Clean display text: "@Name " — no token format visible in the textarea
+  const cleanText = `@${user.name} `;
   return {
-    newValue: value.slice(0, atPos) + token + after,
-    newCursor: atPos + token.length,
+    newValue: value.slice(0, atPos) + cleanText + after,
+    newCursor: atPos + cleanText.length,
+    atPos,
+    insertedLen: cleanText.length,
   };
 }
 
@@ -588,6 +593,9 @@ function renderMentionBody(
 // textarea composer. Pass in the textarea ref; the hook owns mention state and
 // exposes helper handlers.
 
+// MentionEntry tracks one @mention in clean-text coordinate space.
+type MentionEntry = { name: string; userId: number; isAll: boolean; atPos: number; end: number };
+
 function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
   const [mentionActive, setMentionActive] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
@@ -597,6 +605,9 @@ function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
     left: number;
     width: number;
   } | null>(null);
+
+  // Registry of inserted mention positions in clean-text coordinate space.
+  const mentionEntriesRef = useRef<MentionEntry[]>([]);
 
   const { data: mentionUsers = [], isLoading: mentionLoading } = useQuery<
     MentionUser[]
@@ -611,6 +622,43 @@ function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
   });
 
   const clampedIdx = Math.min(mentionIdx, Math.max(0, mentionUsers.length - 1));
+
+  /** Keep tracked entry positions in sync with every keystroke. */
+  function updateEntryPositions(oldValue: string, newValue: string) {
+    const entries = mentionEntriesRef.current;
+    if (!entries.length) return;
+    // Find first position where old and new diverge
+    let changePos = 0;
+    const minLen = Math.min(oldValue.length, newValue.length);
+    while (changePos < minLen && oldValue[changePos] === newValue[changePos]) changePos++;
+    const diff = newValue.length - oldValue.length;
+    mentionEntriesRef.current = entries
+      .map((e) => {
+        if (e.atPos < changePos) return e; // before change — unchanged
+        return { ...e, atPos: e.atPos + diff, end: e.end + diff };
+      })
+      .filter((e) => {
+        // Validate: the substring at atPos..end must still be "@Name"
+        const expected = `@${e.name}`;
+        return (
+          e.atPos >= 0 &&
+          e.end <= newValue.length &&
+          newValue.slice(e.atPos, e.end) === expected
+        );
+      });
+  }
+
+  /** Serialize clean-text editor value → token format for DB storage. */
+  function serializeForSave(cleanText: string): string {
+    const entries = [...mentionEntriesRef.current].sort((a, b) => b.atPos - a.atPos);
+    let result = cleanText;
+    for (const e of entries) {
+      if (e.atPos < 0 || e.end > result.length) continue;
+      const token = `@[${e.name}](user:${e.userId})`;
+      result = result.slice(0, e.atPos) + token + result.slice(e.end);
+    }
+    return result;
+  }
 
   function onValueChange(value: string, cursorPos: number) {
     const q = detectMentionTrigger(value, cursorPos);
@@ -635,7 +683,18 @@ function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
     const ta = taRef.current;
     if (!ta) return;
     const cursor = ta.selectionStart ?? draft.length;
-    const { newValue, newCursor } = insertMentionToken(draft, cursor, user);
+    const { newValue, newCursor, atPos, insertedLen } = insertMentionToken(draft, cursor, user);
+    // Track this mention in the registry
+    mentionEntriesRef.current = [
+      ...mentionEntriesRef.current,
+      {
+        name: user.name,
+        userId: user.id,
+        isAll: !!user.isAll,
+        atPos,
+        end: atPos + insertedLen - 1, // -1: trailing space is not part of "@Name"
+      },
+    ];
     setDraft(newValue);
     setMentionActive(false);
     requestAnimationFrame(() => {
@@ -688,7 +747,10 @@ function useComposerMentions(taRef: React.RefObject<HTMLTextAreaElement>) {
     insertMention,
     handleMentionKeyDown,
     setMentionIdx,
-    closeMention: () => setMentionActive(false),
+    closeMention: () => { setMentionActive(false); },
+    updateEntryPositions,
+    serializeForSave,
+    clearEntries: () => { mentionEntriesRef.current = []; },
   };
 }
 
@@ -1858,10 +1920,12 @@ function ThreadPanel({
     if ((!trimmed && !hasFiles) || postReplyMutation.isPending || isReplyUploading) return;
     const cmd = threadSlash.selectedCommand;
     try {
-      const newMsg = await postReplyMutation.mutateAsync({ body: trimmed, hasPendingAttachments: hasFiles });
+      const body = replyMention.serializeForSave(trimmed);
+      const newMsg = await postReplyMutation.mutateAsync({ body, hasPendingAttachments: hasFiles });
       threadSlash.clearCommand();
       setReplyDraft("");
       replyMention.closeMention();
+      replyMention.clearEntries();
       if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
       threadAtBottom.current = true;
       // Execute thread slash command
@@ -4871,10 +4935,12 @@ export default function CurrentPage() {
     if ((!trimmed && !hasFiles) || postMutation.isPending || isMainUploading) return;
     const cmd = channelSlash.selectedCommand;
     try {
-      const newMsg = await postMutation.mutateAsync({ body: trimmed, hasPendingAttachments: hasFiles });
+      const body = mainMention.serializeForSave(trimmed);
+      const newMsg = await postMutation.mutateAsync({ body, hasPendingAttachments: hasFiles });
       channelSlash.clearCommand();
       setDraft("");
       mainMention.closeMention();
+      mainMention.clearEntries();
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       isAtBottom.current = true;
       // Execute slash command on the newly sent message
@@ -4958,10 +5024,12 @@ export default function CurrentPage() {
     if ((!trimmed && !hasFiles) || dmPostMutation.isPending || isDmUploading || !selectedDmId) return;
     const cmd = dmSlash.selectedCommand;
     try {
-      const newMsg = await dmPostMutation.mutateAsync({ body: trimmed, hasPendingAttachments: hasFiles });
+      const body = dmMention.serializeForSave(trimmed);
+      const newMsg = await dmPostMutation.mutateAsync({ body, hasPendingAttachments: hasFiles });
       dmSlash.clearCommand();
       setDmDraft("");
       dmMention.closeMention();
+      dmMention.clearEntries();
       if (dmTextareaRef.current) dmTextareaRef.current.style.height = "auto";
       dmIsAtBottom.current = true;
       // Execute DM slash command

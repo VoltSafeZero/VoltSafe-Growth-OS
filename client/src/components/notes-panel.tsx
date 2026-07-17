@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { MentionInput, renderMentionBody } from "@/components/shared/mention-input";
+import { MentionInput, renderMentionBody, type MentionInputHandle } from "@/components/shared/mention-input";
+import { tokensToCleanText } from "@/hooks/use-mention-composer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -20,6 +21,8 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
   const { toast } = useToast();
+  const newNoteMentionRef = useRef<MentionInputHandle>(null);
+  const editMentionRef = useRef<MentionInputHandle>(null);
 
   const queryKey = ["/api/notes", linkedObjectType, linkedObjectId];
 
@@ -37,11 +40,11 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
   const unpinnedNotes = notes.filter(n => !n.isPinned);
 
   const createMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (content: string) => {
       const res = await apiRequest("POST", "/api/notes", {
         linkedObjectType,
         linkedObjectId,
-        content: newContent.trim(),
+        content,
       });
       return res.json();
     },
@@ -100,7 +103,9 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
 
   const startEdit = (note: Note) => {
     setEditingId(note.id);
-    setEditContent(note.content);
+    // Show clean text in editor; re-populate mention registry from stored token format
+    setEditContent(tokensToCleanText(note.content));
+    requestAnimationFrame(() => editMentionRef.current?.initFromTokenText(note.content ?? ""));
   };
 
   const renderNote = (note: Note) => (
@@ -116,6 +121,7 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
       {editingId === note.id ? (
         <div className="space-y-2">
           <MentionInput
+            ref={editMentionRef}
             value={editContent}
             onChange={setEditContent}
             rows={3}
@@ -127,7 +133,10 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
               size="sm"
               className="h-6 text-xs"
               disabled={!editContent.trim() || updateMutation.isPending}
-              onClick={() => updateMutation.mutate({ id: note.id, content: editContent })}
+              onClick={() => {
+                const toStore = editMentionRef.current?.getTokenizedValue(editContent) ?? editContent;
+                updateMutation.mutate({ id: note.id, content: toStore });
+              }}
               data-testid={`button-save-note-${note.id}`}
             >
               <Check className="h-3 w-3 mr-1" /> Save
@@ -200,12 +209,17 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
       {/* New note input */}
       <div className="space-y-2">
         <MentionInput
+          ref={newNoteMentionRef}
           value={newContent}
           onChange={setNewContent}
           placeholder="Add a note… type @ to mention someone"
           rows={compact ? 2 : 3}
           data-testid="input-new-note"
-          onSubmit={() => { if (newContent.trim()) createMutation.mutate(); }}
+          onSubmit={() => {
+            if (!newContent.trim()) return;
+            const toStore = newNoteMentionRef.current?.getTokenizedValue(newContent.trim()) ?? newContent.trim();
+            createMutation.mutate(toStore);
+          }}
         />
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-muted-foreground">Cmd/Ctrl+Enter to submit</span>
@@ -213,7 +227,10 @@ export function NotesPanel({ linkedObjectType, linkedObjectId, compact = false }
             size="sm"
             className="h-7 text-xs"
             disabled={!newContent.trim() || createMutation.isPending}
-            onClick={() => createMutation.mutate()}
+            onClick={() => {
+              const toStore = newNoteMentionRef.current?.getTokenizedValue(newContent.trim()) ?? newContent.trim();
+              createMutation.mutate(toStore);
+            }}
             data-testid="button-add-note"
           >
             <MessageSquarePlus className="h-3.5 w-3.5 mr-1" />

@@ -1,0 +1,273 @@
+IMPORTANT DISPLAY RULE — NEVER SHOW RAW MENTION TOKENS
+
+The structured token:
+
+@[Scott Carlson](user:138)
+
+may be used internally for storage or transport, but it must never be visible anywhere in the VoltSafe CMS user interface.
+
+Users must always see only the canonical human-readable full name.
+
+Example:
+
+User types:
+@Scott
+
+After selecting Scott Carlson, everyone must see:
+@Scott Carlson
+
+They must never see:
+@[Scott Carlson](user:138)
+
+This applies everywhere, including:
+
+- While composing
+- After selection
+- Saved task descriptions
+- Task comments
+- CURRENTS messages
+- Lead notes
+- Account notes
+- Contact notes
+- Timeline entries
+- Notifications
+- Today
+- Daily Execution
+- Mission Control
+- Search results
+- Exports
+- Activity logs
+- Email notifications
+- Mobile views
+- Read-only views
+- Edit views
+
+COMPOSER BEHAVIOUR
+
+When the user selects Scott Carlson from autocomplete:
+
+1. Replace the typed query:
+   @Scott
+
+2. Display:
+   @Scott Carlson
+
+3. Store Scott Carlson’s immutable user ID separately in structured mention metadata.
+
+4. Keep the internal ID hidden from the editor’s visible text.
+
+Preferred model:
+
+Visible text:
+@Scott Carlson
+
+Structured metadata:
+{
+  "type": "mention",
+  "userId": "138",
+  "label": "Scott Carlson",
+  "start": 24,
+  "end": 39
+}
+
+Do not require the visible textarea value to contain:
+
+@[Scott Carlson](user:138)
+
+If the current implementation stores tokens inside the raw text field, the editor must transform them into a clean display layer before rendering and must transform them back only internally when saving.
+
+However, the preferred architecture is to store:
+
+- Clean visible text
+- Separate structured mention metadata
+
+Example database fields:
+
+content_text:
+“@Scott Carlson please review this.”
+
+content_mentions_json:
+[
+  {
+    "userId": "138",
+    "label": "Scott Carlson",
+    "start": 0,
+    "end": 15
+  }
+]
+
+This avoids leaking implementation syntax into the UI.
+
+CANONICAL NAME RULE
+
+Autocomplete may match partial text such as:
+
+- @Scott
+- @scott
+- @sco
+- Scott’s username
+- Scott’s email
+
+But after selection, the visible result must always become:
+
+@Scott Carlson
+
+The same rule applies to all users:
+
+@Alex → @Alexandra Ruiz
+@Terri → @Terri Breker
+
+Always display:
+
+First Name + Last Name
+
+Do not display:
+
+- Username
+- Email prefix
+- First name only
+- Initials
+- Raw database IDs
+- Mention syntax
+- Internal token markup
+
+EDIT MODE
+
+When reopening a saved field for editing:
+
+- Render the clean visible mention:
+  @Scott Carlson
+- Keep the user ID attached invisibly in editor state.
+- Allow the entire mention to behave as one structured unit.
+- Do not expose raw tokens during editing.
+- Do not convert the mention back to plain unlinked text.
+
+READ MODE
+
+When displaying saved content:
+
+- Render @Scott Carlson as a clickable styled mention.
+- Clicking it should open Scott Carlson’s profile or mention status.
+- Never display internal storage syntax.
+
+COPY AND PASTE
+
+When copying text from the CMS:
+
+Default copied text should be human-readable:
+
+@Scott Carlson please review this.
+
+Do not copy:
+
+@[Scott Carlson](user:138)
+
+Pasting that copied text elsewhere should remain readable text.
+
+If pasted back into a mention-capable editor, it should remain plain text unless the user explicitly selects Scott again or structured clipboard metadata is safely preserved.
+
+NOTIFICATIONS AND FEEDS
+
+Notifications must say:
+
+Trevor mentioned you in a task:
+“@Scott Carlson please review this.”
+
+They must not say:
+
+“@[Scott Carlson](user:138) please review this.”
+
+The same display rule applies to:
+
+- Today
+- Daily Execution
+- Mission Control
+- Notification centre
+- Email notifications
+- Mention previews
+- Search results
+- Activity history
+
+LEGACY TOKEN HANDLING
+
+Existing records may already contain raw tokens such as:
+
+@[Scott](user:138)
+
+or:
+
+@[Scott Carlson](user:138)
+
+Create a safe renderer and migration path that:
+
+1. Resolves user ID 138.
+2. Retrieves the canonical current name.
+3. Displays:
+   @Scott Carlson
+4. Never exposes the raw token.
+5. Preserves the original data until migration is confirmed.
+6. Migrates safely to clean text plus structured mention metadata where practical.
+
+If the user can no longer be found:
+
+Display the safest readable fallback, such as:
+
+@Former User
+
+Do not expose:
+
+user:138
+
+TESTING
+
+Add tests confirming:
+
+1. Typing @Scott and selecting Scott Carlson displays:
+   @Scott Carlson
+
+2. The composer never visibly displays:
+   @[Scott Carlson](user:138)
+
+3. The saved read view displays:
+   @Scott Carlson
+
+4. Reopening the editor displays:
+   @Scott Carlson
+
+5. Scott’s immutable user ID remains attached in structured metadata.
+
+6. Notifications display:
+   @Scott Carlson
+
+7. Today displays:
+   @Scott Carlson
+
+8. Daily Execution displays:
+   @Scott Carlson
+
+9. Mission Control displays:
+   @Scott Carlson
+
+10. Copying the text produces:
+    @Scott Carlson
+
+11. Legacy raw mention tokens render as clean canonical names.
+
+12. No UI snapshot contains:
+    ](user:
+
+Add a static regression scan that fails if raw mention-token syntax is rendered directly in JSX or user-visible text.
+
+FINAL ACCEPTANCE RULE
+
+Internal storage may contain user IDs.
+
+The user interface may not.
+
+Everyone using VoltSafe CMS must see only:
+
+@First Name Last Name
+
+For Scott, the visible result must always be:
+
+@Scott Carlson
