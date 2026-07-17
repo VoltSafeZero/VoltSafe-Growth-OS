@@ -85,3 +85,5 @@
 - [Calendar externalCalendarId PII fix](calendar-source-key.md) — raw Google Calendar IDs (which are email addresses) replaced with SHA-256 opaque calendarSourceKey in all list responses; server translates back to raw IDs for filtering/storage.
 - [Global @mention system](global-mention-system.md) — global_mentions table; @[Name](user:ID) token format; saveMentions() is always fire-and-forget; @all expands server-side via 60s cache; PATCH ACL requires mentioned_user_id=userId.
 - [Mention display rule](mention-display-rule.md) — textarea always shows clean "@Name" text; tokens only in DB; MentionInputHandle ref + getTokenizedValue before every save; 66-check regression test.
+- [vitest DOM testing setup](vitest-dom-testing-setup.md) — vitest+happy-dom for real DOM hook tests; fetch mocking, QueryClient config, pointerDown not click.
+- [Inbox thread canonical CTE](inbox-thread-canonical-cte.md) — per-category COUNT(DISTINCT) double-counts cross-category threads; use DISTINCT ON subquery instead.

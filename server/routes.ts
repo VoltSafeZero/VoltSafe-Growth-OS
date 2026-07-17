@@ -20690,8 +20690,12 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         : "";
 
       // Phase 4: derived columns replace all label_ids ILIKE patterns.
-      // smart_category is mutually exclusive (single value per message) so bucket sums
-      // are exact and no multi-category drift is possible.
+      // smart_category is mutually exclusive per MESSAGE (single value per message).
+      // However, a thread can have messages in different categories (e.g. an update
+      // reply forwarded as a promotion). Per-category COUNT(DISTINCT gmail_thread_id)
+      // can therefore double-count threads that span categories. The main query only
+      // computes the total inbox_unread_threads; per-category canonical thread counts
+      // are computed by a separate DISTINCT ON query below.
       // missing_inbox_unread repurposed: detects unread messages where is_inbox IS NULL
       // (backfill gap — should always be 0 after Phase 1 backfill).
       const rows = await db.execute(sql.raw(`
@@ -20704,12 +20708,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'forums')::int      AS forums_unread,
           COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND is_starred = true)::int              AS priority_unread,
           COUNT(*) FILTER (WHERE is_unread = true AND is_inbox IS NULL)::int                                   AS missing_inbox_unread,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true)::int             AS inbox_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'people')::int     AS people_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'updates')::int    AS updates_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'promotions')::int AS promotions_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'social')::int     AS social_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'forums')::int     AS forums_unread_threads
+          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true)::int             AS inbox_unread_threads
         FROM email_messages
         WHERE ${scopeClause} (is_inbox = true OR is_unread = true)
       `));
@@ -20727,6 +20726,29 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       const r  = (((rows      as any).rows ?? rows     )[0] ?? {}) as Record<string, number>;
       const rd = (((driftRows as any).rows ?? driftRows)[0] ?? {}) as Record<string, number>;
 
+      // Canonical thread category counts: each thread assigned to the category of its
+      // most recent inbox+unread message via DISTINCT ON. This ensures mutual exclusivity
+      // so that sum(per-category thread counts) === total inbox_unread_threads exactly,
+      // even when a thread has messages in two different smart_category values.
+      const threadCanonicalRows = await db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE canonical_cat = 'people')::int      AS people_unread_threads,
+          COUNT(*) FILTER (WHERE canonical_cat = 'updates')::int     AS updates_unread_threads,
+          COUNT(*) FILTER (WHERE canonical_cat = 'promotions')::int  AS promotions_unread_threads,
+          COUNT(*) FILTER (WHERE canonical_cat = 'social')::int      AS social_unread_threads,
+          COUNT(*) FILTER (WHERE canonical_cat = 'forums')::int      AS forums_unread_threads
+        FROM (
+          SELECT DISTINCT ON (gmail_thread_id)
+            gmail_thread_id,
+            smart_category AS canonical_cat
+          FROM email_messages
+          WHERE ${scopeClause} is_inbox = true AND is_unread = true
+            AND smart_category IS NOT NULL
+          ORDER BY gmail_thread_id, sent_at DESC NULLS LAST
+        ) AS _thread_canonical
+      `));
+      const rt = (((threadCanonicalRows as any).rows ?? threadCanonicalRows)[0] ?? {}) as Record<string, number>;
+
       const bucketSum = (r.people_unread ?? 0) + (r.updates_unread ?? 0) +
                         (r.promotions_unread ?? 0) + (r.social_unread ?? 0) + (r.forums_unread ?? 0);
       const delta = (r.inbox_unread ?? 0) - bucketSum;
@@ -20735,7 +20757,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         unit: "messages",
         note: [
           "All primary counts are raw messages (not threads).",
-          "Thread counts are supplementary — a thread is counted if ≥1 message in it is INBOX+UNREAD.",
+          "Thread counts use canonical category assignment (most recent message per thread) to ensure mutually exclusive buckets.",
           "Priority (starred) is an overlay: starred messages are ALSO inside People/Updates/etc. Do NOT add priority to the bucket sum.",
           "CRM Review is a UI-only tab (unconfirmed auto-associations). Its messages are already counted inside People/Updates/etc.",
         ].join(" "),
@@ -20754,11 +20776,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         },
         threads: {
           inbox_unread:    r.inbox_unread_threads       ?? 0,
-          people:          r.people_unread_threads      ?? 0,
-          updates:         r.updates_unread_threads     ?? 0,
-          promotions:      r.promotions_unread_threads  ?? 0,
-          social:          r.social_unread_threads      ?? 0,
-          forums:          r.forums_unread_threads      ?? 0,
+          people:          rt.people_unread_threads     ?? 0,
+          updates:         rt.updates_unread_threads    ?? 0,
+          promotions:      rt.promotions_unread_threads ?? 0,
+          social:          rt.social_unread_threads     ?? 0,
+          forums:          rt.forums_unread_threads     ?? 0,
         },
         drift: {
           missing_inbox_unread: r.missing_inbox_unread ?? 0,

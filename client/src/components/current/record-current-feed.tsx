@@ -359,8 +359,9 @@ function MessageComposer({
 
   function submit() {
     const files = [...pendingFiles];
-    const serialized = mention.serializeForSave(draft).trim();
-    if ((!serialized && files.length === 0) || disabled) return;
+    const trimmed = draft.trim();
+    if ((!trimmed && files.length === 0) || disabled) return;
+    const serialized = mention.serializeForSave(draft);
     onSend(serialized, files);
     setDraft("");
     setPendingFiles([]);
