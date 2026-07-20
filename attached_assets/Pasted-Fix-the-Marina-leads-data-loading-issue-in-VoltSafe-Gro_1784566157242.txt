@@ -1,0 +1,48 @@
+Fix the Marina leads data-loading issue in VoltSafe Growth OS.
+
+Problem:
+- On `/opportunities`, filtering Industry by “Marina” returns only approximately 15 records.
+- The system should contain approximately 11,000 marina leads across Canada and the United States.
+- Ignore any difference between the header and footer counts in the supplied screenshots; they were captured using slightly different queries.
+- Do not hard-code the expected count.
+
+First, investigate and report:
+1. Which database and environment this deployment uses.
+2. Total rows in the marina source/import dataset.
+3. Total rows in the Leads/Accounts table.
+4. Counts grouped by industry value and country.
+5. Whether records are archived, soft-deleted, assigned to another tenant, or stored in a separate table.
+6. Whether the marina import completed or stopped after its first batch.
+
+Check specifically for:
+- An API or database query limited to 15 records.
+- Broken or missing pagination.
+- An import process that handles only the first page or batch.
+- Marina records stored in a source table but never converted into Leads.
+- Exact industry matching that excludes values such as `Marinas`, `Marine`, inconsistent capitalization, whitespace, or blank values.
+- Country logic excluding Canada or the USA.
+- The frontend replacing previous pages instead of appending them.
+- The production deployment pointing to an empty, test, or outdated database.
+
+Required fix:
+- Ensure all intended marina records from Canada and the USA are available in Leads & Accounts.
+- Implement reliable server-side pagination and return the filtered total from the database.
+- Allow users to browse or progressively load every matching record.
+- Normalize industry and country values safely without destroying original source data.
+- If the import is incomplete, repair it so every batch is processed.
+- Make the import resumable and idempotent.
+- Use a stable unique key and upserts so rerunning it cannot create duplicates.
+- Do not delete or overwrite existing records.
+- Do not begin a full re-import until the existing data and failure point have been identified.
+
+Verification:
+1. Report record counts before and after the fix.
+2. Confirm the final Marina total for Canada.
+3. Confirm the final Marina total for the USA.
+4. Confirm pagination returns different records on subsequent pages.
+5. Confirm clearing the filter restores the complete Leads list.
+6. Check for duplicate companies, source IDs, and contact records.
+7. Run relevant automated tests.
+8. Explain the root cause and list every file and database migration changed.
+
+Stop and ask me before performing an irreversible database migration or destructive data cleanup.

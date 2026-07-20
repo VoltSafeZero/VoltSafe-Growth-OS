@@ -1,0 +1,64 @@
+Add a universal, manually controlled `Potential Investor` tag to VoltSafe Growth OS.
+
+Core rule:
+Any Lead, Account, or Contact can potentially become an investor, but the tag must only be applied manually by a user. Never automatically apply it based on email content, keywords, AI analysis, industry, contact type, or other inferred information.
+
+Requirements:
+
+1. Create a shared `Potential Investor` tag that can be attached to:
+   - Leads
+   - Accounts
+   - Contacts
+
+2. Allow users to add or remove the tag from:
+   - New-record forms
+   - Existing Lead detail pages
+   - Existing Account detail pages
+   - Existing Contact detail pages
+   - List/table bulk actions
+   - The Mail email-reading interface
+
+3. In Mail, add a clear action labelled:
+   `Tag as Potential Investor`
+
+4. When the email sender already matches an existing Lead, Account, or Contact:
+   - Show the matching record.
+   - Apply the tag to that record after the user clicks the action.
+   - Do not create a duplicate.
+   - If multiple possible matches exist, ask the user which record to tag.
+
+5. When the sender has no CRM record:
+   - Let the user choose `Create Lead`, `Create Contact`, or `Create Account`.
+   - Prefill available information from the email.
+   - Include an explicit, user-selected `Potential Investor` checkbox.
+   - Do not select the checkbox automatically.
+
+6. Tagging must be reversible. Users must be able to remove the tag from all supported record types.
+
+7. Add:
+   - A `Potential Investor` filter to Leads, Accounts, and Contacts.
+   - A saved cross-CRM view showing all tagged Leads, Accounts, and Contacts.
+   - The record type, name, organization, owner, date tagged, and originating email where applicable.
+
+8. Store metadata:
+   - Who applied the tag.
+   - When it was applied.
+   - The originating email/thread ID when applied from Mail.
+   - When and by whom it was removed.
+
+9. Use one shared tagging system rather than adding three unrelated boolean columns, unless the current architecture makes a polymorphic tagging table impractical.
+
+10. Preserve all existing CRM data and prevent duplicate tag assignments.
+
+Verification:
+- Manually tag and untag an existing Lead.
+- Manually tag and untag an existing Account.
+- Manually tag and untag an existing Contact.
+- Create a new record from an email with the tag selected.
+- Create a new record from an email without the tag selected.
+- Confirm no automatic tagging occurs.
+- Confirm existing email matches do not create duplicate CRM records.
+- Confirm all tagged records appear in the cross-CRM Potential Investors view.
+- Add automated tests for these behaviors.
+
+Before making destructive schema changes or removing existing data, stop and ask for confirmation.

@@ -415,7 +415,17 @@ export class DatabaseStorage implements IStorage {
       }
     }
     if (options?.marketSegment) {
-      conditions.push(eq(leads.marketSegment, options.marketSegment));
+      if (options.marketSegment === "marina") {
+        // Marina segment: also match marina_directory source and primary_industry='marine' leads
+        // because historically these were imported without market_segment set.
+        conditions.push(or(
+          eq(leads.marketSegment, "marina"),
+          eq(leads.source, "marina_directory"),
+          eq(leads.primaryIndustry, "marine")
+        ) as SQL);
+      } else {
+        conditions.push(eq(leads.marketSegment, options.marketSegment));
+      }
     }
     if (options?.shorePower) {
       if (options.shorePower === "unknown") {
@@ -776,6 +786,7 @@ export class DatabaseStorage implements IStorage {
           streetAddress: m.streetAddress || undefined,
           zipCode: m.zipCode || undefined,
           primaryIndustry: "marine",
+          marketSegment: "marina",
         })));
         imported += batch.length;
       }
