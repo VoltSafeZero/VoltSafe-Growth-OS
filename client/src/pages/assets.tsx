@@ -13,6 +13,7 @@ import {
   Image as ImageIcon, Presentation, File, Archive, X, Plus,
   MoreHorizontal, Eye, FolderOpen, AlertTriangle, RefreshCw,
   Paperclip, Folder, FolderPlus, ChevronRight, Home, Pencil, Check,
+  Star, StarOff, Lock, Globe, Shield, Link as LinkIcon, ExternalLink,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
@@ -23,7 +24,37 @@ type AssetItem = {
   id: number; name: string; originalName: string; mimeType: string; size: number;
   category: string; description?: string | null; tags?: string | null; folderId?: number | null;
   createdAt: string; hasFile: boolean;
+  useCase?: string | null; visibility?: string | null;
+  isFavorite?: boolean; usageCount?: number; lastAttachedAt?: string | null;
+  assetType?: string | null; uploadedBy?: number | null;
 };
+
+const USE_CASES = [
+  { value: "general",  label: "General" },
+  { value: "sales",    label: "Sales" },
+  { value: "product",  label: "Product" },
+  { value: "proof",    label: "Proof" },
+  { value: "quotes",   label: "Quotes" },
+  { value: "brand",    label: "Brand" },
+];
+
+const VISIBILITIES = [
+  { value: "customer_safe",  label: "Customer Safe",  color: "text-teal-400"  },
+  { value: "public",         label: "Public",          color: "text-green-400" },
+  { value: "internal_only",  label: "Internal",        color: "text-amber-400" },
+  { value: "investor_only",  label: "Investor Only",   color: "text-purple-400"},
+  { value: "admin_only",     label: "Admin Only",      color: "text-red-400"   },
+];
+
+function visLabel(v: string | null | undefined) {
+  return VISIBILITIES.find(x => x.value === (v ?? "customer_safe"))?.label ?? "Customer Safe";
+}
+function visColor(v: string | null | undefined) {
+  return VISIBILITIES.find(x => x.value === (v ?? "customer_safe"))?.color ?? "text-teal-400";
+}
+function useCaseLabel(u: string | null | undefined) {
+  return USE_CASES.find(x => x.value === (u ?? "general"))?.label ?? "General";
+}
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -76,12 +107,17 @@ function UploadDialog({ open, onClose, replaceAsset, folders, defaultFolderId }:
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
   const [folderId, setFolderId] = useState<string>(defaultFolderId ? String(defaultFolderId) : "none");
+  const [useCase, setUseCase] = useState<string>("general");
+  const [visibility, setVisibility] = useState<string>("customer_safe");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isReplace = !!replaceAsset;
 
   useEffect(() => {
-    if (open) setFolderId(defaultFolderId ? String(defaultFolderId) : "none");
-  }, [open, defaultFolderId]);
+    if (open) {
+      setFolderId(defaultFolderId ? String(defaultFolderId) : "none");
+      if (!isReplace) { setUseCase("general"); setVisibility("customer_safe"); }
+    }
+  }, [open, defaultFolderId, isReplace]);
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -93,6 +129,8 @@ function UploadDialog({ open, onClose, replaceAsset, folders, defaultFolderId }:
         if (description.trim()) formData.append("description", description.trim());
         if (tags.trim()) formData.append("tags", tags.trim());
         if (folderId && folderId !== "none") formData.append("folderId", folderId);
+        formData.append("useCase", useCase);
+        formData.append("visibility", visibility);
       }
       const url = isReplace ? `/api/assets/${replaceAsset!.id}/replace` : "/api/assets";
       const res = await fetch(url, { method: "POST", body: formData, credentials: "include" });
@@ -110,6 +148,7 @@ function UploadDialog({ open, onClose, replaceAsset, folders, defaultFolderId }:
   const handleClose = () => {
     setSelectedFile(null); setName(""); setDescription(""); setTags("");
     setFolderId(defaultFolderId ? String(defaultFolderId) : "none");
+    setUseCase("general"); setVisibility("customer_safe");
     onClose();
   };
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -171,6 +210,36 @@ function UploadDialog({ open, onClose, replaceAsset, folders, defaultFolderId }:
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Display Name</label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Asset name..." data-testid="input-asset-name" />
               </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Use Case</label>
+                  <Select value={useCase} onValueChange={setUseCase}>
+                    <SelectTrigger className="h-9 text-xs" data-testid="select-asset-usecase">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {USE_CASES.map(u => (
+                        <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Visibility</label>
+                  <Select value={visibility} onValueChange={setVisibility}>
+                    <SelectTrigger className="h-9 text-xs" data-testid="select-asset-visibility">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VISIBILITIES.map(v => (
+                        <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               {folders.length > 0 && (
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">Folder (optional)</label>
@@ -214,15 +283,115 @@ function UploadDialog({ open, onClose, replaceAsset, folders, defaultFolderId }:
   );
 }
 
+// ─── Edit Metadata Dialog ─────────────────────────────────────────────────────
+function EditMetaDialog({ asset, open, onClose }: { asset: AssetItem | null; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [tags, setTags] = useState("");
+  const [useCase, setUseCase] = useState("general");
+  const [visibility, setVisibility] = useState("customer_safe");
+
+  useEffect(() => {
+    if (asset && open) {
+      setName(asset.name);
+      setDescription(asset.description ?? "");
+      setTags(asset.tags ?? "");
+      setUseCase(asset.useCase ?? "general");
+      setVisibility(asset.visibility ?? "customer_safe");
+    }
+  }, [asset, open]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiRequest("PATCH", `/api/assets/${asset!.id}`, {
+      name: name.trim() || asset!.name,
+      description: description.trim() || null,
+      tags: tags.trim(),
+      useCase: useCase || null,
+      visibility,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      toast({ title: "Asset updated" });
+      onClose();
+    },
+    onError: () => toast({ title: "Failed to update asset", variant: "destructive" }),
+  });
+
+  if (!asset) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Asset Details</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} data-testid="input-edit-asset-name" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Use Case</label>
+              <Select value={useCase} onValueChange={setUseCase}>
+                <SelectTrigger className="h-9 text-xs" data-testid="select-edit-usecase">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {USE_CASES.map(u => (
+                    <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Visibility</label>
+              <Select value={visibility} onValueChange={setVisibility}>
+                <SelectTrigger className="h-9 text-xs" data-testid="select-edit-visibility">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {VISIBILITIES.map(v => (
+                    <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Brief description..." className="resize-none h-16 text-sm" data-testid="input-edit-description" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Tags (comma-separated)</label>
+            <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="e.g. proposal, Q1-2026" data-testid="input-edit-tags" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-asset-meta">
+            {saveMutation.isPending ? "Saving..." : "Save Changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Asset Card ──────────────────────────────────────────────────────────────
-function AssetCard({ asset, onDelete, deleting, onReplace, onMove, folders }: {
+function AssetCard({ asset, onDelete, deleting, onReplace, onMove, onEdit, onToggleFavorite, folders }: {
   asset: AssetItem; onDelete: (id: number) => void; deleting: boolean;
   onReplace: (asset: AssetItem) => void;
   onMove: (assetId: number, folderId: number | null) => void;
+  onEdit: (asset: AssetItem) => void;
+  onToggleFavorite: (id: number, current: boolean) => void;
   folders: AssetFolder[];
 }) {
   const isImage = asset.mimeType.startsWith("image/");
   const missing = !asset.hasFile;
+  const vis = asset.visibility ?? "customer_safe";
+  const isRestricted = ["internal_only", "investor_only", "admin_only"].includes(vis);
 
   return (
     <div
@@ -231,11 +400,12 @@ function AssetCard({ asset, onDelete, deleting, onReplace, onMove, folders }: {
       }`}
       data-testid={`asset-card-${asset.id}`}
     >
+      {/* Thumbnail / icon area */}
       <div className={`h-36 flex items-center justify-center relative overflow-hidden ${missing ? "bg-amber-500/5" : "bg-muted/30"}`}>
         {missing ? (
           <div className="flex flex-col items-center gap-2 text-amber-500/70">
             <AlertTriangle className="h-10 w-10" />
-            <span className="text-xs font-medium">File missing</span>
+            <span className="text-xs font-medium">File unavailable</span>
           </div>
         ) : isImage ? (
           <img src={`/api/assets/${asset.id}/file`} alt={asset.name} className="w-full h-full object-cover"
@@ -243,6 +413,20 @@ function AssetCard({ asset, onDelete, deleting, onReplace, onMove, folders }: {
         ) : (
           <FileIcon mimeType={asset.mimeType} className="h-14 w-14 opacity-70" />
         )}
+
+        {/* Favorite star */}
+        <button
+          onClick={() => onToggleFavorite(asset.id, !!asset.isFavorite)}
+          className={`absolute top-1.5 left-1.5 p-1 rounded-md transition-all ${
+            asset.isFavorite ? "opacity-100 text-amber-400" : "opacity-0 group-hover:opacity-70 text-white"
+          } bg-black/30 hover:bg-black/50`}
+          title={asset.isFavorite ? "Remove from favorites" : "Add to favorites"}
+          data-testid={`button-favorite-asset-${asset.id}`}
+        >
+          {asset.isFavorite ? <Star className="h-3 w-3 fill-current" /> : <Star className="h-3 w-3" />}
+        </button>
+
+        {/* Hover actions */}
         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
           {missing ? (
             <button onClick={() => onReplace(asset)}
@@ -253,7 +437,7 @@ function AssetCard({ asset, onDelete, deleting, onReplace, onMove, folders }: {
           ) : (
             <>
               <a href={`/api/assets/${asset.id}/file`} target="_blank" rel="noopener noreferrer"
-                title="Preview" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
+                title="Preview / Open" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
                 data-testid={`button-preview-asset-${asset.id}`}>
                 <Eye className="h-4 w-4" />
               </a>
@@ -272,6 +456,24 @@ function AssetCard({ asset, onDelete, deleting, onReplace, onMove, folders }: {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium truncate" title={asset.name}>{asset.name}</p>
             <p className="text-xs text-muted-foreground mt-0.5">{formatBytes(asset.size)} · {formatDate(asset.createdAt)}</p>
+
+            {/* Use Case + Visibility badges */}
+            <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted/60 text-muted-foreground">
+                {useCaseLabel(asset.useCase)}
+              </span>
+              <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted/40 ${visColor(asset.visibility)}`}>
+                {isRestricted && <Lock className="h-2 w-2" />}
+                {vis === "public" && <Globe className="h-2 w-2" />}
+                {visLabel(asset.visibility)}
+              </span>
+              {(asset.usageCount ?? 0) > 0 && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted/40 text-muted-foreground">
+                  Used {asset.usageCount}×
+                </span>
+              )}
+            </div>
+
             {asset.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{asset.description}</p>}
             {asset.tags && (
               <div className="flex flex-wrap gap-1 mt-1.5">
@@ -288,15 +490,11 @@ function AssetCard({ asset, onDelete, deleting, onReplace, onMove, folders }: {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {missing ? (
-                <DropdownMenuItem onClick={() => onReplace(asset)}>
-                  <RefreshCw className="h-3.5 w-3.5 mr-2" /> Re-upload file
-                </DropdownMenuItem>
-              ) : (
+              {!missing && (
                 <>
                   <DropdownMenuItem asChild>
                     <a href={`/api/assets/${asset.id}/file`} target="_blank" rel="noopener noreferrer">
-                      <Eye className="h-3.5 w-3.5 mr-2" /> Preview
+                      <Eye className="h-3.5 w-3.5 mr-2" /> Preview / Open
                     </a>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
@@ -304,8 +502,23 @@ function AssetCard({ asset, onDelete, deleting, onReplace, onMove, folders }: {
                       <Download className="h-3.5 w-3.5 mr-2" /> Download
                     </a>
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                 </>
               )}
+              {missing && (
+                <DropdownMenuItem onClick={() => onReplace(asset)}>
+                  <RefreshCw className="h-3.5 w-3.5 mr-2" /> Re-upload file
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => onEdit(asset)}>
+                <Pencil className="h-3.5 w-3.5 mr-2" /> Edit details
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onToggleFavorite(asset.id, !!asset.isFavorite)}>
+                {asset.isFavorite
+                  ? <><StarOff className="h-3.5 w-3.5 mr-2" /> Remove from favorites</>
+                  : <><Star className="h-3.5 w-3.5 mr-2" /> Add to favorites</>
+                }
+              </DropdownMenuItem>
               {folders.length > 0 && (
                 <>
                   <DropdownMenuSeparator />
@@ -428,6 +641,7 @@ export default function AssetsPage() {
   const [selectedFolderId, setSelectedFolderId] = useState<number | null | "all">("all");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [replaceTarget, setReplaceTarget] = useState<AssetItem | null>(null);
+  const [editTarget, setEditTarget] = useState<AssetItem | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -455,6 +669,16 @@ export default function AssetsPage() {
     onError: () => toast({ title: "Failed to move asset", variant: "destructive" }),
   });
 
+  const favoriteMutation = useMutation({
+    mutationFn: async ({ id, isFavorite }: { id: number; isFavorite: boolean }) =>
+      apiRequest("PATCH", `/api/assets/${id}`, { isFavorite }),
+    onSuccess: (_, { isFavorite }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      toast({ title: isFavorite ? "Added to favorites" : "Removed from favorites" });
+    },
+    onError: () => toast({ title: "Failed to update favorite", variant: "destructive" }),
+  });
+
   const createFolderMutation = useMutation({
     mutationFn: async (name: string) => apiRequest("POST", "/api/asset-folders", { name }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/asset-folders"] }); toast({ title: "Folder created" }); },
@@ -480,6 +704,7 @@ export default function AssetsPage() {
 
   const handleDelete = (id: number) => { setDeletingId(id); deleteMutation.mutate(id); };
   const handleMove = (assetId: number, folderId: number | null) => moveMutation.mutate({ assetId, folderId });
+  const handleToggleFavorite = (id: number, current: boolean) => favoriteMutation.mutate({ id, isFavorite: !current });
 
   const handleStartCreateFolder = () => {
     setCreatingFolder(true);
@@ -497,9 +722,15 @@ export default function AssetsPage() {
   const missingCount = allAssets.filter(a => !a.hasFile).length;
 
   const filtered = allAssets.filter((a) => {
-    const matchesSearch = !search || a.name.toLowerCase().includes(search.toLowerCase()) ||
-      (a.description || "").toLowerCase().includes(search.toLowerCase()) ||
-      (a.tags || "").toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    const matchesSearch = !search ||
+      a.name.toLowerCase().includes(q) ||
+      a.originalName.toLowerCase().includes(q) ||
+      (a.description || "").toLowerCase().includes(q) ||
+      (a.tags || "").toLowerCase().includes(q) ||
+      (a.useCase ?? "general").toLowerCase().includes(q) ||
+      useCaseLabel(a.useCase).toLowerCase().includes(q) ||
+      (a.category ?? "").toLowerCase().includes(q);
     const matchesFolder = selectedFolderId === "all" ? true :
       selectedFolderId === null ? a.folderId == null :
       a.folderId === selectedFolderId;
@@ -524,6 +755,15 @@ export default function AssetsPage() {
 
   const uploadDefaultFolder = selectedFolderId === "all" || selectedFolderId === null ? null :
     typeof selectedFolderId === "number" ? selectedFolderId : null;
+
+  const statsBar = [
+    { label: "Total", count: allAssets.length },
+    { label: "Sales", count: allAssets.filter(a => (a.useCase ?? "general") === "sales").length },
+    { label: "Product", count: allAssets.filter(a => (a.useCase ?? "general") === "product").length },
+    { label: "General", count: allAssets.filter(a => !a.useCase || a.useCase === "general").length },
+    { label: "Restricted", count: allAssets.filter(a => ["internal_only", "investor_only", "admin_only"].includes(a.visibility ?? "customer_safe")).length },
+    { label: "Favorites", count: allAssets.filter(a => a.isFavorite).length },
+  ];
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
@@ -623,30 +863,37 @@ export default function AssetsPage() {
                   </>
                 )}
               </div>
-              <h1 className="text-xl font-semibold">Sales & Marketing Assets</h1>
-              <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                {allAssets.length} {allAssets.length === 1 ? "asset" : "assets"} stored
-                <span className="text-border/70">·</span>
-                <Paperclip className="h-3 w-3" />
-                Attach to emails using the paperclip icon in the compose window
+              <h1 className="text-xl font-semibold">Document Hub</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Files, links and records — organized by use case and visibility · {allAssets.length} total
               </p>
             </div>
             <Button onClick={() => setUploadOpen(true)} data-testid="button-upload-new-asset">
-              <Plus className="h-4 w-4 mr-2" /> Upload Asset
+              <Plus className="h-4 w-4 mr-2" /> Upload
             </Button>
+          </div>
+
+          {/* Stats bar */}
+          <div className="flex items-center gap-4 mt-3 flex-wrap">
+            {statsBar.map(s => (
+              <div key={s.label} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">{s.count}</span>
+                <span>{s.label}</span>
+              </div>
+            ))}
           </div>
 
           {missingCount > 0 && (
             <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs">
               <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
-              <span><strong>{missingCount} {missingCount === 1 ? "asset" : "assets"}</strong> {missingCount === 1 ? "is" : "are"} missing their file data and need to be re-uploaded.</span>
+              <span><strong>{missingCount} {missingCount === 1 ? "asset" : "assets"}</strong> {missingCount === 1 ? "is" : "are"} missing their file and need to be re-uploaded.</span>
             </div>
           )}
 
           <div className="mt-3 flex flex-col sm:flex-row gap-3">
             <div className="relative max-w-sm w-full">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search assets..."
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, use case, tags..."
                 className="pl-8 h-8 text-sm" data-testid="input-assets-search" />
               {search && (
                 <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -685,22 +932,19 @@ export default function AssetsPage() {
               {allAssets.length === 0 ? (
                 <>
                   <p className="font-medium">No assets yet</p>
-                  <p className="text-sm mt-1 mb-4">Upload your first sales or marketing asset to get started</p>
+                  <p className="text-sm mt-1 mb-4">Upload your first asset to get started</p>
                   <Button onClick={() => setUploadOpen(true)} data-testid="button-upload-first-asset">
                     <Upload className="h-4 w-4 mr-2" /> Upload Asset
                   </Button>
                 </>
               ) : (
                 <>
-                  <p className="font-medium">No assets in this {selectedFolderId !== "all" ? "folder" : "view"}</p>
-                  <p className="text-sm mt-1">
-                    {selectedFolderId !== "all" ? "Upload an asset or move existing ones here" : "Try a different category or search term"}
-                  </p>
-                  {selectedFolderId !== "all" && (
-                    <Button className="mt-4" onClick={() => setUploadOpen(true)} data-testid="button-upload-in-folder">
-                      <Upload className="h-4 w-4 mr-2" /> Upload to this folder
-                    </Button>
-                  )}
+                  <p className="font-medium">No assets match this view</p>
+                  <p className="text-sm mt-1 mb-3">Try a different category, folder, or search term</p>
+                  <Button variant="outline" size="sm" onClick={() => { setSearch(""); setCategoryTab("all"); setSelectedFolderId("all"); }}
+                    data-testid="button-clear-asset-filters">
+                    Clear filters
+                  </Button>
                 </>
               )}
             </div>
@@ -714,6 +958,8 @@ export default function AssetsPage() {
                   deleting={deletingId === asset.id && deleteMutation.isPending}
                   onReplace={setReplaceTarget}
                   onMove={handleMove}
+                  onEdit={setEditTarget}
+                  onToggleFavorite={handleToggleFavorite}
                   folders={folders}
                 />
               ))}
@@ -728,6 +974,12 @@ export default function AssetsPage() {
         replaceAsset={replaceTarget}
         folders={folders}
         defaultFolderId={uploadDefaultFolder}
+      />
+
+      <EditMetaDialog
+        asset={editTarget}
+        open={!!editTarget}
+        onClose={() => setEditTarget(null)}
       />
     </div>
   );

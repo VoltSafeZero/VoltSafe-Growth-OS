@@ -1,0 +1,65 @@
+Fix the Asset Library and Document Hub throughout VoltSafe Growth OS.
+
+Current problems:
+
+1. Document Hub shows 27 assets, but the Asset Library picker says “No assets found.”
+2. Assets visible in Document Hub are categorized as “General,” but the picker has no General filter.
+3. Selecting Product, Recommended, Recent, or other filters often returns nothing.
+4. Uploaded assets cannot reliably be previewed, opened, downloaded, selected, or attached.
+5. The attachment count can increase even though no usable asset is visible.
+6. The Document Hub asset-detail panel lacks clear working actions for previewing, opening, downloading, and using an asset.
+
+Please investigate the existing database schema, API routes, filtering logic, storage URLs, permissions, and UI components before changing anything. Identify the actual causes and implement a complete fix—not a cosmetic workaround.
+
+Requirements:
+
+- Make every valid Document Hub asset available in the Asset Library picker unless its visibility rules explicitly exclude the current user.
+- Add an “All” or “General” filter so General assets can be found.
+- Ensure every filter uses the same canonical values as the database. Normalize legacy values and capitalization differences where necessary.
+- Make Recommended show sensible results instead of defaulting to empty.
+- Make Recent sort by the actual upload/creation date.
+- Make Favorites work from a persisted favorite field or relationship.
+- Ensure search works across asset name, title, description, notes, category, use case, and linked record.
+- Show a useful empty state only when the active search/filter genuinely has no matching records. Include a “Clear filters” action.
+- Display which filters are active and allow each one to be cleared.
+- When opening an asset, provide:
+  - Preview
+  - Open in a new tab
+  - Download
+  - Attach/select
+  - Remove from the current selection
+- Support images and PDFs at minimum. For unsupported file types, provide file information and a download action.
+- Ensure uploaded files have valid, persistent storage URLs. Do not use temporary browser-only blob URLs.
+- If an old asset record has missing or invalid file-location data, clearly mark it “File unavailable” instead of silently failing.
+- Do not count an asset as attached until attachment succeeds.
+- After attachment, show the selected asset by name with a thumbnail or file icon and a remove control.
+- Clicking Done must return the selected assets to the originating form and preserve them when that form is saved.
+- The Document Hub detail panel must have clear Preview, Open, Download, and Use/Attach actions.
+- Respect Customer Safe, Internal, and Restricted visibility rules consistently in both Document Hub and the picker.
+- Do not delete or overwrite existing assets or database records.
+- Preserve existing links between assets and messages, leads, accounts, tasks, projects, and other records.
+- Add error handling and visible user-friendly error messages for failed loading, previewing, downloading, or attaching.
+- Remove stale caching or invalidate the relevant queries after uploads, edits, attachments, and deletions.
+- Make the layout work at normal laptop widths without controls being hidden off-screen.
+
+Please check for duplicated asset-fetching code. Document Hub and the Asset Library should use one shared asset query/service and the same filtering vocabulary so they cannot disagree about which assets exist.
+
+Before finishing, test this complete workflow:
+
+1. Open Document Hub and confirm all existing assets load.
+2. Open an existing image and preview it.
+3. Open an existing PDF and preview or open it.
+4. Download an asset.
+5. Open the Asset Library from a record.
+6. View all eligible assets with no filters.
+7. Find a General asset.
+8. Test Product, Sales, Proof, Quotes, Brand, Internal, Recent, Favorites, and Recommended.
+9. Search for an asset by filename.
+10. Select and attach an asset.
+11. Click Done and confirm it appears on the originating record.
+12. Save and reload the record and confirm the attachment remains.
+13. Remove an attachment and confirm the count updates.
+14. Upload a new asset and confirm it immediately appears in both Document Hub and the picker.
+15. Confirm Internal or Restricted assets are not exposed to unauthorized users.
+
+Run the application and relevant tests, fix any errors you encounter, and verify the behavior in the browser. Do not stop after explaining the cause—implement and test the complete repair. At the end, summarize the root causes, files changed, database changes or migrations, and the workflows successfully tested.

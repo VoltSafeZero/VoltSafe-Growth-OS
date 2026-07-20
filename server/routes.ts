@@ -22340,13 +22340,17 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         all = all.filter(a => (a.useCase ?? "general") === tab);
       }
 
-      // Search by name / description / tags
+      // Search by name / description / tags / useCase / category / originalName
       if (search && String(search).trim()) {
         const q = String(search).toLowerCase();
         all = all.filter(a =>
           a.name.toLowerCase().includes(q) ||
+          a.originalName.toLowerCase().includes(q) ||
           (a.description ?? "").toLowerCase().includes(q) ||
-          (a.tags ?? "").toLowerCase().includes(q),
+          (a.tags ?? "").toLowerCase().includes(q) ||
+          (a.useCase ?? "general").toLowerCase().includes(q) ||
+          (a.category ?? "").toLowerCase().includes(q) ||
+          (a.assetType ?? "").toLowerCase().includes(q),
         );
       }
 
@@ -22391,7 +22395,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       else if (["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"].includes(mimeType)) category = "presentation";
 
       const fileData = req.file.buffer.toString("base64");
-      const { folderId } = req.body;
+      const { folderId, useCase, visibility } = req.body;
       const [asset] = await db.insert(assets).values({
         name: name || req.file.originalname,
         originalName: req.file.originalname,
@@ -22404,6 +22408,8 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         tags: tags || "",
         folderId: folderId ? Number(folderId) : null,
         uploadedBy: req.session.userId ?? null,
+        useCase: useCase || null,
+        visibility: visibility || "customer_safe",
       }).returning();
       res.json({ ...asset, fileData: undefined });
     } catch (err: any) {
@@ -22413,17 +22419,22 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
 
   app.patch("/api/assets/:id", requirePermission("knowledge", "edit"), async (req, res) => {
     try {
-      const { name, description, tags, folderId } = req.body;
+      const { name, description, tags, folderId, useCase, visibility, isFavorite, assetType } = req.body;
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
       if (description !== undefined) updateData.description = description;
       if (tags !== undefined) updateData.tags = tags;
       if (folderId !== undefined) updateData.folderId = folderId === null ? null : Number(folderId);
+      if (useCase !== undefined) updateData.useCase = useCase || null;
+      if (visibility !== undefined) updateData.visibility = visibility || "customer_safe";
+      if (isFavorite !== undefined) updateData.isFavorite = !!isFavorite;
+      if (assetType !== undefined) updateData.assetType = assetType || null;
       const [updated] = await db.update(assets)
         .set(updateData)
         .where(eq(assets.id, Number(req.params.id)))
         .returning();
-      res.json(updated);
+      if (!updated) return res.status(404).json({ message: "Asset not found" });
+      res.json({ ...updated, fileData: undefined });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

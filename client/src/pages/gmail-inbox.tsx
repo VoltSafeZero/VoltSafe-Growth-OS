@@ -821,7 +821,7 @@ function ComposeDialog({
   });
   const [attachedAssets, setAttachedAssets] = useState<{ id: number; name: string }[]>([]);
   const [showAssetPicker, setShowAssetPicker] = useState(false);
-  const [assetTab, setAssetTab] = useState<string>("recommended");
+  const [assetTab, setAssetTab] = useState<string>("all");
   const [assetSearch, setAssetSearch] = useState<string>("");
   const [restrictedWarning, setRestrictedWarning] = useState<{ asset: { id: number; name: string; visibility: string }; onConfirm: () => void } | null>(null);
   const [showQuotePicker, setShowQuotePicker] = useState(false);
@@ -2161,7 +2161,9 @@ function ComposeDialog({
         {/* Tab chips */}
         <div className="flex gap-1 flex-wrap -mt-0.5 pb-0.5">
           {[
+            { key: "all",         label: "All" },
             { key: "recommended", label: "Recommended" },
+            { key: "general",     label: "General" },
             { key: "sales",       label: "Sales" },
             { key: "product",     label: "Product" },
             { key: "proof",       label: "Proof" },
@@ -2194,17 +2196,22 @@ function ComposeDialog({
               <Paperclip className="h-6 w-6 mx-auto mb-2 opacity-30" />
               <p>{assetTab === "quotes" ? "No quote files yet. Create a quote to generate files." : assetTab === "favorites" ? "No favorites yet." : assetTab === "recent" ? "No recently attached assets." : "No assets found."}</p>
               {assetTab === "quotes" && <a href="/quotes" target="_blank" className="text-primary hover:underline text-xs mt-1 block">Go to Quotes →</a>}
-              {assetTab !== "quotes" && <a href="/documents" target="_blank" className="text-primary hover:underline text-xs mt-1 block">Go to Asset Library →</a>}
+              {assetTab !== "quotes" && assetTab !== "all" && (
+                <button onClick={() => setAssetTab("all")} className="text-primary hover:underline text-xs mt-1 block mx-auto">
+                  Show all assets →
+                </button>
+              )}
+              {assetTab !== "quotes" && <a href="/documents" target="_blank" className="text-primary hover:underline text-xs mt-1 block">Go to Document Hub →</a>}
             </div>
           )}
-          {/* CTA thumbnail hint — images should go through the CTA picker, not as attachments */}
+          {/* CTA thumbnail hint — inline images in email body should use the CTA picker */}
           {(assetsQuery.data || []).some(a => (a.mimeType || "").startsWith("image/")) && (
             <div className="mx-1 mb-1.5 px-3 py-2 rounded-md bg-primary/5 border border-primary/20 text-xs text-muted-foreground flex items-start gap-2">
               <span className="text-primary mt-0.5">ℹ</span>
-              <span>Image files are hidden here — use the <span className="text-primary font-medium">Insert Tracked CTA</span> button to embed Watch Demo thumbnails and other images directly in your email.</span>
+              <span>To embed tracked images <em>inline</em> in your email body, use the <span className="text-primary font-medium">Insert Tracked CTA</span> button instead.</span>
             </div>
           )}
-          {(assetsQuery.data || []).filter(a => !(a.mimeType || "").startsWith("image/")).map((asset) => {
+          {(assetsQuery.data || []).map((asset) => {
             const isAttached = attachedAssets.some((a) => a.id === asset.id);
             const vis = asset.visibility ?? "customer_safe";
             const isRestricted = ["internal_only", "investor_only", "admin_only"].includes(vis);
