@@ -242,7 +242,11 @@ export function InvestorTagFromEmailDialog({
                 {linkedContact && (
                   <InvestorTagRow
                     type="contact" id={linkedContact.id}
-                    name={linkedContact.name ?? `${linkedContact.firstName ?? ""} ${linkedContact.lastName ?? ""}`.trim() || `Contact #${linkedContact.id}`}
+                    name={
+                      linkedContact.name ??
+                      (`${linkedContact.firstName ?? ""} ${linkedContact.lastName ?? ""}`.trim() ||
+                        `Contact #${linkedContact.id}`)
+                    }
                     detail={linkedContact.email ?? undefined}
                     threadId={threadId} messageId={messageId}
                   />
