@@ -20,7 +20,7 @@ import {
   ArrowUpDown, MapPin, Globe, Zap, Star, AlertTriangle, Calendar,
   Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus, ArrowRightLeft, ExternalLink,
   ChevronDown, ChevronRight, Clock, Bookmark, X as XIcon, UserCheck, ClipboardList,
-  Briefcase, LifeBuoy, History as HistoryIcon, MessageSquare, FileText,
+  Briefcase, LifeBuoy, History as HistoryIcon, MessageSquare, FileText, TrendingUp,
 } from "lucide-react";
 import type { SavedView } from "@shared/schema";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
@@ -125,6 +125,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   const { toast } = useToast();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const [sortOption, setSortOption] = useState("name:asc");
+  const [isPotentialInvestorFilter, setIsPotentialInvestorFilter] = useState(false);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
   const [saveViewIsShared, setSaveViewIsShared] = useState(false);
@@ -146,7 +147,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
 
   const PAGE_SIZE = 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: AccountWithContact[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/accounts", { search, industry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "all" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, country: countryFilter === "all" ? "" : countryFilter, state: regionFilter === "all" ? "" : regionFilter, priority: priorityFilter === "all" ? "" : priorityFilter, sort: sortOption }],
+    queryKey: ["/api/accounts", { search, industry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "all" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, country: countryFilter === "all" ? "" : countryFilter, state: regionFilter === "all" ? "" : regionFilter, priority: priorityFilter === "all" ? "" : priorityFilter, isPotentialInvestor: isPotentialInvestorFilter, sort: sortOption }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
@@ -155,6 +156,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       if (countryFilter !== "all") params.set("country", countryFilter);
       if (regionFilter !== "all") params.set("state", regionFilter);
       if (priorityFilter !== "all") params.set("priority", priorityFilter);
+      if (isPotentialInvestorFilter) params.set("isPotentialInvestor", "true");
       if (sortOption !== "default") { const [key, order] = sortOption.split(":"); params.set("sortBy", key); params.set("sortOrder", order); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -182,7 +184,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   });
 
   const isFiltered = industryFilter !== "__all__" || marketSegmentFilter !== "all" || typeFilter !== "all"
-    || countryFilter !== "all" || regionFilter !== "all" || priorityFilter !== "all" || sortOption !== "name:asc" || search !== "";
+    || countryFilter !== "all" || regionFilter !== "all" || priorityFilter !== "all" || isPotentialInvestorFilter || sortOption !== "name:asc" || search !== "";
 
   const resetFilters = () => {
     setSearch("");
@@ -192,6 +194,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     setCountryFilter("all");
     setRegionFilter("all");
     setPriorityFilter("all");
+    setIsPotentialInvestorFilter(false);
     setSortOption("name:asc");
     setActiveViewId(null);
   };
@@ -454,6 +457,19 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             ))}
           </SelectContent>
         </Select>
+        {/* 6.5 — Potential Investor toggle */}
+        <button
+          onClick={() => setIsPotentialInvestorFilter(v => !v)}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors whitespace-nowrap ${
+            isPotentialInvestorFilter
+              ? "bg-amber-500/20 border-amber-500/40 text-amber-400"
+              : "bg-secondary/50 border-border/50 text-muted-foreground hover:text-foreground"
+          }`}
+          data-testid="button-investor-filter"
+        >
+          <TrendingUp className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Investors</span>
+        </button>
         {/* 7 — Sort */}
         <Select value={sortOption} onValueChange={setSortOption}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-sort">

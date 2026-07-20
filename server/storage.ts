@@ -373,7 +373,7 @@ export class DatabaseStorage implements IStorage {
     return result.map((r) => r.state);
   }
 
-  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; type?: string; priority?: string; commStatus?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string }) {
+  async getLeads(options?: { search?: string; status?: string; state?: string; country?: string; primaryIndustry?: string; marketSegment?: string; shorePower?: string; type?: string; priority?: string; commStatus?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; isPotentialInvestor?: boolean }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -579,6 +579,13 @@ export class DatabaseStorage implements IStorage {
             AND lcs.last_comm_at >= NOW() - INTERVAL '60 days'
         )`);
       }
+    }
+
+    if (options?.isPotentialInvestor) {
+      conditions.push(sql`EXISTS (
+        SELECT 1 FROM potential_investor_tags pit
+        WHERE pit.record_type = 'lead' AND pit.record_id = ${leads.id}
+      )`);
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -969,7 +976,7 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; type?: string; country?: string; stateProvince?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; onlyPromoted?: boolean }) {
+  async getAccounts(options?: { search?: string; segment?: string; leadStatus?: string; priority?: string; orgType?: string; marketSegment?: string; type?: string; country?: string; stateProvince?: string; page?: number; limit?: number; sortBy?: string; sortOrder?: string; onlyPromoted?: boolean; isPotentialInvestor?: boolean }) {
     const page = options?.page || 1;
     const limit = options?.limit || 25;
     const offset = (page - 1) * limit;
@@ -1033,6 +1040,12 @@ export class DatabaseStorage implements IStorage {
     if (options?.onlyPromoted) {
       conditions.push(sql`(accounts.converted_from_lead_id IS NULL OR EXISTS (SELECT 1 FROM leads WHERE leads.id = accounts.converted_from_lead_id AND leads.status = 'converted'))`);
     }
+    if (options?.isPotentialInvestor) {
+      conditions.push(sql`EXISTS (
+        SELECT 1 FROM potential_investor_tags pit
+        WHERE pit.record_type = 'account' AND pit.record_id = ${accounts.id}
+      )`);
+    }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     const accountSortColumns: Record<string, AnyColumn> = { name: accounts.name, segment: accounts.segment, region: accounts.region, slipCount: accounts.slipCount, createdAt: accounts.createdAt, updatedAt: accounts.updatedAt };
@@ -1090,7 +1103,7 @@ export class DatabaseStorage implements IStorage {
     return result.rowCount > 0;
   }
 
-  async getContacts(options?: { accountId?: number; search?: string }) {
+  async getContacts(options?: { accountId?: number; search?: string; isPotentialInvestor?: boolean }) {
     const conditions = [];
     if (options?.accountId) conditions.push(eq(contacts.accountId, options.accountId));
     if (options?.search) {
@@ -1098,6 +1111,12 @@ export class DatabaseStorage implements IStorage {
         ilike(contacts.name, `%${options.search}%`),
         ilike(contacts.email, `%${options.search}%`)
       ));
+    }
+    if (options?.isPotentialInvestor) {
+      conditions.push(sql`EXISTS (
+        SELECT 1 FROM potential_investor_tags pit
+        WHERE pit.record_type = 'contact' AND pit.record_id = ${contacts.id}
+      )`);
     }
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     return await db.select().from(contacts).where(where).orderBy(asc(contacts.name));

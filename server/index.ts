@@ -85,29 +85,10 @@ async function ensureRecentlyUpdatedIndexes(): Promise<void> {
 }
 setTimeout(() => { void ensureRecentlyUpdatedIndexes(); }, 30_000);
 
-// Create potential_investor_tags table — runs at startup, idempotent.
-async function migratePotentialInvestorTags(): Promise<void> {
-  try {
-    const { db } = await import("./db");
-    const { sql } = await import("drizzle-orm");
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS potential_investor_tags (
-        id                SERIAL PRIMARY KEY,
-        record_type       TEXT NOT NULL CHECK (record_type IN ('lead', 'account', 'contact')),
-        record_id         INTEGER NOT NULL,
-        tagged_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        tagged_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        source_thread_id  TEXT,
-        source_message_id TEXT,
-        UNIQUE (record_type, record_id)
-      )
-    `));
-    console.log("[migration] potential_investor_tags ready");
-  } catch (e: any) {
-    console.error("[migration] potential_investor_tags failed:", e?.message || e);
-  }
-}
-void migratePotentialInvestorTags();
+// NOTE: potential_investor_tags table is created by migration 0036
+// (migrations/0036_potential_investor_tags.sql). Run that migration once
+// against any database that predates 0036. Do NOT re-add startup DDL here —
+// one-time schema migrations belong in the migrations/ directory.
 
 // NOTE: marina_directory market_segment backfill was promoted to migration 0035
 // (migrations/0035_marina_segment_backfill.sql). Run that migration once against

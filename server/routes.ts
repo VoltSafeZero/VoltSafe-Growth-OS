@@ -2785,7 +2785,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/leads", requirePermission("crm", "view"), async (req, res) => {
-    const { search, status, state, country, primaryIndustry, marketSegment, shorePower, type, priority, commStatus, page, limit, sortBy, sortOrder } = req.query;
+    const { search, status, state, country, primaryIndustry, marketSegment, shorePower, type, priority, commStatus, page, limit, sortBy, sortOrder, isPotentialInvestor } = req.query;
     res.json(await storage.getLeads({
       search: search as string | undefined,
       status: status as string | undefined,
@@ -2801,6 +2801,7 @@ export async function registerRoutes(
       limit: limit ? Number(limit) : undefined,
       sortBy: sortBy as string | undefined,
       sortOrder: sortOrder as string | undefined,
+      isPotentialInvestor: isPotentialInvestor === "true" ? true : undefined,
     }));
   });
 
@@ -3585,7 +3586,7 @@ export async function registerRoutes(
   });
 
   app.get("/api/accounts", requirePermission("crm", "view"), async (req, res) => {
-    const { search, segment, leadStatus, priority, orgType, marketSegment, type, country, state, page, limit, sortBy, sortOrder, onlyPromoted } = req.query;
+    const { search, segment, leadStatus, priority, orgType, marketSegment, type, country, state, page, limit, sortBy, sortOrder, onlyPromoted, isPotentialInvestor } = req.query;
     res.json(await storage.getAccounts({
       search: search as string | undefined,
       segment: segment as string | undefined,
@@ -3601,6 +3602,7 @@ export async function registerRoutes(
       sortBy: sortBy as string | undefined,
       sortOrder: sortOrder as string | undefined,
       onlyPromoted: onlyPromoted === "false" ? false : true,
+      isPotentialInvestor: isPotentialInvestor === "true" ? true : undefined,
     }));
   });
 
@@ -4403,10 +4405,11 @@ export async function registerRoutes(
   });
 
   app.get("/api/contacts", requireAuth, requirePermission("crm", "view"), async (req, res) => {
-    const { accountId, search } = req.query;
+    const { accountId, search, isPotentialInvestor } = req.query;
     res.json(await storage.getContacts({
       accountId: accountId ? Number(accountId) : undefined,
       search: search as string | undefined,
+      isPotentialInvestor: isPotentialInvestor === "true" ? true : undefined,
     }));
   });
 
@@ -43941,7 +43944,17 @@ ${contextText}`;
         ON CONFLICT (record_type, record_id) DO NOTHING
         RETURNING id, record_type, record_id, tagged_at
       `));
-      res.json({ ok: true, tag: r.rows?.[0] ?? null });
+      const inserted = r.rows?.[0] ?? null;
+      if (inserted) {
+        storage.createActivity({
+          linkedObjectType: recordType as "lead" | "account" | "contact",
+          linkedObjectId: rid,
+          type: "investor_tagged",
+          summary: "Tagged as Potential Investor",
+          createdBy: uid,
+        }).catch(() => {});
+      }
+      res.json({ ok: true, tag: inserted });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -43958,6 +43971,14 @@ ${contextText}`;
       await db.execute(sql.raw(`
         DELETE FROM potential_investor_tags WHERE record_type = '${recordType}' AND record_id = ${rid}
       `));
+      const deleteUid = (req as any).user?.id ?? null;
+      storage.createActivity({
+        linkedObjectType: recordType as "lead" | "account" | "contact",
+        linkedObjectId: rid,
+        type: "investor_untagged",
+        summary: "Removed Potential Investor tag",
+        createdBy: deleteUid,
+      }).catch(() => {});
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

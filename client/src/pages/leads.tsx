@@ -19,7 +19,7 @@ import {
   Plus, Search, ArrowRightLeft, Trash2, Loader2, Undo2, ArrowUpDown,
   LayoutGrid, List, Download, MapPin, Building2, Phone, Mail, Anchor, Calendar, DollarSign, Map, ExternalLink, Globe,
   CheckCircle2, AlertCircle, Link2, UserCheck, Shuffle, ClipboardList, Archive,
-  MessageSquare, ArrowDownLeft, ArrowUpRight, Clock,
+  MessageSquare, ArrowDownLeft, ArrowUpRight, Clock, TrendingUp,
 } from "lucide-react";
 import { MentionInput, MentionInputHandle } from "@/components/shared/mention-input";
 import { tokensToCleanText } from "@/hooks/use-mention-composer";
@@ -163,6 +163,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [shorePowerFilter, setShorePowerFilter] = useState("all");
   const [commStatusFilter, setCommStatusFilter] = useState("all");
+  const [isPotentialInvestorFilter, setIsPotentialInvestorFilter] = useState(false);
   const [sortOption, setSortOption] = useState("name:asc");
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
@@ -239,7 +240,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery<{ data: Lead[]; total: number; page: number; totalPages: number }>({
-    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "__all__" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, priority: priorityFilter === "all" ? "" : priorityFilter, shorePower: shorePowerFilter === "all" ? "" : shorePowerFilter, commStatus: commStatusFilter === "all" ? "" : commStatusFilter, sort: sortOption, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
+    queryKey: ["/api/leads", { search, status: statusFilter === "all" ? "" : statusFilter, country: countryFilter === "all" ? "" : countryFilter, state: stateFilter === "all" ? "" : stateFilter, primaryIndustry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "__all__" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, priority: priorityFilter === "all" ? "" : priorityFilter, shorePower: shorePowerFilter === "all" ? "" : shorePowerFilter, commStatus: commStatusFilter === "all" ? "" : commStatusFilter, isPotentialInvestor: isPotentialInvestorFilter, sort: sortOption, sortBy: sort.sortBy, sortOrder: sort.sortOrder }],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
@@ -252,6 +253,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
       if (priorityFilter !== "all") params.set("priority", priorityFilter);
       if (shorePowerFilter !== "all") params.set("shorePower", shorePowerFilter);
       if (commStatusFilter !== "all") params.set("commStatus", commStatusFilter);
+      if (isPotentialInvestorFilter) params.set("isPotentialInvestor", "true");
       if (sortOption !== "default") { const [sk, so] = sortOption.split(":"); params.set("sortBy", sk); params.set("sortOrder", so); } else if (sort.sortBy) { params.set("sortBy", sort.sortBy); params.set("sortOrder", sort.sortOrder); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
@@ -429,7 +431,7 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
     }
   };
 
-  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("marine"); setMarketSegmentFilter("marina"); setTypeFilter("all"); setPriorityFilter("all"); setShorePowerFilter("all"); setCommStatusFilter("all"); setSortOption("name:asc"); };
+  const clearView = () => { setActiveViewId(null); setStatusFilter("all"); setCountryFilter("all"); setStateFilter("all"); setIndustryFilter("marine"); setMarketSegmentFilter("marina"); setTypeFilter("all"); setPriorityFilter("all"); setShorePowerFilter("all"); setCommStatusFilter("all"); setIsPotentialInvestorFilter(false); setSortOption("name:asc"); };
 
   const isAllSelected = allLeads.length > 0 && allLeads.every(l => selectedIds.has(l.id));
 
@@ -639,7 +641,20 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
             ))}
           </SelectContent>
         </Select>
-        {/* 9 — Sort */}
+        {/* 9 — Potential Investor toggle */}
+        <button
+          onClick={() => setIsPotentialInvestorFilter(v => !v)}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors whitespace-nowrap ${
+            isPotentialInvestorFilter
+              ? "bg-amber-500/20 border-amber-500/40 text-amber-400"
+              : "bg-secondary/50 border-border/50 text-muted-foreground hover:text-foreground"
+          }`}
+          data-testid="button-investor-filter"
+        >
+          <TrendingUp className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Investors</span>
+        </button>
+        {/* 10 — Sort */}
         <Select value={sortOption} onValueChange={setSortOption}>
           <SelectTrigger className="w-[calc(50%-0.25rem)] sm:w-44" data-testid="select-sort">
             <ArrowUpDown className="mr-2 h-4 w-4" />

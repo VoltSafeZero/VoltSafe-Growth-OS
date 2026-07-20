@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Building2, Mail, Phone, Search, UserCircle2, Tag, ClipboardList, UserPlus, MoreHorizontal, Trash2 } from "lucide-react";
+import { Building2, Mail, Phone, Search, UserCircle2, Tag, ClipboardList, UserPlus, MoreHorizontal, Trash2, TrendingUp } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,6 +27,7 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
   const [relationshipFilter, setRelationshipFilter] = useState("all");
   const [roleTypeFilter, setRoleTypeFilter] = useState("all");
   const [emailFilter, setEmailFilter] = useState("all");
+  const [isPotentialInvestorFilter, setIsPotentialInvestorFilter] = useState(false);
   const [sortOrder, setSortOrder] = useState<"name_asc" | "name_desc">("name_asc");
   const [highlightedContactId, setHighlightedContactId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -50,7 +51,13 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
   }, []);
 
   const { data: contacts = [], isLoading: loadingContacts } = useQuery<ContactWithAccount[]>({
-    queryKey: ["/api/contacts"],
+    queryKey: ["/api/contacts", { isPotentialInvestor: isPotentialInvestorFilter }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (isPotentialInvestorFilter) params.set("isPotentialInvestor", "true");
+      const res = await fetch(`/api/contacts${params.size ? `?${params}` : ""}`, { credentials: "include" });
+      return res.json();
+    },
   });
 
   const { data: accountsResp } = useQuery<{ data: Account[] }>({
@@ -326,9 +333,22 @@ export default function ContactsPage({ canEdit = true }: { canEdit?: boolean }) 
             </SelectContent>
           </Select>
 
-          {(primaryFilter !== "all" || relationshipFilter !== "all" || roleTypeFilter !== "all" || emailFilter !== "all") && (
+          <button
+            onClick={() => setIsPotentialInvestorFilter(v => !v)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors whitespace-nowrap ${
+              isPotentialInvestorFilter
+                ? "bg-amber-500/20 border-amber-500/40 text-amber-400"
+                : "bg-secondary/30 border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="button-investor-filter"
+          >
+            <TrendingUp className="h-3 w-3" />
+            <span>Investors</span>
+          </button>
+
+          {(primaryFilter !== "all" || relationshipFilter !== "all" || roleTypeFilter !== "all" || emailFilter !== "all" || isPotentialInvestorFilter) && (
             <button
-              onClick={() => { setPrimaryFilter("all"); setRelationshipFilter("all"); setRoleTypeFilter("all"); setEmailFilter("all"); }}
+              onClick={() => { setPrimaryFilter("all"); setRelationshipFilter("all"); setRoleTypeFilter("all"); setEmailFilter("all"); setIsPotentialInvestorFilter(false); }}
               className="text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1.5"
               data-testid="button-clear-contact-filters"
             >
