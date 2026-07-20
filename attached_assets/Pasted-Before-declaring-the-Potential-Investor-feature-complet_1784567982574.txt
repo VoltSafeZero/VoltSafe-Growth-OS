@@ -1,0 +1,64 @@
+Before declaring the Potential Investor feature complete, perform a full authenticated verification and give me a concise implementation report.
+
+Important requirements:
+- `Potential Investor` is always applied manually.
+- Never infer or automatically apply it from email content, sender information, AI, keywords, record type, industry, or source.
+- Existing records must be updated without creating duplicates.
+- Users must be able to remove the tag.
+
+Please verify:
+
+1. Database
+   - Show the new tables/columns and indexes.
+   - Confirm whether schema creation runs during startup.
+   - If it does, replace it with a proper idempotent migration.
+   - Confirm duplicate tag assignments are prevented with a database constraint.
+   - Confirm tagging and untagging records are auditable.
+
+2. Existing records
+   - Tag and untag an existing Lead.
+   - Tag and untag an existing Account.
+   - Tag and untag an existing Contact.
+   - Refresh each page and confirm the saved state persists.
+
+3. New records
+   - Create a Lead with the tag manually selected.
+   - Create a Lead without selecting the tag.
+   - Repeat for a Contact and Account if their creation forms support it.
+   - Confirm the tag is never selected automatically.
+
+4. Mail
+   - Open an authenticated email thread.
+   - Apply `Potential Investor` to an existing matched CRM record.
+   - Confirm no duplicate record is created.
+   - Test a sender with no CRM match.
+   - Confirm the user can choose which record type to create.
+   - Confirm the tag remains unchecked until manually selected.
+   - Test multiple possible matches and require the user to choose.
+   - Confirm the originating email/thread is linked.
+
+5. Lists and reporting
+   - Verify the Potential Investor filter independently on Leads, Accounts, and Contacts.
+   - Verify the cross-CRM Potential Investors view.
+   - Confirm it shows the correct record type and links to the correct record.
+   - Confirm removed tags disappear from filters and the cross-CRM view.
+
+6. Authorization and safety
+   - Confirm users can only tag records they are authorized to modify.
+   - Confirm API input validation.
+   - Confirm repeated clicks cannot create duplicate assignments.
+   - Confirm no unrelated CRM records were modified during testing.
+
+7. Quality
+   - Run type checking, the production build, and relevant automated tests.
+   - Add tests for API tagging, untagging, duplicate prevention, manual-only behavior, email matching, filters, and the cross-CRM view.
+   - Do not treat the login page as UI verification.
+
+8. Deployment
+   - Confirm the final code—not the earlier partial implementation—is deployed.
+   - Report the deployment time/version.
+   - List every file and migration changed.
+   - Summarize the exact user workflow.
+   - Report any incomplete requirements or known limitations honestly.
+
+Do not publish another version until type checking, build, automated tests, and authenticated verification pass.

@@ -875,6 +875,8 @@ export class DatabaseStorage implements IStorage {
         city: m.city,
         slips: m.slips || undefined,
         segment: "marina",
+        marketSegment: "marina",
+        primaryIndustry: "marine",
         leadLat: m.lat,
         leadLng: m.lng,
       })));

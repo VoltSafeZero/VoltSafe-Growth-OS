@@ -109,31 +109,10 @@ async function migratePotentialInvestorTags(): Promise<void> {
 }
 void migratePotentialInvestorTags();
 
-// Backfill market_segment='marina' and primary_industry='marine' on all
-// existing leads imported from marina_directory that are missing these values.
-// Idempotent — uses WHERE clause to skip already-correct rows.
-async function backfillMarinaLeadSegments(): Promise<void> {
-  try {
-    const { db } = await import("./db");
-    const { sql } = await import("drizzle-orm");
-    const res = await db.execute(sql.raw(`
-      UPDATE leads
-      SET
-        market_segment   = 'marina',
-        primary_industry = 'marine'
-      WHERE source = 'marina_directory'
-        AND (market_segment IS NULL OR market_segment = '' OR market_segment != 'marina'
-             OR primary_industry IS NULL OR primary_industry = '' OR primary_industry != 'marine')
-    `));
-    const count = (res as any).rowCount ?? 0;
-    if (count > 0) {
-      console.log(`[startup] backfillMarinaLeadSegments: updated ${count} marina_directory leads`);
-    }
-  } catch (e: any) {
-    console.error("[startup] backfillMarinaLeadSegments failed:", e?.message || e);
-  }
-}
-setTimeout(() => { void backfillMarinaLeadSegments(); }, 5_000);
+// NOTE: marina_directory market_segment backfill was promoted to migration 0035
+// (migrations/0035_marina_segment_backfill.sql). Run that migration once against
+// any database that predates 0035. Do NOT re-add startup backfill logic here —
+// one-time data migrations belong in the migrations/ directory, not server startup.
 
 async function backfillPrivateChannelCreators(): Promise<void> {
   try {
