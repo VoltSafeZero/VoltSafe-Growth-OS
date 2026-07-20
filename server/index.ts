@@ -85,6 +85,30 @@ async function ensureRecentlyUpdatedIndexes(): Promise<void> {
 }
 setTimeout(() => { void ensureRecentlyUpdatedIndexes(); }, 30_000);
 
+// Create potential_investor_tags table — runs at startup, idempotent.
+async function migratePotentialInvestorTags(): Promise<void> {
+  try {
+    const { db } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS potential_investor_tags (
+        id                SERIAL PRIMARY KEY,
+        record_type       TEXT NOT NULL CHECK (record_type IN ('lead', 'account', 'contact')),
+        record_id         INTEGER NOT NULL,
+        tagged_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        tagged_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        source_thread_id  TEXT,
+        source_message_id TEXT,
+        UNIQUE (record_type, record_id)
+      )
+    `));
+    console.log("[migration] potential_investor_tags ready");
+  } catch (e: any) {
+    console.error("[migration] potential_investor_tags failed:", e?.message || e);
+  }
+}
+void migratePotentialInvestorTags();
+
 // Backfill market_segment='marina' and primary_industry='marine' on all
 // existing leads imported from marina_directory that are missing these values.
 // Idempotent — uses WHERE clause to skip already-correct rows.
