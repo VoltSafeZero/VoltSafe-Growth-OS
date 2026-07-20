@@ -41,6 +41,7 @@ const MarinasPage = lazy(() => import("@/pages/marinas"));
 const LeadsPage = lazy(() => import("@/pages/leads"));
 const AccountsPage = lazy(() => import("@/pages/accounts"));
 const ContactsPage = lazy(() => import("@/pages/contacts"));
+const PotentialInvestorsPage = lazy(() => import("@/pages/potential-investors"));
 const QuotesPage = lazy(() => import("@/pages/quotes"));
 const TicketsPage = lazy(() => import("@/pages/tickets"));
 const CommunicationsPage = lazy(() => import("@/pages/communications"));
@@ -382,6 +383,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: AuthUser; onLogout: () 
       <Route path="/accounts">{() => guard("crm", isAdvisor ? <AccessDenied /> : <AccountsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/contacts/:id">{(params) => guard("crm", isAdvisor ? <AccessDenied /> : <ContactProfilePage />)}</Route>
       <Route path="/contacts">{() => guard("crm", isAdvisor ? <AccessDenied /> : <ContactsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
+      <Route path="/potential-investors">{() => guard("crm", isAdvisor ? <AccessDenied /> : <PotentialInvestorsPage />)}</Route>
       <Route path="/opportunities/:id">{(params) => guard("crm", isAdvisor ? <AccessDenied /> : <OpportunityProfilePage />)}</Route>
       <Route path="/opportunities">{() => guard("crm", isAdvisor ? <AccessDenied /> : <LeadsPage canEdit={isAdmin(role) || perms.crm === "edit"} />)}</Route>
       <Route path="/quotes">{() => guard("quoting", isAdvisor ? <AccessDenied /> : <QuotesPage canEdit={isAdmin(role) || perms.quoting === "edit"} />)}</Route>

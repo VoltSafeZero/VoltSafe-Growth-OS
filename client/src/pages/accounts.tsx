@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link } from "wouter";
+import { PotentialInvestorBadge } from "@/components/investor-tag";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1356,6 +1357,7 @@ export function AccountDetailDialog({ account: initialAccount, onClose, canEdit 
                     <ExternalLink className="h-3 w-3" /> Intelligence Profile
                   </button>
                 </Link>
+                <PotentialInvestorBadge recordType="account" recordId={account.id} />
                 {canEdit && !hasSourceLead && !confirmConvert && !confirmDemote && !confirmDelete && (
                   <button
                     onClick={() => setConfirmConvert(true)}

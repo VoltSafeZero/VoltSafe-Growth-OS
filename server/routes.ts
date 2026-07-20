@@ -43830,6 +43830,140 @@ ${contextText}`;
     }
   });
 
+  // ── Potential Investor Tags ─────────────────────────────────────────────────
+  // Manual-only tagging — never applied automatically.
+
+  app.get("/api/investor-tags", requireAuth, async (req, res) => {
+    try {
+      const { recordType, recordId } = req.query;
+      if (recordType && recordId) {
+        const rt = String(recordType);
+        const rid = Number(recordId);
+        if (!["lead", "account", "contact"].includes(rt) || !rid || isNaN(rid)) {
+          return res.status(400).json({ message: "Invalid params" });
+        }
+        const r: any = await db.execute(sql.raw(`
+          SELECT pit.*, u.name AS tagged_by_name
+          FROM potential_investor_tags pit
+          LEFT JOIN users u ON u.id = pit.tagged_by_user_id
+          WHERE pit.record_type = '${rt}' AND pit.record_id = ${rid}
+          LIMIT 1
+        `));
+        const tag = r.rows?.[0] ?? null;
+        return res.json({ tagged: !!tag, tag });
+      }
+      const r: any = await db.execute(sql.raw(`
+        SELECT
+          pit.id, pit.record_type, pit.record_id,
+          pit.tagged_at, pit.source_thread_id, pit.source_message_id,
+          tagger.name AS tagged_by_name,
+          CASE pit.record_type
+            WHEN 'lead'    THEN (SELECT company FROM leads WHERE id = pit.record_id)
+            WHEN 'account' THEN (SELECT name FROM accounts WHERE id = pit.record_id)
+            WHEN 'contact' THEN (SELECT name FROM contacts WHERE id = pit.record_id)
+          END AS record_name,
+          CASE pit.record_type
+            WHEN 'lead'    THEN (SELECT contact_name FROM leads WHERE id = pit.record_id)
+            WHEN 'account' THEN NULL
+            WHEN 'contact' THEN (SELECT title FROM contacts WHERE id = pit.record_id)
+          END AS record_detail,
+          CASE pit.record_type
+            WHEN 'lead'    THEN (SELECT contact_email FROM leads WHERE id = pit.record_id)
+            WHEN 'account' THEN (SELECT website FROM accounts WHERE id = pit.record_id)
+            WHEN 'contact' THEN (SELECT email FROM contacts WHERE id = pit.record_id)
+          END AS record_email,
+          CASE pit.record_type
+            WHEN 'lead'    THEN (SELECT status FROM leads WHERE id = pit.record_id)
+            WHEN 'account' THEN (SELECT org_type FROM accounts WHERE id = pit.record_id)
+            WHEN 'contact' THEN (SELECT title FROM contacts WHERE id = pit.record_id)
+          END AS record_status
+        FROM potential_investor_tags pit
+        LEFT JOIN users tagger ON tagger.id = pit.tagged_by_user_id
+        ORDER BY pit.tagged_at DESC
+      `));
+      res.json({ items: r.rows ?? [] });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/investor-tags/sender-lookup", requireAuth, async (req, res) => {
+    try {
+      const { email } = req.query;
+      if (!email || typeof email !== "string") return res.json({ leads: [], accounts: [], contacts: [] });
+      const safeEmail = email.toLowerCase().trim().replace(/'/g, "''");
+      const domain = safeEmail.split("@")[1]?.replace(/'/g, "''") ?? "";
+      const leadsR: any = await db.execute(sql.raw(`
+        SELECT l.id, l.company AS name, l.contact_email AS email, l.status,
+          (SELECT 1 FROM potential_investor_tags pit WHERE pit.record_type='lead' AND pit.record_id=l.id LIMIT 1) IS NOT NULL AS tagged
+        FROM leads l
+        WHERE LOWER(COALESCE(l.contact_email,'')) = '${safeEmail}'
+        LIMIT 5
+      `));
+      const contactsR: any = await db.execute(sql.raw(`
+        SELECT c.id, c.name, c.email, c.title AS status,
+          (SELECT 1 FROM potential_investor_tags pit WHERE pit.record_type='contact' AND pit.record_id=c.id LIMIT 1) IS NOT NULL AS tagged
+        FROM contacts c
+        WHERE LOWER(COALESCE(c.email,'')) = '${safeEmail}'
+        LIMIT 5
+      `));
+      let accountRows: any[] = [];
+      if (domain) {
+        const aR: any = await db.execute(sql.raw(`
+          SELECT a.id, a.name, a.website AS email, a.org_type AS status,
+            (SELECT 1 FROM potential_investor_tags pit WHERE pit.record_type='account' AND pit.record_id=a.id LIMIT 1) IS NOT NULL AS tagged
+          FROM accounts a
+          WHERE LOWER(COALESCE(a.website,'')) LIKE '%${domain}%'
+          LIMIT 3
+        `));
+        accountRows = aR.rows ?? [];
+      }
+      res.json({ leads: leadsR.rows ?? [], accounts: accountRows, contacts: contactsR.rows ?? [] });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/investor-tags", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { recordType, recordId, sourceThreadId, sourceMessageId } = req.body ?? {};
+      if (!["lead", "account", "contact"].includes(recordType)) {
+        return res.status(400).json({ message: "Invalid record type" });
+      }
+      const rid = Number(recordId);
+      if (!rid || isNaN(rid)) return res.status(400).json({ message: "Invalid record ID" });
+      const uid = (req as any).user?.id ?? null;
+      const stid = sourceThreadId ? `'${String(sourceThreadId).replace(/'/g, "''")}'` : "NULL";
+      const smid = sourceMessageId ? `'${String(sourceMessageId).replace(/'/g, "''")}'` : "NULL";
+      const r: any = await db.execute(sql.raw(`
+        INSERT INTO potential_investor_tags (record_type, record_id, tagged_by_user_id, source_thread_id, source_message_id)
+        VALUES ('${recordType}', ${rid}, ${uid ?? "NULL"}, ${stid}, ${smid})
+        ON CONFLICT (record_type, record_id) DO NOTHING
+        RETURNING id, record_type, record_id, tagged_at
+      `));
+      res.json({ ok: true, tag: r.rows?.[0] ?? null });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/investor-tags/:recordType/:recordId", requireAuth, requirePermission("crm", "edit"), async (req, res) => {
+    try {
+      const { recordType, recordId } = req.params;
+      if (!["lead", "account", "contact"].includes(recordType)) {
+        return res.status(400).json({ message: "Invalid record type" });
+      }
+      const rid = Number(recordId);
+      if (!rid || isNaN(rid)) return res.status(400).json({ message: "Invalid record ID" });
+      await db.execute(sql.raw(`
+        DELETE FROM potential_investor_tags WHERE record_type = '${recordType}' AND record_id = ${rid}
+      `));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── Awaiting-reply: initial computation on boot (non-blocking) ─────────────
   computeAwaitingReply().catch(err => console.error("[routes] computeAwaitingReply boot error:", err));
 }

@@ -28,6 +28,7 @@ import { RecordCurrentFeed } from "@/components/current/record-current-feed";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
 import { ScoreBadge } from "@/components/scores/score-badge";
 import { SendBookingLinkButton, BookingLinkStatusInline } from "@/components/SendBookingLinkButton";
+import { PotentialInvestorBadge } from "@/components/investor-tag";
 import { useLeadScores } from "@/hooks/use-scores";
 import { SortableHeader, useSortState } from "@/components/ui/sortable-header";
 import { lazy, Suspense } from "react";
@@ -1759,6 +1760,7 @@ function LeadDetailDialog({
                 {lead.source && <span className="text-xs text-muted-foreground">via {lead.source}</span>}
                 <span className="text-xs text-muted-foreground">· Created {new Date(lead.createdAt).toLocaleDateString()}</span>
                 <BookingLinkStatusInline objectType="lead" objectId={lead.id} />
+                <PotentialInvestorBadge recordType="lead" recordId={lead.id} />
               </div>
             </div>
           </div>

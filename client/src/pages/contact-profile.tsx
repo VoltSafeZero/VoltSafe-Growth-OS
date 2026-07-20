@@ -29,6 +29,7 @@ import { SuggestedActionsCard } from "@/components/suggested-actions-card";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
 import { useRef } from "react";
 import { Camera, Trash2 } from "lucide-react";
+import { PotentialInvestorBadge } from "@/components/investor-tag";
 import { SendBookingLinkButton, BookingLinkStatusInline } from "@/components/SendBookingLinkButton";
 import { AiSummaryCard } from "@/components/crm/ai-summary-card";
 import { ContactEngagementWidget } from "@/components/engagement/EngagementWidget";
@@ -404,6 +405,9 @@ export default function ContactProfilePage() {
                 )}
               </div>
               {contact.title && <p className="text-sm text-muted-foreground">{contact.title}</p>}
+              <div className="mt-1">
+                <PotentialInvestorBadge recordType="contact" recordId={contact.id} />
+              </div>
               {contact.account_name && (
                 <Link href={`/accounts/${contact.account_id}`}>
                   <div className="flex items-center gap-1 text-sm text-primary mt-1 hover:underline cursor-pointer" data-testid="link-account">

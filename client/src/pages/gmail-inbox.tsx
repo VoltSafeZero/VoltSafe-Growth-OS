@@ -59,6 +59,7 @@ import {
 } from "@/components/inbox/smart-inbox-grouper";
 import { EmailActionsToolbar } from "@/components/inbox/email-actions-toolbar";
 import { SmartAddContactDialog } from "@/components/contacts/smart-add-contact-dialog";
+import { InvestorTagFromEmailDialog } from "@/components/investor-tag";
 import { NewLeadFromEmailDialog } from "@/components/inbox/new-lead-from-email-dialog";
 import { EmailFormatToolbar } from "@/components/inbox/email-format-toolbar";
 import { RecipientList } from "@/components/inbox/recipient-list";
@@ -5019,6 +5020,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   const [smartContactOpen, setSmartContactOpen] = useState(false);
   const [smartContactSelectedText, setSmartContactSelectedText] = useState("");
   const [newLeadDialogOpen, setNewLeadDialogOpen] = useState(false);
+  const [investorTagOpen, setInvestorTagOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ to: string; cc?: string; subject: string; threadId: string; fromName?: string; quotedHtml?: string; quotedFrom?: string; quotedDate?: string } | null>(null);
   const [shownSenderEmailIds, setShownSenderEmailIds] = useState<Set<string>>(new Set());
   const toggleSenderEmail = (msgId: string) => setShownSenderEmailIds(prev => { const n = new Set(prev); n.has(msgId) ? n.delete(msgId) : n.add(msgId); return n; });
@@ -11884,6 +11886,15 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     <Building2 className="h-3.5 w-3.5 transition-colors" />
                     <span className="hidden sm:inline">New Lead</span>
                   </button>
+                  <button
+                    onClick={() => setInvestorTagOpen(true)}
+                    data-testid="button-tag-potential-investor"
+                    title="Tag a CRM record linked to this email as a Potential Investor"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-teal-500/30 bg-teal-500/5 text-[12px] text-teal-400/80 hover:border-teal-500/60 hover:text-teal-300 hover:bg-teal-500/15 transition-all group flex-shrink-0"
+                  >
+                    <TrendingUp className="h-3.5 w-3.5 transition-colors" />
+                    <span className="hidden sm:inline">Tag Investor</span>
+                  </button>
                   <span className="text-[10px] text-muted-foreground/35 font-mono hidden lg:block">r</span>
                 </div>
               </div>
@@ -11965,6 +11976,20 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
             contact: readerThreadRecordQuery.data?.contact,
             account: readerThreadRecordQuery.data?.account,
           }}
+        />
+      )}
+
+      {/* Potential Investor tag dialog */}
+      {focusedMsg && (
+        <InvestorTagFromEmailDialog
+          open={investorTagOpen}
+          onClose={() => setInvestorTagOpen(false)}
+          senderEmail={parseSenderEmail(focusedMsg.from)}
+          senderName={parseSenderName(focusedMsg.from)}
+          threadId={selectedThreadId ?? undefined}
+          linkedLead={readerThreadRecordQuery.data?.lead ?? null}
+          linkedContact={readerThreadRecordQuery.data?.contact ?? null}
+          linkedAccount={readerThreadRecordQuery.data?.account ?? null}
         />
       )}
 
