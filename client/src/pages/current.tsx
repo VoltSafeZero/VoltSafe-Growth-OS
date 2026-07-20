@@ -5217,11 +5217,22 @@ export default function CurrentPage() {
           {channelsLoading ? (
             <ChannelSkeleton />
           ) : (
-            channels.map((channel) => {
+            (() => {
+              const cmpName = (a: Channel, b: Channel) =>
+                a.name.trim().localeCompare(b.name.trim(), undefined, { sensitivity: "base", numeric: true });
+              const publicChans  = channels.filter(c => !c.isPrivate).sort(cmpName);
+              const privateChans = channels.filter(c =>  c.isPrivate).sort(cmpName);
+              const sorted = [...publicChans, ...privateChans];
+              return sorted.map((channel, idx) => {
               const active = view === "channel" && selectedSlug === channel.slug;
               const isMutedChan = channel.notificationLevel === 'muted';
+              const isFirstPrivate = channel.isPrivate && (idx === 0 || !sorted[idx - 1].isPrivate);
               return (
-                <div key={channel.slug} className="relative group">
+                <div key={channel.slug}>
+                  {isFirstPrivate && privateChans.length > 0 && (
+                    <div className="mx-2 my-1 h-px bg-border/30" />
+                  )}
+                <div className="relative group">
                   <button
                     data-testid={`channel-item-${channel.slug}`}
                     onClick={() => { setSelectedSlug(channel.slug); setView("channel"); }}
@@ -5351,8 +5362,10 @@ export default function CurrentPage() {
                     )}
                   </div>
                 </div>
+                </div>
               );
-            })
+              });
+            })()
           )}
         </div>
 

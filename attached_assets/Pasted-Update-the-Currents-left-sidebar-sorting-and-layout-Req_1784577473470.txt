@@ -1,0 +1,157 @@
+Update the Currents left sidebar sorting and layout.
+
+Required default order:
+
+1. Public channels first
+   - channels using the public # icon
+   - sort alphabetically A → Z by channel name
+
+2. Private channels second
+   - channels using the private lock/hash icon
+   - sort alphabetically A → Z by channel name
+
+3. Direct Messages after all public and private channels
+   - move the Direct Messages section lower so the complete Channels section is shown first
+   - Direct Messages should remain in their own section
+
+Example desired order:
+
+CHANNELS
+
+Public:
+# engineering
+# general
+# installations
+# marina-pilots
+# marcomm
+# product
+# sales
+# support
+# tradeshows
+# wins
+
+Private:
+🔒 bank
+🔒 thecs
+
+DIRECT MESSAGES
+Rick Koh
+Terri Breker
+Sanad, Scott, Terri
+Scott Carlson
+George Al-Haddad
+Sanad Aridah
+Alexandra Ruiz
+
+Important implementation requirements:
+
+1. Public and private channels must be sorted separately.
+
+Do not use one combined alphabetical list, because that could mix private channels between public channels.
+
+Use logic equivalent to:
+
+publicChannels
+  .sort((a, b) => a.name.localeCompare(b.name))
+
+privateChannels
+  .sort((a, b) => a.name.localeCompare(b.name))
+
+render:
+- publicChannels
+- privateChannels
+- Direct Messages section
+
+2. Sorting must be case-insensitive.
+
+Examples:
+- “Bank” and “bank” should sort identically
+- trim leading and trailing spaces before comparison
+
+Recommended comparison:
+
+a.name.trim().localeCompare(
+  b.name.trim(),
+  undefined,
+  { sensitivity: "base", numeric: true }
+)
+
+3. Numeric names must sort naturally.
+
+Example:
+- channel-2
+- channel-10
+
+Do not sort channel-10 before channel-2.
+
+4. This must be the automatic default order:
+- initial page load
+- refresh
+- after creating a channel
+- after renaming a channel
+- after joining or leaving a channel
+- after a private channel is added to the user
+- after channel data refetches
+
+5. Do not require the user to manually select a sort.
+
+6. Do not change unread behavior:
+- unread badges
+- bold channel names
+- muted state
+- notification icons
+- selected channel
+- presence counts
+
+7. Do not change permissions:
+- users must only see public channels they are permitted to see
+- users must only see private channels they belong to
+
+8. Preserve the currently selected channel after sorting. The list moving must not deselect it or open a different channel.
+
+9. The Direct Messages section should begin only after every visible public and private channel has been rendered.
+
+10. Keep the Direct Messages ordering unchanged unless there is already a defined intentional sorting rule such as:
+- most recent message first
+- pinned conversations first
+- unread conversations first
+
+Do not alphabetize Direct Messages as part of this change unless the existing product specification already requires that.
+
+11. Ensure the channel list remains scrollable when there are many channels and Direct Messages.
+
+Preferred behavior:
+- sidebar content scrolls as one continuous area
+- channel header and DM header remain readable
+- the bottom utilities such as Search, Mentions, and Structured remain accessible
+- no channel or DM is hidden behind the bottom controls
+
+12. Add subtle spacing or a divider between:
+- public channels
+- private channels
+- Direct Messages
+
+A separate “Private Channels” heading is optional. Do not add one if it makes the sidebar unnecessarily cluttered. The lock icons may be enough.
+
+Regression tests:
+
+1. Load Currents and confirm all public channels are A → Z.
+2. Confirm all private channels are A → Z.
+3. Confirm every public channel appears before every private channel.
+4. Confirm Direct Messages appear below all channels.
+5. Create a new public channel and confirm it moves into the correct alphabetical location immediately.
+6. Create a new private channel and confirm it moves into the private alphabetical group immediately.
+7. Rename a channel and confirm it re-sorts immediately.
+8. Refresh and confirm the same order remains.
+9. Confirm the selected channel remains selected after sorting.
+10. Confirm unread badges and notification indicators remain correct.
+11. Confirm private-channel visibility rules remain intact.
+12. Confirm a long list can scroll without hiding Direct Messages or the bottom navigation tools.
+
+Before declaring completion, report:
+- the current root cause of the inconsistent ordering
+- the frontend file responsible for building the sidebar lists
+- the exact sorting logic added
+- confirmation that public and private channels are sorted independently
+- confirmation that Direct Messages now render below the complete channel list
+- regression test results
