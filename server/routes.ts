@@ -59,7 +59,7 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
-import { requireAuth, requirePermission, requireNotAdvisor, requirePrivilegedSalesRole, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName } from "./auth";
+import { requireAuth, requirePermission, requireNotAdvisor, requirePrivilegedSalesRole, seedUsers, hashPassword, verifyPassword, getSessionUserId, requireName, requireExportPermission, requireDownloadPermission, requireGenerateReportPermission, authorizeResourceAction, logExportAudit } from "./auth";
 import { attachmentSectionFor, exportSectionFor, requireSectionView } from "./voice-assistant-create-guards";
 import { toCsv, setCsvHeaders, type CsvColumn } from "./csv-export";
 import {
@@ -2250,7 +2250,7 @@ export async function registerRoutes(
     res.send(fs.readFileSync(filePath, "utf-8"));
   });
 
-  app.get("/api/marinas/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/marinas/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), requireExportPermission("crm"), async (req, res) => {
     const { search, state } = req.query;
     const result = await storage.getMarinas({ search: search as string, state: state as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -2261,7 +2261,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/leads/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/leads/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), requireExportPermission("crm"), async (req, res) => {
     const { search, status, country, state } = req.query;
     const result = await storage.getLeads({
       search: search as string, status: status as string,
@@ -2289,7 +2289,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/accounts/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/accounts/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), requireExportPermission("crm"), async (req, res) => {
     const { search, segment } = req.query;
     const result = await storage.getAccounts({ search: search as string, segment: segment as string, page: 1, limit: 100000, onlyPromoted: true });
     const cols: CsvColumn[] = [
@@ -2302,7 +2302,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/contacts/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/contacts/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), requireExportPermission("crm"), async (req, res) => {
     const { accountId } = req.query;
     const data = await storage.getContacts({ accountId: accountId ? Number(accountId) : undefined });
     const cols: CsvColumn[] = [
@@ -2314,7 +2314,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/opportunities/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/opportunities/export", requireAuth, exportRateLimiter, requirePermission("crm", "view"), requireExportPermission("crm"), async (req, res) => {
     const { stage, owner } = req.query;
     const result = await storage.getOpportunities({ stage: stage as string, owner: owner as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -2331,7 +2331,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/tickets/export", requireAuth, requirePermission("support", "view"), async (req, res) => {
+  app.get("/api/tickets/export", requireAuth, requirePermission("support", "view"), requireExportPermission("support"), async (req, res) => {
     const { status, severity } = req.query;
     const result = await storage.getTickets({ status: status as string, severity: severity as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -2346,7 +2346,7 @@ export async function registerRoutes(
     res.send(toCsv(result.data as any, cols));
   });
 
-  app.get("/api/quotes/export", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
+  app.get("/api/quotes/export", requireAuth, requirePermission("quoting", "view"), requireExportPermission("quoting"), async (req, res) => {
     const { status } = req.query;
     const result = await storage.getQuotes({ status: status as string, page: 1, limit: 100000 });
     const cols: CsvColumn[] = [
@@ -2377,6 +2377,12 @@ export async function registerRoutes(
     if (!section) return res.status(400).json({ message: "Unknown objectType" });
     const gate = await requireSectionView(userId, section);
     if (!gate.ok) return res.status(403).json({ message: "Not authorized to export activities for this object" });
+    const exportAuth = await authorizeResourceAction({ userId, action: "export" });
+    if (!exportAuth.ok) {
+      void logExportAudit(req, "export", section, "denied", exportAuth.reason);
+      return res.status(403).json({ message: "You have view-only access and do not have permission to export or download this content.", code: "EXPORT_FORBIDDEN" });
+    }
+    void logExportAudit(req, "export", section, "allowed");
     const data = await storage.getActivities(objectType as string, Number(objectId));
     const cols: CsvColumn[] = [
       { key: "type", header: "Type" }, { key: "summary", header: "Summary" },
@@ -2408,6 +2414,13 @@ export async function registerRoutes(
       const gate = await requireSectionView(userId, section);
       if (!gate.ok) return res.status(403).json({ message: "Not authorized to export tasks for this object" });
     }
+    // Export permission check — separate from section-view check above.
+    const exportAuth = await authorizeResourceAction({ userId, action: "export" });
+    if (!exportAuth.ok) {
+      void logExportAudit(req, "export", "projects", "denied", exportAuth.reason);
+      return res.status(403).json({ message: "You have view-only access and do not have permission to export or download this content.", code: "EXPORT_FORBIDDEN" });
+    }
+    void logExportAudit(req, "export", "projects", "allowed");
     // For non-admins: ALWAYS force ownerUserId = session.userId regardless of what
     // the client supplies. There is no legitimate "export another user's tasks"
     // path for a non-admin — admins can pass an explicit numeric `owner` to scope.
@@ -2435,7 +2448,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/comm-lists/export", requireAuth, requirePermission("crm", "view"), async (_req, res) => {
+  app.get("/api/comm-lists/export", requireAuth, requirePermission("crm", "view"), requireExportPermission("crm"), async (_req, res) => {
     const data = await storage.getCommunicationLists();
     const cols: CsvColumn[] = [
       { key: "name", header: "Name" }, { key: "source", header: "Source" },
@@ -2446,7 +2459,7 @@ export async function registerRoutes(
     res.send(toCsv(data as any, cols));
   });
 
-  app.get("/api/campaigns/export", requireAuth, requirePermission("crm", "view"), async (req, res) => {
+  app.get("/api/campaigns/export", requireAuth, requirePermission("crm", "view"), requireExportPermission("crm"), async (req, res) => {
     const { status } = req.query;
     const data = await storage.getCampaignDrafts({ status: status as string });
     const cols: CsvColumn[] = [
@@ -5375,7 +5388,7 @@ export async function registerRoutes(
     res.send(html);
   });
 
-  app.get("/api/quotes/:id/download/xlsx", requireAuth, requirePermission("quoting", "view"), async (req, res) => {
+  app.get("/api/quotes/:id/download/xlsx", requireAuth, requirePermission("quoting", "view"), requireDownloadPermission("quoting"), async (req, res) => {
     const quote = await storage.getQuote(Number(req.params.id));
     if (!quote) return res.status(404).json({ message: "Quote not found" });
 
@@ -7409,6 +7422,13 @@ export async function registerRoutes(
       const section = attachmentSectionFor(String(row.object_type || ""));
       const gate = await requireSectionView(userId, section);
       if (!gate.ok) return res.status(404).json(opaque404);
+      // Download-attachment permission check (additive to section-view ACL above).
+      const dlAuth = await authorizeResourceAction({ userId, action: "download_attachment" });
+      if (!dlAuth.ok) {
+        void logExportAudit(req, "download_attachment", section, "denied", dlAuth.reason, fileName);
+        return res.status(403).json({ message: "You have view-only access and do not have permission to download attachments.", code: "DOWNLOAD_FORBIDDEN" });
+      }
+      void logExportAudit(req, "download_attachment", section, "allowed", undefined, fileName);
       // DM and private-channel guard for current_message attachments
       if (row.object_type === "current_message") {
         const msgCheck = await db.execute(sql`
@@ -14938,6 +14958,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       if (owner.ownerUserId !== userId && !isAdmin && !hasSharedAccess) {
         return res.status(403).json({ error: "Not allowed" });
       }
+      // Download-attachment permission check (additive to owner/admin/team check above).
+      if (!isAdmin) {
+        const dlAuth = await authorizeResourceAction({ userId, action: "download_attachment" });
+        if (!dlAuth.ok) {
+          void logExportAudit(req, "download_attachment", "mail", "denied", dlAuth.reason, String(attId));
+          return res.status(403).json({ error: "You have view-only access and do not have permission to download attachments.", code: "DOWNLOAD_FORBIDDEN" });
+        }
+      }
+      void logExportAudit(req, "download_attachment", "mail", "allowed", undefined, String(attId));
       const result = await downloadGmailAttachment(attId);
       if (!result) return res.status(502).json({ error: "Could not fetch attachment from Gmail" });
       // Strip CR/LF/quotes from filename to keep header parser happy
@@ -22732,7 +22761,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
   });
 
-  app.get("/api/assets/:id/download", requirePermission("knowledge", "view"), async (req, res) => {
+  app.get("/api/assets/:id/download", requirePermission("knowledge", "view"), requireDownloadPermission("knowledge"), async (req, res) => {
     try {
       const [asset] = await db.select().from(assets).where(eq(assets.id, Number(req.params.id)));
       if (!asset) return res.status(404).json({ message: "Asset not found" });
@@ -24186,7 +24215,7 @@ export function registerConfluenceRoutes(app: Express) {
 
   // ── GET /api/projects/:id/attachments/:aid/download ──────────────────────────
   // SECURITY (F-09 follow-up): same IDOR fix as the list route above.
-  app.get("/api/projects/:id/attachments/:aid/download", requirePermission("projects", "view"), async (req, res) => {
+  app.get("/api/projects/:id/attachments/:aid/download", requirePermission("projects", "view"), requireDownloadPermission("projects"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const aid = parseInt(req.params.aid);
@@ -26526,7 +26555,7 @@ export function registerConfluenceRoutes(app: Express) {
   });
 
   // ── GET /api/analytics/source-attribution/export ──────────────────────────
-  app.get("/api/analytics/source-attribution/export", requireAuth, async (req, res) => {
+  app.get("/api/analytics/source-attribution/export", requireAuth, requireExportPermission("crm"), async (req, res) => {
     try {
       const where = buildAttrWhere(req.query as Record<string, string>);
       const normCase = buildNormalizeCaseExpr("l.source");
@@ -43067,7 +43096,7 @@ ${contextText}`;
   // ── GET /api/marketing/drilldown/export — CSV export ─────────────────────────
   // Same metric whitelist as /api/marketing/drilldown. Hard cap at 5,000 rows.
   // Enforces requireAuth + crm:view — no extra permissions beyond the drilldown.
-  app.get("/api/marketing/drilldown/export", requireAuth, requirePermission("crm", "view"), async (req: any, res) => {
+  app.get("/api/marketing/drilldown/export", requireAuth, requirePermission("crm", "view"), requireExportPermission("crm"), async (req: any, res) => {
     const EXPORT_CAP = 5000;
     try {
       const metric  = String(req.query.metric  ?? "").trim();

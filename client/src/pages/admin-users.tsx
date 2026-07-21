@@ -33,6 +33,9 @@ type UserPermissions = {
   calendar: AccessLevel;
   mail_team: Record<string, { view: boolean; edit: boolean }>;
   calendar_team: number[];
+  can_export?: boolean;
+  can_download_attachment?: boolean;
+  can_generate_report?: boolean;
 };
 
 const DEFAULT_PERMISSIONS: UserPermissions = {
@@ -40,6 +43,7 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
   communications: "edit", team_workload: "edit", knowledge: "edit",
   support: "edit", quoting: "edit", calendar: "edit",
   mail_team: {}, calendar_team: [],
+  can_export: true, can_download_attachment: true, can_generate_report: true,
 };
 
 type AdminUser = {
@@ -224,6 +228,10 @@ function AccessTab({ user, currentUserId }: { user: AdminUser; currentUserId: nu
     permsMutation.mutate(updated);
   }
 
+  function updateFlag(flag: "can_export" | "can_download_attachment" | "can_generate_report", value: boolean) {
+    permsMutation.mutate({ ...perms, [flag]: value });
+  }
+
   if (isAdminUser) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center px-4">
@@ -287,6 +295,46 @@ function AccessTab({ user, currentUserId }: { user: AdminUser; currentUserId: nu
                   <input type="checkbox" className="accent-teal-500" checked={entry.edit && entry.view}
                     onChange={e => updateMailTeam(acct.id, "edit", e.target.checked)} disabled={permsMutation.isPending || !entry.view} />
                   <span className="text-[11px] text-muted-foreground">Reply/Send</span>
+                </label>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="border-t border-border/40" />
+
+      {/* Export & Download permissions */}
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Export & Download</h3>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          Controls whether this user can export CSV/XLSX data or download attachments.
+          Admins are always exempt from these restrictions.
+        </p>
+        <div className="space-y-2">
+          {([
+            { flag: "can_export" as const, label: "Export Data (CSV / XLSX)", description: "Leads, accounts, contacts, opportunities, quotes, campaigns…" },
+            { flag: "can_download_attachment" as const, label: "Download Attachments", description: "Email attachments, project files, asset library files" },
+            { flag: "can_generate_report" as const, label: "Generate Reports", description: "Analytics, drilldown exports, attribution reports" },
+          ] as const).map(({ flag, label, description }) => {
+            const enabled = perms[flag] !== false;
+            return (
+              <div key={flag} className="flex items-center gap-3 py-1.5 px-2 rounded-md hover:bg-secondary/20">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{label}</p>
+                  <p className="text-[11px] text-muted-foreground">{description}</p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none shrink-0" data-testid={`toggle-${flag}`}>
+                  <input
+                    type="checkbox"
+                    className="accent-teal-500 w-4 h-4"
+                    checked={enabled}
+                    onChange={e => updateFlag(flag, e.target.checked)}
+                    disabled={permsMutation.isPending}
+                  />
+                  <span className={`text-xs font-medium ${enabled ? "text-teal-400" : "text-muted-foreground"}`}>
+                    {enabled ? "Allowed" : "Blocked"}
+                  </span>
                 </label>
               </div>
             );

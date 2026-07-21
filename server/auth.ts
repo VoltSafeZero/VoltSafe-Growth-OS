@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
 import { users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { isPrivilegedSalesRole } from "@shared/rbac";
 
 // bcrypt cost factor — 12 strikes a reasonable balance between security and
@@ -184,4 +184,159 @@ export function requirePrivilegedSalesRole(req: Request, res: Response, next: Ne
     return res.status(403).json({ message: "This feature is not available for your role" });
   }
   next();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Export / Download / Report authorization
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EXPORT_PERMISSION_FLAG: Record<string, string> = {
+  export:               "can_export",
+  download_attachment:  "can_download_attachment",
+  generate_report:      "can_generate_report",
+};
+
+/**
+ * Central authorization helper for export, download, and report actions.
+ *
+ * Returns { ok: true } for master_admin and admin unconditionally.
+ * For all other roles, checks users.permissions JSONB for the flag:
+ *   action "export"              → can_export
+ *   action "download_attachment" → can_download_attachment
+ *   action "generate_report"     → can_generate_report
+ *
+ * When the flag is MISSING (legacy user, not yet backfilled), defaults to
+ * ALLOW so that a migration race-condition does not silently break access.
+ * Once the migration has run, missing flags will be absent only briefly.
+ *
+ * ADDITIVE: callers must still gate on requirePermission(section,"view")
+ * before this to ensure section-level access is enforced separately.
+ */
+export async function authorizeResourceAction(params: {
+  userId: number;
+  action: "export" | "download_attachment" | "generate_report";
+}): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const [user] = await db
+      .select({ globalRole: users.globalRole, permissions: users.permissions })
+      .from(users)
+      .where(eq(users.id, params.userId))
+      .limit(1);
+
+    if (!user) return { ok: false, reason: "User not found" };
+
+    if (user.globalRole === "master_admin" || user.globalRole === "admin") {
+      return { ok: true };
+    }
+
+    const perms = (user.permissions as Record<string, any>) || {};
+    const flag = EXPORT_PERMISSION_FLAG[params.action];
+    const flagValue = perms[flag];
+
+    // Explicitly false → denied. Undefined/null → allow (legacy compat).
+    if (flagValue === false) {
+      return { ok: false, reason: `Permission '${params.action}' is not granted for this user` };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error("[authorizeResourceAction] error:", err);
+    return { ok: false, reason: "Internal error checking permissions" };
+  }
+}
+
+/**
+ * Express middleware: blocks the request with HTTP 403 if the session user
+ * lacks can_export permission. Always call AFTER requireAuth (and ideally
+ * after requirePermission) so the user identity is already established.
+ */
+export function requireExportPermission(module?: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const userId = req.session?.userId as number | undefined;
+    if (!userId) return res.status(401).json({ message: "Not authenticated" });
+    const result = await authorizeResourceAction({ userId, action: "export" });
+    if (!result.ok) {
+      void logExportAudit(req, "export", module ?? "unknown", "denied", result.reason);
+      return res.status(403).json({
+        message: "You have view-only access and do not have permission to export or download this content.",
+        code: "EXPORT_FORBIDDEN",
+      });
+    }
+    void logExportAudit(req, "export", module ?? "unknown", "allowed");
+    next();
+  };
+}
+
+/**
+ * Express middleware: blocks the request with HTTP 403 if the session user
+ * lacks can_download_attachment permission.
+ */
+export function requireDownloadPermission(module?: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const userId = req.session?.userId as number | undefined;
+    if (!userId) return res.status(401).json({ message: "Not authenticated" });
+    const result = await authorizeResourceAction({ userId, action: "download_attachment" });
+    if (!result.ok) {
+      void logExportAudit(req, "download_attachment", module ?? "attachment", "denied", result.reason);
+      return res.status(403).json({
+        message: "You have view-only access and do not have permission to download attachments.",
+        code: "DOWNLOAD_FORBIDDEN",
+      });
+    }
+    void logExportAudit(req, "download_attachment", module ?? "attachment", "allowed");
+    next();
+  };
+}
+
+/**
+ * Express middleware: blocks the request with HTTP 403 if the session user
+ * lacks can_generate_report permission.
+ */
+export function requireGenerateReportPermission(module?: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const userId = req.session?.userId as number | undefined;
+    if (!userId) return res.status(401).json({ message: "Not authenticated" });
+    const result = await authorizeResourceAction({ userId, action: "generate_report" });
+    if (!result.ok) {
+      void logExportAudit(req, "generate_report", module ?? "unknown", "denied", result.reason);
+      return res.status(403).json({
+        message: "You do not have permission to generate downloadable reports.",
+        code: "REPORT_FORBIDDEN",
+      });
+    }
+    void logExportAudit(req, "generate_report", module ?? "unknown", "allowed");
+    next();
+  };
+}
+
+/**
+ * Write a row to export_audit_log. Fire-and-forget — failures are logged to
+ * console but never abort the calling request.
+ *
+ * Does NOT log file contents, tokens, signed URLs, or sensitive secrets.
+ */
+export async function logExportAudit(
+  req: Request,
+  action: string,
+  module: string,
+  outcome: "allowed" | "denied",
+  reason?: string,
+  resourceId?: string,
+): Promise<void> {
+  try {
+    const userId  = req.session?.userId ?? null;
+    const userName = (req.session as any)?.name ?? null;
+    const forwarded = req.headers["x-forwarded-for"];
+    const ip = (typeof forwarded === "string" ? forwarded.split(",")[0]?.trim() : null)
+      ?? (req.socket as any)?.remoteAddress ?? null;
+    const ua = req.headers["user-agent"] ?? null;
+    await db.execute(sql`
+      INSERT INTO export_audit_log
+        (user_id, user_name, action, module, resource_id, endpoint, outcome, denial_reason, ip_address, user_agent)
+      VALUES
+        (${userId}, ${userName}, ${action}, ${module}, ${resourceId ?? null},
+         ${req.path}, ${outcome}, ${reason ?? null}, ${ip}, ${ua})
+    `);
+  } catch (err) {
+    console.error("[export-audit] write failed (non-fatal):", err);
+  }
 }

@@ -91,3 +91,4 @@
 - [Currents InlineEditRow edit-mode bug](currents-inline-edit-row.md) — edit-mode textareas must init via tokensToCleanText+initFromTokenText, save via serializeForSave.
 - [Lead edit form mention fields](lead-edit-mention-fields.md) — Notes/Competitors/ROI Story wired to MentionInput; 4-step pattern + server saveMentions.
 - [Entity Type Anchor System](entity-type-anchor.md) — marina anchor driven by entity_type column, not marina_id; isMarinaEntity() is the canonical gate; migration 0034.
+- [Export-Download Permission System](export-download-permissions.md) — can_export/can_download_attachment/can_generate_report flags in users.permissions JSONB; auth.ts helpers; audit table; all 18 routes hardened.

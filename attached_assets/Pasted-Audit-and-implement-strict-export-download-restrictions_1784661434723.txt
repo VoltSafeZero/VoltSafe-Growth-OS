@@ -1,0 +1,235 @@
+Audit and implement strict export/download restrictions for view-only access across the entire VoltSafe CMS.
+
+Objective
+
+Any user who has view-only access to a module, record, workspace, account, or dataset must be able to view permitted information on-screen, but must not be able to:
+
+* Export data
+* Download files or attachments
+* Generate downloadable reports
+* Download CSV, XLSX, PDF, JSON, ZIP, or other file formats
+* Print to a generated PDF through a server-side print/report endpoint
+* Use bulk export actions
+* Access export/download endpoints directly by URL or API request
+* Obtain signed download URLs
+* Use email/report delivery features as a workaround to receive exported data
+* Copy data through any existing “download all,” “backup,” “data room export,” or similar action
+
+This must be enforced on the backend, not merely hidden in the UI.
+
+Permission model
+
+Add or confirm these distinct permissions:
+
+* view
+* create
+* edit
+* delete
+* export
+* download_attachment
+* generate_report
+* bulk_action
+
+View access must never automatically grant export or download access.
+
+For users with the global role Read Only, set the defaults to:
+
+* view: allowed where assigned
+* create: denied
+* edit: denied
+* delete: denied
+* export: denied
+* download_attachment: denied
+* generate_report: denied
+* bulk_action: denied
+
+Also support module-level or record-level view-only assignments. A user may have editing rights in one module while having view-only rights in another. Export and download authorization must therefore be checked against the specific module/resource being accessed, not only the user’s global role.
+
+Master Admins and authorized Admins may retain export/download rights according to their assigned permissions.
+
+First: audit the current implementation
+
+Search the complete codebase for all of the following:
+
+* export
+* download
+* attachment
+* CSV
+* XLSX
+* Excel
+* PDF
+* JSON
+* ZIP
+* report generation
+* print
+* signed URL
+* presigned URL
+* file URL
+* blob
+* bulk export
+* data room
+* backup
+* archive download
+* Content-Disposition
+* application/octet-stream
+* file-serving routes
+* storage object access
+* frontend buttons or dropdown items that initiate downloads
+
+Create an internal audit list of every frontend control and backend endpoint that can expose downloadable or exported content.
+
+Do not assume an endpoint is safe merely because its button is currently hidden.
+
+Backend enforcement
+
+Create one centralized authorization helper, using the project’s existing authorization architecture where possible, such as:
+
+authorizeResourceAction({
+  user,
+  action: "export" | "download_attachment" | "generate_report",
+  module,
+  resourceId,
+});
+
+Every export, report, attachment, file-serving, signed-URL, and download endpoint must call this authorization helper before returning any data or URL.
+
+Required behavior:
+
+* Return HTTP 403 Forbidden when the user lacks the required permission.
+* Do not return file contents, partial contents, metadata containing a usable storage URL, signed links, or redirect URLs.
+* Do not reveal whether inaccessible private files exist beyond the minimum required error response.
+* Do not rely on client-supplied role, module, account, owner, or permission values.
+* Resolve permissions from trusted server-side session and database records.
+* Validate tenant/workspace access before resource-level permission checks.
+* Prevent IDOR attacks where a user swaps a record ID or attachment ID.
+* Prevent view-only users from requesting exports through background jobs, queued tasks, scheduled reports, or email delivery.
+* Ensure historical export jobs cannot be downloaded after a user’s permission has been reduced.
+* Re-check authorization when a generated file is downloaded, not only when generation begins.
+* Use short-lived signed URLs only after successful authorization, where signed URLs are necessary.
+
+Frontend behavior
+
+For users without the applicable permission:
+
+* Completely hide Export buttons.
+* Completely hide Download buttons.
+* Hide report-generation actions that produce downloadable files.
+* Hide bulk-selection actions that lead to export or download.
+* Hide attachment download controls.
+* Do not leave disabled controls with sensitive tooltip details unless there is a useful reason to show them.
+* If a stale browser session still exposes a control, gracefully handle the backend 403 and show:
+
+“You have view-only access and do not have permission to export or download this content.”
+
+Viewing an attachment inline must not automatically expose a permanent downloadable storage URL. Use an authenticated preview mechanism where practical.
+
+Modules to cover
+
+Apply this audit and protection across every existing and future module, including at minimum:
+
+* Leads
+* Accounts
+* Contacts
+* Pipeline
+* Comms
+* Mail
+* Calendar and Meetings
+* Tasks and Daily Execution
+* Mission Control
+* Currents
+* Cortex
+* Marketing
+* Capital
+* Investor Data Room
+* Reports and Analytics
+* Documents
+* File attachments
+* User and team administration
+* Any system administration reports
+* Any API integrations that can request exports
+
+Build the protection centrally so future modules inherit it instead of requiring developers to remember to add individual checks.
+
+Permission administration
+
+In the role and permission editor:
+
+* Add clear toggles for Export and Download Attachments where custom roles are configurable.
+* Export must default to OFF for Read Only users.
+* Download Attachments must default to OFF for Read Only users.
+* Generate Reports must default to OFF when the report produces a downloadable file.
+* Show a warning if an administrator grants export/download permission to a role otherwise configured as view-only.
+* Preserve existing legitimate permissions for Master Admins unless the current configuration says otherwise.
+
+Do not allow a module’s general view toggle to silently enable export or download.
+
+Audit logging
+
+Log every successful and denied export/download attempt with:
+
+* user ID
+* user name where available
+* tenant/workspace ID
+* action
+* module
+* resource ID
+* file or report identifier
+* timestamp
+* outcome: allowed or denied
+* reason for denial
+* IP address if already captured by the application
+* user agent if already captured by the application
+
+Do not log file contents, tokens, signed URLs, or sensitive secrets.
+
+Create an admin-visible security audit view or integrate these events into the existing audit log.
+
+Tests
+
+Add automated tests covering:
+
+1. Read Only user can view an assigned record.
+2. Read Only user cannot export that record.
+3. Read Only user cannot download its attachments.
+4. Read Only user receives 403 when calling the export endpoint directly.
+5. Read Only user receives 403 when manually changing a resource ID.
+6. Read Only user cannot generate a report by API.
+7. Read Only user cannot download an export generated earlier by another user.
+8. Read Only user cannot obtain a signed file URL.
+9. A user with edit rights but no export permission cannot export.
+10. A user with export rights in Module A cannot export from view-only Module B.
+11. Master Admin can export where permitted.
+12. Permission changes take effect without requiring a new login wherever the current session architecture supports it.
+13. Export controls are absent from the frontend for unauthorized users.
+14. The backend remains protected even when frontend authorization is bypassed.
+15. Inline preview does not reveal a reusable direct storage URL.
+16. Scheduled or emailed exports are blocked for unauthorized users.
+17. Existing exports cannot be downloaded after permission revocation.
+
+Include regression tests for every existing export and download route discovered during the audit.
+
+Migration and compatibility
+
+* Add database fields or permission records through the project’s normal migration system.
+* Backfill Read Only roles with export/download/report permissions set to false.
+* Preserve current authorized administrator access.
+* Do not accidentally remove ordinary on-screen viewing access.
+* Do not break inline previews unnecessarily.
+* Do not treat browser-side printing as equivalent to a secure server export unless the application itself generates the downloadable document.
+
+Completion report
+
+After implementation, provide:
+
+1. Whether this restriction already existed before the change.
+2. Which parts were previously UI-only versus backend-enforced.
+3. Every export/download endpoint found.
+4. Every file modified.
+5. The final permission matrix.
+6. Migration details.
+7. Test results.
+8. Confirmation that direct API calls return 403 for view-only users.
+9. Confirmation that export/download controls are hidden in all affected modules.
+10. Any remaining unavoidable limitation, including the fact that a person who can see information on a screen can still manually copy it, photograph it, or use operating-system-level screenshots.
+
+Do not claim completion based only on hiding buttons. The work is complete only when unauthorized export and download attempts are rejected server-side.
