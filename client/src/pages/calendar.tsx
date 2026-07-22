@@ -1606,17 +1606,12 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
 
   const toggleCalendarSource = (sourceKey: string) => {
     if (!sourcesData) return;
-    // Guard: never allow toggling a permanently-on source
-    const srcEntry = sourcesData.sources.find(s => s.calendarSourceKey === sourceKey);
-    if (srcEntry && isPermanentSource(srcEntry)) return;
+    if (sourcesData.sources.some(s => s.calendarSourceKey === sourceKey && isPermanentSource(s))) return;
     const primaryKey = sourcesData.sources.find(s => s.primary)?.calendarSourceKey ?? null;
-    // null = never configured → default is primary only (not all)
     const current = sourcesData.selectedIds ?? (primaryKey ? [primaryKey] : []);
     const next = current.includes(sourceKey)
       ? current.filter(k => k !== sourceKey)
       : [...current, sourceKey];
-    // Always save explicit array — null is reserved for "uninitialized / primary only"
-    // Server translates opaque keys back to raw Google Calendar IDs before storage.
     sourceSelectionMutation.mutate({ connectionId: sourcesData.connectionId, selectedIds: next });
   };
 
