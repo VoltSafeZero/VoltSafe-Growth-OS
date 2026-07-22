@@ -109,7 +109,9 @@ check(
 
 check(
   "App-created events (no externalCalendarId) are always included",
-  ROUTES_SRC.includes("!ev.externalCalendarId ||")
+  // Supports both the legacy single-liner and the new multi-branch filter.
+  ROUTES_SRC.includes("!ev.externalCalendarId ||") ||
+  ROUTES_SRC.includes("if (!ev.externalCalendarId) return true")
 );
 
 check(
@@ -120,9 +122,11 @@ check(
 check(
   "Empty selectedCalIds array (all unchecked) excludes synced-calendar events",
   // Logic: if selectedCalIds is [] then selectedCalIds.includes(anything) = false,
-  // so only events with falsy externalCalendarId pass through.
-  // This is verified by the filter expression existing:
-  ROUTES_SRC.includes("!ev.externalCalendarId || selectedCalIds.includes(ev.externalCalendarId)")
+  // so only events with falsy externalCalendarId (or permanent calendar) pass through.
+  // Supports both the legacy single-liner and the new multi-branch filter.
+  ROUTES_SRC.includes("!ev.externalCalendarId || selectedCalIds.includes(ev.externalCalendarId)") ||
+  (ROUTES_SRC.includes("selectedCalIds.includes(ev.externalCalendarId)") &&
+   ROUTES_SRC.includes("if (!ev.externalCalendarId) return true"))
 );
 
 // ── Layer 3: client-side filter correctness ───────────────────────────────────

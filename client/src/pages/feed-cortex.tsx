@@ -929,6 +929,8 @@ interface AutoIngestDomain {
   is_active: boolean;
   created_by_user_id: number;
   created_at: string;
+  last_matched_at: string | null;
+  match_count: number;
   creator_name?: string | null;
 }
 
@@ -1029,6 +1031,8 @@ function DomainWatchPanel() {
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Label / Notes</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Added by</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Added</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Last matched</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Matches</th>
                 <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">Active</th>
                 <th className="px-4 py-2.5 w-20" />
               </tr>
@@ -1049,6 +1053,12 @@ function DomainWatchPanel() {
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
                     {formatDistanceToNow(new Date(d.created_at), { addSuffix: true })}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground hidden lg:table-cell">
+                    {d.last_matched_at ? formatDistanceToNow(new Date(d.last_matched_at), { addSuffix: true }) : <span className="opacity-40">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground hidden lg:table-cell">
+                    {d.match_count > 0 ? <span className="font-medium text-teal-600 dark:text-teal-400">{d.match_count}</span> : <span className="opacity-40">0</span>}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Switch

@@ -1,0 +1,276 @@
+Before we publish, perform a complete end-to-end audit of both newly implemented features:
+
+1. Cortex Domain Watch
+2. Calendar source visibility and permanent VoltSafe calendar rules
+
+Do not add unrelated features. Fix only defects found during this audit.
+
+==================================================
+PART 1 — CORTEX DOMAIN WATCH
+==================================================
+
+Required business behavior:
+
+Authorized roles:
+- master_admin / super admin
+- admin
+- executive
+- manager
+
+Only these roles may:
+- view the Domain Watch management panel
+- add a watched domain
+- edit a watched domain
+- enable or disable a watched domain
+- delete a watched domain
+
+Unauthorized users must receive a backend 403 even if they manually call the API.
+
+Domain matching:
+- normalize domains to lowercase
+- trim whitespace
+- accept either:
+  example.com
+  @example.com
+- store the canonical value as:
+  example.com
+- reject full email addresses such as:
+  person@example.com
+- reject URLs such as:
+  https://example.com
+- reject malformed domains
+- prevent duplicates case-insensitively
+
+Incoming-email behavior:
+Whenever a new inbound Gmail message is successfully synced:
+
+1. Extract the sender email address.
+2. Extract and normalize its domain.
+3. Check whether the domain is enabled in Domain Watch.
+4. If enabled, automatically ingest that email into Cortex.
+5. This must happen for every newly received matching email.
+6. It must not require a user to manually click “Feed Cortex.”
+7. It must work across every connected VoltSafe Mail account.
+
+Exclusions:
+- Do not auto-ingest outbound-only messages.
+- Do not auto-ingest drafts.
+- Do not auto-ingest deleted or spam messages unless existing Cortex ingestion already intentionally includes them.
+- Define clearly how @voltsafe.com internal email is handled.
+- Do not ingest a message solely because the watched domain appears in CC, body text, links, or quoted history. Matching must use the actual sender domain.
+
+Idempotency:
+The same Gmail message must never produce duplicate Cortex intelligence records.
+
+Use a stable unique source key, such as:
+- Gmail account/source ID
+- Gmail message ID
+- ingestion source type
+
+Re-running Gmail sync, restarting the server, or replaying the same message must not duplicate the Cortex record.
+
+Thread behavior:
+Specify whether ingestion occurs:
+- once per individual matching email message, or
+- once per thread
+
+The requested behavior is every matching email received, so the preferred behavior is one ingestion record per received message, while still relating records to their Gmail thread where available.
+
+Metadata:
+Every automatically ingested record should preserve:
+- sender name
+- sender email
+- sender domain
+- subject
+- received timestamp
+- Gmail message ID
+- Gmail thread ID
+- connected mailbox/account
+- ingestion source = domain_watch
+- watched-domain rule ID
+- who created the rule
+- original message link where available
+
+Content:
+Use the same safe email extraction and Cortex analysis pipeline used by manual Feed Cortex ingestion.
+
+Ensure:
+- HTML is converted safely
+- quoted reply history is handled consistently
+- attachments follow existing Cortex attachment rules
+- empty-body emails do not crash ingestion
+
+Failure handling:
+- Gmail sync must not fail because Cortex ingestion fails.
+- Log the Cortex ingestion failure with enough context to retry.
+- Avoid exposing email content or secrets in logs.
+- Confirm whether a retry queue or retry-on-next-sync exists.
+- If not, implement a safe retry status without creating duplicates.
+
+Database:
+Verify the watched-domain table and migration exist in the production startup migration path.
+
+Report:
+- table name
+- columns
+- unique constraints
+- indexes
+- migration identifier
+- whether the migration is idempotent
+
+UI:
+Verify the Domain Watch panel supports:
+- domain
+- optional label/description
+- enabled/disabled status
+- created by
+- created date
+- last matched date
+- number of matched messages, if implemented
+- add
+- edit
+- enable/disable
+- delete with confirmation
+
+Add clear copy explaining:
+“New inbound emails from enabled domains are automatically ingested into Cortex.”
+
+Historical email:
+Do not silently backfill old mail.
+
+Either:
+A. Only ingest newly received messages after the rule is enabled, and clearly state that behavior;
+or
+B. Provide an explicit separate “Backfill existing mail” action with date/range limits and confirmation.
+
+Do not perform an unrestricted historical backfill automatically.
+
+Required tests:
+1. Authorized manager can add example.com.
+2. Standard user receives 403 when adding a domain.
+3. @Example.COM normalizes to example.com.
+4. Duplicate domain is rejected.
+5. Full email address is rejected.
+6. URL is rejected.
+7. New inbound email from news@example.com is ingested.
+8. New inbound email from another domain is not ingested.
+9. Outbound email to example.com is not ingested by this rule.
+10. CC containing example.com does not trigger it.
+11. Re-syncing the same message creates no duplicate.
+12. Disabled domain does not ingest.
+13. Re-enabled domain ingests future messages.
+14. Cortex failure does not break Gmail sync.
+15. Server restart preserves the rules.
+16. Migration can run twice safely.
+
+==================================================
+PART 2 — CALENDAR SOURCE VISIBILITY
+==================================================
+
+Confirm these exact classifications:
+
+A. Primary connected VoltSafe work mailbox
+- email ends in @voltsafe.com
+- belongs to the currently logged-in VoltSafe user
+- permanently visible
+- permanently selected
+- cannot be toggled off
+- cannot be hidden through API manipulation
+- visually shows a lock or “Always on”
+
+B. Additional team/work calendar
+- may also end in @voltsafe.com
+- user must have permission to access it
+- toggleable on/off
+
+C. Personal or external connected calendar
+- toggleable on/off by the owning user
+- visibility still governed by permissions
+
+D. Another employee’s calendar
+- only shown when the current user has permission to view it
+- toggleable on/off
+- permission must be enforced by the backend, not only the UI
+
+Important:
+Do not classify every @voltsafe.com calendar as permanently on.
+
+Only the current user’s primary VoltSafe-connected calendar is permanently on.
+
+Additional @voltsafe.com calendars must remain toggleable if the user has access.
+
+Security:
+- A user must not gain access to another person’s events by guessing a calendar ID.
+- Hidden calendars must remain inaccessible when the user lacks permission.
+- UI toggles control display, not authorization.
+
+State behavior:
+- primary VoltSafe calendar remains selected after refresh
+- selected optional calendars persist according to existing user preference behavior
+- if an always-on calendar ID is missing from saved selectedIds, restore it automatically
+- switching users must not carry another user’s calendar selection state
+- revoked calendar access must remove it from the list and visible events
+
+Event filtering:
+Confirm the always-on calendar’s events are included regardless of toggle state.
+
+Avoid duplicate events when:
+- the same event exists in multiple connected sources
+- a shared calendar and personal calendar both expose the event
+- the user is both organizer and attendee
+
+Required tests:
+1. User cannot toggle off their primary @voltsafe.com calendar.
+2. Primary calendar remains visible after refresh.
+3. Tampered selectedIds cannot hide it.
+4. Additional @voltsafe.com calendar can be toggled.
+5. Personal calendar can be toggled.
+6. Authorized coworker calendar can be toggled.
+7. Unauthorized coworker calendar is not visible or queryable.
+8. Revoked permission removes access.
+9. Optional selections persist correctly.
+10. Events do not duplicate.
+11. Existing 45 calendar tests still pass.
+
+==================================================
+PART 3 — BUILD AND DEPLOYMENT READINESS
+==================================================
+
+Run:
+- the applicable database migration validation
+- TypeScript/typecheck
+- all Cortex ingestion tests
+- all Gmail sync tests
+- all calendar tests
+- npm run build
+
+Do not dismiss test failures as pre-existing without:
+1. naming the exact failing test,
+2. proving it predates these changes,
+3. and explaining why it cannot mask a regression.
+
+Before declaring completion, report:
+
+Cortex:
+- files changed
+- routes added
+- database schema and indexes
+- exact role guard
+- exact Gmail sync hook
+- exact idempotency strategy
+- historical/backfill behavior
+- test results
+
+Calendar:
+- files changed
+- exact definition of primary permanent calendar
+- exact permission checks
+- toggle persistence behavior
+- test results
+
+Final:
+- production build result
+- remaining warnings
+- commit hash
+- whether both features are in the same commit
+- readiness to publish

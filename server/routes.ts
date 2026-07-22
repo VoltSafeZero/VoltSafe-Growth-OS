@@ -9796,11 +9796,24 @@ export async function registerRoutes(
         ? (googleConn.selectedCalendarIds as string[])
         : null;
 
+      // Identify the primary @voltsafe.com raw calendar ID — its events are always
+      // returned regardless of selectedCalIds (permanent, cannot be hidden).
+      const discoveredCals: any[] = Array.isArray((googleConn as any)?.calendarsDiscovered)
+        ? ((googleConn as any).calendarsDiscovered as any[])
+        : [];
+      const permanentCalId: string | null = discoveredCals.find(
+        (c: any) => c.primary === true && typeof c.id === "string" && c.id.toLowerCase().endsWith("@voltsafe.com")
+      )?.id ?? null;
+
       const events = await storage.getCalendarEvents(userId, start, end);
 
       const filtered = selectedCalIds === null
         ? events
-        : events.filter((ev: any) => !ev.externalCalendarId || selectedCalIds.includes(ev.externalCalendarId));
+        : events.filter((ev: any) => {
+            if (!ev.externalCalendarId) return true; // app-created — always visible
+            if (permanentCalId && ev.externalCalendarId === permanentCalId) return true; // permanent
+            return selectedCalIds.includes(ev.externalCalendarId);
+          });
 
       // Default list response is minimized via toEventListItem — description,
       // meetingUrl, invitees, attendeeDetails, external* IDs (including
@@ -10306,6 +10319,14 @@ export async function registerRoutes(
             return match?.id ?? null;
           })
           .filter(Boolean) as string[];
+        // Always preserve the primary @voltsafe.com calendar — it is permanently on
+        // and must not be removable via API manipulation.
+        const primaryPermanentId = discovered.find(
+          (c: any) => c.primary === true && typeof c.id === "string" && c.id.toLowerCase().endsWith("@voltsafe.com")
+        )?.id;
+        if (primaryPermanentId && !rawIdsToStore.includes(primaryPermanentId)) {
+          rawIdsToStore.push(primaryPermanentId);
+        }
       }
 
       await db.update(calendarConnections)

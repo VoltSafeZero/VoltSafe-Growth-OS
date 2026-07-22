@@ -1126,5 +1126,20 @@
       "ai-knowledge-base.json"
     ],
     "trigger": "startup"
+  },
+  {
+    "ranAt": "2026-07-22T18:28:02.593Z",
+    "localDate": "2026-07-22",
+    "action": "refreshed",
+    "bootTime": "2026-07-22T18:27:56.168Z",
+    "deploymentId": "90304ce384bf822e994ea154c953f85d9978e802",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "startup"
   }
 ]
