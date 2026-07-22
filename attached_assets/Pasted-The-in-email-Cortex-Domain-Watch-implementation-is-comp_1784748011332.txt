@@ -1,0 +1,83 @@
+The in-email Cortex Domain Watch implementation is complete and 36/36 targeted tests passed.
+
+Now perform final release verification. Do not add unrelated features.
+
+1. Run:
+   - npx tsc --noEmit
+   - npm run build
+   - the new Domain Watch toolbar test suite
+   - existing Cortex Domain Watch tests
+   - existing Gmail/Mail toolbar tests
+   - existing permission tests
+
+2. Verify these exact behaviors in the final code:
+
+   A. Save this email to Cortex
+   - still performs one-time ingestion only
+   - remains visually separate from Domain Watch
+
+   B. Always ingest this domain
+   - extracts the exact inbound sender domain
+   - normalizes it to lowercase
+   - does not use CC, BCC, body text, links, or recipients
+   - does not work for outbound-only messages
+   - creates a new Domain Watch rule when absent
+   - detects an existing enabled rule without duplication
+   - re-enables an existing disabled rule
+   - remains on the currently open email
+   - immediately updates the toolbar/status UI
+
+   C. Permissions
+   - only master_admin/super admin, admin, executive, and manager may use it
+   - unauthorized users cannot invoke it through the backend
+   - backend returns 403
+   - frontend does not expose an actionable control to unauthorized users
+
+   D. UI
+   - Cortex split button or dropdown is keyboard accessible
+   - tooltip and aria-label are present
+   - the watched domain is displayed
+   - success toast clearly says future emails will be ingested
+   - existing watched state is shown
+   - current-message saved state and Domain Watch state remain separate
+   - Manage Cortex Rules opens the existing Domain Watch page
+
+   E. Edge cases
+   - display-name sender format works
+   - uppercase sender domain works
+   - malformed or missing sender fails safely
+   - subdomains remain exact-match domains
+   - double-click cannot create duplicates
+   - switching emails recalculates the status
+   - switching mailboxes does not retain stale status
+   - @voltsafe.com behavior follows the existing policy
+
+3. Verify the API check endpoint:
+   - returns existing enabled rule
+   - returns existing disabled rule
+   - returns a clean not-found response
+   - is permission-protected appropriately
+   - validates and normalizes the domain server-side
+
+4. Report:
+   - every file changed
+   - toolbar component changed
+   - new component added
+   - API route added or reused
+   - domain extraction helper used
+   - role/permission helper used
+   - duplicate handling
+   - disabled-rule re-enable behavior
+   - Undo behavior, or explicitly confirm Undo was not implemented
+   - @voltsafe.com behavior
+   - all test counts and results
+   - TypeScript result
+   - production build result
+   - warnings
+   - exact Git commit hash
+
+5. Commit all final changes.
+
+6. Do not publish until all checks pass.
+
+Do not declare completion without the exact commit hash and a successful production build.
