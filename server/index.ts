@@ -463,6 +463,7 @@ app.use((req, res, next) => {
       migrateCampaignTrackingSchema(),
       migrateComplianceSchema(),
       migrateRepairMojibakeFilenames(),
+      import("./services/cortex-auto-ingest").then(({ migrateAutoIngestDomainsSchema }) => migrateAutoIngestDomainsSchema()),
     ]);
     log(`[perf:startup] batch-2 (feature schemas) done +${Date.now() - _migStart}ms`);
 

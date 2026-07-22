@@ -188,6 +188,25 @@ export async function upsertMessageById(
           }).catch(() => {});
         }
 
+        // Cortex auto-ingest: fire-and-forget domain-watch check
+        if (emailData.direction === "inbound" && emailData.fromEmail) {
+          import("./cortex-auto-ingest").then(({ autoIngestMessageIfDomainFlagged }) => {
+            autoIngestMessageIfDomainFlagged({
+              messageId: inserted.id,
+              gmailMessageId: emailData.gmailMessageId,
+              threadId: emailData.gmailThreadId ?? null,
+              subject: emailData.subject ?? null,
+              senderName: emailData.fromName ?? null,
+              senderEmail: emailData.fromEmail ?? null,
+              bodyText: emailData.bodyText ?? null,
+              receivedAt: emailData.sentAt ?? null,
+              ownerUserId,
+            }).catch((err: any) =>
+              log(`[cortex-auto-ingest] err msgId=${emailData.gmailMessageId}: ${err?.message}`)
+            );
+          }).catch(() => {});
+        }
+
         return { inserted: true, updatedLabels: false };
       }
       return { inserted: false, updatedLabels: false };

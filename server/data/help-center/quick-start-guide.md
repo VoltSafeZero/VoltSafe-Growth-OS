@@ -130,4 +130,4 @@ Once you are comfortable with the basics, read:
 - **Ask Cortex** — *"How do I [anything]?"* inside the app
 
 <!-- voltsafe:help-center-revised -->
-*Last revised: 2026-07-20 — auto-refreshed after production deploy.*
+*Last revised: 2026-07-21 — auto-refreshed after production deploy.*

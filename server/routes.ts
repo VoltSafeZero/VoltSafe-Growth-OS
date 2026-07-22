@@ -42536,6 +42536,71 @@ ${contextText}`;
     }
   });
 
+  // ── Cortex Auto-Ingest Domain Watch ──────────────────────────────────────────
+  // Allowed: master_admin, admin, exec, manager
+
+  function requireAutoIngestAccess(req: any, res: any, next: any) {
+    const role = req.session?.globalRole ?? "";
+    if (!["master_admin", "admin", "exec", "manager"].includes(role)) {
+      return res.status(403).json({ error: "Access restricted to admin, exec, and manager roles" });
+    }
+    next();
+  }
+
+  app.get("/api/cortex/auto-ingest-domains", requireAuth, requireAutoIngestAccess, async (_req: any, res) => {
+    try {
+      const { listAutoIngestDomains } = await import("./services/cortex-auto-ingest");
+      const domains = await listAutoIngestDomains();
+      res.json({ domains });
+    } catch (err: any) {
+      console.error("[cortex-auto-ingest] GET:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cortex/auto-ingest-domains", requireAuth, requireAutoIngestAccess, async (req: any, res) => {
+    try {
+      const { domain, label, notes } = req.body ?? {};
+      if (!domain || typeof domain !== "string") return res.status(400).json({ error: "domain is required" });
+      const userId = req.session?.userId;
+      const { addAutoIngestDomain } = await import("./services/cortex-auto-ingest");
+      const record = await addAutoIngestDomain({ domain, label, notes, userId });
+      res.json({ domain: record });
+    } catch (err: any) {
+      console.error("[cortex-auto-ingest] POST:", err.message);
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/cortex/auto-ingest-domains/:id", requireAuth, requireAutoIngestAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const { label, notes, is_active } = req.body ?? {};
+      const { updateAutoIngestDomain } = await import("./services/cortex-auto-ingest");
+      const record = await updateAutoIngestDomain(id, { label, notes, is_active });
+      if (!record) return res.status(404).json({ error: "Not found" });
+      res.json({ domain: record });
+    } catch (err: any) {
+      console.error("[cortex-auto-ingest] PATCH:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cortex/auto-ingest-domains/:id", requireAuth, requireAutoIngestAccess, async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid id" });
+      const { removeAutoIngestDomain } = await import("./services/cortex-auto-ingest");
+      const ok = await removeAutoIngestDomain(id);
+      if (!ok) return res.status(404).json({ error: "Not found" });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[cortex-auto-ingest] DELETE:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Cortex source status poll ─────────────────────────────────────────────────
 
   app.get("/api/cortex/source/:id/status", requireAuth, async (req: any, res) => {

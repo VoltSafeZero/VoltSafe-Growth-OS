@@ -16,7 +16,10 @@ import {
   AlertCircle, Loader2, Zap, ChevronRight, Info,
   FileText, FolderOpen, Image, Mic, Play, Upload, X, Square,
   Circle, RotateCcw, Trash2, File, Volume2,
+  Shield, Plus, ToggleLeft, ToggleRight, Pencil,
 } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { formatDistanceToNow, format } from "date-fns";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -916,6 +919,284 @@ function FileComposer({
   );
 }
 
+// ─── Domain Watch component ───────────────────────────────────────────────────
+
+interface AutoIngestDomain {
+  id: number;
+  domain: string;
+  label: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_by_user_id: number;
+  created_at: string;
+  creator_name?: string | null;
+}
+
+function DomainWatchPanel() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [addOpen, setAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<AutoIngestDomain | null>(null);
+  const [domain, setDomain] = useState("");
+  const [label, setLabel] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const domainsQuery = useQuery<{ domains: AutoIngestDomain[] }>({
+    queryKey: ["/api/cortex/auto-ingest-domains"],
+  });
+  const domains = domainsQuery.data?.domains ?? [];
+
+  const addMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/cortex/auto-ingest-domains", { domain: domain.trim(), label: label.trim() || undefined, notes: notes.trim() || undefined }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cortex/auto-ingest-domains"] });
+      toast({ title: "Domain added", description: `${domain} will now be auto-ingested into Cortex.` });
+      setAddOpen(false);
+      setDomain(""); setLabel(""); setNotes("");
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err?.message ?? "Could not add domain", variant: "destructive" }),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: (updates: { id: number; label?: string; notes?: string }) =>
+      apiRequest("PATCH", `/api/cortex/auto-ingest-domains/${updates.id}`, { label: updates.label, notes: updates.notes }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cortex/auto-ingest-domains"] });
+      toast({ title: "Updated" });
+      setEditTarget(null);
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err?.message ?? "Could not update", variant: "destructive" }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) =>
+      apiRequest("PATCH", `/api/cortex/auto-ingest-domains/${id}`, { is_active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/cortex/auto-ingest-domains"] }),
+    onError: (err: any) => toast({ title: "Failed", description: err?.message ?? "Could not toggle", variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/cortex/auto-ingest-domains/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cortex/auto-ingest-domains"] });
+      toast({ title: "Domain removed" });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err?.message ?? "Could not remove", variant: "destructive" }),
+  });
+
+  function openEdit(d: AutoIngestDomain) {
+    setEditTarget(d);
+    setLabel(d.label ?? "");
+    setNotes(d.notes ?? "");
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Domain Auto-Ingest</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Every email received from a watched domain is automatically fed into Cortex.
+          </p>
+        </div>
+        <Button
+          onClick={() => { setAddOpen(true); setDomain(""); setLabel(""); setNotes(""); }}
+          className="bg-teal-600 hover:bg-teal-700 text-white gap-1.5"
+          data-testid="button-add-domain"
+        >
+          <Plus className="w-4 h-4" /> Add Domain
+        </Button>
+      </div>
+
+      {/* Domain list */}
+      {domainsQuery.isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading domains…
+        </div>
+      ) : domains.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border p-10 text-center space-y-2">
+          <Shield className="w-8 h-8 text-muted-foreground/40 mx-auto" />
+          <p className="text-sm font-medium text-foreground">No domains watched yet</p>
+          <p className="text-xs text-muted-foreground">Add a domain and any email from it will be ingested automatically.</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Domain</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Label / Notes</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Added by</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Added</th>
+                <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">Active</th>
+                <th className="px-4 py-2.5 w-20" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {domains.map((d) => (
+                <tr key={d.id} className={`transition-colors hover:bg-accent/30 ${d.is_active ? "" : "opacity-50"}`} data-testid={`row-domain-${d.id}`}>
+                  <td className="px-4 py-3 font-mono text-sm text-teal-600 dark:text-teal-400 font-semibold">
+                    @{d.domain}
+                  </td>
+                  <td className="px-4 py-3 hidden sm:table-cell">
+                    {d.label && <p className="text-xs font-medium text-foreground">{d.label}</p>}
+                    {d.notes && <p className="text-xs text-muted-foreground line-clamp-1">{d.notes}</p>}
+                    {!d.label && !d.notes && <span className="text-xs text-muted-foreground/40">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
+                    {d.creator_name ?? "—"}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
+                    {formatDistanceToNow(new Date(d.created_at), { addSuffix: true })}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Switch
+                      checked={d.is_active}
+                      onCheckedChange={(v) => toggleMutation.mutate({ id: d.id, is_active: v })}
+                      data-testid={`switch-domain-${d.id}`}
+                      aria-label={`Toggle ${d.domain}`}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1 justify-end">
+                      <button
+                        onClick={() => openEdit(d)}
+                        className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                        data-testid={`button-edit-domain-${d.id}`}
+                        aria-label={`Edit ${d.domain}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => deleteMutation.mutate(d.id)}
+                        className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                        data-testid={`button-delete-domain-${d.id}`}
+                        aria-label={`Remove ${d.domain}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Info callout */}
+      <div className="rounded-lg border border-teal-200 dark:border-teal-800/50 bg-teal-50/40 dark:bg-teal-950/20 p-4 flex gap-3">
+        <Info className="w-4 h-4 text-teal-600 dark:text-teal-400 flex-shrink-0 mt-0.5" />
+        <p className="text-xs text-teal-700 dark:text-teal-300 leading-relaxed">
+          Auto-ingest runs as emails arrive. Cortex generates an AI summary and strategic relevance notes for each ingested email. Only new inbound emails trigger ingest — existing mail is not backfilled. Only one record is created per email even if the domain rule is applied multiple times.
+        </p>
+      </div>
+
+      {/* Add domain dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Watch a Domain</DialogTitle>
+            <DialogDescription>
+              All future emails from this domain will be automatically ingested into Cortex.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="domain-input">Domain <span className="text-destructive">*</span></Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
+                <Input
+                  id="domain-input"
+                  className="pl-7"
+                  placeholder="example.com"
+                  value={domain}
+                  onChange={e => setDomain(e.target.value)}
+                  data-testid="input-domain"
+                  onKeyDown={e => { if (e.key === "Enter" && domain.trim()) addMutation.mutate(); }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Enter just the domain — e.g. wsj.com, pitchbook.com</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="label-input">Label <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input
+                id="label-input"
+                placeholder="e.g. Wall Street Journal, IBI Editor"
+                value={label}
+                onChange={e => setLabel(e.target.value)}
+                data-testid="input-domain-label"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="notes-input">Notes <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <textarea
+                id="notes-input"
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none h-20"
+                placeholder="Why this domain matters to Cortex…"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                data-testid="input-domain-notes"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => addMutation.mutate()}
+                disabled={!domain.trim() || addMutation.isPending}
+                className="bg-teal-600 hover:bg-teal-700 text-white"
+                data-testid="button-confirm-add-domain"
+              >
+                {addMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                Watch Domain
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit domain dialog */}
+      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open) setEditTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit @{editTarget?.domain}</DialogTitle>
+            <DialogDescription>Update the label or notes for this watched domain.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label>Label</Label>
+              <Input placeholder="e.g. Wall Street Journal" value={label} onChange={e => setLabel(e.target.value)} data-testid="input-edit-label" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <textarea
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none h-20"
+                placeholder="Why this domain matters…"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                data-testid="input-edit-notes"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="ghost" onClick={() => setEditTarget(null)}>Cancel</Button>
+              <Button
+                onClick={() => editTarget && editMutation.mutate({ id: editTarget.id, label: label.trim() || undefined, notes: notes.trim() || undefined })}
+                disabled={editMutation.isPending}
+                className="bg-teal-600 hover:bg-teal-700 text-white"
+                data-testid="button-confirm-edit-domain"
+              >
+                {editMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function FeedCortexPage() {
@@ -924,6 +1205,7 @@ export default function FeedCortexPage() {
 
   // ── State ──
   const [activeMode, setActiveMode] = useState<IngestionMode | null>(null);
+  const [pageTab, setPageTab] = useState<"feed" | "domains">("feed");
   const [url, setUrl] = useState("");
   const [textBody, setTextBody] = useState("");
   const [textTitle, setTextTitle] = useState("");
@@ -934,6 +1216,13 @@ export default function FeedCortexPage() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<HistoryRecord | null>(null);
   const [historyFilter, setHistoryFilter] = useState<string>("all");
+
+  // ── Session (for role-gated Domain Watch tab) ──
+  const sessionQuery = useQuery<{ user?: { globalRole?: string } }>({
+    queryKey: ["/api/auth/me"],
+  });
+  const globalRole = sessionQuery.data?.user?.globalRole ?? "";
+  const canManageDomains = ["master_admin", "admin", "exec", "manager"].includes(globalRole);
 
   // ── Fetch unified history ──
   const historyQuery = useQuery<{ records: HistoryRecord[] }>({
@@ -1065,24 +1354,60 @@ export default function FeedCortexPage() {
           Teach Cortex anything. Add a link, paste text, upload a file, show it an image, or speak directly.
         </p>
 
-        {/* Brain visual */}
-        <button
-          type="button"
-          onClick={() => setStatusOpen(true)}
-          aria-label="View Cortex status"
-          data-testid="button-brain-status"
-          className="cortex-breathe-svg relative rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 cursor-pointer group"
-        >
-          <CortexBrainVisual />
-          <div className="absolute inset-0 flex items-end justify-center pb-3 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-            <span className="text-[10px] font-mono text-teal-300 tracking-wider bg-black/40 rounded px-2 py-0.5">VIEW STATUS</span>
+        {/* ── Page tab switcher ── */}
+        {canManageDomains && (
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-1">
+            <button
+              type="button"
+              onClick={() => setPageTab("feed")}
+              data-testid="tab-feed-cortex"
+              className={`flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                pageTab === "feed"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Brain className="w-3.5 h-3.5" /> Feed Cortex
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageTab("domains")}
+              data-testid="tab-domain-watch"
+              className={`flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                pageTab === "domains"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5" /> Domain Watch
+            </button>
           </div>
-        </button>
+        )}
+
+        {/* Brain visual — only shown on Feed tab */}
+        {pageTab === "feed" && (
+          <button
+            type="button"
+            onClick={() => setStatusOpen(true)}
+            aria-label="View Cortex status"
+            data-testid="button-brain-status"
+            className="cortex-breathe-svg relative rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 cursor-pointer group"
+          >
+            <CortexBrainVisual />
+            <div className="absolute inset-0 flex items-end justify-center pb-3 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+              <span className="text-[10px] font-mono text-teal-300 tracking-wider bg-black/40 rounded px-2 py-0.5">VIEW STATUS</span>
+            </div>
+          </button>
+        )}
       </div>
 
       {/* ── Main content ── */}
       <div className="max-w-5xl mx-auto px-4 pb-16 space-y-8">
 
+        {/* ── Domain Watch tab ── */}
+        {pageTab === "domains" && <DomainWatchPanel />}
+
+        {pageTab === "feed" && (<>
         {/* ── Six ingestion mode cards ── */}
         <div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -1437,6 +1762,7 @@ export default function FeedCortexPage() {
             </Card>
           </div>
         </div>
+        </>)}
       </div>
     </div>
   );
