@@ -1,0 +1,78 @@
+The app has now been published.
+
+Do not modify any code unless production verification fails.
+
+Complete the final post-deployment verification now.
+
+Required checks:
+
+1. Identify the new Replit deployment created by the publish:
+   - deployment ID
+   - build ID
+   - deployment start time
+   - deployment completion time
+   - final status
+
+2. Confirm the deployed Git commit is:
+   743c8af684881cb46ef8060d9a45b1b2ff83d5e1
+
+3. Confirm production is serving the new deployment rather than the previous instance.
+
+Use concrete evidence from at least two of the following:
+- deployment logs showing the new instance startup
+- runtime logs showing startup after the publish timestamp
+- build/version endpoint
+- deployed asset hash
+- commit SHA exposed by production
+- production-only behavior introduced by this commit
+
+4. Verify the production database after the new instance starts:
+   - cortex_auto_ingest_domains table exists
+   - last_matched_at column exists
+   - match_count column exists
+   - UNIQUE(domain) exists
+   - startup migration completed without error
+
+5. Verify the Domain Watch production API:
+   - authenticated authorized user can GET the rules
+   - unauthorized user receives 403
+   - invalid full email address is rejected
+   - invalid URL is rejected
+   - duplicate domain is rejected
+   - do not leave behind a test domain; delete any test record after verification
+
+6. Perform one safe end-to-end Domain Watch verification if possible:
+   - add a temporary test domain
+   - confirm the rule is stored
+   - confirm enabled/disabled changes persist
+   - delete the temporary rule afterward
+
+Do not send or ingest a real email merely for testing unless an existing safe test fixture is available.
+
+7. Verify production Calendar behavior:
+   - current user’s primary @voltsafe.com calendar is locked on
+   - additional @voltsafe.com calendar remains toggleable
+   - the server rejects or repairs a selection payload that omits the permanent primary calendar
+   - optional calendar selection still persists
+
+8. Check production logs for:
+   - migration errors
+   - Cortex Domain Watch errors
+   - calendar source errors
+   - startup exceptions
+   - repeated crash/restart loops
+
+9. Report the final result exactly as:
+
+Deployment ID:
+Build ID:
+Commit SHA:
+Status:
+Production URL:
+Production serving new commit: YES/NO
+Domain Watch schema verified: YES/NO
+Domain Watch API verified: YES/NO
+Calendar source lock verified: YES/NO
+Critical production errors: NONE or list them
+
+Do not declare completion unless “Production serving new commit” is YES.

@@ -1,0 +1,413 @@
+Build an in-email “Always ingest this domain into Cortex” action inside VoltSafe Mail.
+
+This must be implemented as a simple one-click workflow directly from an open email. Do not require the user to leave Mail and navigate to Feed Cortex or Domain Watch.
+
+==================================================
+GOAL
+==================================================
+
+When a user is reading an email in VoltSafe Mail, they must be able to click a Cortex-related icon or menu action and permanently flag that sender’s domain so that all future inbound emails from that domain are automatically ingested into VoltSafe Cortex.
+
+Example:
+
+Current email sender:
+membership@oceansupercluster.ca
+
+Flagged domain:
+oceansupercluster.ca
+
+Future inbound emails from any sender at that domain must then be automatically ingested:
+
+membership@oceansupercluster.ca
+news@oceansupercluster.ca
+events@oceansupercluster.ca
+ceo@oceansupercluster.ca
+
+Do not flag only the exact sender unless the user explicitly chooses a sender-specific action.
+
+==================================================
+AUTHORIZED ROLES
+==================================================
+
+Only these roles may create, enable, disable, or remove Cortex ingestion rules:
+
+- master_admin / super admin
+- admin
+- executive
+- manager
+
+The UI must hide or disable the action for unauthorized roles.
+
+The backend must independently enforce authorization and return HTTP 403 for unauthorized requests. Do not rely only on frontend permissions.
+
+Use the exact existing role names and permission helpers already used by the Domain Watch API.
+
+==================================================
+MAIL TOOLBAR UX
+==================================================
+
+Use the existing Cortex action in the open-email toolbar shown in VoltSafe Mail.
+
+Change the current Cortex action from a single one-off button into either:
+
+Preferred:
+- a Cortex button with a dropdown or split-button menu
+
+Acceptable:
+- a separate adjacent domain-watch icon beside the existing Cortex button
+
+Do not remove the existing one-off “Save this email to Cortex” capability.
+
+The menu should include:
+
+1. Save this email to Cortex
+   - preserves the current one-off ingestion behavior
+
+2. Always ingest this domain
+   - displays the normalized sender domain
+   - creates or enables a Domain Watch rule
+
+3. Manage Cortex ingestion rules
+   - navigates to the existing Domain Watch management screen
+
+Optional only if sender-level rules already exist cleanly:
+4. Always ingest this sender
+
+Do not build sender-level infrastructure as part of this task unless it already exists.
+
+Suggested menu layout:
+
+Cortex
+--------------------------------
+Save this email to Cortex
+
+Always ingest this domain
+oceansupercluster.ca
+
+--------------------------------
+Manage Cortex ingestion rules
+
+Use an appropriate icon such as:
+- Globe
+- Radar
+- ShieldCheck
+- BrainCircuit
+- Eye
+- BookmarkPlus
+
+The action should be obvious without cluttering the toolbar.
+
+==================================================
+DOMAIN EXTRACTION
+==================================================
+
+Extract the actual sender email address from the currently opened email.
+
+Normalize the domain by:
+
+- trimming whitespace
+- converting to lowercase
+- extracting everything after the final @
+- removing any accidental leading @
+- rejecting malformed addresses or domains
+
+Example:
+
+"OSC Membership <Membership@OceanSupercluster.ca>"
+
+must produce:
+
+oceansupercluster.ca
+
+Do not derive the rule from:
+
+- reply-to unless the sender address is unavailable and existing Mail logic treats reply-to as canonical
+- CC
+- BCC
+- body text
+- URLs
+- quoted history
+- recipient addresses
+
+The rule must come from the actual inbound sender.
+
+Do not allow creating a Domain Watch rule for an outbound-only message.
+
+==================================================
+CLICK BEHAVIOR
+==================================================
+
+When the user clicks “Always ingest this domain”:
+
+1. Extract and normalize the sender domain.
+2. Check whether a rule already exists.
+3. Handle the result without navigating away from the email.
+
+If no rule exists:
+- show a compact confirmation popover or modal
+
+Suggested content:
+
+Always ingest emails from this domain?
+
+Domain:
+oceansupercluster.ca
+
+All future inbound emails from this domain will be automatically ingested into VoltSafe Cortex.
+
+Optional fields:
+- Label
+- Notes
+
+Checkbox:
+- Future emails only
+
+Buttons:
+- Cancel
+- Always Ingest
+
+Do not silently backfill historical emails.
+
+If a rule already exists and is enabled:
+- do not create a duplicate
+- show:
+  “Cortex is already watching oceansupercluster.ca”
+- provide an optional “Manage Rule” action
+
+If a rule exists but is disabled:
+- offer:
+  “Re-enable Cortex ingestion for oceansupercluster.ca”
+- re-enable the existing rule instead of inserting a duplicate
+
+==================================================
+SUCCESS FEEDBACK
+==================================================
+
+After successful creation or re-enabling, immediately show a toast:
+
+“Cortex will now automatically ingest future emails from oceansupercluster.ca.”
+
+Include an Undo action if the existing toast system supports actions safely.
+
+Undo should either:
+- disable the newly created rule, or
+- restore the rule’s prior disabled state
+
+Do not permanently delete an older pre-existing rule through Undo.
+
+The user must remain on the same open email.
+
+==================================================
+VISIBLE STATUS IN THE EMAIL
+==================================================
+
+After a domain is watched, the open email should visibly indicate that status.
+
+Use one or both of:
+
+- change the Cortex icon/button to an active state
+- show a small badge near the sender:
+  “Domain watched”
+- show a tooltip:
+  “Future inbound emails from oceansupercluster.ca are automatically ingested into Cortex”
+
+Do not use misleading text such as “This email was ingested” unless the current individual message was actually ingested.
+
+There are two separate states:
+
+A. Current message saved to Cortex
+B. Sender domain watched for future automatic ingestion
+
+Represent them separately.
+
+Example:
+
+Cortex: Saved
+Domain Watch: Active
+
+==================================================
+API INTEGRATION
+==================================================
+
+Reuse the existing Cortex Domain Watch backend and database table.
+
+Do not create a second competing rule system.
+
+Use the existing routes if suitable. If they are not suitable, add narrowly scoped endpoints such as:
+
+GET /api/cortex/domain-watch/check?domain=oceansupercluster.ca
+
+POST /api/cortex/domain-watch
+{
+  "domain": "oceansupercluster.ca",
+  "label": "...",
+  "notes": "..."
+}
+
+PATCH /api/cortex/domain-watch/:id
+{
+  "isActive": true
+}
+
+The exact route names should follow the project’s existing conventions.
+
+Requirements:
+
+- authorization enforced server-side
+- lowercase normalization enforced server-side
+- malformed domains rejected server-side
+- full email addresses rejected server-side
+- URLs rejected server-side
+- duplicate domains rejected or returned as the existing rule
+- case-insensitive uniqueness
+- disabled existing rules can be re-enabled
+- no duplicate rows
+
+If the current create route returns a conflict for duplicates, the frontend should gracefully fetch/use the existing rule rather than showing a raw error.
+
+==================================================
+QUERY AND CACHE BEHAVIOR
+==================================================
+
+Use the project’s existing query client conventions.
+
+After creating, enabling, disabling, or undoing a rule:
+
+- invalidate the Domain Watch rules query
+- invalidate any domain status/check query
+- update the active email UI immediately
+- avoid requiring a page refresh
+
+Use optimistic UI only if rollback is implemented safely.
+
+Switching between emails must recalculate the active sender domain and watched status correctly.
+
+Switching mailboxes must not carry stale domain status from the previous message.
+
+==================================================
+EDGE CASES
+==================================================
+
+Handle all of these safely:
+
+- sender address missing
+- malformed sender address
+- internal @voltsafe.com sender
+- uppercase domain
+- sender with display name
+- email from a subdomain
+- existing enabled rule
+- existing disabled rule
+- unauthorized user
+- Gmail alias
+- email opened before the Domain Watch rule was created
+- switching to another message from the same domain
+- switching to another mailbox
+- API failure
+- network timeout
+- repeated double-click
+
+Subdomains must be treated as exact domains by default.
+
+Example:
+
+news.example.com
+
+must not automatically become:
+
+example.com
+
+unless the existing Domain Watch product explicitly supports parent-domain matching.
+
+Do not introduce parent-domain wildcard behavior in this task.
+
+For @voltsafe.com:
+- follow the existing Cortex Domain Watch policy
+- do not hardcode a new exception without reviewing the current behavior
+- clearly report the final behavior
+
+==================================================
+ACCESSIBILITY
+==================================================
+
+The new action must support:
+
+- keyboard navigation
+- visible focus state
+- aria-label
+- tooltip
+- screen-reader-friendly status
+- disabled state explaining insufficient permission
+
+Suggested aria-label:
+
+“Always ingest future emails from oceansupercluster.ca into Cortex”
+
+==================================================
+TESTS
+==================================================
+
+Add regression tests covering at least:
+
+1. Authorized user sees “Always ingest this domain.”
+2. Unauthorized user cannot see or use the action.
+3. Backend returns 403 for unauthorized creation.
+4. Sender display-name format extracts the correct domain.
+5. Uppercase domain normalizes to lowercase.
+6. Clicking creates a rule for the domain.
+7. Current email remains open after creation.
+8. Success toast appears.
+9. Existing enabled rule does not create a duplicate.
+10. Existing disabled rule is re-enabled.
+11. Double-click does not create duplicate rules.
+12. Malformed or missing sender shows a safe error.
+13. Full email address is not submitted as the domain value.
+14. URL is rejected.
+15. CC domain does not affect the rule.
+16. Outbound message cannot create an inbound sender-domain rule.
+17. Switching emails refreshes watched status.
+18. Switching mailboxes clears stale state.
+19. Current-message Cortex state remains separate from Domain Watch state.
+20. Undo restores the correct prior rule state.
+21. Existing Domain Watch management UI still works.
+22. Existing automatic Gmail-to-Cortex ingestion still works.
+23. npm run build passes.
+24. Type-check passes.
+
+==================================================
+IMPORTANT PRODUCT DISTINCTION
+==================================================
+
+Do not conflate these actions:
+
+“Save this email to Cortex”
+- ingests only the currently open email
+
+“Always ingest this domain”
+- creates a persistent rule for future inbound emails from the sender’s exact domain
+
+Both must remain available.
+
+==================================================
+DELIVERABLE REPORT
+==================================================
+
+Before declaring completion, report:
+
+- root files changed
+- toolbar/menu component changed
+- domain extraction helper used
+- API routes reused or added
+- permission guard used
+- duplicate handling behavior
+- enabled-rule behavior
+- disabled-rule re-enable behavior
+- Undo behavior
+- @voltsafe.com behavior
+- tests added
+- test results
+- TypeScript result
+- npm run build result
+- commit hash
+
+Do not publish until the implementation and all release-relevant tests pass.
