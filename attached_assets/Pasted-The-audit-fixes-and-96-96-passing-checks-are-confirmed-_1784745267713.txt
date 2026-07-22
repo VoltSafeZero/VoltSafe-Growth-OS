@@ -1,0 +1,84 @@
+The audit fixes and 96/96 passing checks are confirmed.
+
+Do not change any additional feature behavior unless a production-readiness check fails.
+
+Now complete the release verification for the Cortex Domain Watch and Calendar source-visibility work.
+
+Required steps:
+
+1. Run the full production build:
+   npm run build
+
+2. Run the project’s full TypeScript/type-check command, not only targeted source tests.
+
+3. Verify the Domain Watch database migration:
+   - migration identifier/name
+   - table name
+   - final columns
+   - unique constraints
+   - indexes
+   - whether last_matched_at and match_count exist
+   - whether the migration is idempotent
+   - confirm it succeeds against the active database
+
+4. Verify the exact final Domain Watch behavior:
+   - full email addresses are rejected
+   - URLs are rejected
+   - domains normalize to lowercase
+   - leading @ is removed
+   - duplicate domains return a clear conflict/error rather than silently updating
+   - sourceType/source identifier is domain_watch
+   - match_count increments correctly
+   - last_matched_at updates correctly
+   - repeated Gmail sync does not duplicate Cortex records
+   - disabled domains do not ingest
+   - only authorized roles can manage rules
+   - unauthorized API calls return 403
+
+5. Verify the exact final Calendar behavior:
+   - only the logged-in user’s primary @voltsafe.com calendar is permanently on
+   - additional @voltsafe.com calendars remain toggleable
+   - personal calendars remain toggleable
+   - authorized coworker calendars remain toggleable
+   - unauthorized calendars are not queryable
+   - POST /api/calendar/sources/select cannot remove the permanent primary calendar
+   - event filtering always includes that primary calendar
+   - optional calendar selections still persist
+
+6. Run all relevant test suites again and report:
+   - Domain Watch test count
+   - Calendar test count
+   - total checks
+   - failures
+   - skipped tests
+
+7. Do not dismiss ECONNREFUSED tests as unrelated without either:
+   - starting the required test server and rerunning them, or
+   - explicitly proving they are outside this release scope and cannot hide a regression.
+
+8. Commit all final changes.
+
+9. Report the exact Git commit hash.
+
+10. Publish the application.
+
+11. Report:
+   - Replit build ID
+   - Replit deployment ID
+   - deployment status
+   - production URL
+
+12. Confirm production is serving the new deployment using concrete evidence:
+   - new runtime startup logs,
+   - successful production health check,
+   - deployed build/version endpoint,
+   - or equivalent reliable proof.
+
+13. Confirm the new Domain Watch schema exists in production and the new API routes respond correctly.
+
+Do not declare this complete merely because publish was triggered. Completion requires:
+- successful production build
+- migration verified
+- commit hash
+- deployment live
+- production serving the new code
