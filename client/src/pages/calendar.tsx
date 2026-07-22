@@ -73,6 +73,7 @@ import {
   CalendarCheck,
   Tag,
   Flag,
+  Lock,
 } from "lucide-react";
 import {
   Tabs,
@@ -1598,8 +1599,16 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
     },
   });
 
+  // A source is "permanently on" if it is the user's primary @voltsafe.com work calendar.
+  // These are always visible and cannot be toggled off.
+  const isPermanentSource = (src: { primary: boolean; name: string }) =>
+    src.primary && src.name.toLowerCase().endsWith("@voltsafe.com");
+
   const toggleCalendarSource = (sourceKey: string) => {
     if (!sourcesData) return;
+    // Guard: never allow toggling a permanently-on source
+    const srcEntry = sourcesData.sources.find(s => s.calendarSourceKey === sourceKey);
+    if (srcEntry && isPermanentSource(srcEntry)) return;
     const primaryKey = sourcesData.sources.find(s => s.primary)?.calendarSourceKey ?? null;
     // null = never configured → default is primary only (not all)
     const current = sourcesData.selectedIds ?? (primaryKey ? [primaryKey] : []);
@@ -1662,15 +1671,24 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
   // calendarSourceKey = opaque SHA-256 hash of the Google Calendar source ID;
   // null = event created in-app (always show).
   // When selectedIds is null (never configured), default to primary-only.
+  // Permanently-on sources (@voltsafe.com primary) are always shown regardless of selectedIds.
   const visibleOwnEvents = useMemo(() => {
     if (!ownEvents) return [];
     if (!sourcesData?.sources?.length) return ownEvents;
     const primaryKey = sourcesData.sources.find(s => s.primary)?.calendarSourceKey ?? null;
     const selectedIds = sourcesData.selectedIds ?? (primaryKey ? [primaryKey] : null);
+    // Build the set of keys that are permanently on (cannot be hidden)
+    const permanentKeys = new Set(
+      sourcesData.sources
+        .filter(isPermanentSource)
+        .map(s => s.calendarSourceKey)
+        .filter(Boolean) as string[]
+    );
     if (selectedIds === null) return ownEvents; // no primary found → show all
     return ownEvents.filter(e => {
       const sourceKey = (e as any).calendarSourceKey as string | null | undefined;
       if (!sourceKey) return true; // app-created event — always visible
+      if (permanentKeys.has(sourceKey)) return true; // permanently-on source
       return selectedIds.includes(sourceKey);
     });
   }, [ownEvents, sourcesData]);
@@ -2276,6 +2294,29 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                     const current = sourcesData.selectedIds ?? (primaryKey ? [primaryKey] : []);
                     const srcKey = src.calendarSourceKey ?? "";
                     const checked = !!(srcKey && current.includes(srcKey));
+                    const permanent = isPermanentSource(src);
+                    if (permanent) {
+                      // Permanently-on: locked, always checked, not interactive
+                      return (
+                        <div
+                          key={src.id}
+                          className="flex items-center gap-2"
+                          data-testid={`source-cal-${srcKey}`}
+                          title="This is your VoltSafe work calendar — always visible"
+                        >
+                          <div className="flex items-center justify-center h-4 w-4 shrink-0">
+                            <Lock className="h-3 w-3 text-teal-500" />
+                          </div>
+                          <span
+                            className="h-2.5 w-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: src.color || "#14b8a6" }}
+                          />
+                          <span className="text-xs truncate text-foreground font-medium" title={src.name}>
+                            {src.name}
+                          </span>
+                        </div>
+                      );
+                    }
                     return (
                       <label
                         key={src.id}
@@ -2293,7 +2334,6 @@ export default function CalendarPage({ permissions, currentUserId, isAdmin }: Ca
                         />
                         <span className="text-xs truncate group-hover:text-foreground text-muted-foreground transition-colors" title={src.name}>
                           {src.name}
-                          {src.primary && <span className="ml-1 opacity-50">(primary)</span>}
                         </span>
                       </label>
                     );
