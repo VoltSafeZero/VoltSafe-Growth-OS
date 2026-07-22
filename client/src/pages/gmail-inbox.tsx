@@ -4941,6 +4941,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 }) {
   const mailTeamPerms: MailTeamPerms = (userPermissions?.mail_team ?? {}) as MailTeamPerms;
   const isAdmin = ["master_admin", "admin"].includes(currentUserRole);
+  const canManageCortexDomains = ["master_admin", "admin", "exec", "manager"].includes(currentUserRole);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const handleNavigateBack = () => {
@@ -11147,6 +11148,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   isSpamView={tab === "spam"}
                   senderEmail={focusedMsg.fromEmail?.toLowerCase() || ""}
                   isBlocked={blockedEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")}
+                  canManageCortexDomains={canManageCortexDomains}
+                  isOutbound={!!(focusedMsg.labelIds?.includes("SENT") && !focusedMsg.labelIds?.includes("INBOX"))}
                   isMarineRelated={
                     marineThreadIds.has(selectedThreadId) ||
                     marineSenderEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")
@@ -11222,6 +11225,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     isSpamView={tab === "spam"}
                     senderEmail={focusedMsg.fromEmail?.toLowerCase() || ""}
                     isBlocked={blockedEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")}
+                    canManageCortexDomains={canManageCortexDomains}
+                    isOutbound={!!(focusedMsg.labelIds?.includes("SENT") && !focusedMsg.labelIds?.includes("INBOX"))}
                     isMarineRelated={
                       marineThreadIds.has(selectedThreadId) ||
                       marineSenderEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")

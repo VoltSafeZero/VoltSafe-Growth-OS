@@ -164,6 +164,27 @@ export async function removeAutoIngestDomain(id: number): Promise<boolean> {
   return ((result as any).rows?.length ?? 0) > 0;
 }
 
+// ─── Domain check (any rule, active or inactive) ─────────────────────────────
+
+/**
+ * Returns any rule (active or disabled) for the given domain string.
+ * Used by the in-email "Always ingest this domain" UI to show correct state.
+ */
+export async function checkDomainWatch(domainRaw: string): Promise<AutoIngestDomain | null> {
+  let domain: string;
+  try {
+    domain = normalizeDomainInput(domainRaw);
+  } catch {
+    return null;
+  }
+  const result = await db.execute(sql.raw(`
+    SELECT * FROM cortex_auto_ingest_domains
+    WHERE domain = '${domain.replace(/'/g, "''")}'
+    LIMIT 1
+  `));
+  return (result as any).rows?.[0] ?? null;
+}
+
 // ─── Domain lookup ────────────────────────────────────────────────────────────
 
 /** Returns the matching active domain row if found, otherwise null. */

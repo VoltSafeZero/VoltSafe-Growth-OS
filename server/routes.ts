@@ -42622,6 +42622,24 @@ ${contextText}`;
     }
   });
 
+
+  // ── Domain Watch single-domain check ─────────────────────────────────────────
+  // Returns the existing rule (active or inactive) for a given domain so the
+  // in-email toolbar can show the correct state before opening the dialog.
+
+  app.get("/api/cortex/auto-ingest-domains/check", requireAuth, requireAutoIngestAccess, async (req: any, res) => {
+    try {
+      const domain = typeof req.query.domain === "string" ? req.query.domain.trim() : "";
+      if (!domain) return res.status(400).json({ error: "domain query param required" });
+      const { checkDomainWatch } = await import("./services/cortex-auto-ingest");
+      const rule = await checkDomainWatch(domain);
+      res.json({ watched: !!rule, active: rule?.is_active ?? false, rule: rule ?? null });
+    } catch (err: any) {
+      console.error("[cortex-auto-ingest] GET check:", err.message);
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   // ── Cortex source status poll ─────────────────────────────────────────────────
 
   app.get("/api/cortex/source/:id/status", requireAuth, async (req: any, res) => {

@@ -18,6 +18,7 @@
  */
 
 import { memo, useState } from "react";
+import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   X as CloseIcon,
@@ -52,6 +53,7 @@ import {
   Star,
   Brain,
   Anchor,
+  Globe,
 } from "lucide-react";
 import {
   Tooltip,
@@ -83,6 +85,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useShareAccess } from "./inbox-actions-store";
 import { SaveToCortexModal } from "./save-to-cortex-modal";
+import { DomainWatchPopover } from "./domain-watch-popover";
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
@@ -153,6 +156,17 @@ export interface EmailActionsToolbarProps {
   handlers: ActionsToolbarHandlers;
   /** Optional callback fired AFTER assignedUserId is mutated successfully so the parent can refresh queries. */
   onAssignChanged?: (userId: number | null) => void;
+  /**
+   * When true the current user has permission to create/manage Cortex Domain Watch rules
+   * (master_admin, admin, exec, manager).  Hides the domain-watch menu item and disables
+   * the backend call when false.
+   */
+  canManageCortexDomains?: boolean;
+  /**
+   * When true the currently open message was sent BY the current user (outbound/SENT).
+   * Domain Watch is suppressed for outbound messages since there is no inbound sender domain.
+   */
+  isOutbound?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -259,6 +273,8 @@ function EmailActionsToolbarImpl({
   handlers,
   onAssignChanged,
   isCapitalUser = false,
+  canManageCortexDomains = false,
+  isOutbound = false,
 }: EmailActionsToolbarProps) {
   const { toast } = useToast();
   const shareAPI = useShareAccess();
@@ -272,7 +288,14 @@ function EmailActionsToolbarImpl({
   const [aiResult, setAiResult] = useState<{ mode: string; content: string; language?: string | null } | null>(null);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [cortexOpen, setCortexOpen] = useState(false);
+  const [domainWatchOpen, setDomainWatchOpen] = useState(false);
   const [capitalLinkOpen, setCapitalLinkOpen] = useState(false);
+  const [, setLocation] = useLocation();
+
+  // Derived sender domain for Domain Watch actions
+  const senderDomain = senderEmail.includes("@")
+    ? (senderEmail.split("@")[1]?.trim() ?? "")
+    : "";
   const [capitalSearch, setCapitalSearch] = useState("");
   const [capitalSelectedId, setCapitalSelectedId] = useState<number | null>(null);
 
@@ -286,6 +309,18 @@ function EmailActionsToolbarImpl({
     staleTime: 30_000,
   });
   const isSavedToCortex = cortexCheckData?.exists === true;
+
+  // Domain Watch status — fetched only when the user has permission and there is an external sender
+  const { data: domainWatchData } = useQuery<{ watched: boolean; active: boolean; rule: any | null }>({
+    queryKey: ["/api/cortex/auto-ingest-domains/check", senderDomain],
+    queryFn: () =>
+      fetch(`/api/cortex/auto-ingest-domains/check?domain=${encodeURIComponent(senderDomain)}`, {
+        credentials: "include",
+      }).then(r => r.json()),
+    enabled: !!senderDomain && !isOutbound && canManageCortexDomains,
+    staleTime: 60_000,
+  });
+  const isDomainWatched = domainWatchData?.watched === true && domainWatchData?.active === true;
 
   // Team list for Assign / Share popovers. Uses the existing /api/users
   // route — same query key as the rest of the app so we share the cache.
@@ -903,39 +938,141 @@ function EmailActionsToolbarImpl({
               </PopoverContent>
             </Popover>
 
-            {/* ── Save to Cortex button ─────────────────────── */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  data-testid="action-save-to-cortex"
-                  aria-label={isSavedToCortex ? "Saved to Cortex — click to view/edit" : "Save to Cortex"}
-                  onClick={() => setCortexOpen(true)}
-                  className={`px-2.5 py-1.5 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 inline-flex items-center gap-1 text-[11px] font-medium relative ${
-                    isSavedToCortex
-                      ? "text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/15"
-                      : "text-muted-foreground/70 hover:text-cyan-400 hover:bg-cyan-500/10"
-                  }`}
-                >
-                  <Brain className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="hidden sm:inline">
-                    {isSavedToCortex ? "In Cortex" : "Cortex"}
-                  </span>
-                  {isSavedToCortex && (
-                    <span
-                      className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-cyan-400 border border-background"
-                      aria-hidden="true"
-                      data-testid="cortex-saved-dot"
-                    />
+            {/* ── Cortex split-button group ──────────────────── */}
+            {/*
+              Left part  → direct click → SaveToCortexModal (preserves existing UX)
+              Right part → ChevronDown  → dropdown with full Cortex options
+            */}
+            <div
+              className="inline-flex items-stretch rounded-lg border border-transparent hover:border-cyan-500/20 transition-colors group/cortex"
+              data-testid="cortex-button-group"
+            >
+              {/* Main Brain button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="action-save-to-cortex"
+                    aria-label={
+                      isSavedToCortex
+                        ? "Saved to Cortex — click to view/edit"
+                        : isDomainWatched
+                        ? `Domain watched: future emails from ${senderDomain} are auto-ingested — click to save this email`
+                        : "Save to Cortex"
+                    }
+                    onClick={() => setCortexOpen(true)}
+                    className={`px-2 py-1.5 rounded-l-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 inline-flex items-center gap-1 text-[11px] font-medium relative ${
+                      isSavedToCortex || isDomainWatched
+                        ? "text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/15"
+                        : "text-muted-foreground/70 hover:text-cyan-400 hover:bg-cyan-500/10"
+                    }`}
+                  >
+                    <Brain className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span className="hidden sm:inline">
+                      {isSavedToCortex ? "In Cortex" : "Cortex"}
+                    </span>
+                    {isSavedToCortex && (
+                      <span
+                        className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-cyan-400 border border-background"
+                        aria-hidden="true"
+                        data-testid="cortex-saved-dot"
+                      />
+                    )}
+                    {isDomainWatched && !isSavedToCortex && (
+                      <span
+                        className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-background"
+                        aria-hidden="true"
+                        data-testid="cortex-domain-watched-dot"
+                      />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-[11px]">
+                  {isSavedToCortex
+                    ? `Saved to Cortex${cortexCheckData?.record?.intel_type ? ` · ${cortexCheckData.record.intel_type}` : ""} — click to edit`
+                    : isDomainWatched
+                    ? `Domain Watch: active — future emails from ${senderDomain} auto-ingested`
+                    : "Save to Cortex — flag as marine industry intelligence"}
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Dropdown chevron */}
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        data-testid="cortex-menu-trigger"
+                        aria-label="Cortex ingestion options"
+                        className={`px-1 py-1.5 rounded-r-lg border-l transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 ${
+                          isSavedToCortex || isDomainWatched
+                            ? "border-l-cyan-500/30 text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/15"
+                            : "border-l-border/30 text-muted-foreground/50 hover:text-cyan-400 hover:bg-cyan-500/10"
+                        }`}
+                      >
+                        <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-[11px]">Cortex options</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="start" className="w-64 text-xs" data-testid="cortex-dropdown-menu">
+                  <DropdownMenuItem
+                    data-testid="cortex-menu-save"
+                    onClick={() => setCortexOpen(true)}
+                  >
+                    <Brain className="h-3.5 w-3.5 mr-2 flex-shrink-0" aria-hidden="true" />
+                    Save this email to Cortex
+                  </DropdownMenuItem>
+                  {senderDomain && !isOutbound && (
+                    canManageCortexDomains ? (
+                      <DropdownMenuItem
+                        data-testid="cortex-menu-domain-watch"
+                        onClick={() => setDomainWatchOpen(true)}
+                        aria-label={`Always ingest future emails from ${senderDomain} into Cortex`}
+                        className={isDomainWatched ? "text-cyan-400" : ""}
+                      >
+                        <Globe className="h-3.5 w-3.5 mr-2 flex-shrink-0" aria-hidden="true" />
+                        <span className="flex-1">Always ingest this domain</span>
+                        <span className="ml-2 text-muted-foreground/70 text-[10px] font-mono truncate max-w-[100px]">
+                          {senderDomain}
+                        </span>
+                        {isDomainWatched && (
+                          <span className="ml-1 w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" aria-hidden="true" />
+                        )}
+                      </DropdownMenuItem>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <DropdownMenuItem
+                              disabled
+                              data-testid="cortex-menu-domain-watch-disabled"
+                              aria-label="Always ingest this domain — requires admin, exec, or manager access"
+                            >
+                              <Globe className="h-3.5 w-3.5 mr-2 flex-shrink-0 opacity-50" aria-hidden="true" />
+                              <span className="flex-1 opacity-50">Always ingest this domain</span>
+                            </DropdownMenuItem>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="text-[11px]">
+                          Requires admin, exec, or manager access
+                        </TooltipContent>
+                      </Tooltip>
+                    )
                   )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-[11px]">
-                {isSavedToCortex
-                  ? `Saved to Cortex${cortexCheckData?.record?.intel_type ? ` · ${cortexCheckData.record.intel_type}` : ""} — click to edit`
-                  : "Save to Cortex — flag as marine industry intelligence"}
-              </TooltipContent>
-            </Tooltip>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    data-testid="cortex-menu-manage"
+                    onClick={() => setLocation("/feed-cortex")}
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5 mr-2 flex-shrink-0" aria-hidden="true" />
+                    Manage Cortex ingestion rules
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
 
             {/* ── More-actions menu ────────────────────────────── */}
             <DropdownMenu>
@@ -1270,6 +1407,17 @@ function EmailActionsToolbarImpl({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Domain Watch confirmation dialog */}
+      {senderDomain && (
+        <DomainWatchPopover
+          open={domainWatchOpen}
+          onOpenChange={setDomainWatchOpen}
+          senderDomain={senderDomain}
+          canManage={canManageCortexDomains}
+          onNavigateManage={() => setLocation("/feed-cortex")}
+        />
       )}
 
       {/* Save to Cortex modal */}
