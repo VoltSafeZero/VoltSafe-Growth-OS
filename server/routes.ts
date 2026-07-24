@@ -11186,6 +11186,66 @@ export async function registerRoutes(
     }
   });
 
+  // ── Unified calendar helper ──────────────────────────────────────────────
+  //
+  // Single canonical source for "what calendar events exist for this user on
+  // this date range?"  Applies the IDENTICAL source-filtering logic used by
+  // GET /api/calendar/events so Today, Dashboard, Mission Control, and all
+  // other consumers return the same event set.
+  //
+  // Rules (mirrors /api/calendar/events exactly):
+  //   • Uses storage.getCalendarEvents — the same Drizzle query
+  //   • Respects selectedCalendarIds saved in calendar_connections
+  //   • Always includes the permanent primary @voltsafe.com calendar
+  //   • App-created events (no externalCalendarId) are always visible
+  //   • null selectedCalendarIds = "never configured" → return everything
+  async function getFilteredCalendarEventsForUser(
+    userId: number,
+    start: Date,
+    end: Date
+  ): Promise<any[]> {
+    const [googleConn] = await db
+      .select({
+        id: calendarConnections.id,
+        selectedCalendarIds: calendarConnections.selectedCalendarIds,
+        calendarsDiscovered: (calendarConnections as any).calendarsDiscovered,
+      })
+      .from(calendarConnections)
+      .where(
+        and(
+          eq(calendarConnections.userId, userId),
+          eq(calendarConnections.provider, "google"),
+          eq(calendarConnections.isActive, true)
+        )
+      )
+      .limit(1);
+
+    const selectedCalIds: string[] | null = Array.isArray(googleConn?.selectedCalendarIds)
+      ? (googleConn.selectedCalendarIds as string[])
+      : null;
+
+    const discoveredCals: any[] = Array.isArray((googleConn as any)?.calendarsDiscovered)
+      ? ((googleConn as any).calendarsDiscovered as any[])
+      : [];
+    const permanentCalId: string | null =
+      discoveredCals.find(
+        (c: any) =>
+          c.primary === true &&
+          typeof c.id === "string" &&
+          c.id.toLowerCase().endsWith("@voltsafe.com")
+      )?.id ?? null;
+
+    const events = await storage.getCalendarEvents(userId, start, end);
+
+    return selectedCalIds === null
+      ? events
+      : events.filter((ev: any) => {
+          if (!ev.externalCalendarId) return true; // app-created — always visible
+          if (permanentCalId && ev.externalCalendarId === permanentCalId) return true; // permanent
+          return selectedCalIds.includes(ev.externalCalendarId);
+        });
+  }
+
   // ── Daily Command Center ──────────────────────────────────────────────────
 
   // Personal Today Dashboard
@@ -11198,10 +11258,8 @@ export async function registerRoutes(
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
 
-      const todaysMeetingsRes = await db.execute(sql.raw(
-        `SELECT id, title, start_time AS "startTime", end_time AS "endTime", event_type AS "eventType", location, meeting_url AS "meetingUrl", status, invitees FROM calendar_events WHERE user_id = ${userId} AND start_time >= '${todayStart.toISOString()}' AND start_time <= '${todayEnd.toISOString()}' AND status != 'cancelled' ORDER BY start_time ASC`
-      ));
-      const todaysMeetings = (todaysMeetingsRes as any).rows ?? [];
+      // ── Canonical calendar events (same source as Calendar & Meetings) ──────
+      const todaysMeetings = await getFilteredCalendarEventsForUser(userId, todayStart, todayEnd);
 
       const tasksDueTodayRes = await db.execute(sql.raw(
         `SELECT id, title, due_date AS "dueDate", priority, status FROM tasks WHERE owner_user_id = ${userId} AND status = 'pending' AND due_date >= '${todayStart.toISOString()}' AND due_date <= '${todayEnd.toISOString()}' ORDER BY due_date ASC LIMIT 10`
@@ -11246,13 +11304,14 @@ export async function registerRoutes(
       if (newLeadRecords.length > 0)
         suggestedActions.push({ type: "lead", text: `${newLeadRecords.length} new lead${newLeadRecords.length > 1 ? "s" : ""} arrived this week`, link: "/opportunities", priority: "medium" });
 
-      const nextMeetingRes = await db.execute(sql.raw(
-        `SELECT id, title, start_time AS "startTime" FROM calendar_events WHERE user_id = ${userId} AND start_time >= NOW() AND start_time <= '${twoHoursFromNow.toISOString()}' AND status != 'cancelled' ORDER BY start_time ASC LIMIT 1`
-      ));
-      const nextMeetingRows = (nextMeetingRes as any).rows ?? [];
-      if (nextMeetingRows.length > 0) {
-        const mins = Math.floor((new Date(nextMeetingRows[0].startTime).getTime() - now.getTime()) / 60000);
-        suggestedActions.unshift({ type: "meeting", text: `"${nextMeetingRows[0].title}" starts in ${mins} min — review briefing`, link: "/execution/calendar", priority: "high" });
+      // Derive next upcoming meeting from already-fetched todaysMeetings — no extra SQL query.
+      const nextMeetingRow = todaysMeetings.find((ev: any) => {
+        const evStart = new Date(ev.startTime);
+        return evStart >= now && evStart <= twoHoursFromNow;
+      });
+      if (nextMeetingRow) {
+        const mins = Math.floor((new Date(nextMeetingRow.startTime).getTime() - now.getTime()) / 60000);
+        suggestedActions.unshift({ type: "meeting", text: `"${nextMeetingRow.title}" starts in ${mins} min — review briefing`, link: "/execution/calendar", priority: "high" });
       }
 
       // ── CEO widgets: team workload, team blockers, pipeline funnel, active projects ──
@@ -11743,28 +11802,15 @@ export async function registerRoutes(
       const userEmail    = String((userEmailRow as any).rows?.[0]?.email ?? "").toLowerCase();
       const hasCapital   = CAPITAL_USER_IDS.has(userId) || CAPITAL_EMAILS.has(userEmail);
 
-      // ── Schedule ────────────────────────────────────────────────────────────
-      const [scheduleRes, nextMtgRes] = await Promise.all([
-        db.execute(sql.raw(
-          `SELECT id, title, start_time AS "startTime", end_time AS "endTime", event_type AS "eventType", location, meeting_url AS "meetingUrl"
-           FROM calendar_events
-           WHERE user_id = ${userId}
-             AND start_time >= '${todayStart.toISOString()}'
-             AND start_time <= '${todayEnd.toISOString()}'
-             AND status != 'cancelled'
-           ORDER BY start_time ASC LIMIT 8`
-        )),
-        db.execute(sql.raw(
-          `SELECT id, title, start_time AS "startTime" FROM calendar_events
-           WHERE user_id = ${userId}
-             AND start_time >= NOW()
-             AND start_time <= '${twoHoursFromNow.toISOString()}'
-             AND status != 'cancelled'
-           ORDER BY start_time ASC LIMIT 1`
-        )),
-      ]);
-      const todayMeetings = (scheduleRes as any).rows ?? [];
-      const nextMeeting   = ((nextMtgRes as any).rows ?? [])[0] ?? null;
+      // ── Schedule — canonical pipeline (same as Calendar & Meetings) ──────────
+      // Uses getFilteredCalendarEventsForUser so Today and Calendar & Meetings
+      // are always identical: same events, same source filter, same ordering.
+      const todayMeetings = await getFilteredCalendarEventsForUser(userId, todayStart, todayEnd);
+      // Derive next upcoming meeting from the already-fetched list — no extra query needed.
+      const nextMeeting = todayMeetings.find((ev: any) => {
+        const evStart = new Date(ev.startTime);
+        return evStart >= now && evStart <= twoHoursFromNow;
+      }) ?? null;
 
       // ── Tasks (user-scoped) ─────────────────────────────────────────────────
       const [tasksTodayRes, overdueTasksRes, highPriorityTasksRes, taskCountsRes] = await Promise.all([

@@ -1,0 +1,188 @@
+The Today page Schedule widget and the Calendar & Meetings page are currently using different event sets. This is a bug.
+
+Treat Calendar & Meetings as the canonical source of truth.
+
+==================================================
+GOAL
+==================================================
+
+The Today page Schedule section must display the exact same meetings/events that appear in Calendar & Meetings for the selected day.
+
+There must never be two independent calendar pipelines.
+
+==================================================
+REQUIRED ARCHITECTURE
+==================================================
+
+There must be a single unified calendar event service.
+
+Every consumer must use it:
+
+- Calendar & Meetings
+- Today Schedule
+- Upcoming Meetings
+- Meeting Recorder
+- Mission Control
+- Daily Execution
+- notifications
+- reminders
+- AI scheduling
+
+No component may independently query Google Calendar, Microsoft, or other providers if the unified service already exists.
+
+==================================================
+INVESTIGATE
+==================================================
+
+Determine why Today differs from Calendar & Meetings.
+
+Possible causes include:
+
+• different API endpoint
+• different event query
+• different filters
+• different selected calendars
+• stale cache
+• missing recurring expansion
+• different timezone handling
+• excluding all-day events
+• duplicate removal logic
+• different permissions
+• separate event normalization
+• different date window
+• using cached vs live data
+
+Find the root cause.
+
+==================================================
+EXPECTED BEHAVIOR
+==================================================
+
+For any given day:
+
+Calendar & Meetings
+
+MUST equal
+
+Today Schedule
+
+Event count
+Event titles
+Times
+Calendar source
+Ordering
+
+must all match.
+
+==================================================
+ORDERING
+==================================================
+
+Display chronologically.
+
+If two events begin at the same time,
+preserve the same ordering used in Calendar & Meetings.
+
+==================================================
+FILTERING
+==================================================
+
+Today must use the exact same calendar selection state as Calendar & Meetings.
+
+If a calendar is hidden in Calendar & Meetings
+
+it must also disappear from Today.
+
+If shown there,
+
+it must show here.
+
+==================================================
+REFRESH
+==================================================
+
+Changing:
+
+calendar selection
+
+date
+
+connected calendar
+
+sync
+
+must refresh BOTH views.
+
+==================================================
+RECURRENCE
+==================================================
+
+Recurring events must be expanded identically.
+
+No differences.
+
+==================================================
+TIMEZONE
+==================================================
+
+Both pages must use identical timezone calculations.
+
+==================================================
+EVENT MODEL
+==================================================
+
+Create or reuse one normalized event model.
+
+Every page consumes that.
+
+Do not duplicate transformation logic.
+
+==================================================
+MEETING RECORDER
+==================================================
+
+Meeting Recorder should use this same event source.
+
+==================================================
+TESTS
+==================================================
+
+Add regression tests proving:
+
+✓ Today and Calendar & Meetings return identical events.
+
+✓ Same ordering.
+
+✓ Same event count.
+
+✓ Same recurrence expansion.
+
+✓ Same hidden calendar filtering.
+
+✓ Same timezone.
+
+✓ Same refresh behavior.
+
+✓ Same selected calendar behavior.
+
+==================================================
+REPORT
+==================================================
+
+Report:
+
+1. Root cause.
+
+2. Files changed.
+
+3. Old architecture.
+
+4. New unified architecture.
+
+5. Tests added.
+
+6. Tests passed.
+
+7. Build result.
+
+8. Commit hash.
