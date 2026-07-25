@@ -8436,6 +8436,9 @@ export async function registerRoutes(
     calendar: accessLevelSchema.optional(),
     mail_team: z.record(z.string(), z.object({ view: z.boolean(), edit: z.boolean() })).optional(),
     calendar_team: z.array(z.number()).optional(),
+    can_export: z.boolean().optional(),
+    can_download_attachment: z.boolean().optional(),
+    can_generate_report: z.boolean().optional(),
   });
   app.patch("/api/admin/users/:id/permissions", requireAuth, requireAdmin, async (req, res) => {
     try {
