@@ -1089,7 +1089,27 @@ export default function TodayPage() {
   const [todayMode, setTodayMode] = useState<"my_day" | "ceo_cockpit">("my_day");
   const [cockpitTab, setCockpitTab] = useState<string>("overview");
 
-  const summaryQuery = useQuery<TodaySummary>({ queryKey: ["/api/today/summary"] });
+  // Compute local-timezone day boundaries in the BROWSER (not server UTC).
+  // new Date(y, m, d, h) uses the user's local timezone, so these are correct
+  // for any timezone — e.g. PDT user at 5:49 PM gets midnight July 24 local,
+  // whereas the server would compute midnight July 25 UTC (wrong day).
+  const _now = new Date();
+  const _localDayStart = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 0, 0, 0, 0);
+  const _localDayEnd   = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 23, 59, 59, 999);
+  const localStartStr  = _localDayStart.toISOString();
+  const localEndStr    = _localDayEnd.toISOString();
+
+  const summaryQuery = useQuery<TodaySummary>({
+    queryKey: ["/api/today/summary", localStartStr, localEndStr],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/today/summary?start=${encodeURIComponent(localStartStr)}&end=${encodeURIComponent(localEndStr)}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("Failed to load today summary");
+      return res.json();
+    },
+  });
   const profileQuery = useQuery<UserProfile>({ queryKey: ["/api/users/me/profile"] });
 
   const profile   = profileQuery.data;

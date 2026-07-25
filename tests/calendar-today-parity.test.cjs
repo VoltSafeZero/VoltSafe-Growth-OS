@@ -234,6 +234,70 @@ test("today.tsx ScheduleSection sources from /api/today/summary (unified route)"
   );
 });
 
+// ── 7. Timezone fix — client passes local-TZ boundaries ──────────────────
+console.log("\n── 7. Timezone fix — client-computed local day boundaries ──");
+
+test("today.tsx computes local-TZ day boundaries (new Date(y,m,d,h)) not server UTC", () => {
+  const todaySrc = fs.readFileSync(
+    path.join(__dirname, "../client/src/pages/today.tsx"),
+    "utf8"
+  );
+  // Client must use new Date(year, month, date, 0, 0, 0, 0) which uses LOCAL timezone
+  assert(
+    todaySrc.includes("_now.getFullYear()") || todaySrc.includes("getFullYear()"),
+    "today.tsx does not compute local-TZ day start — timezone bug not fixed"
+  );
+});
+
+test("today.tsx passes ?start=...&end=... query params to /api/today/summary", () => {
+  const todaySrc = fs.readFileSync(
+    path.join(__dirname, "../client/src/pages/today.tsx"),
+    "utf8"
+  );
+  assert(
+    todaySrc.includes("today/summary?start=") || todaySrc.includes("today/summary?start"),
+    "today.tsx does not pass start/end query params — server will use wrong UTC day boundaries"
+  );
+});
+
+test("today.tsx queryKey includes start+end so cache is timezone-aware", () => {
+  const todaySrc = fs.readFileSync(
+    path.join(__dirname, "../client/src/pages/today.tsx"),
+    "utf8"
+  );
+  // Must have queryKey that includes the date strings (not just ["/api/today/summary"])
+  assert(
+    todaySrc.includes("localStartStr") && todaySrc.includes("localEndStr"),
+    "today.tsx queryKey does not include start/end strings — cache will serve wrong-day data"
+  );
+});
+
+test("server /api/today/summary reads start/end from req.query (not hardcoded server UTC)", () => {
+  const routeIdx = routesSrc.indexOf('app.get("/api/today/summary"');
+  const routeSlice = routesSrc.slice(routeIdx, routeIdx + 2000);
+  assert(
+    routeSlice.includes("req.query.start") && routeSlice.includes("req.query.end"),
+    "/api/today/summary does not read start/end from req.query — timezone bug persists"
+  );
+});
+
+test("server uses client-provided start/end for calendar query (not raw server-UTC setHours)", () => {
+  const routeIdx = routesSrc.indexOf('app.get("/api/today/summary"');
+  const routeSlice = routesSrc.slice(routeIdx, routeIdx + 2000);
+  // Must validate the client date before using it
+  assert(
+    routeSlice.includes("isNaN(clientStart.getTime())") || routeSlice.includes("clientStart"),
+    "/api/today/summary does not use client-provided start date for calendar query"
+  );
+  // Must NOT use server-local setHours(0,0,0,0) as primary boundary anymore
+  // (setUTCHours is acceptable as a fallback, plain setHours(0,0,0,0) without UTC would be the bug)
+  const hasBareSetHours = /todayStart\s*=\s*new Date\(now\);\s*todayStart\.setHours\(0/.test(routeSlice);
+  assert(
+    !hasBareSetHours,
+    "/api/today/summary still uses server-local setHours(0,0,0,0) as primary — timezone bug persists"
+  );
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(60)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);

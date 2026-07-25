@@ -11790,8 +11790,23 @@ export async function registerRoutes(
     try {
       const userId = getSessionUserId(req);
       const now = new Date();
-      const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
-      const todayEnd   = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+
+      // ── Day boundaries ──────────────────────────────────────────────────────
+      // The client MUST pass ?start= and ?end= as local-timezone ISO strings.
+      // This is the ONLY way to get correct boundaries for users outside UTC.
+      // Example: PDT user at 5:49 PM sends start=2026-07-24T07:00:00.000Z
+      //          (local midnight), not the server's UTC midnight July 25.
+      // Without this, any user past UTC midnight sees the NEXT day's (empty)
+      // schedule instead of today's meetings — the bug reported in production.
+      const clientStart = req.query.start ? new Date(req.query.start as string) : null;
+      const clientEnd   = req.query.end   ? new Date(req.query.end   as string) : null;
+      const todayStart = (clientStart && !isNaN(clientStart.getTime()))
+        ? clientStart
+        : (() => { const d = new Date(now); d.setUTCHours(0, 0, 0, 0); return d; })();
+      const todayEnd = (clientEnd && !isNaN(clientEnd.getTime()))
+        ? clientEnd
+        : (() => { const d = new Date(now); d.setUTCHours(23, 59, 59, 999); return d; })();
+
       const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
       const sevenDaysAgo    = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
