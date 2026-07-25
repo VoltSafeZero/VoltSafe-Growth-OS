@@ -202,9 +202,11 @@ export async function upsertMessageById(
               receivedAt: emailData.sentAt ?? null,
               ownerUserId,
             }).catch((err: any) =>
-              log(`[cortex-auto-ingest] err msgId=${emailData.gmailMessageId}: ${err?.message}`)
+              log(`[cortex-auto-ingest] err msgId=${emailData.gmailMessageId}: ${err?.message} (pg code=${err?.code ?? "n/a"} detail=${err?.detail ?? "n/a"})`)
             );
-          }).catch(() => {});
+          }).catch((importErr: any) => {
+            log(`[cortex-auto-ingest] import failed: ${importErr?.message}`);
+          });
         }
 
         return { inserted: true, updatedLabels: false };

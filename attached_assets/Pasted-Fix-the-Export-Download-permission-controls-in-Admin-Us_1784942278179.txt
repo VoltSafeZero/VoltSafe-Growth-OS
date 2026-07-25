@@ -1,0 +1,278 @@
+Fix the Export & Download permission controls in Admin → Users & Roles → User Access.
+
+CONFIRMED BUG
+
+When viewing a non-admin user such as:
+
+- Tiffany Mun
+- Advisor
+- External
+
+the following permissions appear checked as “Allowed” but cannot be toggled off:
+
+- Export Data (CSV / XLSX)
+- Download Attachments
+- Generate Reports
+
+The UI note says:
+
+“Admins are always exempt from these restrictions.”
+
+That exemption must apply only when the SELECTED TARGET USER is an admin or master admin.
+
+It must not apply merely because the currently logged-in user performing the edit is a master admin.
+
+==================================================
+EXPECTED BEHAVIOR
+==================================================
+
+For the selected target user:
+
+1. master_admin / super admin
+   - export restrictions are always exempt
+   - controls may display as locked/always allowed
+   - cannot be disabled
+
+2. admin
+   - export restrictions are always exempt
+   - controls may display as locked/always allowed
+   - cannot be disabled
+
+3. executive
+   - editable unless there is an explicit existing business rule stating otherwise
+
+4. manager
+   - editable
+
+5. advisor
+   - editable
+
+6. engineer
+   - editable
+
+7. sales, marketing, finance, operations, analyst, read only, external, etc.
+   - editable
+
+For Tiffany Mun, all three controls must be toggleable.
+
+==================================================
+INVESTIGATE THE ROOT CAUSE
+==================================================
+
+Trace the full flow:
+
+Admin User Management page
+→ selected user access panel
+→ checkbox/switch component
+→ local state
+→ mutation
+→ API route
+→ database persistence
+→ user refetch
+
+Look specifically for mistakes such as:
+
+- checking currentUser.globalRole instead of selectedUser.globalRole
+- using isAdmin based on the logged-in user
+- setting disabled={isAdmin} where isAdmin refers to the editor
+- preventing mutation because the editor is master_admin
+- rendering checked=true from a role fallback that overrides stored values
+- sending the wrong user ID
+- using invited user defaults instead of persisted permission values
+- optimistic state immediately being overwritten by stale query data
+- API silently ignoring false values
+- PATCH logic using `value || true`
+- destructuring defaults that convert false to true
+- SQL update using COALESCE incorrectly
+- permission values stored as nullable and interpreted incorrectly
+
+==================================================
+IMPORTANT BOOLEAN HANDLING
+==================================================
+
+False must be treated as a valid saved value.
+
+Do not use patterns such as:
+
+value || true
+
+or:
+
+permission ? permission : true
+
+Use nullish checks only where appropriate:
+
+value ?? defaultValue
+
+The API must distinguish:
+
+- omitted field = do not change
+- true = allowed
+- false = explicitly denied
+
+==================================================
+TARGET USER VS CURRENT USER
+==================================================
+
+Use two clearly separate concepts:
+
+- currentUser / actingUser:
+  the authenticated admin making the change
+
+- selectedUser / targetUser:
+  the person whose permissions are being edited
+
+Authorization to edit is based on currentUser.
+
+Whether the exemption applies is based on selectedUser.
+
+Example:
+
+Trevor Burgess:
+- current user
+- master_admin
+- authorized to edit
+
+Tiffany Mun:
+- selected target user
+- advisor / external
+- not exempt
+- permissions must be editable
+
+==================================================
+UI REQUIREMENTS
+==================================================
+
+For editable users:
+
+- clicking the row or checkbox toggles the value
+- checked = Allowed
+- unchecked = Restricted
+- save immediately using existing mutation conventions
+- show a success toast
+- show an error toast and roll back on failure
+- refetch or update the query cache
+- state remains correct after refresh
+- switching users must show each user’s own saved values
+
+For exempt admin users:
+
+- show the controls as locked or disabled
+- include a lock icon or explanatory tooltip
+- display:
+  “Admins are always allowed to export and download.”
+- do not show an editable checkbox that appears broken
+
+Do not disable these controls for non-admin users.
+
+==================================================
+BACKEND REQUIREMENTS
+==================================================
+
+Verify the permission update endpoint:
+
+- requires an authorized acting admin
+- accepts the target user ID
+- verifies the target user exists
+- allows true and false values
+- persists all three fields independently
+- returns the updated permission state
+- refuses to restrict a target master_admin/admin if the exemption is intentional
+- does not infer exemption from the acting user’s role
+
+Suggested fields, using the existing schema names:
+
+- can_export_data
+- can_download_attachments
+- can_generate_reports
+
+Use the existing real field names if different.
+
+==================================================
+DATABASE VERIFICATION
+==================================================
+
+Confirm where these permissions are stored.
+
+Report:
+
+- table name
+- column names
+- defaults
+- nullability
+- whether existing users have explicit values
+- how legacy null values are interpreted
+
+For non-admin users, toggling off must persist false in the database.
+
+After refresh, the controls must remain unchecked.
+
+==================================================
+TESTS
+==================================================
+
+Add regression tests covering:
+
+1. Master admin can edit another user’s export permissions.
+2. Acting master admin does not cause the selected user to be treated as exempt.
+3. Advisor user’s Export Data can be toggled off.
+4. Advisor user’s Download Attachments can be toggled off.
+5. Advisor user’s Generate Reports can be toggled off.
+6. False values are sent to the API.
+7. False values persist in the database.
+8. Refresh keeps the controls unchecked.
+9. Switching to another user displays that user’s own values.
+10. Switching back displays the saved restricted values.
+11. Target admin remains exempt and locked.
+12. Target master_admin remains exempt and locked.
+13. Manager remains editable.
+14. Executive remains editable unless an explicit documented rule says otherwise.
+15. Unauthorized acting user receives 403.
+16. API accepts false rather than treating it as missing.
+17. Mutation failure rolls the UI back.
+18. Existing Users & Roles permissions continue working.
+19. TypeScript passes.
+20. npm run build passes.
+
+==================================================
+MANUAL VERIFICATION
+==================================================
+
+After fixing, manually test with Tiffany Mun:
+
+1. Open Admin → Users & Roles.
+2. Select Tiffany Mun.
+3. Open Access.
+4. Uncheck Export Data.
+5. Uncheck Download Attachments.
+6. Uncheck Generate Reports.
+7. Navigate to another user.
+8. Return to Tiffany.
+9. Confirm all three remain unchecked.
+10. Refresh the browser.
+11. Confirm all three remain unchecked.
+12. Toggle one back on and confirm it persists.
+
+Also select an actual admin user and confirm those controls are visibly locked as exempt.
+
+==================================================
+DELIVERABLE REPORT
+==================================================
+
+Before completion, report:
+
+- exact root cause
+- whether the bug used acting-user role instead of target-user role
+- files changed
+- frontend component changed
+- backend route changed
+- database table and fields
+- false-value handling
+- admin exemption logic
+- tests added
+- test results
+- TypeScript result
+- production build result
+- commit hash
+
+Do not publish until the fix is validated.

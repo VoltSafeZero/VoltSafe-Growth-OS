@@ -141,8 +141,33 @@ declare module "http" {
 // ── /health + /healthz — respond IMMEDIATELY, before any middleware ──────────
 // These intentionally come before heavy middleware so monitoring/load-balancers
 // and Replit's keep-warm pings always get a fast response.
-app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
+app.get("/health",  (_req, res) => res.status(200).json({ status: "ok" }));
 app.get("/healthz", (_req, res) => res.status(200).json({ status: "ok", uptimeMs: Date.now() - PROC_START }));
+
+// ── /readyz — startup readiness probe ────────────────────────────────────────
+// Returns 503 until migrations + route registration complete (i.e. until the
+// server can actually serve authenticated traffic). Deployment liveness probes
+// should use /healthz; orchestrator readiness probes should use /readyz.
+let _startupComplete = false;
+app.get("/readyz", (_req, res) => {
+  const uptimeMs = Date.now() - PROC_START;
+  if (_startupComplete) {
+    res.status(200).json({ status: "ready", startupComplete: true, uptimeMs });
+  } else {
+    res.status(503).json({ status: "starting", startupComplete: false, uptimeMs });
+  }
+});
+
+// ── Startup-safe root route ───────────────────────────────────────────────────
+// Replit Deployments health-check hits "/" by default. During the brief startup
+// window (port open but routes/serveStatic not yet registered), Express has no
+// SPA handler, so "/" would 404 and fail the health check.
+// When _startupComplete is true, next() falls through to serveStatic/vite which
+// serve index.html as normal. Only the brief startup window returns JSON.
+app.get("/", (req, res, next) => {
+  if (_startupComplete) return next();
+  res.status(200).json({ status: "starting", uptimeMs: Date.now() - PROC_START });
+});
 
 // ── Security headers (helmet) ────────────────────────────────────────────────
 // CSP is enforced in production. The built SPA (Vite production build) does not
@@ -388,6 +413,22 @@ app.use((req, res, next) => {
 
 (async () => {
   log(`[perf:startup] startup IIFE entered at +${Date.now() - PROC_START}ms`);
+
+  // ── Bind port IMMEDIATELY — health check accessible from first millisecond ───
+  // /health and /healthz are registered above, before this IIFE. Opening the
+  // TCP socket here (before migrations and route registration) ensures Replit
+  // Deployment health-check probes can reach /healthz within ~100ms of process
+  // start. Routes are not yet registered so non-health API calls will 404
+  // briefly, but the liveness probe returns 200 immediately.
+  const port = parseInt(process.env.PORT || "5000", 10);
+  await new Promise<void>((portResolve) => {
+    httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+      const listenMs = Date.now() - PROC_START;
+      setStartupMark("serverListening", Date.now());
+      log(`[perf:startup] server listening on 0.0.0.0:${port} — ${listenMs}ms from process start`);
+      portResolve();
+    });
+  });
 
   // ── Schema migrations ────────────────────────────────────────────────────────
   // Migrations run in PARALLEL BATCHES to cut sequential DB round-trips.
@@ -697,8 +738,14 @@ app.use((req, res, next) => {
 
     setStartupMark("migrationsComplete", Date.now());
     log(`[perf:startup] ALL migrations done in ${Date.now() - _migStart}ms (${Date.now() - PROC_START}ms from proc start)`);
-  } catch (migErr) {
-    console.error("[startup] Migration error:", migErr);
+  } catch (migErr: any) {
+    console.error("[startup] FATAL: Migration failed:", {
+      message:    migErr?.message,
+      code:       migErr?.code,       // pg error code (e.g. 42P01 = relation not found)
+      detail:     migErr?.detail,     // pg DETAIL field
+      table:      migErr?.table,      // pg affected table
+      constraint: migErr?.constraint, // pg violated constraint
+    });
   }
 
   await registerRoutes(httpServer, app);
@@ -725,215 +772,207 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      const listenMs = Date.now() - PROC_START;
-      setStartupMark("serverListening", Date.now());
-      log(`[perf:startup] server listening on 0.0.0.0:${port} — ${listenMs}ms from process start`);
+  // ── Startup complete — background jobs start now ─────────────────────────────
+  // Port is already open (listen() called at top of IIFE). Mark ready so /readyz
+  // and the "/" root route return 200 for actual SPA content.
+  _startupComplete = true;
+  log(`[perf:startup] server fully initialized — ${Date.now() - PROC_START}ms from proc start`);
 
-      // ── Seed production data: fire-and-forget, delayed 8 s ──────────────────
-      // Runs after the first user requests can already be served.
-      // seedProductionData / seedSampleProjects are idempotent insert-if-missing calls.
-      setTimeout(async () => {
+  // ── Seed production data: fire-and-forget, delayed 8 s ──────────────────────
+  // Runs after the first user requests can already be served.
+  // seedProductionData / seedSampleProjects are idempotent insert-if-missing calls.
+  setTimeout(async () => {
+    try {
+      const { seedProductionData, seedSampleProjects } = await import("./seed-production");
+      await seedProductionData();
+      await seedSampleProjects();
+      log("[startup] seed complete");
+    } catch (err) {
+      console.error("[startup] Seed error (non-fatal):", err);
+    }
+  }, 8_000);
+
+  // ── Background schedulers ─────────────────────────────────────────────────────
+  // Gated by ENABLE_BACKGROUND_JOBS (default: enabled).
+  // Set ENABLE_BACKGROUND_JOBS=false on replica instances to prevent duplicate
+  // sync jobs when running multiple app instances behind a load balancer.
+  if (process.env.ENABLE_BACKGROUND_JOBS !== "false") {
+    startHourlySyncScheduler();
+    startHelpCenterRefreshScheduler();
+    // Refresh knowledge-base assets on every cold start (= deploy), not
+    // just at midnight. runStartupRefresh is idempotent — it skips if a
+    // refresh already happened earlier today.
+    runStartupRefresh().catch(e => console.error("[startup] runStartupRefresh:", e?.message));
+
+    // Automation drip tick — every 10 minutes
+    (function scheduleAutomationTick() {
+      const INTERVAL_MS = 10 * 60 * 1000;
+      const _port = parseInt(process.env.PORT || "5000", 10);
+      async function runTick() {
         try {
-          const { seedProductionData, seedSampleProjects } = await import("./seed-production");
-          await seedProductionData();
-          await seedSampleProjects();
-          log("[startup] seed complete");
-        } catch (err) {
-          console.error("[startup] Seed error (non-fatal):", err);
+          const { runCampaignAutomationTick } = await import("./services/campaign-automation");
+          await runCampaignAutomationTick({ baseUrl: `http://localhost:${_port}` });
+        } catch (err: any) {
+          log(`[automation-tick] scheduler error: ${err?.message}`);
         }
-      }, 8_000);
-
-      // ── Background schedulers ─────────────────────────────────────────────────
-      // Gated by ENABLE_BACKGROUND_JOBS (default: enabled).
-      // Set ENABLE_BACKGROUND_JOBS=false on replica instances to prevent duplicate
-      // sync jobs when running multiple app instances behind a load balancer.
-      if (process.env.ENABLE_BACKGROUND_JOBS !== "false") {
-        startHourlySyncScheduler();
-        startHelpCenterRefreshScheduler();
-        // Refresh knowledge-base assets on every cold start (= deploy), not
-        // just at midnight. runStartupRefresh is idempotent — it skips if a
-        // refresh already happened earlier today.
-        runStartupRefresh().catch(e => console.error("[startup] runStartupRefresh:", e?.message));
-
-        // Automation drip tick — every 10 minutes
-        (function scheduleAutomationTick() {
-          const INTERVAL_MS = 10 * 60 * 1000;
-          const _port = parseInt(process.env.PORT || "5000", 10);
-          async function runTick() {
-            try {
-              const { runCampaignAutomationTick } = await import("./services/campaign-automation");
-              await runCampaignAutomationTick({ baseUrl: `http://localhost:${_port}` });
-            } catch (err: any) {
-              log(`[automation-tick] scheduler error: ${err?.message}`);
-            }
-          }
-          setInterval(runTick, INTERVAL_MS);
-        })();
-
-        // Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
-        import("./services/gmail-watch").then(({ startWatchRenewalScheduler }) =>
-          startWatchRenewalScheduler()
-        );
-
-        // Calendar auto-sync (15-min interval; no-op when no connections are configured)
-        import("./calendar-sync").then(({ startCalendarSyncScheduler }) =>
-          startCalendarSyncScheduler()
-        );
-
-        // Compliance: expire stale CASL implied consent + generate 90/60/30-day warning records
-        (function scheduleConsentExpiryJob() {
-          const INTERVAL_MS = 24 * 60 * 60 * 1000;
-          async function runConsentExpiry() {
-            try {
-              const { db } = await import("./db");
-              const { sql } = await import("drizzle-orm");
-              const today = new Date().toISOString().slice(0, 10);
-
-              // Step 1: Find and expire overdue contacts (get IDs first for audit)
-              const expiredContacts = (await db.execute(sql.raw(`
-                SELECT id, email FROM contacts
-                WHERE canada_contact = TRUE
-                  AND consent_status = 'implied_active'
-                  AND implied_consent_expiry_date IS NOT NULL
-                  AND implied_consent_expiry_date::date < '${today}'::date
-              `))).rows as any[];
-
-              if (expiredContacts.length > 0) {
-                await db.execute(sql.raw(`
-                  UPDATE contacts
-                  SET consent_status = 'implied_expired', updated_at = NOW()
-                  WHERE id IN (${expiredContacts.map((c: any) => c.id).join(",")})
-                `));
-
-                // Write per-contact audit log rows
-                for (const c of expiredContacts) {
-                  await db.execute(sql.raw(`
-                    INSERT INTO compliance_audit_log (event_type, contact_id, performed_by, new_values, notes)
-                    VALUES ('implied_consent_expired', ${c.id}, NULL,
-                      '{"source":"cron","reason":"implied_consent_expiry_date_passed"}'::jsonb,
-                      'Automated: implied consent expired past expiry date')
-                  `)).catch(() => {});
-                }
-                log(`[cron:consent-expiry] Marked implied-expired: ${expiredContacts.length} contacts; audit rows written`);
-              }
-
-              // Step 2: Generate 90/60/30-day warning activity records for approaching expiry
-              for (const days of [90, 60, 30]) {
-                const windowStart = new Date(Date.now() + (days - 1) * 86400000).toISOString().slice(0, 10);
-                const windowEnd   = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
-
-                const upcoming = (await db.execute(sql.raw(`
-                  SELECT c.id, c.name, c.email, c.implied_consent_expiry_date::text AS expiry_date, c.account_id
-                  FROM contacts c
-                  WHERE c.canada_contact = TRUE
-                    AND c.consent_status = 'implied_active'
-                    AND c.implied_consent_expiry_date IS NOT NULL
-                    AND c.implied_consent_expiry_date::date >= '${windowStart}'::date
-                    AND c.implied_consent_expiry_date::date <= '${windowEnd}'::date
-                `))).rows as any[];
-
-                for (const c of upcoming) {
-                  // Only create one warning per contact per window (skip if already created today)
-                  const alreadyExists = (await db.execute(sql.raw(`
-                    SELECT id FROM activities
-                    WHERE linked_object_type = 'contact'
-                      AND linked_object_id = ${c.id}
-                      AND type = 'compliance_warning'
-                      AND summary LIKE '%${days}-day%'
-                      AND created_at::date = '${today}'::date
-                  `))).rows as any[];
-                  if (alreadyExists.length > 0) continue;
-
-                  const safeName = (c.name || "Contact").replace(/'/g, "''");
-                  const safeExpiry = (c.expiry_date || "").replace(/'/g, "''");
-                  const safeEmail = (c.email || "").replace(/'/g, "''");
-                  const safeSubject = `CASL Implied Consent Expiring in ${days} Days`;
-                  const safeSummary = `Contact ${safeName} (${safeEmail}) implied consent expires on ${safeExpiry}. Renew or upgrade to express consent to maintain sendability.`;
-                  await db.execute(sql.raw(`
-                    INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_at)
-                    VALUES ('contact', ${Number(c.id)}, 'compliance_warning',
-                      '${safeSubject.replace(/'/g, "''")}',
-                      '${safeSummary.replace(/'/g, "''")}',
-                      NOW())
-                  `)).catch(() => {});
-                }
-
-                if (upcoming.length > 0) {
-                  log(`[cron:consent-expiry] ${days}-day warning: ${upcoming.length} contacts approaching expiry`);
-                }
-              }
-            } catch (err: any) {
-              log(`[cron:consent-expiry] Error: ${err?.message}`);
-            }
-          }
-          runConsentExpiry();
-          setInterval(runConsentExpiry, INTERVAL_MS);
-        })();
-      } else {
-        log("[schedulers] ENABLE_BACKGROUND_JOBS=false — skipping background job startup");
       }
+      setInterval(runTick, INTERVAL_MS);
+    })();
 
-      // Email search indexes: idempotent, non-blocking
-      import("./services/email-search")
-        .then(({ ensureSearchIndexes }) => ensureSearchIndexes())
-        .catch((e) => console.error("[email-search] ensureSearchIndexes failed:", e?.message || e));
+    // Gmail watch renewal (no-op if GMAIL_PUBSUB_TOPIC unset)
+    import("./services/gmail-watch").then(({ startWatchRenewalScheduler }) =>
+      startWatchRenewalScheduler()
+    );
 
-      // ── Backfill resumer ─────────────────────────────────────────────────────
-      // Delayed 20 s so the first batch of user requests are served before any
-      // heavy Gmail quota work begins.  Picks up pending / zombie backfill jobs,
-      // runs them serially so they don't compete for Gmail API quota.
-      setTimeout(async () => {
+    // Calendar auto-sync (15-min interval; no-op when no connections are configured)
+    import("./calendar-sync").then(({ startCalendarSyncScheduler }) =>
+      startCalendarSyncScheduler()
+    );
+
+    // Compliance: expire stale CASL implied consent + generate 90/60/30-day warning records
+    (function scheduleConsentExpiryJob() {
+      const INTERVAL_MS = 24 * 60 * 60 * 1000;
+      async function runConsentExpiry() {
         try {
           const { db } = await import("./db");
-          const { sql: sqlTag } = await import("drizzle-orm");
-          // Reset stale running jobs to pending so they can be picked up below.
-          await db.execute(sqlTag.raw(`
-            UPDATE backfill_jobs
-            SET status = 'pending', updated_at = NOW()
-            WHERE status = 'running'
-              AND updated_at < NOW() - INTERVAL '5 minutes'
-          `));
-          const pending = await db.execute(sqlTag.raw(`
-            SELECT id, user_id, email_account_id,
-                   to_char(date_from,'YYYY-MM-DD') AS date_from,
-                   to_char(date_to,'YYYY-MM-DD')   AS date_to
-            FROM backfill_jobs
-            WHERE status = 'pending'
-            ORDER BY id ASC
-          `));
-          const rows = ((pending as any).rows ?? []) as Array<{
-            id: number; user_id: number; email_account_id: number;
-            date_from: string | null; date_to: string | null;
-          }>;
-          if (rows.length === 0) return;
-          log(`[backfill-resumer] resuming ${rows.length} pending job(s)`);
-          const { runBackfillJob } = await import("./services/backfill-service");
-          // Serial loop so jobs don't compete for Gmail quota.
-          for (const r of rows) {
-            try {
-              await runBackfillJob({
-                jobId: r.id,
-                accountId: r.email_account_id,
-                userId: r.user_id,
-                dateFrom: r.date_from ?? undefined,
-                dateTo: r.date_to ?? undefined,
-              });
-            } catch (e: any) {
-              console.error(`[backfill-resumer] job ${r.id} crashed:`, e?.message || e);
+          const { sql } = await import("drizzle-orm");
+          const today = new Date().toISOString().slice(0, 10);
+
+          // Step 1: Find and expire overdue contacts (get IDs first for audit)
+          const expiredContacts = (await db.execute(sql.raw(`
+            SELECT id, email FROM contacts
+            WHERE canada_contact = TRUE
+              AND consent_status = 'implied_active'
+              AND implied_consent_expiry_date IS NOT NULL
+              AND implied_consent_expiry_date::date < '${today}'::date
+          `))).rows as any[];
+
+          if (expiredContacts.length > 0) {
+            await db.execute(sql.raw(`
+              UPDATE contacts
+              SET consent_status = 'implied_expired', updated_at = NOW()
+              WHERE id IN (${expiredContacts.map((c: any) => c.id).join(",")})
+            `));
+
+            // Write per-contact audit log rows
+            for (const c of expiredContacts) {
+              await db.execute(sql.raw(`
+                INSERT INTO compliance_audit_log (event_type, contact_id, performed_by, new_values, notes)
+                VALUES ('implied_consent_expired', ${c.id}, NULL,
+                  '{"source":"cron","reason":"implied_consent_expiry_date_passed"}'::jsonb,
+                  'Automated: implied consent expired past expiry date')
+              `)).catch(() => {});
+            }
+            log(`[cron:consent-expiry] Marked implied-expired: ${expiredContacts.length} contacts; audit rows written`);
+          }
+
+          // Step 2: Generate 90/60/30-day warning activity records for approaching expiry
+          for (const days of [90, 60, 30]) {
+            const windowStart = new Date(Date.now() + (days - 1) * 86400000).toISOString().slice(0, 10);
+            const windowEnd   = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+
+            const upcoming = (await db.execute(sql.raw(`
+              SELECT c.id, c.name, c.email, c.implied_consent_expiry_date::text AS expiry_date, c.account_id
+              FROM contacts c
+              WHERE c.canada_contact = TRUE
+                AND c.consent_status = 'implied_active'
+                AND c.implied_consent_expiry_date IS NOT NULL
+                AND c.implied_consent_expiry_date::date >= '${windowStart}'::date
+                AND c.implied_consent_expiry_date::date <= '${windowEnd}'::date
+            `))).rows as any[];
+
+            for (const c of upcoming) {
+              // Only create one warning per contact per window (skip if already created today)
+              const alreadyExists = (await db.execute(sql.raw(`
+                SELECT id FROM activities
+                WHERE linked_object_type = 'contact'
+                  AND linked_object_id = ${c.id}
+                  AND type = 'compliance_warning'
+                  AND summary LIKE '%${days}-day%'
+                  AND created_at::date = '${today}'::date
+              `))).rows as any[];
+              if (alreadyExists.length > 0) continue;
+
+              const safeName = (c.name || "Contact").replace(/'/g, "''");
+              const safeExpiry = (c.expiry_date || "").replace(/'/g, "''");
+              const safeEmail = (c.email || "").replace(/'/g, "''");
+              const safeSubject = `CASL Implied Consent Expiring in ${days} Days`;
+              const safeSummary = `Contact ${safeName} (${safeEmail}) implied consent expires on ${safeExpiry}. Renew or upgrade to express consent to maintain sendability.`;
+              await db.execute(sql.raw(`
+                INSERT INTO activities (linked_object_type, linked_object_id, type, subject, summary, created_at)
+                VALUES ('contact', ${Number(c.id)}, 'compliance_warning',
+                  '${safeSubject.replace(/'/g, "''")}',
+                  '${safeSummary.replace(/'/g, "''")}',
+                  NOW())
+              `)).catch(() => {});
+            }
+
+            if (upcoming.length > 0) {
+              log(`[cron:consent-expiry] ${days}-day warning: ${upcoming.length} contacts approaching expiry`);
             }
           }
-        } catch (e: any) {
-          console.error("[backfill-resumer] startup error:", e?.message || e);
+        } catch (err: any) {
+          log(`[cron:consent-expiry] Error: ${err?.message}`);
         }
-      }, 20_000);
-    },
-  );
+      }
+      runConsentExpiry();
+      setInterval(runConsentExpiry, INTERVAL_MS);
+    })();
+  } else {
+    log("[schedulers] ENABLE_BACKGROUND_JOBS=false — skipping background job startup");
+  }
+
+  // Email search indexes: idempotent, non-blocking
+  import("./services/email-search")
+    .then(({ ensureSearchIndexes }) => ensureSearchIndexes())
+    .catch((e) => console.error("[email-search] ensureSearchIndexes failed:", e?.message || e));
+
+  // ── Backfill resumer ──────────────────────────────────────────────────────────
+  // Delayed 20 s so the first batch of user requests are served before any
+  // heavy Gmail quota work begins.  Picks up pending / zombie backfill jobs,
+  // runs them serially so they don't compete for Gmail API quota.
+  setTimeout(async () => {
+    try {
+      const { db } = await import("./db");
+      const { sql: sqlTag } = await import("drizzle-orm");
+      // Reset stale running jobs to pending so they can be picked up below.
+      await db.execute(sqlTag.raw(`
+        UPDATE backfill_jobs
+        SET status = 'pending', updated_at = NOW()
+        WHERE status = 'running'
+          AND updated_at < NOW() - INTERVAL '5 minutes'
+      `));
+      const pending = await db.execute(sqlTag.raw(`
+        SELECT id, user_id, email_account_id,
+               to_char(date_from,'YYYY-MM-DD') AS date_from,
+               to_char(date_to,'YYYY-MM-DD')   AS date_to
+        FROM backfill_jobs
+        WHERE status = 'pending'
+        ORDER BY id ASC
+      `));
+      const rows = ((pending as any).rows ?? []) as Array<{
+        id: number; user_id: number; email_account_id: number;
+        date_from: string | null; date_to: string | null;
+      }>;
+      if (rows.length === 0) return;
+      log(`[backfill-resumer] resuming ${rows.length} pending job(s)`);
+      const { runBackfillJob } = await import("./services/backfill-service");
+      // Serial loop so jobs don't compete for Gmail quota.
+      for (const r of rows) {
+        try {
+          await runBackfillJob({
+            jobId: r.id,
+            accountId: r.email_account_id,
+            userId: r.user_id,
+            dateFrom: r.date_from ?? undefined,
+            dateTo: r.date_to ?? undefined,
+          });
+        } catch (e: any) {
+          console.error(`[backfill-resumer] job ${r.id} crashed:`, e?.message || e);
+        }
+      }
+    } catch (e: any) {
+      console.error("[backfill-resumer] startup error:", e?.message || e);
+    }
+  }, 20_000);
 })();

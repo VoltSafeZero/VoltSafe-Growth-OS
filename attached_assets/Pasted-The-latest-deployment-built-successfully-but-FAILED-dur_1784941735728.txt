@@ -1,0 +1,253 @@
+The latest deployment built successfully but FAILED during Promote.
+
+Do not work on the Today calendar UI yet. The new calendar fix is not proven wrong because this deployment did not become live. First fix the deployment/startup failure and the production Cortex database error.
+
+==================================================
+CONFIRMED EVIDENCE
+==================================================
+
+Deployment source:
+038f7acf
+
+Observed deployment behavior:
+
+- Provision passed
+- Security checks passed
+- Build passed
+- Bundle passed
+- Promote failed
+
+Replit reported:
+
+“Your app built successfully but failed to start.”
+
+The logs show repeated:
+
+healthcheck / returned status 500
+
+The app was still executing startup migrations during those checks.
+
+Timeline:
+
+- startup entered at approximately +7 ms
+- core migrations completed around +2.9 seconds
+- feature migrations completed around +6.1 seconds
+- additional migrations continued
+- first API request was not handled until approximately +41.1 seconds
+- GET /api/calendar/events then returned 200
+
+This means Replit marked the deployment unhealthy before startup had completed.
+
+The old production deployment therefore likely remained live.
+
+There is also a production Cortex error:
+
+[cortex-auto-ingest] Failed query:
+SELECT * FROM cortex_auto_ingest_domains
+WHERE is_active = true AND domain = 'news.savingssenseipro.com'
+
+The underlying PostgreSQL error was not printed.
+
+==================================================
+PART 1 — FIX DEPLOYMENT HEALTH CHECK
+==================================================
+
+Create or repair a lightweight health endpoint that does not depend on:
+
+- authentication
+- frontend rendering
+- database migrations finishing
+- Gmail sync
+- seed operations
+- calendar synchronization
+- Cortex startup work
+- background schedulers
+
+Preferred endpoint:
+
+GET /healthz
+
+It must return HTTP 200 immediately after Express begins listening.
+
+Response example:
+
+{
+  "status": "ok",
+  "process": "running"
+}
+
+Do not query the database in the basic liveness endpoint.
+
+Optionally create a separate readiness endpoint:
+
+GET /readyz
+
+This may return:
+
+503 while critical startup work is incomplete
+
+and:
+
+200 when required startup initialization is complete.
+
+Example:
+
+{
+  "status": "ready",
+  "startupComplete": true
+}
+
+Liveness and readiness must not be confused.
+
+Configure the Replit deployment health check to use /healthz rather than the application root /.
+
+Verify the deployment configuration actually points at /healthz.
+
+==================================================
+PART 2 — DO NOT RETURN 500 FROM /
+==================================================
+
+Investigate why GET / returned HTTP 500 during startup.
+
+The root route should not throw because:
+
+- the frontend bundle is not yet available
+- startup migrations are still running
+- session/database state is unavailable
+- a catch-all route executes before initialization
+- Vite/static assets are unavailable
+- an API dependency fails
+
+Either:
+
+A. make / return a safe 200 response during startup,
+
+or preferably:
+
+B. use /healthz as the deployment liveness check.
+
+Do not hide genuine application failures. Log the actual root-route error.
+
+==================================================
+PART 3 — START LISTENING EARLIER
+==================================================
+
+Inspect server startup ordering.
+
+The application should generally:
+
+1. create Express
+2. register /healthz
+3. bind/listen on the configured port
+4. perform noncritical migrations and startup jobs afterward
+
+Do not block the HTTP listener for 40+ seconds on:
+
+- seed jobs
+- Gmail initialization
+- help-center indexing
+- optional schema upgrades
+- background schedulers
+- large backfills
+
+Identify which operations are critical before serving authenticated traffic and which can run after listening.
+
+Critical schema work may gate /readyz, but it must not prevent /healthz from returning 200.
+
+==================================================
+PART 4 — FIX CORTEX DOMAIN WATCH PRODUCTION SCHEMA
+==================================================
+
+Investigate the production failure for:
+
+SELECT * FROM cortex_auto_ingest_domains
+
+Confirm in the actual production database:
+
+- cortex_auto_ingest_domains table exists
+- id exists
+- domain exists
+- label exists
+- notes exists
+- is_active exists
+- created_by_user_id exists
+- created_at exists
+- last_matched_at exists
+- match_count exists
+- UNIQUE(domain) exists
+
+The logs shown do not contain a successful Cortex auto-ingest domain migration message.
+
+Find whether:
+
+- migrateAutoIngestDomainsSchema() was not registered
+- it was invoked without awaiting or error handling
+- it ran against the wrong database
+- it failed silently
+- its promise was discarded
+- the table name differs
+- the deployment process queried the table before migration completed
+
+Do not use an unhandled fire-and-forget migration.
+
+At minimum:
+
+migrateAutoIngestDomainsSchema()
+  .then(() => log success)
+  .catch(error => log the full error)
+
+If the table is required by Gmail ingestion, ensure Gmail ingestion cannot query it before its migration completes.
+
+Preferred ordering:
+
+await migrateAutoIngestDomainsSchema()
+
+before starting Gmail incremental synchronization.
+
+The migration must remain idempotent.
+
+==================================================
+PART 5 — PRINT THE REAL DATABASE ERROR
+==================================================
+
+Current logs only print:
+
+Failed query
+
+That is insufficient.
+
+For the Cortex and capital-linker failures, log safe diagnostic fields:
+
+- error name
+- PostgreSQL error code
+- error message
+- constraint name, when available
+- table/relation name, when available
+- sanitized stack location
+
+Do not log:
+
+- email bodies
+- credentials
+- tokens
+- connection strings
+- private message contents
+
+Determine whether both of these failures have the same root cause:
+
+- cortex-auto-ingest query failure
+- capital-linker email_messages query failure
+
+Do not assume the Cortex table is missing until the underlying PostgreSQL error confirms it.
+
+==================================================
+PART 6 — STARTUP FAILURE REGRESSION TESTS
+==================================================
+
+Add tests proving:
+
+1. /healthz returns 200 without authentication.
+2. /healthz does not query the database.
+3. /healthz responds while migrations are still pending.
+4. /readyz returns 503 before critical startup completes.
+5. /ready
