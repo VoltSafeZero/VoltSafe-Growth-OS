@@ -1,0 +1,340 @@
+Fix the Pipeline → Leads access bug for external users with explicitly assigned permissions.
+
+CONFIRMED PRODUCTION BEHAVIOR
+
+User:
+- Tiffany Munn
+- external user
+- advisor role
+
+When she opens Pipeline → Leads, she sees:
+
+“Access Restricted
+You don’t have permission to view this section.”
+
+This means the module-level route guard is denying access before the Leads page loads.
+
+Do not grant all external users Pipeline access.
+
+The required behavior is:
+
+- External users remain restricted by default.
+- An authorized admin may explicitly grant an external user access to Pipeline and/or Leads.
+- Once that permission is granted, the user must be able to open the permitted module.
+- Their exact permission level must still be enforced:
+  - No Access
+  - View Only
+  - View & Edit
+
+==================================================
+FIRST — VERIFY TIFFANY’S CURRENT CONFIGURATION
+==================================================
+
+Inspect Tiffany Munn’s actual production permission records.
+
+Report:
+
+- user ID
+- global role
+- external/internal status
+- Pipeline permission
+- Leads permission
+- Accounts permission
+- Contacts permission
+- any inherited role permissions
+- any user-specific overrides
+- effective permission calculated by the backend
+- effective permission calculated by the frontend
+
+Do not assume she should have access unless the stored permission confirms it.
+
+If Tiffany currently has No Access, identify that clearly and verify whether the admin UI is missing the relevant Pipeline/Leads control.
+
+If she has View Only or View & Edit, then the current denial is a confirmed authorization bug.
+
+==================================================
+TRACE THE COMPLETE ACCESS PATH
+==================================================
+
+Trace:
+
+Pipeline navigation item
+→ route definition
+→ page-level access guard
+→ frontend permission hook/context
+→ authenticated user payload
+→ backend permission endpoint
+→ role defaults
+→ user-specific overrides
+→ database
+
+Find the exact condition rendering the Access Restricted page.
+
+Look for incorrect logic such as:
+
+- if user.isExternal then deny
+- role === "advisor" then deny
+- role !== employee then deny
+- hardcoded internal-only route
+- checking only global role
+- ignoring user-specific permissions
+- checking Pipeline but not Leads
+- checking the wrong permission key
+- mismatch such as:
+  pipeline
+  pipeline_leads
+  leads
+  crm
+  crm_leads
+- treating View Only as false
+- boolean checks against a string permission
+- stale permissions cached from before the admin change
+- invited status incorrectly blocking an activated user
+- frontend and backend using different permission enums
+
+==================================================
+CANONICAL PERMISSION MODEL
+==================================================
+
+Use one canonical permission calculation.
+
+Example:
+
+effectivePermission =
+  userOverride
+  ?? roleDefault
+  ?? "none"
+
+Supported levels:
+
+- none
+- view
+- edit
+
+Map UI labels consistently:
+
+- No Access → none
+- View Only → view
+- View & Edit → edit
+
+Do not evaluate these strings as booleans.
+
+Both `view` and `edit` must allow the user to open the page.
+
+Only `edit` allows mutations.
+
+==================================================
+PIPELINE AND SUBMODULE BEHAVIOR
+==================================================
+
+Clarify whether Pipeline is:
+
+A. a parent permission plus separate child permissions, or
+B. only a navigation group with Leads/Accounts/Contacts permissions underneath.
+
+Preferred behavior:
+
+- The Pipeline navigation group appears if the user has at least View Only access to any child:
+  - Leads
+  - Accounts
+  - Contacts
+  - Opportunities
+  - Quotes
+  - or another existing Pipeline submodule
+
+- Opening Leads requires effective Leads permission of view or edit.
+- Opening Accounts requires Accounts permission.
+- Opening Contacts requires Contacts permission.
+
+Do not require an unrelated broad Pipeline permission if the system is designed around child-module access.
+
+If a parent Pipeline permission exists, define how it combines with child permissions and apply the same rule everywhere.
+
+==================================================
+EXTERNAL USER RULE
+==================================================
+
+External status must not itself override an explicitly granted module permission.
+
+Correct:
+
+external + Leads View Only
+→ may open Leads
+→ may view allowed lead data
+→ cannot edit, export, or download unless separately allowed
+
+external + Leads View & Edit
+→ may open and edit Leads, subject to record-level restrictions
+
+external + Leads No Access
+→ Access Restricted
+
+Incorrect:
+
+external
+→ always Access Restricted regardless of assigned permission
+
+==================================================
+VIEW-ONLY ENFORCEMENT
+==================================================
+
+If Tiffany has View Only:
+
+Allow:
+- open Leads
+- search and filter
+- view permitted records
+- view permitted fields
+- open lead detail pages
+
+Block:
+- create lead
+- edit fields
+- change stage
+- assign owner
+- delete
+- bulk edit
+- import
+- export unless separately allowed
+- download attachments unless separately allowed
+
+Backend APIs must enforce the same restrictions.
+
+Do not merely hide buttons.
+
+==================================================
+RECORD-LEVEL SCOPE
+==================================================
+
+Confirm what leads an external advisor is allowed to see.
+
+Do not automatically expose all VoltSafe leads unless that is explicitly intended.
+
+Use the existing scope model, such as:
+
+- all permitted records
+- assigned records
+- shared records
+- team records
+- specifically granted records
+
+Report Tiffany’s effective record scope.
+
+If no record-scope system exists, do not invent broad access silently. Flag this clearly and apply the safest existing scope.
+
+==================================================
+ADMIN UI
+==================================================
+
+In Admin → Users & Roles → Access, ensure Pipeline submodules are visible and editable for external users.
+
+The admin must be able to set independently:
+
+- Leads: No Access / View Only / View & Edit
+- Accounts: No Access / View Only / View & Edit
+- Contacts: No Access / View Only / View & Edit
+- other existing Pipeline modules
+
+Saving a false/No Access value must work.
+
+After changing access:
+
+- invalidate the selected user’s permissions query
+- invalidate the authenticated user permission payload if editing oneself
+- refresh route guards
+- avoid requiring logout/login where possible
+
+For another user such as Tiffany, the new permission must take effect on her next request or page refresh.
+
+==================================================
+BACKEND SECURITY
+==================================================
+
+Verify:
+
+- list leads endpoint allows view and edit
+- lead detail endpoint allows view and edit
+- create/update/delete require edit
+- unauthorized users receive 403
+- external status does not bypass or override effective permission
+- record-level scope is applied server-side
+- export/download permissions remain separately enforced
+
+Do not expose data merely because the frontend route now opens.
+
+==================================================
+TESTS
+==================================================
+
+Add regression tests covering:
+
+1. External user with Leads No Access sees Access Restricted.
+2. External user with Leads View Only opens Leads.
+3. External user with Leads View & Edit opens Leads.
+4. View Only user cannot create a lead.
+5. View Only user cannot edit a lead.
+6. View Only user cannot delete a lead.
+7. View Only user can read an allowed lead.
+8. Backend list endpoint permits View Only.
+9. Backend detail endpoint permits View Only.
+10. Backend mutations reject View Only with 403.
+11. External status does not override explicit Leads access.
+12. Advisor role does not automatically deny explicitly granted access.
+13. Pipeline navigation appears when any child module is viewable.
+14. Pipeline navigation remains hidden when all children are No Access.
+15. Leads route uses the canonical Leads permission key.
+16. Frontend and backend resolve the same effective permission.
+17. User-specific override beats role default.
+18. Role default applies when no override exists.
+19. No Access persists after refresh.
+20. View Only persists after refresh.
+21. Permission change takes effect without stale cache.
+22. Record-level scope is enforced.
+23. Export remains blocked when export permission is off.
+24. Download remains blocked when download permission is off.
+25. Existing internal-user Pipeline access still works.
+26. TypeScript passes.
+27. npm run build passes.
+
+==================================================
+MANUAL PRODUCTION VERIFICATION
+==================================================
+
+After fixing and publishing:
+
+1. Confirm Tiffany’s intended Leads permission in Admin.
+2. Log in as Tiffany.
+3. Open Pipeline → Leads.
+4. Confirm the page opens if she has View Only or View & Edit.
+5. Confirm only permitted records appear.
+6. If View Only:
+   - create/edit/delete controls are absent or disabled
+   - direct mutation API attempts return 403
+7. Confirm export/download remain governed by their separate settings.
+8. Change Tiffany to No Access.
+9. Refresh as Tiffany.
+10. Confirm Access Restricted returns.
+11. Restore the intended permission.
+
+==================================================
+DELIVERABLE REPORT
+==================================================
+
+Report:
+
+- exact root cause
+- Tiffany’s stored permission before the fix
+- Tiffany’s effective permission before the fix
+- frontend guard condition before and after
+- backend permission calculation before and after
+- permission keys involved
+- role/default/override precedence
+- record-level scope
+- files changed
+- tests added
+- tests passed
+- TypeScript result
+- build result
+- commit hash
+
+Do not publish until the route guard and backend authorization are both verified.
