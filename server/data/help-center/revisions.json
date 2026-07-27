@@ -1231,5 +1231,30 @@
       "ai-knowledge-base.json"
     ],
     "trigger": "startup"
+  },
+  {
+    "ranAt": "2026-07-25T06:25:09.082Z",
+    "localDate": "2026-07-24",
+    "action": "refreshed",
+    "bootTime": "2026-07-25T06:24:59.428Z",
+    "deploymentId": "30526ba797407694e6a2c64a47e8f536314ea7af",
+    "republishedToday": true,
+    "filesUpdated": [
+      "quick-start-guide.md",
+      "operations-manual.md",
+      "training-handbook.md",
+      "ai-knowledge-base.json"
+    ],
+    "trigger": "startup"
+  },
+  {
+    "ranAt": "2026-07-25T06:58:00.068Z",
+    "localDate": "2026-07-24",
+    "action": "skipped_no_rebuild_needed",
+    "bootTime": "2026-07-25T06:24:59.428Z",
+    "deploymentId": "30526ba797407694e6a2c64a47e8f536314ea7af",
+    "republishedToday": true,
+    "trigger": "scheduled",
+    "reason": "deployment IDs match and previous rebuild succeeded"
   }
 ]
