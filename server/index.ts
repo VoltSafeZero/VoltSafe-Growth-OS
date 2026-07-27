@@ -436,6 +436,28 @@ app.use((req, res, next) => {
     });
   });
 
+  // ── API readiness gate — narrow, feature-only ────────────────────────────────
+  // Returns 503 for feature API calls while critical schema migrations are still
+  // running in the background. This prevents raw DB "table does not exist" errors
+  // from leaking to the client. Exempted routes pass through unconditionally so
+  // login, health probes, and webhook ingestion always work:
+  //   /api/version   — identity probe, registered before this IIFE, always fast
+  //   /api/session/* — login / logout / bootstrap (auth schema is Batch-1, fast)
+  //   /api/webhooks/ — Gmail + Calendar push notifications must never be delayed
+  // The frontend (GET /) is never touched here — Vite/static serve it separately.
+  app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+    if (_startupComplete) return next();
+    // req.path has the /api prefix stripped by app.use("/api", ...)
+    if (
+      req.path === "/version" ||
+      req.path.startsWith("/session") ||
+      req.path.startsWith("/webhooks")
+    ) {
+      return next();
+    }
+    res.status(503).json({ error: "Service temporarily unavailable", status: "starting" });
+  });
+
   // ── Register routes + frontend IMMEDIATELY after port opens ──────────────────
   // Route registration is pure handler setup — no DB queries run at registration
   // time. Registering here means GET / returns index.html within milliseconds,

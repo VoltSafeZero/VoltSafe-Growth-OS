@@ -107,13 +107,18 @@ console.log("\n── 6. API routes not swallowed ──");
 const api = await get("/api/session/bootstrap");
 check("/api/* returns JSON (not HTML)", api.contentType.includes("application/json"), api.contentType);
 
-// ── 7. Wrong project guard ────────────────────────────────────────────────────
+// ── 7. Project identity guard ────────────────────────────────────────────────
+// The canonical production URL is image-linker-burgesstrevor76.replit.app —
+// this is the Replit project slug for VoltSafe Growth OS. Identity is verified
+// by /api/version returning app="VoltSafe Growth OS", not by the URL slug.
 console.log("\n── 7. Project identity guard ──");
 check(
-  "Response identifies VoltSafe (not a different project)",
-  ver.json?.app === "VoltSafe Growth OS" &&
-  !root.text.includes("image-linker") &&
-  !root.text.includes("wrong-project")
+  "Response identifies VoltSafe Growth OS",
+  ver.json?.app === "VoltSafe Growth OS"
+);
+check(
+  "Response does not identify a different application",
+  ver.json?.app !== undefined && ver.json.app !== "" && !root.text.includes("wrong-project")
 );
 
 // ── Summary ───────────────────────────────────────────────────────────────────

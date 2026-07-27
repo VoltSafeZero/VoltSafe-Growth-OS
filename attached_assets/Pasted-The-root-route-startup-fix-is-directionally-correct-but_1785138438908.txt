@@ -1,0 +1,345 @@
+The root-route startup fix is directionally correct, but release verification is not complete.
+
+Do not publish yet.
+
+There are two remaining production-safety requirements:
+
+1. Identify the exact canonical VoltSafe production deployment and URL.
+2. Ensure moving migrations into the background has not created schema race conditions.
+
+==================================================
+PART 1 — IDENTIFY THE CANONICAL VOLTSAFE DEPLOYMENT
+==================================================
+
+Do not report:
+
+“whatever is configured in this project’s deployment settings.”
+
+Inspect the actual Replit project and deployment configuration and report:
+
+- Replit project name
+- Replit project slug
+- Replit project ID, if available
+- deployment name
+- deployment type
+- canonical production .replit.app URL
+- development .replit.dev URL
+- connected production database identity, without secrets
+- latest deployment ID
+- latest deployed commit SHA
+- last known healthy deployment ID
+
+Confirm explicitly that:
+
+image-linker-burgesstrevor76.replit.app
+
+is not the VoltSafe production URL.
+
+If it is an unrelated project, remove it from:
+
+- documentation
+- environment configuration
+- release scripts
+- health checks
+- smoke-test defaults
+- admin links
+- any hardcoded frontend or backend references
+
+Add the canonical VoltSafe production URL to a single safe configuration source.
+
+The release smoke-test script must refuse to pass if the responding application identity is not:
+
+VoltSafe Growth OS
+
+==================================================
+PART 2 — AUDIT THE NEW STARTUP ORDER
+==================================================
+
+The current implementation reportedly:
+
+- starts listening
+- registers API routes and frontend
+- then launches all migrations in a fire-and-forget background task
+
+This may allow API requests or jobs to query missing tables or columns before migrations complete.
+
+Audit every startup migration and classify it:
+
+A. CRITICAL BEFORE READY
+Required for:
+- authentication
+- sessions
+- user permissions
+- core routing
+- primary calendar APIs
+- primary Mail APIs
+- Cortex Domain Watch APIs
+- any endpoint likely to be called immediately after login
+
+B. REQUIRED BEFORE A DEPENDENT JOB
+Required before:
+- Gmail incremental sync
+- Cortex auto-ingestion
+- Capital email linking
+- calendar polling
+- automation schedulers
+- engagement schedulers
+- help-centre indexing
+- CRM linking
+
+C. NONCRITICAL AFTER READY
+Examples:
+- optional indexes
+- backfills
+- repair jobs
+- analytics aggregation
+- sample data checks
+- nonessential indexing
+
+Do not launch every migration blindly in one background task.
+
+==================================================
+PART 3 — REQUIRED STARTUP MODEL
+==================================================
+
+Use this sequence:
+
+1. Create Express.
+2. Register:
+   - /healthz
+   - /readyz
+   - /api/version
+3. Register API routes.
+4. Register frontend static/Vite serving.
+5. Start listening.
+6. Run critical schema migrations in an ordered orchestrator.
+7. Mark /readyz ready only after critical schema verification passes.
+8. Start dependent background jobs only after their required migrations succeed.
+9. Run noncritical migrations and repairs afterward in bounded background tasks.
+
+The frontend may load while readiness is starting.
+
+However, APIs requiring unavailable schema must respond with a controlled HTTP 503, not produce database query failures.
+
+Example:
+
+{
+  "error": "Service temporarily unavailable",
+  "status": "starting"
+}
+
+==================================================
+PART 4 — PREVENT SCHEMA RACES
+==================================================
+
+Confirm these jobs cannot start before their required schema exists:
+
+- Gmail incremental sync
+- Cortex auto-ingest
+- Capital email linker
+- calendar synchronization
+- automation scheduler
+- engagement scheduler
+- search/indexing workers
+
+Use explicit gates such as:
+
+await requiredSchemaReady;
+
+or start the job only after the relevant migration resolves.
+
+Do not use arbitrary delays.
+
+Do not allow this pattern:
+
+void migrateRequiredTable();
+startJobThatQueriesRequiredTable();
+
+Required pattern:
+
+await migrateRequiredTable();
+startJobThatQueriesRequiredTable();
+
+A failure in an optional job must not prevent the frontend from loading.
+
+A failure in required schema must keep /readyz unhealthy and prevent dependent jobs from starting.
+
+==================================================
+PART 5 — MIGRATION ERROR HANDLING
+==================================================
+
+The fire-and-forget migration wrapper must have a top-level catch.
+
+Every migration must log:
+
+- migration name
+- start time
+- duration
+- success
+- safe failure details
+
+Required failures must:
+
+- set readiness to failed
+- prevent dependent jobs from starting
+- produce a nonzero release smoke-test result
+
+Optional failures must:
+
+- mark the system degraded
+- remain visible in diagnostics
+- not crash the frontend
+
+No migration promise may be silently discarded.
+
+==================================================
+PART 6 — API READINESS GUARD
+==================================================
+
+Do not place a global readiness guard over `/`.
+
+Do not block:
+
+- /
+- frontend assets
+- /healthz
+- /readyz
+- /api/version
+
+For core APIs that require critical schema, use a narrow readiness middleware.
+
+Example:
+
+requireAppReady
+
+It should return HTTP 503 while critical startup is incomplete.
+
+Apply it only to endpoints that genuinely require readiness.
+
+Do not convert authorization failures into readiness failures.
+
+==================================================
+PART 7 — VERIFY THE STATIC SERVING FIX
+==================================================
+
+Report the exact development and production request paths:
+
+Development:
+
+GET /
+→ Vite middleware
+→ index.html
+→ React app
+
+Production:
+
+GET /
+→ production static middleware
+→ built index.html
+→ React app
+
+Report:
+
+- actual production static directory
+- whether index.html exists
+- one generated JS asset path
+- one generated CSS asset path, if applicable
+
+Verify:
+
+- `/` returns `text/html`
+- `/` never returns `{status:"starting"}`
+- `/healthz` returns JSON
+- `/readyz` returns JSON
+- `/api/version` returns JSON
+- client-side route refresh returns index.html
+- `/api/*` is not swallowed by SPA fallback
+
+==================================================
+PART 8 — ADD RACE-CONDITION TESTS
+==================================================
+
+Add regression tests proving:
+
+1. `/` returns VoltSafe HTML while migrations are pending.
+2. `/healthz` returns 200 while migrations are pending.
+3. `/readyz` returns 503 while critical migrations are pending.
+4. A schema-dependent API returns controlled 503 before readiness.
+5. That API works after critical migrations complete.
+6. Gmail sync does not start before email schema is ready.
+7. Cortex auto-ingest does not start before Domain Watch schema is ready.
+8. Capital linker does not start before its required schema is ready.
+9. Calendar polling does not start before calendar schema is ready.
+10. Optional migration failure does not block the frontend.
+11. Required migration failure keeps readiness failed.
+12. Required migration failure does not leave readiness permanently “starting.”
+13. No unhandled promise rejection occurs.
+14. The release smoke test rejects the wrong app identity.
+15. The release smoke test rejects the wrong commit SHA.
+16. The release smoke test rejects a noncanonical production URL.
+17. The built server serves HTML before background initialization finishes.
+18. npm run build passes.
+
+==================================================
+PART 9 — RELEASE REPORT
+==================================================
+
+Before publishing, report:
+
+Exact canonical VoltSafe production URL:
+Exact development URL:
+Replit project name:
+Replit project slug/ID:
+Wrong image-linker URL removed from references: YES/NO
+Commit hash:
+Files changed:
+Critical migrations:
+Dependent-job migrations:
+Noncritical migrations:
+Readiness state transitions:
+API readiness middleware:
+Frontend response while starting:
+Schema-dependent API response while starting:
+Gmail job gating:
+Cortex job gating:
+Calendar job gating:
+Migration failure behavior:
+Tests passed:
+TypeScript result:
+Build result:
+Built-server result:
+Smoke-test result:
+
+Do not publish until all of this is verified.
+
+==================================================
+PART 10 — PUBLISH AND VERIFY
+==================================================
+
+After every check passes:
+
+1. Publish only to the confirmed canonical VoltSafe project.
+2. Monitor through successful Promote.
+3. Report deployment ID and build ID.
+4. Run the smoke-test script against the canonical public URL.
+5. Verify /api/version returns the expected commit.
+6. Verify / returns VoltSafe HTML.
+7. Verify /readyz is ready.
+8. Confirm no required migration or schema-race errors appear.
+9. Confirm the previous healthy deployment remains available for rollback.
+
+Final status must include:
+
+Canonical production URL:
+Deployment ID:
+Build ID:
+Commit SHA:
+Promote status:
+Public / serves VoltSafe HTML: YES/NO
+Public /healthz: PASS/FAIL
+Public /readyz: PASS/FAIL
+Public /api/version identity: PASS/FAIL
+Required schemas ready: YES/NO
+Dependent jobs safely gated: YES/NO
+Last-known-good rollback available: YES/NO
+Critical production errors: NONE or list them
