@@ -1,0 +1,703 @@
+Treat production availability as a critical, permanent platform requirement for VoltSafe CMS.
+
+The production .app being unavailable, returning startup JSON, serving a blank page, entering a crash loop, or being replaced by a failed deployment is unacceptable.
+
+Do not make a temporary patch. Build a production-safety architecture that prevents application changes from taking the live site down and gives us immediate, actionable evidence whenever infrastructure outside our control fails.
+
+==================================================
+CORE AVAILABILITY OBJECTIVE
+==================================================
+
+A new release must never replace the currently working production deployment unless the new release is proven healthy.
+
+Required deployment behavior:
+
+1. Build the new release.
+2. Start the new release separately from the current production instance.
+3. Run startup migrations safely.
+4. Run automated health and smoke checks against the new instance.
+5. Promote traffic only after all required checks pass.
+6. If any required check fails:
+   - do not promote
+   - keep the previous production deployment live
+   - clearly report the failure
+7. If the new release becomes unhealthy immediately after promotion:
+   - automatically roll back to the most recent verified healthy deployment where platform support allows
+   - otherwise provide an immediate one-click rollback procedure
+
+Do not allow a failed deployment to replace a healthy deployment.
+
+==================================================
+DEFINE THE CORRECT PRODUCTION URL
+==================================================
+
+Audit and document the canonical VoltSafe production deployment.
+
+The prior investigation suggested that:
+
+image-linker-burgesstrevor76.replit.app
+
+may belong to a different Replit project.
+
+Determine and report:
+
+- current VoltSafe Replit project name
+- current VoltSafe project ID
+- canonical production .app URL
+- development .dev URL
+- deployment target
+- deployment type
+- connected production database
+- latest healthy deployment ID
+- latest healthy commit SHA
+
+Remove all ambiguity between:
+
+- VoltSafe CMS
+- VoltSafe Growth OS
+- image-linker
+- other Replit projects
+
+Do not publish VoltSafe from or to the wrong project.
+
+Add a visible environment identity endpoint:
+
+GET /api/version
+
+Response should safely include:
+
+{
+  "app": "VoltSafe Growth OS",
+  "environment": "production",
+  "commitSha": "...",
+  "buildId": "...",
+  "deploymentId": "...",
+  "startedAt": "...",
+  "version": "..."
+}
+
+Do not expose secrets.
+
+==================================================
+HEALTH ENDPOINTS
+==================================================
+
+Maintain three clearly separate concepts.
+
+1. Liveness
+
+GET /healthz
+
+Must return HTTP 200 as soon as the Node process is listening.
+
+Example:
+
+{
+  "status": "ok",
+  "process": "running",
+  "uptimeMs": 1234
+}
+
+It must not depend on:
+
+- the database
+- authentication
+- Gmail
+- calendar sync
+- Cortex
+- OpenAI
+- help-center indexing
+- background jobs
+- frontend rendering
+
+2. Readiness
+
+GET /readyz
+
+Return 503 until all truly critical startup work is complete.
+
+Return 200 after the app can safely serve authenticated production traffic.
+
+Example while starting:
+
+{
+  "status": "starting",
+  "criticalChecks": {
+    "database": "pending",
+    "requiredSchema": "pending"
+  }
+}
+
+Example when ready:
+
+{
+  "status": "ready",
+  "criticalChecks": {
+    "database": "ok",
+    "requiredSchema": "ok"
+  }
+}
+
+3. Frontend smoke check
+
+GET /
+
+Must return the VoltSafe HTML application.
+
+It must never return:
+
+{
+  "status": "starting"
+}
+
+Startup status belongs only at /readyz.
+
+==================================================
+STARTUP ARCHITECTURE
+==================================================
+
+Classify every startup operation.
+
+CRITICAL:
+
+Only tasks required for the application to safely serve core authenticated requests.
+
+Examples may include:
+
+- production database connection
+- required core schema migrations
+- essential authentication schema
+- required application configuration validation
+
+NONCRITICAL:
+
+Must never block the frontend or deployment promotion indefinitely.
+
+Examples:
+
+- Gmail incremental sync
+- Cortex enrichment
+- calendar background synchronization
+- help-center indexing
+- search reindexing
+- optional backfills
+- seed data checks
+- scheduled automations
+- engagement scanning
+- CRM enrichment
+- analytics aggregation
+
+Correct sequence:
+
+1. Create Express app.
+2. Register /healthz, /readyz, and /api/version.
+3. Register application API routes.
+4. Register frontend static/Vite middleware.
+5. Register SPA fallback.
+6. Start listening on the assigned port.
+7. Run critical startup tasks with explicit timeouts.
+8. Mark readiness ready when critical tasks succeed.
+9. Start noncritical jobs asynchronously afterward.
+10. Log failures without crashing the web process.
+
+No noncritical task may hold the site in “starting.”
+
+==================================================
+STARTUP TIMEOUTS
+==================================================
+
+Every critical startup operation needs:
+
+- an explicit timeout
+- clear error logging
+- a defined failure state
+- no infinite pending state
+
+Examples:
+
+- database connection timeout
+- migration timeout
+- schema verification timeout
+
+If a critical operation exceeds its timeout:
+
+- mark readiness as failed
+- keep liveness responding
+- log the exact task and error
+- do not promote the deployment
+- do not return startup JSON from /
+
+Noncritical jobs must time out independently and continue retrying according to a controlled policy.
+
+==================================================
+DATABASE RESILIENCE
+==================================================
+
+The production database must not cause the frontend to disappear.
+
+Implement:
+
+- bounded connection attempts
+- exponential backoff with a maximum delay
+- safe connection-pool settings
+- query timeouts
+- migration advisory locking where appropriate
+- idempotent migrations
+- clear migration success/failure logs
+- no competing migration runners
+- no unhandled rejected migration promises
+
+Required schema migrations must complete before readiness becomes healthy.
+
+Optional migrations/backfills must not block readiness.
+
+Do not run large data backfills synchronously during deployment startup.
+
+Move large backfills to:
+
+- resumable background jobs
+- explicit admin maintenance actions
+- or bounded batches with progress tracking
+
+==================================================
+MIGRATION SAFETY
+==================================================
+
+Audit every startup migration.
+
+For each migration, classify it as:
+
+- required before readiness
+- safe after readiness
+- one-time data repair
+- optional indexing
+- deprecated
+
+Prevent these failure modes:
+
+- migration launched fire-and-forget before dependent code queries the table
+- Gmail/Cortex/calendar job starts before its required table exists
+- two instances run incompatible migration work simultaneously
+- a failed migration is swallowed
+- long index creation blocks deployment
+- startup reports ready before required schema exists
+
+Add one canonical migration orchestrator with:
+
+- ordered execution
+- per-migration timing
+- success/failure reporting
+- advisory lock
+- idempotency
+- timeout controls
+- final schema verification
+
+==================================================
+FRONTEND SERVING SAFETY
+==================================================
+
+Verify the production build output path and static middleware.
+
+At startup, safely log:
+
+- static directory absolute path
+- index.html exists true/false
+- asset directory exists true/false
+- environment
+- commit SHA
+
+Required:
+
+- / returns HTML
+- JavaScript and CSS assets return 200
+- SPA client routes return index.html
+- API routes are never swallowed by SPA fallback
+- missing frontend bundle causes deployment readiness failure before promotion
+- development uses Vite middleware correctly
+- production uses the built static directory correctly
+
+Do not allow the health or readiness middleware to intercept frontend assets or /.
+
+==================================================
+PRE-PROMOTION RELEASE GATE
+==================================================
+
+A deployment is promotable only if all checks pass.
+
+Required automated checks against the candidate instance:
+
+1. GET /healthz returns 200.
+2. GET /readyz returns 200 within the allowed startup window.
+3. GET /api/version returns the expected commit SHA.
+4. GET / returns 200 and Content-Type includes text/html.
+5. Returned HTML contains the VoltSafe frontend root and expected asset references.
+6. At least one JavaScript asset returns 200.
+7. At least one CSS asset returns 200 when applicable.
+8. A safe unauthenticated API route behaves correctly.
+9. Database schema verification passes.
+10. No startup crash loop exists.
+11. No unhandled rejection or uncaught exception appears.
+12. No critical migration error appears.
+
+If any check fails, the deployment must not promote.
+
+==================================================
+POST-PROMOTION CANARY CHECK
+==================================================
+
+Immediately after promotion, run checks against the public production URL:
+
+- /healthz
+- /readyz
+- /api/version
+- /
+- frontend asset
+- login page
+- one authenticated smoke test where a safe test account exists
+
+Repeat checks at:
+
+- immediately
+- 30 seconds
+- 2 minutes
+- 5 minutes
+
+If the new deployment fails during the canary window:
+
+- roll back to the last verified healthy deployment where possible
+- otherwise clearly identify the rollback deployment and provide the exact action required
+
+==================================================
+LAST-KNOWN-GOOD RELEASE
+==================================================
+
+Persist and expose:
+
+- last healthy commit SHA
+- last healthy deployment ID
+- last healthy build ID
+- timestamp verified
+- verification results
+
+Create a release record for every deployment attempt:
+
+- commit
+- build
+- deployment
+- status
+- promotion result
+- failure reason
+- rollback target
+- smoke-test evidence
+
+Never make the operator guess which version is live.
+
+==================================================
+ROLLBACK PROCEDURE
+==================================================
+
+Document and verify a rollback runbook.
+
+It must answer:
+
+1. Where is the Replit deployment history?
+2. Which deployment is last known good?
+3. How is it restored?
+4. Does rollback change the database?
+5. Which migrations are backward compatible?
+6. What requires manual intervention?
+7. How is success verified afterward?
+
+All schema changes must follow backward-compatible deployment principles where practical:
+
+- add before use
+- avoid destructive column removal during the same release
+- support old and new application versions during rollback window
+- defer destructive cleanup to later releases
+
+==================================================
+MONITORING AND ALERTING
+==================================================
+
+Add recurring external monitoring for the canonical production URL.
+
+Check at least:
+
+- /healthz
+- /readyz
+- /
+- /api/version
+
+Recommended frequency:
+
+- every 1 to 5 minutes externally
+- internal process checks more frequently as appropriate
+
+Alert immediately when:
+
+- /healthz is not 200
+- /readyz remains non-ready beyond the startup grace period
+- / returns non-HTML
+- / returns startup JSON
+- assets fail
+- deployment enters a restart loop
+- database connection failures cross a threshold
+- public URL serves an unexpected app/project identity
+- commit SHA differs unexpectedly
+
+Alert should include:
+
+- timestamp
+- URL
+- HTTP status
+- response summary
+- deployment ID
+- commit SHA
+- last healthy timestamp
+- direct link to logs
+- rollback target
+
+Use existing notification infrastructure where available.
+
+==================================================
+PROCESS-LEVEL RESILIENCE
+==================================================
+
+Add global handling for:
+
+- uncaughtException
+- unhandledRejection
+
+Do not blindly continue after all fatal exceptions.
+
+Classify failures:
+
+- recoverable background-job failure:
+  log, retry, continue serving
+
+- fatal core-process failure:
+  log clearly and exit so the platform restarts or preserves the old deployment during candidate verification
+
+Never leave a half-alive process that responds incorrectly forever.
+
+Add graceful shutdown handling for:
+
+- SIGTERM
+- SIGINT
+
+On shutdown:
+
+- stop accepting new work
+- close HTTP server
+- close database pool
+- stop schedulers
+- finish bounded in-flight requests
+- exit cleanly before platform timeout
+
+==================================================
+CIRCUIT BREAKERS
+==================================================
+
+External integrations must not take down the core application.
+
+Use bounded failure handling for:
+
+- Gmail
+- Microsoft/Google Calendar
+- OpenAI/Cortex
+- third-party APIs
+- indexing services
+
+After repeated failures:
+
+- open a circuit temporarily
+- stop hammering the service
+- continue serving the VoltSafe UI
+- show degraded status in admin diagnostics
+- retry later
+
+==================================================
+ADMIN PRODUCTION STATUS PAGE
+==================================================
+
+Create or expand a master-admin-only Production Health page showing:
+
+- current environment
+- canonical production URL
+- current commit SHA
+- current deployment/build IDs
+- process uptime
+- liveness
+- readiness
+- database health
+- schema status
+- frontend asset status
+- Gmail status
+- calendar sync status
+- Cortex status
+- background jobs
+- recent deployment attempts
+- last healthy deployment
+- recent critical errors
+- rollback information
+
+Do not expose secrets.
+
+Use clear states:
+
+- Healthy
+- Degraded
+- Starting
+- Failed
+
+==================================================
+REGRESSION TESTS
+==================================================
+
+Add tests proving:
+
+1. /healthz returns 200 immediately after listen.
+2. /healthz does not query the database.
+3. /readyz remains separate from /.
+4. / never returns startup JSON.
+5. / returns production HTML.
+6. development serves the Vite frontend.
+7. SPA routes return index.html.
+8. API routes are not swallowed by SPA fallback.
+9. expected frontend static directory exists after build.
+10. missing index.html fails the release gate.
+11. noncritical startup failure does not block UI.
+12. critical startup failure keeps readiness unhealthy.
+13. readiness cannot remain starting forever without timeout/failure.
+14. database connection attempts are bounded.
+15. migrations are idempotent.
+16. dependent jobs do not run before required schema exists.
+17. deployment candidate is not promotable when smoke checks fail.
+18. deployment candidate is promotable when all checks pass.
+19. /api/version identifies the correct project and commit.
+20. wrong-project production URL is detected.
+21. graceful SIGTERM shutdown works.
+22. background-job rejection does not crash the frontend.
+23. fatal initialization failure exits clearly.
+24. npm run build passes.
+25. built server responds with VoltSafe HTML.
+26. release smoke-test script passes locally.
+27. rollback metadata identifies the last healthy deployment.
+
+==================================================
+CREATE A RELEASE SMOKE-TEST SCRIPT
+==================================================
+
+Add a reusable script such as:
+
+scripts/verify-release.mjs
+
+It should accept a base URL and expected commit SHA.
+
+Example use:
+
+node scripts/verify-release.mjs \
+  https://canonical-voltsafe-url.replit.app \
+  EXPECTED_COMMIT_SHA
+
+It must verify:
+
+- healthz
+- readyz
+- version
+- root HTML
+- frontend assets
+- expected app identity
+- expected commit SHA
+
+Exit nonzero on any failure.
+
+Never report success when the wrong Replit project responds.
+
+==================================================
+CURRENT INCIDENT INVESTIGATION
+==================================================
+
+As part of this work, determine exactly why:
+
+- image-linker-burgesstrevor76.replit.app returned startup JSON
+- the Replit development environment itself was healthy
+- the wrong URL/project may have been treated as VoltSafe production
+- the production deployment showed database timeout/migration errors
+
+Report whether the issue was:
+
+- wrong project URL
+- wrong deployment target
+- stale production deployment
+- readiness middleware bug
+- failed migration
+- database timeout
+- or a combination
+
+Do not speculate. Produce evidence.
+
+==================================================
+DEPLOYMENT VERIFICATION
+==================================================
+
+After implementing all protections:
+
+1. Run TypeScript validation.
+2. Run all startup, deployment, security, and migration tests.
+3. Run npm run build.
+4. Start node dist/index.cjs locally.
+5. Run the release smoke-test script against the local built server.
+6. Commit the changes.
+7. Report the commit hash.
+8. Confirm the correct VoltSafe production target.
+9. Publish only to the canonical VoltSafe project.
+10. Monitor through successful Promote.
+11. Run the release smoke test against the public URL.
+12. Confirm the version endpoint shows the expected commit.
+13. Confirm the previous healthy deployment remains available for rollback.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Current incident root cause:
+Canonical VoltSafe production URL:
+Development URL:
+Wrong project/URL involved:
+Previous healthy deployment:
+Files changed:
+Critical startup tasks:
+Noncritical startup tasks:
+Health endpoint:
+Readiness endpoint:
+Version endpoint:
+Static frontend path:
+Startup timeout policy:
+Migration orchestration:
+Release gate checks:
+Post-promotion checks:
+Rollback mechanism:
+Monitoring mechanism:
+Tests added:
+Tests passed:
+TypeScript result:
+Build result:
+Local built-server result:
+Local release smoke-test result:
+Commit hash:
+Deployment ID:
+Build ID:
+Promote result:
+Public release smoke-test result:
+Production serving expected commit: YES/NO
+Last-known-good rollback available: YES/NO
+Critical remaining risks: NONE or list them
+
+Do not declare completion based only on the dev server.
+
+Do not declare completion based only on /healthz.
+
+Completion requires the canonical public VoltSafe production URL to serve the correct application and expected commit, with the previous healthy deployment preserved as a rollback option.

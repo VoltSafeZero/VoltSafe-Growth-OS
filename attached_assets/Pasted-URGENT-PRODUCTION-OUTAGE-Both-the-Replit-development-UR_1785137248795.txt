@@ -1,0 +1,439 @@
+URGENT PRODUCTION OUTAGE
+
+Both the Replit development URL and production .app URL are currently non-operational.
+
+Observed behavior on BOTH URLs:
+
+{
+  "status": "starting",
+  "uptimeMs": 788
+}
+
+The server is reachable, but the VoltSafe frontend never loads.
+
+This means the application is stuck indefinitely in its startup-state response.
+
+Do not make unrelated feature changes.
+
+==================================================
+PRIMARY OBJECTIVE
+==================================================
+
+Restore the VoltSafe CMS frontend on both:
+
+- the Replit development URL
+- https://image-linker-burgesstrevor76.replit.app
+
+The root application route `/` must serve the built React application once Express is listening.
+
+A temporary startup JSON response must never permanently replace the frontend.
+
+==================================================
+CONFIRMED SYMPTOM
+==================================================
+
+Both .dev and .app return:
+
+{
+  "status": "starting",
+  "uptimeMs": ...
+}
+
+This proves:
+
+- the Node process starts
+- Express is listening
+- requests reach the server
+- but the application never transitions from “starting” to “ready”
+- or the root route is permanently wired to the startup response
+
+==================================================
+FIRST — TRACE THE EXACT REQUEST PATH
+==================================================
+
+Trace GET / from request to response.
+
+Report the exact order of:
+
+1. Express app creation
+2. startup-state middleware
+3. /healthz
+4. /readyz
+5. API routes
+6. Vite middleware in development
+7. production static-file middleware
+8. SPA catch-all route
+9. error middleware
+10. app.listen()
+
+Find the exact code returning:
+
+{
+  "status": "starting",
+  "uptimeMs": ...
+}
+
+Report:
+
+- file name
+- function name
+- route or middleware
+- condition that causes the response
+- state variable being checked
+- where that variable is set to true
+- whether that setter is currently reached
+
+==================================================
+LIKELY ROOT CAUSES TO CHECK
+==================================================
+
+Investigate all of these:
+
+1. `startupComplete`, `isReady`, `appReady`, or equivalent is never set to true.
+
+2. The ready flag is only set inside a `.then()` that never executes.
+
+3. An awaited migration hangs indefinitely.
+
+4. A rejected startup promise exits early before setting readiness.
+
+5. A `finally` block that should set readiness is missing.
+
+6. The frontend static middleware is registered only after long-running startup work.
+
+7. The `/` startup route is registered before the SPA/static catch-all and always intercepts the request.
+
+8. A wildcard middleware such as:
+
+   app.use((req, res, next) => {
+     if (!startupComplete) {
+       return res.status(200).json({ status: "starting" });
+     }
+     next();
+   });
+
+   blocks all frontend requests indefinitely.
+
+9. The readiness state exists separately in multiple modules and the route checks a different instance than the startup code updates.
+
+10. Production startup code and development startup code use different readiness variables.
+
+11. The application uses a startup IIFE whose error is caught but readiness remains false.
+
+12. Background services such as Gmail sync, Cortex indexing, help-center indexing, seeding, or migrations are incorrectly treated as required before the frontend may load.
+
+==================================================
+CORRECT ARCHITECTURE
+==================================================
+
+The desired startup sequence is:
+
+1. Create Express.
+2. Register `/healthz`.
+3. Register `/readyz`.
+4. Register API routes.
+5. Register Vite middleware in development OR static frontend middleware in production.
+6. Register SPA fallback.
+7. Bind to the port.
+8. Run migrations and background initialization.
+9. Mark readiness true when critical initialization finishes.
+
+The frontend must not be permanently replaced by a startup JSON document.
+
+==================================================
+HEALTH ENDPOINTS
+==================================================
+
+Implement or confirm:
+
+GET /healthz
+
+Must always return HTTP 200 once the Node process is listening:
+
+{
+  "status": "ok",
+  "process": "running"
+}
+
+It must not:
+
+- query the database
+- wait for migrations
+- require authentication
+- depend on Gmail
+- depend on Cortex
+- render the frontend
+
+GET /readyz
+
+May return 503 during critical startup:
+
+{
+  "status": "starting"
+}
+
+Then return 200 after critical initialization:
+
+{
+  "status": "ready"
+}
+
+The startup JSON belongs at `/readyz`, not at `/`.
+
+==================================================
+ROOT ROUTE REQUIREMENT
+==================================================
+
+GET / must serve the application.
+
+Development:
+
+- use the existing Vite development middleware
+- serve `index.html`
+- allow HMR and assets to load
+
+Production:
+
+- serve the built frontend from the correct directory
+- usually `dist/public` or the project’s actual build output
+- SPA routes must fall back to `index.html`
+
+Do not return startup JSON from `/`.
+
+If critical schemas are not ready yet, the frontend can load and API calls may return a controlled 503 temporarily.
+
+The entire UI must not be replaced by a raw JSON startup response.
+
+==================================================
+STATIC FILE VERIFICATION
+==================================================
+
+Verify the production build output actually contains:
+
+- index.html
+- JavaScript assets
+- CSS assets
+- images/assets required by the app
+
+Report the actual static path.
+
+Confirm the server serves that exact path.
+
+Check for mistakes such as:
+
+- server expects `dist/client`
+- build writes `dist/public`
+- static path is relative to the wrong working directory
+- `process.cwd()` differs in deployment
+- `import.meta.dirname` is unavailable in CommonJS output
+- bundled server cannot resolve the static path
+- SPA fallback points to a nonexistent index.html
+
+Use an absolute resolved path and log it safely at startup.
+
+Example log:
+
+[static] serving frontend from /home/runner/.../dist/public
+[static] index.html exists=true
+
+==================================================
+STARTUP READINESS FLAG
+==================================================
+
+Find the canonical readiness state.
+
+There must be only one source of truth.
+
+Example:
+
+let startupState: "starting" | "ready" | "failed" = "starting";
+
+Critical startup:
+
+try {
+  await runCriticalMigrations();
+  startupState = "ready";
+  console.log("[startup] application ready");
+} catch (error) {
+  startupState = "failed";
+  console.error("[startup] critical initialization failed", safeError(error));
+}
+
+Do not leave the application forever in an ambiguous “starting” state.
+
+If startup fails, `/readyz` should expose a safe failed state and logs must show the actual error.
+
+==================================================
+TIMEOUTS
+==================================================
+
+No startup task may hang forever.
+
+Add explicit timeouts or safe isolation for:
+
+- migrations
+- seed operations
+- Gmail initialization
+- calendar sync initialization
+- Cortex indexing
+- help-center indexing
+- background scheduler startup
+
+Classify each startup task as:
+
+A. Critical
+- database schema required for core authenticated API requests
+
+B. Noncritical
+- Gmail sync
+- background indexing
+- Cortex enrichment
+- scheduled jobs
+- help-center refresh
+- optional backfills
+
+Noncritical tasks must run after the server is available and must not hold readiness forever.
+
+==================================================
+ERROR LOGGING
+==================================================
+
+Log the full safe root error for every rejected startup task:
+
+- task name
+- error name
+- message
+- PostgreSQL error code where applicable
+- sanitized stack
+- elapsed startup time
+
+Do not log:
+
+- credentials
+- connection strings
+- OAuth tokens
+- email bodies
+- private data
+
+Do not swallow errors with only:
+
+“startup failed”
+
+or:
+
+“Failed query”
+
+==================================================
+DEVELOPMENT VERIFICATION
+==================================================
+
+After the fix:
+
+1. Restart the development server.
+2. Open the Replit development URL.
+3. Confirm the React VoltSafe login/application loads.
+4. Confirm browser assets return 200.
+5. Confirm `/healthz` returns 200.
+6. Confirm `/readyz` transitions to ready.
+7. Confirm `/` does not return JSON.
+8. Confirm a client-side route refresh works.
+
+==================================================
+PRODUCTION VERIFICATION
+==================================================
+
+Before publishing:
+
+1. Run TypeScript validation.
+2. Run `npm run build`.
+3. Run the built server locally:
+   node dist/index.cjs
+4. Request:
+   - /
+   - /healthz
+   - /readyz
+   - a known static asset
+   - /api/calendar/events while authenticated if a safe test session exists
+5. Confirm `/` returns HTML, not JSON.
+6. Confirm the HTML contains the frontend root element and production assets.
+
+Then publish.
+
+Monitor every stage:
+
+- Provision
+- Security checks
+- Build
+- Bundle
+- Promote
+
+Do not stop after clicking Publish.
+
+==================================================
+REGRESSION TESTS
+==================================================
+
+Add tests proving:
+
+1. `/healthz` returns 200 immediately.
+2. `/healthz` does not depend on the database.
+3. `/readyz` may return 503 during critical initialization.
+4. `/readyz` returns 200 after initialization.
+5. `/` never returns the startup JSON.
+6. `/` serves HTML in production.
+7. `/` serves the Vite application in development.
+8. frontend static directory exists after build.
+9. SPA fallback serves index.html for client routes.
+10. API routes are not swallowed by the SPA fallback.
+11. a failed noncritical background task does not block the frontend.
+12. a critical startup failure is logged clearly.
+13. the readiness state cannot remain “starting” indefinitely without a logged timeout/failure.
+14. npm run build passes.
+15. the built server starts successfully.
+
+==================================================
+DO NOT DO THESE
+==================================================
+
+Do not:
+
+- return `{status:"starting"}` from `/`
+- replace the frontend route with a health response
+- make `/healthz` depend on migrations
+- wait for Gmail/Cortex/indexing before serving the UI
+- claim production is fixed based only on a 200 health response
+- publish without testing the built server locally
+- dismiss this as a browser-cache issue
+
+==================================================
+FINAL REPORT
+==================================================
+
+Return:
+
+Exact root cause:
+Code that returned the startup JSON:
+Why readiness never completed:
+Critical startup tasks:
+Noncritical startup tasks:
+Static frontend directory:
+Development `/` response after fix:
+Production-local `/` response after fix:
+`/healthz` result:
+`/readyz` result:
+Files changed:
+Tests added:
+Tests passed:
+TypeScript result:
+Production build result:
+Built-server startup result:
+Commit hash:
+Deployment ID:
+Build ID:
+Promote result:
+Production URL:
+Production `/` serves VoltSafe HTML: YES/NO
+Development URL serves VoltSafe UI: YES/NO
+Critical errors: NONE or list them
+
+Do not declare completion unless both the development URL and production URL load the actual VoltSafe frontend.

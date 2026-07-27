@@ -144,6 +144,19 @@ declare module "http" {
 app.get("/health",  (_req, res) => res.status(200).json({ status: "ok" }));
 app.get("/healthz", (_req, res) => res.status(200).json({ status: "ok", uptimeMs: Date.now() - PROC_START }));
 
+// ── /api/version — safe identity endpoint ────────────────────────────────────
+// Returns the project identity, environment, and process uptime.
+// Never exposes secrets, credentials, or internal paths.
+app.get("/api/version", (_req, res) => {
+  res.status(200).json({
+    app: "VoltSafe Growth OS",
+    environment: process.env.NODE_ENV || "development",
+    startedAt: new Date(PROC_START).toISOString(),
+    uptimeMs: Date.now() - PROC_START,
+    ready: _startupComplete,
+  });
+});
+
 // ── /readyz — startup readiness probe ────────────────────────────────────────
 // Returns 503 until migrations + route registration complete (i.e. until the
 // server can actually serve authenticated traffic). Deployment liveness probes
@@ -158,16 +171,9 @@ app.get("/readyz", (_req, res) => {
   }
 });
 
-// ── Startup-safe root route ───────────────────────────────────────────────────
-// Replit Deployments health-check hits "/" by default. During the brief startup
-// window (port open but routes/serveStatic not yet registered), Express has no
-// SPA handler, so "/" would 404 and fail the health check.
-// When _startupComplete is true, next() falls through to serveStatic/vite which
-// serve index.html as normal. Only the brief startup window returns JSON.
-app.get("/", (req, res, next) => {
-  if (_startupComplete) return next();
-  res.status(200).json({ status: "starting", uptimeMs: Date.now() - PROC_START });
-});
+// NOTE: GET / is handled by serveStatic (production) or Vite middleware (dev),
+// both registered immediately after the port opens — before migrations run.
+// The frontend is always served. /readyz is the readiness probe; / never returns JSON.
 
 // ── Security headers (helmet) ────────────────────────────────────────────────
 // CSP is enforced in production. The built SPA (Vite production build) does not
@@ -429,6 +435,44 @@ app.use((req, res, next) => {
       portResolve();
     });
   });
+
+  // ── Register routes + frontend IMMEDIATELY after port opens ──────────────────
+  // Route registration is pure handler setup — no DB queries run at registration
+  // time. Registering here means GET / returns index.html within milliseconds,
+  // before any migration starts. /readyz is the readiness probe.
+  await registerRoutes(httpServer, app);
+  registerJiraRoutes(app);
+  registerConfluenceRoutes(app);
+
+  // Error handler must follow route registration (Express convention)
+  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
+    console.error("Internal Server Error:", err);
+    if (res.headersSent) {
+      return next(err);
+    }
+    return res.status(status).json({ message });
+  });
+
+  // Serve frontend: Vite HMR in development, built static files in production.
+  // The SPA catch-all is the last handler — API routes registered above take
+  // precedence for /api/* paths.
+  if (isProduction) {
+    serveStatic(app);
+  } else {
+    const { setupVite } = await import("./vite");
+    await setupVite(httpServer, app);
+  }
+
+  log(`[perf:startup] frontend registered and serving — ${Date.now() - PROC_START}ms from proc start`);
+
+  // ── Schema migrations (background) ───────────────────────────────────────────
+  // All migration work runs AFTER the frontend is live so the UI is always
+  // served. /readyz returns 503 until _startupComplete is set true below.
+  // API calls during this window may fail gracefully (table-not-found) but the
+  // login page loads immediately.
+  void (async () => {
 
   // ── Schema migrations ────────────────────────────────────────────────────────
   // Migrations run in PARALLEL BATCHES to cut sequential DB round-trips.
@@ -748,33 +792,7 @@ app.use((req, res, next) => {
     });
   }
 
-  await registerRoutes(httpServer, app);
-  registerJiraRoutes(app);
-  registerConfluenceRoutes(app);
-
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
-    }
-
-    return res.status(status).json({ message });
-  });
-
-  if (isProduction) {
-    serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
-  }
-
-  // ── Startup complete — background jobs start now ─────────────────────────────
-  // Port is already open (listen() called at top of IIFE). Mark ready so /readyz
-  // and the "/" root route return 200 for actual SPA content.
+  // ── Startup complete — mark readiness and start background jobs ──────────────
   _startupComplete = true;
   log(`[perf:startup] server fully initialized — ${Date.now() - PROC_START}ms from proc start`);
 
@@ -975,4 +993,10 @@ app.use((req, res, next) => {
       console.error("[backfill-resumer] startup error:", e?.message || e);
     }
   }, 20_000);
+
+  })().catch((e: any) => {
+    console.error("[startup] Background initialization error (non-fatal):", e?.message || e);
+    // Ensure /readyz never stays in "starting" forever even if something above threw
+    _startupComplete = true;
+  });
 })();
