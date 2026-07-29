@@ -220,12 +220,15 @@ check(
 
 check(
   'priority sub-tab filter only runs when crmFilter !== "unread"',
-  // The priority/starred filter must come AFTER the crmFilter guard, not before
+  // The Priority/starred UI filter was removed entirely. Verify:
+  //   (a) the crmFilter==="unread" guard still exists
+  //   (b) isStarred(m.labelIds) is completely absent (Priority removed)
+  // A guard that precedes an absent filter is automatically satisfied.
   (() => {
     const guardIdx = inboxSrc.indexOf('categorizedInbox = crmFilter === "unread"');
-    const priorityIdx = inboxSrc.indexOf('isStarred(m.labelIds)');
-    // Both must exist, and the guard must precede the priority filter
-    return guardIdx !== -1 && priorityIdx !== -1 && guardIdx < priorityIdx;
+    const priorityAbsent = !inboxSrc.includes('isStarred(m.labelIds)');
+    // Guard must exist and the starred filter must be absent
+    return guardIdx !== -1 && priorityAbsent;
   })()
 );
 

@@ -17147,7 +17147,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // thread determines category) so thread_bucket_sum === inbox_unread_threads exactly.
       // missing_inbox_unread: detects unread messages where is_inbox IS NULL (backfill gap).
       const rows = await db.execute(sql.raw(`
-        WITH thread_canonical AS (
+        WITH thread_canonical AS MATERIALIZED (
           SELECT DISTINCT ON (gmail_thread_id)
             gmail_thread_id,
             smart_category

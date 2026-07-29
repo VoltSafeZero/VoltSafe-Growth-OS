@@ -1,0 +1,218 @@
+CRITICAL RELEASE BLOCKER — RESTORE THE LOCAL MAILBOX CTE HOTFIX BEFORE PUBLISHING
+
+Do not publish commit 5f16380c yet.
+
+The latest report states that the listLocalMessages canonical CTE hotfix was wiped by an earlier git reset --hard.
+
+That hotfix is mandatory. Without it, queries such as:
+
+in:inbox is:unread
+
+can fail with:
+
+column "is_unread" does not exist
+
+and every mailbox can display:
+
+Local mailbox query failed
+
+Restore and verify the hotfix now. This is not a follow-up task.
+
+==================================================
+1. AUDIT CURRENT HEAD
+==================================================
+
+Current reported commit:
+
+5f16380c
+
+Inspect origin/main and current HEAD.
+
+Confirm whether the canonical CTE inside:
+
+server/services/local-mailbox.ts
+listLocalMessages()
+
+currently projects both:
+
+- is_unread
+- is_starred
+
+in:
+
+1. the inner DISTINCT ON CTE SELECT; and
+2. the outer SELECT FROM canonical.
+
+Report the exact current code before editing.
+
+==================================================
+2. RESTORE THE HOTFIX IF MISSING
+==================================================
+
+If either column is missing, restore the surgical fix:
+
+- include is_unread in the canonical CTE projection;
+- include is_starred in the canonical CTE projection;
+- include both in the outer SELECT from canonical where required.
+
+Preserve:
+
+- DISTINCT ON (gmail_thread_id)
+- canonical latest-message classification
+- blocked-sender exclusion
+- mailbox/account scoping
+- pagination and cursor ordering
+- existing Priority/star removal from the frontend
+
+Do not restore any Priority UI or star-editing control.
+
+==================================================
+3. AUDIT ALL OUTER CTE PREDICATES
+==================================================
+
+List every column referenced by an outer WHERE, ORDER BY or cursor clause after the canonical CTE.
+
+Confirm every referenced column is projected.
+
+At minimum audit:
+
+- is_unread
+- is_starred
+- smart_category
+- label_ids
+- sent_at
+- gmail_thread_id
+- source_account_id
+- from_email
+- subject
+- pk/id
+
+Add a regression guard preventing an outer predicate from referencing a non-projected CTE column.
+
+==================================================
+4. RUN LIVE ENDPOINT TESTS
+==================================================
+
+Using an authenticated development session, verify HTTP 200 for:
+
+- in:inbox
+- in:inbox is:unread
+- in:people is:unread
+- in:newsletters is:unread
+- in:notifications is:unread
+
+Test all available mailbox types:
+
+- trevor@voltsafe.com
+- sales@voltsafe.com
+- support@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+For each report:
+
+- account ID
+- HTTP status
+- unique thread count
+- duplicate thread count
+- error, if any
+
+Required:
+
+- all requests return 200;
+- no duplicate thread IDs;
+- no Local mailbox query failed;
+- no column "is_unread" does not exist.
+
+==================================================
+5. VERIFY STAR/PRIORITY REMOVAL REMAINS COMPLETE
+==================================================
+
+Confirm the restored backend hotfix does not undo commit 5f16380c.
+
+Required frontend state:
+
+- no Priority sub-tab;
+- no Starred sub-tab;
+- no Priority Highlights;
+- no star/unstar toolbar button;
+- no focus-mode star button;
+- no row star button;
+- no keyboard shortcut;
+- no Starred CRM filter;
+- no frontend toggle-star API calls.
+
+Required retained backend state:
+
+- historical is_starred data remains unchanged;
+- Gmail STARRED synchronization remains non-destructive;
+- no migration removes stars;
+- toggle-star backend route may remain unused for compatibility.
+
+==================================================
+6. RUN TESTS
+==================================================
+
+Run:
+
+- tests/canonical-cte-unread.test.cjs
+- tests/star-removal.test.cjs
+- tests/unread-filter-server-side.test.cjs
+- tests/mail-reconciliation.test.cjs
+- tests/inbox-category-unread-filter.test.cjs
+- tests/inbox-category-visibility.test.cjs
+- tests/inbox-count-reconciliation.test.cjs
+- tests/mailbox-switching.test.js
+- tests/mailbox-privacy.test.cjs
+- tests/mail-permissions.test.js
+- npm run build
+
+Report pass/fail/skip and exit code for every command.
+
+Do not loosen reconciliation assertions or introduce tolerance for live drift. Use one stable atomic dataset.
+
+==================================================
+7. CREATE ONE CLEAN RELEASE COMMIT
+==================================================
+
+Create a new commit containing:
+
+- the restored canonical CTE hotfix, if required;
+- its regression test;
+- the already-completed non-destructive Priority/star UI removal.
+
+Report:
+
+- full commit SHA
+- parent SHA
+- every production file changed
+- every test file changed
+- git status --short
+- whether it is pushed to origin/main
+
+Do not publish until this combined commit is verified.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Current HEAD:
+CTE projects is_unread: YES/NO
+CTE projects is_starred: YES/NO
+All outer predicate columns projected: YES/NO
+
+Priority sub-tab absent: YES/NO
+All star-editing UI absent: YES/NO
+Frontend toggle-star calls remaining: 0 or count
+Existing star data preserved: YES/NO
+
+All mailbox list requests return 200: YES/NO
+Local mailbox query failed eliminated: YES/NO
+Duplicate threads: 0 or count
+
+Tests:
+Build:
+Final release commit SHA:
+Pushed to origin/main: YES/NO
+git status --short:
+Ready to publish: YES/NO
