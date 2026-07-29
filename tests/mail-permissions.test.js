@@ -49,7 +49,10 @@ async function login(email, password) {
 
 const authed = (cookie) => async (url, opts = {}) => fetch(`${BASE}${url}`, {
   ...opts,
-  headers: { "Content-Type": "application/json", Cookie: cookie, ...(opts.headers || {}) },
+  // Origin is required by the CSRF middleware (rejectCrossOriginMutations). Including it
+  // here keeps CSRF enforcement intact on the server — we are merely sending what a
+  // same-origin browser would send automatically.
+  headers: { "Content-Type": "application/json", Cookie: cookie, Origin: BASE, ...(opts.headers || {}) },
 });
 
 async function expect(label, p, ...statuses) {
