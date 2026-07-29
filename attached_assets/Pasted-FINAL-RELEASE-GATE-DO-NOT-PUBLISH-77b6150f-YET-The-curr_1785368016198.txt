@@ -1,0 +1,209 @@
+FINAL RELEASE GATE — DO NOT PUBLISH 77b6150f YET
+
+The current result is close, but it is not a fully green or fully proven release.
+
+Resolve the following before publishing.
+
+==================================================
+1. FIX THE TWO MAIL-PERMISSIONS TEST FAILURES
+==================================================
+
+The report says tests/mail-permissions has 17/19 because its authenticated POST helper omits the required Origin header.
+
+Fix the test infrastructure correctly:
+
+- include an approved Origin header in authenticated state-changing test requests;
+- retain CSRF enforcement in production;
+- do not bypass, disable or weaken the CSRF middleware;
+- rerun the suite and require 19/19.
+
+Also confirm the two failures were caused only by the test helper and not by a real Mail permissions regression.
+
+==================================================
+2. PROVE OR CORRECT THE MATERIALIZED CTE CLAIM
+==================================================
+
+The report claims PostgreSQL CTE inlining caused:
+
+bucket_sum > inbox_unread_threads
+
+under concurrent Gmail synchronization.
+
+Do not accept that explanation without evidence.
+
+PostgreSQL ordinarily executes a statement against one MVCC snapshot. Concurrent writes should not cause different parts of one SQL statement to see inconsistent committed states.
+
+Investigate precisely:
+
+- show the exact SQL before and after MATERIALIZED;
+- run EXPLAIN (ANALYZE, BUFFERS, VERBOSE) safely on representative data;
+- identify the exact join, aggregation, category or row-multiplication behavior that produced the extra count;
+- prove whether MATERIALIZED actually changes the result;
+- run the same query repeatedly before and after;
+- confirm whether the discrepancy was instead caused by:
+  - a multi-category thread;
+  - duplicated joins;
+  - different predicates between totals and buckets;
+  - raw messages versus canonical threads;
+  - non-atomic separate API queries;
+  - stale cached values;
+  - or a test that compared results from different requests.
+
+If MATERIALIZED is not required for correctness, remove that production change and fix the real predicate/aggregation problem.
+
+If it is required, provide a deterministic fixture that fails without MATERIALIZED and passes with it.
+
+Do not retain an unexplained planner hint as a correctness fix.
+
+==================================================
+3. VERIFY ALL FIVE PRODUCTION MAILBOXES
+==================================================
+
+The new test report mentions only three mailboxes.
+
+Verify all five existing production mailboxes:
+
+- trevor@voltsafe.com
+- sales@voltsafe.com
+- support@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+For each, test:
+
+- in:inbox
+- in:inbox is:unread
+- in:people is:unread
+- in:newsletters is:unread
+- in:notifications is:unread
+
+Report:
+
+- account ID
+- HTTP status
+- unique thread count
+- duplicate count
+- query error
+- loader termination
+- cross-mailbox leakage
+
+Required:
+
+- every request returns 200;
+- duplicate count is zero;
+- no Local mailbox query failed;
+- no endless loading;
+- no rows from another mailbox.
+
+==================================================
+4. VERIFY PRIORITY/STAR REMOVAL
+==================================================
+
+Confirm commit 77b6150f still contains the complete non-destructive removal:
+
+- no Priority sub-tab;
+- no Starred sub-tab;
+- no Priority Highlights;
+- no star/unstar toolbar control;
+- no focus-mode star control;
+- no row star control;
+- no keyboard shortcut;
+- no Starred CRM filter;
+- zero frontend calls to toggle-star.
+
+Confirm:
+
+- historical is_starred data remains unchanged;
+- Gmail STARRED provider metadata may continue syncing internally;
+- no database migration removed stars;
+- no user can edit star state through VoltSafe Mail.
+
+==================================================
+5. VERIFY THE ACTUAL MAILBOX QUERY ARCHITECTURE
+==================================================
+
+The report says:
+
+- listLocalMessages uses a flat SELECT;
+- listLocalThreads uses DISTINCT ON;
+- inbox-debug uses a canonical MATERIALIZED CTE.
+
+Document which function powers each production view:
+
+- Smart Inbox
+- Unread View
+- Simple List
+- category counts
+- sidebar badges
+- inbox-debug diagnostics
+
+Prove the real production list and count paths use compatible thread semantics.
+
+A debug-only endpoint fix does not prove the user-facing list and sidebar reconcile.
+
+==================================================
+6. RUN A FULL GREEN RELEASE SUITE
+==================================================
+
+Run:
+
+- canonical-cte-unread
+- star-removal
+- unread-filter-server-side
+- inbox-count-reconciliation
+- inbox-category-unread-filter
+- inbox-category-visibility
+- mailbox-switching
+- mailbox-privacy
+- mail-permissions
+- mail-reconciliation, if present
+- npm run build
+
+Required:
+
+- zero failed tests;
+- zero unexplained skips;
+- build exit code 0.
+
+If a named test file is missing, explain why, identify its replacement and verify equivalent coverage. Do not silently omit it.
+
+==================================================
+7. RELEASE COMMIT
+==================================================
+
+After all checks are green:
+
+- create one clean release commit;
+- report full SHA and parent SHA;
+- list every production and test file changed;
+- report git status --short;
+- confirm pushed to origin/main;
+- publish only that exact commit.
+
+==================================================
+FINAL REPORT
+==================================================
+
+mail-permissions: __/19
+All tests green: YES/NO
+
+MATERIALIZED deterministically required: YES/NO
+Exact root cause of count discrepancy:
+Fixture proving root cause: PASS/FAIL
+
+All five mailboxes verified: YES/NO
+All mailbox requests return 200: YES/NO
+Duplicate threads: 0 or count
+Cross-mailbox leakage: 0 or count
+Endless loaders: 0 or count
+
+Priority tab absent: YES/NO
+All star-editing controls absent: YES/NO
+Frontend toggle-star calls: 0 or count
+Historical star data preserved: YES/NO
+
+Build:
+Final release SHA:
+Pushed to main: YES/NO
+git status --short:
+Ready to publish: YES/NO
