@@ -1,0 +1,236 @@
+CORRECTION — FULLY REMOVE THE STAR/PRIORITY USER FUNCTION FROM VOLTSAFE MAIL
+
+The previous implementation is incomplete.
+
+The original requirement was:
+
+- remove the Priority inbox sub-tab; AND
+- remove the current star/Priority tagging function from VoltSafe Mail.
+
+The previous work renamed the exposed Priority action to Star:
+
+- isPriority → isStarred
+- onTogglePriority → onToggleStar
+- tooltip → Add to starred / Remove star
+- data-testid → action-star
+
+That still exposes the exact user tagging function that was requested to be removed.
+
+Do not redesign unrelated Mail functionality.
+
+==================================================
+1. REMOVE ALL STAR-TAGGING CONTROLS FROM VOLTSAFE MAIL
+==================================================
+
+Remove every user-facing control that can star or unstar an email from VoltSafe Mail, including:
+
+- message toolbar star button
+- focus-mode toolbar star button
+- row action star control
+- context menu item
+- overflow menu item
+- keyboard shortcut
+- bulk action
+- mobile toolbar
+- thread action
+- tooltip
+- command palette action
+- accessibility label
+- any “Add to starred,” “Remove star,” “Mark priority,” or equivalent action
+
+Users must not be able to create, remove, or modify Gmail stars from within VoltSafe CMS Mail.
+
+Search the entire client codebase for:
+
+- onToggleStar
+- toggleStar
+- isStarred
+- action-star
+- Add to starred
+- Remove star
+- Mark as priority
+- STARRED
+- Star icon usages in Mail components
+
+Distinguish Mail action controls from unrelated decorative icons.
+
+==================================================
+2. PRESERVE ALL EXISTING DATA NON-DESTRUCTIVELY
+==================================================
+
+Do not:
+
+- unset existing Gmail stars
+- alter is_starred values
+- remove STARRED provider labels
+- delete database columns
+- delete historical data
+- rewrite Gmail messages
+- run a migration
+- remove Gmail star ingestion/synchronization if it is required to preserve provider state
+
+Existing Gmail stars may remain synchronized internally as read-only provider metadata.
+
+VoltSafe Mail must simply stop exposing them as:
+
+- a navigation category
+- a filter
+- a badge
+- a grouped section
+- an editable action
+
+==================================================
+3. REMOVE ALL STARRED/PRIORITY NAVIGATION AND FILTER SURFACES
+==================================================
+
+Confirm removal from:
+
+- Inbox sub-tabs
+- top filter chips
+- Smart Inbox groups
+- Unread View
+- Simple List
+- search filters
+- dropdowns
+- saved view options
+- sidebar counts
+- breadcrumbs
+- empty states
+- loading states
+- category-count client interfaces
+
+The Inbox structure must now show only:
+
+- All
+- People
+- Newsletters
+- Notifications
+
+Do not display Priority or Starred anywhere as a mailbox navigation choice.
+
+==================================================
+4. BACKEND COMPATIBILITY
+==================================================
+
+Keep backend storage and Gmail synchronization where necessary for non-destructive compatibility.
+
+However:
+
+- the VoltSafe Mail frontend must not call the star-toggle endpoint;
+- no UI mutation should modify is_starred;
+- unused star-toggle routes may remain temporarily for backward compatibility;
+- clearly mark unused routes/helpers as deprecated if appropriate;
+- do not delete them in this hotfix unless proven completely unused outside Mail.
+
+Audit whether any other VoltSafe CMS module legitimately uses the star endpoint before changing backend compatibility.
+
+==================================================
+5. FIX THE RECONCILIATION TEST PROPERLY
+==================================================
+
+Do not keep a ±5 tolerance merely because live Gmail synchronization can change data during a test.
+
+Replace the racy live assertion with one of:
+
+- a transaction-scoped fixture;
+- a captured database snapshot;
+- a single SQL query returning all compared counts atomically;
+- a test mailbox fixture;
+- or compare values derived from the exact same fetched dataset.
+
+The invariant must remain exact for a stable dataset.
+
+Do not weaken a correctness assertion to tolerate unexplained drift.
+
+For multi-category Gmail threads:
+
+- use the canonical latest-message thread classification;
+- every thread must belong to exactly one primary category;
+- All must reconcile exactly with People + Newsletters + Notifications;
+- do not use raw per-message category aggregation to justify thread double-counting.
+
+==================================================
+6. REGRESSION TESTS
+==================================================
+
+Add tests proving:
+
+1. No Priority sub-tab exists.
+2. No Starred sub-tab exists.
+3. No Priority Highlights section exists.
+4. No star/unstar action exists in the normal toolbar.
+5. No star/unstar action exists in focus mode.
+6. No star/unstar row action exists.
+7. No star/unstar keyboard shortcut exists.
+8. No star/unstar menu item exists.
+9. No frontend request invokes the star-toggle API.
+10. Existing is_starred values are not modified by this change.
+11. Gmail star synchronization remains non-destructive.
+12. All, People, Newsletters and Notifications still load.
+13. Exact thread-count reconciliation holds from one stable dataset.
+14. Mailbox isolation remains intact.
+15. Search, read/unread, archive, reply, forward and CRM actions remain functional.
+
+==================================================
+7. VERIFY THE MERGED COMMITS
+==================================================
+
+The previous report says four commits were pushed to origin/main.
+
+Report:
+
+- all four commit SHAs
+- which files each changed
+- whether the local-mailbox unread CTE hotfix is included in origin/main
+- current HEAD
+- git status --short
+- whether production is serving the current HEAD
+
+Do not lose or overwrite the canonical CTE unread hotfix while making this correction.
+
+==================================================
+8. VALIDATION
+==================================================
+
+Run:
+
+- all new Priority-removal tests
+- canonical-cte-unread tests
+- mail-reconciliation tests
+- inbox taxonomy tests
+- inbox category visibility tests
+- inbox count reconciliation tests
+- mailbox switching tests
+- mailbox privacy tests
+- mail permissions tests
+- npm run build
+
+Report passed, failed, skipped and exit code for each.
+
+==================================================
+9. FINAL REPORT
+==================================================
+
+Return:
+
+Priority sub-tab removed: YES/NO
+Starred sub-tab removed: YES/NO
+Star/unstar toolbar action removed: YES/NO
+Star/unstar focus-mode action removed: YES/NO
+Star/unstar menus and shortcuts removed: YES/NO
+Frontend star-toggle API calls remaining: 0 or count
+
+Existing Gmail stars preserved: YES/NO
+is_starred data modified: NO
+Gmail synchronization preserved: YES/NO
+Database migration created: NO
+
+Exact count reconciliation test: PASS/FAIL
+Unread CTE hotfix preserved: YES/NO
+Tests:
+Build:
+Commit SHA:
+Current HEAD:
+git status --short:
+Production serving corrected commit: YES/NO
+Complete: YES/NO
