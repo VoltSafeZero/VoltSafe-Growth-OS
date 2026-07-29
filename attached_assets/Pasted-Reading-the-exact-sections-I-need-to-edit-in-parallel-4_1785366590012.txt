@@ -1,0 +1,74 @@
+Reading the exact sections I need to edit in parallel.
+
+
+4 actions
+Reading the exact sections of gmail-inbox.tsx I need to cut.
+
+
+16 actions
+Reading the inbox-debug SQL and the exact context for the star button in the toolbar, in parallel.
+
+
+5 actions
+I have everything I need. Starting all edits in parallel — email-actions-toolbar.tsx, server/routes.ts, and the reconciliation test first, while I queue the gmail-inbox.tsx edits.
+
+
+14 actions
+Using sed for the routes.ts SQL block — the edit tool has indentation issues with long SQL lines. Also applying all gmail-inbox.tsx changes in parallel.
+
+
+25 actions
+All star references are now clean. Now fixing the reconciliation test and creating the star-removal test.
+
+
+3 actions
+Now updating the reconciliation test, fixing block-sender.test.cjs, and creating the star-removal test — all in parallel.
+
+
+8 actions
+Creating the star-removal test and running the build in parallel.
+
+
+3 actions
+Build is clean. Running the star-removal test and checking test:grep logs in parallel.
+
+
+3 actions
+25/26 passing. The B1a grouper check is over-complicated and wrong. Let me inspect the grouper and fix that assertion.
+
+
+8 actions
+26/26 passing. Committing and pushing everything now.
+
+
+8 actions
+Done. Here's the full checklist from the correction brief:
+
+Removed from UI (non-destructive — backend route and DB column untouched):
+
+toggleStarMutation and all calls to POST /api/gmail/messages/:id/toggle-star
+isStarred() UI helper — removed from gmail-inbox.tsx
+Keyboard shortcut s and its legend entry
+Row hover star button (button-star-{msg.id})
+Thread-header star button (button-star-thread) and headerStarred variable
+"Starred" badge span in the thread subject area
+"Starred" CRM filter chip from the filter bar
+crmFilter === "starred" filter branch; follow-up branch no longer uses isStarred
+"starred" removed from CrmInboxFilter type
+isStarred prop and onToggleStar handler from EmailActionsToolbarProps, ActionsToolbarHandlers, both call sites, and the Star icon import
+Reconciliation test hardened:
+
+Replaced ±5 tolerance with an exact === 0 assertion — made viable by switching GET /api/gmail/inbox-debug thread counts to a canonical DISTINCT ON CTE (latest unread inbox message per thread determines its category), guaranteeing thread_bucket_sum === inbox_unread_threads exactly
+New test file — tests/star-removal.test.cjs: 26/26 checks covering all 15 removal points in the brief plus the grouper bonus check
+
+Build: clean (npm run build — no new errors)
+
+Pushed: 5f16380c on main
+
+Two follow-up tasks proposed: #109 (the listLocalMessages CTE hotfix that was wiped by the earlier git reset --hard) and #110 (cross-category thread reclassification regression test).
+
+
+Worked for 10 minutes
+
+Checkpoint made
+just now
