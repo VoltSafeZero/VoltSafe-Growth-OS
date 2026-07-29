@@ -273,23 +273,9 @@ assert(
   'markUnreadSingleMutation.onSuccess invalidates category-counts'
 );
 
-// ── G11: Priority overlay annotation ─────────────────────────────────────────
+// ── G11: Priority UI removed — only additive section keys remain ──────────────
 
-console.log("\n── G11. Priority section annotated as non-additive overlay ──");
-
-const priorityOverlayIdx = src.indexOf("isPriority && (");
-const priorityOverlayBlock = priorityOverlayIdx !== -1
-  ? src.slice(priorityOverlayIdx, priorityOverlayIdx + 300)
-  : "";
-
-assert(
-  priorityOverlayIdx !== -1,
-  "isPriority conditional block exists in section header"
-);
-assert(
-  priorityOverlayBlock.includes("overlay") || priorityOverlayBlock.includes("also"),
-  'Priority section shows "overlay" or "also in" annotation (non-additive)'
-);
+console.log("\n── G11. Priority UI removed — serverGroupCounts has only additive sections ──");
 
 const serverGroupIdx = src.indexOf("const serverGroupCounts = useMemo");
 const serverGroupBlock = serverGroupIdx !== -1
@@ -298,7 +284,7 @@ const serverGroupBlock = serverGroupIdx !== -1
 
 assert(
   !serverGroupBlock.includes('"priority"'),
-  'serverGroupCounts does NOT include a "priority" key (Priority is overlay-only)'
+  'serverGroupCounts does NOT include a "priority" key (Priority UI removed)'
 );
 assert(
   serverGroupBlock.includes('"unread-people"') && serverGroupBlock.includes('"unread-newsletters"'),

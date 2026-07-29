@@ -211,7 +211,7 @@ function parseSenderEmail(from: string) {
   return match ? match[1] : from;
 }
 
-type InboxCategory = "all" | "people" | "updates" | "promotions" | "social" | "forums" | "priority";
+type InboxCategory = "all" | "people" | "updates" | "promotions" | "social" | "forums";
 type CrmInboxFilter = "all" | "unread" | "starred" | "follow-up" | "needs-reply" | "awaiting-reply" | "hot" | "unlinked";
 
 type MailFolderDomain = { id: number; folderId: number; domain: string; matchType: string };
@@ -4840,7 +4840,6 @@ type MailTeamPerms = Record<string, { view: boolean; edit: boolean }>;
 // Per-section visual palette for Smart Inbox card treatment.
 // Subtle tints on dark navy — warm orange for Priority, category tints for the rest.
 const SMART_SECTION_STYLES: Record<string, { headerBg: string; rowBg: string; tone: string; mx: string }> = {
-  priority:               { headerBg: "bg-amber-400/[0.13]",  rowBg: "bg-amber-400/[0.06]",  tone: "text-amber-400",           mx: "mx-2" },
   "unread-people":        { headerBg: "bg-teal-400/[0.10]",   rowBg: "bg-teal-400/[0.04]",   tone: "text-teal-400/80",         mx: "mx-2" },
   "unread-newsletters":   { headerBg: "bg-violet-400/[0.10]", rowBg: "bg-violet-400/[0.04]", tone: "text-violet-400/80",       mx: "mx-2" },
   "unread-notifications": { headerBg: "bg-slate-400/[0.10]",  rowBg: "bg-slate-400/[0.04]",  tone: "text-slate-400/80",        mx: "mx-2" },
@@ -7344,11 +7343,10 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
   // 200+ unread messages exist, producing "No messages found" and the auto-loader spin loop.
   const categorizedInbox = crmFilter === "unread"
     ? inboxMain
-    : inboxCategory === "priority"    ? inboxMain.filter((m) => isStarred(m.labelIds)) :
-      inboxCategory === "all"         ? inboxMain :
-      inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory);
+    : inboxCategory === "all"
+      ? inboxMain
+      : inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory);
 
-  const priorityCount    = inboxMain.filter((m) => isStarred(m.labelIds)).length;
   const peopleCount      = inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === "people").length;
   const updatesCount = inboxMain.filter((m) => (m.smartCategory ?? getEmailCategory(m.labelIds)) === "updates").length;
   const inboxUnreadCount = inboxMain.filter((m) => isUnread(m.labelIds)).length;
@@ -7467,7 +7465,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
       promotionsBadge: sidebarCategoryBadges.promotions,
       socialBadge:     sidebarCategoryBadges.social,
       forumsBadge:     sidebarCategoryBadges.forums,
-      priorityCount:   serverGroupCounts?.["unread-people"] ?? null,
       seenCount:       null, // "Seen" section has no server count — local page only
     };
 
@@ -7625,7 +7622,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
 
     // Per-section default visible counts (user can expand via show-all).
     const SECTION_CAPS: Partial<Record<SmartSectionId, number>> = {
-      priority: 3,
       "unread-people": 5,
       "unread-newsletters": 5,
       "unread-notifications": 5,
@@ -9848,7 +9844,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     : inboxCategory === "promotions"  ? "Promotions"
                     : inboxCategory === "social"       ? "Social"
                     : inboxCategory === "forums"       ? "Forums & Communities"
-                    : inboxCategory === "priority"     ? "Priority"
                     : ""}
                 </span>
               </div>
@@ -10208,13 +10203,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               // ── Section header ──────────────────────────────────────────────
               if (item.kind === "header") {
                 const HeaderIcon =
-                  item.glyph === "priority"      ? Zap        :
                   item.glyph === "people"        ? Users      :
                   item.glyph === "updates"        ? Newspaper  :
                   item.glyph === "notifications" ? Bell       :
                   item.glyph === "pinned"        ? Pin        :
                   /* "seen" */                     MailOpen;
-                const isPriority = item.id === "priority";
                 return (
                   <div
                     key={`smart-header-${item.id}`}
@@ -10232,11 +10225,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           : <span className="opacity-50">…</span>
                         : item.count}
                     </span>
-                    {isPriority && (
-                      <span className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium normal-case tracking-normal bg-amber-400/[0.10] text-amber-400/60 border border-amber-400/[0.15]">
-                        overlay · also in People/Updates
-                      </span>
-                    )}
                   </div>
                 );
               }
@@ -10450,8 +10438,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       whileTap={{ scale: 0.82 }}
                       whileHover={{ scale: 1.12 }}
                       transition={{ type: "spring", stiffness: 400, damping: 20 }}
-                      title={starred ? "Remove priority" : "Mark as priority"}
-                      aria-label={starred ? "Remove priority" : "Mark as priority"}
+                      title={starred ? "Remove star" : "Add to starred"}
+                      aria-label={starred ? "Remove star" : "Add to starred"}
                       aria-pressed={starred}
                       tabIndex={starred ? 0 : -1}
                       data-testid={`button-star-${msg.id}`}
@@ -10756,7 +10744,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     body: focusedMsg.body,
                     snippet: focusedMsg.snippet ?? null,
                   }}
-                  isPriority={isStarred(focusedMsg.labelIds)}
+                  isStarred={isStarred(focusedMsg.labelIds)}
                   isPinned={pinnedAPI.isPinned(selectedThreadId)}
                   isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
                   assignedUserId={readerAssignedUserId}
@@ -10768,7 +10756,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     onClose: handleBack,
                     onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
                     onTrash: () => trashThreadMutation.mutate(selectedThreadId),
-                    onTogglePriority: () => toggleStarMutation.mutate(focusedMsg.id),
+                    onToggleStar: () => toggleStarMutation.mutate(focusedMsg.id),
                     onMarkUnread: () => markUnreadSingleMutation.mutate(focusedMsg.id),
                     onTogglePin: () => pinnedAPI.togglePin(selectedThreadId),
                     onSetAside: () => {
@@ -10819,7 +10807,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       body: focusedMsg.body,
                       snippet: focusedMsg.snippet ?? null,
                     }}
-                    isPriority={isStarred(focusedMsg.labelIds)}
+                    isStarred={isStarred(focusedMsg.labelIds)}
                     isPinned={pinnedAPI.isPinned(selectedThreadId)}
                     isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
                     assignedUserId={readerAssignedUserId}
@@ -10831,7 +10819,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       onClose: handleBack,
                       onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
                       onTrash: () => trashThreadMutation.mutate(selectedThreadId),
-                      onTogglePriority: () => toggleStarMutation.mutate(focusedMsg.id),
+                      onToggleStar: () => toggleStarMutation.mutate(focusedMsg.id),
                       onMarkUnread: () => markUnreadSingleMutation.mutate(focusedMsg.id),
                       onTogglePin: () => pinnedAPI.togglePin(selectedThreadId),
                       onSetAside: () => {
@@ -10947,8 +10935,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                         whileTap={{ scale: 0.85 }}
                         whileHover={{ scale: 1.08 }}
                         transition={{ type: "spring", stiffness: 400, damping: 22 }}
-                        title={headerStarred ? "Remove priority" : "Mark as priority (s)"}
-                        aria-label={headerStarred ? "Remove priority" : "Mark as priority"}
+                        title={headerStarred ? "Remove star" : "Add to starred (s)"}
+                        aria-label={headerStarred ? "Remove star" : "Add to starred"}
                         aria-pressed={headerStarred}
                         data-testid="button-star-thread"
                         onClick={() => toggleStarMutation.mutate(focusedMsg.id)}

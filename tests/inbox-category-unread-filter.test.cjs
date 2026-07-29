@@ -88,10 +88,10 @@ ok(
   'inboxCategoryQ does NOT return bare "in:forums"'
 );
 
-// The "all" inbox and priority categories must NOT add is:unread (they show all mail)
+// The "all" inbox category must NOT add is:unread (it shows all mail)
 ok(
   inboxCategoryQBlock.includes('return "in:inbox"'),
-  'inboxCategoryQ default (all/priority) returns "in:inbox" without is:unread'
+  'inboxCategoryQ default (all) returns "in:inbox" without is:unread'
 );
 
 // ── (b) loadMoreInbox — uses inboxCategoryQ not hardcoded "in:inbox" ─────────

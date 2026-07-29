@@ -2,16 +2,15 @@
  * Smart Inbox grouper — Spark-style hierarchy for the Gmail mirror feed.
  *
  * Sections, in order:
- *   1. Priority      — STARRED messages (user-flagged), regardless of read state.
- *   2. Unread        — non-starred unread, grouped by category:
+ *   1. Unread        — unread messages, grouped by category:
  *                        • People        (smartCategory === "people")
  *                        • Notifications (smartCategory === "updates" | "social")
  *                        • Newsletters   (smartCategory === "promotions" | "forums")
- *   3. Pinned        — threads the user has explicitly pinned (localStorage),
+ *   2. Pinned        — threads the user has explicitly pinned (localStorage),
  *                      excluding anything already shown above. Read OR unread.
- *   4. Seen          — everything else, sorted newest-first.
+ *   3. Seen          — everything else, sorted newest-first.
  *
- * Classification priority:
+ * Classification order:
  *   1. Server-provided `message.smartCategory` (DB derived column) when present.
  *   2. Label-ID heuristic (`CATEGORY_*` labels + automation-sender prefix scan).
  *
@@ -30,7 +29,6 @@ export type InboxViewMode = "classic" | "smart" | "unread-cards";
 export type SmartCategory = "people" | "notifications" | "newsletters";
 
 export type SmartSectionId =
-  | "priority"
   | "unread-people"
   | "unread-notifications"
   | "unread-newsletters"
@@ -45,7 +43,7 @@ export interface SmartHeaderItem {
    * Optional emoji-style glyph, rendered before the title in the section bar.
    * Concrete lucide icons stay in the page so this module has zero JSX deps.
    */
-  glyph: "priority" | "people" | "notifications" | "newsletters" | "pinned" | "seen";
+  glyph: "people" | "notifications" | "newsletters" | "pinned" | "seen";
   count: number;
   /** Indent flag — true for the People/Notifications/Newsletters subsections. */
   isSubsection: boolean;
@@ -281,7 +279,6 @@ export function groupSmartInbox<M extends GroupableMessage>(
 
   // Bucket pass — each message lands in exactly one bucket so headers can't
   // double-count and we never render the same row twice.
-  const priority: M[] = [];
   const unreadPeople: M[] = [];
   const unreadNotifications: M[] = [];
   const unreadNewsletters: M[] = [];
@@ -290,19 +287,14 @@ export function groupSmartInbox<M extends GroupableMessage>(
 
   for (const m of messages) {
     const labels = m.labelIds || [];
-    const starred = isStarredMsg(labels);
     const unread = isUnreadMsg(labels);
     const isPinned = pinned.has(m.threadId);
     // Only hold the thread in its unread bucket if it was ACTUALLY unread when
     // the user clicked it. Without this guard, clicking an already-read email
     // would push it up into the unread section.
     const isOpenAndJustRead =
-      !unread && !starred && m.threadId === openThreadId && openThreadWasUnread;
+      !unread && m.threadId === openThreadId && openThreadWasUnread;
 
-    if (starred) {
-      priority.push(m);
-      continue;
-    }
     if (unread || isOpenAndJustRead) {
       const cat = smartCategoryOf(labels, m.from ?? undefined, m.smartCategory ?? undefined);
       if (cat === "people") unreadPeople.push(m);
@@ -318,7 +310,6 @@ export function groupSmartInbox<M extends GroupableMessage>(
   }
 
   // Within each bucket, newest first.
-  const orderedPriority = sortNewestFirst(priority);
   const orderedPeople = sortNewestFirst(unreadPeople);
   const orderedNotifs = sortNewestFirst(unreadNotifications);
   const orderedNewsletters = sortNewestFirst(unreadNewsletters);
@@ -328,15 +319,11 @@ export function groupSmartInbox<M extends GroupableMessage>(
   const out: SmartItem<M>[] = [];
 
   // Section order (fixed — never reorder):
-  //   Priority → People → Newsletters → Notifications → Seen
+  //   People → Newsletters → Notifications → Seen
   //
-  // Priority and Seen may include read messages.
+  // Seen may include read messages.
   // The three unread sections only include messages still carrying UNREAD.
   // Empty sections are not emitted — they stay invisible.
-  if (orderedPriority.length > 0) {
-    out.push({ kind: "header", id: "priority", title: "Priority Highlights", glyph: "priority", count: orderedPriority.length, isSubsection: false });
-    for (const m of orderedPriority) out.push({ kind: "msg", section: "priority", msg: m });
-  }
   if (orderedPeople.length > 0) {
     out.push({ kind: "header", id: "unread-people", title: "People", glyph: "people", count: orderedPeople.length, isSubsection: false });
     for (const m of orderedPeople) out.push({ kind: "msg", section: "unread-people", msg: m });
@@ -350,7 +337,7 @@ export function groupSmartInbox<M extends GroupableMessage>(
     out.push({ kind: "header", id: "unread-notifications", title: "Inbox · Notifications", glyph: "notifications", count: orderedNotifs.length, isSubsection: false });
     for (const m of orderedNotifs) out.push({ kind: "msg", section: "unread-notifications", msg: m });
   }
-  // Seen: all read messages that are not in Priority, newest first.
+  // Seen: all read messages, newest first.
   if (orderedSeen.length > 0) {
     out.push({ kind: "header", id: "seen", title: "Seen", glyph: "seen", count: orderedSeen.length, isSubsection: false });
     for (const m of orderedSeen) out.push({ kind: "msg", section: "seen", msg: m });

@@ -95,7 +95,7 @@ export interface ActionsToolbarHandlers {
   onClose: () => void;
   onMarkDone: () => void;
   onTrash: () => void;
-  onTogglePriority: () => void;
+  onToggleStar: () => void;
   onMarkUnread: () => void;
   onTogglePin: () => void;
   onSetAside: () => void;
@@ -122,7 +122,7 @@ export interface EmailActionsToolbarProps {
     snippet?: string | null;
   } | null;
   /** True when this message currently has the STARRED label. */
-  isPriority: boolean;
+  isStarred: boolean;
   /** True when the user has pinned this thread (Smart Inbox pin-set). */
   isPinned: boolean;
   /** True when the user has set this thread aside. */
@@ -234,7 +234,7 @@ function UserPickerList({
 function EmailActionsToolbarImpl({
   threadId,
   focusedMessage,
-  isPriority,
+  isStarred,
   isPinned,
   isSetAside,
   assignedUserId,
@@ -535,24 +535,24 @@ function EmailActionsToolbarImpl({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={handlers.onTogglePriority}
-                  data-testid="action-priority"
-                  aria-label={isPriority ? "Remove priority" : "Mark as priority"}
-                  aria-pressed={isPriority}
+                  onClick={handlers.onToggleStar}
+                  data-testid="action-star"
+                  aria-label={isStarred ? "Remove star" : "Add to starred"}
+                  aria-pressed={isStarred}
                   className={`p-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                    isPriority
+                    isStarred
                       ? "text-amber-400 bg-amber-500/15"
                       : "text-muted-foreground/70 hover:text-amber-400 hover:bg-amber-500/10"
                   }`}
                 >
                   <Star
-                    className={`h-3.5 w-3.5 ${isPriority ? "fill-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.45)]" : ""}`}
+                    className={`h-3.5 w-3.5 ${isStarred ? "fill-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.45)]" : ""}`}
                     aria-hidden="true"
                   />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-[11px]">
-                {isPriority ? "Remove priority" : "Mark as Priority"}
+                {isStarred ? "Remove star" : "Add to starred"}
                 <span className="ml-2 opacity-60 font-mono">I</span>
               </TooltipContent>
             </Tooltip>

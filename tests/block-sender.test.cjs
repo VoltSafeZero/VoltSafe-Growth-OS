@@ -272,8 +272,11 @@ check(
 // ── 12. Icon consistency ─────────────────────────────────────────────────────
 console.log("\n[12] Icon consistency");
 check(
-  "Toolbar does NOT use Zap for priority (replaced with Star)",
-  !toolbar.includes("onTogglePriority.*Zap") &&
+  "Toolbar uses Star for star action (no Priority concept)",
+  !toolbar.includes("onTogglePriority") &&
+  !toolbar.includes("isPriority") &&
+  toolbar.includes("onToggleStar") &&
+  toolbar.includes("isStarred") &&
   toolbar.includes("Star")
 );
 check(

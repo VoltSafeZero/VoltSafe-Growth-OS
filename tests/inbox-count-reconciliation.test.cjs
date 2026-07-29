@@ -162,22 +162,19 @@ assert(
   "people_unread no longer uses NOT ILIKE CATEGORY_UPDATES exclusion (Phase 4)"
 );
 
-console.log("\n── A3. Priority section labelled as non-additive overlay ──");
+console.log("\n── A3. Priority UI removed — no isPriority annotation in section header ──");
 
-// The smart-inbox Priority section header must carry a non-additive annotation.
-const priorityHeaderIdx = inboxPageSrc.indexOf('isPriority && (');
-const priorityHeaderSnippet = priorityHeaderIdx !== -1
-  ? inboxPageSrc.slice(priorityHeaderIdx, priorityHeaderIdx + 300)
-  : "";
+// The Priority section was removed from smart-inbox. Verify the UI no longer
+// contains the old isPriority overlay annotation block.
 assert(
-  priorityHeaderIdx !== -1,
-  "isPriority conditional annotation block exists in section header"
+  !inboxPageSrc.includes('isPriority && ('),
+  "Priority overlay annotation removed from smart section header"
 );
 assert(
-  priorityHeaderSnippet.includes("also counted") ||
-  priorityHeaderSnippet.includes("overlay") ||
-  priorityHeaderSnippet.includes("not additive"),
-  'Priority section header shows a "also counted" / overlay annotation'
+  !inboxPageSrc.includes('"priority"') ||
+  // Allow "priority" in unrelated contexts like task priority fields
+  !inboxPageSrc.includes('inboxCategory === "priority"'),
+  "Priority is not an active inboxCategory value"
 );
 
 console.log("\n── A4. Reconciliation script ──");
