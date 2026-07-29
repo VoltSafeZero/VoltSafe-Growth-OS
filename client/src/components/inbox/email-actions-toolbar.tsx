@@ -49,7 +49,6 @@ import {
   PinOff,
   CheckCircle2,
   ShieldCheck,
-  Star,
 } from "lucide-react";
 import {
   Tooltip,
@@ -95,7 +94,6 @@ export interface ActionsToolbarHandlers {
   onClose: () => void;
   onMarkDone: () => void;
   onTrash: () => void;
-  onToggleStar: () => void;
   onMarkUnread: () => void;
   onTogglePin: () => void;
   onSetAside: () => void;
@@ -121,8 +119,6 @@ export interface EmailActionsToolbarProps {
     body?: string;
     snippet?: string | null;
   } | null;
-  /** True when this message currently has the STARRED label. */
-  isStarred: boolean;
   /** True when the user has pinned this thread (Smart Inbox pin-set). */
   isPinned: boolean;
   /** True when the user has set this thread aside. */
@@ -234,7 +230,6 @@ function UserPickerList({
 function EmailActionsToolbarImpl({
   threadId,
   focusedMessage,
-  isStarred,
   isPinned,
   isSetAside,
   assignedUserId,
@@ -528,32 +523,6 @@ function EmailActionsToolbarImpl({
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-[11px]">
                 Trash
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handlers.onToggleStar}
-                  data-testid="action-star"
-                  aria-label={isStarred ? "Remove star" : "Add to starred"}
-                  aria-pressed={isStarred}
-                  className={`p-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                    isStarred
-                      ? "text-amber-400 bg-amber-500/15"
-                      : "text-muted-foreground/70 hover:text-amber-400 hover:bg-amber-500/10"
-                  }`}
-                >
-                  <Star
-                    className={`h-3.5 w-3.5 ${isStarred ? "fill-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.45)]" : ""}`}
-                    aria-hidden="true"
-                  />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-[11px]">
-                {isStarred ? "Remove star" : "Add to starred"}
-                <span className="ml-2 opacity-60 font-mono">I</span>
               </TooltipContent>
             </Tooltip>
 

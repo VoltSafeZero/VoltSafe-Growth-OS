@@ -17142,28 +17142,57 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         : "";
 
       // Phase 4: derived columns replace all label_ids ILIKE patterns.
-      // smart_category is mutually exclusive (single value per message) so bucket sums
-      // are exact and no multi-category drift is possible.
-      // missing_inbox_unread repurposed: detects unread messages where is_inbox IS NULL
-      // (backfill gap — should always be 0 after Phase 1 backfill).
+      // Message bucket sums are exact (smart_category is mutually exclusive per message).
+      // Thread counts use a canonical DISTINCT ON CTE (latest unread inbox message per
+      // thread determines category) so thread_bucket_sum === inbox_unread_threads exactly.
+      // missing_inbox_unread: detects unread messages where is_inbox IS NULL (backfill gap).
       const rows = await db.execute(sql.raw(`
+        WITH thread_canonical AS (
+          SELECT DISTINCT ON (gmail_thread_id)
+            gmail_thread_id,
+            smart_category
+          FROM email_messages
+          WHERE ${scopeClause} is_inbox = true AND is_unread = true
+          ORDER BY gmail_thread_id, sent_at DESC NULLS LAST, id DESC
+        )
         SELECT
-          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true)::int                          AS inbox_unread,
-          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'people')::int      AS people_unread,
-          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'updates')::int     AS updates_unread,
-          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'promotions')::int  AS promotions_unread,
-          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'social')::int      AS social_unread,
-          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'forums')::int      AS forums_unread,
-          COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND is_starred = true)::int              AS priority_unread,
-          COUNT(*) FILTER (WHERE is_unread = true AND is_inbox IS NULL)::int                                   AS missing_inbox_unread,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true)::int             AS inbox_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'people')::int     AS people_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'updates')::int    AS updates_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'promotions')::int AS promotions_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'social')::int     AS social_unread_threads,
-          COUNT(DISTINCT gmail_thread_id) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'forums')::int     AS forums_unread_threads
-        FROM email_messages
-        WHERE ${scopeClause} (is_inbox = true OR is_unread = true)
+          msg.inbox_unread,
+          msg.people_unread,
+          msg.updates_unread,
+          msg.promotions_unread,
+          msg.social_unread,
+          msg.forums_unread,
+          msg.priority_unread,
+          msg.missing_inbox_unread,
+          tc.inbox_unread_threads,
+          tc.people_unread_threads,
+          tc.updates_unread_threads,
+          tc.promotions_unread_threads,
+          tc.social_unread_threads,
+          tc.forums_unread_threads
+        FROM (
+          SELECT
+            COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true)::int AS inbox_unread,
+            COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'people')::int      AS people_unread,
+            COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'updates')::int     AS updates_unread,
+            COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'promotions')::int  AS promotions_unread,
+            COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'social')::int      AS social_unread,
+            COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND smart_category = 'forums')::int      AS forums_unread,
+            COUNT(*) FILTER (WHERE is_inbox = true AND is_unread = true AND is_starred = true)::int              AS priority_unread,
+            COUNT(*) FILTER (WHERE is_unread = true AND is_inbox IS NULL)::int                                   AS missing_inbox_unread
+          FROM email_messages
+          WHERE ${scopeClause} (is_inbox = true OR is_unread = true)
+        ) msg,
+        (
+          SELECT
+            COUNT(*)::int                                                            AS inbox_unread_threads,
+            COUNT(*) FILTER (WHERE smart_category = 'people')::int      AS people_unread_threads,
+            COUNT(*) FILTER (WHERE smart_category = 'updates')::int     AS updates_unread_threads,
+            COUNT(*) FILTER (WHERE smart_category = 'promotions')::int  AS promotions_unread_threads,
+            COUNT(*) FILTER (WHERE smart_category = 'social')::int      AS social_unread_threads,
+            COUNT(*) FILTER (WHERE smart_category = 'forums')::int      AS forums_unread_threads
+          FROM thread_canonical
+        ) tc
       `));
 
       // Drift check: inbox-visible messages with no smart_category (backfill gap indicator).
@@ -17216,7 +17245,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
           missing_inbox_unread: r.missing_inbox_unread ?? 0,
           multi_category:       rd.multi_category      ?? 0,
         },
-        ok: delta === 0 && (r.missing_inbox_unread ?? 0) === 0 && (rd.multi_category ?? 0) === 0,
+        ok: delta === 0 && (r.missing_inbox_unread ?? 0) === 0 && (rd.multi_category ?? 0) === 0 &&
+            ((r.inbox_unread_threads ?? 0) === (r.people_unread_threads ?? 0) + (r.updates_unread_threads ?? 0) +
+             (r.promotions_unread_threads ?? 0) + (r.social_unread_threads ?? 0) + (r.forums_unread_threads ?? 0)),
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

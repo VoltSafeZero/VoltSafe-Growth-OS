@@ -272,12 +272,11 @@ check(
 // ── 12. Icon consistency ─────────────────────────────────────────────────────
 console.log("\n[12] Icon consistency");
 check(
-  "Toolbar uses Star for star action (no Priority concept)",
+  "Toolbar has no star action — isPriority, onTogglePriority, onToggleStar, isStarred all removed",
   !toolbar.includes("onTogglePriority") &&
   !toolbar.includes("isPriority") &&
-  toolbar.includes("onToggleStar") &&
-  toolbar.includes("isStarred") &&
-  toolbar.includes("Star")
+  !toolbar.includes("onToggleStar") &&
+  !toolbar.includes("isStarred")
 );
 check(
   "Toolbar does NOT use Flame for pin (replaced with Pin/PinOff)",

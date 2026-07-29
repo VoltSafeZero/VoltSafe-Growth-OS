@@ -265,7 +265,7 @@ async function runLiveTests() {
   console.log(`    social_threads:      ${d.threads?.social}`);
   console.log(`    forums_threads:      ${d.threads?.forums}`);
   console.log(`    thread_bucket_sum:   ${threadBucketSum}`);
-  console.log(`    threads_delta:       ${threadsDelta}  ← ≤0 allowed (cross-category threads counted in 2 buckets)`);
+  console.log(`    threads_delta:       ${threadsDelta}  ← must be 0 (canonical DISTINCT ON CTE)`);
   console.log(`  === MESSAGE COUNTS (reference only) ===`);
   console.log(`  inbox_unread_msgs:     ${d.messages?.inbox_unread}`);
   console.log(`    people_msgs:         ${d.messages?.buckets?.people}`);
@@ -282,30 +282,28 @@ async function runLiveTests() {
   console.log("");
 
   // Invariant checks — CANONICAL UNIT: threads
+  // Thread counts now use a DISTINCT ON CTE (latest unread inbox message per thread
+  // determines its category), so threadsDelta MUST be exactly 0.
   assert(
     typeof d.threads?.inbox_unread === "number",
     "response includes threads.inbox_unread (canonical thread count)"
   );
-  // Thread-level delta: can be negative (cross-category threads counted in two
-  // buckets) or transiently positive (new messages synced but not yet categorised).
-  // Allow ±5 for live-data timing; strict 0 is not achievable in test:grep which
-  // runs against a live inbox that Gmail sync is updating concurrently.
   assert(
-    Math.abs(threadsDelta) <= 5,
-    `[THREADS] bucket_sum within ±5 of inbox_unread_threads (delta=${threadsDelta})`
+    threadsDelta === 0,
+    `[THREADS] canonical CTE: People+Updates+Promotions+Social+Forums === inbox_unread_threads (delta=${threadsDelta})`
   );
 
-  // Message-level reconciliation — same live-data tolerance.
+  // Message-level reconciliation — smart_category is mutually exclusive per message so delta must be 0.
   assert(
     typeof d.messages?.delta === "number",
     "response includes messages.delta (number)"
   );
   assert(
-    Math.abs(d.messages?.delta ?? 999) <= 5,
-    `[MSGS] People+Updates+Promotions+Social+Forums within ±5 of inbox unread messages (delta=${d.messages?.delta})`
+    d.messages?.delta === 0,
+    `[MSGS] People+Updates+Promotions+Social+Forums === inbox unread messages exactly (delta=${d.messages?.delta})`
   );
   assert(
-    (d.drift?.missing_inbox_unread ?? 0) <= 5,
+    (d.drift?.missing_inbox_unread ?? 0) === 0,
     `no unread CATEGORY_* messages are missing INBOX label (got ${d.drift?.missing_inbox_unread})`
   );
   assert(
@@ -314,14 +312,11 @@ async function runLiveTests() {
   );
   assert(
     typeof d.messages?.priority_unread === "number",
-    "response exposes priority_unread count for the starred overlay"
+    "response exposes priority_unread count (read-only metadata — star/unstar removed from UI)"
   );
-  // .ok is strict-zero on the server. Tolerate transient drift (new sync messages)
-  // by only hard-failing when message delta is large (>5).
-  const msgDeltaOk = Math.abs(d.messages?.delta ?? 999) <= 5;
   assert(
-    d.ok === true || msgDeltaOk,
-    `endpoint reports acceptable state (ok=${d.ok}, messages delta=${d.messages?.delta})`
+    d.ok === true,
+    `endpoint reports ok=true — all invariants satisfied (ok=${d.ok}, msg delta=${d.messages?.delta}, thread delta=${threadsDelta})`
   );
 
   // Verify 403 for non-admin

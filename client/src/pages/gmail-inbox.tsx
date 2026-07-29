@@ -38,7 +38,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import {
   Search, Mail, MailOpen, Send, RefreshCw, Inbox, X, ChevronLeft, Loader2, Link2, Ban, Trash2,
-  Clock, FileText, CalendarClock, CalendarX, Calendar, Paperclip, Star, Users, Newspaper, Bell, Receipt, Download,
+  Clock, FileText, CalendarClock, CalendarX, Calendar, Paperclip, Users, Newspaper, Bell, Receipt, Download,
   FolderOpen, FolderPlus, Settings2, Globe, Plus, PlusCircle, ChevronDown, ChevronUp, ChevronRight, Folder,
   Reply, ReplyAll, Forward, Pencil, User, Building2, Zap, Flame, Video, UserPlus,
   Check, CheckCircle2, XCircle, TrendingUp, Handshake, ShieldCheck, AlertCircle, Tag, Lock, ExternalLink,
@@ -212,7 +212,7 @@ function parseSenderEmail(from: string) {
 }
 
 type InboxCategory = "all" | "people" | "updates" | "promotions" | "social" | "forums";
-type CrmInboxFilter = "all" | "unread" | "starred" | "follow-up" | "needs-reply" | "awaiting-reply" | "hot" | "unlinked";
+type CrmInboxFilter = "all" | "unread" | "follow-up" | "needs-reply" | "awaiting-reply" | "hot" | "unlinked";
 
 type MailFolderDomain = { id: number; folderId: number; domain: string; matchType: string };
 type MailFolder = {
@@ -434,9 +434,6 @@ function isUnread(labelIds: string[]) {
   return labelIds.includes("UNREAD");
 }
 
-function isStarred(labelIds: string[]) {
-  return labelIds.includes("STARRED");
-}
 
 function getEmailCategory(labelIds: string[]): "people" | "updates" | "promotions" | "social" | "forums" {
   if (labelIds.includes("CATEGORY_UPDATES"))    return "updates";
@@ -5527,27 +5524,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     },
   });
 
-  const toggleStarMutation = useMutation({
-    mutationFn: async (msgId: string) => {
-      const body = activeAccountId ? { asAccountId: activeAccountId } : {};
-      const res = await apiRequest("POST", `/api/gmail/messages/${msgId}/toggle-star`, body);
-      return res.json() as Promise<{ starred: boolean }>;
-    },
-    onSuccess: (data, msgId) => {
-      const update = (old: { messages: MessageSummary[]; nextPageToken: string | null } | undefined) =>
-        old ? { ...old, messages: old.messages.map((m) =>
-          m.id === msgId ? { ...m, labelIds: data.starred
-            ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
-            : m.labelIds.filter(l => l !== "STARRED") } : m
-        ) } : old;
-      queryClient.setQueriesData({ queryKey: ["/api/gmail/messages", "inbox"] }, update);
-      setInboxExtra((prev) => prev.map((m) => m.id === msgId ? { ...m, labelIds: data.starred
-        ? [...m.labelIds.filter(l => l !== "STARRED"), "STARRED"]
-        : m.labelIds.filter(l => l !== "STARRED") } : m));
-    },
-    onError: (err: any) => toast({ title: "Failed to update star", description: err.message, variant: "destructive" }),
-  });
-
   type ConnectedAccount = {
     id: number; userId: number; provider: string; emailAddress: string;
     displayName: string | null; authStatus: string; syncEnabled: boolean;
@@ -7559,9 +7535,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
     // Keep the currently-open thread visible even after its UNREAD label is
     // removed from cache — the grouper handles keeping it in the right section.
     crmFilter === "unread"         ? activeMessages.filter(m => isUnread(m.labelIds) || m.threadId === selectedThreadId) :
-    crmFilter === "starred"        ? activeMessages.filter(m => isStarred(m.labelIds)) :
     crmFilter === "needs-reply"    ? activeMessages.filter(m => triageAwaitingSet.has(m.threadId) || m.threadId === selectedThreadId) :
-    crmFilter === "follow-up"      ? activeMessages.filter(m => isStarred(m.labelIds)) :
+    crmFilter === "follow-up"      ? activeMessages :
     crmFilter === "awaiting-reply" ? activeMessages.filter(m => triageAwaitingSet.has(m.threadId)) :
     crmFilter === "hot"            ? activeMessages.filter(m => triageHotSet.has(m.threadId)) :
     crmFilter === "unlinked"       ? activeMessages.filter(m => triageUnlinkedSet.has(m.threadId)) :
@@ -8515,9 +8490,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
         case "c":
           if (canSend) { e.preventDefault(); setReplyTo(null); setComposeOpen(true); }
           break;
-        case "s":
-          if (focusedMsg) { e.preventDefault(); toggleStarMutation.mutate(focusedMsg.id); }
-          break;
         case "x":
           if (selectedThreadId && tab === "inbox") {
             e.preventDefault();
@@ -9238,7 +9210,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   {([
                     { key: "all",     label: "All",     icon: <Filter className="h-3 w-3" />,   activeColor: "bg-violet-500/15 text-violet-300 ring-violet-400/40 shadow-[0_0_10px_-2px_rgba(167,139,250,0.3)]", count: null },
                     { key: "unread",  label: "Unread",  icon: <MailOpen className="h-3 w-3" />, activeColor: "bg-blue-500/15 text-blue-300 ring-blue-400/40 shadow-[0_0_10px_-2px_rgba(96,165,250,0.3)]",    count: serverInboxUnreadCount || inboxUnreadCount || null },
-                    { key: "starred", label: "Starred", icon: <Star className="h-3 w-3" />,     activeColor: "bg-amber-500/15 text-amber-300 ring-amber-400/40 shadow-[0_0_10px_-2px_rgba(251,191,36,0.3)]",  count: null },
                   ] as { key: CrmInboxFilter; label: string; icon: React.ReactNode; activeColor: string; count: number | null }[]).map(({ key, label, icon, activeColor, count }) => {
                     const active = crmFilter === key;
                     return (
@@ -10294,7 +10265,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
               const isLastInSection = sStyle.mx !== "" && (!_arr[_idx + 1] || _arr[_idx + 1].kind === "header");
               const msg = item.msg;
               const unread = isUnread(msg.labelIds);
-              const starred = isStarred(msg.labelIds);
               const isSelected = msg.threadId === selectedThreadId;
               const isBulkChecked = selectedInboxIds.has(msg.threadId);
               const rowSenderEmail = (msg.fromEmail || "").toLowerCase();
@@ -10432,36 +10402,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                                    focus-within:opacity-100 focus-within:translate-x-0
                                    transition-all duration-150 ease-out
                                    bg-gradient-to-l from-background via-background/92 to-background/0
-                                   backdrop-blur-[2px]">
-                    {/* Star is always visible if starred (even outside hover) — handled via wrapper opacity override */}
-                    <motion.button
-                      whileTap={{ scale: 0.82 }}
-                      whileHover={{ scale: 1.12 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 20 }}
-                      title={starred ? "Remove star" : "Add to starred"}
-                      aria-label={starred ? "Remove star" : "Add to starred"}
-                      aria-pressed={starred}
-                      tabIndex={starred ? 0 : -1}
-                      data-testid={`button-star-${msg.id}`}
-                      onClick={(e) => { e.stopPropagation(); toggleStarMutation.mutate(msg.id); }}
-                      className={`p-1.5 rounded-md transition-colors focus-visible:!text-amber-400 ${
-                        starred
-                          ? "text-amber-400 hover:text-amber-300"
-                          : "text-muted-foreground/40 hover:!text-amber-400 hover:bg-amber-500/10"
-                      }`}
-                    >
-                      <motion.span
-                        key={starred ? "starred" : "unstarred"}
-                        initial={{ scale: 0.55, rotate: starred ? -55 : 55 }}
-                        animate={{ scale: 1, rotate: 0 }}
-                        transition={{ type: "spring", stiffness: 520, damping: 14 }}
-                        className="inline-flex"
-                        aria-hidden="true"
-                      >
-                        <Star className={`h-3.5 w-3.5 ${starred ? "fill-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.45)]" : ""}`} aria-hidden="true" />
-                      </motion.span>
-                    </motion.button>
-                    {/* Pin to Smart-Inbox "Pinned" section. Only meaningful in
+                                   backdrop-blur-[2px]">                    {/* Pin to Smart-Inbox "Pinned" section. Only meaningful in
                         the Smart view — we hide it in Classic so the action
                         bar doesn't fill up with a control that has no visible
                         effect. Pinning lets the user pull a read-but-still-
@@ -10744,7 +10685,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     body: focusedMsg.body,
                     snippet: focusedMsg.snippet ?? null,
                   }}
-                  isStarred={isStarred(focusedMsg.labelIds)}
                   isPinned={pinnedAPI.isPinned(selectedThreadId)}
                   isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
                   assignedUserId={readerAssignedUserId}
@@ -10756,7 +10696,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     onClose: handleBack,
                     onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
                     onTrash: () => trashThreadMutation.mutate(selectedThreadId),
-                    onToggleStar: () => toggleStarMutation.mutate(focusedMsg.id),
                     onMarkUnread: () => markUnreadSingleMutation.mutate(focusedMsg.id),
                     onTogglePin: () => pinnedAPI.togglePin(selectedThreadId),
                     onSetAside: () => {
@@ -10807,8 +10746,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       body: focusedMsg.body,
                       snippet: focusedMsg.snippet ?? null,
                     }}
-                    isStarred={isStarred(focusedMsg.labelIds)}
-                    isPinned={pinnedAPI.isPinned(selectedThreadId)}
+                     isPinned={pinnedAPI.isPinned(selectedThreadId)}
                     isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
                     assignedUserId={readerAssignedUserId}
                     canReply={canSend}
@@ -10819,8 +10757,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       onClose: handleBack,
                       onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
                       onTrash: () => trashThreadMutation.mutate(selectedThreadId),
-                      onToggleStar: () => toggleStarMutation.mutate(focusedMsg.id),
-                      onMarkUnread: () => markUnreadSingleMutation.mutate(focusedMsg.id),
+                       onMarkUnread: () => markUnreadSingleMutation.mutate(focusedMsg.id),
                       onTogglePin: () => pinnedAPI.togglePin(selectedThreadId),
                       onSetAside: () => {
                         setAsideAPI.toggle(selectedThreadId);
@@ -10894,11 +10831,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             {selectedMessages.length > 1 ? `${selectedMessages.length} msgs` : "1 msg"}
                           </span>
                         )}
-                        {focusedMsg && isStarred(focusedMsg.labelIds) && (
-                          <span className="inline-flex items-center gap-1 text-amber-400/90 text-[11px] font-medium flex-shrink-0 leading-none">
-                            <Star className="h-3 w-3 fill-amber-400" aria-hidden="true" /> Starred
-                          </span>
-                        )}
                       </div>
                       {/* Deep-link source account notice — shown when VS Mail is opened from a
                           CRM linked-email card and the source mailbox is expired/disconnected.
@@ -10928,37 +10860,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   )}
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  {focusedMsg && (() => {
-                    const headerStarred = isStarred(focusedMsg.labelIds);
-                    return (
-                      <motion.button
-                        whileTap={{ scale: 0.85 }}
-                        whileHover={{ scale: 1.08 }}
-                        transition={{ type: "spring", stiffness: 400, damping: 22 }}
-                        title={headerStarred ? "Remove star" : "Add to starred (s)"}
-                        aria-label={headerStarred ? "Remove star" : "Add to starred"}
-                        aria-pressed={headerStarred}
-                        data-testid="button-star-thread"
-                        onClick={() => toggleStarMutation.mutate(focusedMsg.id)}
-                        className={`p-2 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${
-                          headerStarred
-                            ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 shadow-[0_0_0_1px_rgba(251,191,36,0.18)]"
-                            : "text-muted-foreground/40 hover:text-amber-400 hover:bg-muted/40"
-                        }`}
-                      >
-                        <motion.span
-                          key={headerStarred ? "starred" : "unstarred"}
-                          initial={{ scale: 0.55, rotate: headerStarred ? -55 : 55 }}
-                          animate={{ scale: 1, rotate: 0 }}
-                          transition={{ type: "spring", stiffness: 520, damping: 14 }}
-                          className="inline-flex"
-                          aria-hidden="true"
-                        >
-                          <Star className={`h-4 w-4 ${headerStarred ? "fill-amber-400 drop-shadow-[0_0_5px_rgba(251,191,36,0.5)]" : ""}`} aria-hidden="true" />
-                        </motion.span>
-                      </motion.button>
-                    );
-                  })()}
                   {canSend && focusedMsg && (
                     <>
                       <motion.button
@@ -11400,7 +11301,6 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     ["k / ↑", "Prev email"],
                     ["r", "Reply"],
                     ["c", "Compose"],
-                    ["s", "Star / unstar"],
                     ["Esc", "Deselect"],
                   ].map(([key, desc]) => (
                     <div key={key} className="flex items-center gap-2">
