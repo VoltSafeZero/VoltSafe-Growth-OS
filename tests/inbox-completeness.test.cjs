@@ -223,8 +223,8 @@ check(
 check(
   "Smart Inbox grouper assigns every message to exactly one section (no orphans)",
   grouperTs.includes("seen.push(m)") &&
-  grouperTs.includes("priority.push(m)") &&
-  grouperTs.includes("unreadPeople.push(m)")
+  grouperTs.includes("unreadPeople.push(m)") &&
+  grouperTs.includes("pinnedRead.push(m)")
 );
 
 // ── 7. Backfill script ─────────────────────────────────────────────────────────
