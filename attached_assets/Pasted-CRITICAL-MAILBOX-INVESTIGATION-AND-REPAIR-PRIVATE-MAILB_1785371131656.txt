@@ -1,0 +1,463 @@
+CRITICAL MAILBOX INVESTIGATION AND REPAIR — PRIVATE MAILBOXES MISSING FROM VOLTSAFE MAIL + REVOKED TREVOR ACCOUNT AUDIT
+
+Do not return a planning-only response.
+
+Investigate, prove the root causes, implement the necessary fix, test it, and verify it in an authenticated VoltSafe Mail session.
+
+Scope only:
+
+1. Fix why Trevor’s two active private mailboxes appear in Admin → My Mailboxes but do not appear in VoltSafe Mail.
+2. Audit the revoked duplicate trevor@voltsafe.com account and determine whether it should be retained, archived, or safely deleted.
+
+Do not investigate or modify the Sales or Support mailbox records in this task.
+
+==================================================
+PART 1 — PRIVATE MAILBOXES MISSING FROM VOLTSAFE MAIL
+==================================================
+
+The screenshots show:
+
+Admin → My Mailboxes lists all three active personal mailboxes:
+
+- trevor@voltsafe.com
+- burgesstrevor76@gmail.com
+- trevor@hyalos.com
+
+But VoltSafe Mail only displays trevor@voltsafe.com.
+
+The following active private mailboxes are missing from the Mail sidebar:
+
+- burgesstrevor76@gmail.com
+- trevor@hyalos.com
+
+This is not acceptable. Every active mailbox owned by the authenticated user and permitted for Mail must appear in the mailbox selector.
+
+Do not assume the cause.
+
+Trace the full path:
+
+database
+→ mailbox/account API
+→ authentication and ownership resolution
+→ visibility and permission filtering
+→ mailbox bootstrap response
+→ client query/cache
+→ mailbox grouping
+→ sidebar rendering
+→ mailbox selection state
+
+Compare the API and client paths used by:
+
+- Admin → My Mailboxes
+- VoltSafe Mail sidebar
+
+Identify exactly why the two screens disagree.
+
+==================================================
+1. PRODUCTION DATA AUDIT
+==================================================
+
+Use the actual production database.
+
+For these three addresses report:
+
+- account ID
+- user_id / owner identity
+- workspace_id
+- email_address
+- auth_status
+- is_active
+- sync_enabled
+- visibility_type
+- is_shared
+- provider
+- disconnected_at
+- last_incremental_sync_at
+- message count
+- unique thread count
+
+Addresses:
+
+- trevor@voltsafe.com
+- burgesstrevor76@gmail.com
+- trevor@hyalos.com
+
+Do not print OAuth tokens or token fragments.
+
+Confirm whether the two private accounts are:
+
+- owned by Trevor;
+- active;
+- sync-enabled;
+- private_personal;
+- authorized for Trevor to view.
+
+==================================================
+2. API RECONCILIATION
+==================================================
+
+Identify the exact endpoints used by:
+
+- Admin → My Mailboxes
+- VoltSafe Mail sidebar
+- session/bootstrap if applicable
+- mailbox-health or mailbox-list APIs
+
+For each endpoint, report whether it returns:
+
+- trevor@voltsafe.com
+- burgesstrevor76@gmail.com
+- trevor@hyalos.com
+
+If the Admin API returns all three but the Mail API returns one:
+
+- fix the backend filter or account-resolution bug.
+
+If the Mail API returns all three but the UI shows one:
+
+- fix the frontend grouping/rendering/state bug.
+
+If caching is involved:
+
+- identify the exact cache key;
+- ensure it includes the authenticated user and mailbox scope;
+- invalidate it after connect, reconnect, enable, disable, delete, and refresh;
+- prevent stale results from suppressing active mailboxes.
+
+==================================================
+3. FRONTEND MAILBOX RENDERING
+==================================================
+
+Audit the mailbox sidebar logic for:
+
+- personal mailbox grouping;
+- private inbox grouping;
+- active-account selection;
+- null/all account handling;
+- visibility filters;
+- owner-user filters;
+- duplicate-email suppression;
+- account-ID deduplication;
+- stale persisted account selections;
+- array slicing or first-item-only behavior;
+- sorting;
+- conditional rendering.
+
+Required behavior:
+
+Under Private Inboxes, Trevor must see:
+
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+The work mailbox trevor@voltsafe.com should remain in its intended work/personal section according to the existing design.
+
+Do not merge distinct accounts merely because they share the same owner.
+
+Do not hide a mailbox because:
+
+- it is private_personal;
+- it has a different provider address;
+- it is not the default account;
+- another mailbox is already selected;
+- its unread count is zero.
+
+==================================================
+4. MAILBOX SWITCHING BEHAVIOR
+==================================================
+
+After the fix, verify each private mailbox can be selected independently.
+
+For each:
+
+- sidebar item appears;
+- clicking it changes the selected account ID;
+- breadcrumb updates;
+- unread count updates;
+- category counts update;
+- inbox rows are account-scoped;
+- no rows leak from another mailbox;
+- no stale rows remain from the previously selected mailbox;
+- no endless loader;
+- no false empty state;
+- no Local mailbox query failed;
+- reply/send uses the correct owning account.
+
+Mailboxes:
+
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+==================================================
+5. PERSISTED STATE AND CACHE RECOVERY
+==================================================
+
+Audit:
+
+- localStorage
+- sessionStorage
+- URL state
+- React Query cache
+- server-side user preferences
+- selected mailbox persistence
+
+Requirements:
+
+- stale account IDs must not hide valid mailboxes;
+- an invalid or removed selected account must fall back safely;
+- mailbox list cache must refresh after account changes;
+- users must not need to clear browser storage manually;
+- switching mailboxes must reset cursor, page, accumulated rows, loading state, empty state, and selected message.
+
+==================================================
+PART 2 — REVOKED DUPLICATE trevor@voltsafe.com AUDIT
+==================================================
+
+Production reportedly contains:
+
+- one active trevor@voltsafe.com account;
+- one revoked trevor@voltsafe.com duplicate account.
+
+Do not delete anything before completing the audit.
+
+Identify both records and report:
+
+- account ID
+- owner user
+- workspace
+- auth_status
+- is_active
+- sync_enabled
+- visibility_type
+- created_at
+- updated_at
+- disconnected_at
+- last sync
+- message count
+- unique thread count
+
+Do not print tokens.
+
+==================================================
+6. REFERENCE AND DEPENDENCY AUDIT
+==================================================
+
+For the revoked trevor@voltsafe.com record, identify every table that references its account ID.
+
+At minimum audit:
+
+- email_messages.source_account_id
+- email_threads or thread/account associations
+- mailbox permissions
+- shared mailbox membership
+- Gmail watch/subscription state
+- sync cursors/history IDs
+- audit logs
+- drafts
+- scheduled emails
+- sent-message records
+- CRM email links
+- Cortex email records
+- calendar or OAuth linkage
+- any foreign keys or soft references
+
+Report exact counts by referencing table.
+
+Determine whether deleting the revoked account would:
+
+- orphan messages;
+- break thread ownership;
+- remove audit history;
+- break CRM links;
+- affect sent-mail history;
+- affect mailbox permissions;
+- create duplicate imports if the active account later resyncs.
+
+==================================================
+7. DETERMINE THE CORRECT LIFECYCLE ACTION
+==================================================
+
+Choose one based on evidence:
+
+A. Retain as historical
+Use when it owns historical records or is required for audit integrity.
+
+B. Archive/soft-delete
+Use when it should no longer appear operationally but must remain referenced.
+
+C. Merge/reassign references
+Use only if there is a proven safe canonical active-account target and the operation is idempotent and preserves identity.
+
+D. Hard-delete
+Use only if:
+
+- zero references exist;
+- zero historical value exists;
+- no audit or sync state is needed;
+- no unique constraints or future sync behavior will be affected.
+
+Prefer archive/soft-delete over hard-delete when any uncertainty remains.
+
+Do not change the active trevor@voltsafe.com account.
+
+==================================================
+8. UI TREATMENT OF REVOKED ACCOUNTS
+==================================================
+
+Regardless of whether the revoked record is retained:
+
+- it must not appear as an active selectable mailbox;
+- it must not contribute unread counts;
+- it must not be used as a send/reply fallback;
+- it must not be included in active sync jobs;
+- it must not create duplicate sidebar entries;
+- it may appear in Admin as archived/revoked history if that is useful.
+
+If retained, add or confirm a clear status such as:
+
+- Revoked
+- Archived
+- Historical connection
+
+Do not display it as Active.
+
+==================================================
+9. SAFETY REQUIREMENTS
+==================================================
+
+Do not:
+
+- delete messages;
+- delete threads;
+- clear CRM associations;
+- remove Cortex intelligence;
+- remove audit records;
+- rewrite Gmail provider IDs;
+- change read/unread state;
+- change archive state;
+- reconnect or revoke any active account;
+- alter Sales or Support mailboxes;
+- expose token values in logs or reports.
+
+Any cleanup or reassignment must be:
+
+- transactional;
+- idempotent;
+- resumable;
+- logged;
+- reversible where practical.
+
+==================================================
+10. REGRESSION TESTS
+==================================================
+
+Add tests covering:
+
+Private mailbox visibility:
+
+- all active private_personal accounts owned by the user appear;
+- multiple private accounts render simultaneously;
+- inactive accounts do not appear;
+- revoked accounts do not appear as active;
+- another user’s private mailbox does not appear;
+- mailbox list API and Admin My Mailboxes API reconcile;
+- cache keys are user-scoped;
+- switching account resets pagination and rows;
+- no cross-mailbox leakage;
+- selected account persists safely;
+- invalid stored account ID falls back safely.
+
+Revoked account lifecycle:
+
+- revoked account excluded from active mailbox list;
+- revoked account excluded from sync jobs;
+- revoked account excluded from send/reply resolution;
+- references are counted before cleanup;
+- hard-delete is blocked when references exist;
+- archive/soft-delete preserves message history;
+- active account remains unchanged;
+- cleanup is idempotent.
+
+==================================================
+11. AUTHENTICATED PRODUCTION VERIFICATION
+==================================================
+
+Use an authenticated production VoltSafe session.
+
+Capture screenshots showing:
+
+1. Admin → My Mailboxes with all three active Trevor mailboxes.
+2. VoltSafe Mail sidebar showing both:
+   - trevor@hyalos.com
+   - burgesstrevor76@gmail.com
+3. trevor@hyalos.com selected and loading its own inbox.
+4. burgesstrevor76@gmail.com selected and loading its own inbox.
+5. Switching between the two without stale rows.
+6. The revoked trevor@voltsafe.com record absent from active Mail navigation.
+7. The revoked record’s correct Admin status if retained.
+
+Confirm browser console has no mailbox API errors.
+
+==================================================
+12. REQUIRED COMPLETION REPORT
+==================================================
+
+Return:
+
+PRIVATE MAILBOXES
+
+Root cause:
+Admin mailbox endpoint:
+Mail sidebar endpoint:
+Frontend or backend defect:
+Files changed:
+Cache keys changed:
+Persisted-state changes:
+
+trevor@hyalos.com appears in Mail: YES/NO
+burgesstrevor76@gmail.com appears in Mail: YES/NO
+Both independently selectable: YES/NO
+Cross-mailbox leakage: 0 or count
+Endless loaders: 0 or count
+Mailbox request errors: 0 or count
+
+REVOKED TREVOR ACCOUNT
+
+Active Trevor account ID:
+Revoked Trevor account ID:
+Message references:
+Thread references:
+Other table references:
+Recommended action:
+Action executed:
+Reason:
+Hard delete performed: YES/NO
+Historical data preserved: YES/NO
+Active account unaffected: YES/NO
+
+VALIDATION
+
+Tests:
+Build:
+Authenticated screenshots:
+Commit SHA:
+Parent SHA:
+git status --short:
+Pushed to origin/main: YES/NO
+Production serving commit: YES/NO
+Complete: YES/NO
+
+==================================================
+DEFINITION OF DONE
+==================================================
+
+This task is complete only when:
+
+- both active private Trevor mailboxes appear in VoltSafe Mail;
+- both can be selected and load only their own data;
+- no stale account/cache state hides them;
+- the revoked duplicate Trevor account has been fully audited;
+- the correct retain/archive/delete decision is supported by evidence;
+- no historical or active data is lost;
+- all tests pass;
+- authenticated production verification succeeds.

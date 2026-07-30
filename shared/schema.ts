@@ -1598,6 +1598,9 @@ export const emailAccounts = pgTable("email_accounts", {
   lastWebhookAt: timestamp("last_webhook_at"),
   lastIncrementalSyncAt: timestamp("last_incremental_sync_at"),
   incrementalEventCount: integer("incremental_event_count").default(0),
+  // visibility_type: company_managed | team_shared | private_personal
+  // Added via raw SQL migration; column already exists in DB.
+  visibilityType: text("visibility_type").default("company_managed"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
