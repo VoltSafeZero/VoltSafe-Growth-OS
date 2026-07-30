@@ -19089,8 +19089,15 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   });
 
   function sendAssetFile(asset: { fileData?: string | null; filePath: string; mimeType: string; originalName: string }, res: any, disposition: "inline" | "attachment") {
-    res.setHeader("Content-Disposition", `${disposition}; filename="${encodeURIComponent(asset.originalName)}"`);
+    // SVG documents served inline from the application origin execute embedded
+    // JavaScript in the browser with full same-origin privileges — persistent XSS.
+    // Force attachment for SVG regardless of the caller-requested disposition.
+    const safeForInline = (asset.mimeType.startsWith("image/") && asset.mimeType !== "image/svg+xml")
+      || asset.mimeType === "application/pdf";
+    const effectiveDisposition = (disposition === "inline" && !safeForInline) ? "attachment" : disposition;
+    res.setHeader("Content-Disposition", `${effectiveDisposition}; filename="${encodeURIComponent(asset.originalName)}"`);
     res.setHeader("Content-Type", asset.mimeType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
     if (asset.fileData) {
       const buf = Buffer.from(asset.fileData, "base64");
       return res.send(buf);
