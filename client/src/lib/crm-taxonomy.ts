@@ -277,6 +277,12 @@ export const FILTER_SORT_OPTIONS = [
   { value: "updatedAt:desc",  label: "Recently Updated" },
 ] as const;
 
+/** Sort options for the Accounts list — extends the shared set with heat score. */
+export const ACCOUNTS_SORT_OPTIONS = [
+  ...FILTER_SORT_OPTIONS,
+  { value: "heat_score:desc", label: "🔥 Heat Score" },
+] as const;
+
 // ─── Segment classification helpers ──────────────────────────────────────────
 
 /** Marina types that represent an operating marina property (single location). */

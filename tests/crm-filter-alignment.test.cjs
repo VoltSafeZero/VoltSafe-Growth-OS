@@ -55,7 +55,12 @@ for (const exp of requiredExports) {
 
 console.log("\naccounts.tsx imports:");
 for (const exp of requiredExports) {
-  assert(accountsSource.includes(exp), `imports/uses ${exp}`);
+  // accounts.tsx uses ACCOUNTS_SORT_OPTIONS (a superset of FILTER_SORT_OPTIONS
+  // that adds the heat-score option). Accept either name for the sort constant.
+  const accountsExp = exp === "FILTER_SORT_OPTIONS"
+    ? (accountsSource.includes("FILTER_SORT_OPTIONS") || accountsSource.includes("ACCOUNTS_SORT_OPTIONS"))
+    : accountsSource.includes(exp);
+  assert(accountsExp, `imports/uses ${exp}`);
 }
 
 // ── No local COUNTRIES / getRegionsForCountry declarations in leads.tsx ───────

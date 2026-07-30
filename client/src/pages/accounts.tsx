@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -19,7 +19,7 @@ import {
   ArrowUpDown, MapPin, Globe, Zap, Star, AlertTriangle, Calendar,
   Settings2, Wrench, Shield, Wifi, LinkIcon, List, LayoutGrid, Map, FolderPlus, ArrowRightLeft, ExternalLink,
   ChevronDown, ChevronRight, Clock, Bookmark, X as XIcon, UserCheck, ClipboardList,
-  Briefcase, LifeBuoy, History as HistoryIcon, MessageSquare, FileText,
+  Briefcase, LifeBuoy, History as HistoryIcon, MessageSquare, FileText, Flame,
 } from "lucide-react";
 import type { SavedView } from "@shared/schema";
 import { BulkActionsBar, BulkCheckbox } from "@/components/bulk-actions-bar";
@@ -38,7 +38,7 @@ import { EmailsTab } from "@/components/emails-tab";
 import { TimelineTab } from "@/components/timeline-tab";
 import StateProvinceSelect from "@/components/state-province-select";
 import { ContactsPanel } from "@/components/contacts/contacts-panel";
-import { PIPELINE_STAGE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, NON_OPERATING_SEGMENTS, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, FILTER_SORT_OPTIONS, getRegionsForCountry } from "@/lib/crm-taxonomy";
+import { PIPELINE_STAGE_OPTIONS, MARKET_SEGMENT_OPTIONS, SLIP_RANGE_OPTIONS, NON_OPERATING_SEGMENTS, FILTER_INDUSTRY_OPTIONS, FILTER_SEGMENT_OPTIONS, FILTER_TYPE_OPTIONS, FILTER_COUNTRY_OPTIONS, FILTER_PRIORITY_OPTIONS, ACCOUNTS_SORT_OPTIONS, getRegionsForCountry } from "@/lib/crm-taxonomy";
 
 const segmentColors: Record<string, string> = {
   marina: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -61,6 +61,25 @@ const priorityColors: Record<string, string> = {
   low: "bg-gray-500/10 text-gray-500 border-gray-500/20",
   medium: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
   high: "bg-red-500/10 text-red-500 border-red-500/20",
+};
+
+// ── Heat score tiers ──────────────────────────────────────────────────────────
+type HeatTier = "hot" | "warm" | "nurture" | "low" | "cold";
+
+function getHeatTier(score: number): HeatTier {
+  if (score >= 60) return "hot";
+  if (score >= 30) return "warm";
+  if (score >= 10) return "nurture";
+  if (score > 0)   return "low";
+  return "cold";
+}
+
+const heatTierConfig: Record<HeatTier, { label: string; className: string }> = {
+  hot:     { label: "Hot",     className: "bg-red-500/15 text-red-400 border-red-500/30" },
+  warm:    { label: "Warm",    className: "bg-orange-500/15 text-orange-400 border-orange-500/30" },
+  nurture: { label: "Nurture", className: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
+  low:     { label: "Low",     className: "bg-slate-500/10 text-slate-400 border-slate-500/20" },
+  cold:    { label: "Cold",    className: "bg-blue-500/10 text-blue-300 border-blue-500/20" },
 };
 
 const LEGACY_ORG_TYPE_OPTIONS = [
@@ -140,7 +159,10 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     }
   }, []);
 
-  const PAGE_SIZE = 100;
+  // When sorting by heat score we fetch up to 500 accounts in a single page so
+  // the client-side reorder covers the complete dataset (not just the loaded window).
+  const isHeatSort = sortOption === "heat_score:desc";
+  const PAGE_SIZE = isHeatSort ? 500 : 100;
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<{ data: Account[]; total: number; page: number; totalPages: number }>({
     queryKey: ["/api/accounts", { search, industry: industryFilter === "__all__" ? "" : industryFilter, marketSegment: marketSegmentFilter === "all" ? "" : marketSegmentFilter, type: typeFilter === "all" ? "" : typeFilter, country: countryFilter === "all" ? "" : countryFilter, state: regionFilter === "all" ? "" : regionFilter, priority: priorityFilter === "all" ? "" : priorityFilter, sort: sortOption }],
     queryFn: async ({ pageParam }) => {
@@ -151,7 +173,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       if (countryFilter !== "all") params.set("country", countryFilter);
       if (regionFilter !== "all") params.set("state", regionFilter);
       if (priorityFilter !== "all") params.set("priority", priorityFilter);
-      if (sortOption !== "default") { const [key, order] = sortOption.split(":"); params.set("sortBy", key); params.set("sortOrder", order); }
+      // heat_score is sorted client-side after merging heatmap data; don't send to backend
+      if (sortOption !== "default" && !isHeatSort) { const [key, order] = sortOption.split(":"); params.set("sortBy", key); params.set("sortOrder", order); }
       params.set("page", String(pageParam));
       params.set("limit", String(PAGE_SIZE));
       const res = await fetch(`/api/accounts?${params}`, { credentials: "include" });
@@ -189,6 +212,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
     setRegionFilter("all");
     setPriorityFilter("all");
     setSortOption("default");
+    setHeatFilter("all");
     setActiveViewId(null);
   };
 
@@ -312,6 +336,35 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
   });
 
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [heatFilter, setHeatFilter] = useState<"all" | "hot" | "warm">("all");
+
+  // ── Heat score data ──────────────────────────────────────────────────────
+  const { data: heatmapData } = useQuery<{ accountId: number; engagementScore: number; trend: string }[]>({
+    queryKey: ["/api/revenue-intelligence/heatmap", 200],
+    queryFn: async () => {
+      const res = await fetch("/api/revenue-intelligence/heatmap?limit=200", { credentials: "include" });
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const heatScoreMap = useMemo(() => {
+    const m = new Map<number, { score: number; tier: HeatTier; trend: string }>();
+    heatmapData?.forEach(a => {
+      m.set(a.accountId, { score: a.engagementScore, tier: getHeatTier(a.engagementScore), trend: a.trend });
+    });
+    return m;
+  }, [heatmapData]);
+
+  const displayAccounts = useMemo(() => {
+    let list = allAccounts;
+    if (heatFilter === "hot") list = list.filter(a => (heatScoreMap.get(a.id)?.score ?? 0) >= 60);
+    else if (heatFilter === "warm") list = list.filter(a => (heatScoreMap.get(a.id)?.score ?? 0) >= 30);
+    if (sortOption === "heat_score:desc") {
+      list = [...list].sort((a, b) => (heatScoreMap.get(b.id)?.score ?? 0) - (heatScoreMap.get(a.id)?.score ?? 0));
+    }
+    return list;
+  }, [allAccounts, heatFilter, heatScoreMap, sortOption]);
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
@@ -456,7 +509,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             <SelectValue placeholder="Sort by..." />
           </SelectTrigger>
           <SelectContent>
-            {FILTER_SORT_OPTIONS.map(o => (
+            {ACCOUNTS_SORT_OPTIONS.map(o => (
               <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
@@ -574,11 +627,39 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
         )}
       </div>
 
+      {/* Heat filter pills */}
+      {heatmapData && heatmapData.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {(["all", "hot", "warm"] as const).map(f => {
+            const isActive = heatFilter === f;
+            const hotCount = heatmapData.filter(a => a.engagementScore >= 60).length;
+            const warmCount = heatmapData.filter(a => a.engagementScore >= 30).length;
+            const label = f === "all" ? "All Heat" : f === "hot" ? `🔥 Hot (${hotCount})` : `🌡️ Warm+ (${warmCount})`;
+            return (
+              <button
+                key={f}
+                onClick={() => setHeatFilter(f)}
+                data-testid={`heat-filter-${f}`}
+                className={`flex items-center gap-1.5 text-xs rounded-full px-3 py-1 border transition-all ${
+                  isActive
+                    ? f === "hot" ? "bg-red-500/15 border-red-500/40 text-red-400 font-medium"
+                      : f === "warm" ? "bg-orange-500/15 border-orange-500/40 text-orange-400 font-medium"
+                      : "bg-primary/10 border-primary/40 text-primary font-medium"
+                    : "bg-secondary/50 border-border/50 text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {selectedIds.size > 0 && (
         <BulkActionsBar
           selectedCount={selectedIds.size}
-          totalCount={allAccounts.length}
-          onSelectAll={() => setSelectedIds(new Set(allAccounts.map(a => a.id)))}
+          totalCount={displayAccounts.length}
+          onSelectAll={() => setSelectedIds(new Set(displayAccounts.map(a => a.id)))}
           onClearSelection={() => setSelectedIds(new Set())}
           entityLabel="account"
           actions={[
@@ -607,7 +688,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
       )}
 
       {view === "map" ? (
-        <AccountsMapView accounts={allAccounts} onSelect={setSelectedAccount} />
+        <AccountsMapView accounts={displayAccounts} onSelect={setSelectedAccount} />
       ) : view === "pipeline" ? (
         isLoading ? (
           <div className="flex gap-4 overflow-x-auto pb-4">
@@ -615,7 +696,8 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
           </div>
         ) : (
           <AccountsPipelineView
-            accounts={allAccounts}
+            accounts={displayAccounts}
+            heatScoreMap={heatScoreMap}
             onSelect={setSelectedAccount}
             onUpdateStatus={(id, leadStatus) => updateStatusMutation.mutate({ id, leadStatus })}
           />
@@ -628,7 +710,10 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {allAccounts.map((account) => (
+              {displayAccounts.map((account) => {
+                const heat = heatScoreMap.get(account.id);
+                const heatCfg = heat ? heatTierConfig[heat.tier] : heatTierConfig.cold;
+                return (
                 <Card key={account.id} className={`border-border/50 hover:border-primary/30 cursor-pointer transition-colors ${selectedIds.has(account.id) ? "border-primary/50 bg-primary/5" : ""}`} data-testid={`card-account-${account.id}`}>
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
@@ -651,6 +736,11 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                       <div className="flex flex-col items-end gap-1" onClick={() => setSelectedAccount(account)}>
                         <Badge variant="outline" className={segmentColors[account.segment] || ""}>{account.segment}</Badge>
                         <Badge variant="outline" className={priorityColors[account.priority] || ""}>{account.priority}</Badge>
+                        <Badge variant="outline" className={`${heatCfg.className} flex items-center gap-0.5`} data-testid={`badge-heat-${account.id}`}>
+                          <Flame className="h-2.5 w-2.5" />
+                          {heatCfg.label}
+                          {heat && <span className="ml-0.5 opacity-60">{heat.score}</span>}
+                        </Badge>
                       </div>
                     </div>
                   </CardHeader>
@@ -709,14 +799,15 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
                     </div>
                   </CardContent>
                 </Card>
-              ))}
-              {allAccounts.length === 0 && !isLoading && (
+                );
+              })}
+              {displayAccounts.length === 0 && !isLoading && (
                 <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
                   <Building2 className="w-12 h-12 text-muted-foreground/30 mb-3" />
                   <p className="text-muted-foreground font-medium">No organizations found</p>
                   <p className="text-muted-foreground/60 text-sm mt-1">
-                    {isFiltered ? "Try adjusting your filters or " : "Add your first organization or "}
-                    {isFiltered && (
+                    {isFiltered || heatFilter !== "all" ? "Try adjusting your filters or " : "Add your first organization or "}
+                    {(isFiltered || heatFilter !== "all") && (
                       <button onClick={resetFilters} className="underline hover:text-foreground transition-colors">clear filters</button>
                     )}
                   </p>
@@ -725,7 +816,7 @@ export default function AccountsPage({ canEdit = true }: { canEdit?: boolean }) 
             </div>
           )}
           <div className="flex items-center justify-between py-2">
-            <p className="text-sm text-muted-foreground">{allAccounts.length.toLocaleString()} of {totalCount.toLocaleString()} organizations loaded</p>
+            <p className="text-sm text-muted-foreground">{displayAccounts.length.toLocaleString()} of {totalCount.toLocaleString()} organizations loaded</p>
             {isFetchingNextPage && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading more...</div>
             )}
@@ -767,10 +858,12 @@ const ACCOUNTS_PIPELINE_STAGES = PIPELINE_STAGE_OPTIONS.map(s => ({
 
 function AccountsPipelineView({
   accounts,
+  heatScoreMap,
   onSelect,
   onUpdateStatus,
 }: {
   accounts: Account[];
+  heatScoreMap: Map<number, { score: number; tier: HeatTier; trend: string }>;
   onSelect: (account: Account) => void;
   onUpdateStatus: (id: number, leadStatus: string) => void;
 }) {
@@ -843,7 +936,10 @@ function AccountsPipelineView({
               {!isOver && stage.accounts.length === 0 && (
                 <p className="text-xs text-muted-foreground text-center py-4">No accounts</p>
               )}
-              {stage.accounts.map(account => (
+              {stage.accounts.map(account => {
+                const heat = heatScoreMap.get(account.id);
+                const heatCfg = heat ? heatTierConfig[heat.tier] : null;
+                return (
                 <div
                   key={account.id}
                   draggable
@@ -853,9 +949,16 @@ function AccountsPipelineView({
                   onClick={() => onSelect(account)}
                   data-testid={`pipeline-card-account-${account.id}`}
                 >
-                  <div className="flex items-start gap-2 mb-1">
-                    <Building2 className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
-                    <p className="text-sm font-medium leading-tight line-clamp-2">{account.name}</p>
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="flex items-start gap-2">
+                      <Building2 className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+                      <p className="text-sm font-medium leading-tight line-clamp-2">{account.name}</p>
+                    </div>
+                    {heatCfg && (
+                      <Badge variant="outline" className={`text-[10px] px-1 py-0 shrink-0 flex items-center gap-0.5 ${heatCfg.className}`} data-testid={`badge-heat-pipeline-${account.id}`}>
+                        <Flame className="h-2 w-2" />{heatCfg.label}
+                      </Badge>
+                    )}
                   </div>
                   {(account.city || account.stateProvince) && (
                     <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
@@ -878,7 +981,8 @@ function AccountsPipelineView({
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {isOver && stage.accounts.length > 0 && (
                 <div className="border-2 border-dashed border-primary/40 rounded-lg py-3 text-center text-xs text-primary/60">Drop here</div>
               )}
