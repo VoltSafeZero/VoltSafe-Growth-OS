@@ -6585,7 +6585,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/documents/link", requireAuth, async (req, res) => {
-    const { objectType, objectId, url, title, category, notes, tags } = req.body;
+    const { objectType, objectId, url, title, category, useCase, notes, tags } = req.body;
     if (!url || !objectType || !objectId) {
       return res.status(400).json({ message: "url, objectType, and objectId are required" });
     }
@@ -6604,6 +6604,7 @@ export async function registerRoutes(
         uploadedBy: req.session.userId ?? null,
         uploadedByName: req.session.name ?? null,
         category: category ?? "general",
+        useCase: useCase ?? "general",
         title: title ?? null,
         notes: notes ?? null,
         tags: tags ? (Array.isArray(tags) ? tags : tags.split(",").map((t: string) => t.trim()).filter(Boolean)) : null,

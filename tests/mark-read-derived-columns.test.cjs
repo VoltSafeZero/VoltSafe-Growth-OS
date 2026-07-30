@@ -441,10 +441,10 @@ async function main() {
     // Line range 14800-14830 is the single-message mark-read route
     const hasSingleRoute = grepOut.split("\n").some(l => {
       const lineNum = parseInt(l.split(":")[0]);
-      return lineNum >= 14820 && lineNum <= 14930;
+      return lineNum >= 14820 && lineNum <= 14960;
     });
     if (!hasSingleRoute)
-      bad("MR-09: is_unread=false write not found in single mark-read route (lines 14820-14930)");
+      bad("MR-09: is_unread=false write not found in single mark-read route (lines 14820-14960)");
     else
       ok("MR-09: is_unread=false write present in single mark-read route");
   }

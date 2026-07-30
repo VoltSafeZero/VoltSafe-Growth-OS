@@ -70,16 +70,13 @@ async function createLinkDoc(cookie, { useCase, category }) {
       url: `https://example.com/stale-test-${Date.now()}.pdf`,
       title: `Stale Test Doc ${Date.now()}`,
       category,
+      useCase,
       objectType: "account",
       objectId: 1,
     }),
   });
   if (!r.ok) throw new Error(`create link doc failed: ${r.status}`);
   const doc = await r.json();
-  // The link route doesn't expose useCase; set it directly via DB.
-  if (useCase) {
-    psql(`UPDATE attachments SET use_case = '${useCase}' WHERE id = ${doc.id}`);
-  }
   return doc.id;
 }
 
