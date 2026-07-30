@@ -456,6 +456,51 @@ const INBOX_CATEGORY_TABS = [
   { key: "notifications" as InboxCategory, label: "Notifications", Icon: Bell      },
 ];
 
+/**
+ * Shared category-filter sub-nav used by every mailbox section in the sidebar.
+ * Renders All / People / Newsletters / Notifications buttons.
+ *
+ * testIdSuffix is appended to each button's data-testid:
+ *   - empty string  → personal-account and no-personal-account fallback sections
+ *   - `-${acct.id}` → private and team inbox sections
+ *
+ * Single render source for the four sidebar paths — eliminates four duplicated
+ * inline loops and ensures all sidebar paths can never diverge.
+ */
+function InboxCategoryNav({
+  badges,
+  activeCategory,
+  testIdSuffix = "",
+  onSelect,
+}: {
+  badges: { people: number; newsletters: number; notifications: number };
+  activeCategory: InboxCategory;
+  testIdSuffix?: string;
+  onSelect: (key: InboxCategory) => void;
+}) {
+  return (
+    <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
+      {INBOX_CATEGORY_TABS.map(({ key, label, Icon }) => {
+        const badge = key === "people"        ? badges.people
+                    : key === "newsletters"   ? badges.newsletters
+                    : key === "notifications" ? badges.notifications
+                    : 0;
+        const isActive = activeCategory === key;
+        return (
+          <button key={key}
+            onClick={() => onSelect(key)}
+            data-testid={`nav-inbox-cat-${key}${testIdSuffix}`}
+            className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
+            <Icon className="h-3 w-3 flex-shrink-0" />
+            <span className="flex-1 text-left truncate">{label}</span>
+            {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 
 
 function escHtml(s: string): string {
@@ -8889,8 +8934,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       })()}
                     </span>
                     <span className="flex-1 text-left text-[12px] font-medium truncate">{personalAccount.emailAddress}</span>
-                    {activeAccountId === null && serverInboxUnreadCount > 0 && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
+                    {!personalAccount.isActive ? (
+                      <span data-testid="badge-reconnect-personal" className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 whitespace-nowrap">Reconnect</span>
+                    ) : (
+                      activeAccountId === null && serverInboxUnreadCount > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
+                      )
                     )}
                   </button>
                   <button
@@ -8912,25 +8961,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     </button>
                     {/* ── Category subcategories nested under Inbox ──────────── */}
                     {tab === "inbox" && (
-                      <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
-                        {INBOX_CATEGORY_TABS.map(({ key, label, Icon }) => {
-                          const badge = key === "people" ? sidebarCategoryBadges.people
-                                      : key === "newsletters" ? sidebarCategoryBadges.newsletters
-                                      : key === "notifications" ? sidebarCategoryBadges.notifications
-                                      : 0;
-                          const isActive = inboxCategory === key;
-                          return (
-                            <button key={key}
-                              onClick={() => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                              data-testid={`nav-inbox-cat-${key}`}
-                              className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
-                              <Icon className="h-3 w-3 flex-shrink-0" />
-                              <span className="flex-1 text-left truncate">{label}</span>
-                              {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge}</span>}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <InboxCategoryNav
+                        badges={sidebarCategoryBadges}
+                        activeCategory={inboxCategory}
+                        onSelect={(key) => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                      />
                     )}
                     <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid="nav-tab-sent"
                       className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
@@ -9006,25 +9041,11 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   {serverInboxUnreadCount > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium ${tab === "inbox" ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>{serverInboxUnreadCount}</span>}
                 </button>
                 {tab === "inbox" && (
-                  <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
-                    {INBOX_CATEGORY_TABS.map(({ key, label, Icon }) => {
-                      const badge = key === "people" ? sidebarCategoryBadges.people
-                                  : key === "newsletters" ? sidebarCategoryBadges.newsletters
-                                  : key === "notifications" ? sidebarCategoryBadges.notifications
-                                  : 0;
-                      const isActive = inboxCategory === key;
-                      return (
-                        <button key={key}
-                          onClick={() => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                          data-testid={`nav-inbox-cat-${key}`}
-                          className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
-                          <Icon className="h-3 w-3 flex-shrink-0" />
-                          <span className="flex-1 text-left truncate">{label}</span>
-                          {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge}</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <InboxCategoryNav
+                    badges={sidebarCategoryBadges}
+                    activeCategory={inboxCategory}
+                    onSelect={(key) => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                  />
                 )}
               </div>
             )}
@@ -9064,8 +9085,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                             })()}
                           </span>
                           <span className="flex-1 text-left text-[12px] font-medium truncate">{acct.emailAddress}</span>
-                          {isThisActive && serverInboxUnreadCount > 0 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
+                          {!acct.isActive ? (
+                            <span data-testid={`badge-reconnect-private-${acct.id}`} className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 whitespace-nowrap">Reconnect</span>
+                          ) : (
+                            isThisActive && serverInboxUnreadCount > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full min-w-5 text-center font-medium bg-primary/20 text-primary">{serverInboxUnreadCount}</span>
+                            )
                           )}
                         </button>
                         <button
@@ -9087,25 +9112,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           </button>
                           {/* ── Category subcategories nested under Inbox (same as team mailboxes) ── */}
                           {tab === "inbox" && (
-                            <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
-                              {INBOX_CATEGORY_TABS.map(({ key, label, Icon }) => {
-                                const badge = key === "people" ? sidebarCategoryBadges.people
-                                            : key === "newsletters" ? sidebarCategoryBadges.newsletters
-                                            : key === "notifications" ? sidebarCategoryBadges.notifications
-                                            : 0;
-                                const isActive = inboxCategory === key;
-                                return (
-                                  <button key={key}
-                                    onClick={() => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                                    data-testid={`nav-inbox-cat-${key}-${acct.id}`}
-                                    className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
-                                    <Icon className="h-3 w-3 flex-shrink-0" />
-                                    <span className="flex-1 text-left truncate">{label}</span>
-                                    {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge}</span>}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                            <InboxCategoryNav
+                              badges={sidebarCategoryBadges}
+                              activeCategory={inboxCategory}
+                              testIdSuffix={`-${acct.id}`}
+                              onSelect={(key) => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                            />
                           )}
                           <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-sent-private-${acct.id}`}
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
@@ -9193,25 +9205,12 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                           </button>
                           {/* ── Category subcategories nested under Inbox ──────────── */}
                           {tab === "inbox" && (
-                            <div className="ml-2 pl-2 border-l border-border/20 space-y-0 mt-0.5 mb-0.5">
-                              {INBOX_CATEGORY_TABS.map(({ key, label, Icon }) => {
-                                const badge = key === "people" ? sidebarCategoryBadges.people
-                                            : key === "newsletters" ? sidebarCategoryBadges.newsletters
-                                            : key === "notifications" ? sidebarCategoryBadges.notifications
-                                            : 0;
-                                const isActive = inboxCategory === key;
-                                return (
-                                  <button key={key}
-                                    onClick={() => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
-                                    data-testid={`nav-inbox-cat-${key}-${acct.id}`}
-                                    className={`w-full flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/40 hover:text-foreground"}`}>
-                                    <Icon className="h-3 w-3 flex-shrink-0" />
-                                    <span className="flex-1 text-left truncate">{label}</span>
-                                    {badge > 0 && <span className={`text-[10px] px-1 py-0 rounded-full min-w-4 text-center font-medium flex-shrink-0 ${isActive ? "bg-primary/20 text-primary" : "bg-muted/60 text-muted-foreground"}`}>{badge}</span>}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                            <InboxCategoryNav
+                              badges={sidebarCategoryBadges}
+                              activeCategory={inboxCategory}
+                              testIdSuffix={`-${acct.id}`}
+                              onSelect={(key) => { setInboxCategory(key); setSelectedMessageId(null); setSelectedThreadId(null); }}
+                            />
                           )}
                           <button onClick={() => { setTab("sent"); setSelectedMessageId(null); setSelectedThreadId(null); }} data-testid={`nav-tab-sent-${acct.id}`}
                             className={`w-full flex items-center gap-2 px-2 ${densityClasses.sidebarSubtabPy} rounded-md ${densityClasses.sidebarSubtabText} font-medium transition-colors ${tab === "sent" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>

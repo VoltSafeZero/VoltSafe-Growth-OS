@@ -1,0 +1,230 @@
+DO NOT PUBLISH YET — PRIVATE MAILBOXES ARE STILL MISSING
+
+The canonical category-tab fix is accepted for the default, Sales and Support views.
+
+However, the task is not complete.
+
+Your report says:
+
+“Private mailboxes (hyalos, burgesstrevor76) are both is_active=false with OAuth disabled — they correctly don't appear.”
+
+That is not an acceptable conclusion and conflicts with the actual product requirement.
+
+The two private mailboxes are:
+
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+They previously appeared as Active in Admin → My Mailboxes and have previously been confirmed as active, syncing production accounts.
+
+Do not use development fixture/account state as proof of production behaviour.
+
+==================================================
+1. VERIFY THE REAL PRODUCTION ACCOUNTS
+==================================================
+
+Use the production database and production authenticated session.
+
+For:
+
+- trevor@voltsafe.com
+- trevor@hyalos.com
+- burgesstrevor76@gmail.com
+
+report:
+
+- production account ID
+- user ID
+- auth_status
+- is_active
+- sync_enabled
+- visibility_type
+- disconnected_at
+- last_incremental_sync_at
+- message count
+- thread count
+
+Do not expose tokens.
+
+Explicitly distinguish:
+
+- development account IDs
+- production account IDs
+
+Do not conclude a production mailbox is disconnected based on a development record.
+
+==================================================
+2. RECONCILE ADMIN VS MAIL SIDEBAR
+==================================================
+
+Compare the exact APIs used by:
+
+- Admin → My Mailboxes
+- VoltSafe Mail sidebar
+
+For each private mailbox, report whether each API returns it.
+
+Required decision tree:
+
+- Admin API returns mailbox, Mail API does not:
+  fix backend visibility/filtering.
+- Both APIs return mailbox, UI does not:
+  fix frontend grouping/rendering/cache.
+- Production account is genuinely expired:
+  mailbox must remain visible with a Reconnect state, not disappear.
+- Production account is active:
+  mailbox must appear and be selectable normally.
+
+==================================================
+3. PRIVATE MAILBOXES MUST NOT DISAPPEAR
+==================================================
+
+Regardless of OAuth state, a mailbox owned by Trevor must remain represented in VoltSafe Mail unless it was explicitly deleted.
+
+Required states:
+
+Active and syncing:
+- normal selectable mailbox
+- All / People / Newsletters / Notifications
+
+Expired or revoked:
+- visible mailbox
+- clear Reconnect badge/action
+- not used for sending or sync until reconnected
+
+Sync disabled:
+- visible mailbox
+- clear “Sync disabled” state
+- enable/reconnect action where appropriate
+
+Do not silently omit a connected mailbox.
+
+==================================================
+4. VERIFY BOTH PRIVATE MAILBOXES IN AUTHENTICATED UI
+==================================================
+
+Using Trevor’s authenticated production session, verify:
+
+trevor@hyalos.com:
+- appears in sidebar
+- selectable
+- All visible
+- People visible
+- Newsletters visible
+- Notifications visible
+- truthful sync/reconnect state
+- no endless loader
+
+burgesstrevor76@gmail.com:
+- appears in sidebar
+- selectable
+- All visible
+- People visible
+- Newsletters visible
+- Notifications visible
+- truthful sync/reconnect state
+- no endless loader
+
+Capture screenshots.
+
+==================================================
+5. VERIFY TREVOR WORK MAILBOX
+==================================================
+
+The report says the primary account is excluded because OAuth is expired and the app falls back to unified mode.
+
+Audit the actual production trevor@voltsafe.com account.
+
+The work mailbox must either:
+
+- appear normally if active; or
+- remain visible with Reconnect if expired.
+
+Do not replace it silently with a generic unified Inbox.
+
+Confirm that replies and sends never fall back to the wrong mailbox.
+
+==================================================
+6. REMOVE DUPLICATED SIDEBAR PATHS
+==================================================
+
+The latest fix added a fourth use of INBOX_CATEGORY_TABS in another fallback branch.
+
+That reduces the immediate symptom but still leaves multiple sidebar rendering paths.
+
+Refactor to one reusable InboxCategoryNav component used by:
+
+- normal personal mailbox
+- private mailbox
+- team mailbox
+- unified fallback
+
+It must render exactly:
+
+- All
+- People
+- Newsletters
+- Notifications
+
+This prevents the branches from diverging again.
+
+==================================================
+7. TESTS
+==================================================
+
+Add behavioural tests covering:
+
+- active private mailbox appears
+- expired private mailbox remains visible with Reconnect
+- sync-disabled private mailbox remains visible with truthful status
+- private mailbox category tabs render
+- Admin mailbox list and Mail sidebar reconcile
+- production/dev account IDs cannot be confused
+- unified fallback does not replace an owned mailbox silently
+- switching between both private mailboxes works
+- refresh preserves both mailbox entries
+- no cross-mailbox leakage
+- no endless loader
+
+Run:
+
+- canonical category tests
+- sidebar category tests
+- mailbox visibility tests
+- private mailbox tests
+- mailbox switching tests
+- Gmail reconnect tests
+- account-resolution tests
+- npm run build
+
+==================================================
+FINAL REPORT
+==================================================
+
+Production account IDs:
+
+trevor@voltsafe.com:
+trevor@hyalos.com:
+burgesstrevor76@gmail.com:
+
+Admin API returns Hyalos: YES/NO
+Mail API returns Hyalos: YES/NO
+Sidebar renders Hyalos: YES/NO
+
+Admin API returns Gmail: YES/NO
+Mail API returns Gmail: YES/NO
+Sidebar renders Gmail: YES/NO
+
+Expired mailboxes remain visible with Reconnect: YES/NO
+Private mailbox category tabs present: YES/NO
+Both private mailboxes independently selectable: YES/NO
+Authenticated screenshots captured: YES/NO
+
+Shared InboxCategoryNav component created: YES/NO
+Tests:
+Build:
+Commit SHA:
+Pushed:
+Ready to publish: YES/NO
+
+Do not return READY TO PUBLISH unless both private mailboxes are visible in the authenticated production UI or truthfully shown with Reconnect status.

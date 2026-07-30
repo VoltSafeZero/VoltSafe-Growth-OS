@@ -39,9 +39,13 @@ check('INBOX_CATEGORY_TABS entry: no "forums"',         !ctKeys.includes("forums
 // ── 2. All 3 sidebar sections use the shared constant ─────────────────────────
 console.log("\n── Sidebar sections use shared constant ─────────────────────────────────");
 
+// After InboxCategoryNav refactor: one .map inside the shared component; 4 <InboxCategoryNav> call sites.
 const mapUsages = [...inboxSrc.matchAll(/INBOX_CATEGORY_TABS\.map/g)].length;
-check('INBOX_CATEGORY_TABS.map appears exactly 4 times (personal + fallback + private + team)',
-  mapUsages === 4);
+check('INBOX_CATEGORY_TABS.map appears exactly 1 time (inside shared InboxCategoryNav component)',
+  mapUsages === 1);
+const navUsages = [...inboxSrc.matchAll(/<InboxCategoryNav\b/g)].length;
+check('<InboxCategoryNav> used at exactly 4 call sites (personal + fallback + private + team)',
+  navUsages === 4);
 
 // The shared constant defines key:"all" as InboxCategory exactly once.
 // Sidebar sections use INBOX_CATEGORY_TABS.map — no additional inline copies.
@@ -49,13 +53,12 @@ const inlineArrays = [...inboxSrc.matchAll(/\{\s*key:\s*["']all["']\s+as\s+(?:co
 check('key:"all" as InboxCategory appears exactly once (only in INBOX_CATEGORY_TABS constant, never inline)',
   inlineArrays === 1);
 
-// Confirm the data-testid patterns cover personal (no acct.id) and shared (with acct.id)
-check('Personal section testid nav-inbox-cat-${key} (no account suffix) present',
-  /nav-inbox-cat-\$\{key\}`/.test(inboxSrc) &&
-  !inboxSrc.includes('nav-inbox-cat-${key}`-')  // guard: personal has no -${acct.id} suffix
-);
-check('Private/team sections testid nav-inbox-cat-${key}-${acct.id} present',
-  /nav-inbox-cat-\$\{key\}-\$\{acct\.id\}/.test(inboxSrc));
+// After InboxCategoryNav refactor: testid is nav-inbox-cat-${key}${testIdSuffix}.
+// Personal/fallback pass no testIdSuffix (empty string); private/team pass `-${acct.id}`.
+check('InboxCategoryNav renders nav-inbox-cat-${key}${testIdSuffix} pattern',
+  inboxSrc.includes('nav-inbox-cat-${key}${testIdSuffix}'));
+check('Private/team InboxCategoryNav usages pass testIdSuffix={`-${acct.id}`}',
+  /testIdSuffix=\{`-\$\{acct\.id\}`\}/.test(inboxSrc));
 
 // ── 3. onFilter uses canonical inboxCategory routing ─────────────────────────
 console.log("\n── onFilter canonical routing ───────────────────────────────────────────");

@@ -11551,8 +11551,11 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
   ) {
     const allSharedCondition = and(eq(emailAccounts.isActive, true), eq(emailAccounts.isShared, true));
     const [ownAccts, sharedAccts] = await Promise.all([
+      // Include inactive owned accounts so they remain visible in the Mail sidebar with
+      // a Reconnect badge rather than silently disappearing when OAuth expires.
+      // Shared-account visibility is still restricted to active rows only.
       db.select().from(emailAccounts)
-        .where(and(eq(emailAccounts.isActive, true), eq(emailAccounts.userId, userId))),
+        .where(eq(emailAccounts.userId, userId)),
       db.select().from(emailAccounts).where(allSharedCondition),
     ]);
     const ownIds = new Set(ownAccts.map((a) => a.id));
@@ -11596,11 +11599,14 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
         .from(emailAccounts)
         .where(eq(emailAccounts.id, asAccountId))
         .limit(1);
-      if (!acct || !acct.isActive) return null;
+      if (!acct) return null;
       if (acct.userId === currentUserId) {
-        // Owner always has access to their own account
+        // Owner always has access to their own account — including when inactive.
+        // Inactive means OAuth has lapsed (no new sync), but locally-stored historical
+        // messages remain readable.  The sidebar shows a Reconnect badge in this state.
         return { userId: acct.userId, accountId: acct.id, acct };
       }
+      if (!acct.isActive) return null; // Non-owner cannot access an inactive account
       if (!acct.isShared) return null; // Personal account belonging to someone else — deny
       // Shared account: admins always in; non-admins need explicit view permission
       if (!isAdmin && mailTeamPerms[String(acct.id)]?.view !== true) return null;

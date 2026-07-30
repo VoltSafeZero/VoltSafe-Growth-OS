@@ -171,11 +171,15 @@ check(
   'Shared INBOX_CATEGORY_TABS constant defines "notifications" key exactly once (count = 1)',
   notifKeys === 1
 );
-// Verify all 4 sidebar sections consume the constant
-// (personal + fallback/no-personal-account + private + team)
+// After InboxCategoryNav refactor: map is called once inside the shared component;
+// the 4 sidebar sections each render <InboxCategoryNav> instead of inline maps.
 check(
-  'INBOX_CATEGORY_TABS.map used exactly 4 times (personal + fallback + private + team)',
-  [...inboxSrc.matchAll(/INBOX_CATEGORY_TABS\.map/g)].length === 4
+  'INBOX_CATEGORY_TABS.map appears exactly 1 time (inside shared InboxCategoryNav component)',
+  [...inboxSrc.matchAll(/INBOX_CATEGORY_TABS\.map/g)].length === 1
+);
+check(
+  '<InboxCategoryNav> used at exactly 4 call sites (personal + fallback + private + team)',
+  [...inboxSrc.matchAll(/<InboxCategoryNav\b/g)].length === 4
 );
 
 console.log("\n── sidebarCategoryBadges ─────────────────────────────────────────────");
