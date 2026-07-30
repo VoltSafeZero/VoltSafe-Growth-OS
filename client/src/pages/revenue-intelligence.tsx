@@ -441,7 +441,12 @@ function SectionCard({
 
 type SortKey = "score" | "trend" | "opens" | "last_active" | "fastest_growth" | "most_at_risk";
 
-function HeatmapTable({ data, onNavigate }: { data: AccountEngagement[]; onNavigate: (id: number) => void }) {
+function HeatmapTable({ data, onNavigate, onSendEmail, onCreateTask }: {
+  data: AccountEngagement[];
+  onNavigate: (id: number) => void;
+  onSendEmail?: (acct: AccountEngagement) => void;
+  onCreateTask?: (acct: AccountEngagement) => void;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>("score");
 
   const RISK_ORDER: Record<MomentumStatus, number> = { cooling: 0, dormant: 1, stable: 2, accelerating: 3 };
@@ -515,33 +520,69 @@ function HeatmapTable({ data, onNavigate }: { data: AccountEngagement[]; onNavig
             {sorted.map(acct => (
               <div
                 key={acct.accountId}
-                className={`grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors hover:bg-muted/30 border ${trendBg(acct.trend)}`}
-                onClick={() => onNavigate(acct.accountId)}
+                className={`rounded-lg border transition-colors group ${trendBg(acct.trend)}`}
                 data-testid={`heatmap-row-${acct.accountId}`}
               >
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold truncate">{acct.accountName}</p>
+                {/* Main data row */}
+                <div
+                  className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-lg"
+                  onClick={() => onNavigate(acct.accountId)}
+                >
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold truncate">{acct.accountName}</p>
+                  </div>
+                  <div className="text-right w-24 text-[10px] text-muted-foreground/60 truncate" data-testid={`heatmap-champion-${acct.accountId}`}>
+                    {acct.champion ? (acct.champion.name ?? acct.champion.email) : "—"}
+                  </div>
+                  <div className="text-right w-14 text-[10px] text-muted-foreground/60" data-testid={`heatmap-committee-${acct.accountId}`}>
+                    {acct.committeeSize > 0 ? (
+                      <span className="flex items-center justify-end gap-0.5">
+                        <Users className="h-2.5 w-2.5" />{acct.committeeSize}
+                      </span>
+                    ) : "—"}
+                  </div>
+                  <div className="text-right w-14">
+                    <ScoreBadge score={acct.engagementScore} />
+                  </div>
+                  <div className={`text-right w-16 text-[10px] font-medium flex items-center justify-end gap-0.5 ${trendColor(acct.trend)}`}>
+                    <TrendIcon trend={acct.trend} />
+                    {trendLabel(acct.trend, acct.trendPct)}
+                  </div>
+                  <div className="text-right w-24 text-[10px] text-muted-foreground/50">
+                    {timeAgo(acct.lastEngagementAt)}
+                  </div>
                 </div>
-                <div className="text-right w-24 text-[10px] text-muted-foreground/60 truncate" data-testid={`heatmap-champion-${acct.accountId}`}>
-                  {acct.champion ? (acct.champion.name ?? acct.champion.email) : "—"}
-                </div>
-                <div className="text-right w-14 text-[10px] text-muted-foreground/60" data-testid={`heatmap-committee-${acct.accountId}`}>
-                  {acct.committeeSize > 0 ? (
-                    <span className="flex items-center justify-end gap-0.5">
-                      <Users className="h-2.5 w-2.5" />{acct.committeeSize}
-                    </span>
-                  ) : "—"}
-                </div>
-                <div className="text-right w-14">
-                  <ScoreBadge score={acct.engagementScore} />
-                </div>
-                <div className={`text-right w-16 text-[10px] font-medium flex items-center justify-end gap-0.5 ${trendColor(acct.trend)}`}>
-                  <TrendIcon trend={acct.trend} />
-                  {trendLabel(acct.trend, acct.trendPct)}
-                </div>
-                <div className="text-right w-24 text-[10px] text-muted-foreground/50">
-                  {timeAgo(acct.lastEngagementAt)}
-                </div>
+
+                {/* Hover-revealed quick actions */}
+                {(onSendEmail || onCreateTask) && (
+                  <div
+                    className="flex items-center gap-1.5 px-3 pb-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    data-testid={`heatmap-actions-${acct.accountId}`}
+                  >
+                    {onSendEmail && acct.champion && (
+                      <Button
+                        variant="ghost" size="sm"
+                        className="h-6 text-[10px] text-muted-foreground/60 hover:text-foreground px-2 gap-1"
+                        onClick={(e) => { e.stopPropagation(); onSendEmail(acct); }}
+                        data-testid={`heatmap-send-email-${acct.accountId}`}
+                      >
+                        <Mail className="h-2.5 w-2.5" />
+                        Send Email
+                      </Button>
+                    )}
+                    {onCreateTask && (
+                      <Button
+                        variant="ghost" size="sm"
+                        className="h-6 text-[10px] text-muted-foreground/60 hover:text-foreground px-2 gap-1"
+                        onClick={(e) => { e.stopPropagation(); onCreateTask(acct); }}
+                        data-testid={`heatmap-create-task-${acct.accountId}`}
+                      >
+                        <CalendarPlus className="h-2.5 w-2.5" />
+                        Create Task
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -803,7 +844,7 @@ export default function RevenueIntelligencePage() {
         {isLoading ? (
           <Skeleton className="h-64 rounded-xl" />
         ) : (
-          <HeatmapTable data={data?.heatmap ?? []} onNavigate={goToAccount} />
+          <HeatmapTable data={data?.heatmap ?? []} onNavigate={goToAccount} onSendEmail={handleSendEmail} onCreateTask={handleCreateTask} />
         )}
       </div>
     </div>
