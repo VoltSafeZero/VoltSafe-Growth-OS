@@ -193,63 +193,44 @@ check(
 
 // ─── 8. categorizedInbox bypass when crmFilter === "unread" ─────────────────
 //
-// Root cause (regression): when the user had any inboxCategory sub-tab active
-// (e.g. "priority"/starred, "people", "updates") and then clicked the "Unread"
-// filter pill, categorizedInbox applied the sub-tab filter on top of the unread
-// results. For "priority" with zero starred-unread messages this produced an
-// empty list despite 200+ unread messages existing, causing the "No messages
-// found" empty state and an infinite auto-chain spin loop.
-//
-// Fix: when crmFilter === "unread", categorizedInbox must be inboxMain (no
-// category filter). The backend already sends "in:inbox is:unread" so all
-// returned messages are unread; there is no need to further narrow by category.
+// Root cause (Task 212 fix): inboxCategoryQ now bakes is:unread into the query
+// for category tabs (people/newsletters/notifications) so the server filters by
+// both category AND read-state. The old client-side bypass (crmFilter==="unread"
+// ? inboxMain) is no longer needed and has been removed — the category filter now
+// runs in all modes, and the server ensures the right messages arrive.
 
-console.log("\n── 8. categorizedInbox bypasses category filter in unread mode ──");
+console.log("\n── 8. categorizedInbox applies category filter in all modes (Task 212) ──");
 
 check(
-  'categorizedInbox uses inboxMain directly when crmFilter === "unread"',
-  // Must contain a guard that short-circuits to inboxMain before any category filter
-  /categorizedInbox\s*=\s*crmFilter\s*===\s*"unread"\s*\?\s*inboxMain/.test(inboxSrc)
+  'categorizedInbox does NOT bypass category filter when crmFilter === "unread" (server filters now)',
+  // After Task 212: bypass removed — category filter runs even in unread mode.
+  // The server sends "in:people is:unread" etc. so client-side filter is a safe net.
+  !/categorizedInbox\s*=\s*crmFilter\s*===\s*"unread"\s*\?\s*inboxMain/.test(inboxSrc)
 );
 
 check(
-  "categorizedInbox bypass comment explains the root-cause bug",
-  inboxSrc.includes("crmFilter === \"unread\"") &&
-    (inboxSrc.includes("bypass") || inboxSrc.includes("skip the") || inboxSrc.includes("bypass the category"))
+  "categorizedInbox still filters by inboxCategory for non-all tabs",
+  // The canonical === inboxCategory comparison must still exist (for all modes).
+  inboxSrc.includes('canonical === inboxCategory')
 );
 
 check(
-  'priority sub-tab filter only runs when crmFilter !== "unread"',
-  // The Priority/starred UI filter was removed entirely. Verify:
-  //   (a) the crmFilter==="unread" guard still exists
-  //   (b) isStarred(m.labelIds) is completely absent (Priority removed)
-  // A guard that precedes an absent filter is automatically satisfied.
-  (() => {
-    const guardIdx = inboxSrc.indexOf('categorizedInbox = crmFilter === "unread"');
-    const priorityAbsent = !inboxSrc.includes('isStarred(m.labelIds)');
-    // Guard must exist and the starred filter must be absent
-    return guardIdx !== -1 && priorityAbsent;
-  })()
+  "Priority/starred filter is absent (Priority tab removed)",
+  // isStarred(m.labelIds) must not appear in categorizedInbox logic.
+  !inboxSrc.includes('isStarred(m.labelIds)')
 );
 
 check(
-  "people/updates/promotions category filters are guarded behind crmFilter check",
-  // Ensure the category filter sits after the crmFilter bypass.
+  "people/updates/promotions category filters exist in categorizedInbox",
   // Three known forms (pre-Phase 6, Phase 6, Phase 7+ canonical-var):
   //   getEmailCategory(m.labelIds) === inboxCategory          (pre-Phase 6)
   //   (m.smartCategory ?? getEmailCategory(m.labelIds)) === inboxCategory  (Phase 6)
   //   canonical === inboxCategory  (Phase 7+: raw extracted to var, mapped to canonical)
   (() => {
-    const guardIdx = inboxSrc.indexOf('categorizedInbox = crmFilter === "unread"');
     const catIdxOld = inboxSrc.indexOf('getEmailCategory(m.labelIds) === inboxCategory');
-    // Phase 6 form: bare getEmailCategory no longer at top level — the ?? wrapper adds '))'
     const catIdxNew = inboxSrc.indexOf('getEmailCategory(m.labelIds)) === inboxCategory');
-    // Phase 7+ form: raw + canonical variable, always appears after the guard
     const catIdxCanonical = inboxSrc.indexOf('canonical === inboxCategory');
-    const catIdx = catIdxOld !== -1 ? catIdxOld
-                 : catIdxNew !== -1 ? catIdxNew
-                 : catIdxCanonical;
-    return guardIdx !== -1 && catIdx !== -1 && guardIdx < catIdx;
+    return catIdxOld !== -1 || catIdxNew !== -1 || catIdxCanonical !== -1;
   })()
 );
 

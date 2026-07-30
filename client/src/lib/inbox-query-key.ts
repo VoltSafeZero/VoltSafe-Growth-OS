@@ -3,8 +3,9 @@
  *
  * FULL KEY — use only in the inboxQuery useQuery declaration.
  *   Segments: [endpoint, "inbox", searchQuery, activeAccountId, categorySegment, crmSegment]
- *   When crmFilter="unread", category is normalised to "all" and crmSegment to "unread"
- *   so every category sub-tab shares one cache partition in unread mode.
+ *   Each (category, crmFilter) pair maps to a distinct cache partition so that
+ *   People+Unread and All+Unread never share a cache entry (they send different
+ *   server queries after the category-aware unread filter fix).
  *
  * PREFIX — use in setQueriesData / invalidateQueries / any prefix-match operation.
  *   All inbox cache entries share this 2-part prefix regardless of the current
@@ -24,7 +25,7 @@ export function inboxQueryKey(
     "inbox",
     searchQuery,
     activeAccountId,
-    crmFilter === "unread" ? "all" : inboxCategory,
+    inboxCategory,
     crmFilter === "unread" ? "unread" : "all",
   ] as const;
 }

@@ -26,7 +26,7 @@ function importHelper() {
       all_promotions: inboxQueryKey("", null, "promotions", "all"),
       all_social:   inboxQueryKey("", null, "social", "all"),
       all_forums:   inboxQueryKey("", null, "forums", "all"),
-      // crmFilter="unread" — category MUST be normalised to "all"
+      // crmFilter="unread" — category preserved (each sends a distinct server query)
       unread_all:   inboxQueryKey("", null, "all", "unread"),
       unread_people: inboxQueryKey("", null, "people", "unread"),
       // with searchQuery
@@ -91,17 +91,17 @@ check("all_social:   […,\"social\",\"all\"]",
 check("all_forums:   […,\"forums\",\"all\"]",
   data.all_forums, ["/api/gmail/messages", "inbox", "", null, "forums", "all"]);
 
-console.log("\n[3] Unread mode (crmFilter=\"unread\") — category ALWAYS normalised to \"all\", crmSegment=\"unread\"");
+console.log("\n[3] Unread mode (crmFilter=\"unread\") — category preserved, crmSegment=\"unread\"");
 check("unread_all:   category=\"all\"→\"all\", crmFilter→\"unread\"",
   data.unread_all, ["/api/gmail/messages", "inbox", "", null, "all", "unread"]);
-check("unread_people: category=\"people\" forced to \"all\", crmFilter→\"unread\"",
-  data.unread_people, ["/api/gmail/messages", "inbox", "", null, "all", "unread"]);
+check("unread_people: category=\"people\" preserved, crmFilter→\"unread\"",
+  data.unread_people, ["/api/gmail/messages", "inbox", "", null, "people", "unread"]);
 
 console.log("\n[4] searchQuery passes through to slot [2]");
 check("search_all:   slot[2]=\"voltsafe\", slot[3]=1, slot[4]=\"all\", slot[5]=\"all\"",
   data.search_all, ["/api/gmail/messages", "inbox", "voltsafe", 1, "all", "all"]);
-check("search_unread: slot[2]=\"voltsafe\", slot[3]=1, slot[4]=\"all\", slot[5]=\"unread\"",
-  data.search_unread, ["/api/gmail/messages", "inbox", "voltsafe", 1, "all", "unread"]);
+check("search_unread: slot[2]=\"voltsafe\", slot[3]=1, slot[4]=\"people\", slot[5]=\"unread\"",
+  data.search_unread, ["/api/gmail/messages", "inbox", "voltsafe", 1, "people", "unread"]);
 
 console.log("\n[5] activeAccountId variants — number / \"all\" / null all preserved");
 check("account_num:  slot[3]=42",
