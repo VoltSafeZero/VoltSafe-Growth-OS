@@ -60,7 +60,7 @@ async function main() {
     </body></html>`;
     const sendRes = await fetch(`${BASE}/api/gmail/send`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: cookie },
+      headers: { "Content-Type": "application/json", Cookie: cookie, Origin: BASE },
       body: JSON.stringify({ to: ADMIN_EMAIL, subject, body }),
     });
     const sendJson = await sendRes.json();

@@ -4,9 +4,20 @@
  * Tests that backend API endpoints enforce section-level permissions correctly.
  * Run with: node tests/permissions.test.js
  * Requires: server running at localhost:5000
+ *
+ * Self-healing: resets viewer@voltsafe.com password to VIEWER_CANONICAL_PWD
+ * before any login attempt. Sibling tests (mail-permissions) may set the
+ * password to a different value in their setup — if teardown crashed, the
+ * password would be stuck at that value. Resetting here makes this suite
+ * resilient regardless of prior test state.
  */
 
+import pg from "pg";
+import bcrypt from "bcryptjs";
+
 const BASE = "http://localhost:5000";
+const VIEWER_EMAIL = "viewer@voltsafe.com";
+const VIEWER_CANONICAL_PWD = "testpass1234";
 let passed = 0;
 let failed = 0;
 
@@ -77,9 +88,26 @@ async function checkOneOf(label, resFn, ...expectedStatuses) {
 async function run() {
   console.log("=== VoltSafe Cortex Permission Test Suite ===\n");
 
+  // ── Self-healing viewer password reset ────────────────────────────────────
+  // Sibling test suites (mail-permissions) temporarily change the viewer's
+  // password. If their teardown crashed the password is stuck at a different
+  // value. Reset it here so this suite always works regardless of prior state.
+  if (process.env.DATABASE_URL) {
+    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      const hash = await bcrypt.hash(VIEWER_CANONICAL_PWD, 10);
+      await pool.query(
+        `UPDATE users SET password = $1, status = 'active', must_change_password = false WHERE email = $2`,
+        [hash, VIEWER_EMAIL]
+      );
+    } finally {
+      await pool.end();
+    }
+  }
+
   // ── VIEWER USER (crm=view, all others=none) ────────────────────────────────
   console.log("── Viewer (viewer@voltsafe.com | crm=view, all others=none) ──");
-  const viewerCookie = await login("viewer@voltsafe.com", "testpass1234");
+  const viewerCookie = await login(VIEWER_EMAIL, VIEWER_CANONICAL_PWD);
   const v = authed(viewerCookie);
 
   // CRM reads allowed (crm=view)

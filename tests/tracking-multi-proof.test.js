@@ -55,7 +55,7 @@ async function main() {
 
     const sendRes = await fetch(`${BASE}/api/gmail/send`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: cookie },
+      headers: { "Content-Type": "application/json", Cookie: cookie, Origin: BASE },
       body: JSON.stringify({
         to: toAddr, cc: ccAddr, bcc: bccAddr,
         subject: `[FANOUT-PROOF ${FIXTURE_TAG}]`,

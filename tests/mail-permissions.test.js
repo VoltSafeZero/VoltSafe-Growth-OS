@@ -134,6 +134,19 @@ async function run() {
     const realMsgId = msgRow.rows[0]?.id ?? 1;
     const realThreadId = msgRow.rows[0]?.gmail_thread_id ?? "missing";
 
+    // For the owner pass-through check we need an ACTIVE account.
+    // Account 1 (trevor@voltsafe.com personal) has auth_status=expired and
+    // is_active=false, so resolveAccount(asAccountId=1) returns null → 403,
+    // which incorrectly looks like a permission failure.  Use the active
+    // shared account 93 (sales@voltsafe.com) which is also owned by user 4
+    // (trevor) and is always is_active=true.
+    const ACTIVE_ACCOUNT_ID = 93; // sales@voltsafe.com — active, user_id=4
+    const activeMsgRow = await client.query(
+      `SELECT id FROM email_messages WHERE source_account_id = $1 LIMIT 1`,
+      [ACTIVE_ACCOUNT_ID]
+    );
+    const activeMsgId = activeMsgRow.rows[0]?.id ?? realMsgId;
+
     // ── 1. Eight guarded Gmail mutation routes — view-only must get 403 ──────
     console.log("── view-only viewer \u2192 403 on 8 guarded mutation routes (acct=1) ──");
 
@@ -270,9 +283,9 @@ async function run() {
     // whether the underlying Gmail call succeeds — anything that is NOT 403
     // means the Phase 4 guard correctly allowed the owner through. 503 = Gmail
     // upstream error, 400 = schema, 200/404 = handler ran.
-    const starRes = await a(`/api/gmail/messages/${realMsgId}/toggle-star`, {
+    const starRes = await a(`/api/gmail/messages/${activeMsgId}/toggle-star`, {
       method: "POST",
-      body: JSON.stringify({ asAccountId: ACCOUNT_ID }),
+      body: JSON.stringify({ asAccountId: ACTIVE_ACCOUNT_ID }),
     });
     if (starRes.status === 403) {
       bad(`POST /api/gmail/messages/:id/toggle-star [owner pass-through] \u2192 403 (guard wrongly denied owner)`);
