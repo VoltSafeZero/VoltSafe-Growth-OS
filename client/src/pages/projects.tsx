@@ -1832,7 +1832,7 @@ const DRILLDOWN_META: Record<DrilldownMetric, { title: string; description: stri
   projects_missing_owner: { title: "Projects Without an Owner", description: "Active projects with no assigned owner.",                 params: { missingOwner: "true" } },
 };
 
-function ProjectDrilldownSheet({ metric, onClose }: { metric: DrilldownMetric | null; onClose: () => void }) {
+function ProjectDrilldownSheet({ metric, onClose, onSelectProject }: { metric: DrilldownMetric | null; onClose: () => void; onSelectProject: (p: Project) => void }) {
   const meta = metric ? DRILLDOWN_META[metric] : null;
   const { data: projects = [], isLoading } = useQuery<Project[]>({
     queryKey: ["/api/projects/drilldown", metric],
@@ -1868,7 +1868,12 @@ function ProjectDrilldownSheet({ metric, onClose }: { metric: DrilldownMetric | 
               const pEnd: string | undefined = p.end_date ?? p.endDate;
               const endDays = daysUntil(pEnd);
               return (
-                <div key={p.id} className="flex items-start gap-3 rounded-lg border border-border/40 px-3 py-2.5 hover:border-border transition-colors">
+                <button
+                  key={p.id}
+                  data-testid={`drilldown-row-${p.id}`}
+                  className="w-full flex items-start gap-3 rounded-lg border border-border/40 px-3 py-2.5 hover:border-border hover:bg-muted/20 transition-colors text-left cursor-pointer"
+                  onClick={() => onSelectProject(p)}
+                >
                   <span className={`mt-0.5 h-6 w-6 flex items-center justify-center rounded-md shrink-0 ${tc.bg}`}>
                     <TypeIcon className={`h-3.5 w-3.5 ${tc.color}`} />
                   </span>
@@ -1884,7 +1889,8 @@ function ProjectDrilldownSheet({ metric, onClose }: { metric: DrilldownMetric | 
                       )}
                     </div>
                   </div>
-                </div>
+                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-1" />
+                </button>
               );
             })
           )}
@@ -2085,6 +2091,7 @@ export default function ProjectsPage() {
       <ProjectDrilldownSheet
         metric={drilldownMetric}
         onClose={() => setDrilldownMetric(null)}
+        onSelectProject={(p) => { setDrilldownMetric(null); setSelected(p); }}
       />
     </div>
   );
