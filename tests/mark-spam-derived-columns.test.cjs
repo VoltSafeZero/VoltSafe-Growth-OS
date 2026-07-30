@@ -61,7 +61,7 @@ const api = (cookie, url, opts = {}) =>
  * Insert a synthetic email_messages row into the local DB with explicit
  * is_inbox / is_spam / is_unread values so we control the starting state.
  */
-async function insertMsg(pool, { msgId, threadId, fromEmail, isInbox, isSpam, isUnread, labelIds }) {
+async function insertMsg(pool, { msgId, threadId, fromEmail, isInbox, isSpam, isUnread, labelIds, sourceAccountId = 1 }) {
   const { rows: [row] } = await pool.query(`
     INSERT INTO email_messages
       (gmail_message_id, gmail_thread_id, subject, from_email, from_name,
@@ -78,7 +78,7 @@ async function insertMsg(pool, { msgId, threadId, fromEmail, isInbox, isSpam, is
     fromEmail.split("@")[1] || "test.example",
     "inbound",
     JSON.stringify(labelIds),
-    1,             // source_account_id
+    sourceAccountId, // must be in the caller's accessible account set
     isInbox,
     isSpam,
     isUnread,
@@ -103,6 +103,17 @@ async function main() {
   const testSenderEmail = `spam-test-${TAG}@test-domain.example.com`;
   let cookie;
 
+  // Resolve a real accessible Gmail account ID — the mark-spam route requires
+  // source_account_id to be in the caller's accessible account set.
+  let realAccountId = 1; // fallback (may not exist)
+  try {
+    const tmpCookie = await login();
+    const acctRes = await api(tmpCookie, "/api/gmail/accounts");
+    const accts = await acctRes.json();
+    if (Array.isArray(accts) && accts.length > 0) realAccountId = accts[0].id;
+  } catch (_) { /* use fallback */ }
+  console.log(`  using Gmail account id=${realAccountId} for synthetic message inserts\n`);
+
   try {
     cookie = await login();
     console.log("  authenticated as admin\n");
@@ -119,6 +130,7 @@ async function main() {
         isSpam:    false,
         isUnread:  true,
         labelIds:  ["INBOX", "UNREAD"],
+        sourceAccountId: realAccountId,
       });
       insertedMsgIds.push(msgId);
 
@@ -164,6 +176,7 @@ async function main() {
         isSpam:   false,
         isUnread: false,
         labelIds: ["INBOX"],
+        sourceAccountId: realAccountId,
       });
       insertedMsgIds.push(msgId);
 
@@ -190,6 +203,7 @@ async function main() {
         isSpam:   false,
         isUnread: true,
         labelIds: ["INBOX", "UNREAD"],
+        sourceAccountId: realAccountId,
       });
       insertedMsgIds.push(msgId);
 
@@ -216,6 +230,7 @@ async function main() {
         isSpam:   true,
         isUnread: true,
         labelIds: ["SPAM", "UNREAD"],
+        sourceAccountId: realAccountId,
       });
       insertedMsgIds.push(msgId);
 
@@ -266,6 +281,7 @@ async function main() {
         isSpam:   true,
         isUnread: false,           // was read before being spammed
         labelIds: ["SPAM"],
+        sourceAccountId: realAccountId,
       });
       insertedMsgIds.push(msgId);
 
@@ -293,6 +309,7 @@ async function main() {
         isSpam:   true,
         isUnread: true,
         labelIds: ["SPAM", "UNREAD"],
+        sourceAccountId: realAccountId,
       });
       insertedMsgIds.push(msgId);
 
@@ -336,6 +353,7 @@ async function main() {
         isSpam:   false,
         isUnread: false,
         labelIds: ["INBOX"],
+        sourceAccountId: realAccountId,
       });
       const msgUnreadId = await insertMsg(pool, {
         msgId:    `msg-c10-unread-${TAG}`,
@@ -345,6 +363,7 @@ async function main() {
         isSpam:   false,
         isUnread: true,
         labelIds: ["INBOX", "UNREAD"],
+        sourceAccountId: realAccountId,
       });
       insertedMsgIds.push(msgReadId, msgUnreadId);
 

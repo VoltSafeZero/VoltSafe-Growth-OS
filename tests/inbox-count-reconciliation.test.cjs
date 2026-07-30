@@ -322,7 +322,7 @@ async function runLiveTests() {
   // Verify 403 for non-admin
   const viewerLogin = await apiFetch("/api/auth/login", {
     method: "POST",
-    body: { email: "viewer@voltsafe.com", password: "password123" },
+    body: { email: "viewer@voltsafe.com", password: "testpass1234" },
   });
   if (viewerLogin.status === 200) {
     const viewerCookie = viewerLogin.headers["set-cookie"]?.[0]?.split(";")[0];

@@ -135,10 +135,13 @@ async function run() {
     amb.accounts_marina_prospect_ms_null > 0, `got ${amb.accounts_marina_prospect_ms_null}`);
 
   // ── 5. Row counts unchanged ──────────────────────────────────────────────
+  // Note: `tasks` is excluded — the backfill never modifies that table, but
+  // background schedulers (board-pack, recurrence) can create new task rows at
+  // any moment and would cause spurious failures in long-running test suites.
   console.log("\n5. All table row counts unchanged");
   const bc = wr?.beforeCounts ?? {};
   const ac = wr?.afterCounts  ?? {};
-  const tables = ["leads","accounts","contacts","notes","activities","tasks","email_associations"];
+  const tables = ["leads","accounts","contacts","notes","activities","email_associations"];
   for (const t of tables) {
     assert(`${t} row count unchanged (${ac[t]})`, bc[t] === ac[t],
       `before=${bc[t]} after=${ac[t]}`);

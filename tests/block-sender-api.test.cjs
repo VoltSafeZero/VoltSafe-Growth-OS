@@ -63,6 +63,16 @@ async function main() {
     const cookie = await login();
     console.log("  authenticated as admin\n");
 
+    // Resolve a real accessible Gmail account ID — the mark-spam route requires
+    // source_account_id to be in the caller's accessible account set.
+    let realAccountId = 1; // fallback (may not exist)
+    try {
+      const acctRes = await api(cookie, "/api/gmail/accounts");
+      const accts = await acctRes.json();
+      if (Array.isArray(accts) && accts.length > 0) realAccountId = accts[0].id;
+    } catch (_) { /* use fallback */ }
+    console.log(`  using account id=${realAccountId} for synthetic message inserts\n`);
+
     // ─── A1: POST /api/blocked-senders creates exact email block ───────────
     console.log("── A1: POST /api/blocked-senders creates exact email block ──");
     {
@@ -127,7 +137,7 @@ async function main() {
         `test-domain.example.com`,
         "inbound",
         '["INBOX","UNREAD"]',
-        1,
+        realAccountId,
       ]);
       insertedMsgDbId = row.id;
       console.log(`  inserted msg id=${insertedMsgDbId} thread=${testThread}`);

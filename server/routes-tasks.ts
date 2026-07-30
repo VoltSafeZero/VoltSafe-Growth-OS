@@ -89,6 +89,63 @@ async function checkHubAccess(viewerId: number, targetId: number, adminOverride:
   return null;
 }
 
+// Object-level authorization check for individual task endpoints.
+// Returns true if the caller is allowed to access the task; false otherwise.
+// needEdit=true requires an "edit"-level grant (or ownership/admin); false
+// accepts any hub-access level (view or edit).
+async function canAccessTask(
+  req: Request,
+  taskOwnerId: number | null,
+  taskCreatorId: number | null,
+  needEdit: boolean,
+): Promise<boolean> {
+  if (isAdmin(req)) return true;
+  const callerId = uid(req);
+  if (!callerId) return false;
+  // Owner and creator always have full access to their own tasks.
+  if (callerId === taskOwnerId || callerId === taskCreatorId) return true;
+  // Check hub-access grant against the owner. This covers the normal case where
+  // the caller has been granted access to view another user's task board.
+  if (taskOwnerId) {
+    const level = await checkHubAccess(callerId, taskOwnerId, false);
+    if (level && (!needEdit || level === "edit")) return true;
+  }
+  // Also check hub-access against the creator. This covers delegated tasks: a
+  // task created by user B but assigned to user C is visible on B's board, so a
+  // caller who has hub-access to B must also be able to open that task directly.
+  if (taskCreatorId && taskCreatorId !== taskOwnerId) {
+    const level = await checkHubAccess(callerId, taskCreatorId, false);
+    if (level && (!needEdit || level === "edit")) return true;
+  }
+  return false;
+}
+
+// Convenience: look up a task's ownership columns and run canAccessTask.
+// Returns the task row (owner_user_id, created_by_user_id) on success so the
+// caller doesn't need a second query.  Sends the error response itself and
+// returns null on failure.
+async function requireTaskAccess(
+  req: Request,
+  res: any,
+  taskId: number,
+  needEdit: boolean,
+): Promise<{ owner_user_id: number | null; created_by_user_id: number | null } | null> {
+  const row: any = await db.execute(sql`
+    SELECT owner_user_id, created_by_user_id FROM tasks WHERE id = ${taskId} LIMIT 1
+  `);
+  const meta = row.rows?.[0];
+  if (!meta) {
+    res.status(404).json({ message: "Not found" });
+    return null;
+  }
+  const allowed = await canAccessTask(req, meta.owner_user_id, meta.created_by_user_id, needEdit);
+  if (!allowed) {
+    res.status(403).json({ message: "Access denied" });
+    return null;
+  }
+  return meta;
+}
+
 async function logActivity(
   taskId: number,
   userId: number | null,
@@ -263,11 +320,16 @@ async function loadTaskFull(taskId: number) {
       FROM task_label_assignments la JOIN task_labels l ON l.id = la.label_id
       WHERE la.task_id = ${taskId} ORDER BY l.name`),
     db.execute(sql`
-      SELECT d.id, d.depends_on_task_id, t2.title, t2.status, t2.completed_at, t2.board_column
+      SELECT d.id, d.depends_on_task_id,
+             t2.title, t2.status, t2.completed_at, t2.board_column,
+             t2.owner_user_id AS dep_owner_user_id,
+             t2.created_by_user_id AS dep_created_by_user_id
       FROM task_dependencies d JOIN tasks t2 ON t2.id = d.depends_on_task_id
       WHERE d.task_id = ${taskId} ORDER BY d.created_at`),
     db.execute(sql`
-      SELECT d.id, d.task_id, t2.title, t2.status, t2.board_column
+      SELECT d.id, d.task_id, t2.title, t2.status, t2.board_column,
+             t2.owner_user_id AS dep_owner_user_id,
+             t2.created_by_user_id AS dep_created_by_user_id
       FROM task_dependencies d JOIN tasks t2 ON t2.id = d.task_id
       WHERE d.depends_on_task_id = ${taskId} ORDER BY d.created_at`),
     db.execute(sql`SELECT * FROM task_checklists WHERE task_id = ${taskId} ORDER BY sort_order, id`),
@@ -452,9 +514,37 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+      const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, false);
+      if (!meta) return; // requireTaskAccess already sent the response
       const data = await loadTaskFull(id);
       if (!data) return res.status(404).json({ message: "Not found" });
-      res.json(data);
+
+      // Filter dependency metadata to only expose tasks the caller can access.
+      // The ownership columns were included in the loadTaskFull dep query
+      // specifically so we can run this check without extra round-trips.
+      const admin = isAdmin(req);
+      const filteredDeps = await Promise.all(
+        data.dependencies.map(async (d: any) => {
+          if (admin) return d;
+          const ok = await canAccessTask(req, d.dep_owner_user_id, d.dep_created_by_user_id, false);
+          return ok ? d : null;
+        })
+      );
+      const filteredBlocking = await Promise.all(
+        data.blocking.map(async (d: any) => {
+          if (admin) return d;
+          const ok = await canAccessTask(req, d.dep_owner_user_id, d.dep_created_by_user_id, false);
+          return ok ? d : null;
+        })
+      );
+
+      res.json({
+        ...data,
+        dependencies: filteredDeps.filter(Boolean),
+        blocking:     filteredBlocking.filter(Boolean),
+      });
     } catch (err: any) {
       console.error("[tasks/:id/full]", err.message);
       res.status(500).json({ message: err.message });
@@ -563,6 +653,7 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { boardColumn, sortOrder } = req.body || {};
       const isValidBoardCol = typeof boardColumn === "string" && (SLUG_RE.test(boardColumn) || USER_COL_RE.test(boardColumn));
       if (!isValidBoardCol) {
@@ -574,9 +665,11 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
         return res.status(400).json({ message: "Unknown column" });
       }
 
-      const cur: any = await db.execute(sql`SELECT board_column, status FROM tasks WHERE id = ${id} LIMIT 1`);
+      const cur: any = await db.execute(sql`SELECT board_column, status, owner_user_id, created_by_user_id FROM tasks WHERE id = ${id} LIMIT 1`);
       const prev = cur.rows?.[0];
       if (!prev) return res.status(404).json({ message: "Not found" });
+      const boardAccessOk = await canAccessTask(req, prev.owner_user_id, prev.created_by_user_id, true);
+      if (!boardAccessOk) return res.status(403).json({ message: "Access denied" });
 
       // Block completion via drag if there are open dependencies
       if (boardColumn === "done") {
@@ -627,10 +720,13 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const body = req.body || {};
       const cur: any = await db.execute(sql`SELECT * FROM tasks WHERE id = ${id} LIMIT 1`);
       const prev = cur.rows?.[0];
       if (!prev) return res.status(404).json({ message: "Not found" });
+      const patchAccessOk = await canAccessTask(req, prev.owner_user_id, prev.created_by_user_id, true);
+      if (!patchAccessOk) return res.status(403).json({ message: "Access denied" });
 
       const fragments: any[] = [];
       const log: Array<[string, string | null, string | null]> = [];
@@ -694,6 +790,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       const notes = req.body?.notes ? String(req.body.notes) : null;
       await db.execute(sql`
         UPDATE tasks SET status='completed', completed_at=NOW(), completed_by_user_id=${userId},
@@ -715,6 +814,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       await db.execute(sql`
         UPDATE tasks SET status='pending', completed_at=NULL, completed_by_user_id=NULL,
           completion_notes=NULL, board_column='todo', last_updated_by_user_id=${userId}, updated_at=NOW()
@@ -733,8 +835,16 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       const dependsOn = Number(req.body?.dependsOnTaskId);
       if (!Number.isFinite(dependsOn) || dependsOn === id) return res.status(400).json({ message: "Invalid dependency" });
+      // Authorization: caller must also be able to READ the dependency target.
+      // Without this check a user could link to an inaccessible task and then
+      // read its metadata (title/status/etc.) through GET /full.
+      const depMeta = await requireTaskAccess(req, res, dependsOn, false);
+      if (!depMeta) return; // 403/404 already sent
       // Cycle check (simple): can't depend on a task that depends on this one
       const cycle: any = await db.execute(sql`
         WITH RECURSIVE chain AS (
@@ -763,6 +873,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const depId = Number(req.params.depId);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       const depRow: any = await db.execute(sql`SELECT depends_on_task_id FROM task_dependencies WHERE id = ${depId} AND task_id = ${id}`);
       const removedDep = depRow.rows?.[0]?.depends_on_task_id ?? null;
       await db.execute(sql`DELETE FROM task_dependencies WHERE id = ${depId} AND task_id = ${id}`);
@@ -821,6 +934,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const labelId = Number(req.params.labelId);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       await db.execute(sql`
         INSERT INTO task_label_assignments (task_id, label_id) VALUES (${id}, ${labelId})
         ON CONFLICT DO NOTHING`);
@@ -837,6 +953,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const labelId = Number(req.params.labelId);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       const lab: any = await db.execute(sql`SELECT name FROM task_labels WHERE id = ${labelId}`);
       await db.execute(sql`DELETE FROM task_label_assignments WHERE task_id = ${id} AND label_id = ${labelId}`);
       await logActivity(id, userId, "label_removed", lab.rows?.[0]?.name ?? String(labelId), null);
@@ -851,6 +970,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       const title = String(req.body?.title || "Checklist").slice(0, 120);
       const r: any = await db.execute(sql`
         INSERT INTO task_checklists (task_id, title) VALUES (${id}, ${title}) RETURNING *`);
@@ -865,9 +987,12 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const c: any = await db.execute(sql`SELECT task_id, title FROM task_checklists WHERE id = ${id}`);
       const row = c.rows?.[0];
       if (!row) return res.status(404).json({ message: "Not found" });
+      const taskMeta = await requireTaskAccess(req, res, row.task_id, true);
+      if (!taskMeta) return;
       await db.execute(sql`DELETE FROM task_checklist_items WHERE checklist_id = ${id}`);
       await db.execute(sql`DELETE FROM task_checklists WHERE id = ${id}`);
       await logActivity(row.task_id, userId, "checklist_removed", row.title, null);
@@ -881,11 +1006,14 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const checklistId = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const content = String(req.body?.content || "").slice(0, 500);
       if (!content.trim()) return res.status(400).json({ message: "Content required" });
       const c: any = await db.execute(sql`SELECT task_id FROM task_checklists WHERE id = ${checklistId}`);
       const taskId = c.rows?.[0]?.task_id;
       if (!taskId) return res.status(404).json({ message: "Checklist not found" });
+      const taskMeta = await requireTaskAccess(req, res, taskId, true);
+      if (!taskMeta) return;
       const r: any = await db.execute(sql`
         INSERT INTO task_checklist_items (checklist_id, content, sort_order)
         VALUES (${checklistId}, ${content},
@@ -902,12 +1030,15 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { completed, content, start_date, due_date } = req.body || {};
       const cur: any = await db.execute(sql`
         SELECT i.*, c.task_id FROM task_checklist_items i
         JOIN task_checklists c ON c.id = i.checklist_id WHERE i.id = ${id}`);
       const row = cur.rows?.[0];
       if (!row) return res.status(404).json({ message: "Not found" });
+      const taskMeta = await requireTaskAccess(req, res, row.task_id, true);
+      if (!taskMeta) return;
       if (typeof completed === "boolean") {
         await db.execute(sql`
           UPDATE task_checklist_items
@@ -937,6 +1068,19 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   app.delete("/api/task-checklist-items/:id", canEdit, async (req, res) => {
     try {
       const id = Number(req.params.id);
+      const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      // Look up task ownership via the checklist join before deleting.
+      const item: any = await db.execute(sql`
+        SELECT c.task_id, t.owner_user_id, t.created_by_user_id
+        FROM task_checklist_items i
+        JOIN task_checklists c ON c.id = i.checklist_id
+        JOIN tasks t ON t.id = c.task_id
+        WHERE i.id = ${id} LIMIT 1`);
+      const itemRow = item.rows?.[0];
+      if (!itemRow) return res.status(404).json({ message: "Not found" });
+      const itemAccessOk = await canAccessTask(req, itemRow.owner_user_id, itemRow.created_by_user_id, true);
+      if (!itemAccessOk) return res.status(403).json({ message: "Access denied" });
       await db.execute(sql`DELETE FROM task_checklist_items WHERE id = ${id}`);
       res.json({ success: true });
     } catch (err: any) {
@@ -950,6 +1094,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const watcherId = Number(req.params.userId);
       const actor = uid(req);
+      if (!actor) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       await db.execute(sql`
         INSERT INTO task_watchers (task_id, user_id) VALUES (${id}, ${watcherId})
         ON CONFLICT DO NOTHING`);
@@ -965,6 +1112,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
       const id = Number(req.params.id);
       const watcherId = Number(req.params.userId);
       const actor = uid(req);
+      if (!actor) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       await db.execute(sql`DELETE FROM task_watchers WHERE task_id = ${id} AND user_id = ${watcherId}`);
       await logActivity(id, actor, "watcher_removed", String(watcherId), null);
       res.json({ success: true });
@@ -977,6 +1127,10 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
   app.get("/api/tasks/:id/comments", canView, async (req, res) => {
     try {
       const id = Number(req.params.id);
+      const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, false);
+      if (!meta) return;
       const r: any = await db.execute(sql`
         SELECT c.id, c.content AS body, c.created_at AS "createdAt", c.user_id AS "authorId",
                COALESCE(u.name, c.user_name) AS "authorName"
@@ -993,6 +1147,9 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
     try {
       const id = Number(req.params.id);
       const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const meta = await requireTaskAccess(req, res, id, true);
+      if (!meta) return;
       const body = String(req.body?.body || "").slice(0, 2000);
       if (!body.trim()) return res.status(400).json({ message: "Body required" });
       const userRow: any = userId ? await db.execute(sql`SELECT name FROM users WHERE id = ${userId}`) : null;
@@ -1114,13 +1271,44 @@ export function registerTaskRoutes(app: Express, requireAuth: any) {
 
   app.get("/api/tasks/search", canView, async (req, res) => {
     try {
+      const userId = uid(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const q = String(req.query.q || "").slice(0, 100);
       const exclude = Number(req.query.exclude || 0);
       const like = `%${q.replace(/[%_]/g, " ")}%`;
-      const r: any = await db.execute(sql`
-        SELECT id, title, status, board_column AS "boardColumn"
-        FROM tasks WHERE title ILIKE ${like} AND id <> ${exclude} AND archived = false
-        ORDER BY id DESC LIMIT 20`);
+      const admin = isAdmin(req);
+
+      // Scope results to tasks the caller is allowed to see.
+      // Admins see all; everyone else sees only tasks visible through their
+      // access model, mirroring canAccessTask() semantics:
+      //   1. Tasks they own or created directly.
+      //   2. Tasks whose owner has granted them hub-access.
+      //   3. Tasks whose creator has granted them hub-access (delegated tasks:
+      //      creator B delegated to owner C — caller with access to B must find
+      //      those tasks here, consistent with board visibility and direct endpoints).
+      const r: any = admin
+        ? await db.execute(sql`
+            SELECT id, title, status, board_column AS "boardColumn"
+            FROM tasks
+            WHERE title ILIKE ${like} AND id <> ${exclude} AND archived = false
+            ORDER BY id DESC LIMIT 20`)
+        : await db.execute(sql`
+            SELECT id, title, status, board_column AS "boardColumn"
+            FROM tasks
+            WHERE title ILIKE ${like} AND id <> ${exclude} AND archived = false
+              AND (
+                owner_user_id = ${userId}
+                OR created_by_user_id = ${userId}
+                OR (owner_user_id IS NOT NULL AND owner_user_id IN (
+                  SELECT target_user_id FROM task_hub_access_permissions
+                  WHERE viewer_user_id = ${userId} AND revoked_at IS NULL
+                ))
+                OR (created_by_user_id IS NOT NULL AND created_by_user_id IN (
+                  SELECT target_user_id FROM task_hub_access_permissions
+                  WHERE viewer_user_id = ${userId} AND revoked_at IS NULL
+                ))
+              )
+            ORDER BY id DESC LIMIT 20`);
       res.json(r.rows ?? []);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

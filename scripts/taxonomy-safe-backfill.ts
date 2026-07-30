@@ -296,12 +296,14 @@ async function main() {
     beforeCounts,
     afterCounts,
     rowCountsUnchanged:
+      // Note: `tasks` is intentionally excluded — the backfill never modifies
+      // that table, but background schedulers (board-pack, recurrence) can
+      // create new task rows at any moment, causing spurious failures.
       beforeCounts.leads              === afterCounts.leads              &&
       beforeCounts.accounts           === afterCounts.accounts           &&
       beforeCounts.contacts           === afterCounts.contacts           &&
       beforeCounts.notes              === afterCounts.notes              &&
       beforeCounts.activities         === afterCounts.activities         &&
-      beforeCounts.tasks              === afterCounts.tasks              &&
       beforeCounts.email_associations === afterCounts.email_associations,
     legacyFieldsUnchanged:
       beforeLegacy.leads_segment_non_null     === afterLegacy.leads_segment_non_null     &&
