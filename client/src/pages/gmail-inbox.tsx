@@ -8860,7 +8860,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
           <span className="flex-1">Gmail session has expired. Your emails cannot be loaded until you reconnect.</span>
           {canSend && (
             <a
-              href="/api/auth/gmail/connect"
+              href={`/api/auth/gmail/connect${connectedAccount?.id ? `?accountId=${connectedAccount.id}` : ""}`}
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition-colors whitespace-nowrap"
               data-testid="button-reconnect-gmail-banner"
             >
@@ -9186,7 +9186,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   return (
                     <div key={`inactive-${acct.id}`} data-testid={`private-inbox-disconnected-${acct.id}`}>
                       <a
-                        href="/api/auth/gmail/connect"
+                        href={`/api/auth/gmail/connect?accountId=${acct.id}`}
                         title={`${acct.emailAddress} — disconnected. Click to reconnect.`}
                         data-testid={`btn-reconnect-private-${acct.id}`}
                         className="flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors opacity-60 hover:opacity-80 hover:bg-muted/40 text-muted-foreground"
@@ -9379,7 +9379,7 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     })()}
                   </div>
                   {connectedAccount.authStatus !== "active" ? (
-                    <a href="/api/auth/gmail/connect" className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap" data-testid="button-reconnect-account-footer">Reconnect</a>
+                    <a href={`/api/auth/gmail/connect${connectedAccount?.id ? `?accountId=${connectedAccount.id}` : ""}`} className="flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors whitespace-nowrap" data-testid="button-reconnect-account-footer">Reconnect</a>
                   ) : (
                     <>
                     <button title="Quick resync (last 5 min)" data-testid="button-resync-account-footer" onClick={async () => { try { await fetch(`/api/gmail/accounts/${connectedAccount.id}/resync?limit=100`, { method: "POST", credentials: "include" }); syncMutation.mutate(undefined); } catch {} }} className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors">

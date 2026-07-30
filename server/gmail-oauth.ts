@@ -165,7 +165,8 @@ export function getAuthUrl(state?: string): string {
 export async function exchangeCodeForTokens(
   code: string,
   userId: number,
-  isShared = false
+  isShared = false,
+  hintAccountId?: number,
 ): Promise<{ emailAddress: string; accountId: number | null; isNewAccount: boolean }> {
   const oauth2Client = getOAuth2Client();
   const { tokens } = await oauth2Client.getToken(code);
@@ -204,6 +205,7 @@ export async function exchangeCodeForTokens(
       await db.update(emailAccounts)
         .set({
           authStatus: "active",
+          isActive: true,
           refreshToken: tokens.refresh_token,
           accessToken: tokens.access_token || null,
           isShared: true,
@@ -250,19 +252,39 @@ export async function exchangeCodeForTokens(
     // user can connect multiple personal Gmail addresses. Old behaviour upserted by userId
     // alone, which silently overwrote your primary account when adding a second. If we have
     // an emailAddress from Gmail profile, match on it; otherwise fall back to legacy lookup.
-    const [existing] = emailAddress
-      ? await db.select({ id: emailAccounts.id })
-          .from(emailAccounts)
-          .where(and(
-            eq(emailAccounts.userId, userId),
-            eq(emailAccounts.isShared, false),
-            eq(emailAccounts.emailAddress, emailAddress),
-          ))
-          .limit(1)
-      : await db.select({ id: emailAccounts.id })
-          .from(emailAccounts)
-          .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)))
-          .limit(1);
+    //
+    // When a hintAccountId is provided (user clicked "Reconnect" on a specific disconnected
+    // mailbox), try that row first — this ensures the correct account is reactivated even
+    // when the user picks a different Google account in the OAuth screen.
+    let existingByHint: { id: number } | undefined;
+    if (hintAccountId) {
+      const rows = await db
+        .select({ id: emailAccounts.id })
+        .from(emailAccounts)
+        .where(and(
+          eq(emailAccounts.id, hintAccountId),
+          eq(emailAccounts.userId, userId),
+          eq(emailAccounts.isShared, false),
+        ))
+        .limit(1);
+      existingByHint = rows[0];
+    }
+
+    const [existing] = existingByHint
+      ? [existingByHint]
+      : emailAddress
+        ? await db.select({ id: emailAccounts.id })
+            .from(emailAccounts)
+            .where(and(
+              eq(emailAccounts.userId, userId),
+              eq(emailAccounts.isShared, false),
+              eq(emailAccounts.emailAddress, emailAddress),
+            ))
+            .limit(1)
+        : await db.select({ id: emailAccounts.id })
+            .from(emailAccounts)
+            .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isShared, false)))
+            .limit(1);
 
     if (existing) {
       await db.update(emailAccounts)
@@ -270,6 +292,7 @@ export async function exchangeCodeForTokens(
           emailAddress: emailAddress || undefined,
           displayName: displayNamePersonal,
           authStatus: "active",
+          isActive: true,
           refreshToken: tokens.refresh_token,
           accessToken: tokens.access_token || null,
           syncEnabled: true,

@@ -18030,6 +18030,18 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       // can verify this request originated from the current session (CSRF guard).
       const nonce = crypto.randomBytes(16).toString("hex");
       (req.session as any).oauthNonce = nonce;
+      // Optional: reconnect a specific existing account by ID.
+      // Stored in the session (not in the state URL) so no URL-guessing attack
+      // can force the callback to overwrite an arbitrary account row.
+      const rawAccountId = req.query.accountId;
+      if (rawAccountId) {
+        const parsed = Number(rawAccountId);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          (req.session as any).oauthReconnectAccountId = parsed;
+        }
+      } else {
+        delete (req.session as any).oauthReconnectAccountId;
+      }
       const url = getAuthUrl(`personal:${nonce}`);
       res.redirect(url);
     } catch (err: any) {
@@ -18092,6 +18104,9 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
     }
     // Consume the nonce — one-time use only.
     delete (req.session as any).oauthNonce;
+    // Read and consume the reconnect hint (set by GET /api/auth/gmail/connect?accountId=N).
+    const reconnectHintAccountId: number | undefined = (req.session as any).oauthReconnectAccountId ?? undefined;
+    delete (req.session as any).oauthReconnectAccountId;
 
     // Use the flow prefix as the legacy state discriminator for the branches below.
     const state = flow;
@@ -18143,7 +18158,7 @@ Generate a concise pre-meeting briefing in JSON format with these exact keys:
       }
     }
     try {
-      const { emailAddress, accountId: reconnectedAccountId, isNewAccount } = await exchangeCodeForTokens(code, userId, isShared);
+      const { emailAddress, accountId: reconnectedAccountId, isNewAccount } = await exchangeCodeForTokens(code, userId, isShared, reconnectHintAccountId);
       const label = isShared ? "Team inbox" : "personal Gmail account";
       const returnPath = state === "personal" ? "/settings/mailbox" : "/gmail";
       res.send(`<html><body style="background:#0a0a0a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
