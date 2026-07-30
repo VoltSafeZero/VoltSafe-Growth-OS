@@ -6477,6 +6477,36 @@ export async function registerRoutes(
     }
   });
 
+  // ── Document stats summary ────────────────────────────────────────────────
+  // Returns aggregate counts for the stat strip without requiring the caller
+  // to page through all documents. Counts are across ALL attachments visible
+  // to the authenticated user (no per-filter scoping).
+  app.get("/api/documents/stats", requireAuth, async (req, res) => {
+    try {
+      const userId = (req.session as any).userId as number;
+      // Same section gate as GET /api/documents (unfiltered hub view → "crm")
+      const gate = await requireSectionView(userId, "crm");
+      if (!gate.ok) return res.status(403).json({ message: "Not authorized to view document stats" });
+      const result = await db.execute(sql`
+        SELECT
+          COUNT(*)                                                          AS total,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS recent,
+          COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '180 days') AS stale,
+          COUNT(*) FILTER (WHERE uploaded_by IS NULL)                       AS no_owner
+        FROM attachments
+      `);
+      const row = result.rows[0] as any;
+      res.json({
+        total:   Number(row?.total   ?? 0),
+        recent:  Number(row?.recent  ?? 0),
+        stale:   Number(row?.stale   ?? 0),
+        noOwner: Number(row?.no_owner ?? 0),
+      });
+    } catch (e) {
+      res.status(500).json({ message: "Failed to load document stats" });
+    }
+  });
+
   app.post("/api/documents/link", requireAuth, async (req, res) => {
     const { objectType, objectId, url, title, category, notes, tags } = req.body;
     if (!url || !objectType || !objectId) {

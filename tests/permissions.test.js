@@ -219,6 +219,9 @@ async function run() {
   await check("GET  /api/quotes/export         [anon → 401]", anon("/api/quotes/export"), 401);
   await check("GET  /api/tickets/export        [anon → 401]", anon("/api/tickets/export"), 401);
 
+  // Document Hub stats — must require auth
+  await check("GET  /api/documents/stats       [anon → 401]", anon("/api/documents/stats"), 401);
+
   // Core CRM — must require auth
   await check("GET  /api/leads                 [anon → 401]", anon("/api/leads?page=1&limit=1"), 401);
   await check("GET  /api/accounts              [anon → 401]", anon("/api/accounts?page=1&limit=1"), 401);

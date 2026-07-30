@@ -165,6 +165,7 @@ function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents/stats"] });
       toast({ title: "Asset uploaded" });
       onClose();
       setFile(null);
@@ -297,6 +298,7 @@ function LinkModal({ open, onClose }: { open: boolean; onClose: () => void }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents/stats"] });
       toast({ title: "Link added" });
       onClose();
       setForm({ url: "", title: "", objectType: "general", objectId: "0", category: "general", useCase: "general", visibility: "customer_safe", notes: "" });
@@ -414,6 +416,7 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment & { useCa
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents/stats"] });
       toast({ title: "Updated" });
       setEditing(false);
     },
@@ -427,6 +430,7 @@ function DocumentDetail({ doc, onClose, onDeleted }: { doc: Attachment & { useCa
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents/stats"] });
       toast({ title: "Deleted" });
       onDeleted();
     },
@@ -661,6 +665,15 @@ export default function DocumentsPage() {
     },
   });
 
+  const { data: statsData } = useQuery<{ total: number; recent: number; stale: number; noOwner: number }>({
+    queryKey: ["/api/documents/stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/documents/stats", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load document stats");
+      return res.json();
+    },
+  });
+
   const documents = data?.documents ?? [];
   const total = data?.total ?? 0;
 
@@ -688,15 +701,18 @@ export default function DocumentsPage() {
         </div>
 
         {/* Stats strip */}
-        <div className="flex items-center gap-6 mt-4">
+        <div className="flex items-center gap-6 mt-4 flex-wrap">
           {[
             { label: "Total Assets", value: total },
             { label: "Sales", value: statSales },
             { label: "Restricted", value: statRestricted },
             { label: "Favorites", value: statFavorites },
+            { label: "Recent (30d)", value: statsData?.recent ?? "—" },
+            { label: "Stale (6mo+)", value: statsData?.stale ?? "—" },
+            { label: "No Owner", value: statsData?.noOwner ?? "—" },
           ].map(s => (
             <div key={s.label}>
-              <p className="text-lg font-bold" data-testid={`stat-${s.label.toLowerCase().replace(/\s+/g, "-")}`}>{s.value}</p>
+              <p className="text-lg font-bold" data-testid={`stat-${s.label.toLowerCase().replace(/[\s()]+/g, "-").replace(/-+$/g, "")}`}>{s.value}</p>
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{s.label}</p>
             </div>
           ))}
