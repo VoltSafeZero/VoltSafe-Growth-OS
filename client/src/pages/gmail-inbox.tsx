@@ -10780,6 +10780,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     subject: focusedMsg.subject,
                     body: focusedMsg.body,
                     snippet: focusedMsg.snippet ?? null,
+                    senderName: focusedMsg.fromName ?? null,
+                    receivedAt: focusedMsg.date ?? null,
                   }}
                   isPinned={pinnedAPI.isPinned(selectedThreadId)}
                   isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
@@ -10788,6 +10790,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                   isSpamView={tab === "spam"}
                   senderEmail={focusedMsg.fromEmail?.toLowerCase() || ""}
                   isBlocked={blockedEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")}
+                  canManageCortexDomains={["master_admin", "admin", "exec", "manager"].includes(currentUserRole)}
+                  isOutbound={focusedMsg.labelIds?.includes("SENT") ?? false}
                   handlers={{
                     onClose: handleBack,
                     onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
@@ -10841,6 +10845,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                       subject: focusedMsg.subject,
                       body: focusedMsg.body,
                       snippet: focusedMsg.snippet ?? null,
+                      senderName: focusedMsg.fromName ?? null,
+                      receivedAt: focusedMsg.date ?? null,
                     }}
                      isPinned={pinnedAPI.isPinned(selectedThreadId)}
                     isSetAside={setAsideAPI.isSetAside(selectedThreadId)}
@@ -10849,6 +10855,8 @@ export default function GmailInboxPage({ currentUserEmail, currentUserRole = "sa
                     isSpamView={tab === "spam"}
                     senderEmail={focusedMsg.fromEmail?.toLowerCase() || ""}
                     isBlocked={blockedEmails.has(focusedMsg.fromEmail?.toLowerCase() || "")}
+                    canManageCortexDomains={["master_admin", "admin", "exec", "manager"].includes(currentUserRole)}
+                    isOutbound={focusedMsg.labelIds?.includes("SENT") ?? false}
                     handlers={{
                       onClose: handleBack,
                       onMarkDone: () => markDoneSingleMutation.mutate(selectedThreadId),
