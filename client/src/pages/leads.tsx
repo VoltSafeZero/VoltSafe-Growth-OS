@@ -111,7 +111,10 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [shorePowerFilter, setShorePowerFilter] = useState("all");
   const [sortOption, setSortOption] = useState("default");
-  const [commStatusFilter, setCommStatusFilter] = useState("all");
+  const [commStatusFilter, setCommStatusFilter] = useState<string>(() => {
+    if (typeof window === "undefined") return "all";
+    return localStorage.getItem("leads-pipeline-commStatusFilter") ?? "all";
+  });
   const [view, setView] = useState<"list" | "pipeline" | "map">(() => {
     if (typeof window === "undefined") return "list";
     const v = new URLSearchParams(window.location.search).get("view");
@@ -147,6 +150,14 @@ export default function LeadsPage({ canEdit = true, lockedStatus, pageTitle }: {
 
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
   const { sort, handleSort } = useSortState("slips", "desc");
+
+  useEffect(() => {
+    if (commStatusFilter === "all") {
+      localStorage.removeItem("leads-pipeline-commStatusFilter");
+    } else {
+      localStorage.setItem("leads-pipeline-commStatusFilter", commStatusFilter);
+    }
+  }, [commStatusFilter]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
