@@ -169,12 +169,13 @@
     "tinyglobby": {
       "picomatch": "^4.0.4"
     },
-    "minimatch": {
-      "brace-expansion": "^1.1.13"
+    "archiver": "^8.0.0",
+    "archiver-utils": {
+      "glob": "^11.0.0"
     },
-    "readdir-glob": {
-      "brace-expansion": "^2.0.3"
-    },
+    "zip-stream": "^7.0.5",
+    "readdir-glob": "^3.0.0",
+    "unzipper": "^0.12.5",
     "follow-redirects": "^1.16.0"
   },
   "optionalDependencies": {
