@@ -161,49 +161,54 @@ assert(badgeOpeningTag.includes("labelIds="),  "CategoryBadge receives labelIds 
 assert(badgeOpeningTag.includes("messageId="), "CategoryBadge receives messageId prop");
 assert(badgeOpeningTag.includes("onFilter="),  "CategoryBadge receives onFilter prop in inbox row");
 
-// ── (c) onFilter tabMap covers every CATEGORY_* key in CATEGORY_BADGE_CONFIG ─
+// ── (c) onFilter catMap covers every CATEGORY_* key in CATEGORY_BADGE_CONFIG ─
+//
+// After the canonical-routing refactor the map is named catMap (not tabMap)
+// and maps each CATEGORY_* key to an InboxCategory value ("newsletters" /
+// "notifications"). The handler calls setTab("inbox") then setInboxCategory()
+// — NOT setTab("<category>") — so dead tab routes are impossible.
 
-console.log("\n(c) onFilter tabMap — every CATEGORY_* key from CATEGORY_BADGE_CONFIG has a valid tabMap entry");
+console.log("\n(c) onFilter catMap — every CATEGORY_* key from CATEGORY_BADGE_CONFIG has a valid catMap entry");
 
-// Locate the tabMap declaration inside the onFilter handler
-const tabMapIdx = inboxPageSrc.indexOf("const tabMap");
-assert(tabMapIdx !== -1, "tabMap is declared inside onFilter handler");
+// Locate the catMap declaration inside the onFilter handler
+const catMapIdx = inboxPageSrc.indexOf("const catMap");
+assert(catMapIdx !== -1, "catMap is declared inside onFilter handler");
 
-// Extract the tabMap object using a brace-balanced scan
-const tabMapOpenBrace = inboxPageSrc.indexOf("{", tabMapIdx);
-const tabMapBlock     = extractBraceBlock(inboxPageSrc, tabMapOpenBrace);
+// Extract the catMap object using a brace-balanced scan
+const catMapOpenBrace = inboxPageSrc.indexOf("{", catMapIdx);
+const catMapBlock     = extractBraceBlock(inboxPageSrc, catMapOpenBrace);
 
 // For every key dynamically found in CATEGORY_BADGE_CONFIG, assert:
-//   (i)  the key appears in tabMap
-//   (ii) it maps to a non-empty quoted tab-name string
+//   (i)  the key appears in catMap
+//   (ii) it maps to a non-empty quoted InboxCategory string ("newsletters" / "notifications")
 //
 // This assertion automatically fails when a new key is added to
-// CATEGORY_BADGE_CONFIG but not to tabMap — no manual test update needed.
+// CATEGORY_BADGE_CONFIG but not to catMap — no manual test update needed.
 for (const key of configKeys) {
   assert(
-    tabMapBlock.includes(key),
-    `tabMap contains ${key} (mirrors CATEGORY_BADGE_CONFIG)`
+    catMapBlock.includes(key),
+    `catMap contains ${key} (mirrors CATEGORY_BADGE_CONFIG)`
   );
 
-  // Check that the mapped value is a non-empty quoted string, e.g.  "updates"
-  const valueMatch = tabMapBlock.match(new RegExp(`${key}\\s*:\\s*["']([^"']+)["']`));
+  // Check that the mapped value is a non-empty canonical InboxCategory string
+  const valueMatch = catMapBlock.match(new RegExp(`${key}\\s*:\\s*["']([^"']+)["']`));
   assert(
     valueMatch !== null && valueMatch[1].length > 0,
-    `tabMap maps ${key} → a non-empty tab-name string (found: "${valueMatch ? valueMatch[1] : "none"}")`
+    `catMap maps ${key} → a non-empty InboxCategory string (found: "${valueMatch ? valueMatch[1] : "none"}")`
   );
 }
 
-// Parity: the number of CATEGORY_* entries in tabMap matches CATEGORY_BADGE_CONFIG
-const tabKeyMatches = [...tabMapBlock.matchAll(/\b(CATEGORY_[A-Z_]+)\s*:/g)];
-const tabKeys       = [...new Set(tabKeyMatches.map(m => m[1]))];
+// Parity: the number of CATEGORY_* entries in catMap matches CATEGORY_BADGE_CONFIG
+const catKeyMatches = [...catMapBlock.matchAll(/\b(CATEGORY_[A-Z_]+)\s*:/g)];
+const catKeys       = [...new Set(catKeyMatches.map(m => m[1]))];
 assert(
-  tabKeys.length === configKeys.length,
-  `tabMap has the same number of CATEGORY_* entries as CATEGORY_BADGE_CONFIG (${tabKeys.length} === ${configKeys.length})`
+  catKeys.length === configKeys.length,
+  `catMap has the same number of CATEGORY_* entries as CATEGORY_BADGE_CONFIG (${catKeys.length} === ${configKeys.length})`
 );
 
-// Verify the tabMap drives a setTab call
-const tabMapSection = inboxPageSrc.slice(tabMapIdx, tabMapIdx + 500);
-assert(tabMapSection.includes("setTab("), "onFilter handler calls setTab() using the tabMap destination");
+// Verify the handler calls setInboxCategory (canonical routing)
+const catMapSection = inboxPageSrc.slice(catMapIdx, catMapIdx + 600);
+assert(catMapSection.includes("setInboxCategory("), "onFilter handler calls setInboxCategory() using the catMap destination");
 
 // ── (d) Category-tab badge — navigates back to flat inbox with thread pre-selected ─
 
